@@ -20,17 +20,18 @@ Capture iOS 앱과 processing pipeline은 별도 비공개 저장소에서 개�
 
 Node **24.21.0**, npm **11.19.0**을 사용합니다. nvm이 있다면 저장소에서
 `nvm use`를 실행하세요 (`nvm install`은 해당 버전이 없을 때만).
-현재 개발 기기의 runtime은 다음 경로에 있으며 system Node는 변경하지 않습니다.
+nvm 없이 실행한다면 설치한 runtime의 bin 경로를 작업 변수로 지정하세요. system Node는 변경하지 않습니다.
 
 ```sh
-export PATH="/Users/jonghojung/.nvm/versions/node/v24.21.0/bin:$PATH"
+NODE_RUNTIME_BIN="<Node 24.21.0 설치 경로>/bin"
+export PATH="$NODE_RUNTIME_BIN:$PATH"
 node --version
 npm --version
 npm ci
 ```
 
 다른 기기에서는 `.nvmrc`의 버전을 설치하고 같은 명령을 실행합니다. 위 경로는
-현재 macOS 환경 예시이며 CI와 product code에 사용자 경로 의존성이 없습니다.
+설치 위치에 맞춰 지정하는 예시이며 CI와 product code에 사용자 경로 의존성이 없습니다.
 두 터미널에서 각각 실행하세요.
 
 ```sh
@@ -70,6 +71,25 @@ operations, Capture, 실제 작품, 비밀정보가 없는 fresh checkout에서�
 secret-free fixture 원칙을 따르고 자신에게 필요한 언어 도구는 별도로 선택합니다.
 선택 이유와 버전 근거는 [ADR](docs/adr/0001-platform-toolchain.md)에 있습니다.
 
+## 지원 환경과 baseline
+
+실제로 검사한 범위와 아직 검증하지 않은 지원 후보는
+[지원 matrix](docs/performance/support-matrix.md)에 구분했습니다.
+`npm run build && npm run measure:baseline`은 production 웹의 고정 조건에서
+desktop/좁은 viewport 각각 5회 cold load를 측정합니다.
+[측정 결과와 한계](docs/performance/baseline.md)는 실제 mobile/GPU/3D 성능
+보장이 아니며 synthetic gallery 성능 측정은 후속 렌더링 단계에서 수행합니다.
+
 ## 라이선스
 
-오픈소스 공개를 목표로 하며, 구체적인 라이선스는 아직 확정되지 않았습니다. 원문 문서에 제시된 AGPLv3, MIT/Apache-2.0, CC0는 검토안입니다. 작품의 권리는 작가 또는 권리자에게 남습니다.
+이 저장소의 프로젝트 코드 전체(현재 분리되지 않은 웹/API 포함)는
+[GNU AGPL v3 또는 이후 버전](LICENSE), SPDX `AGPL-3.0-or-later`로 제공합니다.
+제3자 패키지는 각각의 원래 라이선스·copyright·고지를 유지하며 이 프로젝트의
+라이선스로 변경하지 않습니다. 웹에 번들되는 React/React DOM/Scheduler의 원문
+고지는 build에서 [THIRD_PARTY_NOTICES.txt](apps/web/public/THIRD_PARTY_NOTICES.txt)로
+보존하고 배포 산출물에 포함합니다. 새로운 browser 의존성을 추가할 때 notice
+목록도 갱신합니다. build/server 도구의 원래 LICENSE는 설치된 npm 패키지에
+유지합니다(MPL-2.0 build 도구를 포함해 원래 권리를 AGPL로 바꾸지 않습니다).
+작품·이미지·모델·metadata의 권리는 작가 또는
+권리자에게 남고 별도의 asset rights manifest를 따릅니다. 코드 라이선스가
+사용자 작품에 적용되거나 재배포 권한을 자동으로 부여하지 않습니다.

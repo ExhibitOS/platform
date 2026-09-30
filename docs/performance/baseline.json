@@ -1,0 +1,350 @@
+{
+  "measuredAt": "2026-09-30T23:34:01.474Z",
+  "environment": {
+    "node": "v24.21.0",
+    "browser": "153.0.8010.12",
+    "os": "darwin",
+    "osRelease": "25.2.0",
+    "arch": "arm64",
+    "cpuModel": "Apple M1",
+    "logicalCpuCount": 8,
+    "systemMemoryBytes": 8589934592,
+    "gpu": "not verified; headless Chromium only"
+  },
+  "conditions": {
+    "build": "npm run build: Vite production dist, static HTTP server without compression",
+    "network": {
+      "downloadMbps": 10,
+      "uploadMbps": 10,
+      "latencyMs": 100,
+      "method": "Chromium CDP Network.emulateNetworkConditions"
+    },
+    "cache": "fresh browser context per sample, cache disabled, no service worker",
+    "cpu": "unthrottled host CPU",
+    "concurrency": "sequential samples, one page",
+    "viewports": {
+      "desktop": [
+        1440,
+        900
+      ],
+      "narrow": [
+        375,
+        812
+      ]
+    },
+    "deviceScaleFactor": 1,
+    "fixture": "foundation entry page only; synthetic gallery assets are not loaded",
+    "usableDefinition": "first requestAnimationFrame with a visible h1 and enabled connection button, status element present",
+    "p95Method": "nearest rank; with n=5 this is sample maximum, not a population estimate"
+  },
+  "buildFiles": [
+    {
+      "path": "assets/index-80JgP89H.css",
+      "bytes": 1581,
+      "sha256": "ca8ee957b82be79c048ba2c819b0f4e27cc665e34a8c7035d305e5ab8ecdc791"
+    },
+    {
+      "path": "assets/index-CcXJPns6.js",
+      "bytes": 221491,
+      "sha256": "a7af9a61ad0fcbba23a625425bfa525ac6a1e77299dd0c47b6daee3cd3797a1d"
+    },
+    {
+      "path": "index.html",
+      "bytes": 479,
+      "sha256": "39b65412ceca9bc113a1e4cc0436cebb3f5cc83ba5416dac79981bb2d73336ab"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.txt",
+      "bytes": 3501,
+      "sha256": "37d6115a1a19a1db6374f39b69fbc45b417806c35e90ef76fd8f519d4d28b535"
+    }
+  ],
+  "summary": {
+    "desktop": {
+      "runs": 5,
+      "domUsableMedianMs": 460.59999999403954,
+      "domUsableP95NearestRankMs": 465.09999999403954,
+      "maxTransferBytes": 224451,
+      "horizontalOverflow": false
+    },
+    "narrow": {
+      "runs": 5,
+      "domUsableMedianMs": 448.8999999910593,
+      "domUsableP95NearestRankMs": 454.29999999701977,
+      "maxTransferBytes": 224451,
+      "horizontalOverflow": false
+    }
+  },
+  "samples": [
+    {
+      "viewport": "desktop",
+      "run": 1,
+      "domUsableMs": 465.09999999403954,
+      "domContentLoadedMs": 435.5,
+      "loadMs": 435.69999998807907,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "desktop",
+      "run": 2,
+      "domUsableMs": 443.8999999910593,
+      "domContentLoadedMs": 413.09999999403954,
+      "loadMs": 413.09999999403954,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "desktop",
+      "run": 3,
+      "domUsableMs": 460.59999999403954,
+      "domContentLoadedMs": 426.09999999403954,
+      "loadMs": 426.09999999403954,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "desktop",
+      "run": 4,
+      "domUsableMs": 465.09999999403954,
+      "domContentLoadedMs": 431.59999999403954,
+      "loadMs": 431.59999999403954,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "desktop",
+      "run": 5,
+      "domUsableMs": 456.70000000298023,
+      "domContentLoadedMs": 432.09999999403954,
+      "loadMs": 432.09999999403954,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "narrow",
+      "run": 1,
+      "domUsableMs": 451.29999999701977,
+      "domContentLoadedMs": 426.40000000596046,
+      "loadMs": 426.40000000596046,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "narrow",
+      "run": 2,
+      "domUsableMs": 454.29999999701977,
+      "domContentLoadedMs": 427.70000000298023,
+      "loadMs": 427.70000000298023,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "narrow",
+      "run": 3,
+      "domUsableMs": 427.79999999701977,
+      "domContentLoadedMs": 413.29999999701977,
+      "loadMs": 413.29999999701977,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "narrow",
+      "run": 4,
+      "domUsableMs": 421,
+      "domContentLoadedMs": 398.90000000596046,
+      "loadMs": 398.90000000596046,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    },
+    {
+      "viewport": "narrow",
+      "run": 5,
+      "domUsableMs": 448.8999999910593,
+      "domContentLoadedMs": 420.3999999910593,
+      "loadMs": 420.3999999910593,
+      "transferBytes": 224451,
+      "encodedBodyBytes": 223551,
+      "resources": [
+        {
+          "path": "/",
+          "transferBytes": 779,
+          "bodyBytes": 479
+        },
+        {
+          "path": "/assets/index-CcXJPns6.js",
+          "transferBytes": 221791,
+          "bodyBytes": 221491
+        },
+        {
+          "path": "/assets/index-80JgP89H.css",
+          "transferBytes": 1881,
+          "bodyBytes": 1581
+        }
+      ],
+      "horizontalOverflow": false
+    }
+  ]
+}

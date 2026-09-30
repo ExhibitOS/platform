@@ -17,9 +17,11 @@
     "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p tsconfig.tooling.json",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "build": "npm run build --workspaces",
+    "build": "npm run notices && npm run build --workspaces",
     "test:e2e": "playwright test",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build"
+    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "measure:baseline": "node scripts/measure-baseline.mjs",
+    "notices": "node scripts/write-notices.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -30,5 +32,6 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.0",
     "vitest": "5.0.3"
-  }
+  },
+  "license": "AGPL-3.0-or-later"
 }
