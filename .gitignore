@@ -70,3 +70,7 @@ override.tf.json
 .DS_Store
 ._*
 Thumbs.db
+
+# Browser test reports
+playwright-report/
+test-results/
