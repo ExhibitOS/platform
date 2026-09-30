@@ -6,7 +6,7 @@
 
 | 환경 | 현재 상태 | 실제 범위 / 남은 검사 |
 | --- | --- | --- |
-| macOS25.2.0 arm64, Node24.21.0/npm11.19.0 | tested | install/typecheck/lint/unit/build, compiled API health/종료 |
+| macOS26.2 (build25C56, Darwin kernel25.2.0) arm64, Node24.21.0/npm11.19.0 | tested | install/typecheck/lint/unit/build, compiled API health/종료 |
 | macOS headless Chromium153.0.8010.12 | tested | desktop1440×900 연결·오류·재시도 및 production cold load5회 |
 | 같은 desktop Chromium,375×812 viewport | emulation-tested | 좁은 레이아웃·키보드·production cold load5회; 실물 모바일 아님 |
 | Ubuntu GitHub Actions runner | candidate / hosted pending | 수동 CI 구성, 공개전 billing/무료실행조건 확인후 실제 검증 |

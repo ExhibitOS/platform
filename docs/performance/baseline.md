@@ -14,7 +14,7 @@
 
 ## 고정 조건과 재현
 
-- macOS Darwin25.2.0 arm64, AppleM1/8logicalCPU/8GiB system memory.
+- macOS26.2 (build25C56), Darwin kernel25.2.0 arm64, AppleM1/8logicalCPU/8GiB system memory.
 - Node24.21.0, npm11.19.0, Playwright1.63.0, headless Chromium153.0.8010.12.
 - `npm run build`로 생성한 Vite production dist만 정적 HTTP server에서 제공한다.
   Dev server/HMR 코드는 없다. server는 loopback의 새 port, 무압축 응답이다.

@@ -4,12 +4,15 @@
     "node": "v24.21.0",
     "browser": "153.0.8010.12",
     "os": "darwin",
-    "osRelease": "25.2.0",
     "arch": "arm64",
     "cpuModel": "Apple M1",
     "logicalCpuCount": 8,
     "systemMemoryBytes": 8589934592,
-    "gpu": "not verified; headless Chromium only"
+    "gpu": "not verified; headless Chromium only",
+    "kernelRelease": "25.2.0",
+    "osProductName": "macOS",
+    "osProductVersion": "26.2",
+    "osBuildVersion": "25C56"
   },
   "conditions": {
     "build": "npm run build: Vite production dist, static HTTP server without compression",
