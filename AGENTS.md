@@ -24,6 +24,12 @@ deployment adapters belong to their respective repositories.
   Hosted CI remains gated on verified billing; do not enable automatic triggers
   or dispatch paid/unknown-quota runs without resolving that gate.
 
+## Licensing
+
+Project code is AGPL-3.0-or-later; assets have independent rights. Preserve
+third-party notices. When adding bundled browser implementations, update
+`scripts/write-notices.mjs` and verify the production notices artifact.
+
 ## Handoff
 
 Record changed behavior, why it changed, checks and their results, known
