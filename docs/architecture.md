@@ -2,21 +2,23 @@
 
 사용자가 제공한 `open-exhibition-project-plan.md`와 `exhibitos-private-capture-github-architecture.md`의 설계를 요약합니다. 두 문서는 Draft/Proposal이며, 아래 표는 목표 구조입니다. 현재 `ExhibitOS`는 GitHub 사용자 계정이며, 조직은 아직 구성하지 않았습니다.
 
-2026-10-01 기준 [ExhibitOS/platform](https://github.com/ExhibitOS/platform)을 비공개 저장소로 생성하고 연결했습니다. 플랫폼의 Public 전환은 공개 시점과 라이선스가 확정된 뒤 진행합니다. 나머지 저장소는 아직 생성하지 않았습니다.
+2026-10-01 기준 아래 MVP 저장소 7개를 모두 생성했습니다. 현재 모두 Private이며 기본 브랜치는 `main`입니다. 공개 예정 저장소의 Public 전환은 공개 시점과 라이선스가 확정된 뒤 진행합니다. Capture 저장소는 비공개로 유지합니다.
 
 ## MVP 저장소
 
 | 저장소 | 목표 공개 범위 | 역할 |
 | --- | --- | --- |
-| platform | Public | Studio, CMS, Viewer, Runtime, API, Realtime |
-| spec | Public | OES, OEX, OED 및 artifact contract |
-| manager | Public | 설치, 실행, 업데이트, 백업 관리 |
-| deployment | Public | Generic SSH, OpenTofu, cloud adapters |
-| docs | Public | 사용자 및 개발자 문서 |
-| capture-ios | Private | iPhone Capture 앱 |
-| capture-processing | Private | 비공개 reconstruction 및 processing |
+| [platform](https://github.com/ExhibitOS/platform) | Public | Studio, CMS, Viewer, Runtime, API, Realtime |
+| [spec](https://github.com/ExhibitOS/spec) | Public | OES, OEX, OED 및 artifact contract |
+| [manager](https://github.com/ExhibitOS/manager) | Public | 설치, 실행, 업데이트, 백업 관리 |
+| [deployment](https://github.com/ExhibitOS/deployment) | Public | Generic SSH, OpenTofu, cloud adapters |
+| [docs](https://github.com/ExhibitOS/docs) | Public | 사용자 및 개발자 문서 |
+| [capture-ios](https://github.com/ExhibitOS/capture-ios) | Private | iPhone Capture 앱 |
+| [capture-processing](https://github.com/ExhibitOS/capture-processing) | Private | 비공개 reconstruction 및 processing |
 
-현재 로컬 저장소는 `platform`의 시작점으로 준비합니다. 별도 저장소가 생기기 전까지 이곳의 `docs/`에는 플랫폼 관련 문서를 둡니다. 다른 저장소의 소스는 이 저장소에 중첩하지 않습니다.
+현재 로컬 저장소는 `platform`에 연결되어 있습니다. 추가 저장소 6개는 README로 초기화했으며 아직 로컬에 clone하지 않았습니다. 이곳의 `docs/`에는 플랫폼 관련 문서를 두고, 프로젝트 공통 문서는 별도 `docs` 저장소에서 개발합니다. 다른 저장소의 소스는 이 저장소에 중첩하지 않습니다.
+
+`templates`, `examples`, `capture-pipeline`, `capture-ml`, `capture-datasets`, `capture-internal-tools`는 별도 관리가 필요해지는 시점에 분리합니다. 현재는 MVP 범위에 맞춰 저장소 수를 제한합니다.
 
 기획 문서의 초기 monorepo 예시와 저장소 아키텍처 문서의 분리안은 서로 다릅니다. Git 준비에는 공개/비공개 경계가 명확한 분리안을 반영하며, 앱 내부 디렉터리와 빌드 도구는 구현 시 결정합니다.
 
