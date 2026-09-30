@@ -4,6 +4,13 @@ import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, relative, extname, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { arch, platform, release, cpus, totalmem } from 'node:os';
+import { execFileSync } from 'node:child_process';
+
+const osProduct = platform() === 'darwin' ? {
+  osProductName: execFileSync('/usr/bin/sw_vers', ['-productName'], { encoding: 'utf8' }).trim(),
+  osProductVersion: execFileSync('/usr/bin/sw_vers', ['-productVersion'], { encoding: 'utf8' }).trim(),
+  osBuildVersion: execFileSync('/usr/bin/sw_vers', ['-buildVersion'], { encoding: 'utf8' }).trim(),
+} : {};
 
 const dist = resolve('apps/web/dist');
 await stat(resolve(dist, 'index.html')); // Fail if the production build is absent.
@@ -88,7 +95,7 @@ try {
   }));
   const report = {
     measuredAt: new Date().toISOString(),
-    environment: { node: process.version, browser: browser.version(), os: platform(), osRelease: release(), arch: arch(), cpuModel: cpus()[0]?.model ?? 'unknown', logicalCpuCount: cpus().length, systemMemoryBytes: totalmem(), gpu: 'not verified; headless Chromium only' },
+    environment: { node: process.version, browser: browser.version(), os: platform(), kernelRelease: release(), ...osProduct, arch: arch(), cpuModel: cpus()[0]?.model ?? 'unknown', logicalCpuCount: cpus().length, systemMemoryBytes: totalmem(), gpu: 'not verified; headless Chromium only' },
     conditions: { build: 'npm run build: Vite production dist, static HTTP server without compression', network: { downloadMbps: 10, uploadMbps: 10, latencyMs: 100, method: 'Chromium CDP Network.emulateNetworkConditions' }, cache: 'fresh browser context per sample, cache disabled, no service worker', cpu: 'unthrottled host CPU', concurrency: 'sequential samples, one page', viewports: { desktop: [1440, 900], narrow: [375, 812] }, deviceScaleFactor: 1, fixture: 'foundation entry page only; synthetic gallery assets are not loaded', usableDefinition: 'first requestAnimationFrame with a visible h1 and enabled connection button, status element present', p95Method: 'nearest rank; with n=5 this is sample maximum, not a population estimate' },
     buildFiles: files.sort((a, b) => a.path.localeCompare(b.path)), summary, samples: results,
   };
