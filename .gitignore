@@ -1,0 +1,71 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+.aws/
+.ssh/
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+.npmrc
+
+# Local planning material and private repositories
+.local/
+.codex/
+.agents/
+capture-ios/
+capture-processing/
+capture-pipeline/
+capture-ml/
+capture-datasets/
+capture-internal-tools/
+artist-capture/
+
+# Private data and runtime storage; public fixtures belong in examples/
+/datasets/
+/raw/
+/depth/
+/uploads/
+/backups/
+/storage-data/
+*.sqlite
+*.sqlite3
+*.log
+
+# Dependencies, build output and caches
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.astro/
+.turbo/
+.cache/
+target/
+.venv/
+__pycache__/
+*.pyc
+DerivedData/
+*.xcuserstate
+
+# Infrastructure state and local overrides
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.example.tfvars
+!*.example.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# OS files
+.DS_Store
+._*
+Thumbs.db
