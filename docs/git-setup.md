@@ -10,7 +10,18 @@
 - `.gitignore`: 로컬 secret, 비공개 Capture 디렉터리, dataset, build output, infrastructure state 제외
 - `.gitattributes`: 텍스트 정규화 및 바이너리 자산 구분
 
-Git 설정은 이 저장소에만 적용합니다. 원격 연결 및 GitHub 저장소 생성은 아직 수행하지 않았습니다.
+Git 설정은 이 저장소에만 적용합니다.
+
+## 현재 연결 상태
+
+- 확인 날짜: 2026-10-01
+- GitHub 계정: `ExhibitOS` (사용자 계정)
+- 저장소: `ExhibitOS/platform`
+- 현재 공개 범위: Private (초기 준비 단계)
+- origin: `https://github.com/ExhibitOS/platform.git`
+- upstream: `main` → `origin/main`
+
+인증을 확인한 뒤 저장소 생성과 초기 push를 완료했습니다. 이후 커밋은 `git push`로 올릴 수 있습니다.
 
 ## 사용자가 다시 로그인
 
@@ -21,13 +32,12 @@ gh auth login --hostname github.com --git-protocol https --web
 gh auth status
 ```
 
-로그인 뒤 실제 GitHub 계정, 조직 권한, 조직명, 저장소 존재 여부를 확인하고 `origin`을 연결합니다. 문서의 가칭 `ExhibitOS/platform`을 검증 없이 원격으로 등록하지 않습니다.
+인증이 만료되면 위 명령으로 다시 로그인합니다. 현재 저장소는 확인된 `ExhibitOS` 사용자 계정에 연결되어 있습니다.
 
-GitHub 저장소가 생성되면 해당 저장소의 HTTPS clone URL을 사용합니다.
+다른 환경에서 개발하려면 다음 명령으로 복제합니다.
 
 ```sh
-git remote add origin <확인된-HTTPS-clone-URL>
-git push -u origin main
+gh repo clone ExhibitOS/platform
 ```
 
 목표 공개 범위는 플랫폼 Public / Capture Private입니다. 초기 저장소를 공개할 시점과 최종 라이선스는 별도로 확정합니다.

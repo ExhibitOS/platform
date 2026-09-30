@@ -1,6 +1,8 @@
 # 저장소 구성 계획
 
-사용자가 제공한 `open-exhibition-project-plan.md`와 `exhibitos-private-capture-github-architecture.md`의 설계를 요약합니다. 두 문서는 Draft/Proposal이며, 아래 GitHub 저장소는 생성된 저장소 목록이 아닌 계획입니다. `ExhibitOS` 조직명도 가칭입니다.
+사용자가 제공한 `open-exhibition-project-plan.md`와 `exhibitos-private-capture-github-architecture.md`의 설계를 요약합니다. 두 문서는 Draft/Proposal이며, 아래 표는 목표 구조입니다. 현재 `ExhibitOS`는 GitHub 사용자 계정이며, 조직은 아직 구성하지 않았습니다.
+
+2026-10-01 기준 [ExhibitOS/platform](https://github.com/ExhibitOS/platform)을 비공개 저장소로 생성하고 연결했습니다. 플랫폼의 Public 전환은 공개 시점과 라이선스가 확정된 뒤 진행합니다. 나머지 저장소는 아직 생성하지 않았습니다.
 
 ## MVP 저장소
 
@@ -31,4 +33,4 @@ Platform은 공개 규격과 GLB, preview, metadata, dimensions, rights, provena
 
 ## Git 운영
 
-기본 브랜치는 `main`, 작업 브랜치는 `codex/<작업명>`을 사용합니다. 실제 조직과 저장소가 확인되면 원격을 연결합니다. GitHub의 팀, branch protection, CODEOWNERS, CI, 라이선스는 구현과 운영 주체가 확정될 때 구성합니다.
+기본 브랜치는 `main`, 작업 브랜치는 `codex/<작업명>`을 사용합니다. 원격은 `https://github.com/ExhibitOS/platform.git`이며, 로컬 `main`은 `origin/main`을 추적합니다. GitHub의 조직과 팀, branch protection, CODEOWNERS, CI, 라이선스는 구현과 운영 주체가 확정될 때 구성합니다.
