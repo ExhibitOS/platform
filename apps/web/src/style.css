@@ -1,0 +1,21 @@
+:root { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif; color: #172a21; background: #f3f2ec; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1160px; margin: auto; padding: 40px 48px; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid #ccd1c7; padding-bottom: 28px; }
+a { color: inherit; }
+.brand { font-size: 27px; font-weight: 750; text-decoration: none; letter-spacing: -.04em; }
+.brand span { display: block; font-size: 9px; letter-spacing: .2em; margin-top: 7px; }
+.phase { font-size: 12px; border: 1px solid #b8c5b8; border-radius: 30px; padding: 9px 15px; }
+.intro { padding: 100px 0 80px; }
+.eyebrow { font-size: 12px; letter-spacing: .13em; font-weight: 650; }
+h1 { font-size: clamp(48px, 8vw, 88px); line-height: 1.13; letter-spacing: -.07em; margin: 26px 0; font-weight: 650; }
+.description { font-size: 17px; line-height: 1.9; color: #4c5a50; }
+.connection { display: flex; justify-content: space-between; align-items: center; gap: 24px; background: #e6eadf; padding: 28px 32px; border-radius: 6px; }
+h2 { font-size: 22px; margin: 10px 0; }
+.connection [role=status] { color: #405345; font-size: 14px; line-height: 1.7; }
+button { cursor: pointer; border: 0; background: #203d2c; color: #fff; padding: 14px 25px; border-radius: 4px; font: inherit; white-space: nowrap; }
+button:disabled { cursor: wait; opacity: .7; }
+button:focus-visible, a:focus-visible { outline: 3px solid #765723; outline-offset: 5px; }
+footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
+@media (max-width: 600px) { main { padding: 24px; } .intro { padding: 65px 0 45px; } .connection { flex-direction: column; align-items: stretch; padding: 24px; } .phase { font-size: 10px; } }

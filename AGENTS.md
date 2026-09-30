@@ -19,9 +19,10 @@ deployment adapters belong to their respective repositories.
   scaffolding as completed product features.
 - Implement and verify authorization on the server when adding protected
   resources; hiding client controls does not enforce permissions.
-- Toolchain and validation commands are not yet established. The foundation
-  task will pin versions and document commands here and in the README; until
-  then, report exactly which applicable checks were actually run.
+- Use Node24.21.0/npm11.19.0 (`.nvmrc`), `npm ci`, `npm run check`, and
+  `npm run test:e2e` as documented in README. Report actual results and limits.
+  Hosted CI remains gated on verified billing; do not enable automatic triggers
+  or dispatch paid/unknown-quota runs without resolving that gate.
 
 ## Handoff
 
