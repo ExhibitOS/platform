@@ -6,6 +6,8 @@
 
 ## MVP 저장소
 
+프로젝트 총괄과 유지보수는 별도 비공개 [operations](https://github.com/ExhibitOS/operations) 저장소에서 관리합니다. 에이전트 작업 지침, 명령 사용법, 운영 결정, Git 백업·복원 도구를 포함합니다. 제품의 빌드 의존성으로 연결하지 않습니다. 기존 로컬 구성에서 `operations/`는 독립 Git 저장소이며 platform의 `.gitignore`로 제외합니다.
+
 | 저장소 | 목표 공개 범위 | 역할 |
 | --- | --- | --- |
 | [platform](https://github.com/ExhibitOS/platform) | Public | Studio, CMS, Viewer, Runtime, API, Realtime |
