@@ -106,3 +106,5 @@ desktop/좁은 viewport 각각 5회 cold load를 측정합니다.
 Storage metadata, migration, local development and recovery commands are documented in [docs/storage.md](docs/storage.md). `npm run test:storage` runs actual isolated PostgreSQL and S3-compatible integration tests with Docker. The storage package provides internal primitives; protected resource APIs, file-format approval and publication workflows remain subsequent tasks.
 
 인증·RBAC·bootstrap·TLS proxy 설정은 [docs/auth.md](docs/auth.md), 실제 경로와 오류 계약은 [OpenAPI](contracts/auth-openapi.json)에 있습니다. `npm run test:auth`는 Chromium과 Docker가 필요하며 UUID로 격리한 합성 PostgreSQL/HTTP/브라우저 검사입니다. `npm run build` 이후 `npm run auth:bootstrap`에 bounded JSON stdin을 전달합니다. 자격정보를 명령 인수나 로그에 넣지 마세요.
+
+인증된 단일 GLB/PNG 업로드·import job은 [import 흐름](docs/imports.md)과 [OpenAPI](contracts/import-openapi.json)를 참고하세요. `npm run test:import`는 실제 격리 PostgreSQL/파일/decoder 및 HTTP 연결 중단·worker 종료·취소 검사를 실행합니다. `approved`는 제한된 파일 검사를 통과한 비공개 asset 상태이며 공개 배포나 전체 OES/OEX import 완료를 뜻하지 않습니다.

@@ -1,0 +1,1051 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "ExhibitOS primary asset imports",
+    "version": "0.1.0",
+    "description": "Authenticated existing-artwork GLB/PNG import candidate. Quarantine is never public; approved profile is separate from publication rights. No URL fetch, OEX archive, JPEG/WebP or complete OES directory import."
+  },
+  "paths": {
+    "/api/v1/tenants/{tenantId}/imports": {
+      "post": {
+        "summary": "Create or replay a tenant-owned import",
+        "operationId": "importCreate",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured origin; Host must also match exactly."
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": [],
+            "Csrf": []
+          },
+          {
+            "NetworkSession": [],
+            "Csrf": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "artworkId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "mime": {
+                    "enum": [
+                      "model/gltf-binary",
+                      "image/png"
+                    ]
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 33554432
+                  },
+                  "scaleMeters": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000
+                  },
+                  "rights": {
+                    "type": "object",
+                    "description": "Full public OES artwork rights schema; legacy flat grants fail closed."
+                  }
+                },
+                "required": [
+                  "artworkId",
+                  "idempotencyKey",
+                  "mime",
+                  "sha256",
+                  "bytes",
+                  "scaleMeters",
+                  "rights"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/imports/{id}": {
+      "get": {
+        "summary": "Read job status",
+        "operationId": "importRead",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": []
+          },
+          {
+            "NetworkSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/imports/{id}/bytes": {
+      "put": {
+        "summary": "Upload one bounded complete object",
+        "operationId": "importUploadBytes",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured origin; Host must also match exactly."
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": [],
+            "Csrf": []
+          },
+          {
+            "NetworkSession": [],
+            "Csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "received": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "received"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "Actual bytes/hash must match initialization, at most 32 MiB."
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/imports/{id}/complete": {
+      "post": {
+        "summary": "Verify staged bytes and queue validation",
+        "operationId": "importVerifyComplete",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured origin; Host must also match exactly."
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": [],
+            "Csrf": []
+          },
+          {
+            "NetworkSession": [],
+            "Csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/imports/{id}/cancel": {
+      "post": {
+        "summary": "Fence worker and retain cancelled bytes",
+        "operationId": "importFenceCancel",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured origin; Host must also match exactly."
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": [],
+            "Csrf": []
+          },
+          {
+            "NetworkSession": [],
+            "Csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/imports/{id}/retry": {
+      "post": {
+        "summary": "Explicit retry after backoff, up to five attempts",
+        "operationId": "importExplicitRetry",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured origin; Host must also match exactly."
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": [],
+            "Csrf": []
+          },
+          {
+            "NetworkSession": [],
+            "Csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "LocalSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_local_session"
+      },
+      "NetworkSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-exhibitos_session"
+      },
+      "Csrf": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fieldErrors": {
+            "type": "array",
+            "items": {}
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "fieldErrors",
+          "requestId"
+        ]
+      },
+      "Job": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "enum": [
+              "uploading",
+              "queued",
+              "processing",
+              "approved",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "retryAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Available-at UTC timestamp; explicit retry before the deadline is rejected."
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "progress",
+          "attempts",
+          "errorCode",
+          "assetId",
+          "retryAt"
+        ]
+      }
+    }
+  }
+}
