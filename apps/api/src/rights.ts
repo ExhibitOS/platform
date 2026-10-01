@@ -7,9 +7,9 @@ const ajv=new Ajv({strict:true,allErrors:false,coerceTypes:false,removeAdditiona
 const formats=addFormats as unknown as (a:typeof ajv)=>void;formats(ajv);
 const validate=ajv.compile(artworkSchema.$defs.rights);
 export function validRights(input:unknown) { return !!validate(input); }
-export function allowedRights(input:unknown,permission:'download'|'export',now=Date.now()) {
+export function allowedRights(input:unknown,permission:'download'|'export'|'display',now=Date.now()) {
  if(!Number.isFinite(now)||!validate(input)) return false;
- const rights=input as {permissions:{download:boolean;export:boolean};validFrom?:string;expiresAt?:string};
+ const rights=input as {permissions:{download:boolean;export:boolean;display:boolean};validFrom?:string;expiresAt?:string};
  const parse=(value:string)=>{
   const time=Date.parse(value);
   const canonical=value.replace(/(?:\.(\d{1,3}))?Z$/,(_all,ms:string|undefined)=>`.${(ms??'').padEnd(3,'0')}Z`);

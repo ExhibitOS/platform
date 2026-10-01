@@ -2,7 +2,7 @@
 
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
-현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Studio·Viewer·CMS UI와 배포판은 아직 구현되지 않았습니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
+현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio·전체 Viewer와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
 
 ## 저장소 경계
 
@@ -108,3 +108,5 @@ Storage metadata, migration, local development and recovery commands are documen
 인증·RBAC·bootstrap·TLS proxy 설정은 [docs/auth.md](docs/auth.md), 실제 경로와 오류 계약은 [OpenAPI](contracts/auth-openapi.json)에 있습니다. `npm run test:auth`는 Chromium과 Docker가 필요하며 UUID로 격리한 합성 PostgreSQL/HTTP/브라우저 검사입니다. `npm run build` 이후 `npm run auth:bootstrap`에 bounded JSON stdin을 전달합니다. 자격정보를 명령 인수나 로그에 넣지 마세요.
 
 인증된 단일 GLB/PNG 업로드·import job은 [import 흐름](docs/imports.md)과 [OpenAPI](contracts/import-openapi.json)를 참고하세요. `npm run test:import`는 실제 격리 PostgreSQL/파일/decoder 및 HTTP 연결 중단·worker 종료·취소 검사를 실행합니다. `approved`는 제한된 파일 검사를 통과한 비공개 asset 상태이며 공개 배포나 전체 OES/OEX import 완료를 뜻하지 않습니다.
+
+Artist CMS는 같은 origin의 `/cms`에서 실행합니다. [CMS 사용·권리·지원 한계](docs/cms.md)와 [CMS OpenAPI](contracts/cms-openapi.json)를 읽으세요. `npm run test:cms`는 합성 PostgreSQL/API와 실제 Chromium production CMS 흐름을 검사합니다. 전시용 derivative는 복제 방지 DRM을 보장하지 않으며, 원본 다운로드와 export는 별도 서버 권한을 요구합니다.

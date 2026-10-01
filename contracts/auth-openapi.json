@@ -396,7 +396,7 @@
       "get": {
         "operationId": "GetReadArtworksMetadata",
         "summary": "Read artworks metadata",
-        "description": "Admin own tenant; artwork: owning artist or curator whose assigned exhibition places the artwork. Exhibition: assigned curator or explicit canView grant. Viewer cannot read artwork metadata.",
+        "description": "Admin own tenant; artwork: owning artist or curator whose assigned exhibition places the artwork. Exhibition: assigned curator or explicit canView grant. Viewer cannot read artwork metadata. CMS-managed records allow private metadata only to the owning artist or tenant admin; assigned readers use the CMS display projection.",
         "security": [
           {
             "localSession": []
@@ -520,7 +520,7 @@
       "patch": {
         "operationId": "PatchEditArtworksMetadata",
         "summary": "Edit artworks metadata",
-        "description": "Expected revision compare-and-swap. Admin own tenant; artist owns artwork; curator is explicitly assigned to exhibition. Appends immutable snapshot. Stale revision returns 409 REVISION_CONFLICT.",
+        "description": "Expected revision compare-and-swap. Admin own tenant; artist owns artwork; curator is explicitly assigned to exhibition. Appends immutable snapshot. Stale revision returns 409 REVISION_CONFLICT. CMS-managed records fail with 400 CMS_ROUTE_REQUIRED; use validated CMS edits. Legacy non-CMS records retain the existing CAS policy.",
         "security": [
           {
             "localSession": [],
@@ -1066,7 +1066,7 @@
       "post": {
         "operationId": "PostCheckAssetExportEligibility",
         "summary": "Check asset export eligibility",
-        "description": "Admin or owning artist only. Full public OES rights record must pass the exported OES rights JSON schema and UTC validity checks and require rights.permissions.export=true. Optional validFrom is inclusive and expiresAt is exclusive. permissions.download and permissions.display are independent and not required here. Malformed/incomplete rights or unknown/conflicting legacy flat export fields fail closed with 403 RIGHTS_DENIED. Does not produce OEX bytes or approve publication/format.",
+        "description": "Admin or owning artist only. Full public OES rights record must pass the exported OES rights JSON schema and UTC validity checks and require rights.permissions.export=true. Optional validFrom is inclusive and expiresAt is exclusive. permissions.download and permissions.display are independent and not required here. Malformed/incomplete rights or unknown/conflicting legacy flat export fields fail closed with 403 RIGHTS_DENIED. Does not produce OEX bytes or approve publication/format. CMS-managed asset permission is the intersection of current full-schema artwork and per-asset rights; malformed/missing CMS rights fail closed.",
         "security": [
           {
             "localSession": [],
@@ -2082,7 +2082,7 @@
       "get": {
         "operationId": "DownloadPrivateAssetBytes",
         "summary": "Download private asset bytes",
-        "description": "Admin or owning artist only. Full public OES rights record must pass the exported OES rights JSON schema; rights.permissions.download=true and a currently valid optional UTC validFrom/expiresAt interval are required. permissions.export and permissions.display are independent and not required here. Malformed/incomplete rights or unknown/conflicting legacy flat fields fail closed with 403 RIGHTS_DENIED. Configured private store, stored or format-approved processing state, SHA-256 and byte count must match. Bounded 32 MiB attachment. Storage integrity and rights validation are not format or publication approval. No anonymous route, OEX archive or signed URL.",
+        "description": "Admin or owning artist only. Full public OES rights record must pass the exported OES rights JSON schema; rights.permissions.download=true and a currently valid optional UTC validFrom/expiresAt interval are required. permissions.export and permissions.display are independent and not required here. Malformed/incomplete rights or unknown/conflicting legacy flat fields fail closed with 403 RIGHTS_DENIED. Configured private store, stored or format-approved processing state, SHA-256 and byte count must match. Bounded 32 MiB attachment. Storage integrity and rights validation are not format or publication approval. No anonymous route, OEX archive or signed URL. CMS-managed asset permission is the intersection of current full-schema artwork and per-asset rights; malformed/missing CMS rights fail closed.",
         "security": [
           {
             "localSession": []

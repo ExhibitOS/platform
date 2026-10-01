@@ -1,3 +1,4 @@
+import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -44,6 +45,26 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+
+ const cms=new Cms(store),cp=`${prefix}/cms`;
+ const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};
+ const fields={title:{...str,minLength:1,maxLength:512},description:{...str,maxLength:16384},dimensions:object({width:{type:'number',exclusiveMinimum:0,maximum:1000000},height:{type:'number',exclusiveMinimum:0,maximum:1000000},depth:{type:'number',exclusiveMinimum:0,maximum:1000000},unit:{const:'m'}}),rights:{type:'object'},provenance:object({source:{enum:['human-authored','ai-assisted','ai-generated']},sourceUnits:{enum:['m','cm','mm']},scaleApplied:{type:'boolean'},notes:{...str,maxLength:4096}})};
+ const cmsId=(req:FastifyRequest)=>{const p=req.params as {id:string};uuid(p.id);return p.id;};
+ app.post(`${cp}/artists`,{schema:{body:object({...artistBody,userId:{anyOf:[id,{type:'null'}]}},['name','bio'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtist(c,s,req.body as {name:string;bio:string;userId?:string|null});}));
+ app.get(`${cp}/artists`,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100},archived:{enum:['true','false']}},[])}},call(false,async(c,s,req)=>cms.list(c,s,'artists',req.query as Record<string,string>)));
+ app.get(`${cp}/artists/:id`,call(false,async(c,s,req)=>cms.artistView(await cms.artist(c,s,cmsId(req),true))));
+ app.patch(`${cp}/artists/:id`,{schema:{body:object({...artistBody,revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.reviseArtist(c,s,cmsId(req),req.body as {name:string;bio:string;revision:number})));
+ app.post(`${cp}/artworks`,{schema:{body:object({...fields,artistId:id})}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtwork(c,s,req.body as ArtworkMetadata&{artistId:string});}));
+ app.get(`${cp}/artworks`,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100},archived:{enum:['true','false']}},[])}},call(false,async(c,s,req)=>cms.list(c,s,'artworks',req.query as Record<string,string>)));
+ app.get(`${cp}/artworks/:id`,call(false,async(c,s,req)=>cms.detail(c,s,cmsId(req),true)));
+ app.patch(`${cp}/artworks/:id`,{schema:{body:object({...fields,revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.revise(c,s,cmsId(req),req.body as ArtworkMetadata&{revision:number})));
+ for(const kind of ['artists','artworks'] as const){
+  app.get(`${cp}/${kind}/:id/revisions`,call(false,async(c,s,req)=>cms.revisions(c,s,cmsId(req),kind)));
+  for(const action of ['archive','restore'] as const)app.post(`${cp}/${kind}/:id/${action}`,{schema:{body:object({revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.archive(c,s,kind,cmsId(req),action==='restore',(req.body as {revision:number}).revision)));
+ }
+ app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string})));
+ app.get(`${cp}/artworks/:id/display`,call(false,async(c,s,req)=>cms.display(c,s,cmsId(req))));
+ app.get(`${cp}/artworks/:id/preview`,call(false,async(c,s,req,reply)=>{const result=await cms.display(c,s,cmsId(req),true) as {bytes:Buffer;mime:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-watermarked','true');return result.bytes;}));
  const imports=store?new Imports(pool,store):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));
