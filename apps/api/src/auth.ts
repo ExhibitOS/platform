@@ -95,6 +95,7 @@ export class Auth {
  async resource(client:PoolClient,s:Session,kind:'artworks'|'exhibitions',id:string,revision?:number,metadata?:Record<string,unknown>) {
   const actor={tenantId:s.tenantId,userId:s.userId};
   const row = kind==='artworks' ? await artworkAccess(client,actor,id,revision!==undefined) : await exhibitionAccess(client,actor,id,revision!==undefined);
+  if(kind==='artworks'&&row.cms_managed){if(revision!==undefined)throw new ApiError(400,'CMS_ROUTE_REQUIRED');if(s.role!=='admin'&&(s.role!=='artist'||row.owner_user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');}
   if (revision === undefined) return {id:row.id,tenantId:row.tenant_id,revision:row.revision,metadata:row.metadata};
   await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
   const updated = await client.query(`UPDATE ${kind} SET metadata=$4,revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND revision=$3 RETURNING revision`,[s.tenantId,id,revision,metadata]);
@@ -108,9 +109,9 @@ export class Auth {
   if (!['admin','artist'].includes(role)) throw new AccessDenied();
   const result=await client.query('SELECT a.id,a.artwork_id,a.sha256,a.bytes,a.mime,a.state,a.object_key,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.id=$2 AND a.deleted_at IS NULL AND r.deleted_at IS NULL',[s.tenantId,id]);
   const row=result.rows[0]; if (!row) throw new AccessDenied();
-  await artworkAccess(client,{tenantId:s.tenantId,userId:s.userId},row.artwork_id);
+  const artwork=await artworkAccess(client,{tenantId:s.tenantId,userId:s.userId},row.artwork_id);
   if (permission) {
-   if (!allowedRights(row.rights,permission)) throw new ApiError(403,'RIGHTS_DENIED');
+   if (!allowedRights(row.rights,permission)||(artwork.cms_managed||artwork.metadata?.rights!==undefined)&&!allowedRights(artwork.metadata?.rights,permission)) throw new ApiError(403,'RIGHTS_DENIED');
    return {authorized:true,assetId:id,scope:'authorization-only',packageProduced:false};
   }
   return {id:row.id,artworkId:row.artwork_id,sha256:row.sha256,bytes:Number(row.bytes),mime:row.mime,state:row.state};

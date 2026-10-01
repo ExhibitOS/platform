@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Cms } from './Cms';
 
 export function App() {
   const [status, setStatus] = useState('연결을 확인해 주세요.');
@@ -17,6 +18,7 @@ export function App() {
       setStatus('API에 연결할 수 없습니다. 서버를 실행하고 다시 시도해 주세요.');
     } finally { setChecking(false); }
   }
+  if (typeof window !== 'undefined' && window.location.pathname === '/cms') return <Cms />;
   return <main>
     <header><a className="brand" href="/" aria-label="ExhibitOS 홈">ExhibitOS<span>OPEN EXHIBITION</span></a><span className="phase">개발 기반 · 0.1</span></header>
     <section className="intro" aria-labelledby="title">
@@ -28,6 +30,6 @@ export function App() {
       <div><p className="eyebrow">LOCAL DEVELOPMENT</p><h2 id="connection-title">서비스 연결</h2><p role="status" aria-live="polite">{status}</p></div>
       <button onClick={() => void checkConnection()} disabled={checking}>{checking ? '확인 중…' : '연결 확인'}</button>
     </section>
-    <footer>Studio · Viewer · CMS는 후속 단계에서 구현합니다. 실제 작품이나 계정 정보는 사용하지 않습니다.</footer>
+    <footer><a href="/cms">Artist CMS 열기</a><br />Studio · Viewer는 후속 단계에서 구현합니다. CMS는 인증된 비공개 작품 등록·검토를 제공합니다.</footer>
   </main>;
 }
