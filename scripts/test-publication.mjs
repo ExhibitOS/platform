@@ -190,13 +190,32 @@ try {
         assert.deepEqual((await json(anonymous(`/api/v1/publications/${pub.publicationId}`))).exhibition, projection.exhibition);
         await pool.query("UPDATE exhibitions SET metadata=$2 WHERE id=$1", [draft.exhibitionId, draft]);
     });
-    await test("derivative integrity fails closed and maintenance retains immutable public byte references", async () => {
+    await test("derivative integrity and expiry during storage reads fail closed; maintenance retains public bytes", async () => {
         const asset = (await pool.query("SELECT * FROM publication_assets WHERE publication_id=$1 LIMIT 1", [pub.publicationId])).rows[0], bytes = await blobs.get(asset.object_key);
         await blobs.remove(asset.object_key);
         await blobs.put(asset.object_key, Buffer.from("corrupt synthetic derivative"));
         await expected(anonymous(`/api/v1/publications/${pub.publicationId}/assets/${asset.id}`), 404, "PUBLICATION_UNAVAILABLE");
         await blobs.remove(asset.object_key);
         await blobs.put(asset.object_key, bytes);
+        const grant = (await pool.query("SELECT r.* FROM rights r JOIN assets a ON (a.tenant_id,a.rights_id)=(r.tenant_id,r.id) WHERE a.id=$1", [asset.source_asset_id])).rows[0];
+        const originalGet = blobs.get.bind(blobs);
+        let fetchedBeforeExpiry = false;
+        await pool.query("UPDATE rights SET metadata=$2 WHERE id=$1", [grant.id, {...grant.metadata, expiresAt: new Date(Date.now()+2000).toISOString()}]);
+        blobs.get = async key => {
+            const value = await originalGet(key);
+            if (key === asset.object_key) {
+                fetchedBeforeExpiry = true;
+                await new Promise(resolve => setTimeout(resolve, 2200));
+            }
+            return value;
+        };
+        try {
+            await expected(anonymous(`/api/v1/publications/${pub.publicationId}/assets/${asset.id}`), 404, "PUBLICATION_UNAVAILABLE");
+            assert.equal(fetchedBeforeExpiry, true, "The grant must be active at initial gate and expire during storage read");
+        } finally {
+            blobs.get = originalGet;
+            await pool.query("UPDATE rights SET metadata=$2 WHERE id=$1", [grant.id, grant.metadata]);
+        }
         const orphaned = await new Storage(pool, blobs).reconcile({ tenantId: tenant, userId: admin.userId }, true);
         assert.equal(orphaned.includes(asset.object_key), false);
         assert.equal(sha256(await blobs.get(asset.object_key)), asset.sha256);
