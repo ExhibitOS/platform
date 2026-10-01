@@ -69,3 +69,9 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .geometry-preview { margin: 24px 0; }
 .geometry-preview canvas { display: block; max-width: 100%; }
 .geometry-preview figcaption { font-size: 13px; line-height: 1.7; margin-top: 12px; }
+
+.placement-editor { margin: 1.5rem 0; }
+.placement-editor fieldset { margin: 1rem 0; min-width: 0; }
+.placement-editor textarea { width: 100%; min-height: 6rem; }
+.placement-credits { padding-left: 1.2rem; overflow-wrap: anywhere; }
+.placement-editor button { margin: .25rem; }

@@ -490,8 +490,8 @@ export function Studio() {
         이 브라우저의 IndexedDB에 저장합니다. 공유 기기의 다른 사용자가 로컬
         draft를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
         있습니다. 파일 백업을 별도로 보관하세요. 현재 단계는 versioned 문서
-        저장과 직사각형 공간 편집입니다. 공개 publication·OEX 패키지 생성은 후속
-        기능입니다.
+        저장과 공간·작품 배치 편집입니다. 공개 publication·OEX 패키지 생성은
+        후속 기능입니다.
       </p>
       <div className="cms-grid">
         <section className="cms-card">
@@ -666,7 +666,7 @@ export function Studio() {
                 <p>
                   배치 transform과 geometry는 JSON에 유지됩니다. 아래에서
                   방·벽·문·재질을 편집하고 3D 미리보기를 확인할 수 있습니다.
-                  작품 배치 편집은 후속 단계입니다.
+                  작품·조명·camera·동선을 편집할 수 있습니다.
                 </p>
               </section>
             )}
@@ -674,6 +674,7 @@ export function Studio() {
               <GeometryEditor
                 key={record.id}
                 candidate={candidate}
+                session={session}
                 disabled={busy}
                 onChange={(value) => {
                   setText(json(value));

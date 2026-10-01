@@ -4,7 +4,7 @@ import { readFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
-import { fixtureURL } from "@exhibitos/spec";
+import { fixtureURL, validateArtwork } from "@exhibitos/spec";
 import {
   migrate,
   FileBlobStore,
@@ -14,6 +14,7 @@ import {
 import { bootstrap } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
 import { Imports, decode } from "../apps/api/dist/imports.js";
+import { runPlacementBrowser } from "./placement-browser.mjs";
 import { runCmsBrowser } from "./cms-browser.mjs";
 import { derivative } from "../apps/api/dist/derivative.js";
 const docker = process.env.DOCKER_BIN ?? "docker",
@@ -515,6 +516,43 @@ try {
       [],
     );
   });
+  await test("Studio approved metadata bridge enforces live owner/tenant/role gates and excludes private paths/notes", async () => {
+    const bridge = await json(
+      request(artist, "GET", `/studio/artworks/${artwork.id}`),
+    );
+    assert.equal(validateArtwork(bridge.artwork).valid, true);
+    const repeated = await json(
+      request(artist, "GET", `/studio/artworks/${artwork.id}`),
+    );
+    assert.equal(bridge.artwork.revisionId, repeated.artwork.revisionId);
+    assert.equal(
+      bridge.previewUrl,
+      `/api/v1/tenants/${tenant}/cms/artworks/${artwork.id}/preview`,
+    );
+    const serialized = JSON.stringify(bridge);
+    for (const privateValue of [
+      "Private source notes",
+      "object_key",
+      "objectKey",
+    ])
+      assert(!serialized.includes(privateValue));
+    await expected(
+      request(viewer, "GET", `/studio/artworks/${artwork.id}`),
+      403,
+    );
+    await expected(
+      request(other, "GET", `/studio/artworks/${artwork.id}`),
+      403,
+    );
+    await expected(request(null, "GET", `/studio/artworks/${artwork.id}`), 401);
+    await expected(
+      app.inject({
+        url: `/api/v1/tenants/${randomUUID()}/studio/artworks/${artwork.id}`,
+        headers: { ...headers, cookie: artist.cookie },
+      }),
+      403,
+    );
+  });
   await test("CMS rights ceiling denies newly imported per-asset broad grants before review", async () => {
     const broad = {
       ...rights,
@@ -608,6 +646,10 @@ try {
     await expected(
       request(viewer, "GET", `/cms/artworks/${artwork.id}/preview`),
       200,
+    );
+    await expected(
+      request(viewer, "GET", `/studio/artworks/${artwork.id}`),
+      403,
     );
     await expected(request(viewer, "GET", `/assets/${asset}/bytes`), 403);
     await expected(request(viewer, "GET", `/cms/artworks/${artwork.id}`), 403);
@@ -717,6 +759,16 @@ try {
     password: pass,
     work: () => imports.work(),
   });
+  const placementBrowser = await runPlacementBrowser({
+    pool,
+    blobs,
+    tenantId: tenant,
+    subject: "synthetic.cms.admin",
+    password: pass,
+    work: () => imports.work(),
+  });
+  evidence.push(...placementBrowser.checks);
+  console.log(JSON.stringify({ placementBrowser }, null, 2));
   evidence.push(...browser.checks);
   console.log(JSON.stringify({ browser }, null, 2));
   console.log(
@@ -727,7 +779,7 @@ try {
         evidence,
         image,
         scope:
-          "synthetic isolated PostgreSQL/API/child derivative; actual production Chromium17 groups included, no DRM or public publication claim",
+          "synthetic isolated PostgreSQL/API/child derivative; actual production Chromium13 groups included, no DRM or public publication claim",
       },
       null,
       2,
