@@ -112,7 +112,7 @@ try {
   await migrate(pool, directory);
   assert.equal(
     (await pool.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-    "3",
+    "4",
   );
   assert.equal(
     (await pool.query("SELECT count(*) FROM artists")).rows[0].count,
@@ -134,7 +134,7 @@ try {
     await readFile(`${directory}/001_metadata.sql`),
   );
   await writeFile(
-    `${altered}/004_failed.sql`,
+    `${altered}/005_failed.sql`,
     "CREATE TABLE must_rollback(id integer); INVALID SQL;",
   );
   await assert.rejects(migrate(pool, altered));

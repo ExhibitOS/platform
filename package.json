@@ -30,7 +30,9 @@
     "storage:init": "node scripts/init-storage-env.mjs",
     "pretypecheck": "npm run build --workspace @exhibitos/storage",
     "test:auth": "npm run build && node scripts/test-auth.mjs",
-    "auth:bootstrap": "node scripts/bootstrap-admin.mjs"
+    "auth:bootstrap": "node scripts/bootstrap-admin.mjs",
+    "test:import": "npm run build && node scripts/test-import.mjs",
+    "import:work": "node scripts/import-worker.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

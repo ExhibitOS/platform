@@ -6,6 +6,7 @@ const Ajv=Ajv2020 as unknown as typeof import('ajv/dist/2020.js').default;
 const ajv=new Ajv({strict:true,allErrors:false,coerceTypes:false,removeAdditional:false});
 const formats=addFormats as unknown as (a:typeof ajv)=>void;formats(ajv);
 const validate=ajv.compile(artworkSchema.$defs.rights);
+export function validRights(input:unknown) { return !!validate(input); }
 export function allowedRights(input:unknown,permission:'download'|'export',now=Date.now()) {
  if(!Number.isFinite(now)||!validate(input)) return false;
  const rights=input as {permissions:{download:boolean;export:boolean};validFrom?:string;expiresAt?:string};

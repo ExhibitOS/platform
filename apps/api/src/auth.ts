@@ -119,7 +119,7 @@ export class Auth {
   await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
   await this.asset(client,s,id,'download');
   const result=await client.query('SELECT object_key,sha256,bytes,state FROM assets WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL',[s.tenantId,id]);
-  const row=result.rows[0];if(row.state!=='stored') throw new ApiError(409,'ASSET_NOT_STORED');
+  const row=result.rows[0];if(!['stored','approved'].includes(row.state)) throw new ApiError(409,'ASSET_NOT_STORED');
   const bytes=Buffer.from(await store.get(row.object_key));
   if(bytes.length!==Number(row.bytes)||createHash('sha256').update(bytes).digest('hex')!==row.sha256) throw new ApiError(409,'ASSET_INTEGRITY');
   return bytes;

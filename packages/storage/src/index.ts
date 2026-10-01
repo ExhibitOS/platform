@@ -232,6 +232,8 @@ export class Storage {
         "SELECT object_key,target_key FROM assets WHERE tenant_id=$1",
         [actor.tenantId],
       );
+      const jobsTable = await client.query("SELECT to_regclass('import_jobs') AS name");
+      if (jobsTable.rows[0].name) { const jobs = await client.query('SELECT object_key,approved_key AS target_key FROM import_jobs WHERE tenant_id=$1',[actor.tenantId]); refs.rows.push(...jobs.rows); }
       const referenced = new Set(
         refs.rows.flatMap((row) => [row.object_key, row.target_key]),
       );
@@ -239,7 +241,7 @@ export class Storage {
       for (const key of await this.blobs.list(actor.tenantId)) {
         if (
           (!key.startsWith(`${actor.tenantId}/quarantine/`) &&
-            !key.startsWith(`${actor.tenantId}/stored/`)) ||
+            !key.startsWith(`${actor.tenantId}/stored/`) && !key.startsWith(`${actor.tenantId}/approved/`)) ||
           referenced.has(key)
         )
           continue;
@@ -286,7 +288,7 @@ export class Storage {
       if (
         typeof manifest.key !== "string" ||
         !manifest.key.startsWith(`${actor.tenantId}/`) ||
-        !/^(quarantine|stored)\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(
+        !/^(quarantine|stored|approved)\/[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(
           manifest.key.slice(actor.tenantId.length + 1),
         ) ||
         manifest.key.split("/").some((x) => x === "." || x === "..") ||
