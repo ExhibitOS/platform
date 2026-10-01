@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { presentationFor } from "@exhibitos/studio-contract";
+import type { PublicAsset } from "./publication-client";
 import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
 
@@ -74,9 +75,15 @@ export function GeometryPreview({
   selection,
   appearance,
   session,
+  publicSource,
 }: {
   document: Document;
   session: Session | null;
+  publicSource?: {
+    publicationId: string;
+    revisionSha256: string;
+    assets: PublicAsset[];
+  };
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
@@ -455,51 +462,92 @@ export function GeometryPreview({
         Promise<InstanceType<typeof three.Object3D>>
       >();
       const loadArtwork = async (artwork: Document["artworks"][number]) => {
-        const binding = artwork.extensions?.["org.exhibitos.studio/cms"];
-        if (
-          !session ||
-          !binding ||
-          binding.tenantId !== session.tenantId ||
-          typeof binding.artworkId !== "string"
-        )
-          throw Error("DERIVATIVE_UNAVAILABLE");
-        const base = `/api/v1/tenants/${session.tenantId}`;
-        const meta = await fetch(
-          `${base}/studio/artworks/${encodeURIComponent(binding.artworkId)}`,
-          {
-            credentials: "same-origin",
+        let response: Response;
+        if (publicSource) {
+          const source = publicSource.assets.find(
+            (a) =>
+              a.assetId.toLowerCase() === artwork.primaryAssetId.toLowerCase(),
+          );
+          if (
+            !source ||
+            source.url !==
+              `/api/v1/publications/${publicSource.publicationId}/assets/${source.assetId}`
+          )
+            throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
+          response = await fetch(source.url, {
+            credentials: "omit",
             cache: "no-store",
             signal: abort.signal,
-          },
-        );
-        if (!meta.ok) throw Error("DERIVATIVE_UNAUTHORIZED");
-        const bridge = (await meta.json()) as {
-          artwork: Document["artworks"][number];
-          previewUrl: string;
-        };
-        if (
-          bridge.artwork.revisionId !== artwork.revisionId ||
-          bridge.previewUrl !==
-            `${base}/cms/artworks/${binding.artworkId}/preview`
-        )
-          throw Error("DERIVATIVE_REVISION_CHANGED");
-        const response = await fetch(
-          `${bridge.previewUrl}?expectedRevision=${artwork.revision}`,
-          {
-            credentials: "same-origin",
-            cache: "no-store",
-            signal: abort.signal,
-          },
-        );
-        if (
-          !response.ok ||
-          response.headers.get("x-exhibitos-artwork-revision") !==
-            String(artwork.revision)
-        )
-          throw Error("DERIVATIVE_UNAVAILABLE");
+          });
+          if (
+            !response.ok ||
+            response.headers.get("x-exhibitos-publication-revision") !==
+              publicSource.revisionSha256
+          )
+            throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
+        } else {
+          const binding = artwork.extensions?.["org.exhibitos.studio/cms"];
+          if (
+            !session ||
+            !binding ||
+            binding.tenantId !== session.tenantId ||
+            typeof binding.artworkId !== "string"
+          )
+            throw Error("DERIVATIVE_UNAVAILABLE");
+          const base = `/api/v1/tenants/${session.tenantId}`;
+          const meta = await fetch(
+            `${base}/studio/artworks/${encodeURIComponent(binding.artworkId)}`,
+            {
+              credentials: "same-origin",
+              cache: "no-store",
+              signal: abort.signal,
+            },
+          );
+          if (!meta.ok) throw Error("DERIVATIVE_UNAUTHORIZED");
+          const bridge = (await meta.json()) as {
+            artwork: Document["artworks"][number];
+            previewUrl: string;
+          };
+          if (
+            bridge.artwork.revisionId !== artwork.revisionId ||
+            bridge.previewUrl !==
+              `${base}/cms/artworks/${binding.artworkId}/preview`
+          )
+            throw Error("DERIVATIVE_REVISION_CHANGED");
+          response = await fetch(
+            `${bridge.previewUrl}?expectedRevision=${artwork.revision}`,
+            {
+              credentials: "same-origin",
+              cache: "no-store",
+              signal: abort.signal,
+            },
+          );
+          if (
+            !response.ok ||
+            response.headers.get("x-exhibitos-artwork-revision") !==
+              String(artwork.revision)
+          )
+            throw Error("DERIVATIVE_UNAVAILABLE");
+        }
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength > 32 * 1024 * 1024 || disposed)
           throw Error("DERIVATIVE_UNAVAILABLE");
+        if (publicSource) {
+          const inventory = artwork.assets.find(
+            (a) => a.id.toLowerCase() === artwork.primaryAssetId.toLowerCase(),
+          );
+          const digest = Array.from(
+            new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+          )
+            .map((n) => n.toString(16).padStart(2, "0"))
+            .join("");
+          if (
+            !inventory ||
+            inventory.bytes !== bytes.byteLength ||
+            inventory.sha256 !== digest
+          )
+            throw Error("PUBLIC_DERIVATIVE_INTEGRITY");
+        }
         let object: InstanceType<typeof three.Object3D>;
         if (artwork.artworkType === "image") {
           const bitmap = await createImageBitmap(
@@ -621,7 +669,7 @@ export function GeometryPreview({
       abort.abort();
       release();
     };
-  }, [document, selection, appearance, session]);
+  }, [document, selection, appearance, session, publicSource]);
   return (
     <figure className="geometry-preview">
       <div ref={host} />

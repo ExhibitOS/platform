@@ -75,3 +75,9 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .placement-editor textarea { width: 100%; min-height: 6rem; }
 .placement-credits { padding-left: 1.2rem; overflow-wrap: anywhere; }
 .placement-editor button { margin: .25rem; }
+
+.publication-panel code, .publication-shell code { overflow-wrap: anywhere; }
+.publication-list { padding-left: 1.2rem; }
+.publication-list li { margin: 1rem 0; }
+.publication-panel button { margin: .25rem; }
+.publication-shell article { margin: 2rem 0; }

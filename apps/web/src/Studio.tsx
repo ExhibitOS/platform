@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DraftError, DraftStore } from "./drafts/store";
 import type { Draft, LocalDraft, RemoteBinding } from "./drafts/store";
+import { PublicationPanel } from "./PublicationPanel";
 import { GeometryEditor } from "./GeometryEditor";
 import { newDraft } from "./drafts/example";
 import { validateDraft } from "./drafts/validator";
@@ -66,6 +67,7 @@ function message(error: unknown) {
 
 export function Studio() {
   const store = useRef(new DraftStore()).current;
+  const [published, setPublished] = useState(false);
   const [rows, setRows] = useState<LocalDraft[]>([]),
     [record, setRecord] = useState<LocalDraft | null>(null),
     recordRef = useRef<LocalDraft | null>(null);
@@ -590,7 +592,7 @@ export function Studio() {
               전시 제목
               <input
                 aria-label="전시 제목"
-                disabled={busy || !candidate}
+                disabled={busy || published || !candidate}
                 maxLength={512}
                 value={candidate?.title ?? ""}
                 onChange={(e) => {
@@ -607,7 +609,7 @@ export function Studio() {
                 className="studio-json"
                 maxLength={1000000}
                 aria-label="전시 문서 JSON"
-                disabled={busy}
+                disabled={busy || published}
                 spellCheck={false}
                 value={text}
                 onChange={(e) => {
@@ -675,13 +677,38 @@ export function Studio() {
                 key={record.id}
                 candidate={candidate}
                 session={session}
-                disabled={busy}
+                disabled={busy || published}
                 onChange={(value) => {
                   setText(json(value));
                   setPaused(false);
                 }}
               />
             )}
+            {published && (
+              <p className="cms-note">
+                이 서버 revision에는 공개 이력이 있습니다. 기존 snapshot을
+                유지하고 수정하려면 아래에서 새 draft를 만드세요.
+              </p>
+            )}
+            <PublicationPanel
+              record={record}
+              session={session}
+              disabled={busy || saving}
+              dirty={dirty}
+              onPublished={setPublished}
+              onFork={() =>
+                void run(async () => {
+                  if (dirty && !(await saveLocal())) return;
+                  const next = await store.fork(recordRef.current!);
+                  select(next);
+                  await refresh();
+                  setPublished(false);
+                  setNotice(
+                    "공개 snapshot을 유지하고 새로운 로컬 draft를 만들었습니다. 새 계정 서버 전시로 저장할 수 있습니다.",
+                  );
+                })
+              }
+            />
             <fieldset>
               <legend>로컬 이력과 복구</legend>
               <p className="cms-note">
@@ -841,7 +868,8 @@ export function Studio() {
                     !online ||
                     !sameActor ||
                     !candidate ||
-                    remoteConflict
+                    remoteConflict ||
+                    published
                   }
                   onClick={() => void run(() => push())}
                 >
