@@ -1,3 +1,4 @@
+import { validateArtwork, type Artwork } from "@exhibitos/spec";
 import { randomUUID, createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import { artworkAccess, type BlobStore, sha256 } from "@exhibitos/storage";
@@ -386,6 +387,24 @@ export class Cms {
       [s.tenantId, id, b.revision, b.assetId],
     );
     return this.detail(c, s, id);
+  }
+  /** Immutable approved metadata projected into a public OES snapshot; no bytes or storage keys. */
+  async studioArtwork(c: PoolClient, s: Session, id: string) {
+    uuid(id);
+    if (!["admin", "artist", "curator"].includes(s.role)) throw new ApiError(403, "FORBIDDEN");
+    // Reuse current membership/resource and both display-right gates before projection.
+    const display = await this.display(c, s, id) as { artist: string };
+    const result = await c.query("SELECT ap.snapshot,ap.revision,ap.created_at FROM artwork_approvals ap JOIN artworks a ON (a.tenant_id,a.id,a.approved_revision)=(ap.tenant_id,ap.artwork_id,ap.revision) WHERE ap.tenant_id=$1 AND ap.artwork_id=$2 AND a.revision=ap.revision AND a.deleted_at IS NULL", [s.tenantId,id]);
+    const approval=result.rows[0];
+    if(!approval||!approval.snapshot?.asset||typeof approval.snapshot.asset!=="object"||!validMetadata(approval.snapshot?.metadata)) throw new ApiError(409,"REVISION_NOT_APPROVED");
+    const m=approval.snapshot.metadata as ArtworkMetadata, asset=approval.snapshot.asset as {id:string;mime:string;bytes:number;sha256:string};
+    if(!allowedRights(m.rights,"display"))throw new ApiError(403,"RIGHTS_DENIED");
+    // Snapshot IDs are stable across repeat requests; URI is only a relative inventory name.
+    const digest=createHash("sha256").update(`${s.tenantId}:${id}:${approval.revision}`).digest("hex");
+    const revisionId=`${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-8${digest.slice(17,20)}-${digest.slice(20,32)}`;
+    const artwork: Artwork={schemaVersion:"1.0.0-draft.1",kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:"meter",coordinates:"right-handed-y-up",dimensions:{width:m.dimensions.width,height:m.dimensions.height,depth:m.dimensions.depth},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision}}};
+    if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
+    return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }
   async display(c: PoolClient, s: Session, id: string, preview = false) {
     let a;

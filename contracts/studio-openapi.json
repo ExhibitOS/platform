@@ -3,7 +3,7 @@
   "info": {
     "title": "ExhibitOS Studio Draft API",
     "version": "0.1.0",
-    "description": "Optional authenticated private synchronization for independent browser drafts. Artist and curator own their drafts; admin manages drafts in the same tenant. Viewer, foreign owner/tenant and revoked membership are denied. No list/delete/publication endpoint. Mutations atomically persist immutable snapshots and idempotency receipts. Receipt replay rechecks current access and returns the original response; fetch current state before later apply. Strong ETags protect remote revision; local editVersion is independent. Legacy generic PATCH rejects Studio-managed exhibitions. JSON draft metadata is not an OEX archive or backup of artwork bytes. Optional Platform extension candidate.extensions[\"org.exhibitos.studio/materials\"] version1 is validated by both browser and remote POST/PUT after the base public contract. It is not a new OES version; other namespaces are preserved."
+    "description": "Optional authenticated private synchronization for independent browser drafts. Artist and curator own their drafts; admin manages drafts in the same tenant. Viewer, foreign owner/tenant and revoked membership are denied. No list/delete/publication endpoint. Mutations atomically persist immutable snapshots and idempotency receipts. Receipt replay rechecks current access and returns the original response; fetch current state before later apply. Strong ETags protect remote revision; local editVersion is independent. Legacy generic PATCH rejects Studio-managed exhibitions. JSON draft metadata is not an OEX archive or backup of artwork bytes. Optional Platform extension candidate.extensions[\"org.exhibitos.studio/materials\"] version1 is validated by both browser and remote POST/PUT after the base public contract. It is not a new OES version; other namespaces are preserved. Presentation extension org.exhibitos.studio/presentation version 1 is validated by browser and API (bounded room cameras, viewpoints and credits); routes remain optional OES navigation."
   },
   "servers": [
     {
@@ -442,6 +442,77 @@
                 "$ref": "#/components/schemas/StudioInput"
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/artworks/{id}": {
+      "get": {
+        "operationId": "getApprovedStudioArtwork",
+        "summary": "Project approved immutable CMS metadata for authorized Studio editor",
+        "description": "Metadata only. Current session, same-tenant artist ownership or explicit curator assignment/admin access, current metadata approval and current artwork/asset display rights are checked. Viewer is denied. Returns an OES artwork snapshot with relative asset inventory names, never storage keys, original URLs or private authoring notes. previewUrl is an authenticated no-store CMS derivative endpoint; clients must re-fetch metadata and compare revisionId before loading bytes after reopen. Metadata backup does not include assets.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "localSession": []
+          },
+          {
+            "networkSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private no-store approved snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "artwork",
+                    "previewUrl"
+                  ],
+                  "properties": {
+                    "artwork": {
+                      "type": "object",
+                      "description": "Complete pinned public OES artwork 1.0.0-draft.1 plus org.exhibitos.studio/cms binding tenantId/artworkId/revision"
+                    },
+                    "previewUrl": {
+                      "type": "string",
+                      "pattern": "^/api/v1/tenants/[a-f0-9-]+/cms/artworks/[a-f0-9-]+/preview$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing or invalid"
+          },
+          "403": {
+            "description": "Tenant, owner/editor access or current display rights denied"
+          },
+          "409": {
+            "description": "Current revision unapproved or immutable snapshot invalid"
           }
         }
       }
