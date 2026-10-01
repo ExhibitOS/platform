@@ -28,11 +28,12 @@ export PATH="$NODE_RUNTIME_BIN:$PATH"
 node --version
 npm --version
 npm ci
+npm run build
 ```
 
 다른 기기에서는 `.nvmrc`의 버전을 설치하고 같은 명령을 실행합니다. 위 경로는
 설치 위치에 맞춰 지정하는 예시이며 CI와 product code에 사용자 경로 의존성이 없습니다.
-두 터미널에서 각각 실행하세요.
+첫 실행에서는 위 `npm run build`로 storage와 studio-contract의 공통 workspace 출력을 준비합니다. 공통 패키지를 수정한 뒤에도 다시 build하세요. 두 터미널에서 각각 실행하세요.
 
 ```sh
 npm run dev:api
