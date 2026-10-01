@@ -14,8 +14,11 @@ Viewer, publication pipeline or a renderer of artwork bytes. Every local save
 and remote write validates the full pinned public schema and document semantics,
 including references, normalized quaternions, physical units and accessibility.
 The version is `1.0.0-draft.1`; documents over 1 MiB, depth 32, 100,000 JSON nodes
-or 16,384 code units per string are rejected. Asset bytes are not fetched or
-validated by this authoring stage.
+or 16,384 code units per string are rejected. The editor additionally caps
+candidate JSON input at 1,000,000 UTF-8 bytes; the remote HTTP request including
+draft/requestId wrappers is capped at 1 MiB. These transport/editor limits can
+reject a near-limit document before the public schema limit. Asset bytes are not
+fetched or validated by this authoring stage.
 
 ## Local storage and recovery
 

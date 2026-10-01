@@ -1,6 +1,8 @@
 # ADR 0005: Independent local Studio drafts and explicit remote concurrency
 
-Status: implementation candidate pending full integration review.
+Status: accepted for development implementation after independent exact-commit
+review and real PostgreSQL/Chromium integration checks. Qualification limits
+below remain applicable.
 
 Studio's minimum authoring flow must work without account infrastructure or a
 network, preserving full public geometry/placements and recovering interrupted
