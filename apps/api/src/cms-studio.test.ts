@@ -52,3 +52,28 @@ describe("protected approved CMS to Studio metadata projection", () => {
         await expect(cms.studioArtwork(c, session, id)).rejects.toMatchObject({ code: "APPROVAL_INVALID" });
     });
 });
+
+describe("preview snapshot revision precondition", () => {
+  it("rejects stale and malformed expected revisions before reading asset bytes", async () => {
+    const { approval } = setup();
+    const get = vi.fn();
+    const cms = new Cms({ get } as unknown as import("@exhibitos/storage").BlobStore);
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT m.role")) return { rows: [{ role: "artist" }] };
+      if (sql.includes("owner_user_id")) return { rows: [{ id, artist_id: assetId, owner_user_id: session.userId, revision: 8, approved_revision: 8, approved_asset_id: assetId, metadata: approval.snapshot.metadata }] };
+      if (sql.includes("AS rights")) return { rows: [{ id: assetId, rights, mime: "model/gltf-binary", object_key: "private/original", bytes: 1516, sha256: "a".repeat(64) }] };
+      if (sql.includes("SELECT metadata FROM artists")) return { rows: [{ metadata: { name: "Synthetic artist" } }] };
+      return { rows: [] };
+    });
+    const c = { query } as unknown as PoolClient;
+    await expect(cms.display(c, session, id, true, 7)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(get).not.toHaveBeenCalled();
+    for (const value of [0, -1, NaN, Infinity, 1.5, 2147483648]) {
+      const calls = query.mock.calls.length;
+      await expect(cms.display(c, session, id, true, value)).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      expect(query.mock.calls.length).toBe(calls);
+    }
+    expect(await cms.display(c, session, id, false, 8)).toMatchObject({ revision: 8, title: "Synthetic approved" });
+    expect(get).not.toHaveBeenCalled();
+  });
+});

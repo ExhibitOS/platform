@@ -406,7 +406,9 @@ export class Cms {
     if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }
-  async display(c: PoolClient, s: Session, id: string, preview = false) {
+  async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number) {
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision > 2147483647))
+      throw new ApiError(400, "INVALID_INPUT");
     let a;
     if (s.role === "viewer") {
       const assigned = await c.query(
@@ -434,6 +436,8 @@ export class Cms {
     ).rows[0];
     if (!asset || !allowedRights(asset.rights, "display"))
       throw new ApiError(403, "RIGHTS_DENIED");
+    if (expectedRevision !== undefined && a.revision !== expectedRevision)
+      throw new ApiError(409, "REVISION_CONFLICT");
     const artist = (
       await c.query(
         "SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2",
@@ -493,6 +497,6 @@ export class Cms {
         asset.id,
       ],
     );
-    return { bytes, mime: asset.mime };
+    return { bytes, mime: asset.mime, revision: a.revision };
   }
 }

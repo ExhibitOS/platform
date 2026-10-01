@@ -72,7 +72,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }
  app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string})));
  app.get(`${cp}/artworks/:id/display`,call(false,async(c,s,req)=>cms.display(c,s,cmsId(req))));
- app.get(`${cp}/artworks/:id/preview`,call(false,async(c,s,req,reply)=>{const result=await cms.display(c,s,cmsId(req),true) as {bytes:Buffer;mime:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-watermarked','true');return result.bytes;}));
+ app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}},[])}},call(false,async(c,s,req,reply)=>{const q=req.query as {expectedRevision?:string};const result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as {bytes:Buffer;mime:string;revision:number};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-watermarked','true').header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;}));
  const imports=store?new Imports(pool,store):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));

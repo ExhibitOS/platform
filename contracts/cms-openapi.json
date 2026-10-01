@@ -1966,6 +1966,17 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "expectedRevision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "description": "Optional exact current approved artwork revision. Studio passes its immutable snapshot revision. Checked together with current authorization and artwork/asset display rights before any bytes under the same request transaction; mismatch returns REVISION_CONFLICT (409). Omission preserves legacy current-preview behavior."
           }
         ],
         "security": [
@@ -1991,6 +2002,15 @@
                   "type": "string",
                   "format": "binary"
                 }
+              }
+            },
+            "headers": {
+              "X-ExhibitOS-Artwork-Revision": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Exact approved artwork revision of these derivative bytes."
               }
             }
           },
