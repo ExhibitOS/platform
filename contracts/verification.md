@@ -1,14 +1,14 @@
 # Consumer conformance evidence — platform
 
 Date: 2026-10-01. Implementation source: `953ba56` on
-`codex/contract-consumer`. Environment: macOS26.2/build25C56, Darwin25.2.0 arm64,
-Node24.21.0/npm11.19.0. Package/contract stability remains draft.
+`codex/contract-consumer`. Environment: macOS 26.2/build 25C56, Darwin 25.2.0 arm64,
+Node 24.21.0/npm 11.19.0. Package/contract stability remains draft.
 
 ## Immutable public input
 
-- Package: `@exhibitos/spec@0.1.0-draft.1`; format contract1.0.0-draft.1.
-- Source: public spec commit8ee5741860b626448dcba0c82657de6621e1c058.
-- Tarball:66,715bytes, SHA-256
+- Package: `@exhibitos/spec@0.1.0-draft.1`; format contract 1.0.0-draft.1.
+- Source: public spec commit 8ee5741860b626448dcba0c82657de6621e1c058.
+- Tarball: 66,715 bytes, SHA-256
   `8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec`.
 - Upstream tag is not yet created; the proposed tag is recorded without claiming
   it exists. License mapping and the original tarball name are in artifact.json.
