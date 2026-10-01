@@ -131,7 +131,8 @@ export function PublicPublication({ id }: { id: string }) {
           </section>
           <p className="cms-note">
             공개 승인 snapshot의 공간과 전시용 derivative를 점진적으로
-            불러옵니다. 보행·충돌·실시간 협업은 후속 기능입니다. 이미 전달된
+            불러옵니다. 걷기 시작을 선택하면 지원되는 공간에서 보행할 수 있습니다.
+            이동이 어려우면 정지 관람과 작품 목록을 이용하세요. 이미 전달된
             작품 bytes는 복제될 수 있습니다.
           </p>
         </article>
