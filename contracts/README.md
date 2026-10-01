@@ -20,10 +20,14 @@ itself is installed only from the vendored digest-pinned file. All 3 consumers r
 the same 15 packaged positive/negative cases plus direct OES version/scale, OEX
 byte corruption and OED unknown-field rejection tests, and the packaged CLI.
 
-The package is a development dependency. It is not imported by any browser or
-service runtime and does not implement Studio, iOS Capture, reconstruction or
-production import/export. Node conformance does not verify native Swift code,
-Apple API availability, device support, signing, actual capture or worker jobs.
+The pinned public package supplies conformance fixtures and server runtime
+validation for rights, import and Studio drafts. Studio bundles public JSON
+schemas and an Apache-licensed document validation adaptation without Node
+file/hash APIs; its source notice and parity checks are in
+[the browser validator guide](../apps/web/src/drafts/README.md). The artifact
+itself does not implement the product, Capture or reconstruction. Node
+conformance does not verify native Swift code, Apple API availability, device
+support, signing, actual capture or worker execution.
 
 Artifact updates require an intentional upstream source/version decision,
 new tarball/hash/provenance/license review, regenerated lockfile and all consumer

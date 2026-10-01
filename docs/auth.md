@@ -71,3 +71,5 @@ Run `npm run check`, `npm run test:auth`, `npm run test:storage` and `npm run te
 Primary-asset import is documented in [imports.md](imports.md). Format approval is not anonymous publication authorization. Legacy internal `stored` attachments remain private and rights-gated; quarantine and rejected objects cannot be downloaded.
 
 CMS-managed 작품은 `cms_managed` 표시로 구분합니다. 기존 artwork GET은 이 레코드의 소유 artist와 tenant admin만 private metadata를 읽게 하며, 배정된 관람자·curator는 CMS display serializer를 사용합니다. 기존 generic PATCH는 `400 CMS_ROUTE_REQUIRED`로 거부하고 검증된 CMS 수정 경로를 요구합니다. 원본·export는 asset rights와 CMS artwork rights의 교집합을 적용하며 CMS rights 누락·오류는 거부합니다. Legacy non-CMS 레코드의 기존 정책은 유지됩니다.
+
+Studio authoring drafts have a distinct private owner policy: artists and curators create/read/write their own drafts, tenant admins administer tenant drafts, and viewers or assigned nonowners cannot read draft metadata. Studio-managed generic exhibition PATCH requires the dedicated Studio route (`STUDIO_ROUTE_REQUIRED`); it cannot bypass schema/ETag checks. See [Studio authoring](studio.md).

@@ -95,6 +95,7 @@ export class Auth {
  async resource(client:PoolClient,s:Session,kind:'artworks'|'exhibitions',id:string,revision?:number,metadata?:Record<string,unknown>) {
   const actor={tenantId:s.tenantId,userId:s.userId};
   const row = kind==='artworks' ? await artworkAccess(client,actor,id,revision!==undefined) : await exhibitionAccess(client,actor,id,revision!==undefined);
+  if(kind==='exhibitions'&&row.studio_managed){if(revision!==undefined)throw new ApiError(400,'STUDIO_ROUTE_REQUIRED');if(s.role!=='admin'&&(!['curator','artist'].includes(s.role)||row.studio_owner_user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');}
   if(kind==='artworks'&&row.cms_managed){if(revision!==undefined)throw new ApiError(400,'CMS_ROUTE_REQUIRED');if(s.role!=='admin'&&(s.role!=='artist'||row.owner_user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');}
   if (revision === undefined) return {id:row.id,tenantId:row.tenant_id,revision:row.revision,metadata:row.metadata};
   await client.query('SELECT pg_advisory_xact_lock_shared(82002)');

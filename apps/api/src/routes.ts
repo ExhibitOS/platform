@@ -1,3 +1,4 @@
+import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -45,6 +46,12 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+
+ const studio=new Studio(),sp=`${prefix}/studio/exhibitions`;
+ const studioBody=object({draft:{type:'object'},requestId:id});
+ app.post(sp,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const result=await studio.create(c,s,req.body as StudioInput);reply.code(201).header('etag',result.etag);return result;}));
+ app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
+ app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
  const cms=new Cms(store),cp=`${prefix}/cms`;
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};
