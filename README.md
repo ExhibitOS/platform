@@ -63,9 +63,9 @@ API 정상 응답과 404, 웹 연결·실패 후 재시도, 좁은 화면과 키
 빌드한 API는 `npm run start --workspace @exhibitos/api`로 실행합니다.
 웹 빌드 배포 시 `/api` reverse proxy는 별도 구성해야 합니다.
 
-CI는 수동 `workflow_dispatch`로 준비했습니다. GitHub billing/remaining quota가
-확인되지 않아 자동 trigger와 hosted 실행은 보류합니다. 로컬 검증 결과와
-hosted 실행 결과는 구분합니다. 저장소 checkout과 공개 npm registry만 필요하며
+CI는 수동 `workflow_dispatch`를 유지합니다. 공개 저장소의 표준 무료 Ubuntu runner는
+비용 조건 검토 후 실행하며, 유료 runner나 확인되지 않은 할당량은 사용하지 않습니다.
+로컬 검증 결과와 hosted 실행 결과는 구분합니다. 저장소 checkout과 공개 npm registry만 필요하며
 operations, Capture, 실제 작품, 비밀정보가 없는 fresh checkout에서도 검사할 수
 있습니다. 후속 저장소도 exact toolchain + lockfile + 명시적 검사 명령 +
 secret-free fixture 원칙을 따르고 자신에게 필요한 언어 도구는 별도로 선택합니다.
@@ -102,3 +102,5 @@ desktop/좁은 viewport 각각 5회 cold load를 측정합니다.
 작품·이미지·모델·metadata의 권리는 작가 또는
 권리자에게 남고 별도의 asset rights manifest를 따릅니다. 코드 라이선스가
 사용자 작품에 적용되거나 재배포 권한을 자동으로 부여하지 않습니다.
+
+Storage metadata, migration, local development and recovery commands are documented in [docs/storage.md](docs/storage.md). `npm run test:storage` runs actual isolated PostgreSQL and S3-compatible integration tests with Docker. The storage package provides internal primitives; protected resource APIs, file-format approval and publication workflows remain subsequent tasks.

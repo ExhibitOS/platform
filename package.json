@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "engines": {
     "node": "24.21.0",
@@ -23,7 +24,10 @@
     "measure:baseline": "node scripts/measure-baseline.mjs",
     "notices": "node scripts/write-notices.mjs",
     "test:contracts": "node --test scripts/contract-consumer.test.mjs",
-    "conformance": "node scripts/contract-conformance.mjs"
+    "conformance": "node scripts/contract-conformance.mjs",
+    "test:storage": "node scripts/test-storage.mjs",
+    "storage:migrate": "node scripts/migrate-storage.mjs",
+    "storage:init": "node scripts/init-storage-env.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
