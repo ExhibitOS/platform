@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Exhibition } from "@exhibitos/spec";
 import type { GeometryCommand } from "./geometry/model";
-import { newPlacement, newLight } from "./placement/model";
+import { newPlacement, newLight, placementDimensions } from "./placement/model";
 import { request, failureMessage } from "./cms-client";
 import type { Session } from "./cms-client";
 import { presentationFor } from "@exhibitos/studio-contract";
@@ -261,7 +261,11 @@ export function PlacementEditor({
                     roomId: room,
                     artworkRevisionId: placement.artworkRevisionId,
                     assetId: placement.assetId,
-                    transform: { position, rotation, scale: [1, 1, 1] },
+                    transform: {
+                      position,
+                      rotation,
+                      scale: [...placement.transform.scale],
+                    },
                   },
                 })
               }
@@ -332,11 +336,11 @@ export function PlacementEditor({
             const a = document.artworks.find(
               (a) => a.revisionId === p.artworkRevisionId,
             );
+            const size = a ? placementDimensions(a, p) : null;
             return (
               <li key={p.id}>
-                {a?.metadata.title} · {a?.rights.creditLine} ·{" "}
-                {a?.dimensions.width} × {a?.dimensions.height} ×{" "}
-                {a?.dimensions.depth ?? 0} m
+                {a?.metadata.title} · {a?.rights.creditLine} · {size?.width} ×{" "}
+                {size?.height} × {size?.depth ?? 0} m
               </li>
             );
           })}

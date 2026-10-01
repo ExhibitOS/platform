@@ -779,7 +779,7 @@ try {
         evidence,
         image,
         scope:
-          "synthetic isolated PostgreSQL/API/child derivative; actual production Chromium13 groups included, no DRM or public publication claim",
+          "synthetic isolated PostgreSQL/API/child derivative; actual production Chromium16 groups included, no DRM or public publication claim",
       },
       null,
       2,

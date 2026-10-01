@@ -483,12 +483,20 @@ export function GeometryPreview({
             `${base}/cms/artworks/${binding.artworkId}/preview`
         )
           throw Error("DERIVATIVE_REVISION_CHANGED");
-        const response = await fetch(bridge.previewUrl, {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: abort.signal,
-        });
-        if (!response.ok) throw Error("DERIVATIVE_UNAVAILABLE");
+        const response = await fetch(
+          `${bridge.previewUrl}?expectedRevision=${artwork.revision}`,
+          {
+            credentials: "same-origin",
+            cache: "no-store",
+            signal: abort.signal,
+          },
+        );
+        if (
+          !response.ok ||
+          response.headers.get("x-exhibitos-artwork-revision") !==
+            String(artwork.revision)
+        )
+          throw Error("DERIVATIVE_UNAVAILABLE");
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength > 32 * 1024 * 1024 || disposed)
           throw Error("DERIVATIVE_UNAVAILABLE");

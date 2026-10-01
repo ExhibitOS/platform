@@ -365,12 +365,72 @@ export async function runPlacementBrowser({
       },
     );
     await check(
+      "loaded nonunit placement scale survives manual position/rotation edits and actual rendered dimensions",
+      async () => {
+        const original = await candidate();
+        await render();
+        await click("시작 camera 보기");
+        const baseline = await pixels();
+        const scaled = structuredClone(original);
+        scaled.placements.find((p) => p.id === paintingId).transform.scale = [
+          0.5, 0.5, 1,
+        ];
+        await page
+          .getByLabel("전시 문서 JSON", { exact: true })
+          .fill(JSON.stringify(scaled, null, 2));
+        await saved();
+        await page.reload();
+        await page.getByTestId(`draft-${localId}`).click();
+        await click("현재 서버 계정 확인");
+        await render();
+        await click("시작 camera 보기");
+        const small = await pixels();
+        assert(
+          small.colorful < baseline.colorful * 0.85,
+          `Physical PNG plane must visibly shrink after scale: baseline=${baseline.colorful},scaled=${small.colorful}`,
+        );
+        await page
+          .getByLabel("작품 배치 선택", { exact: true })
+          .selectOption(paintingId);
+        await page.getByLabel("작품 위치 (m) X", { exact: true }).fill("0.2");
+        await page.getByLabel("작품 회전 W", { exact: true }).fill("1");
+        await click("작품 수동 위치·회전 적용");
+        await saved();
+        const edited = await candidate();
+        assert.deepEqual(
+          edited.placements.find((p) => p.id === paintingId).transform.scale,
+          [0.5, 0.5, 1],
+        );
+        assert.equal(
+          edited.placements.find((p) => p.id === paintingId).transform
+            .position[0],
+          0.2,
+        );
+        await expect(page.locator(".placement-credits")).toContainText(
+          "0.75 × 0.5",
+        );
+        await render();
+        await click("시작 camera 보기");
+        assert((await pixels()).colorful < baseline.colorful * 0.85);
+        await click("공간 편집 undo");
+        await saved();
+        assert.deepEqual(await candidate(), scaled);
+        await page
+          .getByLabel("전시 문서 JSON", { exact: true })
+          .fill(JSON.stringify(original, null, 2));
+        await saved();
+      },
+    );
+    await check(
       "wall overflow and invalid start camera fail without replacing candidate or consuming undo; missing artwork JSON rejects save",
       async () => {
         await page
           .getByLabel("작품 배치 선택", { exact: true })
           .selectOption(paintingId);
         const before = await candidate();
+        await page
+          .getByLabel("정렬할 벽", { exact: true })
+          .selectOption(wallId);
         await page
           .getByLabel("벽 중심 offset (m) X", { exact: true })
           .fill("100");
@@ -473,6 +533,103 @@ export async function runPlacementBrowser({
           "bytes 사용 불가 1개",
         );
         assert.deepEqual(await candidate(), before);
+      },
+    );
+    await check(
+      "exact approved revision precondition prevents later reviewed bytes from rendering under an older Studio snapshot",
+      async () => {
+        const before = await candidate(),
+          a = await api("GET", `/cms/artworks/${artworkIds[0]}`);
+        const prior = await context.request.get(
+          `${origin}/api/v1/tenants/${tenantId}/cms/artworks/${a.id}/preview?expectedRevision=${a.revision}`,
+        );
+        assert.equal(prior.status(), 200);
+        assert.equal(
+          prior.headers()["x-exhibitos-artwork-revision"],
+          String(a.revision),
+        );
+        const changed = await api("PATCH", `/cms/artworks/${a.id}`, {
+          revision: a.revision,
+          ...a.metadata,
+          title: "New reviewed sculpture revision",
+        });
+        await api("POST", `/cms/artworks/${a.id}/approve`, {
+          revision: changed.revision,
+          assetId: a.approvedAssetId,
+        });
+        const stale = await context.request.get(
+          `${origin}/api/v1/tenants/${tenantId}/cms/artworks/${a.id}/preview?expectedRevision=${a.revision}`,
+        );
+        assert.equal(stale.status(), 409);
+        assert.equal((await stale.json()).code, "REVISION_CONFLICT");
+        assert(stale.headers()["content-type"].includes("application/json"));
+        const latest = await context.request.get(
+          `${origin}/api/v1/tenants/${tenantId}/cms/artworks/${a.id}/preview?expectedRevision=${changed.revision}`,
+        );
+        assert.equal(latest.status(), 200);
+        assert.equal(
+          latest.headers()["x-exhibitos-artwork-revision"],
+          String(changed.revision),
+        );
+        const invalid = await context.request.get(
+          `${origin}/api/v1/tenants/${tenantId}/cms/artworks/${a.id}/preview?expectedRevision=0`,
+        );
+        assert.equal(invalid.status(), 400);
+        await page.reload();
+        await page.getByTestId(`draft-${localId}`).click();
+        await click("현재 서버 계정 확인");
+        await expect(page.getByRole("status")).toContainText(
+          "현재 서버 계정을 확인했습니다",
+        );
+        await expect(page.getByTestId("geometry-render-state")).toContainText(
+          "승인된 작품 derivative 0개",
+        );
+        await expect(page.getByTestId("geometry-render-state")).toContainText(
+          "bytes 사용 불가 2개",
+        );
+        assert.deepEqual(await candidate(), before);
+      },
+    );
+    await check(
+      "webglcontextlost event handler preserves metadata and usable numeric commands",
+      async () => {
+        const before = await candidate();
+        // Wait for the current renderer after the asynchronous session check;
+        // cleanup force-loses the outgoing canvas as a replacement is built.
+        await expect
+          .poll(() =>
+            page
+              .locator(".geometry-preview canvas")
+              .evaluate(
+                (canvas) => !canvas.getContext("webgl2").isContextLost(),
+              ),
+          )
+          .toBe(true);
+        // Exercise the standard browser event without physical GPU certification. Exercise the
+        await page
+          .locator(".geometry-preview canvas")
+          .evaluate((canvas) =>
+            canvas.dispatchEvent(
+              new WebGLContextEvent("webglcontextlost", { cancelable: true }),
+            ),
+          );
+        await expect(page.getByTestId("geometry-render-state")).toContainText(
+          "3D 그래픽 연결이 중단",
+        );
+        assert.deepEqual(await candidate(), before);
+        await page
+          .getByLabel("편집 전시 제목", { exact: true })
+          .fill("Numeric editing after WebGL loss");
+        await click("제목 적용");
+        await saved();
+        assert.equal(
+          (await candidate()).title,
+          "Numeric editing after WebGL loss",
+        );
+        await click("공간 편집 undo");
+        await saved();
+        assert.deepEqual(await candidate(), before);
+        assert.deepEqual(errors, []);
       },
     );
     await context.close();
