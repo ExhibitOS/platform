@@ -2,7 +2,7 @@
 
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
-현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio는 계정 없는 오프라인 draft, 공간·작품 배치·조명 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. 전체 Viewer와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
+현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio는 계정 없는 오프라인 draft, 공간·작품 배치·조명 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. 공개 Viewer는 입구 우선 GLB/PNG·경량/상세 품질·취소/재시도를 지원합니다. 보행·오디오와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
 
 ## 저장소 경계
 
@@ -119,3 +119,5 @@ Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택
 승인된 CMS 작품의 실제 치수 배치·벽 정렬·조명·시작 camera·viewpoint·선택적 route와 credits는 [Studio 작품 배치](docs/studio-placement.md)를 참고하세요. `npm run test:cms`에는 실제 승인 GLB/PNG와 서버 권한·production Chromium 배치 검사가 포함됩니다. 오프라인은 metadata와 표시되지 않은 작품의 치수 bounds를 보존하며 protected 작품 bytes를 캐시하지 않습니다.
 
 전시의 READY 검사·명시적 immutable 공개·철회·조건부 복원과 익명 preview는 [Studio 공개 안내](docs/studio-publication.md) 및 [Publication OpenAPI](contracts/publication-openapi.json)를 따릅니다. `npm run test:publication`은 실제 격리 PostgreSQL/Chromium 검사입니다. 익명 URL은 private draft를 직접 읽지 않으며 모든 metadata/bytes 요청의 current rights를 서버가 재검사합니다.
+
+공개 전시의 점진적 로딩·기기 예산·오류 대응은 [Viewer 안내](docs/viewer.md), 실제 수치와 미검증 범위는 [Viewer baseline](docs/performance/viewer-baseline.md)에 있습니다. `npm run test:viewer`는 synthetic20작품/40variant, 실제 PostgreSQL과 production Chromium·20cold/warm sample·두60초 render trace를 검사합니다. 물리적 모바일/GPU/RSS 지원을 보장하는 검사는 아닙니다.

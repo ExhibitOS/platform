@@ -1,6 +1,6 @@
 # ADR 0009: qualified progressive Viewer assets
 
-Status: implementation candidate; browser/performance qualification and final review pending.
+Status: accepted after exact-head source review and independent production Chromium qualification at8b6ccc883f1b9e50011983d89eb9145ec6e82491. Software desktop FPS target miss and physical-device limits remain explicit in the measured baseline.
 
 The anonymous Viewer uses the immutable publication projection and existing publication_assets inventory. It does not add a private dependency or replace the current-rights gate. A versioned optional Artwork extension declares one measured full display asset and at most one genuinely reduced coarse display asset. Original download/export remains separately authorized. Older snapshots without the extension remain compatible with bounded decoded-resource checks.
 

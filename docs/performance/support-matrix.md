@@ -2,8 +2,8 @@
 
 2026-10-01 기준 실제 실행한 검사와 목표 지원 후보를 구분한다.
 아래 tested는 현재 병합된 development profile의 실제 검사 범위만을 뜻한다.
-Foundation 연결, CMS와 Studio authoring, 제한된 익명 publication preview를 검사했다.
-전체 Viewer·설치판·실물 모바일·장시간 안정성은 아직 보장하지 않는다.
+Foundation 연결, CMS와 Studio authoring, 익명 publication 및 제한된 GLB/PNG 점진적 Viewer를 검사했다.
+보행·오디오·설치판·실물 모바일·장시간 안정성은 아직 보장하지 않는다.
 
 | 환경 | 현재 상태 | 실제 범위 / 남은 검사 |
 | --- | --- | --- |
@@ -28,13 +28,10 @@ E2E와 baseline 측정에 필요하다. 이는 실제 검증한 버전이며 모
 ## 성능 적용 범위
 
 [baseline.md](baseline.md)와 [baseline.json](baseline.json)은 production 진입
-화면만 측정한다. 공개 synthetic gallery fixture는 spec에서 별도로 관리되며
-아직 이 화면에 로드하지 않는다. 방·조각·회화·조명·walk collision을 구현한 뒤
-공식 scene fixture를 연결해 transfer/60초 frame trace/메모리를 재측정한다.
-현재 수치로 gallery60FPS, mobile30FPS나 모바일400MB를 주장하지 않는다.
+화면만 측정한다. 별도 [Viewer baseline](viewer-baseline.md)과 [raw samples](viewer-baseline.json)은 공개 독립build에서 synthetic방1/조각10/회화10/조명4, 실제20cold/warm entrance와 두60초 render traces를 측정한다. SwiftShader software renderer의 desktop52.63FPS는60FPS 목표미달이다. Narrow59.07FPS는 실물mobile30FPS나400MB 지원을 증명하지 않는다. Foundation수치를 gallery성능으로 확대하지 않는다.
 
 ## 현재 검증과 다음 게이트
 
 T03-04 병합된 [publication evidence](../evidence-T03-04.md)는 exactproduct9b13d61의 실제 PostgreSQL/productionChromium/publicGLBPNG/currentrights/withdrawal/restore 결과를 기록한다. Tests30unit/8contracts와 publication16/CMS26/drafts23/geometry5/auth18/import11/foundationE2E3 및 corrected7migration22table7object/S3restore가 통과했다. 이 결과는 한정된 authoring/publication profile이며 fullViewer, unsupportedaudio/OEX, GPU성능 또는 모든 브라우저 지원을 증명하지 않는다.
 
-T04-01 Viewer의 [측정 절차](viewer-protocol.md)에 따라 방1개/조각10/회화10/조명4 fixedfixture를 적용하고 entrancecold/warmtransfer/actual60srender/memory를 별도 기록한다. 실제 report가 나오기 전에는 foundation수치를 Gallery성능으로 확대하지 않는다. Software/headlessrenderer 결과와 실물GPU·mobile working set을 구분한다.
+T04-01 actual8b6ccc8은 root독립check36unit8contracts/E2E3/worker3/Viewer14groups와 별도 exacthead source review를 통과했다. Entrancecold/warm p95≤3.077s와initial≤1.77MB는5s/15MiB 목표안이다. 실제 GPU/기기·physicalworking-set 검증과 보행/오디오 접근성 관람 gate는 후속작업이다.

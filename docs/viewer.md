@@ -1,6 +1,6 @@
 # 공개 Viewer와 점진적 작품 로딩
 
-상태: 구현 후보 안내. 실제 브라우저·성능 검사와 최종 검토가 진행 중이며, 지원 기기나 성능 목표를 통과했다는 선언이 아니다.
+상태: 제한된 GLB/PNG Viewer 구현과 실제 production Chromium 검증 완료. 보행·오디오·실물 모바일 지원은 후속 단계이며, 아래 측정은 모든 성능 목표의 통과 선언이 아니다.
 
 Studio에서 명시적으로 공개한 전시 URL을 열면 공개 snapshot의 공간과 승인된 GLB/PNG 전시용 bytes를 사용한다. 비공개 draft나 Capture 구현을 조회하지 않는다. 입구와 같은 방의 가까운 배치부터 최대 네 작품을 요청하고, 남은 작품은 **다음 작품 불러오기**로 요청한다. 실제 작품이 도착하기 전의 치수 bounds는 상세 모델이나 LOD로 간주하지 않는다.
 
@@ -12,7 +12,7 @@ Studio에서 명시적으로 공개한 전시 URL을 열면 공개 snapshot의 �
 | 화면 pixel ratio 상한 | 1 | 1.5 |
 | 작품 texture 최대 변 길이 | 512 | 2048 |
 | 작품 triangle 상한 | 20,000 | 100,000 |
-| decoded resource 추정 cache | 32MiB | 96MiB |
+| encoded+decoded resource 추정 cache | 32MiB | 96MiB |
 
 입구 품질은 서버가 생성한 작은 실제 모델·이미지를 선택한다. **불러온 작품 상세 품질**은 현재 예산 안에서 full variant를 요청한다. 예산에 맞는 variant가 없으면 오류와 목록/bounds를 유지한다. 모든 작품을 full 품질로 동시에 표시할 수 있다는 뜻은 아니다. **실패한 작품 다시 시도**, **작품 불러오기 취소**, **3D 다시 시작**으로 실패와 중단을 처리한다. 그래픽을 사용할 수 없으면 목록과 keyboard 조작을 사용한다. 보행·충돌은 후속 단계다.
 
@@ -28,4 +28,4 @@ PNG는 전시용 watermark가 적용된 qualified bytes에서 만들고, GLB coa
 
 GLB child process의 V8 heap128MiB·timeout8초는 native/WASM RSS의 강제 한도가 아니다. Full metric은 coarse 생성 성공 여부와 독립적으로 측정하여 단순화 실패가 기기 예산을 우회하지 않도록 한다. 생성 실패·hash 오류·권리 철회는 성공한 LOD로 표시하지 않는다.
 
-실제 reference scene과 cold/warm·60초 render 측정 정의는 [Viewer 측정 protocol](performance/viewer-protocol.md)을 따른다. Foundation baseline은 Viewer 성능 결과가 아니다. 물리적 iPhone/GPU 및 mobile working-set 검증은 해당 기기와 측정 근거가 있을 때만 지원 matrix에 반영한다. 공개 snapshot/variant의 DB metadata와 object bytes는 Git bundle backup에 포함되지 않으며 [storage 복원 절차](storage.md)의 일관된 DB/blob backup이 필요하다.
+실제 reference scene과 cold/warm·60초 render 측정 정의는 [Viewer 측정 protocol](performance/viewer-protocol.md)을 따른다. 실제 [측정 결과](performance/viewer-baseline.md)는 source commit과 raw samples를 보존한다. Foundation baseline은 Viewer 성능 결과가 아니다. 물리적 iPhone/GPU 및 mobile working-set 검증은 해당 기기와 측정 근거가 있을 때만 지원 matrix에 반영한다. 공개 snapshot/variant의 DB metadata와 object bytes는 Git bundle backup에 포함되지 않으며 [storage 복원 절차](storage.md)의 일관된 DB/blob backup이 필요하다.
