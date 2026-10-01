@@ -3,10 +3,12 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { transaction, sha256, type BlobStore } from "@exhibitos/storage";
 import { validateExhibition, revisionHash, type Artwork, type Exhibition } from "@exhibitos/spec";
-import { MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation } from "@exhibitos/studio-contract";
+import { MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
+import { derivative } from "./derivative.ts";
+import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
 import { allowedRights } from "./rights.ts";
 export interface PublicationIssue {
     code: string;
@@ -20,6 +22,7 @@ interface PreparedAsset {
     sourceSha256: string;
     bytes: Buffer;
     mime: "model/gltf-binary" | "image/png";
+    variants?: GeneratedVariants;
 }
 interface PublicationRow {
     tenant_id: string;
@@ -73,6 +76,16 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         delete a.extensions;
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: sha256(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
+        if (p.variants) {
+            const variants = [{assetId:p.sourceAssetId,detail:"full",...p.variants.full}];
+            if (p.variants.coarse && p.variants.bytes) {
+                const coarseId=randomUUID();
+                assets.push({id:coarseId,prepared:{...p,bytes:p.variants.bytes}});
+                a.assets.push({id:coarseId,path:`assets/${coarseId}/${p.mime==="image/png"?"image.png":"model.glb"}`,role:p.mime==="image/png"?"image":"model",mime:p.mime,bytes:p.variants.bytes.length,sha256:sha256(p.variants.bytes)});
+                variants.push({assetId:coarseId,detail:"coarse",...p.variants.coarse});
+            }
+            a.extensions={[LOD_NAMESPACE]:{version:1,variants}};
+        }
         a.provenance = { authorship: a.provenance.authorship, events: [{ id: randomUUID(), type: "exhibited", at, description: "Approved display derivative explicitly published by its authorized exhibition editor." }] };
         return a;
     });
@@ -115,17 +128,26 @@ export class Publications {
                     errors.push(issue("ARTWORK_SNAPSHOT_CHANGED", path, "Draft artwork does not exactly match its current immutable CMS approval.", "Import the current CMS snapshot; do not modify its dimensions, rights or asset inventory in draft JSON."));
                     continue;
                 }
-                const result = await this.cms.display(c, s, artwork.id, true, artwork.revision) as {
-                    bytes: Buffer;
-                    mime: "model/gltf-binary" | "image/png";
-                };
                 const primary = artwork.assets.find(a => a.id === artwork.primaryAssetId)!;
-                totalBytes += result.bytes.length;
+                let result: {bytes:Buffer;mime:"model/gltf-binary"|"image/png"};
+                if (artwork.artworkType === "image") {
+                    await this.cms.display(c,s,artwork.id,false,artwork.revision);
+                    const asset=(await c.query("SELECT object_key,bytes,sha256 FROM assets WHERE tenant_id=$1 AND id=$2",[s.tenantId,primary.id])).rows[0];
+                    if(!asset||!this.blobs)throw new ApiError(503,"STORAGE_UNAVAILABLE");
+                    const original=Buffer.from(await this.blobs.get(asset.object_key));
+                    if(original.length!==Number(asset.bytes)||sha256(original)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
+                    result={bytes:await derivative(original,"image/png",{maxTextureSize:2048}),mime:"image/png"};
+                } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision) as {bytes:Buffer;mime:"model/gltf-binary"};
+                // Unsupported/nonreducing simplification remains an honest full-only fallback.
+                const fullMetric=measureFullVariant(result.bytes,result.mime);
+                const generated:GeneratedVariants=await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
+                const variants:GeneratedVariants={...generated,full:fullMetric};
+                totalBytes += result.bytes.length + (variants?.bytes?.length??0);
                 if (totalBytes > 67108864) {
                     errors.push(issue("PUBLICATION_LIMIT", path, "Qualified display derivatives exceed the 64 MiB publication budget.", "Split the exhibition into smaller publication drafts."));
                     break;
                 }
-                prepared.push({ artwork, sourceAssetId: primary.id, sourceSha256: primary.sha256, bytes: result.bytes, mime: result.mime });
+                prepared.push({ artwork, sourceAssetId: primary.id, sourceSha256: primary.sha256, bytes: result.bytes, mime: result.mime, variants });
             }
             catch (error) {
                 const code = error instanceof ApiError ? error.code : "ARTWORK_UNAVAILABLE";
@@ -161,7 +183,7 @@ export class Publications {
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
         const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets } = projectPublication(row.metadata.candidate, report.prepared, publishedAt);
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
-        if (!valid.valid)
+        if (!valid.valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         const digest = revisionHash(snapshot);
         await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
@@ -189,10 +211,10 @@ export class Publications {
         const now = Date.now();
         if (!(await c.query("SELECT 1 FROM tenants t JOIN exhibitions e ON e.tenant_id=t.id WHERE t.id=$1 AND e.id=$2 AND t.deleted_at IS NULL AND e.deleted_at IS NULL", [row.tenant_id, row.exhibition_id])).rowCount)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-        if (!validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || revisionHash(row.snapshot) !== row.revision_sha256)
+        if (!validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         const records = (await c.query("SELECT pa.*,a.revision AS current_revision,a.approved_revision,a.approved_asset_id,a.deleted_at AS artwork_deleted,a.metadata AS current_metadata,ar.deleted_at AS artist_deleted,t.deleted_at AS tenant_deleted,e.deleted_at AS exhibition_deleted,asset.deleted_at AS asset_deleted,asset.state AS asset_state,asset.sha256 AS current_source_sha256,r.deleted_at AS rights_deleted,r.metadata AS current_rights FROM publication_assets pa JOIN artworks a ON (a.tenant_id,a.id)=(pa.tenant_id,pa.artwork_id) JOIN artists ar ON (ar.tenant_id,ar.id)=(a.tenant_id,a.artist_id) JOIN tenants t ON t.id=pa.tenant_id JOIN exhibitions e ON (e.tenant_id,e.id)=(pa.tenant_id,$2) JOIN assets asset ON (asset.tenant_id,asset.id)=(pa.tenant_id,pa.source_asset_id) JOIN rights r ON (r.tenant_id,r.id)=(asset.tenant_id,asset.rights_id) WHERE pa.publication_id=$1", [row.id, row.exhibition_id])).rows;
-        if (records.length !== row.snapshot.artworks.length)
+        if (records.length !== row.snapshot.artworks.flatMap(a=>a.assets).length)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         for (const r of records) {
             if (r.artwork_deleted || r.artist_deleted || r.tenant_deleted || r.exhibition_deleted || r.asset_deleted || r.rights_deleted || r.asset_state !== "approved" || r.current_revision !== r.artwork_revision || r.approved_revision !== r.artwork_revision || r.approved_asset_id !== r.source_asset_id || r.current_source_sha256 !== r.source_sha256 || !validMetadata(r.current_metadata) || !allowedRights(r.current_metadata.rights, "display", now) || !allowedRights(r.current_rights, "display", now))

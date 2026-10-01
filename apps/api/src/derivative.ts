@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
 import { ApiError } from "./auth.ts";
-export function derivative(bytes: Buffer, mime: string) {
+export function derivative(bytes: Buffer, mime: string, options?: {maxTextureSize:512|2048}) {
   return new Promise<Buffer>((resolve, reject) => {
     const url = new URL("./validation-worker.js", import.meta.url);
     if (import.meta.url.endsWith(".ts"))
       url.pathname = url.pathname.replace(/\.js$/, ".ts");
     const child = execFile(
       process.execPath,
-      ["--max-old-space-size=128", url.pathname, mime, "derivative"],
+      ["--max-old-space-size=128", url.pathname, mime, "derivative",String(options?.maxTextureSize??512)],
       {
         timeout: 5000,
         maxBuffer: 40 * 1024 * 1024,

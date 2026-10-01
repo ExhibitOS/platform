@@ -183,9 +183,12 @@ function pngChunk(name: string, body: Buffer) {
   return Buffer.concat([header, body, tail]);
 }
 function markPng(data: Buffer) {
+  const limit=Number(process.argv[4]??512);
+  if(![512,2048].includes(limit))fail();
   const decoded = png(data),
-    w = Math.min(512, decoded.width),
-    h = Math.max(1, Math.round((decoded.height * w) / decoded.width)),
+    ratio = Math.min(1, limit/Math.max(decoded.width,decoded.height)),
+    w = Math.max(1, Math.round(decoded.width*ratio)),
+    h = Math.max(1, Math.round(decoded.height*ratio)),
     out = Buffer.alloc((w * 4 + 1) * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
