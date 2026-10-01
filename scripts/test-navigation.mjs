@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { execFileSync } from "node:child_process";
 import { randomUUID, randomBytes } from "node:crypto";
-import { readFile, mkdtemp, readdir } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
@@ -342,6 +342,62 @@ try {
       .send(await readFile(new URL(`assets/${file}`, dist)));
   });
   await app.listen({ host: "127.0.0.1", port });
+  if (process.env.EXHIBITOS_NAVIGATION_NATIVE_EXTERNAL === "1") {
+    // Test-only fixture server: no Playwright import/browser, no operator signal
+    // is interpreted as proof. Root separately records actual native DOM states.
+    const evidenceDir = await mkdtemp(`${tmpdir()}/exhibitos-navigation-external-`),
+      descriptorPath = `${evidenceDir}/fixture.json`,
+      completionSignal = `${evidenceDir}/operator-complete.json`,
+      metadataResponse = await fetch(`${browserOrigin}/api/v1/publications/${pub.publicationId}`);
+    assert.equal(metadataResponse.status, 200);
+    const projection = await metadataResponse.json(),
+      inventory = projection.exhibition.artworks.flatMap((art) => art.assets),
+      publicAssets = [];
+    for (const slot of projection.assets) {
+      const entry = inventory.find((asset) => asset.id.toLowerCase() === slot.assetId.toLowerCase()),
+        response = await fetch(`${browserOrigin}${slot.url}`);
+      assert(entry);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-exhibitos-publication-revision"),pub.revisionSha256);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      assert.equal(sha256(bytes),entry.sha256);
+      assert.equal(bytes.length,entry.bytes);
+      publicAssets.push({assetId:slot.assetId,url:slot.url,mime:slot.mime,bytes:bytes.length,sha256:sha256(bytes)});
+    }
+    const productionAssets = [];
+    for (const file of ["index.html",...[...assets].sort().map((file)=>`assets/${file}`)]) {
+      const bytes = await readFile(new URL(file,dist));
+      productionAssets.push({path:file,bytes:bytes.length,sha256:sha256(bytes)});
+    }
+    const navigationSource = await readFile(new URL("../apps/web/src/viewer/navigation.ts",import.meta.url)),
+      deadline = Date.now()+300000,
+      descriptor = {
+        mode:"external-native-fixture",source:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),
+        dirtySource:execFileSync("git",["status","--porcelain"],{encoding:"utf8"}).trim(),
+        createdAt:new Date().toISOString(),expiresAt:new Date(deadline).toISOString(),
+        publicUrl:`${browserOrigin}/p/${pub.publicationId}`,metadataUrl:`${browserOrigin}/api/v1/publications/${pub.publicationId}`,
+        publication:projection.publication,geometry:fixture.geometry,
+        profile:{sourceSha256:sha256(navigationSource),declaration:navigationSource.toString().split("\n").find(line=>line.includes("export const NAVIGATION_PROFILE =")),runtimeQualification:"Read actual canvas.dataset.navigationProfile after explicit walking initialization; source declaration is not runtime proof.",lod:projection.exhibition.artworks.map(art=>({revisionId:art.revisionId,variants:art.extensions["org.exhibitos.viewer/lod"]}))},
+        productionAssets,publicAssets,completionSignal,
+        completionInstructions:"Write {\"complete\":true} to completionSignal to request cleanup. Signal is operator completion only, never native input pass evidence.",
+        qualification:"Fixture ready only. Root must independently record actual native acquisition, yaw movement, Escape unlock+paused state and source identity.",
+        checks,
+      };
+    await writeFile(descriptorPath,JSON.stringify(descriptor,null,2)+"\n");
+    console.log(`NATIVE EXTERNAL FIXTURE ${descriptorPath}`);
+    console.log(`NATIVE EXTERNAL URL ${descriptor.publicUrl}; completion signal ${completionSignal}; timeout 300000ms`);
+    let completed = false;
+    while (Date.now()<deadline) {
+      try {
+        const signal = JSON.parse(await readFile(completionSignal,"utf8"));
+        if (signal.complete === true) {completed=true;break;}
+      } catch (error) {if(error.code!=="ENOENT")throw error;}
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    const outcome = {source:descriptor.source,descriptorPath,endedAt:new Date().toISOString(),reason:completed?"operator-completion-signal":"bounded-timeout",qualification:"No native capture result inferred from completion signal; operator evidence is separate."};
+    await writeFile(`${evidenceDir}/fixture-outcome.json`,JSON.stringify(outcome,null,2)+"\n");
+    console.log(JSON.stringify(outcome,null,2));
+  } else {
   const { runNavigationBrowser } = await import("./navigation-browser.mjs");
   const result = await runNavigationBrowser({
     origin: browserOrigin,
@@ -361,6 +417,7 @@ try {
       2,
     ),
   );
+  }
 } finally {
   await app?.close();
   await pool?.end();
