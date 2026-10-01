@@ -11,6 +11,7 @@ const packages = [
   "react-dom",
   "scheduler",
   "three",
+  "@dimforge/rapier3d-compat",
   "ajv",
   "ajv-formats",
   "fast-deep-equal",
@@ -22,11 +23,17 @@ const notices = [
   "Third-party implementations included in the ExhibitOS web bundle.\nTheir original licenses apply independently of the project AGPL license.\n",
 ];
 for (const name of packages) {
-  let root;
-  try {
-    root = dirname(resolveWeb.resolve(`${name}/package.json`));
-  } catch {
-    root = `node_modules/${name}`;
+  // Resolve the actual browser workspace entry even when package exports hide package.json.
+  // Walking its ancestors avoids silently attributing a different hoisted version.
+  let root = dirname(resolveWeb.resolve(name));
+  for (let depth = 0; ; depth++) {
+    if (depth > 12) throw Error(`Cannot locate bundled package metadata: ${name}`);
+    let candidate;
+    try { candidate = JSON.parse(await readFile(`${root}/package.json`, "utf8")); } catch { /* Entry may be within a dist directory. */ }
+    if (candidate?.name === name) break;
+    const parent = dirname(root);
+    if (parent === root) throw Error(`Cannot locate bundled package metadata: ${name}`);
+    root = parent;
   }
   const metadata = JSON.parse(await readFile(`${root}/package.json`, "utf8"));
   let license;

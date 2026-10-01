@@ -10,12 +10,13 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "0.21.0",
+    "@exhibitos/studio-contract": "0.1.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "three": "0.186.1",
-    "@exhibitos/studio-contract": "0.1.0"
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@types/react": "19.3.0",
