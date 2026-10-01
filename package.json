@@ -35,7 +35,8 @@
     "import:work": "node scripts/import-worker.mjs",
     "test:cms": "npm run build && node scripts/test-cms.mjs",
     "test:drafts": "npm run build && node scripts/test-drafts.mjs",
-    "test:geometry": "npm run build && node scripts/test-geometry.mjs"
+    "test:geometry": "npm run build && node scripts/test-geometry.mjs",
+    "test:publication": "npm run build && node scripts/test-publication.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

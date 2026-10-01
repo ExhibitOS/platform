@@ -112,7 +112,7 @@ try {
   await migrate(pool, directory);
   assert.equal(
     (await pool.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-    "6",
+    "7",
   );
   assert.equal(
     (await pool.query("SELECT count(*) FROM artists")).rows[0].count,
@@ -397,6 +397,11 @@ try {
       "exhibitions",
       "exhibition_revisions",
       "studio_requests",
+      "studio_publications",
+      "publication_states",
+      "publication_assets",
+      "publication_events",
+      "publication_requests",
     ]) {
       const source = (
         await pool.query(

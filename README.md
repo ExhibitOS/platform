@@ -2,7 +2,7 @@
 
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
-현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio는 계정 없는 오프라인 draft와 방·벽·문·재질 편집을 지원합니다. 전체 Viewer와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
+현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio는 계정 없는 오프라인 draft, 공간·작품 배치·조명 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. 전체 Viewer와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
 
 ## 저장소 경계
 
@@ -117,3 +117,5 @@ Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택
 방·벽·바닥·천장·문/창문 및 표면 PBR 편집은 [공간 편집 안내](docs/studio-geometry.md)와 [ADR 0006](docs/adr/0006-studio-geometry-materials.md)를 읽으세요. 유효한 명령만 적용하며 최근 20개 명령 undo/redo와 로컬 CAS 저장을 사용합니다. `npm run test:geometry`는 실제 생산 빌드·Chromium·IndexedDB·오프라인 서비스 워커와 3D cutout 검증입니다.
 
 승인된 CMS 작품의 실제 치수 배치·벽 정렬·조명·시작 camera·viewpoint·선택적 route와 credits는 [Studio 작품 배치](docs/studio-placement.md)를 참고하세요. `npm run test:cms`에는 실제 승인 GLB/PNG와 서버 권한·production Chromium 배치 검사가 포함됩니다. 오프라인은 metadata와 표시되지 않은 작품의 치수 bounds를 보존하며 protected 작품 bytes를 캐시하지 않습니다.
+
+전시의 READY 검사·명시적 immutable 공개·철회·조건부 복원과 익명 preview는 [Studio 공개 안내](docs/studio-publication.md) 및 [Publication OpenAPI](contracts/publication-openapi.json)를 따릅니다. `npm run test:publication`은 실제 격리 PostgreSQL/Chromium 검사입니다. 익명 URL은 private draft를 직접 읽지 않으며 모든 metadata/bytes 요청의 current rights를 서버가 재검사합니다.

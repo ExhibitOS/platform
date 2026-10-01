@@ -202,7 +202,7 @@ export class Cms {
     id: string,
     b: ArtworkMetadata & { revision: number },
   ) {
-    await this.ownArtwork(c, s, id);
+    const previous = await this.ownArtwork(c, s, id);
     const { revision, ...metadata } = b;
     if (!validMetadata(metadata)) throw new ApiError(400, "INVALID_METADATA");
     const r = await c.query(
@@ -218,6 +218,12 @@ export class Cms {
       "UPDATE rights SET metadata=$3,revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id IN(SELECT rights_id FROM assets WHERE tenant_id=$1 AND artwork_id=$2)",
       [s.tenantId, id, metadata.rights],
     );
+    if (json(previous.metadata?.rights) !== json(metadata.rights)) {
+      await c.query("INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)", [s.tenantId, randomUUID(), {action:"cms.rights_changed", actor:s.userId, target:id, revision:r.rows[0].revision, display:allowedRights(metadata.rights,"display")}]);
+      if (!allowedRights(metadata.rights,"display")) {
+        await c.query("INSERT INTO publication_events(id,publication_id,actor_user_id,action) SELECT gen_random_uuid(),p.id,$3,'rights-revoked' FROM studio_publications p WHERE p.tenant_id=$1 AND EXISTS(SELECT 1 FROM publication_assets a WHERE a.publication_id=p.id AND a.artwork_id=$2)", [s.tenantId,id,s.userId]);
+      }
+    }
     return this.detail(c, s, id);
   }
   async archive(
