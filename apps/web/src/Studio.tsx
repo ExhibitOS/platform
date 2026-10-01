@@ -492,7 +492,7 @@ export function Studio() {
         이 브라우저의 IndexedDB에 저장합니다. 공유 기기의 다른 사용자가 로컬
         draft를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
         있습니다. 파일 백업을 별도로 보관하세요. 현재 단계는 versioned 문서
-        저장과 공간·작품 배치 편집입니다. 공개 publication·OEX 패키지 생성은
+        저장, 공간·작품 배치 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. OEX 패키지 생성은
         후속 기능입니다.
       </p>
       <div className="cms-grid">

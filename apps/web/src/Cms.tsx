@@ -1436,7 +1436,7 @@ export function Cms() {
         </>
       )}
       <footer>
-        인증된 개발용 CMS · 계정 발급, 자동 worker 운영, 공개 publication과 전체
+        인증된 개발용 CMS · 승인된 작품은 Studio에서 별도 검증 후 공개합니다. 계정 발급, 자동 worker 운영과 전체
         OES/OEX import는 별도 기능입니다.
       </footer>
     </main>
