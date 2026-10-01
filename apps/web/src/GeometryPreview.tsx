@@ -641,7 +641,7 @@ export function GeometryPreview({
             );
             resources.push({ dispose: () => bitmap.close() });
             const declared = lodVariantsFor(artwork).find(
-              (v) => v.assetId === inventory.id,
+              (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
             )?.textureSize;
             if (
               publicSource &&
@@ -783,7 +783,7 @@ export function GeometryPreview({
             disposed ||
             (viewerBudget && triangles > viewerBudget.maxTriangles) ||
             (publicSource &&
-              (lodVariantsFor(artwork).find((v) => v.assetId === inventory.id)
+              (lodVariantsFor(artwork).find((v) => v.assetId.toLowerCase() === inventory.id.toLowerCase())
                 ?.triangles ?? Infinity) < triangles)
           ) {
             for (const resource of resources) resource.dispose();

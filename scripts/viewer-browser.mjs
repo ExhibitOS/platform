@@ -145,6 +145,7 @@ export async function runViewerBrowser({
         for (const variant of art.extensions["org.exhibitos.viewer/lod"]
           .variants)
           if (variant.detail === "coarse") {
+            variant.assetId = variant.assetId.toUpperCase();
             if (variant.triangles !== undefined) variant.triangles = 1;
             else variant.textureSize = 1;
           }
@@ -175,7 +176,7 @@ export async function runViewerBrowser({
     assert(underclaimed.assetIds.some((id) => fullImageIds.has(id)));
     assert(underclaimed.budgetTotalBytes <= underclaimed.cache.maxBytes);
     checks.push(
-      "injected underclaimed geometry and PNG manifest with unchanged valid byte hashes rejects coarse decode, falls back only to qualified full within device budget",
+      "injected uppercase-reference underclaimed geometry and PNG manifest with unchanged valid byte hashes rejects coarse decode, falls back only to qualified full within device budget",
     );
     await testPage.unroute(metadataPath);
     await testPage.goto(`${origin}/p/${publicationId}`);
