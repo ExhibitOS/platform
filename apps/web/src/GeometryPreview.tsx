@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { presentationFor } from "@exhibitos/studio-contract";
+import {
+  AssetScheduler,
+  MemoryAssetCache,
+  fetchVerifiedAsset,
+  prioritizePlacements,
+  selectAssetVariant,
+  type DeviceBudget,
+} from "./viewer/loading";
+import { presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
 import type { PublicAsset } from "./publication-client";
 import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
@@ -76,8 +84,10 @@ export function GeometryPreview({
   appearance,
   session,
   publicSource,
+  viewerBudget,
 }: {
   document: Document;
+  viewerBudget?: DeviceBudget;
   session: Session | null;
   publicSource?: {
     publicationId: string;
@@ -95,6 +105,10 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
+  const demand = useRef<
+    ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
+  >(null);
+  const [restart, setRestart] = useState(0);
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
   useEffect(() => {
@@ -142,7 +156,9 @@ export function GeometryPreview({
         alpha: false,
         preserveDrawingBuffer: true,
       });
-      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.setPixelRatio(
+        Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2),
+      );
       renderer.outputColorSpace = three.SRGBColorSpace;
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
@@ -330,9 +346,54 @@ export function GeometryPreview({
       controls.enablePan = true;
       controls.minDistance = extent / 20;
       controls.maxDistance = extent * 10;
+      const trace: {
+        started: number;
+        samples: Array<{ at: number; ms: number; triangles: number }>;
+        frame: number;
+      } = { started: 0, samples: [], frame: 0 };
       const render = () => {
-        if (!disposed) renderer.render(scene, camera);
+        if (!disposed) {
+          const at = performance.now();
+          renderer.render(scene, camera);
+          if (trace.started)
+            trace.samples.push({
+              at,
+              ms: performance.now() - at,
+              triangles: renderer.info.render.triangles,
+            });
+        }
       };
+      const benchmark = () => {
+        if (!viewerBudget || trace.started) return;
+        trace.started = performance.now();
+        trace.samples = [];
+        const tick = () => {
+          if (disposed) return;
+          const elapsed = performance.now() - trace.started;
+          camera.position
+            .copy(center)
+            .add(
+              new three.Vector3(
+                Math.cos(elapsed / 8000) * extent * 1.4,
+                extent * 0.7,
+                Math.sin(elapsed / 8000) * extent * 1.4,
+              ),
+            );
+          camera.lookAt(center);
+          render();
+          (
+            renderer.domElement as HTMLCanvasElement & { viewerTrace?: unknown }
+          ).viewerTrace = {
+            elapsed,
+            samples: trace.samples,
+            geometry: renderer.info.memory.geometries,
+            textures: renderer.info.memory.textures,
+          };
+          if (elapsed < 60000) trace.frame = requestAnimationFrame(tick);
+        };
+        trace.frame = requestAnimationFrame(tick);
+      };
+      renderer.domElement.addEventListener("exhibitos-benchmark", benchmark);
       const view = (
         kind:
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
@@ -428,6 +489,7 @@ export function GeometryPreview({
       renderer.domElement.setAttribute("role", "img");
       const lost = (event: Event) => {
         event.preventDefault();
+        demand.current?.("cancel");
         setReady(false);
         setMessage(
           "3D 그래픽 연결이 중단되었습니다. 작품 metadata와 저장본은 유지됩니다. JSON과 숫자 편집을 사용할 수 있습니다.",
@@ -440,13 +502,23 @@ export function GeometryPreview({
       controls.addEventListener("change", render);
       action.current = view;
       resize();
-      view("isometric");
+      view(
+        viewerBudget && presentationFor(document).startCamera
+          ? "start"
+          : "isometric",
+      );
       setMessage(
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
       setReady(true);
       release = () => {
         action.current = null;
+        demand.current = null;
+        cancelAnimationFrame(trace.frame);
+        renderer.domElement.removeEventListener(
+          "exhibitos-benchmark",
+          benchmark,
+        );
         observer.disconnect();
         controls.dispose();
         renderer.domElement.removeEventListener("webglcontextlost", lost);
@@ -461,30 +533,53 @@ export function GeometryPreview({
         string,
         Promise<InstanceType<typeof three.Object3D>>
       >();
-      const loadArtwork = async (artwork: Document["artworks"][number]) => {
+      const byteCache = new MemoryAssetCache<ArrayBuffer>(
+        viewerBudget?.maxCacheBytes ?? 33554432,
+      );
+      let cacheHits = 0;
+      const decodedResources = new Map<
+        InstanceType<typeof three.Object3D>,
+        Array<{ dispose: () => void }>
+      >();
+      const loadArtwork = async (
+        artwork: Document["artworks"][number],
+        inventory = artwork.assets.find(
+          (a) => a.id === artwork.primaryAssetId,
+        )!,
+        taskSignal = abort.signal,
+      ) => {
+        const signal = AbortSignal.any([abort.signal, taskSignal]);
+        let bytes: ArrayBuffer;
         let response: Response;
         if (publicSource) {
           const source = publicSource.assets.find(
-            (a) =>
-              a.assetId.toLowerCase() === artwork.primaryAssetId.toLowerCase(),
+            (a) => a.assetId === inventory.id,
           );
-          if (
-            !source ||
-            source.url !==
-              `/api/v1/publications/${publicSource.publicationId}/assets/${source.assetId}`
-          )
-            throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
-          response = await fetch(source.url, {
-            credentials: "omit",
-            cache: "no-store",
-            signal: abort.signal,
-          });
-          if (
-            !response.ok ||
-            response.headers.get("x-exhibitos-publication-revision") !==
-              publicSource.revisionSha256
-          )
-            throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
+          if (!source) throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
+          const cached = byteCache.get(inventory.id);
+          if (cached) {
+            // Reuse is scoped to this renderer/publication and still checks authoritative availability.
+            const current = await fetch(
+              `/api/v1/publications/${publicSource.publicationId}`,
+              { credentials: "omit", cache: "no-store", signal },
+            );
+            if (
+              !current.ok ||
+              (await current.json()).publication.revisionSha256 !==
+                publicSource.revisionSha256
+            )
+              throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
+            bytes = cached;
+            cacheHits++;
+          } else {
+            bytes = await fetchVerifiedAsset({
+              ...publicSource,
+              asset: source,
+              inventory,
+              signal,
+            });
+            byteCache.set(inventory.id, bytes, bytes.byteLength);
+          }
         } else {
           const binding = artwork.extensions?.["org.exhibitos.studio/cms"];
           if (
@@ -529,103 +624,379 @@ export function GeometryPreview({
           )
             throw Error("DERIVATIVE_UNAVAILABLE");
         }
-        const bytes = await response.arrayBuffer();
-        if (bytes.byteLength > 32 * 1024 * 1024 || disposed)
+        if (!publicSource) bytes = await response!.arrayBuffer();
+        if (bytes!.byteLength > 33554432 || disposed || signal.aborted)
           throw Error("DERIVATIVE_UNAVAILABLE");
-        if (publicSource) {
-          const inventory = artwork.assets.find(
-            (a) => a.id.toLowerCase() === artwork.primaryAssetId.toLowerCase(),
-          );
-          const digest = Array.from(
-            new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
-          )
-            .map((n) => n.toString(16).padStart(2, "0"))
-            .join("");
-          if (
-            !inventory ||
-            inventory.bytes !== bytes.byteLength ||
-            inventory.sha256 !== digest
-          )
-            throw Error("PUBLIC_DERIVATIVE_INTEGRITY");
-        }
-        let object: InstanceType<typeof three.Object3D>;
-        if (artwork.artworkType === "image") {
-          const bitmap = await createImageBitmap(
-            new Blob([bytes], { type: "image/png" }),
-          );
-          if (disposed) {
-            bitmap.close();
-            throw Error("DISPOSED");
-          }
-          const texture = new three.Texture(bitmap);
-          texture.colorSpace = three.SRGBColorSpace;
-          texture.needsUpdate = true;
-          owned.push(texture, { dispose: () => bitmap.close() });
-          const geometry = new three.PlaneGeometry(
-            artwork.dimensions.width,
-            artwork.dimensions.height,
-          );
-          const material = new three.MeshStandardMaterial({
-            map: texture,
-            side: three.DoubleSide,
-            roughness: 0.8,
-          });
-          owned.push(geometry, material);
-          object = new three.Mesh(geometry, material);
-        } else {
-          const { GLTFLoader } =
-            await import("three/addons/loaders/GLTFLoader.js");
-          const manager = new three.LoadingManager();
-          manager.setURLModifier(() => {
-            throw Error("EXTERNAL_RESOURCE_REJECTED");
-          });
-          const gltf = await new GLTFLoader(manager).parseAsync(bytes, "");
-          gltf.scene.traverse((node) => {
-            if (node instanceof three.Mesh) {
-              owned.push(node.geometry);
-              for (const material of Array.isArray(node.material)
-                ? node.material
-                : [node.material]) {
-                owned.push(material);
-                for (const value of Object.values(material))
-                  if (value instanceof three.Texture) owned.push(value);
-              }
+        const resources: Array<{ dispose: () => void }> = [];
+        try {
+          let object: InstanceType<typeof three.Object3D>;
+          if (artwork.artworkType === "image") {
+            let bitmap = await createImageBitmap(
+              new Blob([bytes!], { type: "image/png" }),
+            );
+            resources.push({ dispose: () => bitmap.close() });
+            if (
+              viewerBudget &&
+              Math.max(bitmap.width, bitmap.height) >
+                viewerBudget.maxTextureSize
+            ) {
+              const factor =
+                viewerBudget.maxTextureSize /
+                Math.max(bitmap.width, bitmap.height);
+              const resized = await createImageBitmap(bitmap, {
+                resizeWidth: Math.max(1, Math.round(bitmap.width * factor)),
+                resizeHeight: Math.max(1, Math.round(bitmap.height * factor)),
+              });
+              bitmap.close();
+              bitmap = resized;
             }
-          });
-          if (disposed) {
+            if (disposed || signal.aborted) {
+              bitmap.close();
+              throw Error("DISPOSED");
+            }
+            const texture = new three.Texture(bitmap);
+            texture.colorSpace = three.SRGBColorSpace;
+            texture.needsUpdate = true;
+            resources.push(texture);
+            const geometry = new three.PlaneGeometry(
+              artwork.dimensions.width,
+              artwork.dimensions.height,
+            );
+            const material = new three.MeshStandardMaterial({
+              map: texture,
+              side: three.DoubleSide,
+              roughness: 0.8,
+            });
+            resources.push(geometry, material);
+            object = new three.Mesh(geometry, material);
+          } else {
+            const { GLTFLoader } =
+              await import("three/addons/loaders/GLTFLoader.js");
+            const manager = new three.LoadingManager();
+            manager.setURLModifier(() => {
+              throw Error("EXTERNAL_RESOURCE_REJECTED");
+            });
+            const gltf = await new GLTFLoader(manager).parseAsync(bytes!, "");
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
-                node.geometry.dispose();
+                resources.push(node.geometry);
                 for (const material of Array.isArray(node.material)
                   ? node.material
                   : [node.material]) {
+                  resources.push(material);
                   for (const value of Object.values(material))
-                    if (value instanceof three.Texture) value.dispose();
-                  material.dispose();
+                    if (value instanceof three.Texture) resources.push(value);
                 }
               }
             });
-            throw Error("DISPOSED");
+            if (disposed || signal.aborted) {
+              gltf.scene.traverse((node) => {
+                if (node instanceof three.Mesh) {
+                  node.geometry.dispose();
+                  for (const material of Array.isArray(node.material)
+                    ? node.material
+                    : [node.material]) {
+                    for (const value of Object.values(material))
+                      if (value instanceof three.Texture) value.dispose();
+                    material.dispose();
+                  }
+                }
+              });
+              throw Error("DISPOSED");
+            }
+            object = gltf.scene;
+            const bounds = new three.Box3().setFromObject(object),
+              center = bounds.getCenter(new three.Vector3()),
+              size = bounds.getSize(new three.Vector3());
+            if (Math.min(size.x, size.y, size.z) <= 0)
+              throw Error("DERIVATIVE_DIMENSIONS");
+            // Qualified derivatives are centered and calibrated to the approved physical dimensions.
+            const normalized = new three.Group();
+            normalized.scale.set(
+              artwork.dimensions.width / size.x,
+              artwork.dimensions.height / size.y,
+              (artwork.dimensions.depth ?? size.z) / size.z,
+            );
+            object.position.sub(center);
+            normalized.add(object);
+            object = normalized;
           }
-          object = gltf.scene;
-          const bounds = new three.Box3().setFromObject(object),
-            center = bounds.getCenter(new three.Vector3()),
-            size = bounds.getSize(new three.Vector3());
-          if (Math.min(size.x, size.y, size.z) <= 0)
-            throw Error("DERIVATIVE_DIMENSIONS");
-          // Qualified derivatives are centered and calibrated to the approved physical dimensions.
-          const normalized = new three.Group();
-          normalized.scale.set(
-            artwork.dimensions.width / size.x,
-            artwork.dimensions.height / size.y,
-            (artwork.dimensions.depth ?? size.z) / size.z,
-          );
-          object.position.sub(center);
-          normalized.add(object);
-          object = normalized;
+          let triangles = 0,
+            decodedBytes = 0;
+          const buffers = new Set<ArrayBufferLike>(),
+            textures = new Set<InstanceType<typeof three.Texture>>();
+          object.traverse((node) => {
+            if (node instanceof three.Mesh) {
+              triangles +=
+                (node.geometry.index?.count ??
+                  node.geometry.attributes.position?.count ??
+                  0) / 3;
+              for (const attribute of Object.values(
+                node.geometry.attributes,
+              ) as Array<InstanceType<typeof three.BufferAttribute>>) {
+                if ("array" in attribute) {
+                  const data = attribute.array;
+                  if (!buffers.has(data.buffer)) {
+                    buffers.add(data.buffer);
+                    decodedBytes += data.buffer.byteLength;
+                  }
+                }
+              }
+              if (node.geometry.index) {
+                const data = node.geometry.index.array;
+                if (!buffers.has(data.buffer)) {
+                  buffers.add(data.buffer);
+                  decodedBytes += data.buffer.byteLength;
+                }
+              }
+              for (const material of Array.isArray(node.material)
+                ? node.material
+                : [node.material])
+                for (const value of Object.values(material))
+                  if (value instanceof three.Texture && !textures.has(value)) {
+                    textures.add(value);
+                    const image = value.image as {
+                      width?: number;
+                      height?: number;
+                    };
+                    decodedBytes +=
+                      ((image?.width ?? 0) * (image?.height ?? 0) * 4 * 4) / 3;
+                  }
+            }
+          });
+          if (
+            signal.aborted ||
+            disposed ||
+            (viewerBudget && triangles > viewerBudget.maxTriangles) ||
+            (publicSource &&
+              (lodVariantsFor(artwork).find((v) => v.assetId === inventory.id)
+                ?.triangles ?? Infinity) < triangles)
+          ) {
+            for (const resource of resources) resource.dispose();
+            throw Error("DECODE_BUDGET_EXCEEDED");
+          }
+          object.userData.viewer = {
+            triangles,
+            decodedBytes,
+            textureSizes: [...textures].map((t) => {
+              const image = t.image as { width: number; height: number };
+              return [image.width, image.height];
+            }),
+          };
+          decodedResources.set(object, resources);
+          return object;
+        } catch (error) {
+          for (const resource of resources) resource.dispose();
+          throw error;
         }
-        return object;
       };
+      if (viewerBudget && publicSource) {
+        const start = presentationFor(document).startCamera;
+        const ordered = prioritizePlacements(
+          document,
+          start?.roomId ?? document.rooms[0]!.id,
+          start?.position ?? [0, 0, 0],
+        );
+        const arts = ordered
+          .map((p) =>
+            document.artworks.find(
+              (a) => a.revisionId === p.artworkRevisionId,
+            )!,
+          )
+          .filter(
+            (a, i, all) =>
+              a && all.findIndex((b) => b.revisionId === a.revisionId) === i,
+          );
+        const objects = new Map<string, InstanceType<typeof three.Object3D>>();
+        const destroy = (object: InstanceType<typeof three.Object3D>) => {
+          for (const resource of decodedResources.get(object) ?? [])
+            resource.dispose();
+          decodedResources.delete(object);
+        };
+        const active = new Map<string, string>(),
+          requested = new Set<string>(),
+          failed = new Set<string>();
+        const desired = new Map<string, string>();
+        const tasks = new Map<
+          string,
+          {
+            art: Document["artworks"][number];
+            inventory: Document["artworks"][number]["assets"][number];
+          }
+        >();
+        const scheduler = new AssetScheduler<
+          InstanceType<typeof three.Object3D>
+        >({
+          concurrency: viewerBudget.concurrency,
+          load: (key, signal) => {
+            const t = tasks.get(key)!;
+            return loadArtwork(t.art, t.inventory, signal);
+          },
+          onDiscard: destroy,
+        });
+        const update = () => {
+          if (disposed) return;
+          const decodedTotal = [...objects.values()].reduce(
+            (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
+            0,
+          );
+          for (const key of tasks.keys()) {
+            if (
+              decodedTotal + byteCache.stats().bytes <=
+              viewerBudget.maxCacheBytes
+            )
+              break;
+            byteCache.delete(key);
+          }
+          const loaded = ordered.filter((p) =>
+            active.has(p.artworkRevisionId),
+          ).length;
+          renderer.domElement.dataset.viewerState = JSON.stringify({
+            loadedPlacements: loaded,
+            authoredLights: document.lights.length,
+            loadedAssets: active.size,
+            entranceLoaded: arts
+              .slice(0, viewerBudget.entranceAssets)
+              .filter((a) => active.has(a.revisionId)).length,
+            total: arts.length,
+            deferred: arts.length - requested.size,
+            failed: failed.size,
+            cacheHits,
+            budgetTotalBytes: decodedTotal + byteCache.stats().bytes,
+            cache: byteCache.stats(),
+            scheduler: scheduler.stats(),
+            assetIds: [...active.values()],
+            pixelRatio: renderer.getPixelRatio(),
+            decodedBytes: [...objects.values()].reduce(
+              (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
+              0,
+            ),
+            decoded: [...objects.values()].map(
+              (value) => value.userData.viewer,
+            ),
+            geometry: renderer.info.memory.geometries,
+            textures: renderer.info.memory.textures,
+          });
+          setMessage(
+            `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
+          );
+        };
+        const request = (art: (typeof arts)[number], full = false) => {
+          requested.add(art.revisionId);
+          let inventory: (typeof art.assets)[number];
+          try {
+            inventory = selectAssetVariant(
+              art,
+              full ? 0 : Infinity,
+              viewerBudget,
+            );
+          } catch {
+            failed.add(art.revisionId);
+            update();
+            return;
+          }
+          if (active.get(art.revisionId) === inventory.id) {
+            update();
+            return;
+          }
+          desired.set(art.revisionId, inventory.id);
+          tasks.set(inventory.id, { art, inventory });
+          void scheduler
+            .request(inventory.id, arts.indexOf(art))
+            .then((object) => {
+              if (disposed) {
+                destroy(object);
+                return;
+              }
+              if (desired.get(art.revisionId) !== inventory.id) {
+                destroy(object);
+                return;
+              }
+              const old = objects.get(art.revisionId);
+              const used = [...objects.values()]
+                .filter((value) => value !== old)
+                .reduce(
+                  (sum, value) =>
+                    sum + (value.userData.viewer?.decodedBytes ?? 0),
+                  0,
+                );
+              if (
+                used +
+                  byteCache.stats().bytes +
+                  (object.userData.viewer?.decodedBytes ?? 0) >
+                viewerBudget.maxCacheBytes
+              ) {
+                destroy(object);
+                failed.add(art.revisionId);
+                update();
+                return;
+              }
+              for (const p of ordered.filter(
+                (p) => p.artworkRevisionId === art.revisionId,
+              )) {
+                const group = placements.get(p.id.toLowerCase());
+                if (group) {
+                  group.clear();
+                  group.add(object.clone(true));
+                }
+              }
+              if (old && old !== object) destroy(old);
+              objects.set(art.revisionId, object);
+              active.set(art.revisionId, inventory.id);
+              failed.delete(art.revisionId);
+              render();
+              update();
+            })
+            .catch((error) => {
+              if (!disposed) {
+                if (error?.name !== "AbortError" && !full) {
+                  try {
+                    const fallback = selectAssetVariant(art, 0, viewerBudget);
+                    if (fallback.id !== inventory.id) {
+                      request(art, true);
+                      return;
+                    }
+                  } catch {
+                    /* No qualified asset fits this device budget. */
+                  }
+                }
+                failed.add(art.revisionId);
+                update();
+              }
+            });
+          update();
+        };
+        demand.current = (kind) => {
+          if (kind === "cancel") {
+            scheduler.cancelAll();
+            update();
+            return;
+          }
+          const selected =
+            kind === "next"
+              ? arts
+                  .filter((a) => !requested.has(a.revisionId))
+                  .slice(0, viewerBudget.entranceAssets)
+              : kind === "retry"
+                ? arts.filter((a) => failed.has(a.revisionId))
+                : arts.filter((a) => requested.has(a.revisionId));
+          for (const art of selected) request(art, kind === "full");
+        };
+        const statsTimer = setInterval(update, 100);
+        const originalRelease = release;
+        release = () => {
+          clearInterval(statsTimer);
+          scheduler.dispose();
+          originalRelease();
+          for (const object of objects.values()) destroy(object);
+          byteCache.clear();
+          renderer.domElement.dataset.disposed = "true";
+        };
+        for (const art of arts.slice(0, viewerBudget.entranceAssets))
+          request(art);
+        update();
+        return;
+      }
       for (const placement of document.placements) {
         const artwork = document.artworks.find(
           (a) =>
@@ -641,7 +1012,12 @@ export function GeometryPreview({
             sources.set(artwork.revisionId, source);
           }
           const object = await source;
-          if (disposed) return;
+          if (disposed) {
+            for (const r of decodedResources.get(object) ?? []) r.dispose();
+            return;
+          }
+          owned.push(...(decodedResources.get(object) ?? []));
+          decodedResources.delete(object);
           const bounds = group.children[0];
           if (bounds) group.remove(bounds);
           group.add(object.clone(true));
@@ -669,7 +1045,15 @@ export function GeometryPreview({
       abort.abort();
       release();
     };
-  }, [document, selection, appearance, session, publicSource]);
+  }, [
+    document,
+    selection,
+    appearance,
+    session,
+    publicSource,
+    viewerBudget,
+    restart,
+  ]);
   return (
     <figure className="geometry-preview">
       <div ref={host} />
@@ -706,6 +1090,26 @@ export function GeometryPreview({
           시점 오른쪽 회전
         </button>
       </div>
+      {viewerBudget && (
+        <div className="cms-actions">
+          <button disabled={!ready} onClick={() => demand.current?.("next")}>
+            다음 작품 불러오기
+          </button>
+          <button disabled={!ready} onClick={() => demand.current?.("coarse")}>
+            불러온 작품 입구 품질
+          </button>
+          <button disabled={!ready} onClick={() => demand.current?.("full")}>
+            불러온 작품 상세 품질
+          </button>
+          <button disabled={!ready} onClick={() => demand.current?.("retry")}>
+            실패한 작품 다시 시도
+          </button>
+          <button disabled={!ready} onClick={() => demand.current?.("cancel")}>
+            작품 불러오기 취소
+          </button>
+          <button onClick={() => setRestart((n) => n + 1)}>3D 다시 시작</button>
+        </div>
+      )}
       <p className="cms-note">
         사각형 표면과 실제 사각 개구부의 편집 미리보기입니다.
         곡선벽·계단·충돌·보행 가능성·물리적 조도 측정은 지원하지 않습니다.
