@@ -1,6 +1,6 @@
 # ADR 0006: reversible OES geometry commands and namespaced surface materials
 
-Status: implementation candidate, pending independent review
+Status: accepted after independent source review and actual clean-clone validation
 
 The existing full public OES draft remains the persisted source of truth. Geometry commands clone it, validate the complete candidate, then publish one reversible state transition. Invalid commands do not modify the caller or consume undo history. Recent history is bounded to 20 snapshots; durable recovery remains the existing IndexedDB history mechanism. Referenced removals fail instead of silently cascading artwork or navigation changes.
 
