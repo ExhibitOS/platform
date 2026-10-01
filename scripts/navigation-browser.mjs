@@ -5,6 +5,12 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { chromium, expect } from "@playwright/test";
 export async function runNavigationBrowser({ origin, publicationId, fixture }) {
+  // Test-only supervision: NATIVE_INPUT=1, HEADED=1, CHANNEL=chrome.
+  // A native operator supplies click/move/Escape; the harness only observes
+  // real pointerLockElement and camera state, with bounded two-minute stages.
+  const supervised = process.env.EXHIBITOS_NAVIGATION_NATIVE_INPUT === "1";
+  if (supervised && process.env.EXHIBITOS_NAVIGATION_HEADED !== "1")
+    throw new Error("Supervised native input requires EXHIBITOS_NAVIGATION_HEADED=1");
   const browser = await chromium.launch({ headless: process.env.EXHIBITOS_NAVIGATION_HEADED !== "1", channel: process.env.EXHIBITOS_NAVIGATION_CHANNEL || undefined }),
     checks = [],
     sequences = [],
@@ -17,6 +23,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     browser: browser.version(),
     headed: process.env.EXHIBITOS_NAVIGATION_HEADED === "1",
     channel: process.env.EXHIBITOS_NAVIGATION_CHANNEL || "bundled-chromium",
+    captureInputProvider: supervised ? "native CUA" : "Playwright CDP",
     nativeCaptureQualification: "Strict native acquisition check unless explicitly excluded by named filter; excluded checks are not passes.",
     filter: process.env.EXHIBITOS_NAVIGATION_FILTER || null,
     dirtySource: execFileSync("git", ["status", "--porcelain"], {encoding:"utf8"}).trim(),
@@ -25,7 +32,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     sequences,
     screenshots,
     limits: [
-      "Headless Chromium emulated input; physical mobile, GPU and RSS unverified.",
+      "Keyboard/touch checks use emulated input; physical mobile, GPU and RSS unverified. Native capture provider is recorded separately.",
       "Window blur and hidden lifecycle handler injections are labeled separately from actual canvas focus and pointer-lock transitions.",
     ],
   };
@@ -38,6 +45,22 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     page
       .locator("canvas")
       .evaluate((c) => JSON.parse(c.dataset.navigationState || "null"));
+  const supervisedStage = async (page, stage, instruction, baseline) => {
+    const payload = {
+      stage, instruction, inputProvider: "native CUA", source: report.source,
+      url: page.url(), browser: report.browser, channel: report.channel,
+      canvas: await page.locator("canvas").boundingBox(),
+      captureButton: await button(page,"마우스 시점 잡기").boundingBox(),
+      state: await state(page), baseline,
+      issuedAt: new Date().toISOString(), timeoutMs:120000,
+      reportPath:`${dir}/navigation-run.json`,
+    };
+    report.nativeStages ||= [];
+    report.nativeStages.push(payload);
+    const path = `${dir}/native-input-stage.json`;
+    await writeFile(path, JSON.stringify(payload,null,2)+"\n");
+    console.log(`NATIVE INPUT ${stage}: ${instruction}; stage file ${path}`);
+  };
   const assets = (page) =>
     page
       .locator("canvas")
@@ -116,6 +139,19 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     const page = await context.newPage();
     page.setDefaultTimeout(30000);
     await page.addInitScript(() => {
+      window.nativeCaptureEvents = [];
+      const witness = (event) => {
+        if (event.type === "keydown" && event.code !== "Escape") return;
+        if (event.type === "mousemove" && !document.pointerLockElement) return;
+        if (window.nativeCaptureEvents.length >= 64) return;
+        window.nativeCaptureEvents.push({type:event.type,trusted:event.isTrusted,
+          code:event.type === "keydown" ? event.code : undefined,
+          movementX:event.movementX,movementY:event.movementY,
+          activation:navigator.userActivation.isActive,
+          locked:!!document.pointerLockElement,at:performance.now()});
+      };
+      for (const type of ["click","mousemove","keydown","pointerlockchange"])
+        document.addEventListener(type,witness,true);
       const request = Element.prototype.requestPointerLock;
       Element.prototype.requestPointerLock = async function (...args) {
         this.dataset.captureRequest = JSON.stringify({isConnected:this.isConnected,ownerMatches:this.ownerDocument===document,activation:navigator.userActivation.isActive,focus:document.hasFocus(),active:document.activeElement===this});
@@ -346,7 +382,11 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
       "browser pointer lock is opt-in, changes actual yaw, and loss pauses without automatic resume",
       async () => {
         await reset(page);
-        await button(page, "마우스 시점 잡기").click();
+        if (supervised) {
+          await button(page,"마우스 시점 잡기").scrollIntoViewIfNeeded();
+          await page.bringToFront();
+          await supervisedStage(page,"capture","Click the production mouse-capture button using native CUA; wait for actual pointer lock.");
+        } else await button(page, "마우스 시점 잡기").click();
         report.captureStatus = await page
           .getByRole("region", { name: "걷기 조작" })
           .getByRole("status", { name: "보행 상태" })
@@ -358,6 +398,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
                 document.pointerLockElement ===
                 document.querySelector("canvas"),
             ),
+            {timeout:supervised ? 120000 : 5000, intervals:[250]},
           )
           .toBe(true)
           .catch(async (error) => {
@@ -387,25 +428,32 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
           state: c.dataset.navigationState,
         }));
         const before = await state(page);
-        await page.mouse.move(700, 300);
-        await page.mouse.move(900, 300);
+        if (supervised) await supervisedStage(page,"move","Move the native mouse horizontally; actual camera yaw must change by more than 0.05 radians.",before);
+        else {
+          await page.mouse.move(700, 300);
+          await page.mouse.move(900, 300);
+        }
         await expect
-          .poll(async () => Math.abs((await state(page)).yaw - before.yaw))
+          .poll(async () => Math.abs((await state(page)).yaw - before.yaw), {timeout:supervised ? 120000 : 5000,intervals:[250]})
           .toBeGreaterThan(0.05);
-        await page.keyboard.press("Escape");
-        await expect.poll(async () => (await state(page)).paused).toBe(true);
+        report.nativeYawEvidence = {before,after:await state(page),inputProvider:report.captureInputProvider};
+        if (supervised) await supervisedStage(page,"escape","Press native Escape; actual pointer lock must release and walking must pause.");
+        else await page.keyboard.press("Escape");
+        await expect.poll(async () => (await state(page)).paused,{timeout:supervised ? 120000 : 5000,intervals:[250]}).toBe(true);
         await expect
-          .poll(() => page.evaluate(() => document.pointerLockElement === null))
+          .poll(() => page.evaluate(() => document.pointerLockElement === null),{timeout:supervised ? 120000 : 5000,intervals:[250]})
           .toBe(true);
         const stopped = await state(page);
         await page.keyboard.down("KeyW");
         await page.waitForTimeout(500);
         await page.keyboard.up("KeyW");
         near((await state(page)).eyePosition, stopped.eyePosition);
+        report.nativeEventWitness = await page.evaluate(()=>window.nativeCaptureEvents);
+        if (supervised) await supervisedStage(page,"complete","Native acquisition, actual yaw change, Escape release and no automatic movement passed.");
       },
     );
     if (process.env.EXHIBITOS_NAVIGATION_CAPTURE_ONLY === "1")
-      return { checks, screenshots, reportPath: "targeted capture debug" };
+      return { checks, screenshots, reportPath: `${dir}/navigation-run.json` };
     await check(
       "window-blur and hidden lifecycle handler injections clear movement and require explicit resume",
       async () => {
