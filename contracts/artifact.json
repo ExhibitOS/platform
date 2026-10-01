@@ -3,11 +3,11 @@
   "packageVersion": "0.1.0-draft.1",
   "contractVersion": "1.0.0-draft.1",
   "stability": "draft",
-  "file": "vendor/exhibitos-spec-0.1.0-draft.1.tgz",
-  "bytes": 66681,
-  "sha256": "1ae93ab804c83bc4b4e9f482cd05a642cf9eeadf8f0b55c190a809c024f6f3a7",
+  "file": "vendor/exhibitos-spec-0.1.0-draft.1-8d0c41c8d787.tgz",
+  "bytes": 66715,
+  "sha256": "8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec",
   "upstreamRepository": "https://github.com/ExhibitOS/spec",
-  "upstreamSourceCommit": "6870b1b24c9c327acbcb4c719557c66e2c4e8015",
+  "upstreamSourceCommit": "8ee5741860b626448dcba0c82657de6621e1c058",
   "upstreamTag": null,
   "licenseMapping": {
     "codeSchemasMetadataDocumentation": "Apache-2.0",
@@ -20,5 +20,6 @@
     "fixtures/synthetic/reference-scene.json",
     "fixtures/synthetic/manifest.json"
   ],
-  "proposedTag": "spec-package-v0.1.0-draft.1"
+  "proposedTag": "spec-package-v0.1.0-draft.1",
+  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.1.tgz"
 }

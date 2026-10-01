@@ -1,8 +1,8 @@
 # Public draft contract consumer
 
 This repository vendors an immutable public `@exhibitos/spec` npm tarball for
-Node-only development checks. Package version0.1.0-draft.1 and format contract
-version1.0.0-draft.1 are distinct; neither is stable. Provenance, bytes, SHA-256,
+Node-only development checks. Package version 0.1.0-draft.1 and format contract
+version 1.0.0-draft.1 are distinct; neither is stable. Provenance, bytes, SHA-256,
 upstream commit and license mapping are recorded in [artifact.json](artifact.json).
 The original license texts remain inside the archive and installed package.
 
@@ -13,11 +13,11 @@ npm run conformance
 npm run test:contracts
 ```
 
-Without nvm, put an installed Node24.21.0/npm11.19.0 runtime on PATH. No private
+Without nvm, put an installed Node 24.21.0/npm 11.19.0 runtime on PATH. No
 spec checkout, operations checkout, token, actual artwork or Capture data is
 needed. Public npm dependencies are resolved by the exact lockfile; the contract
-itself is installed only from the vendored digest-pinned file. All3 consumers run
-the same15 packaged positive/negative cases plus direct OES version/scale, OEX
+itself is installed only from the vendored digest-pinned file. All 3 consumers run
+the same 15 packaged positive/negative cases plus direct OES version/scale, OEX
 byte corruption and OED unknown-field rejection tests, and the packaged CLI.
 
 The package is a development dependency. It is not imported by any browser or

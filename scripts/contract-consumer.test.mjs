@@ -86,3 +86,13 @@ test('tarball byte corruption is rejected by the provenance gate', async () => {
     error => error.status !== 0 && String(error.stderr).includes('archive SHA-256 mismatch'));
   } finally { await rm(temporary, { recursive: true, force: true }); }
 });
+
+
+test('all documented packaged JSON schema aliases resolve with import attributes', async () => {
+  for (const name of ['artwork', 'exhibition', 'lifecycle', 'oex', 'oed']) {
+    const imported = await import(`@exhibitos/spec/schemas/${name}.json`, { with: { type: 'json' } });
+    const original = JSON.parse(await readFile(spec.schemaURL(name), 'utf8'));
+    assert.deepEqual(imported.default, original);
+    assert.ok(typeof imported.default.$id === 'string');
+  }
+});
