@@ -1,0 +1,104 @@
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
+import type { Pool, PoolClient } from 'pg';
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore) {
+ const settings=config(input), auth=new Auth(pool);
+ const token=(req:FastifyRequest) => {
+  const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
+  return cookies.length===1 ? cookies[0]!.slice(settings.cookieName.length+1) : undefined;
+ };
+ const cookie=(value:string,clear=false)=>`${settings.cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear?0:28800}${settings.secure?'; Secure':''}`;
+ const guarded=(req:FastifyRequest,mutate:boolean)=>{
+  if(req.headers.host!==settings.host) throw new ApiError(403,'ORIGIN_REJECTED');
+  if(req.headers.origin!==undefined && req.headers.origin!==settings.origin) throw new ApiError(403,'ORIGIN_REJECTED');
+  if(mutate && req.headers.origin!==settings.origin) throw new ApiError(403,'ORIGIN_REJECTED');
+  if(mutate && req.method!=='POST' && req.method!=='PUT' && req.method!=='PATCH') throw new ApiError(400,'INVALID_INPUT');
+ };
+ app.setErrorHandler((error,request,reply)=>{
+  const framework=error as {validation?:unknown;statusCode?:number};
+  const status=error instanceof ApiError ? error.status : framework.validation || framework.statusCode===400 ? 400 : framework.statusCode===413 ? 413 : framework.statusCode===415 ? 415 : 500;
+  const code=error instanceof ApiError ? error.code : status===400?'INVALID_INPUT':status===413?'BODY_TOO_LARGE':status===415?'UNSUPPORTED_MEDIA_TYPE':'INTERNAL_ERROR';
+  return reply.code(status).send({code,message:code,fieldErrors:[],requestId:request.id});
+ });
+ const str={type:'string'}, id={type:'string',format:'uuid'};
+ const object=(properties:Record<string,unknown>,required=Object.keys(properties))=>({type:'object',additionalProperties:false,properties,required});
+ const bodyMetadata=object({revision:{type:'integer',minimum:1},metadata:{type:'object',maxProperties:200}});
+ app.post('/api/v1/auth/login',{schema:{body:object({subject:{...str,minLength:3,maxLength:128},password:{...str,minLength:12,maxLength:1024},tenantId:id})}},async(req,reply)=>{
+  guarded(req,true);
+  const body=req.body as {subject:string;password:string;tenantId:string};
+  const result=await auth.login(body.subject,body.password,body.tenantId,req.ip);
+  return reply.header('set-cookie',cookie(result.token)).header('cache-control','no-store').send({authenticated:true});
+ });
+ const call=(mutate:boolean,work:(client:PoolClient,s:Session,req:FastifyRequest,reply:FastifyReply)=>Promise<unknown>)=>async(req:FastifyRequest,reply:FastifyReply)=>{
+  guarded(req,mutate);
+  reply.header('cache-control','no-store');
+  const params=req.params as {tenantId?:string};
+  if(params.tenantId) uuid(params.tenantId);
+  return auth.request(token(req),params.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,mutate,(client,s)=>work(client,s,req,reply));
+ };
+ app.get('/api/v1/auth/session',call(false,async(_c,s)=>s));
+ app.post('/api/v1/auth/logout',call(true,async(client,s,_req,reply)=>{
+  await client.query('UPDATE auth_sessions SET revoked=true WHERE id=$1',[s.id]);
+  reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
+ }));
+ const prefix='/api/v1/tenants/:tenantId';
+ for(const kind of ['artworks','exhibitions'] as const) {
+  app.get(`${prefix}/${kind}/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return auth.resource(c,s,kind,p.id);}));
+  app.patch(`${prefix}/${kind}/:id`,{schema:{body:bodyMetadata}},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);const b=req.body as {revision:number;metadata:Record<string,unknown>};return auth.resource(c,s,kind,p.id,b.revision,b.metadata);}));
+ }
+ app.get(`${prefix}/assets/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return auth.asset(c,s,p.id);}));
+ app.get(`${prefix}/assets/:id/bytes`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};uuid(p.id);await auth.asset(c,s,p.id,'download');if(!store) throw new ApiError(503,'STORAGE_UNAVAILABLE');const bytes=await auth.bytes(c,s,p.id,store);reply.header('content-type','application/octet-stream').header('content-disposition','attachment').header('x-content-type-options','nosniff');return bytes;}));
+ app.post(`${prefix}/assets/:id/export-check`,call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return auth.asset(c,s,p.id,'export');}));
+ app.put(`${prefix}/memberships/:userId`,{schema:{body:object({role:{enum:roles}})}},call(true,async(c,s,req)=>{
+  await auth.admin(c,s);const p=req.params as {userId:string};uuid(p.userId);const b=req.body as {role:string};
+  const member=await c.query('SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2',[s.tenantId,p.userId]);
+  if(!member.rowCount) throw new ApiError(403,'FORBIDDEN');
+  if(member.rows[0].role==='admin' && b.role!=='admin') {
+   const count=await c.query("SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.role='admin' AND NOT u.disabled AND m.user_id<>$2",[s.tenantId,p.userId]);
+   if(!count.rowCount) throw new ApiError(409,'LAST_ADMIN');
+  }
+  await c.query('UPDATE memberships SET role=$3 WHERE tenant_id=$1 AND user_id=$2',[s.tenantId,p.userId,b.role]);
+  await c.query('UPDATE auth_sessions SET revoked=true WHERE tenant_id=$1 AND user_id=$2',[s.tenantId,p.userId]);
+  await auth.audit(c,s,'membership.changed',p.userId);return {updated:true};
+ }));
+ app.put(`${prefix}/exhibitions/:id/assignments/:userId`,{schema:{body:object({canView:{type:'boolean'}})}},call(true,async(c,s,req)=>{
+  await auth.admin(c,s);const p=req.params as {id:string;userId:string};uuid(p.id);uuid(p.userId);
+  await auth.resource(c,s,'exhibitions',p.id);
+  const member=await c.query('SELECT 1 FROM memberships WHERE tenant_id=$1 AND user_id=$2',[s.tenantId,p.userId]);if(!member.rowCount) throw new ApiError(403,'FORBIDDEN');
+  await c.query('INSERT INTO exhibition_assignments VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,exhibition_id,user_id) DO UPDATE SET can_view=excluded.can_view',[s.tenantId,p.id,p.userId,(req.body as {canView:boolean}).canView]);
+  await auth.audit(c,s,'assignment.changed',p.userId);return {updated:true};
+ }));
+ app.post(`${prefix}/exhibitions/:id/assignments/:userId/revoke`,call(true,async(c,s,req)=>{
+  await auth.admin(c,s);const p=req.params as {id:string;userId:string};uuid(p.id);uuid(p.userId);await auth.resource(c,s,'exhibitions',p.id);
+  await c.query('DELETE FROM exhibition_assignments WHERE tenant_id=$1 AND exhibition_id=$2 AND user_id=$3',[s.tenantId,p.id,p.userId]);
+  await auth.audit(c,s,'assignment.revoked',p.userId);return {revoked:true};
+ }));
+ app.post(`${prefix}/sessions/:id/revoke`,call(true,async(c,s,req)=>{
+  await auth.admin(c,s);const p=req.params as {id:string};uuid(p.id);
+  const result=await c.query('UPDATE auth_sessions SET revoked=true WHERE tenant_id=$1 AND id=$2 RETURNING id',[s.tenantId,p.id]);if(!result.rowCount) throw new ApiError(403,'FORBIDDEN');
+  await auth.audit(c,s,'session.revoked',p.id);return {revoked:true};
+ }));
+ app.post(`${prefix}/users/:userId/disable`,call(true,async(c,s,req)=>{
+  await auth.admin(c,s);const p=req.params as {userId:string};uuid(p.userId);
+  // Users can belong to multiple institutions: tenant admin cannot disable globally.
+  const member=await c.query('SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2',[s.tenantId,p.userId]);if(!member.rowCount) throw new ApiError(403,'FORBIDDEN');
+  const other=await c.query('SELECT 1 FROM memberships WHERE user_id=$1 AND tenant_id<>$2',[p.userId,s.tenantId]);if(other.rowCount) throw new ApiError(409,'MULTI_TENANT_USER');
+  if(member.rows[0].role==='admin') {const others=await c.query("SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.tenant_id=$1 AND m.user_id<>$2 AND m.role='admin' AND NOT u.disabled",[s.tenantId,p.userId]);if(!others.rowCount) throw new ApiError(409,'LAST_ADMIN');}
+  await c.query('UPDATE users SET disabled=true WHERE id=$1',[p.userId]);await c.query('UPDATE auth_sessions SET revoked=true WHERE user_id=$1',[p.userId]);await auth.audit(c,s,'user.disabled',p.userId);return {disabled:true};
+ }));
+ app.post(`${prefix}/users`,{schema:{body:object({subject:{...str,minLength:3,maxLength:128},password:{...str,minLength:12,maxLength:1024},role:{enum:roles}})}},async(req,reply)=>{
+  // Check admin before a costly hash; recheck atomically before adding account.
+  guarded(req,true);const p=req.params as {tenantId:string};uuid(p.tenantId);const b=req.body as {subject:string;password:string;role:Role};subjectInput(b.subject);passwordInput(b.password);
+  const csrf=typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined;
+  await auth.request(token(req),p.tenantId,csrf,true,(c,s)=>auth.admin(c,s));
+  const salt=randomBytes(16), hash=await auth.hash(b.password,salt);
+  return auth.request(token(req),p.tenantId,csrf,true,async(c,s)=>{
+   await auth.admin(c,s);const userId=randomUUID();
+   const exists=await c.query('SELECT 1 FROM users WHERE subject=$1',[b.subject]);if(exists.rowCount) throw new ApiError(409,'SUBJECT_CONFLICT');
+   await c.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,b.subject]);await c.query('INSERT INTO memberships VALUES($1,$2,$3)',[s.tenantId,userId,b.role]);await c.query("INSERT INTO auth_credentials VALUES($1,$2,$3,'argon2id',19456,2,1)",[userId,salt,hash]);await auth.audit(c,s,'user.created',userId);
+   reply.header('cache-control','no-store').code(201);return {userId};
+  });
+ });
+ return settings;
+}

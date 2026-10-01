@@ -15,6 +15,6 @@ describe('public service health contract', () => {
     const app = buildApp(); apps.push(app);
     const result = await app.inject({ method: 'GET', url: '/api/v1/private-artworks' });
     expect(result.statusCode).toBe(404);
-    expect(result.json()).toEqual({ code: 'NOT_FOUND', message: 'Resource not found', requestId: expect.any(String) });
+    expect(result.json()).toEqual({ code: 'NOT_FOUND', message: 'Resource not found', fieldErrors: [], requestId: expect.any(String) });
   });
 });
