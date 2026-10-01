@@ -228,6 +228,31 @@ describe("real Rapier fixed-step first-person collision", () => {
             c.dispose();
         }
     });
+    it("does not bridge a lower-floor gap using an unreachable upper floor projection", async () => {
+        const d = room();
+        d.surfaces = d.surfaces.filter(s => s.type !== "floor");
+        const flat: [
+            number,
+            number,
+            number,
+            number
+        ] = [-Math.SQRT1_2, 0, 0, Math.SQRT1_2];
+        slab(d, 0, 0, 1.045, 4, 2, flat, "floor");
+        slab(d, 0, 0, -0.965, 4, 2, flat, "floor");
+        slab(d, 0, 2.1, 0, 4, 6, flat, "floor");
+        const c = await createNavigationController(d, { position: [0, 1.6, 1.5] });
+        try {
+            expect(c.isWalkable([0, 1.6, 1.5])).toBe(true);
+            expect(c.isWalkable([0, 1.6, -1.5])).toBe(true);
+            expect(c.pathBetween([0, 1.6, 1.5], [0, 1.6, -1.5])).toBeUndefined();
+            const stopped = walk(c, 4);
+            expect(stopped.eyePosition[2]).toBeGreaterThan(0.045);
+            expect(stopped.recovered).toBe(true);
+        }
+        finally {
+            c.dispose();
+        }
+    });
     it("prevents floor-edge falls and implicit-volume ceiling escape, including maximum eyeheight", async () => {
         const d = room();
         d.surfaces = d.surfaces.filter(s => s.type !== "floor");
@@ -268,22 +293,27 @@ describe("real Rapier fixed-step first-person collision", () => {
         }
     }, 20000);
     it("rejects floor apertures explicitly instead of producing a mesh across a sampled hole", async () => { const d = room(), floor = d.surfaces.find(s => s.type === "floor")!; d.openings = [{ id: id(), surfaceId: floor.id, type: "door", offset: [0, 0], dimensions: { width: 0.2, height: 0.2 }, exterior: false }]; await expect(createNavigationController(d, { position: [0, 1.6, 0] })).rejects.toThrow("NAVIGATION_OPENING_UNSUPPORTED"); });
-    it("normalizes equal-time diagonal input and bounds a stalled-frame collision at the wall", async () => { const straight = await createNavigationController(room(), { position: [0, 1.6, 2] }), diagonal = await createNavigationController(room(), { position: [0, 1.6, 2] }); try {
-        const a = walk(straight, 2), b = walk(diagonal, 2, 60, { forward: 1, right: 1, yaw: 0 }), diagonalDistance = Math.hypot(b.eyePosition[0], 2 - b.eyePosition[2]);
-        expect(Math.abs(diagonalDistance - (2 - a.eyePosition[2]))).toBeLessThan(0.04);
-        expect(diagonalDistance).toBeLessThanOrEqual(2 * 1.3 + 0.02);
-    }
-    finally {
-        straight.dispose();
-        diagonal.dispose();
-    } const nearWall = await createNavigationController(room(), { position: [0, 1.6, -3.68], speed: 1.6 }); try {
-        const p = nearWall.advance(10, { forward: 1, right: 0 });
-        expect(p.steps).toBe(15);
-        expect(p.eyePosition[2]).toBeGreaterThan(-3.76);
-        expect(p.eyePosition[2]).toBeLessThan(-3.70);
-        expect(p.blocked).toBe(true);
-    }
-    finally {
-        nearWall.dispose();
-    } }, 20000);
+    it("normalizes equal-time diagonal input and bounds a stalled-frame collision at the wall", async () => {
+        const straight = await createNavigationController(room(), { position: [0, 1.6, 2] }), diagonal = await createNavigationController(room(), { position: [0, 1.6, 2] });
+        try {
+            const a = walk(straight, 2), b = walk(diagonal, 2, 60, { forward: 1, right: 1, yaw: 0 }), diagonalDistance = Math.hypot(b.eyePosition[0], 2 - b.eyePosition[2]);
+            expect(Math.abs(diagonalDistance - (2 - a.eyePosition[2]))).toBeLessThan(0.04);
+            expect(diagonalDistance).toBeLessThanOrEqual(2 * 1.3 + 0.02);
+        }
+        finally {
+            straight.dispose();
+            diagonal.dispose();
+        }
+        const nearWall = await createNavigationController(room(), { position: [0, 1.6, -3.68], speed: 1.6 });
+        try {
+            const p = nearWall.advance(10, { forward: 1, right: 0 });
+            expect(p.steps).toBe(15);
+            expect(p.eyePosition[2]).toBeGreaterThan(-3.76);
+            expect(p.eyePosition[2]).toBeLessThan(-3.70);
+            expect(p.blocked).toBe(true);
+        }
+        finally {
+            nearWall.dispose();
+        }
+    }, 20000);
 });

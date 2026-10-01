@@ -215,8 +215,13 @@ export async function createNavigationController(doc: Exhibition, options: {
             }
             return highest >= foot - 0.09 && highest <= foot + radius * Math.tan(35 * Math.PI / 180) + 0.05;
         }
-        function isWalkable(eye: Vec3) { ensure(); if (!finite(eye))
-            return false; const next = standingAt(eye); return !!next && supported(next) && !world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character); }
+        function isWalkable(eye: Vec3) {
+            ensure();
+            if (!finite(eye))
+                return false;
+            const next = standingAt(eye);
+            return !!next && supported(next) && !world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character);
+        }
         function reset(pose: {
             position?: Vec3;
             yaw?: number;
@@ -242,45 +247,63 @@ export async function createNavigationController(doc: Exhibition, options: {
             recovered = false;
             return snapshot();
         }
-        function corridorCovered(a: Vec3, b: Vec3) { for (let sample = -1; sample < 8; sample++) {
-            const dx = sample < 0 ? 0 : Math.cos(sample * Math.PI / 4) * radius, dz = sample < 0 ? 0 : Math.sin(sample * Math.PI / 4) * radius, intervals: [
-                number,
-                number
-            ][] = [];
-            for (const region of regions) {
-                if (region.normal[1] < Math.cos(35 * Math.PI / 180) - 0.001)
-                    continue;
-                let lo = 0, hi = 1;
-                const corners = region.corners, orientation = Math.sign(corners.reduce((sum, p, i) => { const n = corners[(i + 1) % 4]!; return sum + p[0] * n[2] - n[0] * p[2]; }, 0));
-                for (let i = 0; i < 4; i++) {
-                    const p = corners[i]!, n = corners[(i + 1) % 4]!, ex = n[0] - p[0], ez = n[2] - p[2], start = orientation * (ex * (a[2] + dz - p[2]) - ez * (a[0] + dx - p[0])), rate = orientation * (ex * (b[2] - a[2]) - ez * (b[0] - a[0]));
-                    if (Math.abs(rate) < 1e-10) {
-                        if (start < -1e-8) {
-                            hi = -1;
-                            break;
+        function corridorCovered(a: Vec3, b: Vec3) {
+            for (let sample = -1; sample < 8; sample++) {
+                const dx = sample < 0 ? 0 : Math.cos(sample * Math.PI / 4) * radius, dz = sample < 0 ? 0 : Math.sin(sample * Math.PI / 4) * radius, intervals: [
+                    number,
+                    number
+                ][] = [];
+                for (const region of regions) {
+                    if (region.normal[1] < Math.cos(35 * Math.PI / 180) - 0.001)
+                        continue;
+                    let lo = 0, hi = 1;
+                    const corners = region.corners, orientation = Math.sign(corners.reduce((sum, p, i) => { const n = corners[(i + 1) % 4]!; return sum + p[0] * n[2] - n[0] * p[2]; }, 0));
+                    for (let i = 0; i < 4; i++) {
+                        const p = corners[i]!, n = corners[(i + 1) % 4]!, ex = n[0] - p[0], ez = n[2] - p[2], start = orientation * (ex * (a[2] + dz - p[2]) - ez * (a[0] + dx - p[0])), rate = orientation * (ex * (b[2] - a[2]) - ez * (b[0] - a[0]));
+                        if (Math.abs(rate) < 1e-10) {
+                            if (start < -1e-8) {
+                                hi = -1;
+                                break;
+                            }
+                        }
+                        else {
+                            const t = (-1e-8 - start) / rate;
+                            if (rate > 0)
+                                lo = Math.max(lo, t);
+                            else
+                                hi = Math.min(hi, t);
                         }
                     }
-                    else {
-                        const t = (-1e-8 - start) / rate;
-                        if (rate > 0)
-                            lo = Math.max(lo, t);
-                        else
-                            hi = Math.min(hi, t);
+                    // Clip the projected interval to reachable floor height as well as XZ.
+                    // An overhead floor cannot supply support for a lower-floor gap.
+                    const origin = corners[0]!, normal = region.normal;
+                    const delta = origin[1] - (normal[0] * (a[0] + dx - origin[0]) + normal[2] * (a[2] + dz - origin[2])) / normal[1] - a[1];
+                    const rate = -(normal[0] * (b[0] - a[0]) + normal[2] * (b[2] - a[2])) / normal[1] - (b[1] - a[1]);
+                    const limit = NAVIGATION_PROFILE.maxStepHeight + 0.00001;
+                    if (Math.abs(rate) < 1e-10) {
+                        if (Math.abs(delta) > limit)
+                            hi = -1;
                     }
+                    else {
+                        const t1 = (-limit - delta) / rate, t2 = (limit - delta) / rate;
+                        lo = Math.max(lo, Math.min(t1, t2));
+                        hi = Math.min(hi, Math.max(t1, t2));
+                    }
+                    if (lo <= hi)
+                        intervals.push([Math.max(0, lo), Math.min(1, hi)]);
                 }
-                if (lo <= hi)
-                    intervals.push([Math.max(0, lo), Math.min(1, hi)]);
+                intervals.sort((x, y) => x[0] - y[0]);
+                let reached = 0;
+                for (const [lo, hi] of intervals) {
+                    if (lo > reached + 1e-7)
+                        break;
+                    reached = Math.max(reached, hi);
+                }
+                if (reached < 1 - 1e-7)
+                    return false;
             }
-            intervals.sort((x, y) => x[0] - y[0]);
-            let reached = 0;
-            for (const [lo, hi] of intervals) {
-                if (lo > reached + 1e-7)
-                    break;
-                reached = Math.max(reached, hi);
-            }
-            if (reached < 1 - 1e-7)
-                return false;
-        } return true; }
+            return true;
+        }
         function clearSegment(a: Vec3, b: Vec3) {
             if (!corridorCovered(a, b))
                 return false;
