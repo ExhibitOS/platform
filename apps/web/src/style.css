@@ -81,3 +81,15 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .publication-list li { margin: 1rem 0; }
 .publication-panel button { margin: .25rem; }
 .publication-shell article { margin: 2rem 0; }
+
+.walking-controls { margin: 1rem 0; padding: 1rem; border: 1px solid #ccd1c7; border-radius: 4px; }
+.walking-controls p { font-size: 13px; line-height: 1.7; }
+.walking-settings { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; margin: 1rem 0; }
+.walking-settings label { min-width: 0; }
+.walking-settings input[type=range] { width: 100%; }
+.walking-touch { display: flex; flex-wrap: wrap; gap: 8px; }
+.walking-touch button { min-width: 64px; min-height: 48px; touch-action: none; user-select: none; }
+.geometry-preview canvas:focus-visible { outline: 3px solid #315641; outline-offset: 3px; }
+.geometry-stage { position: relative; }
+.geometry-stage .walking-touch { position: absolute; left: 10px; bottom: 10px; width: 146px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.geometry-stage .walking-touch button { padding: 5px; font-size: 11px; background: #183b2de6; }

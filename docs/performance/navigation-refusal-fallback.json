@@ -1,0 +1,171 @@
+{
+  "source": "8aacb5093d8de80de6142d1e76e4f92958166bc5",
+  "browser": "153.0.8010.12",
+  "headed": false,
+  "channel": "bundled-chromium",
+  "nativeCaptureQualification": "Strict native acquisition check unless explicitly excluded by named filter; excluded checks are not passes.",
+  "filter": "entrance|injected pointer-lock refusal",
+  "dirtySource": "M apps/web/src/GeometryPreview.tsx\n M apps/web/src/style.css\n M apps/web/src/viewer/navigation-mesh.ts\n M apps/web/src/viewer/navigation.test.ts\n M apps/web/src/viewer/navigation.ts\n M package.json\n?? apps/web/src/WalkingControls.tsx\n?? apps/web/src/viewer/navigation-camera.ts\n?? apps/web/src/viewer/navigation-input.test.ts\n?? apps/web/src/viewer/navigation-input.ts\n?? docs/performance/navigation-native-capture.json\n?? docs/performance/navigation-results.json\n?? scripts/navigation-browser.mjs\n?? scripts/navigation-fixture.mjs\n?? scripts/test-navigation.mjs",
+  "fixture": {
+    "start": [
+      0,
+      1.65,
+      3
+    ],
+    "roomBounds": {
+      "x": [
+        -4,
+        4
+      ],
+      "z": [
+        -12,
+        4
+      ]
+    },
+    "door": {
+      "center": [
+        0,
+        1.25,
+        -4
+      ],
+      "width": 1.4,
+      "height": 2.5
+    },
+    "window": {
+      "center": [
+        2,
+        2,
+        -4
+      ],
+      "width": 1.4,
+      "height": 0.8
+    },
+    "sculpture": {
+      "center": [
+        -2,
+        0.5,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "yaw": 0.7853981633974483
+    },
+    "standingBody": {
+      "height": 1.75,
+      "radius": 0.25
+    }
+  },
+  "checks": [
+    "qualified artwork entrance is usable before physics is requested; explicit walking initializes safe first-person controller",
+    "injected pointer-lock refusal keeps visible fallback and focused keyboard look usable"
+  ],
+  "sequences": [
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 715.6432089999998,
+      "from": {
+        "eyePosition": [
+          -9.132035927450488e-08,
+          1.661000001373701,
+          3.0000003914138293
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 72,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "eyePosition": [
+          -9.132035927450488e-08,
+          1.6600000074962156,
+          3.0000003914138293
+        ],
+        "yaw": -0.2000399999999998,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 115,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.2000399999999998,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    }
+  ],
+  "screenshots": [],
+  "limits": [
+    "Headless Chromium emulated input; physical mobile, GPU and RSS unverified.",
+    "Window blur and hidden lifecycle handler injections are labeled separately from actual canvas focus and pointer-lock transitions."
+  ],
+  "entrance": {
+    "ms": 913.0955000000004,
+    "requests": [
+      "http://127.0.0.1:58417/p/6c3a143a-47c8-43c6-bc90-3066ef530aee",
+      "http://127.0.0.1:58417/assets/index-D4wcEM0J.js",
+      "http://127.0.0.1:58417/assets/index-BUObxlc9.css",
+      "http://127.0.0.1:58417/api/v1/publications/6c3a143a-47c8-43c6-bc90-3066ef530aee",
+      "http://127.0.0.1:58417/assets/three.module-4gI5Z-_B.js",
+      "http://127.0.0.1:58417/assets/OrbitControls-Dh36RsEH.js",
+      "http://127.0.0.1:58417/api/v1/publications/6c3a143a-47c8-43c6-bc90-3066ef530aee/assets/0f9b5493-e815-4c74-ba01-df6f1173f86f",
+      "http://127.0.0.1:58417/api/v1/publications/6c3a143a-47c8-43c6-bc90-3066ef530aee/assets/c778ec50-7a7d-4755-acc1-88280b4a1c75",
+      "http://127.0.0.1:58417/assets/GLTFLoader-QPJIvrGm.js"
+    ],
+    "physicsRequested": false
+  },
+  "profile": {
+    "physicsVersion": "0.21.0",
+    "fixedStep": 0.016666666666666666,
+    "maxFrameDelta": 0.25,
+    "maxSteps": 15,
+    "radius": 0.25,
+    "bodyHeight": 1.75,
+    "acceleration": 2.6,
+    "deceleration": 3.9,
+    "maxStepHeight": 0.25,
+    "minStepWidth": 0.3,
+    "maxSlopeDegrees": 35,
+    "slopeSlideDegrees": 45,
+    "skin": 0.01,
+    "walkableRegions": 2,
+    "mesh": {
+      "cells": 1544,
+      "triangles": 3088,
+      "edges": 5828,
+      "crossRoomEdges": 36
+    }
+  },
+  "qualification": "Targeted injected refusal/fallback and entrance proof only. Does not qualify native pointer lock."
+}

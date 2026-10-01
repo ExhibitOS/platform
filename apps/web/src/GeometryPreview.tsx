@@ -8,6 +8,12 @@ import {
   type DeviceBudget,
 } from "./viewer/loading";
 import { presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
+import {
+  WalkingControls,
+  WalkingTouch,
+  type WalkingActions,
+  type WalkingSettings,
+} from "./WalkingControls";
 import type { PublicAsset } from "./publication-client";
 import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
@@ -105,6 +111,19 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
+  const walkingActions = useRef<WalkingActions | null>(null);
+  const [walkingMode, setWalkingMode] = useState(false),
+    [walkPaused, setWalkPaused] = useState(true),
+    [walkLoading, setWalkLoading] = useState(false),
+    [walkMessage, setWalkMessage] = useState(
+      "정지 관람입니다. 걷기 시작을 선택하세요.",
+    );
+  const [walkSettings, setWalkSettings] = useState<WalkingSettings>(() => ({
+    speed: 1.3,
+    eyeHeight: 1.65,
+    reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+  }));
+  const walkSettingsRef = useRef(walkSettings);
   const demand = useRef<
     ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
@@ -116,6 +135,11 @@ export function GeometryPreview({
     let gpuLost = false;
     let disposed = false,
       release = () => {};
+    let walkingRelease = () => {};
+    walkingActions.current = null;
+    setWalkingMode(false);
+    setWalkPaused(true);
+    setWalkLoading(false);
     setReady(false);
     setMessage("공간 미리보기를 준비합니다.");
     const build = async () => {
@@ -492,6 +516,7 @@ export function GeometryPreview({
         event.preventDefault();
         gpuLost = true;
         cancelAnimationFrame(trace.frame);
+        walkingActions.current?.pause();
         demand.current?.("cancel");
         setReady(false);
         setMessage(
@@ -517,6 +542,8 @@ export function GeometryPreview({
       );
       setReady(true);
       release = () => {
+        walkingRelease();
+        walkingActions.current = null;
         action.current = null;
         demand.current = null;
         cancelAnimationFrame(trace.frame);
@@ -532,6 +559,87 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      if (viewerBudget) {
+        renderer.domElement.tabIndex = 0;
+        renderer.domElement.setAttribute(
+          "aria-describedby",
+          "walking-instructions",
+        );
+        let initialization: Promise<void> | undefined;
+        const initialize = async () => {
+          if (disposed) return;
+          if (!initialization) {
+            setWalkLoading(true);
+            setWalkMessage(
+              "걷기와 안전한 충돌을 준비합니다. 작품 목록은 계속 사용할 수 있습니다.",
+            );
+            view("start");
+            controls.enabled = false;
+            initialization = (async () => {
+              const { createWalkingCamera } =
+                await import("./viewer/navigation-camera");
+              if (disposed) return;
+              const adapter = await createWalkingCamera({
+                document,
+                camera,
+                controls,
+                canvas: renderer.domElement,
+                settings: { ...walkSettingsRef.current },
+                render,
+                onMode: (walking, paused) => {
+                  if (!disposed) {
+                    setWalkingMode(walking);
+                    setWalkPaused(paused);
+                  }
+                },
+                onMessage: (message) => {
+                  if (!disposed) setWalkMessage(message);
+                },
+              });
+              if (disposed) {
+                adapter.dispose();
+                return;
+              }
+              walkingRelease = adapter.dispose;
+              walkingActions.current = adapter.actions;
+            })()
+              .catch(() => {
+                if (!disposed) {
+                  controls.enabled = true;
+                  setWalkMessage(
+                    "이 전시의 시작 위치나 바닥에서 안전한 걷기를 준비할 수 없습니다. 정지 관람과 작품 목록을 사용할 수 있습니다.",
+                  );
+                }
+                initialization = undefined;
+              })
+              .finally(() => {
+                if (!disposed) setWalkLoading(false);
+              });
+          }
+          await initialization;
+        };
+        const pending: WalkingActions = {
+          start: () => {
+            void initialize().then(() => {
+              if (!disposed && walkingActions.current !== pending)
+                walkingActions.current?.start();
+            });
+          },
+          capture: () => {
+            void initialize().then(() => {
+              if (!disposed && walkingActions.current !== pending)
+                walkingActions.current?.capture();
+            });
+          },
+          pause: () => {},
+          stationary: () => {},
+          reset: () => {},
+          settings: () => {},
+          press: () => {},
+          release: () => {},
+        };
+        walkingActions.current = pending;
+      }
       let rendered = 0,
         unavailable = 0;
       const sources = new Map<
@@ -783,8 +891,9 @@ export function GeometryPreview({
             disposed ||
             (viewerBudget && triangles > viewerBudget.maxTriangles) ||
             (publicSource &&
-              (lodVariantsFor(artwork).find((v) => v.assetId.toLowerCase() === inventory.id.toLowerCase())
-                ?.triangles ?? Infinity) < triangles)
+              (lodVariantsFor(artwork).find(
+                (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
+              )?.triangles ?? Infinity) < triangles)
           ) {
             for (const resource of resources) resource.dispose();
             throw Error("DECODE_BUDGET_EXCEEDED");
@@ -1072,11 +1181,22 @@ export function GeometryPreview({
   ]);
   return (
     <figure className="geometry-preview">
-      <div ref={host} />
+      <div className="geometry-stage">
+        <div ref={host} />
+        {viewerBudget && walkingMode && (
+          <WalkingTouch
+            available={ready}
+            paused={walkPaused}
+            actions={walkingActions.current}
+          />
+        )}
+      </div>
       <figcaption data-testid="geometry-render-state">{message}</figcaption>
       <div className="cms-actions">
         <button
-          disabled={!ready || !presentationFor(document).startCamera}
+          disabled={
+            !ready || walkingMode || !presentationFor(document).startCamera
+          }
           onClick={() => action.current?.("start")}
         >
           시작 camera 보기
@@ -1084,28 +1204,58 @@ export function GeometryPreview({
         {presentationFor(document).viewpoints.map((v) => (
           <button
             key={v.id}
-            disabled={!ready}
+            disabled={!ready || walkingMode}
             onClick={() => action.current?.(v.id)}
           >
             viewpoint 보기 {v.name}
           </button>
         ))}
-        <button disabled={!ready} onClick={() => action.current?.("isometric")}>
+        <button
+          disabled={!ready || walkingMode}
+          onClick={() => action.current?.("isometric")}
+        >
           전체 공간 보기
         </button>
-        <button disabled={!ready} onClick={() => action.current?.("front")}>
+        <button
+          disabled={!ready || walkingMode}
+          onClick={() => action.current?.("front")}
+        >
           선택 표면 정면
         </button>
-        <button disabled={!ready} onClick={() => action.current?.("top")}>
+        <button
+          disabled={!ready || walkingMode}
+          onClick={() => action.current?.("top")}
+        >
           위에서 보기
         </button>
-        <button disabled={!ready} onClick={() => action.current?.("left")}>
+        <button
+          disabled={!ready || walkingMode}
+          onClick={() => action.current?.("left")}
+        >
           시점 왼쪽 회전
         </button>
-        <button disabled={!ready} onClick={() => action.current?.("right")}>
+        <button
+          disabled={!ready || walkingMode}
+          onClick={() => action.current?.("right")}
+        >
           시점 오른쪽 회전
         </button>
       </div>
+      {viewerBudget && (
+        <WalkingControls
+          available={ready && !walkLoading}
+          walking={walkingMode}
+          paused={walkPaused}
+          settings={walkSettings}
+          onSettings={(value) => {
+            walkSettingsRef.current = value;
+            setWalkSettings(value);
+            walkingActions.current?.settings(value);
+          }}
+          actions={walkingActions.current}
+          message={walkMessage}
+        />
+      )}
       {viewerBudget && (
         <div className="cms-actions">
           <button disabled={!ready} onClick={() => demand.current?.("next")}>
