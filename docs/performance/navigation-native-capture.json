@@ -45,5 +45,8 @@
     "Failure independent of product observed; cause not established.",
     "Keyboard/touch fallback and mocked stale-promise lifecycle tests do not replace native acquisition proof."
   ],
-  "nextQualification": "Fresh normal browser foreground human click on root local manual probe; record lock/movement/Escape without installing or logging in."
+  "nextQualification": "Unlock the Mac locally without sharing credentials, then execute actual foreground production Viewer capture/mouse/Escape checks. Independent manual probe success alone does not qualify the production path.",
+  "environmentObservations": [
+    "Native computer-use observed the Mac locked twice after the browser refusal experiments; automatic unlock unavailable. User notified to unlock locally. Causality for browser refusals not established."
+  ]
 }
