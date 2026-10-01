@@ -170,6 +170,19 @@ try {
   );
   candidate.id = randomUUID();
   candidate.revisionId = randomUUID();
+  candidate.extensions = {
+    "example.org/preserved": { note: "Independent namespace retained" },
+    "org.exhibitos.studio/materials": {
+      version: 1,
+      surfaces: {
+        [candidate.surfaces[0].id]: {
+          color: "#112233",
+          roughness: 0.8,
+          metalness: 0,
+        },
+      },
+    },
+  };
   const time = new Date().toISOString(),
     draft = {
       schemaVersion: "1.0.0-draft.1",
@@ -215,6 +228,11 @@ try {
     );
   });
   const path = `/studio/exhibitions/${draft.exhibitionId}`;
+  assert.deepEqual(
+    (await request(actors.artist, "GET", path)).json().draft.candidate
+      .extensions,
+    candidate.extensions,
+  );
   await test("tenant/owner/viewer/session/CSRF enforcement and legacy mutation gate", async () => {
     await expected(request(null, "GET", path), 401, "AUTH_REQUIRED");
     for (const actor of [actors.other, actors.curator, actors.viewer])
@@ -270,6 +288,53 @@ try {
       (d) => {
         d.schemaVersion = "future";
       },
+      (d) => {
+        d.candidate.extensions = {
+          "org.exhibitos.studio/materials": { version: 2, surfaces: {} },
+        };
+      },
+      (d) => {
+        d.candidate.extensions = {
+          "org.exhibitos.studio/materials": {
+            version: 1,
+            surfaces: {
+              [randomUUID()]: {
+                color: "#112233",
+                roughness: 0.5,
+                metalness: 0,
+              },
+            },
+          },
+        };
+      },
+      (d) => {
+        d.candidate.extensions = {
+          "org.exhibitos.studio/materials": {
+            version: 1,
+            surfaces: {
+              [d.candidate.surfaces[0].id]: {
+                color: "#112233",
+                roughness: 1.1,
+                metalness: 0,
+              },
+            },
+          },
+        };
+      },
+      (d) => {
+        d.candidate.extensions = {
+          "org.exhibitos.studio/materials": {
+            version: 1,
+            surfaces: {
+              [d.candidate.surfaces[0].id]: {
+                color: "#AABBCC",
+                roughness: 0.5,
+                metalness: 0,
+              },
+            },
+          },
+        };
+      },
     ]) {
       const broken = structuredClone(draft);
       mutate(broken);
@@ -288,6 +353,41 @@ try {
     assert.equal(
       (await request(actors.artist, "GET", path)).json().revision,
       1,
+    );
+  });
+  await test("known material extension server rejects JSON create bypass and retains no receipt or exhibition", async () => {
+    const invalid = structuredClone(draft),
+      requestId = randomUUID();
+    invalid.exhibitionId = randomUUID();
+    invalid.candidate.id = invalid.exhibitionId;
+    invalid.candidate.extensions = {
+      "org.exhibitos.studio/materials": { version: 99, surfaces: {} },
+    };
+    await expected(
+      request(actors.artist, "POST", "/studio/exhibitions", {
+        draft: invalid,
+        requestId,
+      }),
+      422,
+      "DRAFT_INVALID",
+    );
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS n FROM exhibitions WHERE id=$1",
+          [invalid.exhibitionId],
+        )
+      ).rows[0].n,
+      0,
+    );
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS n FROM studio_requests WHERE request_id=$1",
+          [requestId],
+        )
+      ).rows[0].n,
+      0,
     );
   });
   await test("strong single If-Match required; weak/list/wildcard/malformed tags denied", async () => {

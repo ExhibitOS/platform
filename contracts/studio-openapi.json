@@ -3,7 +3,7 @@
   "info": {
     "title": "ExhibitOS Studio Draft API",
     "version": "0.1.0",
-    "description": "Optional authenticated private synchronization for independent browser drafts. Artist and curator own their drafts; admin manages drafts in the same tenant. Viewer, foreign owner/tenant and revoked membership are denied. No list/delete/publication endpoint. Mutations atomically persist immutable snapshots and idempotency receipts. Receipt replay rechecks current access and returns the original response; fetch current state before later apply. Strong ETags protect remote revision; local editVersion is independent. Legacy generic PATCH rejects Studio-managed exhibitions. JSON draft metadata is not an OEX archive or backup of artwork bytes."
+    "description": "Optional authenticated private synchronization for independent browser drafts. Artist and curator own their drafts; admin manages drafts in the same tenant. Viewer, foreign owner/tenant and revoked membership are denied. No list/delete/publication endpoint. Mutations atomically persist immutable snapshots and idempotency receipts. Receipt replay rechecks current access and returns the original response; fetch current state before later apply. Strong ETags protect remote revision; local editVersion is independent. Legacy generic PATCH rejects Studio-managed exhibitions. JSON draft metadata is not an OEX archive or backup of artwork bytes. Optional Platform extension candidate.extensions[\"org.exhibitos.studio/materials\"] version1 is validated by both browser and remote POST/PUT after the base public contract. It is not a new OES version; other namespaces are preserved."
   },
   "servers": [
     {
@@ -1955,7 +1955,8 @@
       },
       "Draft": {
         "$ref": "#/components/schemas/Lifecycle/$defs/draft",
-        "description": "Full pinned OES draft. Server additionally validates semantic IDs/references, finite geometry/transforms, chronology and accessibility. It does not validate or package artwork bytes."
+        "description": "Full pinned OES draft. Server additionally validates semantic IDs/references, finite geometry/transforms, chronology and accessibility. It does not validate or package artwork bytes. The optional org.exhibitos.studio/materials namespace requires exactly {version:1,surfaces:{surfaceUUID:{color,roughness,metalness}}}, at most64 existing-surface assignments, no case-insensitive UUID aliases and at most16KiB UTF-8 serialized extension bytes. Color is lowercase #rrggbb; roughness/metalness are finite0..1; unknown versions and extra own-namespace fields are rejected as DRAFT_INVALID. No extension means default material. Other extension namespaces are preserved.",
+        "x-platform-materials-schema": "studio-materials.schema.json"
       },
       "Error": {
         "type": "object",

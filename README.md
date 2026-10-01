@@ -2,7 +2,7 @@
 
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
-현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio·전체 Viewer와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
+현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio는 계정 없는 오프라인 draft와 방·벽·문·재질 편집을 지원합니다. 전체 Viewer와 배포판은 후속 구현입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
 
 ## 저장소 경계
 
@@ -28,11 +28,12 @@ export PATH="$NODE_RUNTIME_BIN:$PATH"
 node --version
 npm --version
 npm ci
+npm run build
 ```
 
 다른 기기에서는 `.nvmrc`의 버전을 설치하고 같은 명령을 실행합니다. 위 경로는
 설치 위치에 맞춰 지정하는 예시이며 CI와 product code에 사용자 경로 의존성이 없습니다.
-두 터미널에서 각각 실행하세요.
+첫 실행에서는 위 `npm run build`로 storage와 studio-contract의 공통 workspace 출력을 준비합니다. 공통 패키지를 수정한 뒤에도 다시 build하세요. 두 터미널에서 각각 실행하세요.
 
 ```sh
 npm run dev:api
@@ -112,3 +113,5 @@ Storage metadata, migration, local development and recovery commands are documen
 Artist CMS는 같은 origin의 `/cms`에서 실행합니다. [CMS 사용·권리·지원 한계](docs/cms.md)와 [CMS OpenAPI](contracts/cms-openapi.json)를 읽으세요. `npm run test:cms`는 합성 PostgreSQL/API와 실제 Chromium production CMS 흐름을 검사합니다. 전시용 derivative는 복제 방지 DRM을 보장하지 않으며, 원본 다운로드와 export는 별도 서버 권한을 요구합니다.
 
 Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택적 서버 ETag 동기화는 `/studio`에서 사용합니다. [Studio 사용·복원·제한](docs/studio.md), [Studio OpenAPI](contracts/studio-openapi.json), [ADR 0005](docs/adr/0005-studio-drafts.md)를 읽으세요. `npm run test:drafts`는 실제 PostgreSQL/Chromium 검증이며 JSON 백업은 artwork bytes/OEX 패키지가 아닙니다.
+
+방·벽·바닥·천장·문/창문 및 표면 PBR 편집은 [공간 편집 안내](docs/studio-geometry.md)와 [ADR 0006](docs/adr/0006-studio-geometry-materials.md)를 읽으세요. 유효한 명령만 적용하며 최근 20개 명령 undo/redo와 로컬 CAS 저장을 사용합니다. `npm run test:geometry`는 실제 생산 빌드·Chromium·IndexedDB·오프라인 서비스 워커와 3D cutout 검증입니다.

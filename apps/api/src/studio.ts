@@ -1,3 +1,4 @@
+import { validateStudioMaterials } from "@exhibitos/studio-contract";
 import { createHash, randomUUID } from "node:crypto";
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
@@ -36,7 +37,8 @@ function checked(input: StudioInput) {
   uuid(input.requestId);
   if (
     input.draft?.kind !== "exhibition-draft" ||
-    !validateLifecycle(input.draft).valid
+    !validateLifecycle(input.draft).valid ||
+    !validateStudioMaterials(input.draft.candidate).valid
   )
     throw new ApiError(422, "DRAFT_INVALID");
 }
@@ -69,7 +71,8 @@ export class Studio {
       throw new ApiError(403, "FORBIDDEN");
     if (
       row.metadata?.kind !== "exhibition-draft" ||
-      !validateLifecycle(row.metadata).valid
+      !validateLifecycle(row.metadata).valid ||
+      !validateStudioMaterials(row.metadata.candidate).valid
     )
       throw new ApiError(409, "DRAFT_CORRUPT");
     return row;
