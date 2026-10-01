@@ -36,7 +36,8 @@
     "test:cms": "npm run build && node scripts/test-cms.mjs",
     "test:drafts": "npm run build && node scripts/test-drafts.mjs",
     "test:geometry": "npm run build && node scripts/test-geometry.mjs",
-    "test:publication": "npm run build && node scripts/test-publication.mjs"
+    "test:publication": "npm run build && node scripts/test-publication.mjs",
+    "test:viewer": "npm run build && node --test scripts/viewer-variants.test.mjs && node scripts/test-viewer.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

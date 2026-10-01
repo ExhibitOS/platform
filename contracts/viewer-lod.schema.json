@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exhibitos.org/platform/viewer/lod/v1",
+  "title": "ExhibitOS optional Viewer LOD extension version 1",
+  "description": "Structural contract for org.exhibitos.viewer/lod. Shared semantic validation additionally requires exactly one full primary asset, at most one coarse asset, case-insensitive unique inventory references with supported role/MIME, matching detail metric, reduced coarse detail and byte count, and maximum 4 KiB serialized extension.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "variants"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "assetId",
+              "detail",
+              "triangles"
+            ],
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "detail": {
+                "enum": [
+                  "coarse",
+                  "full"
+                ]
+              },
+              "triangles": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "assetId",
+              "detail",
+              "textureSize"
+            ],
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "detail": {
+                "enum": [
+                  "coarse",
+                  "full"
+                ]
+              },
+              "textureSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8192
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

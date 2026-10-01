@@ -215,3 +215,5 @@ export function presentationFor(candidate: {
     const value = object(candidate.extensions) ? candidate.extensions[PRESENTATION_NAMESPACE] : undefined;
     return structuredClone((value as unknown as StudioPresentation | undefined) ?? { version: 1, viewpoints: [], credits: "" });
 }
+
+export * from "./viewer.js";

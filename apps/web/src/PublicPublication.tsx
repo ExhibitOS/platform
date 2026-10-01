@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { materialFor, presentationFor } from "@exhibitos/studio-contract";
-import { GeometryPreview } from "./GeometryPreview";
+import { Viewer } from "./Viewer";
 import type { SurfaceAppearance } from "./GeometryPreview";
 import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
@@ -100,17 +100,7 @@ export function PublicPublication({ id }: { id: string }) {
           <p className="cms-note">
             Revision SHA-256 <code>{value.publication.revisionSha256}</code>
           </p>
-          <GeometryPreview
-            document={value.exhibition}
-            selection={null}
-            appearance={appearance}
-            session={null}
-            publicSource={{
-              publicationId: id,
-              revisionSha256: value.publication.revisionSha256,
-              assets: value.assets,
-            }}
-          />
+          <Viewer publication={value} appearance={appearance} />
           <section aria-label="작품 목록형 대체 보기">
             <h2>작품 목록</h2>
             <ul>
@@ -140,9 +130,9 @@ export function PublicPublication({ id }: { id: string }) {
             </ul>
           </section>
           <p className="cms-note">
-            공개 승인 snapshot의 공간과 전시용 derivative를 보여주는
-            preview입니다. 전체 Viewer·관람자 runtime·충돌·실시간 협업은 후속
-            기능입니다. 이미 전달된 작품 bytes는 복제될 수 있습니다.
+            공개 승인 snapshot의 공간과 전시용 derivative를 점진적으로
+            불러옵니다. 보행·충돌·실시간 협업은 후속 기능입니다. 이미 전달된
+            작품 bytes는 복제될 수 있습니다.
           </p>
         </article>
       )}
