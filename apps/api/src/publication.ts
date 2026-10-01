@@ -228,6 +228,9 @@ export class Publications {
                 }
                 if (bytes.length !== Number(asset.bytes) || sha256(bytes) !== asset.sha256)
                     throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
+                // Time continues while storage is read even though policy mutations are locked.
+                // Recheck expiry immediately before releasing qualified bytes to the response.
+                await this.gate(c, row);
                 return { bytes, mime: asset.mime, revisionSha256: row.revision_sha256 };
             }
             return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })) };
