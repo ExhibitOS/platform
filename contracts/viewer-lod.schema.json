@@ -18,53 +18,57 @@
       "minItems": 1,
       "maxItems": 2,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "assetId",
-          "detail"
-        ],
-        "properties": {
-          "assetId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "detail": {
-            "enum": [
-              "coarse",
-              "full"
-            ]
-          },
-          "triangles": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 1000000
-          },
-          "textureSize": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 8192
-          }
-        },
         "oneOf": [
           {
+            "type": "object",
+            "additionalProperties": false,
             "required": [
+              "assetId",
+              "detail",
               "triangles"
             ],
-            "not": {
-              "required": [
-                "textureSize"
-              ]
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "detail": {
+                "enum": [
+                  "coarse",
+                  "full"
+                ]
+              },
+              "triangles": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              }
             }
           },
           {
+            "type": "object",
+            "additionalProperties": false,
             "required": [
+              "assetId",
+              "detail",
               "textureSize"
             ],
-            "not": {
-              "required": [
-                "triangles"
-              ]
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "detail": {
+                "enum": [
+                  "coarse",
+                  "full"
+                ]
+              },
+              "textureSize": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8192
+              }
             }
           }
         ]
