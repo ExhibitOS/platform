@@ -1,8 +1,11 @@
 import Fastify from 'fastify';
+import type { Pool } from 'pg';
+import { registerAuth } from './routes.ts';
+import type { AuthConfig } from './auth.ts';
 
 // A fresh instance per caller keeps tests isolated and avoids listening on import.
-export function buildApp() {
-  const app = Fastify({ bodyLimit: 1024 * 1024 });
+export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@exhibitos/storage').BlobStore}) {
+  const app = Fastify({ bodyLimit: 1024 * 1024, trustProxy: false, ajv: {customOptions:{removeAdditional:false,coerceTypes:false}} });
   app.get('/api/v1/health', {
     schema: { response: { 200: {
       type: 'object', additionalProperties: false,
@@ -13,8 +16,9 @@ export function buildApp() {
     reply.header('cache-control', 'no-store');
     return { status: 'ok', service: 'exhibitos-api', version: '0.1.0' };
   });
+  if (options) registerAuth(app,options.pool,options.auth,options.blobs);
   app.setNotFoundHandler((request, reply) => {
-    return reply.code(404).send({ code: 'NOT_FOUND', message: 'Resource not found', requestId: request.id });
+    return reply.code(404).send({ code: 'NOT_FOUND', message: 'Resource not found', fieldErrors: [], requestId: request.id });
   });
   return app;
 }

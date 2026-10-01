@@ -38,3 +38,11 @@ Restore into a new empty database and a new empty object root/bucket. Verify eve
 Retry ingest using the same tenant idempotency key and identical payload. Changed payloads are rejected. Pending outbox work retries after one second and becomes dead after five failures; operators should diagnose the object/store failure before explicitly requeueing the dead job. Never modify immutable snapshots or object bytes to make a failed job succeed.
 
 `Storage.reconcile(actor)` detects orphan keys; `reconcile(actor, true)` requires admin membership and archives bytes plus a recovery manifest before removing an unreferenced original. `restoreOrphan(actor, manifestKey)` requires the same tenant and admin membership, checks archive identity and byte integrity, and refuses conflicting destination bytes. Trash is retained indefinitely until a future approved retention policy. Active asset source/target keys are excluded even when a job is pending or dead.
+
+Authentication extends the maintenance contract: request/bootstrap/login writers
+acquire auth lock 82003 before shared maintenance lock 82002. Membership,
+assignment, session and credential changes follow this order. Private asset byte
+reads retain shared 82002 while reading and verifying the object. Quiesced backup
+holds exclusive 82002 only; it must never acquire 82003 while that lock is held.
+Internal Storage resource methods now check enabled users and restrict artist
+ownership and curator assignments; database credentials remain privileged.

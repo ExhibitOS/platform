@@ -2,7 +2,7 @@
 
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
-현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Studio, Viewer, CMS, 인증·데이터 저장·배포판은 아직 구현되지 않았습니다.
+현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Studio·Viewer·CMS UI와 배포판은 아직 구현되지 않았습니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
 
 ## 저장소 경계
 
@@ -43,7 +43,7 @@ npm run dev:web
 `http://127.0.0.1:3000/api/v1/health`입니다. 웹의 연결 확인 버튼이 API 상태를
 확인하고 실패 시 재시도를 제공합니다. API는 기본 loopback bind이며
 `HOST`/`PORT`로 지정할 수 있습니다. health는 process liveness입니다.
-실제 network 운영에 필요한 인증·DB·storage readiness는 후속 작업입니다.
+인증은 아래 별도 설정으로 활성화합니다. Network 운영의 TLS terminator·DB/storage readiness와 production qualification은 별도 구성·검증이 필요합니다.
 
 ```sh
 npm run typecheck
@@ -104,3 +104,5 @@ desktop/좁은 viewport 각각 5회 cold load를 측정합니다.
 사용자 작품에 적용되거나 재배포 권한을 자동으로 부여하지 않습니다.
 
 Storage metadata, migration, local development and recovery commands are documented in [docs/storage.md](docs/storage.md). `npm run test:storage` runs actual isolated PostgreSQL and S3-compatible integration tests with Docker. The storage package provides internal primitives; protected resource APIs, file-format approval and publication workflows remain subsequent tasks.
+
+인증·RBAC·bootstrap·TLS proxy 설정은 [docs/auth.md](docs/auth.md), 실제 경로와 오류 계약은 [OpenAPI](contracts/auth-openapi.json)에 있습니다. `npm run test:auth`는 Chromium과 Docker가 필요하며 UUID로 격리한 합성 PostgreSQL/HTTP/브라우저 검사입니다. `npm run build` 이후 `npm run auth:bootstrap`에 bounded JSON stdin을 전달합니다. 자격정보를 명령 인수나 로그에 넣지 마세요.

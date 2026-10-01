@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { sha256, type BlobStore } from "./blobs.js";
 export * from "./blobs.js";
+export * from "./policy.js";
+import { membership, artworkAccess, AccessDenied } from "./policy.js";
 export async function transaction<T>(
   pool: Pool,
   work: (client: PoolClient) => Promise<T>,
@@ -53,15 +55,7 @@ export interface Actor {
   tenantId: string;
   userId: string;
 }
-async function authorize(client: PoolClient, actor: Actor, write = true) {
-  const result = await client.query(
-    "SELECT role FROM memberships WHERE tenant_id=$1 AND user_id=$2",
-    [actor.tenantId, actor.userId],
-  );
-  if (!result.rowCount || (write && result.rows[0].role === "viewer"))
-    throw new Error("membership denied");
-  return result.rows[0].role as string;
-}
+const authorize = membership;
 const lock = (client: PoolClient) =>
   client.query("SELECT pg_advisory_xact_lock_shared(82002)");
 export interface Ingest {
@@ -95,8 +89,8 @@ export class Storage {
       Buffer.from(JSON.stringify({ ...input, bytes: hash })),
     );
     return transaction(this.pool, async (client) => {
-      await lock(client);
       const role = await authorize(client, actor);
+      await lock(client);
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
         [`${actor.tenantId}:${key}`],
@@ -107,9 +101,9 @@ export class Storage {
       );
       if (
         !artist.rowCount ||
-        (role === "artist" && artist.rows[0].user_id !== actor.userId)
+        (role !== "admin" && (role !== "artist" || artist.rows[0].user_id !== actor.userId))
       )
-        throw new Error("artist denied");
+        throw new AccessDenied();
       const previous = await client.query(
         "SELECT payload_hash,artwork_id FROM ingest_requests WHERE tenant_id=$1 AND key=$2",
         [actor.tenantId, key],
@@ -167,15 +161,10 @@ export class Storage {
   }
   async readArtwork(actor: Actor, id: string) {
     return transaction(this.pool, async (client) => {
-      await authorize(client, actor, false);
-      return (
-        (
-          await client.query(
-            "SELECT * FROM artworks WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL",
-            [actor.tenantId, id],
-          )
-        ).rows[0] ?? null
-      );
+      const row = await artworkAccess(client, actor, id);
+      const { owner_user_id: _owner, ...result } = row;
+      void _owner;
+      return result;
     });
   }
   async revise(
@@ -185,11 +174,11 @@ export class Storage {
     metadata: Record<string, unknown>,
   ) {
     return transaction(this.pool, async (client) => {
+      await artworkAccess(client, actor, id, true);
       await lock(client);
-      const role = await authorize(client, actor);
       const result = await client.query(
-        "UPDATE artworks SET metadata=$4,revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND revision=$3 AND deleted_at IS NULL AND ($5<>'artist' OR artist_id IN (SELECT id FROM artists WHERE tenant_id=$1 AND user_id=$6)) RETURNING revision",
-        [actor.tenantId, id, expected, metadata, role, actor.userId],
+        "UPDATE artworks SET metadata=$4,revision=revision+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND revision=$3 AND deleted_at IS NULL  RETURNING revision",
+        [actor.tenantId, id, expected, metadata],
       );
       if (!result.rowCount) throw new Error("revision conflict or denied");
       const revision = result.rows[0].revision as number;
@@ -236,9 +225,9 @@ export class Storage {
   }
   async reconcile(actor: Actor, apply = false) {
     return transaction(this.pool, async (client) => {
-      await client.query("SELECT pg_advisory_xact_lock(82002)");
       if ((await authorize(client, actor)) !== "admin")
         throw new Error("admin required");
+      await client.query("SELECT pg_advisory_xact_lock(82002)");
       const refs = await client.query(
         "SELECT object_key,target_key FROM assets WHERE tenant_id=$1",
         [actor.tenantId],
@@ -280,9 +269,9 @@ export class Storage {
   }
   async restoreOrphan(actor: Actor, manifestKey: string) {
     return transaction(this.pool, async (client) => {
-      await client.query("SELECT pg_advisory_xact_lock(82002)");
       if ((await authorize(client, actor)) !== "admin")
         throw new Error("admin required");
+      await client.query("SELECT pg_advisory_xact_lock(82002)");
       const prefix = `${actor.tenantId}/trash/`;
       if (
         !manifestKey.startsWith(prefix) ||

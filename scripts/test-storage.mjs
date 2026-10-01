@@ -99,7 +99,7 @@ try {
     "INSERT INTO tenants(id,name) VALUES($1,'synthetic'),($2,'other')",
     [tenant, foreignTenant],
   );
-  await pool.query("INSERT INTO users VALUES($1,'synthetic')", [user]);
+  await pool.query("INSERT INTO users(id,subject) VALUES($1,'synthetic')", [user]);
   await pool.query("INSERT INTO memberships VALUES($1,$2,'admin')", [
     tenant,
     user,
@@ -112,7 +112,7 @@ try {
   await migrate(pool, directory);
   assert.equal(
     (await pool.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-    "2",
+    "3",
   );
   assert.equal(
     (await pool.query("SELECT count(*) FROM artists")).rows[0].count,
@@ -134,7 +134,7 @@ try {
     await readFile(`${directory}/001_metadata.sql`),
   );
   await writeFile(
-    `${altered}/003_failed.sql`,
+    `${altered}/004_failed.sql`,
     "CREATE TABLE must_rollback(id integer); INVALID SQL;",
   );
   await assert.rejects(migrate(pool, altered));
@@ -183,7 +183,7 @@ try {
         "INSERT INTO tenants(id,name) VALUES($1,'synthetic'),($2,'other')",
         [tenant, foreignTenant],
       );
-      await pool.query("INSERT INTO users VALUES($1,'synthetic')", [user]);
+      await pool.query("INSERT INTO users(id,subject) VALUES($1,'synthetic')", [user]);
       await pool.query("INSERT INTO memberships VALUES($1,$2,'admin')", [
         tenant,
         user,

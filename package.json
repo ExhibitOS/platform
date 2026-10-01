@@ -18,7 +18,7 @@
     "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p tsconfig.tooling.json",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "build": "npm run notices && npm run build --workspaces",
+    "build": "npm run notices && npm run build --workspace @exhibitos/storage && npm run build --workspace @exhibitos/api && npm run build --workspace @exhibitos/web",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:contracts",
     "measure:baseline": "node scripts/measure-baseline.mjs",
@@ -27,7 +27,10 @@
     "conformance": "node scripts/contract-conformance.mjs",
     "test:storage": "node scripts/test-storage.mjs",
     "storage:migrate": "node scripts/migrate-storage.mjs",
-    "storage:init": "node scripts/init-storage-env.mjs"
+    "storage:init": "node scripts/init-storage-env.mjs",
+    "pretypecheck": "npm run build --workspace @exhibitos/storage",
+    "test:auth": "npm run build && node scripts/test-auth.mjs",
+    "auth:bootstrap": "node scripts/bootstrap-admin.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -37,8 +40,10 @@
     "globals": "17.12.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.0",
-    "vitest": "5.0.3",
-    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.1-8d0c41c8d787.tgz"
+    "vitest": "5.0.3"
   },
-  "license": "AGPL-3.0-or-later"
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.1-8d0c41c8d787.tgz"
+  }
 }
