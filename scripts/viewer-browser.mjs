@@ -7,10 +7,8 @@ import { chromium, expect } from "@playwright/test";
 export async function runViewerBrowser({
   origin,
   publicationId,
-  reportPath = new URL(
-    "../docs/performance/viewer-baseline.json",
-    import.meta.url,
-  ),
+  reportPath = process.env.EXHIBITOS_VIEWER_REPORT ??
+    new URL("../docs/performance/viewer-baseline.json", import.meta.url),
 }) {
   const browser = await chromium.launch({ headless: true });
   const screenshotDir = await mkdtemp(`${os.tmpdir()}/exhibitos-viewer-`);
@@ -127,6 +125,61 @@ export async function runViewerBrowser({
         `${fault} response: zero unverified artworks attached; explicit retry recovers four approved entrance assets`,
       );
     }
+    const metadataPath = `${origin}/api/v1/publications/${publicationId}`;
+    const coarseIds = new Set(
+      manifest.exhibition.artworks.flatMap((a) =>
+        a.extensions["org.exhibitos.viewer/lod"].variants
+          .filter((v) => v.detail === "coarse")
+          .map((v) => v.assetId),
+      ),
+    );
+    const fullImageIds = new Set(
+      manifest.exhibition.artworks
+        .filter((a) => a.artworkType === "image")
+        .map((a) => a.primaryAssetId),
+    );
+    await testPage.route(metadataPath, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const art of body.exhibition.artworks)
+        for (const variant of art.extensions["org.exhibitos.viewer/lod"]
+          .variants)
+          if (variant.detail === "coarse") {
+            if (variant.triangles !== undefined) variant.triangles = 1;
+            else variant.textureSize = 1;
+          }
+      await route.fulfill({ response, json: body });
+    });
+    await testPage.goto(`${origin}/p/${publicationId}`);
+    await expect
+      .poll(async () => (await state(testPage)).loadedAssets, {
+        timeout: 60000,
+      })
+      .toBe(4);
+    for (let i = 0; i < 4; i++) {
+      await testPage
+        .getByRole("button", { name: "다음 작품 불러오기", exact: true })
+        .click();
+      await expect
+        .poll(
+          async () => {
+            const s = await state(testPage);
+            return s.loadedAssets + s.failed;
+          },
+          { timeout: 60000 },
+        )
+        .toBe(Math.min(20, 8 + i * 4));
+    }
+    const underclaimed = await state(testPage);
+    assert(underclaimed.assetIds.every((id) => !coarseIds.has(id)));
+    assert(underclaimed.assetIds.some((id) => fullImageIds.has(id)));
+    assert(underclaimed.budgetTotalBytes <= underclaimed.cache.maxBytes);
+    checks.push(
+      "injected underclaimed geometry and PNG manifest with unchanged valid byte hashes rejects coarse decode, falls back only to qualified full within device budget",
+    );
+    await testPage.unroute(metadataPath);
+    await testPage.goto(`${origin}/p/${publicationId}`);
+    await expect.poll(async () => (await state(testPage)).loadedAssets).toBe(4);
     await testPage.route(pattern, async (route) => {
       await new Promise((r) => setTimeout(r, 1500));
       await route.continue().catch(() => {});
@@ -175,6 +228,8 @@ export async function runViewerBrowser({
       "cancel/retry and context-loss event preserve keyboard/list alternative; replaced renderer disposes resources",
     );
     await testContext.close();
+    if (process.env.EXHIBITOS_VIEWER_SKIP_MEASUREMENT === "1")
+      return { checks, reportPath: String(reportPath), summary: {} };
     for (const profile of [
       { name: "desktop", width: 1440, height: 900 },
       { name: "narrow", width: 390, height: 844 },
@@ -310,7 +365,7 @@ export async function runViewerBrowser({
               )
               .toBe(0);
             const full = await state(page);
-            assert(full.decodedBytes <= full.cache.maxBytes);
+            assert(full.budgetTotalBytes <= full.cache.maxBytes);
             await page
               .getByRole("button", {
                 name: "불러온 작품 입구 품질",
@@ -330,7 +385,7 @@ export async function runViewerBrowser({
               assert((await state(page)).cacheHits > 0);
             else assert.equal((await state(page)).loadedPlacements, 20);
             checks.push(
-              `${profile.name}: entrance4/deferred16, twenty actual artworks,60s render, bounded detail, renderer-scoped verified cache reuse`,
+              `${profile.name}: entrance4/deferred16, twenty actual artworks,60s render, bounded detail, ${profile.name === "desktop" ? "renderer-scoped verified cache reuse" : "compact profile retains qualified coarse"}`,
             );
           }
           console.log(

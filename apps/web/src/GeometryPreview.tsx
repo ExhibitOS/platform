@@ -113,6 +113,7 @@ export function GeometryPreview({
     [ready, setReady] = useState(false);
   useEffect(() => {
     const abort = new AbortController();
+    let gpuLost = false;
     let disposed = false,
       release = () => {};
     setReady(false);
@@ -352,7 +353,7 @@ export function GeometryPreview({
         frame: number;
       } = { started: 0, samples: [], frame: 0 };
       const render = () => {
-        if (!disposed) {
+        if (!disposed && !gpuLost) {
           const at = performance.now();
           renderer.render(scene, camera);
           if (trace.started)
@@ -489,10 +490,14 @@ export function GeometryPreview({
       renderer.domElement.setAttribute("role", "img");
       const lost = (event: Event) => {
         event.preventDefault();
+        gpuLost = true;
+        cancelAnimationFrame(trace.frame);
         demand.current?.("cancel");
         setReady(false);
         setMessage(
-          "3D 그래픽 연결이 중단되었습니다. 작품 metadata와 저장본은 유지됩니다. JSON과 숫자 편집을 사용할 수 있습니다.",
+          viewerBudget
+            ? "3D 그래픽 연결이 중단되었습니다. 작품 목록을 계속 사용할 수 있습니다. 3D 다시 시작으로 재시도할 수 있습니다."
+            : "3D 그래픽 연결이 중단되었습니다. 작품 metadata와 저장본은 유지됩니다. JSON과 숫자 편집을 사용할 수 있습니다.",
         );
       };
       renderer.domElement.addEventListener("webglcontextlost", lost);
@@ -635,6 +640,15 @@ export function GeometryPreview({
               new Blob([bytes!], { type: "image/png" }),
             );
             resources.push({ dispose: () => bitmap.close() });
+            const declared = lodVariantsFor(artwork).find(
+              (v) => v.assetId === inventory.id,
+            )?.textureSize;
+            if (
+              publicSource &&
+              declared !== undefined &&
+              Math.max(bitmap.width, bitmap.height) > declared
+            )
+              throw Error("DECODE_VARIANT_UNDERCLAIM");
             if (
               viewerBudget &&
               Math.max(bitmap.width, bitmap.height) >
@@ -835,7 +849,7 @@ export function GeometryPreview({
           onDiscard: destroy,
         });
         const update = () => {
-          if (disposed) return;
+          if (disposed || gpuLost) return;
           const decodedTotal = [...objects.values()].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             0,
@@ -1037,7 +1051,9 @@ export function GeometryPreview({
         setMessage(
           error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
             ? "미리보기 한도(방 32개, 표면 256개, 개구부·작품 배치·조명 각각 128개, 사각 패널 8192개, 좌표·치수 10,000m)를 초과했습니다. 문서는 유지됩니다."
-            : "3D 미리보기를 표시할 수 없습니다. WebGL 지원을 확인하세요. 숫자 편집과 JSON 백업은 계속 사용할 수 있습니다.",
+            : viewerBudget
+              ? "3D를 표시할 수 없습니다. 작품 목록을 계속 사용할 수 있습니다. 3D 다시 시작으로 재시도할 수 있습니다."
+              : "3D 미리보기를 표시할 수 없습니다. WebGL 지원을 확인하세요. 숫자 편집과 JSON 백업은 계속 사용할 수 있습니다.",
         );
     });
     return () => {
