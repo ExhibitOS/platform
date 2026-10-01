@@ -94,7 +94,7 @@ desktop/좁은 viewport 각각 5회 cold load를 측정합니다.
 이 저장소의 프로젝트 코드 전체(현재 분리되지 않은 웹/API 포함)는
 [GNU AGPL v3 또는 이후 버전](LICENSE), SPDX `AGPL-3.0-or-later`로 제공합니다.
 제3자 패키지는 각각의 원래 라이선스·copyright·고지를 유지하며 이 프로젝트의
-라이선스로 변경하지 않습니다. 웹에 번들되는 React/React DOM/Scheduler의 원문
+라이선스로 변경하지 않습니다. 웹에 번들되는 React/React DOM/Scheduler/Three.js/AJV와 공개 schema 검증 코드의 원문
 고지는 build에서 [THIRD_PARTY_NOTICES.txt](apps/web/public/THIRD_PARTY_NOTICES.txt)로
 보존하고 배포 산출물에 포함합니다. 새로운 browser 의존성을 추가할 때 notice
 목록도 갱신합니다. build/server 도구의 원래 LICENSE는 설치된 npm 패키지에
@@ -110,3 +110,5 @@ Storage metadata, migration, local development and recovery commands are documen
 인증된 단일 GLB/PNG 업로드·import job은 [import 흐름](docs/imports.md)과 [OpenAPI](contracts/import-openapi.json)를 참고하세요. `npm run test:import`는 실제 격리 PostgreSQL/파일/decoder 및 HTTP 연결 중단·worker 종료·취소 검사를 실행합니다. `approved`는 제한된 파일 검사를 통과한 비공개 asset 상태이며 공개 배포나 전체 OES/OEX import 완료를 뜻하지 않습니다.
 
 Artist CMS는 같은 origin의 `/cms`에서 실행합니다. [CMS 사용·권리·지원 한계](docs/cms.md)와 [CMS OpenAPI](contracts/cms-openapi.json)를 읽으세요. `npm run test:cms`는 합성 PostgreSQL/API와 실제 Chromium production CMS 흐름을 검사합니다. 전시용 derivative는 복제 방지 DRM을 보장하지 않으며, 원본 다운로드와 export는 별도 서버 권한을 요구합니다.
+
+Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택적 서버 ETag 동기화는 `/studio`에서 사용합니다. [Studio 사용·복원·제한](docs/studio.md), [Studio OpenAPI](contracts/studio-openapi.json), [ADR 0005](docs/adr/0005-studio-drafts.md)를 읽으세요. `npm run test:drafts`는 실제 PostgreSQL/Chromium 검증이며 JSON 백업은 artwork bytes/OEX 패키지가 아닙니다.

@@ -1,0 +1,2028 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "ExhibitOS Studio Draft API",
+    "version": "0.1.0",
+    "description": "Optional authenticated private synchronization for independent browser drafts. Artist and curator own their drafts; admin manages drafts in the same tenant. Viewer, foreign owner/tenant and revoked membership are denied. No list/delete/publication endpoint. Mutations atomically persist immutable snapshots and idempotency receipts. Receipt replay rechecks current access and returns the original response; fetch current state before later apply. Strong ETags protect remote revision; local editVersion is independent. Legacy generic PATCH rejects Studio-managed exhibitions. JSON draft metadata is not an OEX archive or backup of artwork bytes."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/api/v1/tenants/{tenantId}/studio/exhibitions": {
+      "post": {
+        "operationId": "createStudioDraft",
+        "summary": "Create owned private draft",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured application origin; session cookie and CSRF token also required."
+          }
+        ],
+        "security": [
+          {
+            "localSession": [],
+            "csrfToken": []
+          },
+          {
+            "networkSession": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Private no-store response. Idempotency replay returns the original historical response and ETag, not necessarily current state.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_INPUT or IF_MATCH_INVALID; malformed UUID/body or weak/list/wildcard ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN or ORIGIN_REJECTED; current role/tenant/owner checks, exact Host/Origin and mutation CSRF.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "EXHIBITION_EXISTS, REQUEST_CONFLICT, DRAFT_CORRUPT or REVISION_LIMIT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "BODY_TOO_LARGE; mutation body limit is 1048576 bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "DRAFT_INVALID or DRAFT_ID_MISMATCH; full public schema and semantic checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudioInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}": {
+      "get": {
+        "operationId": "getStudioDraft",
+        "summary": "Read current owned private draft",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exhibition ID. PUT must preserve exhibitionId and draft ID."
+          }
+        ],
+        "security": [
+          {
+            "localSession": []
+          },
+          {
+            "networkSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private no-store response. Idempotency replay returns the original historical response and ETag, not necessarily current state.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_INPUT or IF_MATCH_INVALID; malformed UUID/body or weak/list/wildcard ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN or ORIGIN_REJECTED; current role/tenant/owner checks, exact Host/Origin and mutation CSRF.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "EXHIBITION_EXISTS, REQUEST_CONFLICT, DRAFT_CORRUPT or REVISION_LIMIT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceStudioDraft",
+        "summary": "Replace private draft using exact current ETag",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exhibition ID. PUT must preserve exhibitionId and draft ID."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured application origin; session cookie and CSRF token also required."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+            },
+            "description": "One exact strong ETag from the current GET. Checked transactionally; a stale value cannot overwrite current state."
+          }
+        ],
+        "security": [
+          {
+            "localSession": [],
+            "csrfToken": []
+          },
+          {
+            "networkSession": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private no-store response. Idempotency replay returns the original historical response and ETag, not necessarily current state.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_INPUT or IF_MATCH_INVALID; malformed UUID/body or weak/list/wildcard ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN or ORIGIN_REJECTED; current role/tenant/owner checks, exact Host/Origin and mutation CSRF.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "EXHIBITION_EXISTS, REQUEST_CONFLICT, DRAFT_CORRUPT or REVISION_LIMIT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "BODY_TOO_LARGE; mutation body limit is 1048576 bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "DRAFT_INVALID or DRAFT_ID_MISMATCH; full public schema and semantic checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "REMOTE_CONFLICT; read current state and explicitly compare, fork or apply with a new intent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "IF_MATCH_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudioInput"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "localSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_local_session",
+        "description": "Local loopback HTTP only; HttpOnly SameSite=Strict Path=/."
+      },
+      "networkSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-exhibitos_session",
+        "description": "HTTPS host-only Secure HttpOnly SameSite=Strict Path=/. Network listener remains loopback behind an external TLS terminator."
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token",
+        "description": "Synchronizer token obtained from authenticated session; required with session cookie for authenticated mutations."
+      }
+    },
+    "schemas": {
+      "Artwork": {
+        "title": "OES Artwork 1.0.0-draft.1",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0-draft.1"
+          },
+          "kind": {
+            "const": "artwork"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "artist": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 16384
+              },
+              "medium": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "language": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "title",
+              "artist"
+            ]
+          },
+          "artworkType": {
+            "enum": [
+              "sculpture",
+              "image"
+            ]
+          },
+          "units": {
+            "const": "meter"
+          },
+          "coordinates": {
+            "const": "right-handed-y-up"
+          },
+          "dimensions": {
+            "$ref": "#/components/schemas/Artwork/$defs/dimensions"
+          },
+          "transform": {
+            "$ref": "#/components/schemas/Artwork/$defs/transform"
+          },
+          "primaryAssetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Artwork/$defs/asset"
+            },
+            "minItems": 1,
+            "maxItems": 64
+          },
+          "rights": {
+            "$ref": "#/components/schemas/Artwork/$defs/rights"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Artwork/$defs/provenance"
+          },
+          "extensions": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+\\/[A-Za-z0-9_-]+$"
+            },
+            "additionalProperties": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "kind",
+          "id",
+          "revisionId",
+          "revision",
+          "createdAt",
+          "metadata",
+          "artworkType",
+          "units",
+          "coordinates",
+          "dimensions",
+          "transform",
+          "primaryAssetId",
+          "assets",
+          "rights",
+          "provenance"
+        ],
+        "$defs": {
+          "dimensions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "depth": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "weightKg": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "width",
+              "height"
+            ]
+          },
+          "asset": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 240,
+                "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+              },
+              "role": {
+                "enum": [
+                  "model",
+                  "image",
+                  "preview"
+                ]
+              },
+              "mime": {
+                "enum": [
+                  "model/gltf-binary",
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 104857600
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "id",
+              "path",
+              "role",
+              "mime",
+              "bytes",
+              "sha256"
+            ]
+          },
+          "rights": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "holder": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "ownership": {
+                "enum": [
+                  "owner",
+                  "authorized-licensee"
+                ]
+              },
+              "licenseId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "licenseText": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              },
+              "permissions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "display": {
+                    "type": "boolean"
+                  },
+                  "download": {
+                    "type": "boolean"
+                  },
+                  "export": {
+                    "type": "boolean"
+                  },
+                  "commercial": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "display",
+                  "download",
+                  "export",
+                  "commercial"
+                ]
+              },
+              "creditLine": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "validFrom": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              }
+            },
+            "required": [
+              "holder",
+              "ownership",
+              "permissions",
+              "creditLine"
+            ],
+            "anyOf": [
+              {
+                "properties": {
+                  "licenseId": {}
+                },
+                "required": [
+                  "licenseId"
+                ]
+              },
+              {
+                "properties": {
+                  "licenseText": {}
+                },
+                "required": [
+                  "licenseText"
+                ]
+              }
+            ]
+          },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "type": {
+                      "enum": [
+                        "created",
+                        "digitized",
+                        "converted",
+                        "edited",
+                        "exhibited",
+                        "rights-recorded"
+                      ]
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "tool": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "version": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "version"
+                      ]
+                    },
+                    "sourceAssetIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "minItems": 1,
+                      "maxItems": 64
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "at",
+                    "description"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 1024
+              },
+              "scaleConversion": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "sourceUnit": {
+                    "enum": [
+                      "meter",
+                      "centimeter",
+                      "millimeter",
+                      "inch",
+                      "foot"
+                    ]
+                  },
+                  "multiplierToMeters": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "appliedToAssetIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  },
+                  "bakedIntoGeometry": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "sourceUnit",
+                  "multiplierToMeters",
+                  "appliedToAssetIds",
+                  "bakedIntoGeometry"
+                ]
+              },
+              "authorship": {
+                "enum": [
+                  "human-authored",
+                  "ai-assisted",
+                  "ai-generated",
+                  "synthetic"
+                ]
+              }
+            },
+            "required": [
+              "events",
+              "authorship"
+            ]
+          },
+          "transform": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "position": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "rotation": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "scale": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "position",
+              "rotation",
+              "scale"
+            ]
+          }
+        },
+        "x-source": {
+          "license": "Apache-2.0",
+          "package": "@exhibitos/spec",
+          "packageVersion": "0.1.0-draft.1",
+          "sha256": "8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec",
+          "sourceCommit": "8ee5741860b626448dcba0c82657de6621e1c058",
+          "schemaId": "https://exhibitos.github.io/spec/oes/v1/1.0.0-draft.1/artwork.schema.json",
+          "adaptation": "Only schema resource identifiers and references rewritten to local OpenAPI components; property constraints unchanged."
+        }
+      },
+      "Exhibition": {
+        "title": "OES Exhibition 1.0.0-draft.1",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": {
+            "const": "1.0.0-draft.1"
+          },
+          "kind": {
+            "const": "exhibition-revision"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "units": {
+            "const": "meter"
+          },
+          "coordinates": {
+            "const": "right-handed-y-up"
+          },
+          "rooms": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/room"
+            },
+            "minItems": 1,
+            "maxItems": 128
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/surface"
+            },
+            "minItems": 0,
+            "maxItems": 2048
+          },
+          "openings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/opening"
+            },
+            "minItems": 0,
+            "maxItems": 1024
+          },
+          "artworks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Artwork"
+            },
+            "minItems": 0,
+            "maxItems": 1024
+          },
+          "placements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/placement"
+            },
+            "minItems": 0,
+            "maxItems": 4096
+          },
+          "lights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/light"
+            },
+            "minItems": 0,
+            "maxItems": 1024
+          },
+          "navigation": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/navigation"
+            },
+            "minItems": 0,
+            "maxItems": 128
+          },
+          "accessibility": {
+            "$ref": "#/components/schemas/Exhibition/$defs/accessibility"
+          },
+          "mediaAssets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/mediaAsset"
+            },
+            "minItems": 0,
+            "maxItems": 128
+          },
+          "audioZones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/audioZone"
+            },
+            "minItems": 0,
+            "maxItems": 128
+          },
+          "annotations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/annotation"
+            },
+            "minItems": 0,
+            "maxItems": 4096
+          },
+          "scripts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Exhibition/$defs/script"
+            },
+            "minItems": 0,
+            "maxItems": 128
+          },
+          "extensions": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+\\/[A-Za-z0-9_-]+$"
+            },
+            "additionalProperties": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "kind",
+          "id",
+          "revisionId",
+          "revision",
+          "createdAt",
+          "title",
+          "units",
+          "coordinates",
+          "rooms",
+          "surfaces",
+          "openings",
+          "artworks",
+          "placements",
+          "lights",
+          "navigation",
+          "accessibility",
+          "mediaAssets",
+          "audioZones",
+          "annotations",
+          "scripts"
+        ],
+        "$defs": {
+          "room": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "dimensions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "depth": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "width",
+                  "height",
+                  "depth"
+                ]
+              },
+              "transform": {
+                "$ref": "#/components/schemas/Artwork/$defs/transform"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "dimensions",
+              "transform"
+            ]
+          },
+          "surface": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "roomId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "enum": [
+                  "wall",
+                  "floor",
+                  "ceiling"
+                ]
+              },
+              "transform": {
+                "$ref": "#/components/schemas/Artwork/$defs/transform"
+              },
+              "dimensions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "width",
+                  "height"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "roomId",
+              "type",
+              "transform",
+              "dimensions"
+            ]
+          },
+          "opening": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "surfaceId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "enum": [
+                  "door",
+                  "window"
+                ]
+              },
+              "offset": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "dimensions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "width",
+                  "height"
+                ]
+              },
+              "connectsToOpeningId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "exterior": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "surfaceId",
+              "type",
+              "offset",
+              "dimensions"
+            ]
+          },
+          "placement": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "roomId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "artworkRevisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "transform": {
+                "$ref": "#/components/schemas/Artwork/$defs/transform"
+              }
+            },
+            "required": [
+              "id",
+              "roomId",
+              "artworkRevisionId",
+              "assetId",
+              "transform"
+            ]
+          },
+          "light": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "roomId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "enum": [
+                  "point",
+                  "spot",
+                  "directional",
+                  "area"
+                ]
+              },
+              "transform": {
+                "$ref": "#/components/schemas/Artwork/$defs/transform"
+              },
+              "color": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "intensity": {
+                "type": "number",
+                "minimum": 0
+              },
+              "unit": {
+                "enum": [
+                  "candela",
+                  "lux",
+                  "lumen"
+                ]
+              },
+              "castsShadow": {
+                "type": "boolean"
+              },
+              "beamAngle": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1.5707963267948966
+              },
+              "dimensions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "width",
+                  "height"
+                ]
+              },
+              "targetPlacementId": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "id",
+              "roomId",
+              "type",
+              "transform",
+              "color",
+              "intensity",
+              "unit",
+              "castsShadow"
+            ]
+          },
+          "navigation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "accessible": {
+                "type": "boolean"
+              },
+              "waypoints": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "roomId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "position": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "minItems": 3,
+                      "maxItems": 3
+                    },
+                    "viaOpeningId": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "roomId",
+                    "position"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 4096
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "accessible",
+              "waypoints"
+            ]
+          },
+          "accessibility": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "alternativeView": {
+                "const": "list"
+              },
+              "keyboardNavigation": {
+                "const": true
+              },
+              "reducedMotion": {
+                "const": true
+              },
+              "stationaryNavigation": {
+                "const": true
+              },
+              "routeIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "minItems": 0,
+                "maxItems": 128
+              },
+              "artworkDescriptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "placementId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 8192
+                    }
+                  },
+                  "required": [
+                    "placementId",
+                    "text"
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 4096
+              }
+            },
+            "required": [
+              "alternativeView",
+              "keyboardNavigation",
+              "reducedMotion",
+              "stationaryNavigation",
+              "routeIds",
+              "artworkDescriptions"
+            ]
+          },
+          "mediaAsset": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "path": {
+                "type": "string",
+                "maxLength": 240,
+                "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+              },
+              "mime": {
+                "enum": [
+                  "audio/mpeg",
+                  "audio/ogg",
+                  "audio/wav"
+                ]
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 104857600
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "rights": {
+                "$ref": "#/components/schemas/Artwork/$defs/rights"
+              }
+            },
+            "required": [
+              "id",
+              "path",
+              "mime",
+              "bytes",
+              "sha256",
+              "rights"
+            ]
+          },
+          "audioZone": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "roomId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "position": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "radius": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "volume": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "autoplay": {
+                "const": false
+              },
+              "transcript": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            },
+            "required": [
+              "id",
+              "roomId",
+              "assetId",
+              "position",
+              "radius",
+              "volume",
+              "autoplay",
+              "transcript"
+            ]
+          },
+          "annotation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "placementId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16384
+              }
+            },
+            "required": [
+              "id",
+              "placementId",
+              "text"
+            ]
+          },
+          "script": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "enabled": {
+                "const": false
+              },
+              "trigger": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "exhibition-start",
+                      "room-enter"
+                    ]
+                  },
+                  "roomId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "set-light-intensity",
+                        "show-annotation",
+                        "play-audio"
+                      ]
+                    },
+                    "targetId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "delayMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60000
+                    },
+                    "value": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "targetId",
+                    "delayMs"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32
+              }
+            },
+            "required": [
+              "id",
+              "enabled",
+              "trigger",
+              "actions"
+            ]
+          }
+        },
+        "x-source": {
+          "license": "Apache-2.0",
+          "package": "@exhibitos/spec",
+          "packageVersion": "0.1.0-draft.1",
+          "sha256": "8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec",
+          "sourceCommit": "8ee5741860b626448dcba0c82657de6621e1c058",
+          "schemaId": "https://exhibitos.github.io/spec/oes/v1/1.0.0-draft.1/exhibition.schema.json",
+          "adaptation": "Only schema resource identifiers and references rewritten to local OpenAPI components; property constraints unchanged."
+        }
+      },
+      "Lifecycle": {
+        "title": "OES Lifecycle 1.0.0-draft.1",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Lifecycle/$defs/draft"
+          },
+          {
+            "$ref": "#/components/schemas/Lifecycle/$defs/publication"
+          },
+          {
+            "$ref": "#/components/schemas/Lifecycle/$defs/freeze"
+          }
+        ],
+        "$defs": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schemaVersion": {
+                "const": "1.0.0-draft.1"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "exhibitionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "const": "exhibition-draft"
+              },
+              "editVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              },
+              "baseRevisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "candidate": {
+                "$ref": "#/components/schemas/Exhibition"
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "id",
+              "exhibitionId",
+              "kind",
+              "editVersion",
+              "createdAt",
+              "updatedAt",
+              "candidate"
+            ]
+          },
+          "publication": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schemaVersion": {
+                "const": "1.0.0-draft.1"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "exhibitionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "const": "publication"
+              },
+              "revisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revisionSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "hashProfile": {
+                "const": "oes-sorted-json-v1"
+              },
+              "publishedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              },
+              "status": {
+                "enum": [
+                  "published",
+                  "unpublished"
+                ]
+              },
+              "unpublishedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "id",
+              "exhibitionId",
+              "kind",
+              "revisionId",
+              "revisionSha256",
+              "hashProfile",
+              "publishedAt",
+              "status"
+            ]
+          },
+          "freeze": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "schemaVersion": {
+                "const": "1.0.0-draft.1"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "exhibitionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "const": "freeze"
+              },
+              "revisionId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revisionSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "hashProfile": {
+                "const": "oes-sorted-json-v1"
+              },
+              "frozenAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d(?:\\.\\d{1,3})?Z$"
+              },
+              "publicationId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "runtimeImageDigest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "runtimeVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "databaseMigrationVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "specVersions": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "oesArtwork": {
+                    "const": "1.0.0-draft.1"
+                  },
+                  "oesExhibition": {
+                    "const": "1.0.0-draft.1"
+                  },
+                  "oex": {
+                    "const": "not-used"
+                  },
+                  "oed": {
+                    "const": "not-used"
+                  }
+                },
+                "required": [
+                  "oesArtwork",
+                  "oesExhibition",
+                  "oex",
+                  "oed"
+                ]
+              },
+              "assets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "path": {
+                      "type": "string",
+                      "maxLength": 240,
+                      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*$"
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 104857600
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "path",
+                    "bytes",
+                    "sha256"
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 65536
+              }
+            },
+            "required": [
+              "schemaVersion",
+              "id",
+              "exhibitionId",
+              "kind",
+              "revisionId",
+              "revisionSha256",
+              "hashProfile",
+              "frozenAt",
+              "publicationId",
+              "runtimeImageDigest",
+              "runtimeVersion",
+              "databaseMigrationVersion",
+              "specVersions",
+              "assets"
+            ]
+          }
+        },
+        "x-source": {
+          "license": "Apache-2.0",
+          "package": "@exhibitos/spec",
+          "packageVersion": "0.1.0-draft.1",
+          "sha256": "8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec",
+          "sourceCommit": "8ee5741860b626448dcba0c82657de6621e1c058",
+          "schemaId": "https://exhibitos.github.io/spec/oes/v1/1.0.0-draft.1/lifecycle.schema.json",
+          "adaptation": "Only schema resource identifiers and references rewritten to local OpenAPI components; property constraints unchanged."
+        }
+      },
+      "Draft": {
+        "$ref": "#/components/schemas/Lifecycle/$defs/draft",
+        "description": "Full pinned OES draft. Server additionally validates semantic IDs/references, finite geometry/transforms, chronology and accessibility. It does not validate or package artwork bytes."
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fieldErrors": {
+            "type": "array",
+            "items": {}
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "fieldErrors",
+          "requestId"
+        ]
+      },
+      "StudioResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "etag",
+          "draft"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "etag": {
+            "type": "string",
+            "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/Draft"
+          }
+        }
+      },
+      "StudioInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "draft",
+          "requestId"
+        ],
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/Draft"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Durable idempotency key scoped to tenant and current user. Preserve exact body and If-Match for retry. Different request intent requires a new UUID."
+          }
+        }
+      }
+    }
+  }
+}

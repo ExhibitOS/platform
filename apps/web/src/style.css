@@ -55,3 +55,9 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .cms-comparison pre { font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow-y: auto; background: #f3f2ec; padding: 14px; }
 @media (max-width: 800px) { .cms-grid, .cms-comparison { grid-template-columns: 1fr; } .cms-heading { align-items: flex-start; } }
 @media (max-width: 450px) { .cms-card { padding: 16px; } .cms-shell fieldset { padding: 12px; } .cms-dimensions { grid-template-columns: 1fr; gap: 0; } }
+.studio-shell-status { font-size: 13px; padding: 14px 18px; border: 1px solid #9ea99d; border-radius: 4px; line-height: 1.7; }
+.studio-shell .studio-json { min-height: 420px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.6; tab-size: 2; }
+.studio-summary { font-size: 13px; line-height: 1.7; padding: 16px; background: #f3f2ec; border-radius: 4px; }
+.studio-shell [data-testid=local-state] { font-size: 13px; background: #e6eadf; border-radius: 20px; padding: 8px 12px; }
+
+@media (max-width: 600px) { .studio-shell .cms-heading { flex-direction: column; align-items: stretch; gap: 0; } .studio-shell .cms-heading .phase { align-self: flex-start; margin-bottom: 20px; } }
