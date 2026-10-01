@@ -21,3 +21,20 @@ Production browser checks cover explicit lazy physics entrance, pause/resume pos
 [Native refusal evidence](navigation-native-capture.json) records real WrongDocumentError in independent minimal pages and production, using bundled headless/headed Chromium and isolated standard Chrome154. A subsequent native computer-use observation reported the Mac locked; this is environment evidence, not a proven explanation for every refusal. Unlock and actual foreground capture/mouse/Esc testing remain necessary. Mocked request promises and injected events cannot replace native acquisition. Keyboard/touch/stationary alternatives are implemented and tested independently.
 
 The [protocol](navigation-protocol.md), [usage and geometry limits](../viewer-navigation.md) and [ADR0010](../adr/0010-viewer-first-person-collision.md) define supported scope. Floor apertures, non-supported transforms/complexity and arbitrary curved/stair spaces are not silently certified. No API/migration/hosted workflow change or private dependency is introduced.
+
+## Native qualification adapters
+
+The default test still requires real browser pointer lock. For supervised input,
+`EXHIBITOS_NAVIGATION_NATIVE_INPUT=1` exposes bounded capture/movement/Escape
+stages while retaining actual lock, yaw and paused-state assertions. A fresh
+Playwright browser process may not be addressable by native app automation.
+
+`EXHIBITOS_NAVIGATION_NATIVE_EXTERNAL=1 node scripts/test-navigation.mjs` instead
+serves the same approved synthetic publication using the production build and
+writes a temporary `fixture.json`. It verifies anonymous metadata, all public
+asset hashes and revision headers, and records source/build hashes. Open its
+printed URL in an existing normal browser and record actual lock acquisition,
+mouse yaw change and Escape unlock/pause. It launches no browser and expires
+after five minutes. Writing `{"complete":true}` to the printed completion path
+requests cleanup only; it never asserts native success. These adapters do not
+remove the pending native gate or change the production implementation.
