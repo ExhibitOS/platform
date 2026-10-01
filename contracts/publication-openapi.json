@@ -1,0 +1,665 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "ExhibitOS Studio Publication API",
+    "version": "0.1.0",
+    "description": "Additive controlled public previews of immutable saved revisions. Publication claims use explicit public OES display grants, current tenant/editor access and complete server validation. Code license does not grant asset rights. Anonymous output has only intentionally public artwork/exhibition metadata and qualified display copies; ownership/license title is a producer claim. No commercial, original-download, export, DRM, OEX or full Viewer feature is added. Anonymous current-rights checks cannot revoke copies already received. CMS display-right metadata edits append cms.rights_changed audit and rights-revoked publication events; immutable publication state/history remains retained."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/ready": {
+      "get": {
+        "operationId": "checkPublicationReady",
+        "summary": "Validate saved remote draft for anonymous publication",
+        "description": "Checks full pinned public schema/semantics including geometry/accessibility/active display grants, Platform material/presentation contracts, exact current approved immutable CMS snapshots, current artwork and asset rights, qualified original integrity and bounded derived bytes. At most 64 artwork snapshots and 64 MiB total derivative bytes; unsupported audio is BLOCKED. Protected no-store response. This does not publish. CMS snapshots require owning artist/admin or existing assigned-curator resource permission. Malformed persisted drafts return DRAFT_CORRUPT. READY may become stale; publish repeats validation atomically. Noncommercial public preview does not imply commercial/download/export rights.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "localSession": []
+          },
+          {
+            "networkSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing or revoked"
+          },
+          "403": {
+            "description": "Current tenant membership, owner/editor permission, CSRF or Origin denied"
+          },
+          "409": {
+            "description": "DRAFT_CORRUPT"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/publications": {
+      "get": {
+        "operationId": "listOwnedPublications",
+        "summary": "List private publication states for owned saved draft",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "localSession": []
+          },
+          {
+            "networkSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest 100 immutable publications; recorded status is separate from current-rights availability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "$ref": "#/components/schemas/PublicationSummary"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Session missing or revoked"
+          },
+          "403": {
+            "description": "Current tenant membership, owner/editor permission, CSRF or Origin denied"
+          }
+        }
+      },
+      "post": {
+        "operationId": "publishOwnedDraft",
+        "summary": "Publish one validated saved revision as an immutable public snapshot",
+        "description": "Requires exact saved strong If-Match, CSRF and current Studio owner/editor authorization; a role alone does not authorize publication. Repeats READY and current artwork/asset display grants before storing qualified derivatives. Rewrites all UUID references and publishes only complete public fields with approved safe materials/presentation extensions; strips CMS bindings, unknown/private extensions, artist bio and source notes. Public inventory hashes/sizes identify qualified derivative bytes, not originals. Source authoring draft becomes permanently frozen on successful publication: fork to a new local/remote draft for editing even after unpublish. Exact receipt retry checks current authoring access and returns the existing publication with its current recorded status; changing target/ETag under that requestId is REQUEST_CONFLICT. Failed validation writes no publication/receipt. No OEX publication, audio publication or full Viewer is claimed.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "localSession": [],
+            "csrfToken": []
+          },
+          {
+            "networkSession": [],
+            "csrfToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "requestId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Immutable publication summary; no-store private response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed input or If-Match"
+          },
+          "401": {
+            "description": "Session missing or revoked"
+          },
+          "403": {
+            "description": "Current tenant membership, owner/editor permission, CSRF or Origin denied"
+          },
+          "409": {
+            "description": "Publication source is immutable or idempotency key conflict"
+          },
+          "412": {
+            "description": "Strong saved draft ETag differs"
+          },
+          "422": {
+            "description": "PUBLICATION_NOT_READY; fetch READY for current repair guidance"
+          },
+          "428": {
+            "description": "Strong If-Match required"
+          },
+          "503": {
+            "description": "Storage unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/publications/{id}/unpublish": {
+      "post": {
+        "operationId": "unpublishOwnedPublication",
+        "summary": "Withdraw anonymous availability",
+        "description": "Current owner/admin access and CSRF are required. Changes availability, retains immutable metadata/assets/receipts and records an immutable event plus audit. Repeated unpublish is idempotent. New anonymous reads return 404 with no-store for metadata and every byte URL.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "localSession": [],
+            "csrfToken": []
+          },
+          {
+            "networkSession": [],
+            "csrfToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current recorded state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed input or If-Match"
+          },
+          "401": {
+            "description": "Session missing or revoked"
+          },
+          "403": {
+            "description": "Current tenant membership, owner/editor permission, CSRF or Origin denied"
+          },
+          "404": {
+            "description": "Republish current source/rights unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/publications/{id}/republish": {
+      "post": {
+        "operationId": "republishOwnedPublication",
+        "summary": "Restore the same immutable public URL after current grant validation",
+        "description": "Current owner/admin access and CSRF are required. Rechecks the immutable snapshot, current source approval equality, both current display grants, validity intervals and archive/tenant gates. An artwork metadata edit/reapproval conservatively invalidates old publications; create a new draft/publication. Restoring a still-valid publication appends an event/audit. Downloaded copies cannot be recalled.",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [
+          {
+            "localSession": [],
+            "csrfToken": []
+          },
+          {
+            "networkSession": [],
+            "csrfToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current recorded state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicationSummary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed input or If-Match"
+          },
+          "401": {
+            "description": "Session missing or revoked"
+          },
+          "403": {
+            "description": "Current tenant membership, owner/editor permission, CSRF or Origin denied"
+          },
+          "404": {
+            "description": "Republish current source/rights unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/publications/{id}": {
+      "get": {
+        "operationId": "readAnonymousPublication",
+        "summary": "Read an available immutable public exhibition",
+        "description": "Anonymous reads only immutable public snapshots and private immutable publication-to-qualified-asset bindings. It never reads the mutable private draft candidate. Every request holds the shared current-policy lock and rechecks publication state, tenant/artist/artwork/exhibition archive status, exact current approved artwork revision and selected asset, source hash, public snapshot display grants and current artwork/asset display grants including future/expiry windows. Revocation or reapproval causes PUBLICATION_UNAVAILABLE (404). Cache-Control: no-store and Pragma: no-cache apply to success and denied reads; no conditional 304 shortcut. Existing downloaded content is not recalled. Asset paths/IDs are generated server-side; clients cannot request arbitrary originals.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Public no-store immutable snapshot and mapped derivative URLs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProjection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed UUID"
+          },
+          "404": {
+            "description": "Absent, unpublished or current display/source gates unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/publications/{id}/assets/{assetId}": {
+      "get": {
+        "operationId": "readAnonymousPublicationDerivative",
+        "summary": "Read only a currently authorized immutable qualified derivative",
+        "description": "Anonymous reads only immutable public snapshots and private immutable publication-to-qualified-asset bindings. It never reads the mutable private draft candidate. Every request holds the shared current-policy lock and rechecks publication state, tenant/artist/artwork/exhibition archive status, exact current approved artwork revision and selected asset, source hash, public snapshot display grants and current artwork/asset display grants including future/expiry windows. Revocation or reapproval causes PUBLICATION_UNAVAILABLE (404). Cache-Control: no-store and Pragma: no-cache apply to success and denied reads; no conditional 304 shortcut. Existing downloaded content is not recalled. Asset paths/IDs are generated server-side; clients cannot request arbitrary originals. Byte size/hash must equal immutable public inventory; missing/corrupt storage fails closed. Assets are at most 32 MiB and preserve the prior watermarked display profile, which is not DRM.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current authorized qualified GLB/PNG bytes, no-store",
+            "headers": {
+              "X-ExhibitOS-Publication-Revision": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "description": "Exact immutable public exhibition SHA-256; clients compare before rendering."
+              },
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "model/gltf-binary": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed UUID"
+          },
+          "404": {
+            "description": "Unavailable state/grant/source/asset integrity; no-store"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "localSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_session"
+      },
+      "networkSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-exhibitos_session"
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token"
+      }
+    },
+    "schemas": {
+      "PublicationSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publicUrl": {
+            "type": "string",
+            "pattern": "^/p/[a-f0-9-]{36}$"
+          },
+          "revisionSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "enum": [
+              "published",
+              "unpublished"
+            ]
+          }
+        },
+        "required": [
+          "publicationId",
+          "publicUrl",
+          "revisionSha256",
+          "publishedAt",
+          "status"
+        ]
+      },
+      "Issue": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "remediation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "path",
+          "message",
+          "remediation"
+        ]
+      },
+      "ReadyReport": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "READY",
+              "BLOCKED"
+            ]
+          },
+          "etag": {
+            "type": "string"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "etag",
+          "issues"
+        ]
+      },
+      "PublicProjection": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "publication": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "revisionSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "publishedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "status": {
+                "const": "published"
+              }
+            },
+            "required": [
+              "id",
+              "revisionSha256",
+              "publishedAt",
+              "status"
+            ]
+          },
+          "exhibition": {
+            "type": "object",
+            "description": "Complete public OES exhibition 1.0.0-draft.1, validated by pinned public schema and semantics; remapped IDs, derivative inventories, only safe materials/presentation extensions."
+          },
+          "assets": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "mime": {
+                  "enum": [
+                    "model/gltf-binary",
+                    "image/png"
+                  ]
+                },
+                "url": {
+                  "type": "string",
+                  "pattern": "^/api/v1/publications/[a-f0-9-]{36}/assets/[a-f0-9-]{36}$"
+                }
+              },
+              "required": [
+                "assetId",
+                "mime",
+                "url"
+              ]
+            }
+          }
+        },
+        "required": [
+          "publication",
+          "exhibition",
+          "assets"
+        ]
+      }
+    }
+  }
+}

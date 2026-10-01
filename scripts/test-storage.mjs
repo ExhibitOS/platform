@@ -397,6 +397,11 @@ try {
       "exhibitions",
       "exhibition_revisions",
       "studio_requests",
+      "studio_publications",
+      "publication_states",
+      "publication_assets",
+      "publication_events",
+      "publication_requests",
     ]) {
       const source = (
         await pool.query(

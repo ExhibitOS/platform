@@ -599,6 +599,11 @@ try {
         "exhibitions",
         "exhibition_revisions",
         "studio_requests",
+        "studio_publications",
+        "publication_states",
+        "publication_assets",
+        "publication_events",
+        "publication_requests",
       ]) {
         const sql = `SELECT row_to_json(t) AS value FROM ${table} t ORDER BY row_to_json(t)::text`;
         assert.deepEqual(

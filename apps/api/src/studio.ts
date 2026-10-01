@@ -186,6 +186,8 @@ export class Studio {
     if (replay) return replay;
     if (match !== etag(row.revision, row.metadata))
       throw new ApiError(412, "REMOTE_CONFLICT");
+    if ((await c.query("SELECT 1 FROM studio_publications WHERE tenant_id=$1 AND exhibition_id=$2", [s.tenantId, id])).rowCount)
+      throw new ApiError(409, "PUBLISHED_DRAFT_IMMUTABLE");
     if (row.revision >= 2147483647) throw new ApiError(409, "REVISION_LIMIT");
     const revision = row.revision + 1;
     await c.query(

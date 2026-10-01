@@ -1,3 +1,4 @@
+import { Publications } from './publication.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
@@ -53,6 +54,13 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
  app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
+ const publications=new Publications(pool,store);
+ app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
+ app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
+ app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));
+ for(const action of ['unpublish','republish'] as const)app.post(`${prefix}/studio/publications/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>publications[action](c,s,(req.params as {id:string}).id)));
+ app.get('/api/v1/publications/:id',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');return publications.anonymous((req.params as {id:string}).id);});
+ app.get('/api/v1/publications/:id/assets/:assetId',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;assetId:string};const result=await publications.anonymous(p.id,p.assetId) as {bytes:Buffer;mime:string;revisionSha256:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
  const cms=new Cms(store),cp=`${prefix}/cms`;
  app.get(`${prefix}/studio/artworks/:id`,call(false,async(c,s,req)=>cms.studioArtwork(c,s,cmsId(req))));
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};
