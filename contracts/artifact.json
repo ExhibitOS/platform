@@ -1,0 +1,25 @@
+{
+  "package": "@exhibitos/spec",
+  "packageVersion": "0.1.0-draft.1",
+  "contractVersion": "1.0.0-draft.1",
+  "stability": "draft",
+  "file": "vendor/exhibitos-spec-0.1.0-draft.1-8d0c41c8d787.tgz",
+  "bytes": 66715,
+  "sha256": "8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec",
+  "upstreamRepository": "https://github.com/ExhibitOS/spec",
+  "upstreamSourceCommit": "8ee5741860b626448dcba0c82657de6621e1c058",
+  "upstreamTag": null,
+  "licenseMapping": {
+    "codeSchemasMetadataDocumentation": "Apache-2.0",
+    "originalSyntheticAssets": "CC0-1.0",
+    "thirdPartyDependencies": "original licenses preserved"
+  },
+  "cc0Paths": [
+    "fixtures/synthetic/sculpture.glb",
+    "fixtures/synthetic/painting.png",
+    "fixtures/synthetic/reference-scene.json",
+    "fixtures/synthetic/manifest.json"
+  ],
+  "proposedTag": "spec-package-v0.1.0-draft.1",
+  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.1.tgz"
+}

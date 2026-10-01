@@ -71,6 +71,15 @@ operations, Capture, 실제 작품, 비밀정보가 없는 fresh checkout에서�
 secret-free fixture 원칙을 따르고 자신에게 필요한 언어 도구는 별도로 선택합니다.
 선택 이유와 버전 근거는 [ADR](docs/adr/0001-platform-toolchain.md)에 있습니다.
 
+## 공개 계약 conformance
+
+공개 `@exhibitos/spec` draft artifact를 immutable SHA-256과 upstream source
+commit으로 고정한 개발용 Node 검사를 추가했습니다. 독립 checkout에서
+`npm ci`, `npm run conformance`, `npm run test:contracts`를 실행할 수 있습니다.
+같은 공개 fixture의 OES/OEX/OED 정상·오류 계약을 검사하며 operations나
+private spec clone을 요구하지 않습니다. 자세한 artifact provenance·라이선스·
+업데이트 절차는 [contracts/README.md](contracts/README.md)를 읽으세요.
+
 ## 지원 환경과 baseline
 
 실제로 검사한 범위와 아직 검증하지 않은 지원 후보는
