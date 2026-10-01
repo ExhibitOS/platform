@@ -1,0 +1,3 @@
+CREATE TABLE ingest_requests (tenant_id uuid REFERENCES tenants(id), key text CHECK(length(key) BETWEEN 1 AND 200), payload_hash text NOT NULL, artwork_id uuid NOT NULL, PRIMARY KEY(tenant_id,key), FOREIGN KEY(tenant_id,artwork_id) REFERENCES artworks(tenant_id,id));
+CREATE TABLE outbox (tenant_id uuid, id uuid, asset_id uuid NOT NULL, status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','dead')), attempts integer NOT NULL DEFAULT 0, available_at timestamptz NOT NULL DEFAULT now(), last_error text, PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,asset_id) REFERENCES assets(tenant_id,id));
+CREATE INDEX outbox_pending ON outbox(available_at) WHERE status='pending';
