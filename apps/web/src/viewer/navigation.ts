@@ -365,12 +365,25 @@ export async function createNavigationController(doc: Exhibition, options: {
         }
         function descendFallback(next: Vec3): Vec3 | undefined {
             const foot = next[1] - half, floor = support(next[0], next[2], foot);
-            if (floor === undefined || floor > foot || foot - floor > 0.35)
+            if (floor === undefined || floor > foot || foot - floor > NAVIGATION_PROFILE.maxStepHeight + 0.011)
                 return;
             const lower: Vec3 = [next[0], floor + half + 0.011, next[2]], delta = lower.map((n, i) => n - next[i]!) as Vec3;
-            if (world.castShape(v(next), q([0, 0, 0, 1]), v(delta), shape, 0, 1, true, undefined, undefined, character))
-                return;
-            return supported(lower) ? lower : undefined;
+            const hit = world.castShape(v(next), q([0, 0, 0, 1]), v(delta), shape, 0.001, 1, true, undefined, undefined, character);
+            const landing = hit ? add(next, delta.map(n => n * Math.max(0, hit.time_of_impact - 0.0001)) as Vec3) : lower;
+            return supported(landing) ? landing : undefined;
+        }
+        function dropAllowed(next: Vec3) {
+            const base = support(center[0], center[2], center[1] - half);
+            const landing = support(next[0], next[2], center[1] - half);
+            if (base === undefined || landing === undefined || !corridorCovered([center[0], base, center[2]], [next[0], landing, next[2]]))
+                return false;
+            for (let i = -1; i < 8; i++) {
+                const angle = i * Math.PI / 4, x = next[0] + (i < 0 ? 0 : Math.cos(angle) * radius), z = next[2] + (i < 0 ? 0 : Math.sin(angle) * radius);
+                const level = support(x, z, center[1] - half);
+                if (level === undefined || base - level > NAVIGATION_PROFILE.maxStepHeight + 0.00001)
+                    return false;
+            }
+            return true;
         }
         reset();
         return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
@@ -412,7 +425,12 @@ export async function createNavigationController(doc: Exhibition, options: {
                             grounded = true;
                         }
                     }
-                    if (!supported(next)) {
+                    if (!dropAllowed(next)) {
+                        blocked = true;
+                        recovered = true;
+                        velocity = [0, 0, 0];
+                    }
+                    else if (!supported(next)) {
                         const down = descendFallback(next);
                         if (down) {
                             next = down;

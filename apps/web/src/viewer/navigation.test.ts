@@ -114,6 +114,30 @@ describe("real Rapier fixed-step first-person collision", () => {
         d.rooms[0]!.transform.scale = [2, 1, 1];
         await expect(createNavigationController(d, { position: [0, 1.6, 0] })).rejects.toThrow("NAVIGATION_GEOMETRY_UNSUPPORTED");
     });
+    it("descends25cm from an independent top spawn and refuses larger drops", async () => {
+        for (const height of [0.2, 0.25, 0.26, 0.3, 0.35]) {
+            const d = room();
+            slab(d, 0, height, -1, 4, 3, [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], "floor");
+            slab(d, 0, height / 2, 0.5, 4, height);
+            const c = await createNavigationController(d, { position: [0, 1.6 + height, -1] });
+            try {
+                const down = walk(c, 3, 60, { forward: -1, right: 0, yaw: 0 });
+                if (height <= 0.25) {
+                    expect(down.eyePosition[2]).toBeGreaterThan(1.5);
+                    expect(down.eyePosition[1]).toBeLessThan(1.63);
+                    expect(down.grounded).toBe(true);
+                }
+                else {
+                    expect(down.eyePosition[2]).toBeLessThan(0.26);
+                    expect(down.eyePosition[1]).toBeGreaterThan(1.6 + height - 0.02);
+                    expect(down.recovered).toBe(true);
+                }
+            }
+            finally {
+                c.dispose();
+            }
+        }
+    });
     it("climbs and descends steps through25cm and ramps through35degrees; rejects26cm steps and45degree slopes", async () => {
         for (const height of [0.2, 0.25, 0.26, 0.4]) {
             const d = room();
