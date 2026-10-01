@@ -56,7 +56,7 @@ export function buildNavigationMesh(regions: readonly WalkableRegion[], queries:
             }
     }
     // Spatial buckets bound neighborhood candidates; no all-pairs gallery graph scan.
-    const range = cellSize * 1.6, buckets = new Map<string, NavigationCell[]>(), key = (x: number, z: number) => `${x},${z}`;
+    const range = cellSize * 1.6 + 0.5, buckets = new Map<string, NavigationCell[]>(), key = (x: number, z: number) => `${x},${z}`;
     for (const c of mesh.cells) {
         const x = Math.floor(c.center[0] / range), z = Math.floor(c.center[2] / range), k = key(x, z);
         buckets.set(k, [...(buckets.get(k) ?? []), c]);
@@ -67,7 +67,7 @@ export function buildNavigationMesh(regions: readonly WalkableRegion[], queries:
         for (let dx = -1; dx <= 1; dx++)
             for (let dz = -1; dz <= 1; dz++)
                 for (const other of buckets.get(key(x + dx, z + dz)) ?? []) {
-                    if (other.id <= c.id || Math.hypot(other.center[0] - c.center[0], other.center[2] - c.center[2]) > range || Math.abs(other.center[1] - c.center[1]) > Math.max(0.25, range * Math.tan(35 * Math.PI / 180)))
+                    if (other.id <= c.id || Math.hypot(other.center[0] - c.center[0], other.center[2] - c.center[2]) > (c.surfaceId === other.surfaceId ? cellSize * 1.6 : range) || Math.abs(other.center[1] - c.center[1]) > Math.max(0.25, range * Math.tan(35 * Math.PI / 180)))
                         continue;
                     if (!queries.segmentClear(c.center, other.center))
                         continue;
