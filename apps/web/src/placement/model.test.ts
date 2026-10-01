@@ -14,6 +14,7 @@ describe("physical artwork placement and presentation commands", () => {
         const base = scene(), painting = base.present.placements[1]!, art = base.present.artworks[1]!;
         expect(placementDimensions(art, painting)).toEqual({ width: 1, height: 1, depth: 0.02 });
         expect(base.present.artworks[0]!.dimensions).toEqual({ width: 1, height: 1, depth: 1 });
+        expect(base.present.placements[0]!.transform.position[1]).toBe(0.5);
         const wall = base.present.surfaces[3]!;
         const state = applyGeometryCommand(base, { type: "align-placement", id: painting.id, surfaceId: wall.id, offset: [0.36, 0.44], snap: 0.25 });
         expect(state.present.placements[1]!.transform.position[0]).toBeCloseTo(5.988);

@@ -2,23 +2,37 @@
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 export type Placement = Exhibition["placements"][number];
 export type Light = Exhibition["lights"][number];
-const pose = () => ({ position: [0, 0, 0] as [
-        number,
-        number,
-        number
-    ], rotation: [0, 0, 0, 1] as [
-        number,
-        number,
-        number,
-        number
-    ], scale: [1, 1, 1] as [
-        number,
-        number,
-        number
-    ] });
-export function newPlacement(artwork: Artwork, roomId: string): Placement { return { id: crypto.randomUUID(), roomId, artworkRevisionId: artwork.revisionId, assetId: artwork.primaryAssetId, transform: pose() }; }
-export function placementDimensions(artwork: Artwork, p: Placement) { return { width: artwork.dimensions.width * p.transform.scale[0], height: artwork.dimensions.height * p.transform.scale[1], depth: (artwork.dimensions.depth ?? 0) * p.transform.scale[2] }; }
-export function newLight(roomId: string, type: Light["type"] = "point"): Light { return { id: crypto.randomUUID(), roomId, type, transform: { ...pose(), position: [0, 3, 0] }, color: [1, 1, 1], intensity: 100, unit: type === "directional" ? "lux" : "candela", castsShadow: false, ...(type === "spot" ? { beamAngle: Math.PI / 4 } : {}), ...(type === "area" ? { dimensions: { width: 1, height: 1 } } : {}) }; }
+const pose = (): Placement["transform"] => ({
+  position: [0, 0, 0],
+  rotation: [0, 0, 0, 1],
+  scale: [1, 1, 1],
+});
+export function newPlacement(artwork: Artwork, roomId: string): Placement {
+  return {
+    id: crypto.randomUUID(),
+    roomId,
+    artworkRevisionId: artwork.revisionId,
+    assetId: artwork.primaryAssetId,
+    transform: { ...pose(), position: [0, artwork.dimensions.height / 2, 0] },
+  };
+}
+export function placementDimensions(artwork: Artwork, p: Placement) {
+  return {
+    width: artwork.dimensions.width * p.transform.scale[0],
+    height: artwork.dimensions.height * p.transform.scale[1],
+    depth: (artwork.dimensions.depth ?? 0) * p.transform.scale[2],
+  };
+}
+export function newLight(roomId: string, type: Light["type"] = "point"): Light {
+  return {
+    id: crypto.randomUUID(), roomId, type,
+    transform: { ...pose(), position: [0, 3, 0] },
+    color: [1, 1, 1], intensity: 100,
+    unit: type === "directional" ? "lux" : "candela", castsShadow: false,
+    ...(type === "spot" ? { beamAngle: Math.PI / 4 } : {}),
+    ...(type === "area" ? { dimensions: { width: 1, height: 1 } } : {}),
+  };
+}
 /** Wall XY rectangle and +Z normal, transformed once into its room. */
 export function alignPlacement(doc: Exhibition, p: Placement, s: Exhibition["surfaces"][number], offset: [
     number,
