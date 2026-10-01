@@ -61,3 +61,11 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .studio-shell [data-testid=local-state] { font-size: 13px; background: #e6eadf; border-radius: 20px; padding: 8px 12px; }
 
 @media (max-width: 600px) { .studio-shell .cms-heading { flex-direction: column; align-items: stretch; gap: 0; } .studio-shell .cms-heading .phase { align-self: flex-start; margin-bottom: 20px; } }
+
+.geometry-editor { border-top: 1px solid #ccd1c7; margin-top: 28px; padding-top: 20px; }
+.geometry-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(110px,1fr)); gap: 12px; }
+.geometry-id { display: block; overflow-wrap: anywhere; font-size: 12px; }
+.geometry-editor [role=alert]:not(:empty) { background: #f4e3dc; color: #682a13; padding: 14px; overflow-wrap: anywhere; line-height: 1.65; }
+.geometry-preview { margin: 24px 0; }
+.geometry-preview canvas { display: block; max-width: 100%; }
+.geometry-preview figcaption { font-size: 13px; line-height: 1.7; margin-top: 12px; }

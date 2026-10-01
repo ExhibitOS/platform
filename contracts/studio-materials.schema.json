@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exhibitos.org/platform/studio/materials/v1",
+  "title": "org.exhibitos.studio/materials version 1",
+  "description": "Optional Platform extension. Additional semantic checks require existing surface IDs, no case aliases, and at most 16 KiB UTF-8 JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "surfaces"],
+  "properties": {
+    "version": { "const": 1 },
+    "surfaces": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": { "pattern": "^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["color", "roughness", "metalness"],
+        "properties": {
+          "color": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+          "roughness": { "type": "number", "minimum": 0, "maximum": 1 },
+          "metalness": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  }
+}
