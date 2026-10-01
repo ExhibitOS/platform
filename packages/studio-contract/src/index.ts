@@ -138,3 +138,80 @@ export function materialFor(
       : undefined;
   return { ...(entry ?? DEFAULT_MATERIAL) };
 }
+
+export const PRESENTATION_NAMESPACE = "org.exhibitos.studio/presentation";
+export interface StudioCamera {
+    roomId: string;
+    position: [
+        number,
+        number,
+        number
+    ];
+    target: [
+        number,
+        number,
+        number
+    ];
+    fov: number;
+}
+export interface StudioPresentation {
+    version: 1;
+    startCamera?: StudioCamera;
+    viewpoints: (StudioCamera & {
+        id: string;
+        name: string;
+    })[];
+    credits: string;
+}
+/** Bounded metadata only; routes remain optional public OES navigation. */
+export function validateStudioPresentation(candidate: unknown): MaterialValidation {
+    const errors: MaterialIssue[] = [];
+    const add = (code: string, suffix: string, message: string) => errors.push({ code, path: "/candidate/extensions/org.exhibitos.studio~1presentation" + suffix, message });
+    if (!object(candidate) || !object(candidate.extensions) || !Object.hasOwn(candidate.extensions, PRESENTATION_NAMESPACE))
+        return { valid: true, errors };
+    const value = candidate.extensions[PRESENTATION_NAMESPACE];
+    if (!object(value) || value.version !== 1) {
+        add("STUDIO_PRESENTATION_VERSION", "", "Only presentation version 1 is supported");
+        return { valid: false, errors };
+    }
+    const keys = value.startCamera === undefined ? ["version", "viewpoints", "credits"] : ["version", "startCamera", "viewpoints", "credits"];
+    if (!exact(value, keys) || !Array.isArray(value.viewpoints) || value.viewpoints.length > 64 || typeof value.credits !== "string" || value.credits.length > 4096) {
+        add("STUDIO_PRESENTATION_SCHEMA", "", "Expected at most 64 viewpoints and bounded credits");
+        return { valid: false, errors };
+    }
+    const rooms = Array.isArray(candidate.rooms) ? candidate.rooms.filter(object) : [];
+    const seen = new Set<string>();
+    const vector = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3 && v.every(n => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 10000);
+    const camera = (c: unknown, suffix: string, view: boolean) => {
+        if (!object(c) || !exact(c, view ? ["id", "name", "roomId", "position", "target", "fov"] : ["roomId", "position", "target", "fov"]) || typeof c.roomId !== "string" || !vector(c.position) || !vector(c.target) || typeof c.fov !== "number" || !Number.isFinite(c.fov) || c.fov < 10 || c.fov > 120) {
+            add("STUDIO_CAMERA_INVALID", suffix, "Expected a finite room camera with FOV 10..120 degrees");
+            return;
+        }
+        const room = rooms.find(r => typeof r.id === "string" && r.id.toLowerCase() === (c.roomId as string).toLowerCase());
+        if (!room || !object(room.dimensions)) {
+            add("STUDIO_CAMERA_REFERENCE", suffix, "Camera must reference an existing room");
+            return;
+        }
+        const d = room.dimensions;
+        if (c.position[0]! < -(d.width as number) / 2 || c.position[0]! > (d.width as number) / 2 || c.position[1]! < 0 || c.position[1]! > (d.height as number) || c.position[2]! < -(d.depth as number) / 2 || c.position[2]! > (d.depth as number) / 2 || c.position.every((n, i) => Math.abs(n - (c.target as number[])[i]!) < 1e-8))
+            add("STUDIO_CAMERA_INVALID", suffix, "Camera position must be inside room and target must differ");
+        if (view) {
+            if (typeof c.id !== "string" || !uuid.test(c.id) || seen.has(c.id.toLowerCase()) || typeof c.name !== "string" || c.name.length < 1 || c.name.length > 512)
+                add("STUDIO_VIEWPOINT_INVALID", suffix, "Expected a distinct UUID and nonempty bounded name");
+            if (typeof c.id === "string")
+                seen.add(c.id.toLowerCase());
+        }
+    };
+    if (value.startCamera !== undefined)
+        camera(value.startCamera, "/startCamera", false);
+    value.viewpoints.forEach((v, i) => camera(v, "/viewpoints/" + i, true));
+    if (new TextEncoder().encode(JSON.stringify(value)).length > 32768)
+        add("STUDIO_PRESENTATION_LIMIT", "", "Maximum 32 KiB presentation extension");
+    return { valid: errors.length === 0, errors };
+}
+export function presentationFor(candidate: {
+    extensions?: unknown;
+}): StudioPresentation {
+    const value = object(candidate.extensions) ? candidate.extensions[PRESENTATION_NAMESPACE] : undefined;
+    return structuredClone((value as unknown as StudioPresentation | undefined) ?? { version: 1, viewpoints: [], credits: "" });
+}

@@ -390,6 +390,72 @@ try {
       0,
     );
   });
+  await test("presentation camera/viewpoints and unrelated namespaces roundtrip through remote POST/PUT", async () => {
+    const valid = structuredClone(draft);
+    valid.id = randomUUID();
+    valid.exhibitionId = randomUUID();
+    valid.candidate.id = valid.exhibitionId;
+    const camera = {
+      roomId: valid.candidate.rooms[0].id,
+      position: [0, 1.6, 3],
+      target: [0, 1.6, 0],
+      fov: 60,
+    };
+    valid.candidate.extensions["org.exhibitos.studio/presentation"] = {
+      version: 1,
+      startCamera: camera,
+      viewpoints: [{ ...camera, id: randomUUID(), name: "Optional sculpture view" }],
+      credits: "Synthetic curator credit",
+    };
+    const first = (await expected(request(actors.artist, "POST", "/studio/exhibitions", {
+      draft: valid, requestId: randomUUID(),
+    }), 201)).json();
+    const target = `/studio/exhibitions/${valid.exhibitionId}`;
+    assert.deepEqual((await expected(request(actors.artist, "GET", target), 200)).json().draft.candidate.extensions, valid.candidate.extensions);
+    valid.editVersion = 2;
+    valid.candidate.extensions["org.exhibitos.studio/presentation"].credits = "Revised synthetic credit";
+    const second = (await expected(request(actors.artist, "PUT", target, {
+      draft: valid, requestId: randomUUID(),
+    }, { "if-match": first.etag }), 200)).json();
+    assert.equal(second.revision, 2);
+    const fetched = (await expected(request(actors.artist, "GET", target), 200)).json();
+    assert.deepEqual(fetched.draft.candidate.extensions, valid.candidate.extensions);
+    assert.deepEqual(fetched.draft.candidate.navigation, draft.candidate.navigation);
+    assert.deepEqual(fetched.draft.candidate.extensions["example.org/preserved"], candidate.extensions["example.org/preserved"]);
+  });
+  await test("generic remote POST/PUT reject unknown presentation versions and invalid room cameras without revisions or receipts", async () => {
+    const camera = { roomId: draft.candidate.rooms[0].id, position: [0, 1.6, 3], target: [0, 1.6, 0], fov: 60 };
+    const present = { version: 1, startCamera: camera, viewpoints: [], credits: "Synthetic credit" };
+    const before = (await expected(request(actors.artist, "GET", path), 200)).json();
+    const revisionCount = (await pool.query("SELECT count(*)::int AS n FROM exhibition_revisions WHERE exhibition_id=$1", [draft.exhibitionId])).rows[0].n;
+    for (const presentation of [
+      { ...present, version: 99 },
+      { ...present, startCamera: { ...camera, roomId: randomUUID() } },
+      { ...present, startCamera: { ...camera, position: [50, 1.6, 0] } },
+      { ...present, startCamera: { ...camera, target: camera.position } },
+      { ...present, startCamera: { ...camera, fov: 180 } },
+      { ...present, freeNavigation: false },
+    ]) {
+      const invalid = structuredClone(draft);
+      invalid.candidate.extensions["org.exhibitos.studio/presentation"] = presentation;
+      const putRequestId = randomUUID();
+      await expected(request(actors.artist, "PUT", path, {
+        draft: invalid, requestId: putRequestId,
+      }, { "if-match": before.etag }), 422, "DRAFT_INVALID");
+      invalid.id = randomUUID();
+      invalid.exhibitionId = randomUUID();
+      invalid.candidate.id = invalid.exhibitionId;
+      const postRequestId = randomUUID();
+      await expected(request(actors.artist, "POST", "/studio/exhibitions", {
+        draft: invalid, requestId: postRequestId,
+      }), 422, "DRAFT_INVALID");
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM exhibitions WHERE id=$1", [invalid.exhibitionId])).rows[0].n, 0);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM exhibition_revisions WHERE exhibition_id=$1", [invalid.exhibitionId])).rows[0].n, 0);
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM studio_requests WHERE request_id=ANY($1::uuid[])", [[putRequestId, postRequestId]])).rows[0].n, 0);
+      assert.deepEqual((await expected(request(actors.artist, "GET", path), 200)).json(), before);
+    }
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM exhibition_revisions WHERE exhibition_id=$1", [draft.exhibitionId])).rows[0].n, revisionCount);
+  });
   await test("strong single If-Match required; weak/list/wildcard/malformed tags denied", async () => {
     const input = { draft, requestId: randomUUID() };
     await expected(

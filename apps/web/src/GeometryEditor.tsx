@@ -12,6 +12,8 @@ import {
   GeometryError,
 } from "./geometry/model";
 import type { GeometryCommand, GeometryState } from "./geometry/model";
+import { PlacementEditor } from "./PlacementEditor";
+import type { Session } from "./cms-client";
 import { GeometryPreview } from "./GeometryPreview";
 import type { GeometrySelection, SurfaceAppearance } from "./GeometryPreview";
 
@@ -96,10 +98,12 @@ export function GeometryEditor({
   candidate,
   onChange,
   disabled,
+  session,
 }: {
   candidate: Document;
   onChange: (document: Document) => void;
   disabled: boolean;
+  session: Session | null;
 }) {
   const [state, setState] = useState(() => createGeometryState(candidate)),
     stateRef = useRef<GeometryState>(state);
@@ -161,7 +165,11 @@ export function GeometryEditor({
     }
     if (selection.kind === "surface") {
       const surface = selected as Document["surfaces"][number];
-      setParent(document.rooms.find(item=>item.id.toLowerCase()===surface.roomId.toLowerCase())?.id ?? surface.roomId);
+      setParent(
+        document.rooms.find(
+          (item) => item.id.toLowerCase() === surface.roomId.toLowerCase(),
+        )?.id ?? surface.roomId,
+      );
       setSurfaceType(surface.type);
       setDimensions([
         String(surface.dimensions.width),
@@ -175,7 +183,11 @@ export function GeometryEditor({
     }
     if (selection.kind === "opening") {
       const opening = selected as Document["openings"][number];
-      setParent(document.surfaces.find(item=>item.id.toLowerCase()===opening.surfaceId.toLowerCase())?.id ?? opening.surfaceId);
+      setParent(
+        document.surfaces.find(
+          (item) => item.id.toLowerCase() === opening.surfaceId.toLowerCase(),
+        )?.id ?? opening.surfaceId,
+      );
       setOpeningType(opening.type);
       setDimensions([
         String(opening.dimensions.width),
@@ -267,7 +279,8 @@ export function GeometryEditor({
             value={selection ? `${selection.kind}:${selection.id}` : ""}
             onChange={(event) => {
               const [kind, id] = event.target.value.split(":");
-              if (!id || !["room", "surface", "opening"].includes(kind ?? "")) return;
+              if (!id || !["room", "surface", "opening"].includes(kind ?? ""))
+                return;
               setSelection({ kind: kind as GeometrySelection["kind"], id });
               setError("");
             }}
@@ -716,8 +729,15 @@ export function GeometryEditor({
           )}
         </fieldset>
       )}
+      <PlacementEditor
+        document={document}
+        execute={execute}
+        session={session}
+        disabled={disabled}
+      />
       <GeometryPreview
         document={document}
+        session={session}
         selection={selection}
         appearance={appearance}
       />

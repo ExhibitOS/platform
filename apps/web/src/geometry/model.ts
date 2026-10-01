@@ -5,6 +5,9 @@ import {
   type PbrMaterial,
   type StudioMaterials,
 } from "@exhibitos/studio-contract";
+import { alignPlacement, type Placement, type Light } from "../placement/model";
+import { PRESENTATION_NAMESPACE, type StudioPresentation } from "@exhibitos/studio-contract";
+import type { Artwork } from "@exhibitos/spec";
 import { validateDraft } from "../drafts/validator";
 export type Room = Exhibition["rooms"][number];
 export type Surface = Exhibition["surfaces"][number];
@@ -16,6 +19,17 @@ export interface GeometryState {
   future: Exhibition[];
 }
 export type GeometryCommand =
+  | { type: "add-artwork"; artwork: Artwork }
+  | { type: "add-placement"; placement: Placement }
+  | { type: "set-placement"; id: string; placement: Omit<Placement,"id"> }
+  | { type: "remove-placement"; id: string }
+  | { type: "align-placement"; id: string; surfaceId: string; offset: [number,number]; snap: number }
+  | { type: "add-light"; light: Light }
+  | { type: "set-light"; id: string; light: Omit<Light,"id"> }
+  | { type: "remove-light"; id: string }
+  | { type: "set-navigation"; navigation: Exhibition["navigation"] }
+  | { type: "set-title"; title: string }
+  | { type: "set-presentation"; presentation: StudioPresentation }
   | { type: "add-room"; room: Room }
   | { type: "set-room"; id: string; room: Omit<Room, "id"> }
   | { type: "white-cube"; roomId: string }
@@ -160,6 +174,17 @@ export function applyGeometryCommand(
 ): GeometryState {
   const doc = clone(state.present);
   switch (command.type) {
+    case "add-artwork": doc.artworks.push(clone(command.artwork)); break;
+    case "add-placement": { doc.placements.push(clone(command.placement)); const artwork=doc.artworks.find(a=>same(a.revisionId,command.placement.artworkRevisionId)); if(artwork)doc.accessibility.artworkDescriptions.push({placementId:command.placement.id,text:artwork.metadata.description?.trim()||artwork.metadata.title}); break; }
+    case "set-placement": replace(doc.placements,command.id,command.placement); break;
+    case "remove-placement": find(doc.placements,command.id); doc.placements=doc.placements.filter(p=>!same(p.id,command.id)); doc.accessibility.artworkDescriptions=doc.accessibility.artworkDescriptions.filter(d=>!same(d.placementId,command.id)); break;
+    case "align-placement": { const p=find(doc.placements,command.id); const result=alignPlacement(doc,p,find(doc.surfaces,command.surfaceId),command.offset,command.snap); replace(doc.placements,p.id,result); break; }
+    case "add-light": doc.lights.push(clone(command.light)); break;
+    case "set-light": replace(doc.lights,command.id,command.light); break;
+    case "remove-light": find(doc.lights,command.id); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
+    case "set-title": doc.title=command.title; break;
+    case "set-navigation": doc.navigation=clone(command.navigation); doc.accessibility.routeIds=doc.navigation.filter(r=>r.accessible).map(r=>r.id); break;
+    case "set-presentation": doc.extensions={...doc.extensions,[PRESENTATION_NAMESPACE]:clone(command.presentation) as unknown as NonNullable<Exhibition["extensions"]>[string]}; break;
     case "add-room":
       doc.rooms.push(clone(command.room));
       break;
