@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "room-introduction",
+      "once": false,
+      "trigger": {
+        "type": "room_enter",
+        "roomId": "50000000-0000-4000-8000-000000000010"
+      },
+      "actions": [
+        {
+          "type": "set_light",
+          "lightId": "50000000-0000-4000-8000-000000000050",
+          "multiplier": 0.4,
+          "delayMs": 0
+        },
+        {
+          "type": "play_audio",
+          "mediaAssetId": "90000000-0000-4000-8000-000000000001",
+          "volume": 0.5,
+          "delayMs": 0
+        },
+        {
+          "type": "set_light",
+          "lightId": "50000000-0000-4000-8000-000000000050",
+          "multiplier": 1,
+          "delayMs": 5000
+        }
+      ]
+    },
+    {
+      "id": "opening-caption",
+      "once": true,
+      "trigger": {
+        "type": "exhibition_start"
+      },
+      "actions": [
+        {
+          "type": "show_text",
+          "text": "Original synthetic artist introduction. Read this without audio.",
+          "locale": "en",
+          "delayMs": 0
+        }
+      ]
+    },
+    {
+      "id": "session-timer",
+      "once": true,
+      "trigger": {
+        "type": "elapsed_time",
+        "atMs": 10000
+      },
+      "actions": [
+        {
+          "type": "show_text",
+          "text": "Ten seconds of this local viewing session.",
+          "locale": "en",
+          "delayMs": 0
+        }
+      ]
+    }
+  ]
+}
