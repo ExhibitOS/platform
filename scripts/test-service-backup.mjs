@@ -185,7 +185,8 @@ try {
       const offline = await actualRequest(actor, "POST", `${corpus.path}/freezes/${corpus.frozen.id}/offline`, { seconds: 300 }); assert.equal(offline.status, 200);
       const bundle = offline.value(); assert.equal(bundle.oex, corpus.oldGrant.oex); assert.deepEqual(bundle.runtimeFiles, corpus.oldGrant.runtimeFiles); assert.equal(bundle.signature, corpus.oldGrant.signature);
       assert.equal((await verifyFreezeBundle(offline.bytes, { trustedKeys: [keyId] })).bundle.manifest.id, corpus.frozen.id);
-      const pubRows = (await target.pool.query("SELECT object_key,sha256 FROM publication_assets UNION ALL SELECT object_key,sha256 FROM publication_media")).rows; assert(pubRows.length >= 3); for (const item of pubRows) assert.equal(sha256(await destinationStore.get(item.object_key)), item.sha256);
+      const anonymous = await fetch(`${origin}/api/v1/publications/${corpus.publication.publicationId}`); assert.equal(anonymous.status,200); assert.equal((await anonymous.json()).publication.id,corpus.publication.publicationId);
+      const pubRows = (await target.pool.query("SELECT id,object_key,sha256 FROM publication_assets WHERE publication_id=$1 UNION ALL SELECT id,object_key,sha256 FROM publication_media WHERE publication_id=$1",[corpus.publication.publicationId])).rows; assert(pubRows.length >= 3); for (const item of pubRows) {assert.equal(sha256(await destinationStore.get(item.object_key)), item.sha256);const served=await fetch(`${origin}/api/v1/publications/${corpus.publication.publicationId}/assets/${item.id}`);assert.equal(served.status,200);assert.equal(sha256(Buffer.from(await served.arrayBuffer())),item.sha256);}
       const foreign = await actualRequest(corpus.destinationActor, "GET", `${corpus.path}/freezes/${corpus.frozen.id}`); assert([401, 403, 404].includes(foreign.status));
       const viewer = await actualRequest(corpus.actors.viewer, "POST", `${corpus.path}/freezes/${corpus.frozen.id}/offline`, { seconds: 300 }); assert.equal(viewer.status, 403);
     });
@@ -204,7 +205,7 @@ try {
         await target.pool.query("UPDATE rights SET metadata=jsonb_set(metadata,'{expiresAt}',to_jsonb('2000-01-01T00:00:00.000Z'::text)) WHERE tenant_id=$1", [corpus.tenant]);
         const denied = await actualRequest(corpus.actors.artist, 'POST', `${corpus.path}/freezes/${corpus.frozen.id}/offline`, { seconds: 300 });
         assert.equal(denied.status, 403); assert.equal(denied.value().code, 'RIGHTS_DENIED');
-        const publicDenied = await fetch(`${origin}/api/v1/publications/${corpus.publication.id}`);
+        const publicDenied = await fetch(`${origin}/api/v1/publications/${corpus.publication.publicationId}`);
         assert.equal(publicDenied.status, 404, await publicDenied.text());
         const report = await actualRequest(corpus.actors.admin, 'GET', '/integrity'); assert.equal(report.status, 200); assert.equal(report.value().healthy, true); assert(report.value().rights.displayDenied > 0);
         const deniedBackup = await createServiceBackup({pool:target.pool,store:destinationStore,destination:`${root}/expired-rights-backup`,encryptionKey,snapshot:snapshot(destinationStore),dump:(path,token)=>backends.pgFile(target,path,'dump',token)});
