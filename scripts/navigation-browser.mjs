@@ -537,6 +537,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
           (route) => route.fulfill({ status: 404, body: "" }),
         );
         await page.reload();
+        await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
         await expect.poll(async () => (await assets(page)).failed).toBe(2);
         await start(page);
         await page.getByLabel("보행 속도", { exact: true }).selectOption("1.6");
@@ -573,6 +574,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
           await route.fulfill({ response: r, json: body });
         });
         await page.reload();
+        await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
         await expect
           .poll(async () => (await assets(page)).loadedPlacements)
           .toBe(2);
