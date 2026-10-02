@@ -98,5 +98,13 @@
       },
       "description": "Private permitted for editing; server publication and OEX export require a redistributable supported license. Names must contain non-whitespace characters. Architecture-template import permits no artwork/media/scripts/annotations or unknown private extensions."
     }
-  }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/daylight"
+    },
+    {
+      "$ref": "#/$defs/template"
+    }
+  ]
 }
