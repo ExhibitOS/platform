@@ -112,7 +112,7 @@ try {
   await migrate(pool, directory);
   assert.equal(
     (await pool.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-    "8",
+    "9",
   );
   assert.equal(
     (await pool.query("SELECT count(*) FROM artists")).rows[0].count,
