@@ -13,13 +13,15 @@ export function encodeVoiceWav(chunks: readonly Float32Array[], samples: number,
   return data;
 }
 export function VoiceRecorder({ disabled, onRecorded }: { disabled: boolean; onRecorded: (file: File) => void }) {
-  const active = useRef<Recording | null>(null), generation = useRef(0), mounted = useRef(true), starting = useRef(false);
+  const active = useRef<Recording | null>(null), setup = useRef<{ stream: MediaStream; context: AudioContext | null } | null>(null), generation = useRef(0), mounted = useRef(true), starting = useRef(false);
   const [recording, setRecording] = useState(false), [pending, setPending] = useState(false), [notice, setNotice] = useState(""), [seconds, setSeconds] = useState(0);
   const callback = useRef(onRecorded); callback.current = onRecorded;
   function finish(keep: boolean) {
     generation.current++; starting.current = false;
     const value = active.current; active.current = null;
-    if (value) { clearTimeout(value.timer); value.node.port.onmessage = null; value.source.disconnect(); value.node.disconnect(); value.silent.disconnect(); value.stream.getTracks().forEach(t => t.stop()); void value.context.close(); }
+    const pendingCapture = setup.current; setup.current = null;
+    if (pendingCapture) { pendingCapture.stream.getTracks().forEach(t => t.stop()); if (pendingCapture.context && pendingCapture.context.state !== "closed") void pendingCapture.context.close().catch(() => {}); }
+    if (value) { clearTimeout(value.timer); value.node.port.onmessage = null; value.source.disconnect(); value.node.disconnect(); value.silent.disconnect(); value.stream.getTracks().forEach(t => t.stop()); void value.context.close().catch(() => {}); }
     if (mounted.current) { setRecording(false); setPending(false); }
     if (keep && value && value.samples > 0 && mounted.current) {
       callback.current(new File([encodeVoiceWav(value.chunks, value.samples, value.context.sampleRate)], "artist-voice.wav", { type: "audio/wav" }));
@@ -35,14 +37,18 @@ export function VoiceRecorder({ disabled, onRecorded }: { disabled: boolean; onR
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false }, video: false });
       if (!mounted.current || token !== generation.current) { stream.getTracks().forEach(t => t.stop()); return; }
-      context = new AudioContext({ sampleRate: 48000 });
+      const pendingCapture = { stream, context: null as AudioContext | null };
+      setup.current = pendingCapture;
+      context = new AudioContext({ sampleRate: 48000 }); pendingCapture.context = context;
       if (context.sampleRate < 8000 || context.sampleRate > 48000) throw Error("sample-rate");
-      await context.audioWorklet.addModule("/voice-pcm-worklet.js"); await context.resume();
+      await context.audioWorklet.addModule("/voice-pcm-worklet.js");
+      if (!mounted.current || token !== generation.current) { stream.getTracks().forEach(t => t.stop()); if (context.state !== "closed") await context.close(); return; }
+      await context.resume();
       if (!mounted.current || token !== generation.current) { stream.getTracks().forEach(t => t.stop()); await context.close(); return; }
       const source = context.createMediaStreamSource(stream), node = new AudioWorkletNode(context, "exhibitos-voice-pcm"), silent = context.createGain();
       silent.gain.value = 0; source.connect(node); node.connect(silent); silent.connect(context.destination);
       const value: Recording = { stream, context, source, node, silent, chunks: [], samples: 0, timer: setTimeout(() => finish(true), 60000) };
-      active.current = value;
+      setup.current = null; active.current = value;
       node.port.onmessage = event => {
         if (active.current !== value || !(event.data instanceof Float32Array)) return;
         const remain = Math.floor(value.context.sampleRate * 60) - value.samples, chunk = event.data.slice(0, remain);
@@ -52,6 +58,7 @@ export function VoiceRecorder({ disabled, onRecorded }: { disabled: boolean; onR
       starting.current = false; setPending(false); setRecording(true); setNotice("녹음 중입니다. 60초 후 자동으로 마이크를 닫습니다. 지금은 업로드하지 않습니다.");
     } catch {
       stream?.getTracks().forEach(t => t.stop()); if (context && context.state !== "closed") await context.close().catch(() => {});
+      if (setup.current?.stream === stream) setup.current = null;
       if (mounted.current && token === generation.current) { starting.current = false; setPending(false); setNotice("마이크 또는 녹음을 시작할 수 없습니다. 권한을 확인하거나 PCM WAV 파일을 선택하세요."); }
     }
   }
