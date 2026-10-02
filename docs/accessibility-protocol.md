@@ -9,6 +9,11 @@ tests; this browser protocol checks the anonymous alternative view.
 The text entrance is checked before any renderer is enabled: named heading/list/regions,
 zero canvas and zero GLB/PNG/WAV requests, keyboard Tab/Enter operation of opening,
 artwork description/transcript/detail, close with returned focus, credits and exit.
+The list-order guide is activated with Tab/Enter and checks the real current title and
+approved description, exactly one visible list item, next/previous heading focus,
+boundary disabled controls, and restored full-list heading focus. This tests public
+list order, not a fabricated curator-authored spatial route. Guide controls must
+retain zero media requests and zero canvas.
 A separate explicit disabled-WebGL control confirms text detail remains usable.
 DOM/ARIA snapshots are structural evidence, not a native screen-reader execution.
 

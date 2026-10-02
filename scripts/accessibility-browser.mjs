@@ -46,6 +46,36 @@ export async function runAccessibilityBrowser({origin,publicationId,projection,f
       assert.match(report.ariaSnapshot,/작품 목록/);
       assert.match(report.ariaSnapshot,/heading/);
     });
+    await check('keyboard list-order guide exposes current descriptions, next/previous and full-list focus without assets',async()=>{
+      assert.ok(projection.exhibition.placements.length>=2,'Guided-list fixture needs at least two approved placements');
+      const region=page.getByRole('region',{name:'작품 목록형 대체 보기',exact:true});
+      const artworkAt=index=>projection.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===projection.exhibition.placements[index].artworkRevisionId.toLowerCase());
+      const assertCurrent=async index=>{
+        const placement=projection.exhibition.placements[index],artwork=artworkAt(index);
+        const heading=region.getByRole('heading',{name:`목록 안내 · 작품 ${index+1} / ${projection.exhibition.placements.length}`,exact:true});
+        await expect(heading).toBeVisible();await expect(heading).toBeFocused();
+        await expect(region.getByRole('listitem')).toHaveCount(1);
+        await expect(region.getByRole('listitem').getByRole('heading',{name:artwork.metadata.title,exact:true})).toBeVisible();
+        await expect(region.locator('.publication-guide').getByRole('status')).toHaveText(artwork.metadata.title);
+        const description=projection.exhibition.accessibility.artworkDescriptions.find(d=>d.placementId.toLowerCase()===placement.id.toLowerCase())?.text??artwork.metadata.description;
+        assert.ok(description?.length>0,'Real approved guide fixture must have a readable description');
+        await expect(region.getByRole('listitem').getByText(description,{exact:true})).toBeVisible();
+        await expect(page.locator('canvas')).toHaveCount(0);assert.equal(observedAssets.length,0);
+        return {index:index+1,title:artwork.metadata.title,description,visibleListItems:1};
+      };
+      await activate(button('목록 순서로 안내 시작'));report.guidedList=[await assertCurrent(0)];
+      await expect(button('이전 작품')).toBeDisabled();
+      await activate(button('다음 작품'));report.guidedList.push(await assertCurrent(1));
+      await expect(button('이전 작품')).toBeEnabled();
+      if(projection.exhibition.placements.length===2)await expect(button('다음 작품')).toBeDisabled();
+      await activate(button('이전 작품'));report.guidedList.push(await assertCurrent(0));
+      await screenshot('keyboard-guided-list');
+      await activate(button('전체 목록 보기'));
+      await expect(region.getByRole('heading',{name:'작품 목록',exact:true})).toBeFocused();
+      await expect(region.getByRole('listitem')).toHaveCount(projection.exhibition.placements.length);
+      await expect(button('목록 순서로 안내 시작')).toBeVisible();
+      assert.equal(observedAssets.length,0);
+    });
     await check('keyboard entrance, description/transcript, text detail close and focus return, credits and exit require no 3D/audio',async()=>{
       await activate(button('전시 시작 안내'));
       const overview=page.getByRole('dialog');await expect(overview).toBeVisible();
