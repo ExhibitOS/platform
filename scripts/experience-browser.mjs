@@ -252,7 +252,11 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
 
 async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailure }) {
   // Isolated browser synthetic input only. Never requests a human microphone.
-  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+  // Chromium media_switches.cc defines disable-audio-input/output as fake
+  // streams. Keep OS microphone/output out of this isolated recorder test while
+  // retaining native getUserMedia, AudioWorklet and actual PCM sample flow.
+  // https://chromium.googlesource.com/chromium/src/media/+/refs/heads/master/base/media_switches.cc
+  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
   const checks = [], observations = [], pageErrors = [], workletResponses = [], workletFailures = [];
   let currentPage = null, currentCheck = "synthetic microphone initialization";
   async function observe(page) {
@@ -319,7 +323,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       assert.equal(bytes.readUInt32LE(4), bytes.length - 8); assert.equal(bytes.readUInt32LE(40), bytes.length - 44);
       assert(bytes.length > 44 && bytes.length <= 44 + 48000 * 60 * 2);
       await expect(editor.getByRole("button", { name: "오디오 승인", exact: true })).toBeVisible();
-      observations.push({ provider: "Chromium --use-fake-device-for-media-stream; no physical microphone", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
+      observations.push({ provider: "Chromium fake device/UI and fake input/output streams; no physical microphone or OS output", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
     });
     await check("synthetic microphone cancel releases capture and produces no recording upload", async () => {
       const before = uploads.length;
@@ -380,7 +384,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       observations.push({ provider: "isolated Chromium synthetic device", permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
       await denied.close();
     });
-    return { checks, observations, limits: "Fake browser microphone, short capture and actual60second automatic cutoff; physical microphone/privacy UI/device fidelity remain unqualified." };
+    return { checks, observations, limits: "Chromium fake device, fake input/output streams, short capture and actual60second automatic cutoff; physical microphone, OS audio/privacy UI and device fidelity remain unqualified." };
   } catch (error) {
     try {
       const read = async operation => { try { return await operation(); } catch (failure) { return { unavailable: String(failure.message).slice(0, 1000) }; } };
@@ -397,7 +401,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       const screenshot = await read(async () => {
         await currentPage.screenshot({ path: screenshotPath, timeout: 5000, mask: [currentPage.locator('input[type="password"], input[name="subject"], input[name="tenantId"]')] }); return screenshotPath;
       });
-      const diagnostic = { provider: "isolated Chromium synthetic microphone only", check: currentCheck, observedAt: new Date().toISOString(), checks, error: String(error.message).slice(0, 4000), native, visibleStatus, pageErrors, workletResponses, workletFailures, screenshot };
+      const diagnostic = { provider: "isolated Chromium fake microphone and fake input/output streams only", check: currentCheck, observedAt: new Date().toISOString(), checks, error: String(error.message).slice(0, 4000), native, visibleStatus, pageErrors, workletResponses, workletFailures, screenshot };
       onFailure(diagnostic);
       await writeFile(`${dir}/microphone-failure.json`, JSON.stringify(diagnostic, null, 2) + "\n");
       console.error(JSON.stringify({ microphoneFailure: diagnostic, reportPath: `${dir}/microphone-failure.json` }, null, 2));
