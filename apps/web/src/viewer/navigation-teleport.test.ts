@@ -5,7 +5,7 @@ import { newDraft } from "../drafts/example";
 import { createGeometryState, applyGeometryCommand } from "../geometry/model";
 import { syntheticArtwork, newPlacement } from "../placement/model";
 import { createNavigationController } from "./navigation";
-import { teleportToViewpoint } from "./navigation-teleport";
+import { teleportToViewpoint, viewpointPose } from "./navigation-teleport";
 function fixture() {
   let geometry=createGeometryState(newDraft().candidate);
   geometry=applyGeometryCommand(geometry,{type:"white-cube",roomId:geometry.present.rooms[0]!.id});
@@ -47,4 +47,21 @@ test("unsafe authored floor/artwork destinations and arbitrary ids retain prior 
       expect(controller.state().eyePosition).toEqual(before.eyePosition);
     } finally {controller.dispose();}
   }
+});
+
+test("uppercase authored references resolve and vertical direction fails before controller initialization or pose mutation",async()=>{
+  const doc=fixture(),id=viewpoint(doc,[1,1.6,1],[1,1.6,0]);
+  const entry=(doc.extensions![PRESENTATION_NAMESPACE]!.viewpoints as unknown as Array<{roomId:string;target:[number,number,number]}>)[0]!;
+  entry.roomId=entry.roomId.toUpperCase();
+  expect(viewpointPose(doc,id.toUpperCase()).position).toEqual([1,1.6,1]);
+  const controller=await createNavigationController(doc,{position:[0,1.6,3]});
+  try {
+    expect(teleportToViewpoint(controller,doc,id.toUpperCase()).state.eyePosition[0]).toBe(1);
+    const before=controller.state();
+    entry.target=[1,0,1];
+    expect(()=>viewpointPose(doc,id)).toThrow("TELEPORT_DIRECTION_UNSUPPORTED");
+    expect(()=>teleportToViewpoint(controller,doc,id)).toThrow("TELEPORT_DIRECTION_UNSUPPORTED");
+    expect(controller.state().eyePosition).toEqual(before.eyePosition);
+    expect(controller.state().yaw).toBe(before.yaw);expect(controller.state().paused).toBe(true);
+  } finally {controller.dispose();}
 });

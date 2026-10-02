@@ -14,6 +14,7 @@ import {
   type WalkingActions,
   type WalkingSettings,
 } from "./WalkingControls";
+import { viewpointPose } from "./viewer/navigation-teleport";
 import type { NavigationState } from "./viewer/navigation";
 import type { PublicAsset } from "./publication-client";
 import type { Session } from "./cms-client";
@@ -662,12 +663,14 @@ export function GeometryPreview({
             );
             let initialCamera: InstanceType<typeof three.PerspectiveCamera> | undefined;
             if(teleportViewpointId) {
-              const destination=presentationFor(document).viewpoints.find(v=>v.id===teleportViewpointId);
-              const room=destination?rooms.get(destination.roomId.toLowerCase()):undefined;
-              if(!destination||!room) {setWalkLoading(false);setWalkMessage("이 공개 문서의 viewpoint를 확인할 수 없습니다.");return;}
-              initialCamera=camera.clone();
-              initialCamera.position.copy(room.localToWorld(new three.Vector3(...destination.position)));
-              initialCamera.lookAt(room.localToWorld(new three.Vector3(...destination.target)));
+              try {
+                const destination=viewpointPose(document,teleportViewpointId);
+                initialCamera=camera.clone();
+                initialCamera.position.fromArray(destination.position);
+                initialCamera.lookAt(new three.Vector3(...destination.target));
+              } catch {
+                setWalkLoading(false);setWalkMessage("이 viewpoint의 참조나 시점 방향을 지원하지 않습니다. 기존 위치와 정지 관람을 유지합니다.");return;
+              }
             } else view("start");
             controls.enabled = false;
             initialization = (async () => {
@@ -714,6 +717,8 @@ export function GeometryPreview({
                 adapter.dispose();
                 return;
               }
+              // Media/user preferences can change while the physics module loads.
+              adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
               walkingActions.current = adapter.actions;
             })()
