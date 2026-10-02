@@ -345,6 +345,9 @@ try {
   if (process.env.EXHIBITOS_NAVIGATION_NATIVE_EXTERNAL === "1") {
     // Test-only fixture server: no Playwright import/browser, no operator signal
     // is interpreted as proof. Root separately records actual native DOM states.
+    const externalTimeout = Number(process.env.EXHIBITOS_NAVIGATION_NATIVE_TIMEOUT_MS ?? 300000);
+    assert(Number.isSafeInteger(externalTimeout) && externalTimeout >= 1000 && externalTimeout <= 1800000,
+      "External native fixture timeout must be an integer from1000 to1800000ms");
     const evidenceDir = await mkdtemp(`${tmpdir()}/exhibitos-navigation-external-`),
       descriptorPath = `${evidenceDir}/fixture.json`,
       completionSignal = `${evidenceDir}/operator-complete.json`,
@@ -370,7 +373,7 @@ try {
       productionAssets.push({path:file,bytes:bytes.length,sha256:sha256(bytes)});
     }
     const navigationSource = await readFile(new URL("../apps/web/src/viewer/navigation.ts",import.meta.url)),
-      deadline = Date.now()+300000,
+      deadline = Date.now()+externalTimeout,
       descriptor = {
         mode:"external-native-fixture",source:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),
         dirtySource:execFileSync("git",["status","--porcelain"],{encoding:"utf8"}).trim(),
@@ -385,7 +388,7 @@ try {
       };
     await writeFile(descriptorPath,JSON.stringify(descriptor,null,2)+"\n");
     console.log(`NATIVE EXTERNAL FIXTURE ${descriptorPath}`);
-    console.log(`NATIVE EXTERNAL URL ${descriptor.publicUrl}; completion signal ${completionSignal}; timeout 300000ms`);
+    console.log(`NATIVE EXTERNAL URL ${descriptor.publicUrl}; completion signal ${completionSignal}; timeout ${externalTimeout}ms`);
     let completed = false;
     while (Date.now()<deadline) {
       try {

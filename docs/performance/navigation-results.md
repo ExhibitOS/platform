@@ -35,7 +35,9 @@ writes a temporary `fixture.json`. It verifies anonymous metadata, all public
 asset hashes and revision headers, and records source/build hashes. Open its
 printed URL in an existing normal browser and record actual lock acquisition,
 mouse yaw change and Escape unlock/pause. It launches no browser and expires
-after five minutes. Writing `{"complete":true}` to the printed completion path
+after five minutes by default. During an interactive human check,
+`EXHIBITOS_NAVIGATION_NATIVE_TIMEOUT_MS=900000` allows fifteen minutes; values
+outside1000–1800000ms are rejected. Writing `{"complete":true}` to the printed completion path
 requests cleanup only; it never asserts native success. These adapters do not
 remove the pending native gate or change the production implementation.
 
