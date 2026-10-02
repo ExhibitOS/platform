@@ -259,6 +259,41 @@ async function runSyntheticRecording({ origin, authoring }) {
       assert.equal(uploads.length, before);
       await expect.poll(() => page.evaluate(() => window.__syntheticMicProbe.streams.flatMap(s => s.getTracks()).every(t => t.readyState === "ended"))).toBe(true);
     });
+    await check("synthetic microphone automatically closes at60seconds, produces bounded PCM WAV and waits for explicit upload", async () => {
+      const beforeUploads = uploads.length;
+      const editor = page.getByRole("region", { name: "관람 오디오와 작품 설명 편집", exact: true });
+      const start = editor.getByRole("button", { name: "작가 음성 녹음 시작", exact: true });
+      await start.click();
+      await expect(editor.getByRole("button", { name: "녹음 정지·WAV 준비", exact: true })).toBeEnabled();
+      const started = performance.now();
+      console.log("VERIFY synthetic microphone automatic cutoff: real AudioWorklet capture for up to75seconds; no physical microphone.");
+      // Do not fake timers or invoke the stop handler: production recorder owns
+      // its actual60second timer/sample cap, and this harness only observes it.
+      await expect(editor.getByText("녹음을 WAV로 준비했습니다. 권리를 확인한 뒤 업로드하세요.", { exact: true })).toBeVisible({ timeout: 75000 });
+      const elapsedMs = performance.now() - started;
+      assert(elapsedMs >= 55000 && elapsedMs <= 75000, `Actual automatic cutoff elapsed ${elapsedMs}ms outside55–75seconds`);
+      await expect(start).toBeEnabled();
+      await expect(editor.getByRole("button", { name: "녹음 정지·WAV 준비", exact: true })).toBeDisabled();
+      await expect.poll(() => page.evaluate(() => window.__syntheticMicProbe.streams.flatMap(stream => stream.getTracks()).every(track => track.readyState === "ended"))).toBe(true);
+      assert.equal(uploads.length, beforeUploads, "Recording and automatic close must not upload audio");
+      const prepared = await editor.getByText(/준비한 파일: artist-voice.wav/).textContent();
+      const localBytes = Number(prepared.match(/·\s*(\d+) bytes/)[1]);
+      assert(localBytes > 44 && localBytes <= 44 + 48000 * 60 * 2);
+      const uploaded = page.waitForRequest(request => request.method() === "PUT" && new URL(request.url()).pathname.includes("/audio/") && request.url().endsWith("/bytes"));
+      const validated = page.waitForResponse(response => response.request().method() === "PUT" && new URL(response.url()).pathname.includes("/audio/") && response.url().endsWith("/bytes"));
+      await editor.getByRole("button", { name: "오디오 업로드·검증", exact: true }).click();
+      const bytes = (await uploaded).postDataBuffer(); assert(bytes);
+      assert.equal(bytes.length, localBytes); assert.equal(bytes.readUInt16LE(20), 1); assert.equal(bytes.readUInt16LE(22), 1);
+      assert.equal(bytes.readUInt32LE(24), 48000); assert.equal(bytes.readUInt16LE(34), 16);
+      assert.equal(bytes.readUInt32LE(4), bytes.length - 8); assert.equal(bytes.readUInt32LE(40), bytes.length - 44);
+      const samples = (bytes.length - 44) / 2;
+      assert(samples > 0 && samples <= 48000 * 60, `Automatic recording ${samples}samples exceeds60seconds`);
+      const validationResponse = await validated; assert.equal(validationResponse.status(), 200);
+      const validation = await validationResponse.json(); assert.equal(validation.state, "validated");
+      assert(validation.durationSeconds > 0 && validation.durationSeconds <= 60);
+      await expect(editor.getByRole("button", { name: "오디오 승인", exact: true })).toHaveCount(2);
+      observations.push({ provider: "Chromium synthetic microphone; actual automatic timer/sample cap", elapsedMs, maxDurationSeconds: 60, sampleRate: 48000, samples, bytes: bytes.length, tracksStopped: true, uploadOnlyAfterExplicitClick: true });
+    });
     await context.close();
     await check("actual browser microphone permission denial keeps PCM file fallback usable", async () => {
       const denied = await browser.newContext(), page = await denied.newPage(), cdp = await denied.newCDPSession(page);
@@ -273,6 +308,6 @@ async function runSyntheticRecording({ origin, authoring }) {
       observations.push({ provider: "isolated Chromium synthetic device", permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
       await denied.close();
     });
-    return { checks, observations, limits: "Fake browser microphone and short recording only; physical microphone/privacy UI/device fidelity and automatic60second cutoff remain separately qualified." };
+    return { checks, observations, limits: "Fake browser microphone, short capture and actual60second automatic cutoff; physical microphone/privacy UI/device fidelity remain unqualified." };
   } finally { await browser.close(); }
 }
