@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import { distanceGain, footstepWave, StrideClock, verifyPcmWav, ExhibitionAudio } from "./audio.ts";
 import type { NavigationState } from "./navigation.ts";
@@ -47,4 +47,56 @@ test("stopping pending voice load rejects its Promise and prevents late playback
 });
 test("voice Promise fulfills only after the actual source start call succeeds",async()=>{
   const {id,runtime,starts}=preparedVoice();await runtime.playVoice(id);assert.equal(starts(),1);assert.equal(runtime.snapshot().active,1);assert.match(runtime.snapshot().message,/재생 중/);runtime.stopVoice();assert.equal(runtime.snapshot().active,0);
+});
+
+test("stop, pause and dispose cancel a zone requested while audio permission is pending",async()=>{
+  for(const action of ["stop", "pause", "dispose"]){
+    const {id,runtime,internal,starts}=preparedVoice();
+    const doc=(internal as unknown as {publication:import("../publication-client").PublicPublication}).publication.exhibition;
+    doc.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:0.5,autoplay:false,transcript:"Synthetic zone"}];
+    internal.state.enabled=false;
+    let finish:()=>void=()=>{}, loads=0;
+    runtime.enable=()=>new Promise<void>(resolve=>{finish=()=>{internal.state.enabled=true;resolve();};});
+    internal.load=async()=>{loads++;return {} as AudioBuffer;};
+    // Close is used only by dispose; the synthetic context has no timers or nodes.
+    (internal.context as unknown as {close:()=>Promise<void>}).close=async()=>{};
+    (internal.master as unknown as {disconnect:()=>void}).disconnect=()=>{};
+    const request=runtime.playZone(id);
+    if(action==="stop")runtime.stopZone();else if(action==="pause")runtime.lifecycle(false);else runtime.dispose();
+    finish();await request;
+    assert.equal(loads,0);assert.equal(starts(),0);assert.equal(runtime.snapshot().active,0);
+  }
+});
+
+test("walking availability poll stops audio and clears cache even between short footstep sources",async()=>{
+  vi.useFakeTimers();
+  try {
+    const {runtime,internal}=preparedVoice();
+    const context=internal.context as unknown as {resume:()=>Promise<void>;close:()=>Promise<void>};
+    context.resume=async()=>{};context.close=async()=>{};
+    (internal.master as unknown as {disconnect:()=>void}).disconnect=()=>{};
+    const cache=(runtime as unknown as {buffers:Map<string,AudioBuffer>}).buffers;
+    cache.set("cached",{length:8,numberOfChannels:1} as AudioBuffer);
+    internal.checkAvailability=async()=>{throw Error("PUBLICATION_REVOKED");};
+    await runtime.enable();runtime.lifecycle(true);
+    assert.equal(runtime.snapshot().active,0);
+    await vi.advanceTimersByTimeAsync(10000);
+    assert.equal(runtime.snapshot().enabled,false);
+    assert.equal(runtime.snapshot().suspended,true);
+    assert.equal(runtime.snapshot().active,0);
+    assert.equal(cache.size,0);
+    assert.match(runtime.snapshot().message,/권한이 변경/);
+    runtime.dispose();
+  } finally {vi.useRealTimers();}
+});
+test("queued preload skipped after room leaves current-next set performs no request or decode",async()=>{
+  const {id,runtime}=voiceRuntime();
+  const internal=runtime as unknown as {state:{enabled:boolean};context:AudioContext;allowed:Set<string>;loadQueue:Promise<unknown>;load:(id:string,preload:boolean)=>Promise<AudioBuffer>};
+  internal.state.enabled=true;internal.context={} as AudioContext;internal.allowed.add(id);
+  let finish:()=>void=()=>{};internal.loadQueue=new Promise(resolve=>{finish=()=>resolve(undefined);});
+  const request=internal.load(id,true);
+  internal.allowed.clear();finish();
+  await assert.rejects(request,/AUDIO_PRELOAD_STALE/);
+  assert.equal(runtime.snapshot().requests,0);
+  assert.equal(runtime.snapshot().decodedBytes,0);
 });

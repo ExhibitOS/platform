@@ -101,6 +101,7 @@ export class ExhibitionAudio implements AudioApi {
   private abort = new AbortController();
   private buffers = new Map<string, AudioBuffer>();
   private pending = new Map<string, Promise<AudioBuffer>>();
+  private explicitLoads = new Set<string>();
   private steps = new Map<FloorSound, AudioBuffer>();
   private playing = new Set<AudioBufferSourceNode>();
   private voice?: AudioBufferSourceNode;
@@ -153,7 +154,7 @@ export class ExhibitionAudio implements AudioApi {
       this.state.message = this.state.enabled ? "소리를 켰습니다. 걷기에서 발소리, 음성 버튼에서 설명을 들을 수 있습니다." : "브라우저가 소리를 허용하지 않았습니다. 설명을 읽거나 다시 켜세요.";
       this.updateMaster();
       if (this.state.enabled) { const room=this.room; this.room=undefined; this.setRoom(room); this.preload();
-        this.availabilityTimer ??= setInterval(()=>{if(this.playing.size)void this.checkAvailability().catch(()=>{this.silence();this.buffers.clear();this.state.message="전시 또는 소리 권한이 변경되었습니다. 재생을 멈췄습니다.";this.emit();});},10000);
+        this.availabilityTimer ??= setInterval(()=>{if(this.playing.size || this.moving)void this.checkAvailability().catch(()=>{this.state.enabled=false;this.silence();this.buffers.clear();this.state.message="전시 또는 소리 권한이 변경되었습니다. 재생을 멈췄습니다.";this.emit();});},10000);
       }
     } catch { this.state.message = "소리를 시작할 수 없습니다. 음성 설명은 글로 읽을 수 있습니다."; }
     this.emit();
@@ -237,12 +238,14 @@ export class ExhibitionAudio implements AudioApi {
     }
     if (this.state.enabled) this.preload(); this.emit();
   }
-  private preload() { if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return; for (const id of [...this.allowed].slice(0, 8)) void this.load(id).then(()=>{if(!this.allowed.has(id)&&this.buffers.get(id)!==this.voice?.buffer)this.buffers.delete(id);this.emit();}).catch(() => { this.state.message="일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다."; this.emit(); }); }
-  private load(id: string): Promise<AudioBuffer> {
-    const cached = this.buffers.get(id); if (cached) return Promise.resolve(cached);
+  private preload() { if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return; for (const id of [...this.allowed].slice(0, 8)) void this.load(id,true).then(()=>{if(!this.allowed.has(id)&&this.buffers.get(id)!==this.voice?.buffer)this.buffers.delete(id);this.emit();}).catch((error) => { if(error instanceof Error && error.message === "AUDIO_PRELOAD_STALE")return; this.state.message="일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다."; this.emit(); }); }
+  private load(id: string, preload = false): Promise<AudioBuffer> {
+    if(!preload)this.explicitLoads.add(id);
+    const cached = this.buffers.get(id); if (cached) {this.explicitLoads.delete(id);return Promise.resolve(cached);}
     const pending = this.pending.get(id); if (pending) return pending;
     const promise = this.loadQueue.catch(()=>{}).then(async () => {
       if (!this.state.enabled || !this.context || this.disposed) throw Error("AUDIO_NOT_ENABLED");
+      if(preload && !this.allowed.has(id) && !this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       const inventory = this.publication.exhibition.mediaAssets.find(a => a.id === id), asset = this.publication.assets.find(a => a.assetId === id);
       if (!inventory || !asset || inventory.mime !== "audio/wav") throw Error("AUDIO_MISSING");
       this.state.requests++; this.emit();
@@ -253,7 +256,7 @@ export class ExhibitionAudio implements AudioApi {
       const size = buffer.length * buffer.numberOfChannels * 4;
       while (size + [...this.buffers.values()].reduce((n,b)=>n+b.length*b.numberOfChannels*4,0)>MAX_DECODED) { const key = [...this.buffers.keys()].find(k=>this.buffers.get(k)!==this.voice?.buffer && this.buffers.get(k)!==this.zone?.source.buffer); if (!key) throw Error("AUDIO_CACHE_LIMIT"); this.buffers.delete(key); }
       this.buffers.set(id, buffer); this.emit(); return buffer;
-    }).finally(()=>this.pending.delete(id));
+    }).finally(()=>{this.pending.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;
     this.pending.set(id,promise); return promise;
   }
@@ -297,9 +300,40 @@ export class ExhibitionAudio implements AudioApi {
   stopVoice() { this.generation++; if(this.voice)this.stop(this.voice); this.voice=undefined; this.emit(); }
   stopZone() {this.audible=false;this.updateMaster();this.generation++;if(this.zone)this.stop(this.zone.source);this.zone=undefined;this.state.zoneGain=0;this.emit();}
   async playZone(id: string) {
-    const zone=this.publication.exhibition.audioZones.find(z=>z.id===id); if(!zone)return;
-    if(!this.state.enabled)await this.enable(); this.silence(); const generation=this.generation;
-    try { await this.checkAvailability(); const buffer=await this.load(zone.assetId); if(this.disposed||!this.visible||this.state.muted||generation!==this.generation)return; this.audible=true;this.updateMaster(); const context=this.context!, source=context.createBufferSource(), gain=context.createGain(), panner=context.createPanner(); source.buffer=buffer; source.loop=true; panner.panningModel="HRTF"; panner.distanceModel="linear"; panner.rolloffFactor=0; const p=this.worldPosition(zone.roomId,zone.position); panner.positionX.value=p[0]; panner.positionY.value=p[1]; panner.positionZ.value=p[2]; gain.gain.value=zone.roomId===this.room?zone.volume*distanceGain(Math.hypot(...p.map((v,i)=>v-this.position[i]!)),zone.radius):0; source.connect(panner).connect(gain).connect(this.master!); gain.connect(this.convolver!); this.zone={id,source,gain,panner}; this.state.zoneGain=gain.gain.value; this.track(source,()=>{panner.disconnect();gain.disconnect();if(this.zone?.source===source)this.zone=undefined;}); source.start(); this.state.message="선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."; } catch { this.state.message="공간 소리를 재생할 수 없습니다. transcript를 읽으세요."; } this.emit();
+    const zone=this.publication.exhibition.audioZones.find(z=>z.id===id);
+    if(!zone)return;
+    this.silence();
+    const generation=this.generation;
+    const cancelled=()=>this.disposed||!this.visible||this.state.muted||generation!==this.generation;
+    try {
+      if(!this.state.enabled)await this.enable();
+      if(cancelled())return;
+      if(!this.state.enabled||this.context?.state!=="running")throw Error("AUDIO_BLOCKED");
+      await this.checkAvailability();
+      if(cancelled())return;
+      const buffer=await this.load(zone.assetId);
+      if(cancelled())return;
+      const context=this.context, source=context.createBufferSource(), gain=context.createGain(), panner=context.createPanner();
+      source.buffer=buffer;
+      source.loop=true;
+      panner.panningModel="HRTF";
+      panner.distanceModel="linear";
+      panner.rolloffFactor=0;
+      const p=this.worldPosition(zone.roomId,zone.position);
+      panner.positionX.value=p[0];panner.positionY.value=p[1];panner.positionZ.value=p[2];
+      gain.gain.value=zone.roomId===this.room?zone.volume*distanceGain(Math.hypot(...p.map((v,i)=>v-this.position[i]!)),zone.radius):0;
+      source.connect(panner).connect(gain).connect(this.master!);
+      gain.connect(this.convolver!);
+      this.zone={id,source,gain,panner};
+      this.state.zoneGain=gain.gain.value;
+      this.track(source,()=>{panner.disconnect();gain.disconnect();if(this.zone?.source===source)this.zone=undefined;});
+      try {source.start();}catch(error){this.stop(source);this.zone=undefined;gain.disconnect();panner.disconnect();throw error;}
+      this.audible=true;this.updateMaster();
+      this.state.message="선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다.";
+    } catch {
+      if(generation===this.generation)this.state.message="공간 소리를 재생할 수 없습니다. transcript를 읽으세요.";
+    }
+    this.emit();
   }
   dispose() { if(this.disposed)return; this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
 }

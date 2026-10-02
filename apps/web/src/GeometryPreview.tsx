@@ -157,11 +157,10 @@ export function GeometryPreview({
       orbitEnabled.current?.(false);
     } else {
       orbitEnabled.current?.(!currentWalkMode.current.walking);
-      if (suspendedWasWalking.current) {
-        const focused = globalThis.document.activeElement;
-        walkingActions.current?.start();
-        if (focused instanceof HTMLElement && focused !== globalThis.document.body) focused.focus({preventScroll:true});
-      }
+      // Active walking returns focus to its canvas; focusing the opener would
+      // trigger the input blur safety stop immediately after resuming.
+      // Paused/stationary modes leave focus restoration to the detail dialog.
+      if (suspendedWasWalking.current) walkingActions.current?.start();
       suspendedWasWalking.current = false;
     }
   }, [suspendNavigation]);
