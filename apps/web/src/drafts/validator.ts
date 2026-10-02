@@ -1,3 +1,4 @@
+import {validateSpatialProfile} from '@exhibitos/studio-contract';
 import type { Lifecycle } from "@exhibitos/spec";
 import { validateLifecycle } from "./exhibition-validation.mjs";
 export type Draft = Extract<Lifecycle, { kind: "exhibition-draft" }>;
@@ -6,6 +7,8 @@ import type { ValidationResult } from "@exhibitos/spec";
 export function validateDraft(document: unknown): ValidationResult {
   const result = validateLifecycle(document);
   if (!result.valid) return result;
+  const spatial=validateSpatialProfile((document as Draft).candidate);
+  if(!spatial.valid)return spatial;
   const curation=validateViewerCuration((document as Draft).candidate);
   if(!curation.valid)return curation;
   const experience=validateViewerExperience((document as Draft).candidate);

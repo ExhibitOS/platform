@@ -230,3 +230,5 @@ export * from './curation.js';
 
 export * from "./scripting.js";
 export * from "./scripting-runtime.js";
+
+export * from "./scripting-profile.js";

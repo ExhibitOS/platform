@@ -46,7 +46,8 @@
     "freeze:init": "node scripts/init-freeze-key.mjs",
     "test:oex": "npm run build && node --test scripts/png-profile.test.mjs && node scripts/test-oex.mjs",
     "test:curation": "npm run build && EXHIBITOS_CURATION_ONLY=1 node scripts/test-experience.mjs",
-    "test:spatial-core": "npm run build && node scripts/test-spatial-core.mjs"
+    "test:spatial-core": "npm run build && node scripts/test-spatial-core.mjs",
+    "test:scripting": "npm run build && EXHIBITOS_SCRIPTING_ONLY=1 node scripts/test-experience.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -60,6 +61,6 @@
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.2-164525a8cbcf.tgz"
+    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.3-22c4bc6a931f.tgz"
   }
 }

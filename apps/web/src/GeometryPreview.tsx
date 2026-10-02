@@ -1,3 +1,4 @@
+import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -108,6 +109,9 @@ export function GeometryPreview({
   reducedMotion,
   onReducedMotionChange,
   guideRequest,
+  onScriptSceneReady,
+  onScriptPose,
+  onScriptClick,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -120,6 +124,9 @@ export function GeometryPreview({
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
   guideRequest?: GuideRequest;
+  onScriptSceneReady?: (scene:ScriptScene|null)=>void;
+  onScriptPose?: (position:[number,number,number],forward:[number,number,number])=>void;
+  onScriptClick?: (placementId:string)=>void;
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
   publicSource?: {
@@ -142,8 +149,8 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
-  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail });
-  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail };
+  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick });
+  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick };
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
   const suspendedWasWalking = useRef(false);
@@ -398,6 +405,7 @@ export function GeometryPreview({
         group.add(bounds);
         owned.push(geometry, edges, material);
       }
+      const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
       for (const item of document.lights) {
         const color = new three.Color().setRGB(
           ...item.color,
@@ -415,6 +423,7 @@ export function GeometryPreview({
               ? new three.DirectionalLight(color, item.intensity)
               : item.type==='area'?new three.RectAreaLight(color,1,item.dimensions!.width,item.dimensions!.height): new three.PointLight(color, item.intensity);
         if(light instanceof three.RectAreaLight)light.power=item.intensity;
+        scriptLights.set(item.id,{light,original:light.intensity});
         pose(light, item.transform);
         rooms.get(item.roomId.toLowerCase())?.add(light);
         if (
@@ -454,12 +463,12 @@ export function GeometryPreview({
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
-        if (suspendedRef.current || !navigationCallbacks.current.onArtworkSelect) return;
+        if (suspendedRef.current || (!navigationCallbacks.current.onArtworkSelect&&!navigationCallbacks.current.onScriptClick)) return;
         const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
         const hit=ray.intersectObject(model,true)[0];
         let object=hit?.object;
-        while(object) { if(typeof object.userData.placementId === "string") { detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId); return; } object=object.parent ?? undefined; }
+        while(object) { if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
       };
       renderer.domElement.addEventListener("click",pick);
       controls.enableDamping = false;
@@ -475,6 +484,7 @@ export function GeometryPreview({
         if (!disposed && !gpuLost) {
           const at = performance.now();
           renderer.render(scene, camera);
+          navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
           navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           if (trace.started)
             trace.samples.push({
@@ -484,6 +494,9 @@ export function GeometryPreview({
             });
         }
       };
+      const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
+      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;scriptDiagnostics();render();}};
+      scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
         if (!viewerBudget || trace.started) return;
         trace.started = performance.now();
@@ -1324,6 +1337,7 @@ export function GeometryPreview({
         );
     });
     return () => {
+      navigationCallbacks.current.onScriptSceneReady?.(null);
       disposed = true;
       abort.abort();
       release();

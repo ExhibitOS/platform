@@ -6,6 +6,7 @@ import { PublicationPanel } from "./PublicationPanel";
 import { FreezePanel } from "./FreezePanel";
 import { OexPanel } from "./OexPanel";
 import { GeometryEditor } from "./GeometryEditor";
+import { ScriptingEditor } from "./ScriptingEditor";
 import { CurationEditor } from "./CurationEditor";
 import { StudioExperienceEditor } from "./StudioExperienceEditor";
 import { newDraft } from "./drafts/example";
@@ -740,6 +741,7 @@ export function Studio() {
                 }}
               />
             )}
+            {candidate && <ScriptingEditor key={`scripting:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
             {candidate && <CurationEditor key={`curation:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
             {published && (
               <p className="cms-note">

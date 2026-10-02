@@ -16,6 +16,7 @@ const expectedCases = [
   'oex-binary', 'oed-local', 'oed-ssh', 'reject-unknown-artwork-version', 'reject-zero-scale',
   'reject-publication-rights', 'reject-dangling-room', 'reject-leap-second',
   'reject-corrupted-oex', 'reject-raw-credential-field',
+  'spatial-profile', 'reject-spatial-version', 'reject-spatial-scope',
 ];
 
 test('installed package matches immutable public provenance and has original licenses', async () => {
@@ -105,10 +106,12 @@ test('tarball byte corruption is rejected by the provenance gate', async () => {
 
 
 test('all documented packaged JSON schema aliases resolve with import attributes', async () => {
-  for (const name of ['artwork', 'exhibition', 'lifecycle', 'oex', 'oex-media', 'oed']) {
+  for (const name of ['artwork', 'exhibition', 'lifecycle', 'oex', 'oex-media', 'oed', 'spatial-scripting']) {
     const imported = await import(`@exhibitos/spec/schemas/${name}.json`, { with: { type: 'json' } });
     const original = JSON.parse(await readFile(spec.schemaURL(name), 'utf8'));
     assert.deepEqual(imported.default, original);
     assert.ok(typeof imported.default.$id === 'string');
   }
 });
+
+test('public spatial fixture agrees with portable embedded validation and known mutations',async()=>{const {validateSpatialProfile}=await import('../packages/studio-contract/dist/index.js');const exhibition=await json('oes/v1/examples/spatial-exhibition.json');const own='org.exhibitos.runtime/spatial-scripting';const mutations=[()=>{},p=>{p.version=2;},p=>{p.rules[0].actions[0].lightId='ffffffff-ffff-4fff-8fff-ffffffffffff';},p=>{p.rules[0].id='https://bad.invalid';},p=>{p.rules[0].actions=[{type:'show_text',text:'😀'.repeat(2049),locale:'ko',delayMs:0}];},p=>{p.rules[0].actions=[{type:'show_text',text:'😀'.repeat(2048),locale:'ko',delayMs:0}];},p=>{p.rules[0].trigger={type:'absolute_time',atUtc:'2026-02-31T00:00:00.000Z'};},p=>{p.rules[0].actions[0].delayMs=.5;},p=>{p.rules[0].actions[0].url='https://bad.invalid';}];for(const mutate of mutations){const candidate=structuredClone(exhibition);mutate(candidate.extensions[own]);assert.equal(validateSpatialProfile(candidate).valid,spec.validateSpatialProfile(candidate).valid,JSON.stringify(candidate.extensions[own]));}});
