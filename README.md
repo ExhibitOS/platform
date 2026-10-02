@@ -137,4 +137,4 @@ gate가 확인되기 전 전체 접근성 적합성이나 MVP 완료를 뜻하�
 
 OEX 전시 파일 흐름의 지원 형식·권한·복원·한계는 [OEX 안내](docs/oex.md)와 [OEX API](contracts/oex-openapi.json)에 있습니다. `npm run test:oex`는 실제 격리 PostgreSQL/파일/production 브라우저의 round-trip와 오류 처리를 검사합니다. [실제 검증 결과](docs/performance/oex-results.md)를 확인하세요. 전체 오프라인 배포판이나 관리용 DB 백업 완료를 뜻하지 않습니다.
 
-Frozen exhibition and offline display implementation: [docs/freeze.md](docs/freeze.md). Qualification remains pending until the actual integration evidence is accepted.
+Frozen exhibition and offline display implementation: [docs/freeze.md](docs/freeze.md). Actual bounded qualification and limits are recorded in [freeze-results.md](docs/performance/freeze-results.md).

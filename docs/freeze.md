@@ -69,6 +69,7 @@ IndexedDB packages or the signing key. Consistent DB/blob/config backup and
 restore require a separate maintenance window; logical OEX export is not a full
 service backup. Existing completed freezes are never automatically deleted.
 
-Qualification is recorded separately. Until actual API, disconnected browser,
-portable reconstruction, history, rights and negative checks pass, this is an
-implementation candidate rather than a completed task.
+Actual API, disconnected browser, portable reconstruction, history, rights and
+negative qualification is recorded in [freeze-results.md](performance/freeze-results.md).
+The bounded implementation is qualified on the documented synthetic Mac/Chromium
+environment; production backup and physical-device certification remain separate.

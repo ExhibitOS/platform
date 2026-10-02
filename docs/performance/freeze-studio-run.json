@@ -1,0 +1,8 @@
+{
+  "checks": [
+    "actual Studio freezes the exact saved revision and downloads a verified signed package without publishing",
+    "actual Studio displays fixed revision comparison and unsaved edits disable creating another freeze"
+  ],
+  "browser": "153.0.8010.12",
+  "checkedAt": "2026-10-02T12:10:24.042Z"
+}

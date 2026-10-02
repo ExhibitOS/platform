@@ -1,6 +1,7 @@
 # 0014 — Signed retained runtime and bounded offline display
 
-Status: proposed; implementation qualification pending.
+Status: accepted for the bounded synthetic profile; actual evidence in
+[freeze-results.md](../performance/freeze-results.md).
 
 An immutable freeze retains exact OEX and browser runtime bytes. The signed
 manifest binds source revision, public format artifact, migration checksums and
