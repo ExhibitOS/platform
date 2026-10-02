@@ -255,8 +255,10 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
   // Chromium media_switches.cc defines disable-audio-input/output as fake
   // streams. Keep OS microphone/output out of this isolated recorder test while
   // retaining native getUserMedia, AudioWorklet and actual PCM sample flow.
+  // Permission is granted per context, never bypassed by fake UI: the separate
+  // denied context must receive a genuine native permission rejection.
   // https://chromium.googlesource.com/chromium/src/media/+/refs/heads/master/base/media_switches.cc
-  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
+  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
   const checks = [], observations = [], pageErrors = [], workletResponses = [], workletFailures = [];
   let currentPage = null, currentCheck = "synthetic microphone initialization";
   async function observe(page) {
@@ -323,7 +325,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       assert.equal(bytes.readUInt32LE(4), bytes.length - 8); assert.equal(bytes.readUInt32LE(40), bytes.length - 44);
       assert(bytes.length > 44 && bytes.length <= 44 + 48000 * 60 * 2);
       await expect(editor.getByRole("button", { name: "오디오 승인", exact: true })).toBeVisible();
-      observations.push({ provider: "Chromium fake device/UI and fake input/output streams; no physical microphone or OS output", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
+      observations.push({ provider: "Chromium fake device and fake input/output streams with explicit context permission; no physical microphone or OS output", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
     });
     await check("synthetic microphone cancel releases capture and produces no recording upload", async () => {
       const before = uploads.length;
