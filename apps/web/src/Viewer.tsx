@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GeometryPreview } from "./GeometryPreview";
-import type { SurfaceAppearance } from "./GeometryPreview";
+import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
 import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio";
 import { AudioControls } from "./viewer/AudioControls";
@@ -12,6 +12,7 @@ export function Viewer({
   onArtworkSelect,
   proximityDetail = false,
   onAudioReady,
+  onDetailEntryReady,
 }: {
   publication: PublicPublication;
   appearance: (id: string) => SurfaceAppearance;
@@ -19,6 +20,7 @@ export function Viewer({
   onArtworkSelect?: (id: string) => void;
   proximityDetail?: boolean;
   onAudioReady?: (api: AudioApi | null) => void;
+  onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
 }) {
   const audio = useRef<ExhibitionAudio | null>(null);
   const [audioState, setAudioState] = useState<AudioState | null>(null);
@@ -87,6 +89,7 @@ export function Viewer({
         suspendNavigation={suspendNavigation}
         onArtworkSelect={onArtworkSelect}
         proximityDetail={proximityDetail}
+        onDetailEntryReady={onDetailEntryReady}
         onNavigationState={state => audio.current?.update(state)}
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}

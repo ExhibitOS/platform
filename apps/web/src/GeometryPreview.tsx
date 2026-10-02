@@ -25,6 +25,10 @@ export interface SurfaceAppearance {
   roughness: number;
   metalness: number;
 }
+export interface DetailEntryActions {
+  prepare: () => void;
+  commit: (pointer: boolean) => void;
+}
 export interface GeometrySelection {
   kind: "room" | "surface" | "opening";
   id: string;
@@ -98,6 +102,7 @@ export function GeometryPreview({
   onNavigationMode,
   onArtworkSelect,
   proximityDetail = false,
+  onDetailEntryReady,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -107,6 +112,7 @@ export function GeometryPreview({
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
   proximityDetail?: boolean;
+  onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   session: Session | null;
   publicSource?: {
     publicationId: string;
@@ -131,6 +137,21 @@ export function GeometryPreview({
   const suspendedWasWalking = useRef(false);
   const orbitEnabled = useRef<((enabled: boolean) => void) | null>(null);
   const currentWalkMode = useRef({ walking: false, paused: true });
+  const preparedEntry = useRef<boolean | null>(null);
+  const committedEntry = useRef<boolean | null>(null);
+  const detailEntry = useRef<DetailEntryActions>({
+    prepare: () => { preparedEntry.current = currentWalkMode.current.walking && !currentWalkMode.current.paused; },
+    commit: (pointer) => {
+      committedEntry.current = pointer && preparedEntry.current !== null
+        ? preparedEntry.current
+        : currentWalkMode.current.walking && !currentWalkMode.current.paused;
+      preparedEntry.current = null;
+    },
+  });
+  useEffect(() => {
+    onDetailEntryReady?.(detailEntry.current);
+    return () => onDetailEntryReady?.(null);
+  }, [onDetailEntryReady]);
   const walkingActions = useRef<WalkingActions | null>(null);
   const [walkingMode, setWalkingMode] = useState(false),
     [walkPaused, setWalkPaused] = useState(true),
@@ -152,7 +173,9 @@ export function GeometryPreview({
     [ready, setReady] = useState(false);
   useEffect(() => {
     if (suspendNavigation) {
-      suspendedWasWalking.current = currentWalkMode.current.walking && !currentWalkMode.current.paused;
+      suspendedWasWalking.current = committedEntry.current ?? (currentWalkMode.current.walking && !currentWalkMode.current.paused);
+      committedEntry.current = null;
+      preparedEntry.current = null;
       walkingActions.current?.pause();
       orbitEnabled.current?.(false);
     } else {
@@ -413,7 +436,7 @@ export function GeometryPreview({
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
         const hit=ray.intersectObject(model,true)[0];
         let object=hit?.object;
-        while(object) { if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onArtworkSelect(object.userData.placementId); return; } object=object.parent ?? undefined; }
+        while(object) { if(typeof object.userData.placementId === "string") { detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId); return; } object=object.parent ?? undefined; }
       };
       renderer.domElement.addEventListener("click",pick);
       controls.enableDamping = false;
@@ -653,7 +676,7 @@ export function GeometryPreview({
                       const position=[a+w*tx+y*tz-z*ty+room.transform.position[0],b+w*ty+z*tx-x*tz+room.transform.position[1],c+w*tz+x*ty-y*tx+room.transform.position[2]];
                       return Math.hypot(position[0]!-state.eyePosition[0],position[2]!-state.eyePosition[2]) < 1;
                     });
-                    if (placement && nearPlacement !== placement.id) { nearPlacement = placement.id; cb.onArtworkSelect(placement.id); }
+                    if (placement && nearPlacement !== placement.id) { nearPlacement = placement.id; detailEntry.current.prepare(); detailEntry.current.commit(true); cb.onArtworkSelect(placement.id); }
                     else if (!placement) nearPlacement = undefined;
                   }
                 },
