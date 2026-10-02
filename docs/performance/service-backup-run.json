@@ -1,0 +1,102 @@
+{
+  "name": "exhibitos-service-backup-actual-test",
+  "version": "1.0.0-draft.1",
+  "passed": true,
+  "at": "2026-10-02T13:04:16.631Z",
+  "checks": [
+    "file: exact all-row inventory and large PostgreSQL numbers include required blobs and unknown orphan namespaces",
+    "file: real authenticated API writer blocks on maintenance while exact exported PG snapshot is dumped",
+    "file: missing actual committed object refuses backup and source is restored byte-identically",
+    "file: actual operator CLI creates and verifies encrypted archive without logging private values",
+    "file: SIGKILL during actual CLI inventory leaves an incomplete archive that cannot restore and preserves source",
+    "file: encrypted consistent archive authenticates every metadata object runtime and protected configuration",
+    "file: wrong encryption key and corrupted authenticated bytes fail closed",
+    "file: missing encrypted archive object refuses verification without activating restored state",
+    "file: nonempty destination database and blob target refuse restoration without modifying sentinels",
+    "file: empty database with nonempty blob backend is also rejected without modifying bytes",
+    "file: incompatible local migration checksum refuses restored candidate activation",
+    "file: original service database object store and signing-key path are unavailable before restoration",
+    "file: fresh database and fresh blob root reconstruct every row object hash and schema from encrypted backup alone",
+    "file: restored actual network API retains tenant session publication media and old signed freeze authority",
+    "file: restored administrative integrity endpoint is read-only tenant scoped and denies lower roles",
+    "file: restored current expired rights deny display and grant renewal while remaining valid backup history",
+    "file: restored complete queued uploading failed and interrupted receipts resume using only retained owned bytes",
+    "file: restored trash can be explicitly recovered and unreferenced namespace bytes remain intact",
+    "s3: exact all-row inventory and large PostgreSQL numbers include required blobs and unknown orphan namespaces",
+    "s3: real authenticated API writer blocks on maintenance while exact exported PG snapshot is dumped",
+    "s3: missing actual committed object refuses backup and source is restored byte-identically",
+    "s3: actual operator CLI creates and verifies encrypted archive without logging private values",
+    "s3: SIGKILL during actual CLI inventory leaves an incomplete archive that cannot restore and preserves source",
+    "s3: encrypted consistent archive authenticates every metadata object runtime and protected configuration",
+    "s3: wrong encryption key and corrupted authenticated bytes fail closed",
+    "s3: missing encrypted archive object refuses verification without activating restored state",
+    "s3: nonempty destination database and blob target refuse restoration without modifying sentinels",
+    "s3: empty database with nonempty blob backend is also rejected without modifying bytes",
+    "s3: incompatible local migration checksum refuses restored candidate activation",
+    "s3: original service database object store and signing-key path are unavailable before restoration",
+    "s3: fresh database and fresh blob root reconstruct every row object hash and schema from encrypted backup alone",
+    "s3: restored actual network API retains tenant session publication media and old signed freeze authority",
+    "s3: restored administrative integrity endpoint is read-only tenant scoped and denies lower roles",
+    "s3: restored current expired rights deny display and grant renewal while remaining valid backup history",
+    "s3: restored complete queued uploading failed and interrupted receipts resume using only retained owned bytes",
+    "s3: restored trash can be explicitly recovered and unreferenced namespace bytes remain intact"
+  ],
+  "images": {
+    "postgres": "postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722",
+    "s3mock": "adobe/s3mock:5.2.3@sha256:ab01a6946750f451ca215a47e91030695b260e4003b8a5a6201d25029b8fca92"
+  },
+  "results": [
+    {
+      "adapter": "file",
+      "archive": "/private/var/folders/x7/dfgr2r697vj8kb6bg3207nx40000gn/T/exhibitos-service-backup-report-0yXJ4S/file/complete-backup",
+      "receipt": {
+        "id": "90c6757e-f943-4ca8-81dd-13d0b2f66fd3",
+        "status": "complete",
+        "manifestSha256": "d5554ea03fe5e5579e33173ba049a963c1cfcc9bef58e053dbf57407a3527094",
+        "objectCount": 47
+      },
+      "restored": {
+        "id": "90c6757e-f943-4ca8-81dd-13d0b2f66fd3",
+        "manifestSha256": "d5554ea03fe5e5579e33173ba049a963c1cfcc9bef58e053dbf57407a3527094",
+        "objectCount": 47,
+        "status": "complete"
+      },
+      "tableCount": 50,
+      "rowCount": 40111,
+      "objectCount": 47,
+      "objectBytes": 17838545,
+      "sourceUnavailable": true,
+      "pendingFreezeRecovered": true,
+      "verifiedManifest": "90c6757e-f943-4ca8-81dd-13d0b2f66fd3"
+    },
+    {
+      "adapter": "s3",
+      "archive": "/private/var/folders/x7/dfgr2r697vj8kb6bg3207nx40000gn/T/exhibitos-service-backup-report-0yXJ4S/s3/complete-backup",
+      "receipt": {
+        "id": "ec8459ff-a142-41b6-92ae-698f8d36658e",
+        "status": "complete",
+        "manifestSha256": "d425817b6dc481336b3a682ced5a3b87e6568d8191ea03440b5c69ec4f81cbca",
+        "objectCount": 47
+      },
+      "restored": {
+        "id": "ec8459ff-a142-41b6-92ae-698f8d36658e",
+        "manifestSha256": "d425817b6dc481336b3a682ced5a3b87e6568d8191ea03440b5c69ec4f81cbca",
+        "objectCount": 47,
+        "status": "complete"
+      },
+      "tableCount": 50,
+      "rowCount": 40111,
+      "objectCount": 47,
+      "objectBytes": 17838545,
+      "sourceUnavailable": true,
+      "pendingFreezeRecovered": true,
+      "verifiedManifest": "ec8459ff-a142-41b6-92ae-698f8d36658e"
+    }
+  ],
+  "limits": [
+    "Only synthetic isolated containers and new directories",
+    "S3 source qualified against pinned S3Mock, destination FileBlobStore",
+    "No real user data or production destructive changes",
+    "Raw privileged writers require operator quiescence outside API maintenance protocol"
+  ]
+}
