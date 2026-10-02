@@ -127,3 +127,8 @@ two consecutive attempts for each, actual visible feedback and keyboard yaw.
 These test adapters inject failure only and are not native-success evidence.
 Script syntax, ESLint and diff checks passed. The human fixture's build was
 preserved throughout this additional check.
+
+
+## Audio/detail idle-pose regression
+
+At6e5d490, after the grounded idle-pose correction preserving camera position across detail pause/resume, root executed `EXHIBITOS_NAVIGATION_FILTER='^(?!browser pointer lock)' npm run test:navigation` in the public-only checkout. Two actual PostgreSQL/publication groups and all13 production browser movement/collision/lifecycle/touch regressions passed. [Actual regression observations](navigation-experience-regression.json) preserve source and filter; ephemeral test origins/paths are normalized. This excluded native capture acquisition and supplements the earlier physical user Chrome evidence, without claiming a new physical mouse/mobile qualification. Detail integration independently checks camera preservation within1µm/1µrad and prior active/paused focus restoration.

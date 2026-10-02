@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import type { PoolClient } from "pg";
 import { validateArtwork } from "@exhibitos/spec";
-import { Cms } from "./cms.ts";
+import { ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
+import { Cms, validMetadata, type ArtworkMetadata } from "./cms.ts";
 import type { Session } from "./auth.ts";
 const tenantId = "10000000-0000-4000-8000-000000000001", id = "10000000-0000-4000-8000-000000000002", assetId = "10000000-0000-4000-8000-000000000003";
 const session = { tenantId, userId: "10000000-0000-4000-8000-000000000004", role: "artist" } as Session;
@@ -31,6 +32,24 @@ describe("protected approved CMS to Studio metadata projection", () => {
             expect(JSON.stringify(first)).not.toContain("rightsRevision");
             expect(query.mock.calls[0]?.[1]).toEqual([tenantId, id]);
         }
+    });
+    it("accepts optional authored medium/year and keeps legacy metadata compatible", async () => {
+        const {cms,c,approval}=setup();
+        const legacy=approval.snapshot.metadata;
+        expect(validMetadata(legacy)).toBe(true);
+        for(const bad of [{medium:""},{medium:"   "},{medium:"x".repeat(513)},{creationYear:0},{creationYear:10000},{creationYear:2024.5},{creationYear:"2024"},{creationYear:null},{creationYear:undefined},{medium:undefined},{extra:"private"}])expect(validMetadata({...legacy,...bad})).toBe(false);
+        const metadata=legacy as ArtworkMetadata;
+        metadata.medium="Synthetic painted polymer";metadata.creationYear=2024;
+        expect(validMetadata(metadata)).toBe(true);
+        const {artwork}=await cms.studioArtwork(c,session,id);
+        expect(validateArtwork(artwork).valid).toBe(true);
+        expect(artwork.metadata.medium).toBe(metadata.medium);
+        expect(artwork.extensions?.[ARTWORK_DETAILS_NAMESPACE]).toEqual({version:1,creationYear:2024});
+        expect(creationYearFor(artwork)).toBe(2024);
+        expect(JSON.stringify(artwork)).not.toContain(metadata.provenance.notes);
+        delete metadata.medium;delete metadata.creationYear;
+        const old=(await cms.studioArtwork(c,session,id)).artwork;
+        expect(old.metadata.medium).toBeUndefined();expect(creationYearFor(old)).toBeUndefined();
     });
     it("rejects viewer before metadata lookup and preserves current gate denial without accessing immutable snapshot", async () => {
         const { cms, c, gate, query } = setup();

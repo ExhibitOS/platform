@@ -3,6 +3,7 @@ import type { Exhibition } from "@exhibitos/spec";
 import type { PerspectiveCamera } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
+import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
 import { createWalkingInput } from "./navigation-input";
 export async function createWalkingCamera({
@@ -14,6 +15,7 @@ export async function createWalkingCamera({
   render,
   onMode,
   onMessage,
+  onState,
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
@@ -23,6 +25,7 @@ export async function createWalkingCamera({
   render: () => void;
   onMode: (walking: boolean, paused: boolean) => void;
   onMessage: (text: string) => void;
+  onState?: (state: NavigationState) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
   const angles = new Euler().setFromQuaternion(camera.quaternion, "YXZ");
@@ -75,6 +78,7 @@ export async function createWalkingCamera({
       lookTransition: settings.reducedMotion ? "immediate" : "smoothed",
       settings,
     });
+    onState?.(state);
     return state;
   };
   const apply = () => {

@@ -23,6 +23,8 @@ export interface Rights {
 export interface Metadata {
   title: string;
   description: string;
+  medium?: string;
+  creationYear?: number;
   dimensions: { width: number; height: number; depth: number; unit: "m" };
   rights: Rights;
   provenance: {

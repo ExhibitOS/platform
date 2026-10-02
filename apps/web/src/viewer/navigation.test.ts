@@ -30,6 +30,28 @@ function slab(d: Exhibition, x: number, y: number, z: number, width: number, hei
     return s;
 }
 describe("real Rapier fixed-step first-person collision", () => {
+    it("preserves grounded body pose exactly through idle and pause/resume without reseeding", async () => {
+        const c = await createNavigationController(room(), { position: [0, 1.6, 3] });
+        try {
+            const before = c.state();
+            for (let i=0;i<30;i++) c.advance(1/60,{forward:0,right:0,yaw:before.yaw});
+            expect(c.state().eyePosition).toEqual(before.eyePosition);
+            c.pause();
+            expect(c.state().paused).toBe(true);
+            for(const dt of [1/144,1/30,0.1,0.25]) c.advance(dt,{forward:0,right:0,yaw:before.yaw});
+            expect(c.state().paused).toBe(false);
+            expect(c.state().eyePosition).toEqual(before.eyePosition);
+            c.advance(1/60,{forward:0,right:0,yaw:1});
+            expect(c.state().yaw).toBe(1);
+            expect(c.state().eyePosition).toEqual(before.eyePosition);
+            walk(c,0.5);
+            c.pause();
+            const stopped=c.state();
+            for(let i=0;i<30;i++) c.advance(1/30,{forward:0,right:0,yaw:stopped.yaw});
+            expect(c.state().eyePosition).toEqual(stopped.eyePosition);
+            expect(c.state().grounded).toBe(true);
+        } finally {c.dispose();}
+    });
     it("moves at all candidate speeds with acceleration/deceleration and equivalent15/30/60/120/144Hz distances", async () => {
         for (const speed of [0.7, 1.3, 1.6] as const) {
             const distances = [];

@@ -91,7 +91,7 @@ try {
     assert.equal(
       (await pool.query("SELECT count(*)::int AS n FROM schema_migrations"))
         .rows[0].n,
-      7,
+      8,
     );
   });
   const tenant = randomUUID(),

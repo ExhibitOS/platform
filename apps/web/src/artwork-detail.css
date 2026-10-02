@@ -1,0 +1,13 @@
+.artwork-detail { width: min(850px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; background: #f6f3ed; color: #232731; border: 1px solid #777; border-radius: 12px; padding: 24px; }
+.artwork-detail::backdrop { background: #000b; }
+.artwork-detail header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.artwork-detail h2 { margin: 0; }
+.artwork-detail dt { font-weight: 700; margin-top: 12px; }
+.artwork-detail dd { margin-left: 0; overflow-wrap: anywhere; }
+.artwork-detail label { display: block; margin: 12px 0; }
+.artwork-detail input[type=range] { width: min(100%, 360px); }
+.artwork-detail .detail-preview { min-height: 360px; width: 100%; }
+.artwork-detail canvas { display: block; max-width: 100%; }
+.artwork-detail .detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.artwork-detail button { margin: 4px; }
+@media (max-width: 480px) { .artwork-detail { padding: 12px; } }

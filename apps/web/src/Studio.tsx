@@ -3,6 +3,7 @@ import { DraftError, DraftStore } from "./drafts/store";
 import type { Draft, LocalDraft, RemoteBinding } from "./drafts/store";
 import { PublicationPanel } from "./PublicationPanel";
 import { GeometryEditor } from "./GeometryEditor";
+import { StudioExperienceEditor } from "./StudioExperienceEditor";
 import { newDraft } from "./drafts/example";
 import { validateDraft } from "./drafts/validator";
 import { prepareStudioShell } from "./studio-shell";
@@ -485,7 +486,7 @@ export function Studio() {
           저장 후 새 앱 버전 적용
         </button>
       )}
-      <p role="status" aria-live="polite" className="cms-status">
+      <p role="status" aria-label="전시 편집 상태" aria-live="polite" className="cms-status">
         {notice || "계정 없이 로컬 draft를 만들고 저장할 수 있습니다."}
       </p>
       <p className="cms-note">
@@ -678,6 +679,19 @@ export function Studio() {
                 candidate={candidate}
                 session={session}
                 disabled={busy || published}
+                onChange={(value) => {
+                  setText(json(value));
+                  setPaused(false);
+                }}
+              />
+            )}
+            {candidate && (
+              <StudioExperienceEditor
+                key={record.id}
+                candidate={candidate}
+                session={sameActor ? session : null}
+                exhibitionId={record.remote?.id}
+                disabled={busy || saving || published}
                 onChange={(value) => {
                   setText(json(value));
                   setPaused(false);

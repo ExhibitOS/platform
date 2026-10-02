@@ -171,7 +171,7 @@ export async function runDraftsBrowser({
       await page
         .getByRole("button", { name: "현재 서버 계정 확인", exact: true })
         .click();
-      await expect(page.getByRole("status")).toContainText(
+      await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
         "현재 서버 계정을 확인했습니다",
       );
     }
@@ -186,7 +186,7 @@ export async function runDraftsBrowser({
         await page
           .getByRole("button", { name: "새 로컬 전시", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "계정 없이 로컬 전시",
         );
         const base = await local(),
@@ -236,7 +236,7 @@ export async function runDraftsBrowser({
         await page
           .getByLabel("전시 문서 JSON", { exact: true })
           .fill("{ broken JSON");
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "전시 JSON의 구조",
         );
         assert.deepEqual(await local(), before);
@@ -260,7 +260,7 @@ export async function runDraftsBrowser({
         await page
           .getByLabel("전시 제목", { exact: true })
           .fill("Interrupted save must survive");
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "저장이 중단되었습니다",
         );
         assert.deepEqual(await local(), before);
@@ -310,7 +310,7 @@ export async function runDraftsBrowser({
           `org.exhibitos.synthetic/quota${index}`, {data:randomBytes(11900).toString('base64')}
         ]));
         await page.getByLabel("전시 문서 JSON", {exact:true}).fill(JSON.stringify(quotaCandidate,null,2));
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "브라우저 저장 공간이 부족",
         );
         assert.deepEqual(await local(), before);
@@ -381,7 +381,7 @@ export async function runDraftsBrowser({
         await page
           .getByLabel("전시 제목", { exact: true })
           .fill("Current tab preserved fork");
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "다른 탭이 이 draft",
         );
         await expect(page.getByLabel("전시 제목", { exact: true })).toHaveValue(
@@ -398,7 +398,7 @@ export async function runDraftsBrowser({
             exact: true,
           })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "현재 입력을 새 로컬 사본",
         );
         const fork = await local();
@@ -426,7 +426,7 @@ export async function runDraftsBrowser({
         await page
           .getByRole("button", { name: "선택한 저장본 복구", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "새로운 version으로 복구",
         );
         await expect(page.getByLabel("전시 제목", { exact: true })).toHaveValue(
@@ -449,7 +449,7 @@ export async function runDraftsBrowser({
             mimeType: "application/json",
             buffer: content,
           });
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "새로운 로컬 사본",
         );
         const imported = await local();
@@ -486,7 +486,7 @@ export async function runDraftsBrowser({
             exact: true,
           })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "연결 또는 처리에 실패",
         );
         await page
@@ -495,7 +495,7 @@ export async function runDraftsBrowser({
             exact: true,
           })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "서버 revision 1을 저장",
         );
         await page.unroute("**/studio/exhibitions");
@@ -530,7 +530,7 @@ export async function runDraftsBrowser({
         await page
           .getByRole("button", { name: "기록된 ETag로 서버 저장", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "서버 revision이 바뀌었습니다",
         );
         await expect(page.getByLabel("전시 제목", { exact: true })).toHaveValue(
@@ -539,7 +539,7 @@ export async function runDraftsBrowser({
         await page
           .getByRole("button", { name: "서버 내용 비교", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText("비교만 수행");
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText("비교만 수행");
         await expect(page.locator(".cms-comparison pre").first()).toContainText(
           "Concurrent remote winner",
         );
@@ -549,7 +549,7 @@ export async function runDraftsBrowser({
             exact: true,
           })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "서버 revision 3을 저장",
         );
         assert.equal(
@@ -565,7 +565,7 @@ export async function runDraftsBrowser({
             exact: true,
           })
           .click();
-        await expect(page.getByRole("status")).toContainText("새 로컬 사본");
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText("새 로컬 사본");
         assert.equal((await local()).remote, undefined);
         assert.equal(
           (await (await context.request.get(api)).json()).revision,
@@ -573,7 +573,7 @@ export async function runDraftsBrowser({
         );
         await page.getByTestId(`draft-${bound.id}`).click();
         await expect(page.getByTestId("draft-id")).toHaveText(bound.id);
-        await expect(page.getByRole("status")).toContainText("완료된 로컬 저장본");
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText("완료된 로컬 저장본");
         assert.equal((await local()).remote.id, original.draft.exhibitionId);
       },
     );
@@ -669,14 +669,14 @@ export async function runDraftsBrowser({
         const migrated = await legacyContext.newPage();
         migrated.setDefaultTimeout(20000);
         await migrated.goto(`${origin}/studio`);
-        await expect(migrated.getByRole("status")).toContainText(
+        await expect(migrated.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "브라우저 저장소에 접근할 수 없습니다",
         );
         await held.evaluate(() => window.__heldDB.close());
         await migrated
           .getByRole("button", { name: "저장소 다시 읽기", exact: true })
           .click();
-        await expect(migrated.getByRole("status")).toContainText(
+        await expect(migrated.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "로컬 저장소를 다시 읽었습니다",
         );
         const rows = await records(migrated);
@@ -702,7 +702,7 @@ export async function runDraftsBrowser({
         await migrated
           .getByRole("button", { name: "저장소 다시 읽기", exact: true })
           .click();
-        await expect(migrated.getByRole("status")).toContainText(
+        await expect(migrated.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "로컬 기록의 구조",
         );
         const download = migrated.waitForEvent("download");
@@ -760,7 +760,7 @@ export async function runDraftsBrowser({
           raw,
         );
         await futurePage.goto(`${origin}/studio`);
-        await expect(futurePage.getByRole("status")).toContainText(
+        await expect(futurePage.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "이 앱보다 새로운 형식",
         );
         const download = futurePage.waitForEvent("download");

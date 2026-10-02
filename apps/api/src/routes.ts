@@ -1,3 +1,4 @@
+import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import { Publications } from './publication.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
@@ -54,6 +55,14 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
  app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
+ const audio=new Audio(store),ap=`${sp}/:id/audio`;
+ const audioParams=(req:FastifyRequest)=>req.params as {id:string;audioId:string};
+ app.get(ap,call(false,async(c,s,req)=>audio.list(c,s,audioParams(req).id)));
+ app.post(ap,{schema:{body:object({requestId:id,mime:{const:'audio/wav'},bytes:{type:'integer',minimum:44,maximum:MAX_AUDIO},sha256:{...str,pattern:'^[a-f0-9]{64}$'},rights:{type:'object'}})}},call(true,async(c,s,req,reply)=>{reply.code(201);return audio.create(c,s,audioParams(req).id,req.body as AudioInput);}));
+ app.get(`${ap}/:audioId`,call(false,async(c,s,req)=>{const p=audioParams(req);return audio.view(await audio.access(c,s,p.id,p.audioId));}));
+ app.put(`${ap}/:audioId/bytes`,{bodyLimit:MAX_AUDIO},call(true,async(c,s,req)=>{const p=audioParams(req);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return audio.upload(c,s,p.id,p.audioId,req.body);}));
+ app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
+ for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
  const publications=new Publications(pool,store);
  app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
@@ -64,16 +73,16 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const cms=new Cms(store),cp=`${prefix}/cms`;
  app.get(`${prefix}/studio/artworks/:id`,call(false,async(c,s,req)=>cms.studioArtwork(c,s,cmsId(req))));
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};
- const fields={title:{...str,minLength:1,maxLength:512},description:{...str,maxLength:16384},dimensions:object({width:{type:'number',exclusiveMinimum:0,maximum:1000000},height:{type:'number',exclusiveMinimum:0,maximum:1000000},depth:{type:'number',exclusiveMinimum:0,maximum:1000000},unit:{const:'m'}}),rights:{type:'object'},provenance:object({source:{enum:['human-authored','ai-assisted','ai-generated']},sourceUnits:{enum:['m','cm','mm']},scaleApplied:{type:'boolean'},notes:{...str,maxLength:4096}})};
+ const fields={medium:{...str,minLength:1,maxLength:512},creationYear:{type:'integer',minimum:1,maximum:9999},title:{...str,minLength:1,maxLength:512},description:{...str,maxLength:16384},dimensions:object({width:{type:'number',exclusiveMinimum:0,maximum:1000000},height:{type:'number',exclusiveMinimum:0,maximum:1000000},depth:{type:'number',exclusiveMinimum:0,maximum:1000000},unit:{const:'m'}}),rights:{type:'object'},provenance:object({source:{enum:['human-authored','ai-assisted','ai-generated']},sourceUnits:{enum:['m','cm','mm']},scaleApplied:{type:'boolean'},notes:{...str,maxLength:4096}})};
  const cmsId=(req:FastifyRequest)=>{const p=req.params as {id:string};uuid(p.id);return p.id;};
  app.post(`${cp}/artists`,{schema:{body:object({...artistBody,userId:{anyOf:[id,{type:'null'}]}},['name','bio'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtist(c,s,req.body as {name:string;bio:string;userId?:string|null});}));
  app.get(`${cp}/artists`,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100},archived:{enum:['true','false']}},[])}},call(false,async(c,s,req)=>cms.list(c,s,'artists',req.query as Record<string,string>)));
  app.get(`${cp}/artists/:id`,call(false,async(c,s,req)=>cms.artistView(await cms.artist(c,s,cmsId(req),true))));
  app.patch(`${cp}/artists/:id`,{schema:{body:object({...artistBody,revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.reviseArtist(c,s,cmsId(req),req.body as {name:string;bio:string;revision:number})));
- app.post(`${cp}/artworks`,{schema:{body:object({...fields,artistId:id})}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtwork(c,s,req.body as ArtworkMetadata&{artistId:string});}));
+ app.post(`${cp}/artworks`,{schema:{body:object({...fields,artistId:id},['title','description','dimensions','rights','provenance','artistId'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtwork(c,s,req.body as ArtworkMetadata&{artistId:string});}));
  app.get(`${cp}/artworks`,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100},archived:{enum:['true','false']}},[])}},call(false,async(c,s,req)=>cms.list(c,s,'artworks',req.query as Record<string,string>)));
  app.get(`${cp}/artworks/:id`,call(false,async(c,s,req)=>cms.detail(c,s,cmsId(req),true)));
- app.patch(`${cp}/artworks/:id`,{schema:{body:object({...fields,revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.revise(c,s,cmsId(req),req.body as ArtworkMetadata&{revision:number})));
+ app.patch(`${cp}/artworks/:id`,{schema:{body:object({...fields,revision:{type:'integer',minimum:1}},['title','description','dimensions','rights','provenance','revision'])}},call(true,async(c,s,req)=>cms.revise(c,s,cmsId(req),req.body as ArtworkMetadata&{revision:number})));
  for(const kind of ['artists','artworks'] as const){
   app.get(`${cp}/${kind}/:id/revisions`,call(false,async(c,s,req)=>cms.revisions(c,s,cmsId(req),kind)));
   for(const action of ['archive','restore'] as const)app.post(`${cp}/${kind}/:id/${action}`,{schema:{body:object({revision:{type:'integer',minimum:1}})}},call(true,async(c,s,req)=>cms.archive(c,s,kind,cmsId(req),action==='restore',(req.body as {revision:number}).revision)));

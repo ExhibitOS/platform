@@ -140,7 +140,7 @@ export async function runPublicationBrowser({
           ? "기록된 ETag로 서버 저장"
           : "현재 계정에 새 서버 전시 저장",
       );
-      await expect(page.getByRole("status")).toContainText("서버 revision");
+      await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText("서버 revision");
       await expect
         .poll(async () => (await stored()).remote?.etag ?? "")
         .not.toBe("");

@@ -134,6 +134,13 @@ export async function runCmsBrowser({
       await page.getByLabel("너비", { exact: true }).fill("0.8");
       await page.getByLabel("높이", { exact: true }).fill("1.2");
       await page.getByLabel("깊이", { exact: true }).fill("0.1");
+      await expect(page.getByLabel("재료·기법", { exact: true })).toHaveValue("");
+      await expect(page.getByLabel("제작 연도", { exact: true })).toHaveValue("");
+      const authoredDetails = title === "Browser sculpture";
+      if (authoredDetails) {
+        await page.getByLabel("재료·기법", { exact: true }).fill("Synthetic painted polymer");
+        await page.getByLabel("제작 연도", { exact: true }).fill("2024");
+      }
       await page
         .getByLabel("권리자", { exact: true })
         .fill("ExhibitOS synthetic fixture authors");
@@ -153,6 +160,15 @@ export async function runCmsBrowser({
       const response = await pending;
       assert.equal(response.status(), 201, await response.text());
       const artwork = await response.json();
+      if (authoredDetails) {
+        assert.equal(artwork.metadata.medium, "Synthetic painted polymer");
+        assert.equal(artwork.metadata.creationYear, 2024);
+        await expect(page.getByLabel("재료·기법", { exact: true })).toHaveValue("Synthetic painted polymer");
+        await expect(page.getByLabel("제작 연도", { exact: true })).toHaveValue("2024");
+      } else {
+        assert(!Object.hasOwn(artwork.metadata, "medium"));
+        assert(!Object.hasOwn(artwork.metadata, "creationYear"));
+      }
       await expect(page.getByRole("status")).toContainText(
         "작품 메타데이터를 저장했습니다",
       );
