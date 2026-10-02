@@ -30,12 +30,12 @@ and the distinct media-bearing OEX1.0.0-draft.2. OES/OED draft identities remain
 unchanged. The server writes draft.2; reading an old file does not silently migrate
 its source manifest. There is no stable-format or general ZIP compatibility claim.
 
-Platform accepts approved GLB and PNG, and bounded PCM16 WAV (one/two channels,
+Platform accepts approved GLB and bounded noninterlaced8-bit RGB/RGBA PNG, and bounded PCM16 WAV (one/two channels,
 8–48kHz, up to60seconds). Unsupported codecs, unknown executable/opaque extension
 namespaces, external resource fetching and arbitrary package layouts fail closed.
-Known material, placement/presentation, LOD, artwork detail and audio/transcript
+Bounded top-level Apache/CC0 legal notices are preserved as inert text. Known material, placement/presentation, LOD, artwork detail and audio/transcript
 extensions are checked and their typed references remapped. UUID-looking prose
-is preserved. Source archive hash and typed ID map are retained in the receipt;
+is preserved. Source archive hash and typed ID map are retained in the receipt; shared source assets are materialized as per-artwork IDs with explicit `assetAliases`, while identical owned object bytes are stored once. A later export may duplicate those per-owner package entries and exceed the64MiB export bound; this reports OEX_LIMIT without deleting or changing the imported draft.
 derived destination revision IDs/hashes differ from the source.
 
 New IDs avoid replacing destination data even when a source ID already exists.
@@ -85,3 +85,5 @@ Contract: [OEX OpenAPI](../contracts/oex-openapi.json).
 Actual qualification command: `npm run test:oex` after the documented exact
 Node/npm installation, with Docker and Playwright available. Passing format or
 unit checks alone does not prove atomic restoration, current rights or UI behavior.
+
+PNG accepts one optional CRC-checked, one-byte sRGB intent before image data; other ancillary metadata remains unsupported. This preserves the original public synthetic package bytes while refusing malformed/duplicate/late color chunks and embedded text. The bounded color record follows the [W3C PNG specification](https://www.w3.org/TR/png-3/#11sRGB); `scripts/png-profile.test.mjs` runs the real isolated decoder on original and malformed inputs.
