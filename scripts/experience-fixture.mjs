@@ -17,7 +17,9 @@ export function addExperience(document, mediaAsset) {
   // Experience-only acoustic contrast: retain the shared navigation fixture's
   // floor plan and reciprocal openings, but give room2 a genuinely taller volume.
   const taller = doc.rooms[1], delta = 6 - taller.dimensions.height;
-  taller.dimensions.height = 6;
+  // The inherited navigation fixture reuses room dimension objects. Replace
+  // room2's value instead of mutating that alias and enlarging room1 as well.
+  taller.dimensions = { ...taller.dimensions, height: 6 };
   for (const surface of doc.surfaces.filter(s => s.roomId === taller.id)) {
     if (surface.type === "ceiling") surface.transform.position[1] += delta;
     if (surface.type === "wall") {

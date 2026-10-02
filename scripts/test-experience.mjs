@@ -16,6 +16,8 @@ import {
 import { bootstrap } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
 import { Imports } from "../apps/api/dist/imports.js";
+// Fast in-memory regression precedes Docker/database/API setup.
+console.log(execFileSync(process.execPath, ["--test", new URL("./experience-fixture.test.mjs", import.meta.url).pathname], { encoding: "utf8", timeout: 10000 }));
 const docker = process.env.DOCKER_BIN ?? "docker",
   name = `exhibitos-experience-test-${randomUUID()}`,
   password = randomBytes(24).toString("hex");
@@ -345,7 +347,10 @@ try {
   });
   addExperience(candidate, (await json(request(actors.artist, "GET", `${audioPath}/${audio.id}`))).mediaAsset);
   await test("experience fixture has distinct room volumes with aligned floor and reciprocal door heights", async () => {
+    assert.equal(candidate.rooms[0].dimensions.height, 4);
+    assert.equal(candidate.rooms[1].dimensions.height, 6);
     const volumes = candidate.rooms.map(room => room.dimensions.width * room.dimensions.height * room.dimensions.depth);
+    assert.deepEqual(volumes, [256, 384]);
     assert(volumes[1] > volumes[0]);
     const second = candidate.rooms[1], surfaces = candidate.surfaces.filter(surface => surface.roomId === second.id);
     assert(surfaces.filter(surface => surface.type === "floor").every(surface => surface.transform.position[1] === 0));
