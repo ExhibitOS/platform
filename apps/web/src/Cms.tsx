@@ -988,6 +988,42 @@ export function Cms() {
                           }
                         />
                       </label>
+                      <label>
+                        재료·기법 (공개, 선택)
+                        <input
+                          aria-label="재료·기법"
+                          maxLength={512}
+                          value={metadata.medium ?? ""}
+                          onChange={(e) => {
+                            const next = { ...metadata };
+                            if (e.target.value.trim()) next.medium = e.target.value;
+                            else delete next.medium;
+                            setMetadata(next);
+                          }}
+                        />
+                      </label>
+                      <label>
+                        제작 연도 (공개, 선택)
+                        <input
+                          aria-label="제작 연도"
+                          type="number"
+                          min={1}
+                          max={9999}
+                          step={1}
+                          value={metadata.creationYear ?? ""}
+                          onChange={(e) => {
+                            const next = { ...metadata };
+                            if (e.target.value === "") delete next.creationYear;
+                            else next.creationYear = e.target.valueAsNumber;
+                            setMetadata(next);
+                          }}
+                        />
+                      </label>
+                      <p className="cms-note">
+                        재료와 제작 연도는 검토·승인한 작품의 공개 상세 보기에
+                        표시됩니다. 모르는 값은 비워 두세요. 기록 저장일을 제작
+                        연도로 추정하지 않습니다.
+                      </p>
                       <fieldset>
                         <legend>실제 치수 (미터)</legend>
                         <div className="cms-dimensions">
