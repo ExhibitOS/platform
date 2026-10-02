@@ -22,3 +22,6 @@
 ## 운영과 제한
 
 [오디오 API](../contracts/audio-openapi.json), [ADR0011](adr/0011-viewer-audio-detail.md)를 따릅니다. 브라우저 decoded cache24MiB는 실제 기기 process/RSS 측정이 아닙니다. 실제 마이크·스피커, 모바일·GPU 검증 결과는 확인한 범위만 별도로 기록합니다. 오디오 원본·승인·publicmedia·DB/blob/브라우저 draft는 Git bundle 백업에 포함되지 않습니다. 새 지속 데이터는 maintenance-window DB dump와 모든 object inventory/hash를 함께 백업하고 별도 빈 환경에서 복원해야 합니다. 기존 데이터·백업 자동삭제는 없습니다.
+
+
+로컬 전체 검사는 `npm run test:experience`로 실행합니다. macOS에서 bundled Chromium의 권한 거부 경로가 `NotSupportedError`를 반환하면 설치된 Chrome의 격리 프로필로 거부 검사만 선택할 수 있습니다: `EXHIBITOS_EXPERIENCE_DENIAL_CHANNEL=chrome npm run test:experience`. 성공 녹음 검사는 가상 입력·출력 장치와 허용용 테스트 UI를 사용하고, 거부 검사는 별도 브라우저에서 그 UI 우회를 제거한 실제 permission denial/NotAllowedError를 요구합니다. 두 검사는 `getUserMedia`·AudioWorklet·실제 PCM 샘플과 타이머를 사용하며 물리 마이크·스피커나 OS 개인정보 대화상자를 검증하지 않습니다.
