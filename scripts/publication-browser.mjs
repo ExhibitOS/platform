@@ -34,12 +34,12 @@ export async function runPublicationBrowser({
       blobs,
       auth: { mode: "local", origin, bindHost: "127.0.0.1" },
     });
-    for (const path of ["/studio", "/cms", "/p/:id"])
+    for (const path of ["/studio", "/offline", "/cms", "/p/:id"])
       app.get(path, async (_req, reply) =>
         reply
           .header(
             "cache-control",
-            path === "/studio" ? "public,max-age=0" : "no-store",
+            ["/studio","/offline"].includes(path) ? "public,max-age=0,must-revalidate" : "no-store",
           )
           .type("text/html")
           .send(await readFile(new URL("index.html", dist))),
@@ -50,8 +50,10 @@ export async function runPublicationBrowser({
         .type("application/javascript")
         .send(await readFile(new URL("studio-sw.js", dist))),
     );
+    app.get("/freeze-runtime.json",async(_req,reply)=>reply.header("cache-control","public,max-age=0,must-revalidate").type("application/json").send(await readFile(new URL("freeze-runtime.json",dist))));
     app.get("/THIRD_PARTY_NOTICES.txt", async (_req, reply) =>
       reply
+        .header("cache-control","public,max-age=0,must-revalidate")
         .type("text/plain")
         .send(await readFile(new URL("THIRD_PARTY_NOTICES.txt", dist))),
     );
@@ -60,6 +62,7 @@ export async function runPublicationBrowser({
       if (!assets.has(file) || !/^[-\w.]+$/.test(file))
         return reply.code(404).send();
       return reply
+        .header("cache-control","public,max-age=0,must-revalidate")
         .type(file.endsWith(".js") ? "application/javascript" : "text/css")
         .send(await readFile(new URL(`assets/${file}`, dist)));
     });
@@ -180,7 +183,13 @@ export async function runPublicationBrowser({
         );
         await click("새 로컬 전시");
         await click("현재 서버 계정 확인");
-        await click("선택 방 white-cube 생성");
+        await click("두 방 template 복제");await saved();
+        const templateBefore=await candidate();assert.equal(templateBefore.rooms.length,2);
+        await page.getByLabel('건축 유형',{exact:true}).selectOption('curve');await click('건축 추가');await saved();
+        await page.getByLabel('건축 유형',{exact:true}).selectOption('stairs');await click('건축 추가');await saved();
+        await page.getByLabel('자연광 hour',{exact:true}).fill('8');await saved();
+        const customized=await candidate();assert.equal(customized.surfaces.length,24);assert.equal(customized.openings.filter(o=>o.type==='window').length,1);
+        const templateLocalId=await page.getByTestId('draft-id').innerText();await page.reload();await page.getByTestId(`draft-${templateLocalId}`).click();await saved();await click('현재 서버 계정 확인');
         for (const id of artworkIds) {
           await page.getByLabel("CMS 작품 ID", { exact: true }).fill(id);
           await click("승인된 CMS 작품 가져오기");
@@ -217,6 +226,10 @@ export async function runPublicationBrowser({
         original = await candidate();
         localId = await page.getByTestId("draft-id").innerText();
         draftId = (await stored()).draft.exhibitionId;
+        const unlicensed=structuredClone(original);unlicensed.extensions['org.exhibitos.studio/template'].license='private';
+        await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(unlicensed));await remoteSave();await click('서버 revision READY 검사');
+        await expect(page.getByTestId('ready-state')).toHaveText('BLOCKED');await expect(page.getByRole('region',{name:'READY 검사 결과'})).toContainText('TEMPLATE_REDISTRIBUTION_DENIED');
+        const deniedPublish=await context.request.post(`${origin}/api/v1/tenants/${tenantId}/studio/exhibitions/${draftId}/publications`,{headers:{origin,'x-csrf-token':session.csrfToken,'if-match':(await stored()).remote.etag},data:{requestId:crypto.randomUUID()}});assert.equal(deniedPublish.status(),422);assert.equal((await deniedPublish.json()).code,'PUBLICATION_NOT_READY');
         const bad = structuredClone(original);
         bad.artworks[0].dimensions.width += 0.2;
         await page
@@ -269,6 +282,10 @@ export async function runPublicationBrowser({
         assert.equal(response.headers()["cache-control"], "no-store");
         publicResponse = await response.json();
         firstPublicHash = publicResponse.publication.revisionSha256;
+        assert.equal(publicResponse.exhibition.extensions['org.exhibitos.studio/template'].license,'CC0-1.0');
+        assert.equal(publicResponse.exhibition.extensions['org.exhibitos.studio/template'].creator,'ExhibitOS contributors');
+        assert.equal(publicResponse.exhibition.extensions['org.exhibitos.studio/daylight'].hour,8);
+        assert.equal(publicResponse.exhibition.rooms.length,2);assert.equal(publicResponse.exhibition.surfaces.length,24);
         const serialized = JSON.stringify(publicResponse);
         for (const forbidden of [
           hiddenMarker,

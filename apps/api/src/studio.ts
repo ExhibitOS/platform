@@ -1,4 +1,4 @@
-import { validateStudioMaterials, validateStudioPresentation, validateViewerLod, validateViewerExperience, validateArtworkDetails } from "@exhibitos/studio-contract";
+import { validateArchitecture, validateStudioMaterials, validateStudioPresentation, validateViewerLod, validateViewerExperience, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { createHash, randomUUID } from "node:crypto";
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
@@ -38,6 +38,7 @@ function checked(input: StudioInput) {
   if (
     input.draft?.kind !== "exhibition-draft" ||
     !validateLifecycle(input.draft).valid ||
+    !validateArchitecture(input.draft.candidate).valid ||
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
     !validateViewerExperience(input.draft.candidate).valid ||
@@ -75,6 +76,7 @@ export class Studio {
     if (
       row.metadata?.kind !== "exhibition-draft" ||
       !validateLifecycle(row.metadata).valid ||
+      !validateArchitecture(row.metadata.candidate).valid ||
       !validateStudioMaterials(row.metadata.candidate).valid ||
       !validateStudioPresentation(row.metadata.candidate).valid ||
       !validateViewerExperience(row.metadata.candidate).valid ||

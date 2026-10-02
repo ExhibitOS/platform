@@ -34,7 +34,7 @@ its source manifest. There is no stable-format or general ZIP compatibility clai
 Platform accepts approved GLB and bounded noninterlaced8-bit RGB/RGBA PNG, and bounded PCM16 WAV (one/two channels,
 8–48kHz, up to60seconds). Unsupported codecs, unknown executable/opaque extension
 namespaces, external resource fetching and arbitrary package layouts fail closed.
-Bounded top-level Apache/CC0 legal notices are preserved as inert text. Known material, placement/presentation, LOD, artwork detail and audio/transcript
+Bounded top-level Apache/CC0 legal notices are preserved as inert text. Known daylight/template provenance (including redistribution-license validation), material, placement/presentation, LOD, artwork detail and audio/transcript
 extensions are checked and their typed references remapped. UUID-looking prose
 is preserved. Source archive hash and typed ID map are retained in the receipt; shared source assets are materialized as per-artwork IDs with explicit `assetAliases`, while identical owned object bytes are stored once. A later export may duplicate those per-owner package entries and exceed the64MiB export bound; this reports OEX_LIMIT without deleting or changing the imported draft.
 derived destination revision IDs/hashes differ from the source.

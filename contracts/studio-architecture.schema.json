@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exhibitos.dev/platform/studio-architecture.schema.json",
+  "title": "Optional Platform architecture extension values; not a new OES base version",
+  "$defs": {
+    "daylight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "date",
+        "hour",
+        "latitude",
+        "northDegrees",
+        "intensity",
+        "enabled"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "hour": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 24
+        },
+        "latitude": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "northDegrees": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 360
+        },
+        "intensity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "name",
+        "creator",
+        "license",
+        "source",
+        "modified",
+        "profile"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "creator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "license": {
+          "enum": [
+            "CC0-1.0",
+            "CC-BY-4.0",
+            "private"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^bundled:[a-z0-9-]+$|^https://[^@?#\\s]+$",
+          "description": "Semantic validator additionally parses HTTPS URL and denies credentials/query/fragment. No remote fetch."
+        },
+        "modified": {
+          "type": "boolean"
+        },
+        "profile": {
+          "const": "oes-rectangles-v1"
+        }
+      },
+      "description": "Private permitted for editing; server publication and OEX export require a redistributable supported license. Names must contain non-whitespace characters. Architecture-template import permits no artwork/media/scripts/annotations or unknown private extensions."
+    }
+  }
+}

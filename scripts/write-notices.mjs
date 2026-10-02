@@ -1,4 +1,5 @@
 import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 const resolveWeb = createRequire(
@@ -19,7 +20,11 @@ const packages = [
   "json-schema-traverse",
   "require-from-string",
 ];
+const ltcNotice=await readFile(new URL("../vendor/notices/ltc-LICENSE.txt",import.meta.url),"utf8");
+const ltcProvenance=JSON.parse(await readFile(new URL("../vendor/notices/ltc-provenance.json",import.meta.url),"utf8"));
+if(createHash("sha256").update(ltcNotice).digest("hex")!==ltcProvenance.sha256)throw Error("LTC_LICENSE_INTEGRITY");
 const notices = [
+  "LTC BRDF data bundled through Three.js RectAreaLightTexturesLib. Original source: https://github.com/selfshadow/ltc_code/\n"+ltcNotice+"\n",
   "Third-party implementations included in the ExhibitOS web bundle.\nTheir original licenses apply independently of the project AGPL license.\n",
 ];
 for (const name of packages) {

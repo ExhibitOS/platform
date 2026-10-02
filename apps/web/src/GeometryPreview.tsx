@@ -7,7 +7,7 @@ import {
   selectAssetVariant,
   type DeviceBudget,
 } from "./viewer/loading";
-import { presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
+import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -242,9 +242,11 @@ export function GeometryPreview({
       );
       if (rectangles.reduce((total, items) => total + items.length, 0) > 8192)
         throw Error("PREVIEW_COMPLEXITY");
+      if(!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
+      if(document.lights.some(l=>l.type==='area')){const {RectAreaLightUniformsLib}=await import('three/addons/lights/RectAreaLightUniformsLib.js');RectAreaLightUniformsLib.init();}
       if (disposed || !host.current) return;
       const renderer = new three.WebGLRenderer({
         antialias: true,
@@ -271,7 +273,9 @@ export function GeometryPreview({
         0xffffff,
         document.lights.length ? 0 : 3,
       );
-      sun.position.set(20, 30, 25);
+      const daylight=daylightFor(document);
+      if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100) as [number,number,number]);sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20, 30, 25);
+      renderer.domElement.dataset.daylight=JSON.stringify(daylight?{...daylight,direction:daylightDirection(daylight),effectiveIntensity:sun.intensity}:null);
       scene.add(sun);
       const rooms = new Map<string, InstanceType<typeof three.Group>>(),
         surfaces = new Map<string, InstanceType<typeof three.Group>>();
@@ -403,7 +407,8 @@ export function GeometryPreview({
               )
             : item.type === "directional"
               ? new three.DirectionalLight(color, item.intensity)
-              : new three.PointLight(color, item.intensity);
+              : item.type==='area'?new three.RectAreaLight(color,1,item.dimensions!.width,item.dimensions!.height): new three.PointLight(color, item.intensity);
+        if(light instanceof three.RectAreaLight)light.power=item.intensity;
         pose(light, item.transform);
         rooms.get(item.roomId.toLowerCase())?.add(light);
         if (
@@ -1416,8 +1421,8 @@ export function GeometryPreview({
       <p className="cms-note">
         {publicSource
           ? "사각형 표면과 실제 사각 개구부의 전시 보기입니다. 걷기는 벽·작품 충돌과 제한된 단차·경사를 지원합니다. 안전한 시작 위치나 지원되는 바닥이 없으면 정지 관람을 이용하세요."
-          : "사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 곡선벽·계단·충돌·보행 가능성은 지원하지 않습니다."}
-        저장된 point/spot 조명은 시각적 근사이며 물리적 조도 측정을 지원하지
+          : "사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 분할 곡선벽·계단·경사로를 동일한 평면으로 렌더링합니다. 실제 보행 가능성은 공개 Viewer에서 검사하세요."}
+        저장된 조명은 시각적 근사이며 물리적 조도 측정을 지원하지
         않습니다. 마우스 없이 위 버튼으로 시점을 바꿀 수 있습니다.
       </p>
     </figure>
