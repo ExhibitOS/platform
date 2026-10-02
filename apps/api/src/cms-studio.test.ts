@@ -33,6 +33,22 @@ describe("protected approved CMS to Studio metadata projection", () => {
             expect(query.mock.calls[0]?.[1]).toEqual([tenantId, id]);
         }
     });
+    it("retains trusted immutable imported OES identity/provenance/paths and denies changed current inventory or artist identity", async()=>{
+        const {cms,c,gate,query,approval}=setup();
+        const original=(await cms.studioArtwork(c,session,id)).artwork;
+        original.revisionId='10000000-0000-4000-8000-000000000099';original.createdAt='2025-01-01T00:00:00Z';original.assets[0]!.path='imported/original/model.glb';original.provenance.events[0]!.description='Original preserved source provenance';
+        Object.assign(approval.snapshot,{importedArtwork:original});
+        const displayView=await cms.display(c,session,id)as Extract<Awaited<ReturnType<Cms['display']>>,{id:unknown;artist:unknown}>;
+        const current={...approval.snapshot.asset,rights:approval.snapshot.metadata.rights};
+        query.mockImplementation(async(sql:string)=>sql.includes('a.id=ANY')?{rows:[current],rowCount:1}:{rows:[{...approval,current_metadata:approval.snapshot.metadata,approved_asset_id:assetId}],rowCount:1});
+        expect((await cms.studioArtwork(c,session,id)).artwork).toEqual(original);
+        expect(original.createdAt).toBe('2025-01-01T00:00:00Z');
+        current.sha256='b'.repeat(64);await expect(cms.studioArtwork(c,session,id)).rejects.toMatchObject({code:'APPROVAL_INVALID'});current.sha256=original.assets[0]!.sha256;
+        current.rights={...rights,permissions:{...rights.permissions,download:true}};await expect(cms.studioArtwork(c,session,id)).rejects.toMatchObject({code:'APPROVAL_INVALID'});current.rights=rights;
+        gate.mockResolvedValue({...displayView,artist:'Changed current artist identity'});await expect(cms.studioArtwork(c,session,id)).rejects.toMatchObject({code:'APPROVAL_INVALID'});
+        delete original.metadata.artist;gate.mockResolvedValue({...displayView,artist:'Imported artist'});expect((await cms.studioArtwork(c,session,id)).artwork.metadata.artist).toBeUndefined();
+        original.metadata.artist='Synthetic artist';gate.mockResolvedValue({...displayView,artist:'Synthetic artist'});original.extensions!['com.unreviewed/executable']={url:'https://invalid.example'};await expect(cms.studioArtwork(c,session,id)).rejects.toMatchObject({code:'APPROVAL_INVALID'});
+    });
     it("accepts optional authored medium/year and keeps legacy metadata compatible", async () => {
         const {cms,c,approval}=setup();
         const legacy=approval.snapshot.metadata;

@@ -1,4 +1,4 @@
-import { ARTWORK_DETAILS_NAMESPACE } from '@exhibitos/studio-contract';
+import { ARTWORK_DETAILS_NAMESPACE, LOD_NAMESPACE, validateViewerLod, validateArtworkDetails, creationYearFor } from '@exhibitos/studio-contract';
 import { validateArtwork, type Artwork } from "@exhibitos/spec";
 import { randomUUID, createHash } from "node:crypto";
 import type { PoolClient } from "pg";
@@ -406,11 +406,25 @@ export class Cms {
     if (!["admin", "artist", "curator"].includes(s.role)) throw new ApiError(403, "FORBIDDEN");
     // Reuse current membership/resource and both display-right gates before projection.
     const display = await this.display(c, s, id) as { artist: string };
-    const result = await c.query("SELECT ap.snapshot,ap.revision,ap.created_at FROM artwork_approvals ap JOIN artworks a ON (a.tenant_id,a.id,a.approved_revision)=(ap.tenant_id,ap.artwork_id,ap.revision) WHERE ap.tenant_id=$1 AND ap.artwork_id=$2 AND a.revision=ap.revision AND a.deleted_at IS NULL", [s.tenantId,id]);
+    const result = await c.query("SELECT ap.snapshot,ap.revision,ap.created_at,a.metadata AS current_metadata,a.approved_asset_id FROM artwork_approvals ap JOIN artworks a ON (a.tenant_id,a.id,a.approved_revision)=(ap.tenant_id,ap.artwork_id,ap.revision) WHERE ap.tenant_id=$1 AND ap.artwork_id=$2 AND a.revision=ap.revision AND a.deleted_at IS NULL", [s.tenantId,id]);
     const approval=result.rows[0];
     if(!approval||!approval.snapshot?.asset||typeof approval.snapshot.asset!=="object"||!validMetadata(approval.snapshot?.metadata)) throw new ApiError(409,"REVISION_NOT_APPROVED");
     const m=approval.snapshot.metadata as ArtworkMetadata, asset=approval.snapshot.asset as {id:string;mime:string;bytes:number;sha256:string};
     if(!allowedRights(m.rights,"display"))throw new ApiError(403,"RIGHTS_DENIED");
+    // Only the internal OEX importer can add this field to the immutable approval JSON.
+    // Preserve source OES revision/provenance/paths while applying the same current policy gates.
+    if(Object.hasOwn(approval.snapshot,'importedArtwork')){
+      if(!validMetadata(approval.current_metadata)||json(approval.current_metadata)!==json(m)||approval.approved_asset_id!==asset.id)throw new ApiError(409,'APPROVAL_INVALID');
+      const imported=structuredClone(approval.snapshot.importedArtwork)as Artwork;
+      const binding=imported?.extensions?.['org.exhibitos.studio/cms']as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
+      if(!validateArtwork(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
+      if(imported.metadata.title!==m.title||(imported.metadata.description??'')!==m.description||imported.metadata.medium!==m.medium||(imported.metadata.artist??'Imported artist')!==display.artist||imported.dimensions.width!==m.dimensions.width||imported.dimensions.height!==m.dimensions.height||imported.dimensions.depth!==m.dimensions.depth||creationYearFor(imported)!==m.creationYear||imported.provenance.authorship!==m.provenance.source||json(imported.rights)!==json(m.rights))throw new ApiError(409,'APPROVAL_INVALID');
+      const primary=imported.assets.find(x=>x.id.toLowerCase()===imported.primaryAssetId.toLowerCase());
+      if(!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==asset.bytes||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
+      const rows=(await c.query("SELECT a.id,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,imported.assets.map(a=>a.id)])).rows;
+      for(const source of imported.assets){const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
+      return {artwork:imported,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
+    }
     // Snapshot IDs are stable across repeat requests; URI is only a relative inventory name.
     const digest=createHash("sha256").update(`${s.tenantId}:${id}:${approval.revision}`).digest("hex");
     const revisionId=`${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-8${digest.slice(17,20)}-${digest.slice(20,32)}`;

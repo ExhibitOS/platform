@@ -120,7 +120,7 @@ export class Oex {
    const current=await this.cms.ownArtwork(c,s,a.id);const approval=(await c.query('SELECT * FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,a.id,a.revision])).rows[0];
    if(!current.cms_managed||current.revision!==a.revision||current.approved_revision!==a.revision||current.approved_asset_id?.toLowerCase()!==a.primaryAssetId.toLowerCase()||!approval||!validMetadata(current.metadata)||!equal(approval.snapshot.metadata,current.metadata)||!equal(current.metadata.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    const m=current.metadata as ArtworkMetadata;
-   if(a.metadata.title!==m.title||a.metadata.description!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
    const primary=a.assets.find(x=>x.id.toLowerCase()===a.primaryAssetId.toLowerCase())!;
    if(!equal({id:primary.id.toLowerCase(),sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.snapshot.asset?.id?.toLowerCase(),sha256:approval.snapshot.asset?.sha256,bytes:approval.snapshot.asset?.bytes,mime:approval.snapshot.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    for(const asset of a.assets){
@@ -199,12 +199,12 @@ export class Oex {
      const artist=randomUUID();await c.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,artist,s.userId,{name:a.metadata.artist??'Imported artist',bio:''}]);await c.query('INSERT INTO artist_revisions(tenant_id,artist_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,artist,{name:a.metadata.artist??'Imported artist',bio:'',userId:s.userId}]);
      // New local resource revision starts at 1; source immutable revision/provenance remains package evidence.
      a.revision=1;
+     a.extensions={...a.extensions,[CMS]:{tenantId:s.tenantId,artworkId:a.id,revision:1}};
      await c.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[s.tenantId,a.id,artist,m]);await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,a.id,m]);
      for(const asset of a.assets){const rights=randomUUID();await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,rights,a.rights]);await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,1,'approved')",[s.tenantId,asset.id,a.id,rights,keys.get(asset.path),asset.sha256,asset.bytes,asset.mime]);}
      const primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
-     await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,1,$3,$4)',[s.tenantId,a.id,primary.id,{metadata:m,asset:{id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime,rightsRevision:1}}]);
+     await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,1,$3,$4)',[s.tenantId,a.id,primary.id,{metadata:m,asset:{id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime,rightsRevision:1},importedArtwork:structuredClone(a)}]);
      await c.query('UPDATE artworks SET approved_revision=1,approved_asset_id=$3 WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.id,primary.id]);
-     a.extensions={...a.extensions,[CMS]:{tenantId:s.tenantId,artworkId:a.id,revision:1}};
     }
     e.revision=1; // New local revision identity, scene settings and authored prose preserved.
     // Paths stay package-relative and bytes/hash exact; private storage keys never enter the draft.
