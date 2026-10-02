@@ -346,54 +346,72 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       assert.equal(uploads.length, before);
       await expect.poll(() => page.evaluate(() => window.__syntheticMicProbe.streams.flatMap(s => s.getTracks()).every(t => t.readyState === "ended"))).toBe(true);
     });
-    await check("pending worklet setup cancellation immediately releases actual synthetic microphone and context before network settles", async () => {
+    await check("controlled pre-addModule delay verifies immediate release of real synthetic microphone and context during setup cancellation", async () => {
       const pendingContext = await browser.newContext({ permissions: ["microphone"] });
       const pendingPage = await pendingContext.newPage();
-      let held = false, continued = false, failed = false, release;
-      const gate = new Promise(resolve => { release = resolve; });
+      let failed = false;
       try {
         await observe(pendingPage);
         const uploads = [];
         pendingPage.on("request", request => { if (["POST", "PUT"].includes(request.method()) && new URL(request.url()).pathname.includes("/audio")) uploads.push(request.method()); });
-        // Hold only the uncached real production module request, then continue
-        // it unchanged. Native stream/context results are never manufactured.
-        await pendingPage.route("**/voice-pcm-worklet.js", async route => {
-          held = true; await gate;
-          try { await route.continue(); } catch (error) { workletFailures.push(error.message); } finally { continued = true; }
+        // Labeled fault control: pause BEFORE invoking native addModule. This is
+        // not a held network response and invents no module/stream success.
+        await pendingPage.addInitScript(() => {
+          let release;
+          const gate = new Promise(resolve => { release = resolve; });
+          window.__pendingWorkletGate = { entered: false, forwarded: false, settled: false, error: null, release };
+          const nativeContext = window.AudioContext;
+          window.AudioContext = new Proxy(nativeContext, { construct(target, argumentsList) {
+            const context = Reflect.construct(target, argumentsList);
+            const worklet = context.audioWorklet, native = worklet.addModule;
+            worklet.addModule = async function (...args) {
+              if (new URL(String(args[0]), location.href).pathname !== "/voice-pcm-worklet.js") return native.apply(this, args);
+              window.__pendingWorkletGate.entered = true;
+              await gate;
+              window.__pendingWorkletGate.forwarded = true;
+              try { return await native.apply(this, args); }
+              catch (error) { window.__pendingWorkletGate.error = { name: error.name, message: error.message }; throw error; }
+              finally { window.__pendingWorkletGate.settled = true; }
+            };
+            return context;
+          } });
         });
         await studio(pendingPage);
         await pendingPage.getByRole("button", { name: "현재 서버 계정 확인", exact: true }).click();
         await pendingPage.getByRole("button", { name: "현재 계정에 새 서버 전시 저장", exact: true }).click();
         const editor = pendingPage.getByRole("region", { name: "관람 오디오와 작품 설명 편집", exact: true });
         await editor.getByRole("button", { name: "작가 음성 녹음 시작", exact: true }).click();
-        await expect.poll(() => held, { timeout: 15000 }).toBe(true);
+        await expect.poll(() => pendingPage.evaluate(() => window.__pendingWorkletGate.entered), { timeout: 15000 }).toBe(true);
         const capture = () => pendingPage.evaluate(() => ({ calls: window.__syntheticMicProbe.calls,
           tracks: window.__syntheticMicProbe.streams.flatMap(stream => stream.getTracks().map(track => track.readyState)),
-          contexts: window.__syntheticMicProbe.contexts.map(context => context.state) }));
+          contexts: window.__syntheticMicProbe.contexts.map(context => context.state),
+          gate: { entered: window.__pendingWorkletGate.entered, forwarded: window.__pendingWorkletGate.forwarded, settled: window.__pendingWorkletGate.settled, error: window.__pendingWorkletGate.error } }));
         const live = await capture(); assert.equal(live.calls, 1); assert(live.tracks.includes("live")); assert(live.contexts.length > 0);
+        assert.equal(live.gate.forwarded, false);
         await expect(editor.getByRole("button", { name: "녹음 취소", exact: true })).toBeEnabled();
         await editor.getByRole("button", { name: "녹음 취소", exact: true }).click();
         await expect.poll(async () => (await capture()).tracks.every(state => state === "ended")).toBe(true);
         await expect.poll(async () => (await capture()).contexts.every(state => state === "closed")).toBe(true);
-        assert.equal(continued, false, "Capture must close before the held worklet response settles");
+        assert.equal((await capture()).gate.forwarded, false, "Capture must close before native addModule is invoked");
         await expect(editor.getByText(/준비한 파일:/)).toHaveCount(0); assert.equal(uploads.length, 0);
-        const cancelledBeforeResponse = await capture();
-        release(); await expect.poll(() => continued).toBe(true);
+        const cancelledBeforeNativeCall = await capture();
+        await pendingPage.evaluate(() => window.__pendingWorkletGate.release());
+        await expect.poll(async () => (await capture()).gate.settled, { timeout: 15000 }).toBe(true);
         await pendingPage.waitForTimeout(500);
         await expect(editor.getByRole("button", { name: "녹음 정지·WAV 준비", exact: true })).toBeDisabled();
         await expect(editor.getByRole("button", { name: "작가 음성 녹음 시작", exact: true })).toBeEnabled();
         await expect(editor.getByText(/녹음을 취소하고 마이크를 닫았습니다/)).toBeVisible();
         await expect(editor.getByText(/준비한 파일:/)).toHaveCount(0); assert.equal(uploads.length, 0);
-        const afterResponse = await capture(); assert(afterResponse.tracks.every(state => state === "ended")); assert(afterResponse.contexts.every(state => state === "closed"));
-        observations.push({ provider: "Chromium fake device/UI and fake streams; held actual production worklet request", live, cancelledBeforeResponse, afterResponse, uploadRequests: 0 });
+        const afterNativeSettlement = await capture();
+        assert.equal(afterNativeSettlement.gate.forwarded, true);
+        assert(afterNativeSettlement.tracks.every(state => state === "ended")); assert(afterNativeSettlement.contexts.every(state => state === "closed"));
+        observations.push({ provider: "Chromium fake device/UI and fake streams", control: "explicit controlled delay BEFORE native AudioWorklet.addModule invocation; no network pause or invented module outcome", live, cancelledBeforeNativeCall, afterNativeSettlement, uploadRequests: 0 });
       } catch (error) {
-        // Keep this failing owned page open for the outer diagnostic capture.
+        // Keep this failing owned page open for outer diagnostic capture.
         failed = true; throw error;
       } finally {
-        release();
-        if (!failed && continued) { await pendingContext.close(); currentPage = page; }
-        // On an early failure, the outer browser finally closes this context
-        // after recording its live native stream/context observations.
+        await pendingPage.evaluate(() => window.__pendingWorkletGate?.release()).catch(() => {});
+        if (!failed) { await pendingContext.close(); currentPage = page; }
       }
     });
     await check("synthetic microphone automatically closes at60seconds, produces bounded PCM WAV and waits for explicit upload", async () => {
@@ -461,7 +479,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
           const probe = window.__syntheticMicProbe;
           let permission; try { permission = (await navigator.permissions.query({ name: "microphone" })).state; } catch (error) { permission = { unavailable: error.name }; }
           return { secureContext: isSecureContext, mediaDevicesPresent: !!navigator.mediaDevices, permission,
-            calls: probe?.calls ?? null, errors: probe?.errors ?? [], contexts: probe?.contexts?.map(context => context.state) ?? [], tracks: probe?.streams.flatMap(stream => stream.getTracks().map(track => ({ kind: track.kind, readyState: track.readyState, muted: track.muted, enabled: track.enabled }))) ?? [] };
+            pendingGate: window.__pendingWorkletGate ? { entered: window.__pendingWorkletGate.entered, forwarded: window.__pendingWorkletGate.forwarded, settled: window.__pendingWorkletGate.settled, error: window.__pendingWorkletGate.error } : null, calls: probe?.calls ?? null, errors: probe?.errors ?? [], contexts: probe?.contexts?.map(context => context.state) ?? [], tracks: probe?.streams.flatMap(stream => stream.getTracks().map(track => ({ kind: track.kind, readyState: track.readyState, muted: track.muted, enabled: track.enabled }))) ?? [] };
         })),
         read(() => currentPage.getByRole("status").allTextContents()),
       ]);
