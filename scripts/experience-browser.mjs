@@ -239,7 +239,7 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
       } finally { await author.close(); }
     });
     currentCheck = "synthetic microphone lifecycle verification";
-    const recording = await runSyntheticRecording({ origin, authoring, onCheck: name => { currentCheck = name; } });
+    const recording = await runSyntheticRecording({ origin, authoring, dir, onCheck: name => { currentCheck = name; }, onFailure: diagnostic => { report.microphoneFailure = diagnostic; } });
     checks.push(...recording.checks); sequences.push({ microphone: recording });
     await writeFile(`${dir}/experience-run.json`, JSON.stringify(report, null, 2) + "\n"); return { ...report, reportPath: `${dir}/experience-run.json` };
   } catch (error) {
@@ -250,10 +250,32 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
   } finally { await restore(); await browser.close(); }
 }
 
-async function runSyntheticRecording({ origin, authoring, onCheck }) {
+async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailure }) {
   // Isolated browser synthetic input only. Never requests a human microphone.
   const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
-  const checks = [], observations = [];
+  const checks = [], observations = [], pageErrors = [], workletResponses = [], workletFailures = [];
+  let currentPage = null, currentCheck = "synthetic microphone initialization";
+  async function observe(page) {
+    currentPage = page;
+    page.on("pageerror", error => pageErrors.push(error.message));
+    page.on("response", response => { if (new URL(response.url()).pathname === "/voice-pcm-worklet.js") workletResponses.push({ status: response.status(), contentType: response.headers()["content-type"] }); });
+    page.on("requestfailed", request => { if (new URL(request.url()).pathname === "/voice-pcm-worklet.js") workletFailures.push(request.failure()?.errorText ?? "unknown"); });
+    // Observe native results transparently; never manufacture a stream, audio
+    // sample or permission success, and never record device labels or IDs.
+    await page.addInitScript(() => {
+      window.__syntheticMicProbe = { calls: 0, streams: [], errors: [] };
+      if (!navigator.mediaDevices) return;
+      const native = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        window.__syntheticMicProbe.calls++;
+        try {
+          const stream = await native(constraints); window.__syntheticMicProbe.streams.push(stream); return stream;
+        } catch (error) {
+          window.__syntheticMicProbe.errors.push({ name: error.name, message: error.message }); throw error;
+        }
+      };
+    });
+  }
   async function studio(page) {
     await page.goto(`${origin}/cms`);
     await page.getByLabel("기관 ID", { exact: true }).fill(authoring.tenantId);
@@ -264,19 +286,10 @@ async function runSyntheticRecording({ origin, authoring, onCheck }) {
     await page.goto(`${origin}/studio`);
     await page.getByRole("button", { name: "새 로컬 전시", exact: true }).click();
   }
-  const check = async (title, fn) => { onCheck(title); await fn(); checks.push(title); console.log(`PASS ${title}`); };
+  const check = async (title, fn) => { currentCheck = title; onCheck(title); await fn(); checks.push(title); console.log(`PASS ${title}`); };
   try {
     const context = await browser.newContext({ permissions: ["microphone"] }), page = await context.newPage();
-    // Transparent observation forwards the native API and keeps only synthetic
-    // track references. It does not invent stream, sample or permission success.
-    await page.addInitScript(() => {
-      const native = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      window.__syntheticMicProbe = { calls: 0, streams: [] };
-      navigator.mediaDevices.getUserMedia = async constraints => {
-        window.__syntheticMicProbe.calls++;
-        const stream = await native(constraints); window.__syntheticMicProbe.streams.push(stream); return stream;
-      };
-    });
+    await observe(page);
     const uploads = [];
     page.on("request", r => { if (["POST", "PUT"].includes(r.method()) && new URL(r.url()).pathname.includes("/audio")) uploads.push({ method: r.method(), url: new URL(r.url()).pathname }); });
     await check("synthetic microphone actual AudioWorklet produces local bounded PCM WAV; mount is inert and upload remains explicit", async () => {
@@ -355,6 +368,7 @@ async function runSyntheticRecording({ origin, authoring, onCheck }) {
     await context.close();
     await check("actual browser microphone permission denial keeps PCM file fallback usable", async () => {
       const denied = await browser.newContext(), page = await denied.newPage(), cdp = await denied.newCDPSession(page);
+      await observe(page);
       const { targetInfo } = await cdp.send("Target.getTargetInfo");
       await cdp.send("Browser.setPermission", { permission: { name: "microphone" }, setting: "denied", origin, browserContextId: targetInfo.browserContextId });
       await studio(page);
@@ -367,5 +381,27 @@ async function runSyntheticRecording({ origin, authoring, onCheck }) {
       await denied.close();
     });
     return { checks, observations, limits: "Fake browser microphone, short capture and actual60second automatic cutoff; physical microphone/privacy UI/device fidelity remain unqualified." };
+  } catch (error) {
+    try {
+      const read = async operation => { try { return await operation(); } catch (failure) { return { unavailable: String(failure.message).slice(0, 1000) }; } };
+      const [native, visibleStatus] = await Promise.all([
+        read(() => currentPage.evaluate(async () => {
+          const probe = window.__syntheticMicProbe;
+          let permission; try { permission = (await navigator.permissions.query({ name: "microphone" })).state; } catch (error) { permission = { unavailable: error.name }; }
+          return { secureContext: isSecureContext, mediaDevicesPresent: !!navigator.mediaDevices, permission,
+            calls: probe?.calls ?? null, errors: probe?.errors ?? [], tracks: probe?.streams.flatMap(stream => stream.getTracks().map(track => ({ kind: track.kind, readyState: track.readyState, muted: track.muted, enabled: track.enabled }))) ?? [] };
+        })),
+        read(() => currentPage.getByRole("status").allTextContents()),
+      ]);
+      const screenshotPath = `${dir}/microphone-failure.png`;
+      const screenshot = await read(async () => {
+        await currentPage.screenshot({ path: screenshotPath, timeout: 5000, mask: [currentPage.locator('input[type="password"], input[name="subject"], input[name="tenantId"]')] }); return screenshotPath;
+      });
+      const diagnostic = { provider: "isolated Chromium synthetic microphone only", check: currentCheck, observedAt: new Date().toISOString(), checks, error: String(error.message).slice(0, 4000), native, visibleStatus, pageErrors, workletResponses, workletFailures, screenshot };
+      onFailure(diagnostic);
+      await writeFile(`${dir}/microphone-failure.json`, JSON.stringify(diagnostic, null, 2) + "\n");
+      console.error(JSON.stringify({ microphoneFailure: diagnostic, reportPath: `${dir}/microphone-failure.json` }, null, 2));
+    } catch (diagnosticError) { console.error(`Microphone diagnostics unavailable: ${diagnosticError.message}`); }
+    throw error;
   } finally { await browser.close(); }
 }
