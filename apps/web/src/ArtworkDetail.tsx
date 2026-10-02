@@ -5,8 +5,9 @@ import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
 
-export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop }: {
+export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true }: {
   publication: PublicPublication; placementId: string; onClose(): void;
+  renderPreview?: boolean;
   onVoicePlay(assetId: string): Promise<void>; onVoiceStop(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), close = useRef(onClose), stop = useRef(onVoiceStop);
@@ -35,7 +36,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   return <dialog ref={dialog} className="artwork-detail" aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
     <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>상세 보기 닫기</button></header>
     <p>{artwork.metadata.artist}</p>
-    <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} />
+    {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} />}
     <dl>
       <dt>실제 치수 (너비 × 높이 × 깊이)</dt><dd>{artwork.dimensions.width} × {artwork.dimensions.height} × {artwork.dimensions.depth ?? "미기록"} m</dd>
       <dt>재료·기법</dt><dd>{artwork.metadata.medium ?? "미기록"}</dd>
@@ -48,20 +49,21 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
       <h3>번역 ({t.locale}) · {t.title}</h3><p className="detail-text">{t.description}</p><p>작가 원문과 구분된 번역문입니다.</p>
     </section>)}
     <section aria-label="작가 음성 및 대본"><h3>작가 음성 · 원문 대본</h3>
+      {!renderPreview && <p>글·목록 관람에서는 음성을 요청하지 않습니다. 아래 대본으로 같은 설명을 읽을 수 있습니다.</p>}
       {experience.voices.filter(v => v.placementId === placementId).map(v => <div key={`${v.assetId}-${v.locale}`}>
-        <button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작가 음성 듣기 ({v.locale})</button>
-        <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button>
+        {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작가 음성 듣기 ({v.locale})</button>
+        <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button></>}
         <p lang={v.locale} className="detail-text">원문 대본 ({v.locale}): {v.transcript}</p>
       </div>)}
       {!experience.voices.some(v => v.placementId === placementId) && <p>등록된 작가 음성이 없습니다. 위 설명을 읽어주세요.</p>}
       <p role="status">{voiceStatus}</p>
     </section>
-    <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>금색 점은 작품 중심을 원점으로 한 미터 좌표의 주석 위치입니다.</p>
+    <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>{renderPreview ? "금색 점은 작품 중심을 원점으로 한 미터 좌표의 주석 위치입니다." : "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다."}</p>
       <ol>{annotations.map(a => { const anchor = anchors.find(p => p.id === a.id); return <li key={a.id}>{a.text} {anchor ? <span> · 위치 ({anchor.position.join(", ")}) m</span> : <span> · 좌표 미등록</span>}</li>; })}</ol>
     </section>
     <section aria-label="공개 provenance"><h3>공개 제작·전시 이력</h3><ul>{artwork.provenance.events.map(event => <li key={event.id}>{event.at} · {event.type} · {event.description}</li>)}</ul>
       <p>현재 공개 revision에 제공된 이력입니다. 비공개 원본·저장소·계정 정보는 요청하지 않습니다.</p>
     </section>
-    <p>상세 보기를 닫으면 전시의 기존 위치와 시점으로 돌아갑니다. 이전에 정지한 관람은 정지 상태를 유지합니다.</p>
+    <p>{renderPreview ? "상세 보기를 닫으면 전시의 기존 위치와 시점으로 돌아갑니다. 이전에 정지한 관람은 정지 상태를 유지합니다." : "상세 보기를 닫으면 선택한 작품의 목록으로 돌아갑니다."}</p>
   </dialog>;
 }
