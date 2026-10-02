@@ -177,6 +177,93 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
         sequences.push({ browserAuthoring: { publication: published.publication, audioInventory: published.assets.filter(a => a.mime === "audio/wav") } });
       } finally { await author.close(); }
     });
+    const recording = await runSyntheticRecording({ origin, authoring });
+    checks.push(...recording.checks); sequences.push({ microphone: recording });
     await writeFile(`${dir}/experience-run.json`, JSON.stringify(report, null, 2) + "\n"); return { ...report, reportPath: `${dir}/experience-run.json` };
   } finally { await restore(); await browser.close(); }
+}
+
+async function runSyntheticRecording({ origin, authoring }) {
+  // Isolated browser synthetic input only. Never requests a human microphone.
+  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+  const checks = [], observations = [];
+  async function studio(page) {
+    await page.goto(`${origin}/cms`);
+    await page.getByLabel("기관 ID", { exact: true }).fill(authoring.tenantId);
+    await page.getByLabel("계정", { exact: true }).fill(authoring.subject);
+    await page.getByLabel("비밀번호", { exact: true }).fill(authoring.password);
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await expect(page.getByRole("button", { name: "로그아웃", exact: true })).toBeVisible();
+    await page.goto(`${origin}/studio`);
+    await page.getByRole("button", { name: "새 로컬 전시", exact: true }).click();
+  }
+  const check = async (title, fn) => { await fn(); checks.push(title); console.log(`PASS ${title}`); };
+  try {
+    const context = await browser.newContext({ permissions: ["microphone"] }), page = await context.newPage();
+    // Transparent observation forwards the native API and keeps only synthetic
+    // track references. It does not invent stream, sample or permission success.
+    await page.addInitScript(() => {
+      const native = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      window.__syntheticMicProbe = { calls: 0, streams: [] };
+      navigator.mediaDevices.getUserMedia = async constraints => {
+        window.__syntheticMicProbe.calls++;
+        const stream = await native(constraints); window.__syntheticMicProbe.streams.push(stream); return stream;
+      };
+    });
+    const uploads = [];
+    page.on("request", r => { if (["POST", "PUT"].includes(r.method()) && new URL(r.url()).pathname.includes("/audio")) uploads.push({ method: r.method(), url: new URL(r.url()).pathname }); });
+    await check("synthetic microphone actual AudioWorklet produces local bounded PCM WAV; mount is inert and upload remains explicit", async () => {
+      await studio(page);
+      await page.getByRole("button", { name: "현재 서버 계정 확인", exact: true }).click();
+      await page.getByRole("button", { name: "현재 계정에 새 서버 전시 저장", exact: true }).click();
+      const editor = page.getByRole("region", { name: "관람 오디오와 작품 설명 편집", exact: true });
+      await editor.getByLabel("오디오 권리자", { exact: true }).fill("Synthetic microphone owner");
+      await editor.getByLabel("오디오 크레딧", { exact: true }).fill("Browser generated synthetic microphone input");
+      await editor.getByLabel("오디오 라이선스 식별자", { exact: true }).fill("CC0-1.0");
+      await editor.getByLabel("이 녹음의 권리자로서 공개 재생을 허용합니다", { exact: true }).check();
+      await expect(editor.getByRole("button", { name: "오디오 업로드·검증", exact: true })).toBeDisabled();
+      assert.equal(await page.evaluate(() => window.__syntheticMicProbe.calls), 0); assert.equal(uploads.length, 0);
+      await editor.getByRole("button", { name: "작가 음성 녹음 시작", exact: true }).click();
+      await expect(editor.getByRole("button", { name: "녹음 정지·WAV 준비", exact: true })).toBeEnabled();
+      await page.waitForTimeout(1300);
+      assert.equal(await page.evaluate(() => window.__syntheticMicProbe.calls), 1); assert.equal(uploads.length, 0);
+      await editor.getByRole("button", { name: "녹음 정지·WAV 준비", exact: true }).click();
+      await expect(editor.getByText(/준비한 파일: artist-voice.wav/)).toBeVisible();
+      assert.equal(uploads.length, 0);
+      await expect.poll(() => page.evaluate(() => window.__syntheticMicProbe.streams.flatMap(s => s.getTracks()).every(t => t.readyState === "ended"))).toBe(true);
+      const uploaded = page.waitForRequest(r => r.method() === "PUT" && new URL(r.url()).pathname.includes("/audio/") && r.url().endsWith("/bytes"));
+      await editor.getByRole("button", { name: "오디오 업로드·검증", exact: true }).click();
+      const bytes = (await uploaded).postDataBuffer(); assert(bytes);
+      assert.equal(bytes.toString("ascii", 0, 4), "RIFF"); assert.equal(bytes.toString("ascii", 8, 12), "WAVE");
+      assert.equal(bytes.readUInt16LE(20), 1); assert.equal(bytes.readUInt16LE(22), 1); assert.equal(bytes.readUInt32LE(24), 48000); assert.equal(bytes.readUInt16LE(34), 16);
+      assert.equal(bytes.readUInt32LE(4), bytes.length - 8); assert.equal(bytes.readUInt32LE(40), bytes.length - 44);
+      assert(bytes.length > 44 && bytes.length <= 44 + 48000 * 60 * 2);
+      await expect(editor.getByRole("button", { name: "오디오 승인", exact: true })).toBeVisible();
+      observations.push({ provider: "Chromium --use-fake-device-for-media-stream; no physical microphone", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
+    });
+    await check("synthetic microphone cancel releases capture and produces no recording upload", async () => {
+      const before = uploads.length;
+      const start = page.getByRole("button", { name: "작가 음성 녹음 시작", exact: true }); await start.click();
+      await expect(page.getByRole("button", { name: "녹음 취소", exact: true })).toBeEnabled();
+      await page.getByRole("button", { name: "녹음 취소", exact: true }).click();
+      await expect(page.getByText(/녹음을 취소하고 마이크를 닫았습니다/)).toBeVisible();
+      assert.equal(uploads.length, before);
+      await expect.poll(() => page.evaluate(() => window.__syntheticMicProbe.streams.flatMap(s => s.getTracks()).every(t => t.readyState === "ended"))).toBe(true);
+    });
+    await context.close();
+    await check("actual browser microphone permission denial keeps PCM file fallback usable", async () => {
+      const denied = await browser.newContext(), page = await denied.newPage(), cdp = await denied.newCDPSession(page);
+      const { targetInfo } = await cdp.send("Target.getTargetInfo");
+      await cdp.send("Browser.setPermission", { permission: { name: "microphone" }, setting: "denied", origin, browserContextId: targetInfo.browserContextId });
+      await studio(page);
+      assert.equal(await page.evaluate(async () => (await navigator.permissions.query({ name: "microphone" })).state), "denied");
+      await page.getByRole("button", { name: "작가 음성 녹음 시작", exact: true }).click();
+      await expect(page.getByText(/마이크 또는 녹음을 시작할 수 없습니다/)).toBeVisible();
+      await page.getByLabel("작가 음성 WAV 파일", { exact: true }).setInputFiles({ name: "denied-fallback.wav", mimeType: "audio/wav", buffer: authoring.wave });
+      await expect(page.getByText(/준비한 파일: denied-fallback.wav/)).toBeVisible();
+      observations.push({ provider: "isolated Chromium synthetic device", permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
+      await denied.close();
+    });
+    return { checks, observations, limits: "Fake browser microphone and short recording only; physical microphone/privacy UI/device fidelity and automatic60second cutoff remain separately qualified." };
+  } finally { await browser.close(); }
 }
