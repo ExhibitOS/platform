@@ -219,3 +219,5 @@ export function presentationFor(candidate: {
 export * from "./viewer.js";
 
 export * from "./experience.js";
+
+export * from "./artwork-details.js";

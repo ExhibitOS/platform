@@ -3,14 +3,14 @@ import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fixtureURL, validateExhibition, type Exhibition } from "@exhibitos/spec";
 import { sha256 } from "@exhibitos/storage";
-import { MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience } from "@exhibitos/studio-contract";
+import { MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
 import { projectPublication } from "./publication.ts";
 describe("immutable anonymous publication projection", () => {
     it("remaps all references, strips private and foreign extensions, and inventories actual qualified bytes", async () => {
         const candidate = JSON.parse(await readFile(fixtureURL("oes/v1/examples/exhibition.json"), "utf8")) as Exhibition;
         candidate.extensions = { "private.example/notes": { secret: "Private authoring extension" }, [MATERIAL_NAMESPACE]: { version: 1, surfaces: { [candidate.surfaces[0]!.id]: { color: "#112233", roughness: 0.5, metalness: 0 } } }, [PRESENTATION_NAMESPACE]: { version: 1, viewpoints: [], credits: "Public credit", startCamera: { roomId: candidate.rooms[0]!.id, position: [0, 1.6, 3], target: [0, 1.6, 0], fov: 60 } } };
         for (const artwork of candidate.artworks)
-            artwork.extensions = { "org.exhibitos.studio/cms": { tenantId: "10000000-0000-4000-8000-000000000001", artworkId: artwork.id, revision: artwork.revision }, "private.example/capture": { secret: "Original capture note" } };
+            artwork.extensions = { "org.exhibitos.studio/cms": { tenantId: "10000000-0000-4000-8000-000000000001", artworkId: artwork.id, revision: artwork.revision }, [ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:2024}, "private.example/capture": { secret: "Original capture note" } };
         const before = structuredClone(candidate);
         const prepared = candidate.artworks.map(a => ({ artwork: a, sourceAssetId: a.primaryAssetId, sourceSha256: a.assets[0]!.sha256, bytes: Buffer.from(`Qualified synthetic derivative ${a.id}`), mime: a.artworkType === "image" ? "image/png" as const : "model/gltf-binary" as const }));
         const { snapshot, assets } = projectPublication(candidate, prepared, "2026-10-01T00:00:00.000Z");
@@ -25,6 +25,7 @@ describe("immutable anonymous publication projection", () => {
         expect(JSON.stringify(snapshot)).not.toContain("org.exhibitos.studio/cms");
         for (const [i, a] of snapshot.artworks.entries()) {
             expect(a.id).not.toBe(candidate.artworks[i]!.id);
+            expect(creationYearFor(a)).toBe(2024);
             expect(a.revisionId).not.toBe(candidate.artworks[i]!.revisionId);
             expect(a.primaryAssetId).not.toBe(candidate.artworks[i]!.primaryAssetId);
             expect(a.assets[0]!.id).toBe(assets[i]!.id);

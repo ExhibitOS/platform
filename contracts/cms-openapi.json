@@ -2308,6 +2308,18 @@
           },
           "provenance": {
             "$ref": "#/components/schemas/Provenance"
+          },
+          "medium": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Author supplied material/medium; omit when unknown."
+          },
+          "creationYear": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9999,
+            "description": "Author supplied creation year only; never inferred from import or approval dates."
           }
         },
         "required": [
@@ -2397,6 +2409,18 @@
           "artistId": {
             "type": "string",
             "format": "uuid"
+          },
+          "medium": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Author supplied material/medium; omit when unknown."
+          },
+          "creationYear": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9999,
+            "description": "Author supplied creation year only; never inferred from import or approval dates."
           }
         },
         "required": [
@@ -2433,6 +2457,18 @@
           "revision": {
             "type": "integer",
             "minimum": 1
+          },
+          "medium": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Author supplied material/medium; omit when unknown."
+          },
+          "creationYear": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9999,
+            "description": "Author supplied creation year only; never inferred from import or approval dates."
           }
         },
         "required": [

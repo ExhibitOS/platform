@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { transaction, sha256, type BlobStore } from "@exhibitos/storage";
 import { validateExhibition, revisionHash, type Artwork, type Exhibition } from "@exhibitos/spec";
-import { MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, EXPERIENCE_NAMESPACE, validateViewerExperience } from "@exhibitos/studio-contract";
+import { MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
@@ -75,7 +75,9 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
         assets.push({ id: assetId, prepared: p });
+        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE];
         delete a.extensions;
+        if(details!==undefined&&validateArtworkDetails(p.artwork).valid)a.extensions={[ARTWORK_DETAILS_NAMESPACE]:structuredClone(details)};
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: sha256(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
         if (p.variants) {
@@ -86,7 +88,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
                 a.assets.push({id:coarseId,path:`assets/${coarseId}/${p.mime==="image/png"?"image.png":"model.glb"}`,role:p.mime==="image/png"?"image":"model",mime:p.mime,bytes:p.variants.bytes.length,sha256:sha256(p.variants.bytes)});
                 variants.push({assetId:coarseId,detail:"coarse",...p.variants.coarse});
             }
-            a.extensions={[LOD_NAMESPACE]:{version:1,variants}};
+            a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants}};
         }
         a.provenance = { authorship: a.provenance.authorship, events: [{ id: randomUUID(), type: "exhibited", at, description: "Approved display derivative explicitly published by its authorized exhibition editor." }] };
         return a;
@@ -196,7 +198,7 @@ export class Publications {
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
         const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media } = projectPublication(row.metadata.candidate, report.prepared, publishedAt, report.media);
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
-        if (!valid.valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid))
+        if (!valid.valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         const digest = revisionHash(snapshot);
         await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
@@ -229,7 +231,7 @@ export class Publications {
         const now = Date.now();
         if (!(await c.query("SELECT 1 FROM tenants t JOIN exhibitions e ON e.tenant_id=t.id WHERE t.id=$1 AND e.id=$2 AND t.deleted_at IS NULL AND e.deleted_at IS NULL", [row.tenant_id, row.exhibition_id])).rowCount)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-        if (!validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
+        if (!validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         const records = (await c.query("SELECT pa.*,a.revision AS current_revision,a.approved_revision,a.approved_asset_id,a.deleted_at AS artwork_deleted,a.metadata AS current_metadata,ar.deleted_at AS artist_deleted,t.deleted_at AS tenant_deleted,e.deleted_at AS exhibition_deleted,asset.deleted_at AS asset_deleted,asset.state AS asset_state,asset.sha256 AS current_source_sha256,r.deleted_at AS rights_deleted,r.metadata AS current_rights FROM publication_assets pa JOIN artworks a ON (a.tenant_id,a.id)=(pa.tenant_id,pa.artwork_id) JOIN artists ar ON (ar.tenant_id,ar.id)=(a.tenant_id,a.artist_id) JOIN tenants t ON t.id=pa.tenant_id JOIN exhibitions e ON (e.tenant_id,e.id)=(pa.tenant_id,$2) JOIN assets asset ON (asset.tenant_id,asset.id)=(pa.tenant_id,pa.source_asset_id) JOIN rights r ON (r.tenant_id,r.id)=(asset.tenant_id,asset.rights_id) WHERE pa.publication_id=$1", [row.id, row.exhibition_id])).rows;
         if (records.length !== row.snapshot.artworks.flatMap(a=>a.assets).length)
