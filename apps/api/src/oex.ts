@@ -143,6 +143,27 @@ export class Oex {
   let bytes:Buffer;try{bytes=Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));}catch{throw new ApiError(422,'OEX_INVALID');}
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');return bytes;
  }
+ /** Authorize an immutable historical scene using live governing records, without requiring the latest draft scene. */
+ async authorizeSnapshot(c:PoolClient,s:Session,exhibitionId:string,candidate:Exhibition){
+  await this.studio.access(c,s,exhibitionId);checkOexProfile(candidate,true);
+  const rights:unknown[]=[];
+  const require=(r:unknown)=>{if(!allowedRights(r,'display')||!allowedRights(r,'export'))throw new ApiError(403,'RIGHTS_DENIED');rights.push(r);};
+  for(const a of candidate.artworks){
+   const binding=a.extensions?.[CMS]as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
+   if(binding?.tenantId!==s.tenantId||binding.artworkId!==a.id||binding.revision!==a.revision)throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   const current=await this.cms.ownArtwork(c,s,a.id);
+   const approval=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,a.id,a.revision])).rows[0]?.snapshot;
+   if(!current.cms_managed||!validMetadata(current.metadata)||!approval||!validMetadata(approval.metadata))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   const m=approval.metadata as ArtworkMetadata;
+   if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source||!equal(m.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   const primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
+   if(!equal({id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.asset?.id,sha256:approval.asset?.sha256,bytes:approval.asset?.bytes,mime:approval.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   require(a.rights);require(current.metadata.rights);require(m.rights);
+   for(const asset of a.assets){const live=(await c.query("SELECT a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];if(!live||live.sha256!==asset.sha256||Number(live.bytes)!==asset.bytes||live.mime!==asset.mime)throw new ApiError(409,'OEX_SOURCE_CHANGED');require(live.rights);}
+  }
+  for(const m of candidate.mediaAssets){const live=(await c.query("SELECT * FROM studio_audio WHERE tenant_id=$1 AND exhibition_id=$2 AND id=$3 AND state='approved' AND NOT revoked",[s.tenantId,exhibitionId,m.id])).rows[0]as AudioRow|undefined;const approval=(await c.query('SELECT snapshot FROM audio_approvals WHERE tenant_id=$1 AND audio_id=$2',[s.tenantId,m.id])).rows[0]?.snapshot;if(!live||!approval||!equal(approval,audioMedia(live))||!equal(approval,m))throw new ApiError(409,'OEX_SOURCE_CHANGED');require(live.rights);require(m.rights);}
+  return {rights};
+ }
  private async remove(key:string){try{await this.blobs.remove(key);}catch(error){if(!object(error)||(error.code!=='ENOENT'&&error.name!=='NoSuchKey'))throw error;}}
  private async actor(c:PoolClient,row:Job):Promise<Session>{
   const m=(await c.query('SELECT m.role FROM memberships m JOIN users u ON u.id=m.user_id JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND NOT u.disabled AND t.deleted_at IS NULL',[row.tenant_id,row.user_id])).rows[0];

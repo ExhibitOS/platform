@@ -1,0 +1,622 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ExhibitOS immutable freeze and bounded offline API",
+    "version": "0.1.0",
+    "description": "Ed25519 signatures bind canonical manifest and short-lived grant. Maximum disconnected grant is8h capped by requesting session and every current/historical governing rights expiry. Disconnected clients cannot learn new revocation before deadline; delivered copies are not DRM. Historical scenes and runtime bytes survive draft edits and builds. No stored bytes automatically deleted after completion. Durable precommitted receipt inventories preserve rollback/crash cleanup ownership; recover expired failed attempts only."
+  },
+  "paths": {
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes": {
+      "post": {
+        "summary": "Create an immutable freeze of the exact saved If-Match revision; retain OEX and all actual runtime bytes",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          },
+          "201": {
+            "description": "Created or exact completed receipt replay; manifest/signature/runtime hashes pinned, never publication"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "requestId"
+                ],
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List latest50 freezes of the owned/admin Studio source",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes/{freezeId}": {
+      "get": {
+        "summary": "Read immutable manifest/history50 and compare against latest draft without modifying either",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "freezeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes/{freezeId}/check": {
+      "get": {
+        "summary": "Check current online access; returns allowed:true, freezeId, manifestSha256 and capped expiresAt only when allowed",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "freezeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes/{freezeId}/offline": {
+      "post": {
+        "summary": "Explicitly return exact retained OEX+runtime bytes with newly signed offline display authorization",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "freezeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "seconds"
+                ],
+                "properties": {
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 28800
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes/{freezeId}/authorize": {
+      "post": {
+        "summary": "Renew bounded offline grant after current actor, old approval and all governing artwork/asset/audio display+export checks",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "freezeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "seconds"
+                ],
+                "properties": {
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 28800
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes/{freezeId}/revoke": {
+      "post": {
+        "summary": "Revoke future online checks/grants; disconnected previously delivered grant expires by signed deadline",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "freezeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/freezes/{freezeId}/restore": {
+      "post": {
+        "summary": "Restore future access only when current key/ownership/approval/rights remain valid",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "freezeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized success, no-store"
+          },
+          "403": {
+            "description": "Tenant/source owner/current display AND export grant/session/origin/CSRF/availability/key denied"
+          },
+          "409": {
+            "description": "Integrity/source approval/idempotency/job lease conflict"
+          },
+          "503": {
+            "description": "Missing or invalid signed runtime/key/format config"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_session"
+      }
+    }
+  }
+}
