@@ -262,10 +262,37 @@ export class ExhibitionAudio implements AudioApi {
     if(!response.ok || response.headers.get("x-exhibitos-publication-revision")!==this.publication.publication.revisionSha256)throw Error("PUBLICATION_UNAVAILABLE");
   }
   async playVoice(id: string) {
-    if(!this.experience.voices.some(v=>v.assetId===id)) {this.state.message="음성 설명이 없습니다. transcript를 읽으세요.";this.emit();return;}
-    if (!this.state.enabled) await this.enable();
-    this.stopVoice(); const generation = this.generation;
-    try { await this.checkAvailability(); const buffer = await this.load(id); if (this.disposed || !this.visible || this.state.muted || generation!==this.generation) return; this.audible=true;this.updateMaster(); const source=this.context!.createBufferSource(); source.buffer=buffer; source.connect(this.master!); this.voice=source; this.track(source,()=>{ if(this.voice===source)this.voice=undefined; }); source.start(); this.state.message="음성 설명 재생 중입니다."; } catch { this.state.message="음성을 재생할 수 없습니다. transcript를 읽으세요."; } this.emit();
+    this.stopVoice();
+    const generation = this.generation;
+    try {
+      if(!this.experience.voices.some(v=>v.assetId===id)) throw Error("AUDIO_MISSING");
+      if (!this.state.enabled) await this.enable();
+      if(!this.state.enabled || this.context?.state !== "running") throw Error("AUDIO_BLOCKED");
+      const cancelled = () => this.disposed || !this.visible || this.state.muted || generation!==this.generation;
+      if(cancelled()) throw Error("AUDIO_CANCELLED");
+      await this.checkAvailability();
+      const buffer = await this.load(id);
+      if(cancelled()) throw Error("AUDIO_CANCELLED");
+      const source=this.context.createBufferSource();
+      source.buffer=buffer;
+      source.connect(this.master!);
+      this.voice=source;
+      this.track(source,()=>{ if(this.voice===source)this.voice=undefined; });
+      try { source.start(); } catch(error) {this.stop(source);this.voice=undefined;throw error;}
+      this.audible=true;
+      this.updateMaster();
+      this.state.message="음성 설명 재생 중입니다.";
+      this.emit();
+    } catch(error) {
+      if(generation===this.generation) {
+        this.state.message=error instanceof Error && error.message === "AUDIO_CANCELLED"
+          ? "음성 재생을 취소했습니다. 대본은 계속 읽을 수 있습니다."
+          : "음성을 재생할 수 없습니다. transcript를 읽으세요.";
+      }
+      this.emit();
+      // Promise success means an actual source started. Callers announce fallback on rejection.
+      throw error;
+    }
   }
   stopVoice() { this.generation++; if(this.voice)this.stop(this.voice); this.voice=undefined; this.emit(); }
   stopZone() {this.audible=false;this.updateMaster();this.generation++;if(this.zone)this.stop(this.zone.source);this.zone=undefined;this.state.zoneGain=0;this.emit();}
