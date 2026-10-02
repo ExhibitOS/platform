@@ -1,0 +1,1178 @@
+{
+  "source": "0efd393a9042b975a3d6aa7271bc9a438dd1aade",
+  "dirtySource": "",
+  "browser": "153.0.8010.12",
+  "fixture": {
+    "start": [
+      0,
+      1.65,
+      3
+    ],
+    "roomBounds": {
+      "x": [
+        -4,
+        4
+      ],
+      "z": [
+        -12,
+        4
+      ]
+    },
+    "door": {
+      "center": [
+        0,
+        1.25,
+        -4
+      ],
+      "width": 1.4,
+      "height": 2.5
+    },
+    "window": {
+      "center": [
+        2,
+        2,
+        -4
+      ],
+      "width": 1.4,
+      "height": 0.8
+    },
+    "sculpture": {
+      "center": [
+        -2,
+        0.5,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "yaw": 0.7853981633974483
+    },
+    "standingBody": {
+      "height": 1.75,
+      "radius": 0.25
+    },
+    "roomVolumesCubicMeters": [
+      256,
+      384
+    ],
+    "roomHeightsMeters": [
+      4,
+      6
+    ]
+  },
+  "checks": [
+    "default text publication provides named headings/list/regions without canvas or model/image/audio requests",
+    "keyboard list-order guide exposes current descriptions, next/previous and full-list focus without assets",
+    "keyboard entrance, description/transcript, text detail close and focus return, credits and exit require no 3D/audio",
+    "disabled WebGL still supports complete text details with no canvas/assets",
+    "default text and controls have measured4.5contrast and all enabled controls are keyboard focus-visible",
+    "OS reduced motion, current-page overrides and high-contrast detail colors follow stated session scope",
+    "five desktop and five narrow cold text entrances under10Mbps/100ms retain zero media and fit viewport",
+    "explicit keyboard3D entry honors reduced motion and text return releases canvas without autoplay"
+  ],
+  "coldLoads": [
+    {
+      "sample": 1,
+      "viewport": "1200x900",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1083.0848749999986,
+      "width": 1200,
+      "scrollWidth": 1200,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 870.3000000007451,
+          "loadEventEnd": 870.3000000007451
+        }
+      ]
+    },
+    {
+      "sample": 2,
+      "viewport": "1200x900",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1093.2595409999994,
+      "width": 1200,
+      "scrollWidth": 1200,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 880.5999999996275,
+          "loadEventEnd": 880.6999999992549
+        }
+      ]
+    },
+    {
+      "sample": 3,
+      "viewport": "1200x900",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1106.784749999999,
+      "width": 1200,
+      "scrollWidth": 1200,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 894.0999999996275,
+          "loadEventEnd": 894.0999999996275
+        }
+      ]
+    },
+    {
+      "sample": 4,
+      "viewport": "1200x900",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1087.6393749999988,
+      "width": 1200,
+      "scrollWidth": 1200,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 877.4000000003725,
+          "loadEventEnd": 877.4000000003725
+        }
+      ]
+    },
+    {
+      "sample": 5,
+      "viewport": "1200x900",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1068.2537919999995,
+      "width": 1200,
+      "scrollWidth": 1200,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 854.3999999985099,
+          "loadEventEnd": 854.5
+        }
+      ]
+    },
+    {
+      "sample": 1,
+      "viewport": "390x844",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1079.305375,
+      "width": 390,
+      "scrollWidth": 390,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 867.4000000003725,
+          "loadEventEnd": 867.5
+        }
+      ]
+    },
+    {
+      "sample": 2,
+      "viewport": "390x844",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1097.224415999999,
+      "width": 390,
+      "scrollWidth": 390,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 869,
+          "loadEventEnd": 869
+        }
+      ]
+    },
+    {
+      "sample": 3,
+      "viewport": "390x844",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1098.6909589999996,
+      "width": 390,
+      "scrollWidth": 390,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 885.3999999985099,
+          "loadEventEnd": 885.3999999985099
+        }
+      ]
+    },
+    {
+      "sample": 4,
+      "viewport": "390x844",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1105.1636660000004,
+      "width": 390,
+      "scrollWidth": 390,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 891,
+          "loadEventEnd": 891
+        }
+      ]
+    },
+    {
+      "sample": 5,
+      "viewport": "390x844",
+      "network": "10Mbps/100ms",
+      "entranceMs": 1102.8993330000012,
+      "width": 390,
+      "scrollWidth": 390,
+      "reducedMotion": true,
+      "resources": [
+        {
+          "name": "/assets/index-CYZsXYzN.js",
+          "transferSize": 693527,
+          "decodedBodySize": 693227
+        },
+        {
+          "name": "/assets/index-By93fOos.css",
+          "transferSize": 9780,
+          "decodedBodySize": 9480
+        },
+        {
+          "name": "/api/v1/publications/2a3ebfe5-8828-4bc3-b777-8536acfd91dd",
+          "transferSize": 13070,
+          "decodedBodySize": 12770
+        }
+      ],
+      "navigation": [
+        {
+          "domContentLoaded": 890.2999999988824,
+          "loadEventEnd": 890.2999999988824
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "keyboard-guided-list.png",
+    "keyboard-text-gallery.png",
+    "disabled-webgl-text-detail.png",
+    "high-contrast-text-detail.png",
+    "text-cold-1200.png",
+    "text-cold-390.png"
+  ],
+  "limits": [
+    "Chromium DOM/ARIA snapshot and keyboard automation; no native VoiceOver execution or screen-reader certification.",
+    "390x844 and OS media preference emulation are not a physical mobile/GPU qualification.",
+    "Disabled WebGL is an explicit failure control; production metadata remains real."
+  ],
+  "ariaSnapshot": "- main:\n  - navigation \"바로 가기\":\n    - link \"관람 설정으로 건너뛰기\":\n      - /url: \"#publication-viewing\"\n    - link \"작품 목록으로 건너뛰기\":\n      - /url: \"#publication-artworks\"\n  - link \"ExhibitOS OPEN EXHIBITION\":\n    - /url: /\n  - text: 공개 revision preview\n  - status: 서버가 현재 공개 상태와 전시 권리를 확인했습니다.\n  - button \"공개 상태 다시 확인\"\n  - article:\n    - paragraph: IMMUTABLE PUBLICATION\n    - heading \"Synthetic contract reference exhibition\" [level=1]\n    - paragraph: 공개일 2026-10-02T09:33:33.394Z\n    - paragraph: Original synthetic experience credits\n    - paragraph:\n      - text: Revision SHA-256\n      - code: 869d7fbb9222347b3a2a789c061a3b083272dca54757ee203763c3d42fe385b7\n    - button \"전시 시작 안내\"\n    - button \"전시 크레딧\"\n    - region \"관람 방식과 접근성 설정\":\n      - heading \"관람 방식과 접근성 설정\" [level=2]\n      - paragraph: 글·목록 관람에서는 3D 공간·작품 이미지·음성을 불러오지 않습니다. 설명, 대본, 치수와 권리를 읽을 수 있습니다.\n      - checkbox \"움직임 줄이기\"\n      - text: 움직임 줄이기\n      - checkbox \"높은 대비\"\n      - text: 높은 대비\n      - paragraph: 처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.\n      - button \"3D 관람 시작\"\n    - region \"작품 목록형 대체 보기\":\n      - heading \"작품 목록\" [level=2]\n      - paragraph: 아래 순서는 공개된 작품 목록의 순서입니다. 작가가 지정한 공간 이동 경로가 아닙니다.\n      - button \"목록 순서로 안내 시작\"\n      - list:\n        - listitem:\n          - heading \"Synthetic sculpture <script>plain text</script>\" [level=3]\n          - button \"Synthetic sculpture <script>plain text</script> 상세 보기\": 작품 상세 보기\n          - paragraph: Synthetic public artist · Synthetic public display credit\n          - paragraph: Original synthetic navigation obstacle, meter dimensions\n          - paragraph: 1 × 1 m\n        - listitem:\n          - heading \"Synthetic public painting\" [level=3]\n          - button \"Synthetic public painting 상세 보기\": 작품 상세 보기\n          - paragraph: Synthetic public artist · Synthetic public display credit\n          - paragraph: Original synthetic navigation obstacle, meter dimensions\n          - paragraph: 1 × 1 m\n    - paragraph: 3D 관람 시작을 선택하면 공개 승인 snapshot의 공간과 전시용 derivative를 불러옵니다. 걷기 시작을 선택하면 지원되는 공간에서 보행할 수 있습니다. 이동이 어려우면 정지 관람과 작품 목록을 이용하세요. 이미 전달된 작품 bytes는 복제될 수 있습니다.\n  - link \"제3자 고지\":\n    - /url: /THIRD_PARTY_NOTICES.txt",
+  "guidedList": [
+    {
+      "index": 1,
+      "title": "Synthetic sculpture <script>plain text</script>",
+      "description": "Original synthetic navigation obstacle, meter dimensions",
+      "visibleListItems": 1
+    },
+    {
+      "index": 2,
+      "title": "Synthetic public painting",
+      "description": "Original synthetic navigation obstacle, meter dimensions",
+      "visibleListItems": 1
+    },
+    {
+      "index": 1,
+      "title": "Synthetic sculpture <script>plain text</script>",
+      "description": "Original synthetic navigation obstacle, meter dimensions",
+      "visibleListItems": 1
+    }
+  ],
+  "contrast": {
+    "default": [
+      {
+        "text": "관람 설정으로 건너뛰기",
+        "foreground": "rgb(23, 42, 33)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 13.473880851440802
+      },
+      {
+        "text": "작품 목록으로 건너뛰기",
+        "foreground": "rgb(23, 42, 33)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 13.473880851440802
+      },
+      {
+        "text": "ExhibitOS\nOPEN EXHIBITION",
+        "foreground": "rgb(23, 42, 33)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 13.473880851440802
+      },
+      {
+        "text": "공개 상태 다시 확인",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "Synthetic contract reference exhibition",
+        "foreground": "rgb(23, 42, 33)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 13.473880851440802
+      },
+      {
+        "text": "Revision SHA-256 869d7fbb9222347b3a2a789c061a3b083272dca54757ee203763c3d42fe385b",
+        "foreground": "rgb(76, 90, 80)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 6.488423675875997
+      },
+      {
+        "text": "전시 시작 안내",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "전시 크레딧",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "움직임 줄이기",
+        "foreground": "rgb(23, 42, 33)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 13.473880851440802
+      },
+      {
+        "text": "높은 대비",
+        "foreground": "rgb(23, 42, 33)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 13.473880851440802
+      },
+      {
+        "text": "3D 관람 시작",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "목록 순서로 안내 시작",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "작품 상세 보기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "작품 상세 보기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          32,
+          61,
+          44
+        ],
+        "ratio": 11.896113327628951
+      },
+      {
+        "text": "3D 관람 시작을 선택하면 공개 승인 snapshot의 공간과 전시용 derivative를 불러옵니다. 걷기 시작을 선택하면 지원되는 공간에서 ",
+        "foreground": "rgb(76, 90, 80)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 6.488423675875997
+      },
+      {
+        "text": "제3자 고지",
+        "foreground": "rgb(84, 98, 88)",
+        "background": [
+          243,
+          242,
+          236
+        ],
+        "ratio": 5.734544165254688
+      }
+    ],
+    "highContrast": [
+      {
+        "text": "관람 설정으로 건너뛰기",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작품 목록으로 건너뛰기",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "ExhibitOS\nOPEN EXHIBITION",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "공개 상태 다시 확인",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Synthetic contract reference exhibition",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Revision SHA-256 869d7fbb9222347b3a2a789c061a3b083272dca54757ee203763c3d42fe385b",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "전시 시작 안내",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "전시 크레딧",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "움직임 줄이기",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "높은 대비",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "3D 관람 시작",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "목록 순서로 안내 시작",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작품 상세 보기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작품 상세 보기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "3D 관람 시작을 선택하면 공개 승인 snapshot의 공간과 전시용 derivative를 불러옵니다. 걷기 시작을 선택하면 지원되는 공간에서 ",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "제3자 고지",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      }
+    ],
+    "highContrastDialog": [
+      {
+        "text": "관람 설정으로 건너뛰기",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작품 목록으로 건너뛰기",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "ExhibitOS\nOPEN EXHIBITION",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "공개 상태 다시 확인",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Synthetic contract reference exhibition",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Revision SHA-256 869d7fbb9222347b3a2a789c061a3b083272dca54757ee203763c3d42fe385b",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "전시 시작 안내",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "전시 크레딧",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "움직임 줄이기",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "높은 대비",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "3D 관람 시작",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Synthetic sculpture <script>plain text</script>",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "상세 보기 닫기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Synthetic public artist",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Original synthetic navigation obstacle, meter dimensions",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "Translated synthetic description",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작가 원문과 구분된 번역문입니다.",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "글·목록 관람에서는 음성을 요청하지 않습니다. 아래 대본으로 같은 설명을 읽을 수 있습니다.",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "원문 대본 (ko): Original synthetic artist voice transcript",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다.",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "현재 공개 revision에 제공된 이력입니다. 비공개 원본·저장소·계정 정보는 요청하지 않습니다.",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "상세 보기를 닫으면 선택한 작품의 목록으로 돌아갑니다.",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "목록 순서로 안내 시작",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작품 상세 보기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "작품 상세 보기",
+        "foreground": "rgb(255, 255, 255)",
+        "background": [
+          17,
+          17,
+          17
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "3D 관람 시작을 선택하면 공개 승인 snapshot의 공간과 전시용 derivative를 불러옵니다. 걷기 시작을 선택하면 지원되는 공간에서 ",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      },
+      {
+        "text": "제3자 고지",
+        "foreground": "rgb(17, 17, 17)",
+        "background": [
+          255,
+          255,
+          255
+        ],
+        "ratio": 18.883060964594996
+      }
+    ]
+  },
+  "keyboardFocus": [
+    {
+      "index": 0,
+      "label": "관람 설정으로 건너뛰기",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 1,
+      "label": "작품 목록으로 건너뛰기",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 2,
+      "label": "ExhibitOSOPEN EXHIBITION",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 3,
+      "label": "공개 상태 다시 확인",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 4,
+      "label": "전시 시작 안내",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 5,
+      "label": "전시 크레딧",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 6,
+      "label": "",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 7,
+      "label": "",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 8,
+      "label": "3D 관람 시작",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 9,
+      "label": "목록 순서로 안내 시작",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 10,
+      "label": "Synthetic sculpture <script>plain text</script> 상세 보기",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 11,
+      "label": "Synthetic public painting 상세 보기",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    },
+    {
+      "index": 12,
+      "label": "제3자 고지",
+      "focusVisible": true,
+      "outlineWidth": 3,
+      "outlineStyle": "solid",
+      "outlineColor": "rgb(118, 87, 35)",
+      "outlineContrast": 5.9290234197756355
+    }
+  ],
+  "highContrastFocus": {
+    "outlineColor": "rgb(0, 0, 0)",
+    "outlineWidth": 3,
+    "outlineOffset": 4
+  },
+  "entranceP95Ms": 1106.784749999999,
+  "entranceP95ByViewport": {
+    "1200x900": 1106.784749999999,
+    "390x844": 1105.1636660000004
+  },
+  "explicit3DStart": {
+    "keyboardActivated": true,
+    "returnedToText": true,
+    "mediaRequestsAfterOptIn": 2
+  },
+  "outcome": "passed",
+  "rawProvenance": {
+    "sha256": "fd8eb826cf2e9d5f161a494b19694e5727e40028eae267b1097823b17367a659",
+    "normalization": "Only temporary screenshot paths, including before/after canvas records, replaced by basenames. Original raw retained locally; no private repository or credentials."
+  }
+}
