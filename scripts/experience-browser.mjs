@@ -40,7 +40,7 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
     await writeFile(`${dir}/failure.json`, JSON.stringify(diagnostic, null, 2) + "\n");
     console.error(JSON.stringify({ experienceFailure: diagnostic, reportPath }, null, 2));
   };
-  const load = async () => { await page.goto(`${origin}/p/${publicationId}`); await expect(page.getByRole("heading", { name: projection.exhibition.title, exact: true })).toBeVisible(); await expect(page.getByTestId("audio-state")).toBeVisible(); };
+  const load = async () => { await page.goto(`${origin}/p/${publicationId}`); await expect(page.getByRole("heading", { name: projection.exhibition.title, exact: true })).toBeVisible(); await button("3D 관람 시작").click(); await expect(page.getByTestId("audio-state")).toBeVisible(); };
   const pause = async () => { await page.keyboard.press("Escape"); await expect.poll(async () => (await nav())?.paused).toBe(true); };
   try {
     await load();
@@ -163,7 +163,7 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
     await check("labeled AudioContext refusal control preserves transcript and retry guidance", async () => {
       const denied = await browser.newPage();
       await denied.addInitScript(() => { Object.defineProperty(window, "AudioContext", { configurable: true, value: class { constructor() { throw Error("SYNTHETIC_AUTOPLAY_REFUSAL"); } } }); });
-      await denied.goto(`${origin}/p/${publicationId}`); await denied.getByRole("button", { name: "소리 켜기", exact: true }).click();
+      await denied.goto(`${origin}/p/${publicationId}`); await denied.getByRole("button", { name: "3D 관람 시작", exact: true }).click(); await denied.getByRole("button", { name: "소리 켜기", exact: true }).click();
       await expect(denied.getByText("소리를 시작할 수 없습니다. 음성 설명은 글로 읽을 수 있습니다.", { exact: true })).toBeVisible();
       await denied.getByRole("button", { name: /상세 보기$/, exact: false }).first().click(); await expect(denied.getByRole("dialog").getByText(/Original synthetic artist voice transcript/)).toBeVisible();
       await denied.close();

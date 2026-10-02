@@ -310,6 +310,7 @@ export async function runPublicationBrowser({
           requests.push(new URL(request.url()).pathname),
         );
         await publicPage.goto(`${origin}${publicUrl}`);
+        await publicPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
         await visiblePublic();
         await publicPage
           .getByRole("button", { name: "시작 camera 보기", exact: true })

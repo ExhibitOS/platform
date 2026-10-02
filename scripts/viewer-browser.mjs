@@ -105,6 +105,7 @@ export async function runViewerBrowser({
         return route.fulfill({ response, body });
       });
       await testPage.goto(`${origin}/p/${publicationId}`);
+    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
       await expect
         .poll(async () => (await state(testPage)).failed, { timeout: 60000 })
         .toBe(4);
@@ -152,6 +153,7 @@ export async function runViewerBrowser({
       await route.fulfill({ response, json: body });
     });
     await testPage.goto(`${origin}/p/${publicationId}`);
+    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
     await expect
       .poll(async () => (await state(testPage)).loadedAssets, {
         timeout: 60000,
@@ -180,6 +182,7 @@ export async function runViewerBrowser({
     );
     await testPage.unroute(metadataPath);
     await testPage.goto(`${origin}/p/${publicationId}`);
+    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
     await expect.poll(async () => (await state(testPage)).loadedAssets).toBe(4);
     await testPage.route(pattern, async (route) => {
       await new Promise((r) => setTimeout(r, 1500));
@@ -279,6 +282,7 @@ export async function runViewerBrowser({
           cdp.on("Network.loadingFinished", loaded);
           const at = performance.now();
           await page.goto(`${origin}/p/${publicationId}`);
+    await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
           await expect
             .poll(async () => (await state(page)).loadedAssets, {
               timeout: 60000,

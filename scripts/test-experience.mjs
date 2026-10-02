@@ -528,7 +528,8 @@ try {
     } finally { await restoredApp?.close(); await restoredPool.end(); }
     console.log("RESTORE SCOPE: isolated database dump, exact rows and publication bytes against retained original FileBlobStore; not a standalone blob backup or production recovery point.");
   });
-  const { runExperienceBrowser } = await import("./experience-browser.mjs");
+  const accessibilityOnly = process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1";
+  const { runExperienceBrowser } = await import(accessibilityOnly ? "./accessibility-browser.mjs" : "./experience-browser.mjs");
   const result = await runExperienceBrowser({ origin: browserOrigin, publicationId: pub.publicationId,
     projection, fixture: fixture.geometry, authoring: { tenantId: tenant, subject: "synthetic.publication.artist", password: pass, candidate: draft.candidate, wave }, revoke: () => setRevoked(true), restore: () => setRevoked(false) });
   checks.push(...result.checks);

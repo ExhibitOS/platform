@@ -39,7 +39,8 @@
     "test:publication": "npm run build && node scripts/test-publication.mjs",
     "test:navigation": "npm run build && node scripts/test-navigation.mjs",
     "test:viewer": "npm run build && node --test scripts/viewer-variants.test.mjs && node scripts/test-viewer.mjs",
-    "test:experience": "npm run build && node scripts/test-experience.mjs"
+    "test:experience": "npm run build && node scripts/test-experience.mjs",
+    "test:accessibility": "npm run build && EXHIBITOS_ACCESSIBILITY_ONLY=1 node scripts/test-experience.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

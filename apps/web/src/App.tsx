@@ -60,7 +60,7 @@ export function App() {
         <p className="description">
           작품을 기록하고, 공간을 만들고, 전시를 나누는 ExhibitOS.
           <br />
-          지금은 웹과 API의 개발 기반을 확인하는 단계입니다.
+          Studio에서 전시를 만들고 공개 링크로 관람할 수 있습니다.
         </p>
       </section>
       <section className="connection" aria-labelledby="connection-title">
@@ -79,8 +79,7 @@ export function App() {
         <a href="/cms">Artist CMS 열기</a> ·{" "}
         <a href="/studio">로컬 Studio draft 열기</a>
         <br />
-        공간 편집기 · Viewer는 후속 단계에서 구현합니다. CMS는 인증된 비공개
-        작품 등록·검토를 제공합니다.
+        Studio는 공간·작품 배치와 공개를, CMS는 인증된 비공개 작품 등록·검토를 제공합니다. 공개 전시는 목록 또는 3D로 관람합니다.
       </footer>
     </main>
   );
