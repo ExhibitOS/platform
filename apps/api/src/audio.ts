@@ -37,7 +37,8 @@ export function validatePcmWav(bytes:Buffer) {
 export const audioMedia=(r:AudioRow):MediaAsset=>({id:r.id,path:`media/${r.id}/audio.wav`,mime:'audio/wav',bytes:Number(r.bytes),sha256:r.sha256,rights:structuredClone(r.rights)});
 export class Audio {
   readonly studio=new Studio();
-  constructor(readonly blobs?:BlobStore){}
+  readonly blobs:BlobStore|undefined;
+  constructor(blobs?:BlobStore){this.blobs=blobs;}
   private storage(){if(!this.blobs)throw new ApiError(503,'STORAGE_UNAVAILABLE');return this.blobs;}
   private async event(c:PoolClient,s:Session,id:string,action:string){await c.query('INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,randomUUID(),{action:`audio.${action}`,actor:s.userId,target:id}]);}
   async access(c:PoolClient,s:Session,exhibitionId:string,id:string):Promise<AudioRow>{
