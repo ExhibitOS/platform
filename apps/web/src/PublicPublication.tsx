@@ -53,7 +53,7 @@ export function PublicPublication({ id }: { id: string }) {
             !uuid.test(asset.assetId) ||
             asset.url !==
               `/api/v1/publications/${id}/assets/${asset.assetId}` ||
-            !["image/png", "model/gltf-binary"].includes(asset.mime),
+            !["image/png", "model/gltf-binary", "audio/wav"].includes(asset.mime),
         )
       )
         throw Error("INVALID_PUBLICATION");

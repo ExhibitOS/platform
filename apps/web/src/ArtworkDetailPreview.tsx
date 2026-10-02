@@ -99,7 +99,9 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         observer = new ResizeObserver(resize); observer.observe(target!); resize();
         const render = () => { if (disposed) return; model.rotation.y = controls.current.yaw * Math.PI / 180;
           camera.position.set(0, 0, extent * 2.1 / controls.current.zoom / Math.min(1, camera.aspect)); camera.lookAt(0, 0, 0);
-          renderer!.render(scene, camera); frame = requestAnimationFrame(render); };
+          renderer!.render(scene, camera);
+          renderer!.domElement.dataset.detailState = JSON.stringify({ rotationY: model.rotation.y, cameraPosition: camera.position.toArray(), zoom: controls.current.zoom, dimensions: artwork.dimensions, anchors: anchors.map(a => a.position) });
+          frame = requestAnimationFrame(render); };
         render();
       } catch { if (!disposed) { setError("현재 권리 또는 그래픽·기기 예산 때문에 상세 이미지를 표시할 수 없습니다. 설명은 아래에서 읽을 수 있습니다."); release(); } }
     }

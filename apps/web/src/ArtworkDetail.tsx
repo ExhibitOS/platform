@@ -11,6 +11,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
 }) {
   const dialog = useRef<HTMLDialogElement>(null), close = useRef(onClose), stop = useRef(onVoiceStop);
   close.current = onClose; stop.current = onVoiceStop;
+  const voiceGeneration = useRef(0);
   const [voiceStatus, setVoiceStatus] = useState("");
   const placement = publication.exhibition.placements.find(p => p.id === placementId);
   const artwork = publication.exhibition.artworks.find(a => a.revisionId === placement?.artworkRevisionId);
@@ -23,7 +24,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   useEffect(() => {
     const element = dialog.current, previous = document.activeElement;
     element?.showModal();
-    return () => { stop.current(); element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+    return () => { voiceGeneration.current++; stop.current(); element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, []);
   if (!artwork) return <dialog ref={dialog} className="artwork-detail" aria-label="작품 상세 보기 오류" onCancel={e => { e.preventDefault(); close.current(); }}>
     <p>선택한 작품을 이 공개 revision에서 확인할 수 없습니다.</p><button autoFocus onClick={onClose}>상세 보기 닫기</button>
@@ -47,8 +48,8 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     </section>)}
     <section aria-label="작가 음성 및 대본"><h3>작가 음성 · 원문 대본</h3>
       {experience.voices.filter(v => v.placementId === placementId).map(v => <div key={`${v.assetId}-${v.locale}`}>
-        <button onClick={() => { setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => setVoiceStatus("음성을 재생합니다.")).catch(() => setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요.")); }}>작가 음성 듣기 ({v.locale})</button>
-        <button onClick={() => { onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button>
+        <button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작가 음성 듣기 ({v.locale})</button>
+        <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button>
         <p lang={v.locale} className="detail-text">원문 대본 ({v.locale}): {v.transcript}</p>
       </div>)}
       {!experience.voices.some(v => v.placementId === placementId) && <p>등록된 작가 음성이 없습니다. 위 설명을 읽어주세요.</p>}
