@@ -37,6 +37,7 @@
     "test:drafts": "npm run build && node scripts/test-drafts.mjs",
     "test:geometry": "npm run build && node scripts/test-geometry.mjs",
     "test:publication": "npm run build && node scripts/test-publication.mjs",
+    "test:navigation": "npm run build && node scripts/test-navigation.mjs",
     "test:viewer": "npm run build && node --test scripts/viewer-variants.test.mjs && node scripts/test-viewer.mjs"
   },
   "devDependencies": {

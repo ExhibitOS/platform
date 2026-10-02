@@ -1,0 +1,2516 @@
+{
+  "source": "8aacb5093d8de80de6142d1e76e4f92958166bc5",
+  "browser": "153.0.8010.12",
+  "headed": false,
+  "filter": "^(?!browser pointer lock)",
+  "dirtySource": "M apps/web/src/GeometryPreview.tsx\n M apps/web/src/style.css\n M apps/web/src/viewer/navigation-mesh.ts\n M apps/web/src/viewer/navigation.test.ts\n M apps/web/src/viewer/navigation.ts\n M package.json\n?? apps/web/src/WalkingControls.tsx\n?? apps/web/src/viewer/navigation-camera.ts\n?? apps/web/src/viewer/navigation-input.test.ts\n?? apps/web/src/viewer/navigation-input.ts\n?? docs/performance/navigation-native-capture.json\n?? docs/performance/navigation-results.json\n?? scripts/navigation-browser.mjs\n?? scripts/navigation-fixture.mjs\n?? scripts/test-navigation.mjs",
+  "fixture": {
+    "start": [
+      0,
+      1.65,
+      3
+    ],
+    "roomBounds": {
+      "x": [
+        -4,
+        4
+      ],
+      "z": [
+        -12,
+        4
+      ]
+    },
+    "door": {
+      "center": [
+        0,
+        1.25,
+        -4
+      ],
+      "width": 1.4,
+      "height": 2.5
+    },
+    "window": {
+      "center": [
+        2,
+        2,
+        -4
+      ],
+      "width": 1.4,
+      "height": 0.8
+    },
+    "sculpture": {
+      "center": [
+        -2,
+        0.5,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "yaw": 0.7853981633974483
+    },
+    "standingBody": {
+      "height": 1.75,
+      "radius": 0.25
+    }
+  },
+  "checks": [
+    "qualified artwork entrance is usable before physics is requested; explicit walking initializes safe first-person controller",
+    "actual focused WASD speeds accelerate, decelerate and pause/resume at the current position",
+    "held movement loses canvas focus on settings; eye height changes preserve feet and fixed body clearance",
+    "reduced-motion setting removes look interpolation without forced camera motion",
+    "actual room wall and rotated artwork collision prevent penetration at maximum speed",
+    "real door cutout permits adjacent-room crossing; solid outer boundary retains grounded in-bounds camera",
+    "lowering eye height cannot pass the raised narrow window",
+    "window-blur and hidden lifecycle handler injections clear movement and require explicit resume",
+    "stationary mode and quality replacement stop walking and dispose physics/input resources",
+    "missing approved artwork bytes retain physical collision bounds and the keyboard/list alternative",
+    "invalid spawn fails closed with stationary/list alternative",
+    "narrow real two-pointer touch moves and looks independently; release and cancellation do not leave movement held"
+  ],
+  "sequences": [
+    {
+      "key": "KeyW",
+      "requestedMs": 1500,
+      "elapsedMs": 2049.6929170000003,
+      "from": {
+        "eyePosition": [
+          -9.132035927450488e-08,
+          1.6610000120839106,
+          3.0000003914138293
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 34,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 0.7,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "eyePosition": [
+          -4.596898251563175e-05,
+          1.6609714715289885,
+          1.9712293518600532
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 157,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 0.7,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyW",
+      "requestedMs": 1500,
+      "elapsedMs": 2065.6292090000006,
+      "from": {
+        "eyePosition": [
+          -9.132035927450488e-08,
+          1.6599999969024213,
+          3.0000003914138293
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 169,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "eyePosition": [
+          2.603465344108713e-05,
+          1.6599999838056976,
+          1.1370648310511111
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 293,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyW",
+      "requestedMs": 1500,
+      "elapsedMs": 2035.7413749999996,
+      "from": {
+        "eyePosition": [
+          -9.132035927450488e-08,
+          1.6610000120839106,
+          3.0000003914138293
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 306,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "eyePosition": [
+          -0.0001885534559127322,
+          1.6610000151689166,
+          0.7619471476240864
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 428,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyA",
+      "requestedMs": 4000,
+      "elapsedMs": 4533.920124999997,
+      "from": {
+        "eyePosition": [
+          -9.132035927450488e-08,
+          1.6610000120839106,
+          3.0000003914138293
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 2349,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "eyePosition": [
+          -3.729571954021953,
+          1.661000025832742,
+          2.99973698865185
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 2621,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "rotatedArtworkTrajectory": [
+        {
+          "eyePosition": [
+            -2.0080674103224503,
+            1.6612452798420565,
+            2.967549923330486
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.39
+          ],
+          "grounded": true,
+          "steps": 2755,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.2604575381932905
+        },
+        {
+          "eyePosition": [
+            -2.0080677855629574,
+            1.6599999786834234,
+            2.8895498295202255
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.7366666666666667
+          ],
+          "grounded": true,
+          "steps": 2763,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.1824579602787053
+        },
+        {
+          "eyePosition": [
+            -2.008068375753041,
+            1.6609999488121832,
+            2.765327970951736
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.0833333333333335
+          ],
+          "grounded": true,
+          "steps": 2771,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.0582370040123465
+        },
+        {
+          "eyePosition": [
+            -2.0080804083523844,
+            1.6615774509394543,
+            2.61537481610471
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.430000000000001
+          ],
+          "grounded": true,
+          "steps": 2779,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.9082851427628857
+        },
+        {
+          "eyePosition": [
+            -2.008080074550385,
+            1.660999977159314,
+            2.432875204354465
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2786,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.725787338581501
+        },
+        {
+          "eyePosition": [
+            -2.008097890641139,
+            1.661346701219678,
+            2.2462434205114246
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2793,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.5391579419751287
+        },
+        {
+          "eyePosition": [
+            -2.0080978484773198,
+            1.6612290220349097,
+            2.0659869457482696
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2800,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.3589042927260386
+        },
+        {
+          "eyePosition": [
+            -2.008020334561576,
+            1.6614820107482375,
+            1.8936901441662908
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2808,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.1866104681262495
+        },
+        {
+          "eyePosition": [
+            -2.008020538033648,
+            1.6599768796716818,
+            1.707023920014441
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2815,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.9999493054910885
+        },
+        {
+          "eyePosition": [
+            -2.0080188956020777,
+            1.6611155980047771,
+            1.5203759460597635
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2822,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.8133086973715794
+        },
+        {
+          "eyePosition": [
+            -2.0079857127684875,
+            1.6611855585491286,
+            1.3336651301830411
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2829,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6266092373286821
+        },
+        {
+          "eyePosition": [
+            -2.0079853082170196,
+            1.659978789348621,
+            1.1203309646695256
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2837,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.41330133191473606
+        },
+        {
+          "eyePosition": [
+            -2.0092756522167043,
+            1.6612113167196514,
+            0.9679391513815485
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2845,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26099724723756634
+        },
+        {
+          "eyePosition": [
+            -2.0173566028056236,
+            1.6599738364769439,
+            0.9674143075714223
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2853,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2608855303644963
+        },
+        {
+          "eyePosition": [
+            -2.0333132458431216,
+            1.6609598434791553,
+            0.9659829846238122
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2860,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610108447070664
+        },
+        {
+          "eyePosition": [
+            -2.0662349423905404,
+            1.6600133309132945,
+            0.9595263488478363
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2867,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2609649511558787
+        },
+        {
+          "eyePosition": [
+            -2.1325276604434045,
+            1.661550098813983,
+            0.9323209430910051
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2875,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26131398643189685
+        },
+        {
+          "eyePosition": [
+            -2.219671011767307,
+            1.6615195946818277,
+            0.8566456376462579
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2882,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610708015043157
+        },
+        {
+          "eyePosition": [
+            -2.3129152449359687,
+            1.6613543968290616,
+            0.763428301451901
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2890,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26108982053723995
+        },
+        {
+          "eyePosition": [
+            -2.406133882566312,
+            1.6599525908771613,
+            0.6700934133438263
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2897,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26100761903612
+        },
+        {
+          "eyePosition": [
+            -2.5128261082386167,
+            1.6600576770818736,
+            0.5633903982994948
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2905,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2609999897979951
+        },
+        {
+          "eyePosition": [
+            -2.618119165166238,
+            1.6599999882294798,
+            0.4581332885606084
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2913,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610254082989142
+        },
+        {
+          "eyePosition": [
+            -2.711470547928432,
+            1.65997322912002,
+            0.36479335640946964
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2920,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610335051036399
+        },
+        {
+          "eyePosition": [
+            -2.8179001080384047,
+            1.6600574979423401,
+            0.2583314691616092
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2928,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610106463652232
+        },
+        {
+          "eyePosition": [
+            -2.8939210137864144,
+            1.6608843363877315,
+            0.18088150480220655
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2935,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2600339906269715
+        },
+        {
+          "eyePosition": [
+            -2.9674672991070743,
+            1.6611697975470963,
+            -0.001974269846281018
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2944,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26036800309037766
+        },
+        {
+          "eyePosition": [
+            -2.9674544793057542,
+            1.6609492910368646,
+            -0.1886321456225719
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2951,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.3215011823899639
+        },
+        {
+          "eyePosition": [
+            -2.9674596629224474,
+            1.6610857123317475,
+            -0.4286283646764364
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2960,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.4871833114485228
+        },
+        {
+          "eyePosition": [
+            -2.9674582161491045,
+            1.6613108196337054,
+            -0.6419613138826694
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2968,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6380314634595339
+        },
+        {
+          "eyePosition": [
+            -2.967456065501814,
+            1.6609999759978893,
+            -0.9619440772624817
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2980,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.8642919245709264
+        },
+        {
+          "eyePosition": [
+            -2.967456647741738,
+            1.6611541287432703,
+            -1.2819441744180526
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2992,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.0905665749557831
+        },
+        {
+          "eyePosition": [
+            -2.967457724205204,
+            1.6599841598811838,
+            -1.6019020081551876
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3004,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.3168116900596858
+        },
+        {
+          "eyePosition": [
+            -2.9674490849580337,
+            1.6599841381697262,
+            -1.9034284177290406
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3016,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.5385523033182347
+        },
+        {
+          "eyePosition": [
+            -2.9674475311124837,
+            1.6612645706203113,
+            -2.223436768265268
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3028,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.7986693290234848
+        },
+        {
+          "eyePosition": [
+            -2.9674545768365235,
+            1.661000021865526,
+            -2.5278846762197222
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3040,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.0618439565794926
+        }
+      ]
+    },
+    {
+      "doorCrossing": {
+        "eyePosition": [
+          0.00031742157440950436,
+          1.6599925600588323,
+          -4.698383542741743
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          -1.6
+        ],
+        "grounded": true,
+        "steps": 3403,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "boundary": {
+        "eyePosition": [
+          -9.220307820623219e-05,
+          1.660943172232088,
+          -11.729616479061455
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 3762,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyW",
+      "requestedMs": 6500,
+      "elapsedMs": 7146.674707999991,
+      "from": {
+        "eyePosition": [
+          2.129081314532188,
+          1.210000292539131,
+          3.000027864775465
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 3890,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.2,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "eyePosition": [
+          2.128608817894769,
+          1.2098982634694369,
+          -3.729666449596671
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4319,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.2,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "rotatedArtworkTrajectory": [
+        {
+          "eyePosition": [
+            -2.0328241585007873,
+            1.6600000101446641,
+            2.979778215040068
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.30333333333333334
+          ],
+          "grounded": true,
+          "steps": 131,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.272908460900945
+        },
+        {
+          "eyePosition": [
+            -2.0328249219256485,
+            1.660839014321333,
+            2.924167762727092
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.6066666666666667
+          ],
+          "grounded": true,
+          "steps": 138,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.2173039645860344
+        },
+        {
+          "eyePosition": [
+            -2.0328251815779925,
+            1.6609860678275583,
+            2.833167216957162
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.91
+          ],
+          "grounded": true,
+          "steps": 145,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.1263138218745516
+        },
+        {
+          "eyePosition": [
+            -2.0328207152539495,
+            1.6598341597549153,
+            2.706778451085637
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.2133333333333338
+          ],
+          "grounded": true,
+          "steps": 152,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.9999409958163252
+        },
+        {
+          "eyePosition": [
+            -2.0328257462874024,
+            1.66100002864399,
+            2.5450010553305846
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.516666666666668
+          ],
+          "grounded": true,
+          "steps": 159,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.8381873932085278
+        },
+        {
+          "eyePosition": [
+            -2.0328708833683766,
+            1.6599791472966319,
+            2.3590114835953218
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 166,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.652231715230536
+        },
+        {
+          "eyePosition": [
+            -2.032876695999165,
+            1.6609754160002341,
+            2.1723451756244403
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 173,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.4656071880537282
+        },
+        {
+          "eyePosition": [
+            -2.032908748317092,
+            1.6611048009202352,
+            1.9591525897687179
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 181,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.2524782203711087
+        },
+        {
+          "eyePosition": [
+            -2.0329258891987694,
+            1.6611173465338072,
+            1.7725063033705455
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 188,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.0659081836862971
+        },
+        {
+          "eyePosition": [
+            -2.032926208933887,
+            1.6609790440255312,
+            1.5858400494163734
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 195,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.8793499257568793
+        },
+        {
+          "eyePosition": [
+            -2.032925797372613,
+            1.660987299210625,
+            1.3991735495930415
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 202,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6928495652486406
+        },
+        {
+          "eyePosition": [
+            -2.032926213077147,
+            1.660999915371882,
+            1.222844512418459
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 209,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.5167877155310885
+        },
+        {
+          "eyePosition": [
+            -2.032925617930644,
+            1.6609490515387153,
+            1.0361782007222873
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 216,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.3307145226194061
+        },
+        {
+          "eyePosition": [
+            -2.0506132185023063,
+            1.6600282361035499,
+            0.9631253318349708
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 223,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2609735545285796
+        },
+        {
+          "eyePosition": [
+            -2.104807512884193,
+            1.660999232676055,
+            0.9463330908167054
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 231,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2611777976326366
+        },
+        {
+          "eyePosition": [
+            -2.179379883737468,
+            1.6599749473228587,
+            0.8971168818372179
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 238,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26130629735799615
+        },
+        {
+          "eyePosition": [
+            -2.281461386525237,
+            1.6599360486601074,
+            0.7947660349729349
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 246,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26100770784027005
+        },
+        {
+          "eyePosition": [
+            -2.3721756912331813,
+            1.6613473048440357,
+            0.7040616805153777
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 253,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610147437297933
+        },
+        {
+          "eyePosition": [
+            -2.473955022686326,
+            1.6599483894736624,
+            0.6023329338478733
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 261,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26105051257474443
+        },
+        {
+          "eyePosition": [
+            -2.593929852874183,
+            1.6614742595869176,
+            0.482339185704558
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 270,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26103713556015373
+        },
+        {
+          "eyePosition": [
+            -2.711603915834033,
+            1.6609679914129958,
+            0.3646216569888283
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 279,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610064006294217
+        },
+        {
+          "eyePosition": [
+            -2.871689733633005,
+            1.6608770119003895,
+            0.20452681094881786
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 291,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26100001669896133
+        },
+        {
+          "eyePosition": [
+            -2.9655809831369453,
+            1.6609996007594747,
+            0.03769203815151645
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 301,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26120796851151085
+        },
+        {
+          "eyePosition": [
+            -2.968077797723801,
+            1.6599843014103828,
+            -0.281783299711452
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 313,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.3837852575377275
+        },
+        {
+          "eyePosition": [
+            -2.9680827773635263,
+            1.6609672676844058,
+            -0.6017654223413329
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 325,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6100503074447996
+        },
+        {
+          "eyePosition": [
+            -2.9680833658544037,
+            1.6616013073783835,
+            -0.9217654598922591
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 337,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.8363249201028993
+        },
+        {
+          "eyePosition": [
+            -2.9680856716181045,
+            1.659984252283117,
+            -1.241732942131267
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 349,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.0625777269744368
+        },
+        {
+          "eyePosition": [
+            -2.9680856175080015,
+            1.6600000260935632,
+            -1.561743710380898
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 361,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.2888594729948468
+        },
+        {
+          "eyePosition": [
+            -2.968090352950863,
+            1.6599999636076392,
+            -1.8734596857846837
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 373,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.5157763784744225
+        },
+        {
+          "eyePosition": [
+            -2.968110382716414,
+            1.6599999569137582,
+            -2.1858620515138965
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 385,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.7674713187614197
+        }
+      ]
+    },
+    {
+      "touchBefore": {
+        "eyePosition": [
+          -2.0457598282064282e-08,
+          1.6609971962301062,
+          2.9999999621672107
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "touchBoth": {
+        "eyePosition": [
+          -0.07686745133054274,
+          1.6617896256051028,
+          1.9777117995218365
+        ],
+        "yaw": 0.18,
+        "velocity": [
+          -0.23273844545357145,
+          0,
+          -1.278996800624558
+        ],
+        "grounded": true,
+        "steps": 68,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0.18,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "touchReleased": {
+        "eyePosition": [
+          -0.12147789842302359,
+          1.6599677571924405,
+          1.7325615754799717
+        ],
+        "yaw": 0.18,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 100,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0.18,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    }
+  ],
+  "screenshots": [
+    "/var/folders/x7/dfgr2r697vj8kb6bg3207nx40000gn/T/exhibitos-navigation-RobdrF/narrow-walking.png"
+  ],
+  "limits": [
+    "Headless Chromium emulated input; physical mobile, GPU and RSS unverified.",
+    "Window blur and hidden lifecycle handler injections are labeled separately from actual canvas focus and pointer-lock transitions."
+  ],
+  "entrance": {
+    "ms": 897.5640000000003,
+    "requests": [
+      "http://127.0.0.1:58320/p/04daad99-53da-4481-9384-035d63b11b41",
+      "http://127.0.0.1:58320/assets/index-CTO3VC8h.js",
+      "http://127.0.0.1:58320/assets/index-BUObxlc9.css",
+      "http://127.0.0.1:58320/api/v1/publications/04daad99-53da-4481-9384-035d63b11b41",
+      "http://127.0.0.1:58320/assets/three.module-4gI5Z-_B.js",
+      "http://127.0.0.1:58320/assets/OrbitControls-Dh36RsEH.js",
+      "http://127.0.0.1:58320/api/v1/publications/04daad99-53da-4481-9384-035d63b11b41/assets/658dacf3-6c1f-4cbc-9bb7-883008cb5bab",
+      "http://127.0.0.1:58320/api/v1/publications/04daad99-53da-4481-9384-035d63b11b41/assets/a9065fb9-c11e-4cc4-8447-567449a2a96f",
+      "http://127.0.0.1:58320/assets/GLTFLoader-QPJIvrGm.js"
+    ],
+    "physicsRequested": false
+  },
+  "profile": {
+    "physicsVersion": "0.21.0",
+    "fixedStep": 0.016666666666666666,
+    "maxFrameDelta": 0.25,
+    "maxSteps": 15,
+    "radius": 0.25,
+    "bodyHeight": 1.75,
+    "acceleration": 2.6,
+    "deceleration": 3.9,
+    "maxStepHeight": 0.25,
+    "minStepWidth": 0.3,
+    "maxSlopeDegrees": 35,
+    "slopeSlideDegrees": 45,
+    "skin": 0.01,
+    "walkableRegions": 2,
+    "mesh": {
+      "cells": 1544,
+      "triangles": 3088,
+      "edges": 5828,
+      "crossRoomEdges": 36
+    }
+  },
+  "touchEvents": [
+    {
+      "type": "pointerdown",
+      "id": 2,
+      "target": "forward"
+    },
+    {
+      "type": "pointerdown",
+      "id": 3,
+      "target": "CANVAS"
+    },
+    {
+      "type": "pointerup",
+      "id": 2,
+      "target": "forward"
+    },
+    {
+      "type": "lostpointercapture",
+      "id": 2,
+      "target": "forward"
+    }
+  ],
+  "touchReleased": {
+    "eyePosition": [
+      -0.12147789842302359,
+      1.6599677571924405,
+      1.7325615754799717
+    ],
+    "yaw": 0.18,
+    "velocity": [
+      0,
+      0,
+      0
+    ],
+    "grounded": true,
+    "steps": 100,
+    "paused": false,
+    "blocked": false,
+    "recovered": false,
+    "walking": true,
+    "pitch": -5.551115123125783e-17,
+    "targetYaw": 0.18,
+    "targetPitch": -5.551115123125783e-17,
+    "lookTransition": "immediate",
+    "settings": {
+      "speed": 1.3,
+      "eyeHeight": 1.65,
+      "reducedMotion": true
+    }
+  },
+  "qualification": "12 non-native browser groups passed; native acquisition explicitly excluded and UNQUALIFIED. Not task acceptance.",
+  "runtimeSourceNotes": [
+    "Run uses working source at recorded HEAD plus dirtySource; final candidate requires independent fresh checkout checks.",
+    "Later capture fallback status persistence change has separate targeted injected-refusal proof; it does not alter walking/collision."
+  ]
+}

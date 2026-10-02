@@ -1,0 +1,52 @@
+{
+  "status": "UNQUALIFIED",
+  "fixture": "independent local HTTP canvas + explicit trusted click, no exhibition or personal profile",
+  "experiments": [
+    {
+      "browser": "Playwright bundled Chromium",
+      "mode": "headless",
+      "result": "WrongDocumentError: The root document of this element is not valid for pointer lock."
+    },
+    {
+      "browser": "Playwright bundled Google Chrome for Testing",
+      "mode": "headed",
+      "bringToFront": true,
+      "nativeAppActivation": true,
+      "result": "WrongDocumentError: The root document of this element is not valid for pointer lock."
+    },
+    {
+      "browser": "Google Chrome",
+      "version": "154.0.8037.58",
+      "channel": "chrome",
+      "mode": "headed",
+      "isolatedFreshProfile": true,
+      "bringToFront": true,
+      "nativeAppActivation": true,
+      "focus": true,
+      "userActivation": true,
+      "locked": false,
+      "result": "WrongDocumentError: The root document of this element is not valid for pointer lock."
+    }
+  ],
+  "productionDiagnostics": {
+    "connected": true,
+    "ownerDocumentMatches": true,
+    "focus": true,
+    "activeElement": "CANVAS",
+    "userActivation": true,
+    "disposed": false,
+    "enabled": true,
+    "paused": false,
+    "locked": false,
+    "result": "WrongDocumentError: The root document of this element is not valid for pointer lock."
+  },
+  "limits": [
+    "Native acquisition and physical mouse movement remain unpassed.",
+    "Failure independent of product observed; cause not established.",
+    "Keyboard/touch fallback and mocked stale-promise lifecycle tests do not replace native acquisition proof."
+  ],
+  "nextQualification": "Unlock the Mac locally without sharing credentials, then execute actual foreground production Viewer capture/mouse/Escape checks. Independent manual probe success alone does not qualify the production path.",
+  "environmentObservations": [
+    "Native computer-use observed the Mac locked twice after the browser refusal experiments; automatic unlock unavailable. User notified to unlock locally. Causality for browser refusals not established."
+  ]
+}
