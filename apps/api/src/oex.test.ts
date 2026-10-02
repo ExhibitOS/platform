@@ -23,6 +23,20 @@ describe('OEX service boundaries',()=>{
   const x=r.exhibition.extensions![EXPERIENCE_NAMESPACE]as {translations:{placementId:string;title:string;description:string}[]};expect(x.translations[0]!.placementId).toBe(r.exhibition.placements[0]!.id);expect(x.translations[0]!.title).toBe(room.id);expect(x.translations[0]!.description).toBe(placement.id);
   expect(e.rooms[0]!.id).toBe(room.id);
  });
+ it('preserves UUID-shaped custom license tokens and authored prose while remapping only typed references',async()=>{
+  const e=await fixture(),room=e.rooms[0]!,asset=e.artworks[0]!.assets[0]!;
+  e.artworks[0]!.rights.licenseId=room.id;
+  e.artworks[0]!.rights.creditLine=asset.id;
+  e.artworks[0]!.provenance.events[0]!.description=room.id;
+  e.extensions={'org.exhibitos/cc0-license':{scope:room.id,licenseId:'CC0-1.0',text:asset.id}};
+  expect(validateExhibition(e)).toEqual({valid:true,errors:[]});
+  const r=remapOex(e);expect(r.exhibition.rooms[0]!.id).not.toBe(room.id);
+  expect(r.exhibition.artworks[0]!.rights.licenseId).toBe(room.id);
+  expect(r.exhibition.artworks[0]!.rights.creditLine).toBe(asset.id);
+  expect(r.exhibition.artworks[0]!.provenance.events[0]!.description).toBe(room.id);
+  expect(r.exhibition.extensions).toEqual(e.extensions);
+  expect(validateExhibition(r.exhibition)).toEqual({valid:true,errors:[]});
+ });
  it('materializes shared asset owner aliases with scoped primary/placement/LOD/provenance and scale references',async()=>{
   const e=await fixture(),first=e.artworks[0]!,second=e.artworks[1]!,secondRevision=second.revisionId;
   const shared=first.assets[0]!;second.artworkType=first.artworkType;second.dimensions=structuredClone(first.dimensions);second.assets=structuredClone(first.assets);second.primaryAssetId=first.primaryAssetId;

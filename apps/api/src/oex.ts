@@ -14,6 +14,8 @@ import {validatePcmWav,audioMedia,type AudioRow} from './audio.ts';
 export const MAX_OEX_UPLOAD=67108864;
 const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
 const LEGAL_NOTICES={'org.exhibitos/apache-license':'Apache-2.0','org.exhibitos/cc0-license':'CC0-1.0'}as const;
+// Public contract entity identities and reference fields; licenseId is authored rights data.
+const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId']);
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -49,7 +51,7 @@ export function remapOex(e:Exhibition){
  collect(e);
  const presentation=e.extensions?.[PRESENTATION_NAMESPACE] as {viewpoints?:{id:string}[]}|undefined;
  for(const v of presentation?.viewpoints??[])if(!ids.has(v.id.toLowerCase()))ids.set(v.id.toLowerCase(),randomUUID());
- const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(/^(id|revisionId|.*Id|.*Ids)$/.test(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[ids.get(k.toLowerCase())??k,visit(x,k)])):v;
+ const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(REFERENCE_FIELDS.has(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[field==='surfaces'?(ids.get(k.toLowerCase())??k):k,visit(x,k)])):v;
  const exhibition=visit(structuredClone(e))as Exhibition;
  const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
  const assetAliases:{sourceAssetId:string;sourceArtworkRevisionId:string;destinationArtworkId:string;destinationArtworkRevisionId:string;destinationAssetId:string;sourceArtifactPath:string;destinationArtifactPath:string}[]=[];
