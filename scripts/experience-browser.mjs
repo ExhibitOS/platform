@@ -255,12 +255,14 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
   // Chromium media_switches.cc defines disable-audio-input/output as fake
   // streams. Keep OS microphone/output out of this isolated recorder test while
   // retaining native getUserMedia, AudioWorklet and actual PCM sample flow.
-  // Permission is granted per context, never bypassed by fake UI: the separate
-  // denied context must receive a genuine native permission rejection.
+  // Successful capture uses fake UI on this platform as well as fake audio
+  // streams. Permission denial uses a SEPARATE browser without fake UI so that
+  // its native rejection cannot be overridden by the success-test flag.
   // https://chromium.googlesource.com/chromium/src/media/+/refs/heads/master/base/media_switches.cc
-  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
+  const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
+  let deniedBrowser;
   const checks = [], observations = [], pageErrors = [], workletResponses = [], workletFailures = [];
-  let currentPage = null, currentCheck = "synthetic microphone initialization";
+  let currentPage = null, currentCheck = "synthetic microphone initialization", currentProvider = "Chromium fake device/UI plus fake input/output streams; successful capture emulation";
   async function observe(page) {
     currentPage = page;
     page.on("pageerror", error => pageErrors.push(error.message));
@@ -325,7 +327,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       assert.equal(bytes.readUInt32LE(4), bytes.length - 8); assert.equal(bytes.readUInt32LE(40), bytes.length - 44);
       assert(bytes.length > 44 && bytes.length <= 44 + 48000 * 60 * 2);
       await expect(editor.getByRole("button", { name: "오디오 승인", exact: true })).toBeVisible();
-      observations.push({ provider: "Chromium fake device and fake input/output streams with explicit context permission; no physical microphone or OS output", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
+      observations.push({ provider: "Chromium fake device/UI and fake input/output streams; no physical microphone or OS output", sampleRate: 48000, channels: 1, bits: 16, bytes: bytes.length, durationSeconds: (bytes.length - 44) / 96000, requests: uploads, tracksStopped: true });
     });
     await check("synthetic microphone cancel releases capture and produces no recording upload", async () => {
       const before = uploads.length;
@@ -373,7 +375,9 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
     });
     await context.close();
     await check("actual browser microphone permission denial keeps PCM file fallback usable", async () => {
-      const denied = await browser.newContext(), page = await denied.newPage(), cdp = await denied.newCDPSession(page);
+      deniedBrowser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
+      currentProvider = "separate Chromium fake device/input/output with NO fake UI; native permission denial";
+      const denied = await deniedBrowser.newContext(), page = await denied.newPage(), cdp = await denied.newCDPSession(page);
       await observe(page);
       const { targetInfo } = await cdp.send("Target.getTargetInfo");
       await cdp.send("Browser.setPermission", { permission: { name: "microphone" }, setting: "denied", origin, browserContextId: targetInfo.browserContextId });
@@ -381,12 +385,15 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       assert.equal(await page.evaluate(async () => (await navigator.permissions.query({ name: "microphone" })).state), "denied");
       await page.getByRole("button", { name: "작가 음성 녹음 시작", exact: true }).click();
       await expect(page.getByText(/마이크 또는 녹음을 시작할 수 없습니다/)).toBeVisible();
+      const nativeDenial = await page.evaluate(() => ({ calls: window.__syntheticMicProbe.calls, streams: window.__syntheticMicProbe.streams.length, errors: window.__syntheticMicProbe.errors }));
+      assert.equal(nativeDenial.calls, 1); assert.equal(nativeDenial.streams, 0);
+      assert.equal(nativeDenial.errors.length, 1); assert.equal(nativeDenial.errors[0].name, "NotAllowedError", "A hardware failure must not qualify as native permission denial");
       await page.getByLabel("작가 음성 WAV 파일", { exact: true }).setInputFiles({ name: "denied-fallback.wav", mimeType: "audio/wav", buffer: authoring.wave });
       await expect(page.getByText(/준비한 파일: denied-fallback.wav/)).toBeVisible();
-      observations.push({ provider: "isolated Chromium synthetic device", permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
+      observations.push({ provider: "separate isolated Chromium without fake UI", native: nativeDenial, permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
       await denied.close();
     });
-    return { checks, observations, limits: "Chromium fake device, fake input/output streams, short capture and actual60second automatic cutoff; physical microphone, OS audio/privacy UI and device fidelity remain unqualified." };
+    return { checks, observations, limits: "Successful capture uses Chromium fake device/UI and fake input/output streams; denial uses a separate browser without fake UI. Short capture and actual60second cutoff do not qualify physical microphone, OS audio/privacy UI or device fidelity." };
   } catch (error) {
     try {
       const read = async operation => { try { return await operation(); } catch (failure) { return { unavailable: String(failure.message).slice(0, 1000) }; } };
@@ -403,11 +410,11 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       const screenshot = await read(async () => {
         await currentPage.screenshot({ path: screenshotPath, timeout: 5000, mask: [currentPage.locator('input[type="password"], input[name="subject"], input[name="tenantId"]')] }); return screenshotPath;
       });
-      const diagnostic = { provider: "isolated Chromium fake microphone and fake input/output streams only", check: currentCheck, observedAt: new Date().toISOString(), checks, error: String(error.message).slice(0, 4000), native, visibleStatus, pageErrors, workletResponses, workletFailures, screenshot };
+      const diagnostic = { provider: currentProvider, check: currentCheck, observedAt: new Date().toISOString(), checks, error: String(error.message).slice(0, 4000), native, visibleStatus, pageErrors, workletResponses, workletFailures, screenshot };
       onFailure(diagnostic);
       await writeFile(`${dir}/microphone-failure.json`, JSON.stringify(diagnostic, null, 2) + "\n");
       console.error(JSON.stringify({ microphoneFailure: diagnostic, reportPath: `${dir}/microphone-failure.json` }, null, 2));
     } catch (diagnosticError) { console.error(`Microphone diagnostics unavailable: ${diagnosticError.message}`); }
     throw error;
-  } finally { await browser.close(); }
+  } finally { try { await deniedBrowser?.close(); } finally { await browser.close(); } }
 }
