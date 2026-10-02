@@ -533,6 +533,12 @@ try {
   const result = await runExperienceBrowser({ origin: browserOrigin, publicationId: pub.publicationId,
     projection, fixture: fixture.geometry, authoring: { tenantId: tenant, subject: "synthetic.publication.artist", password: pass, candidate: draft.candidate, wave }, revoke: () => setRevoked(true), restore: () => setRevoked(false) });
   checks.push(...result.checks);
+  if (accessibilityOnly && process.env.EXHIBITOS_ACCESSIBILITY_HOLD === "1") {
+    console.log(`NATIVE ACCESSIBILITY FIXTURE: ${browserOrigin}/p/${pub.publicationId}`);
+    console.log("Synthetic local fixture only. Press Enter in this test terminal to finish and clean up its isolated database container.");
+    await new Promise(resolve => process.stdin.once("data", resolve));
+    process.stdin.pause();
+  }
   console.log(JSON.stringify({ checks, result, scope: "Actual isolated PostgreSQL8migrations, approved synthetic WAV + GLB/PNG immutable publication and production Chromium" }, null, 2));
 } finally {
   await app?.close(); await pool?.end(); if (started) run("rm", "-f", name);
