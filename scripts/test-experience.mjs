@@ -485,7 +485,11 @@ try {
         assert.deepEqual((await restoredPool.query(`SELECT row_to_json(t) AS row FROM ${table} t ORDER BY row_to_json(t)::text`)).rows, (await pool.query(`SELECT row_to_json(t) AS row FROM ${table} t ORDER BY row_to_json(t)::text`)).rows, table);
       restoredApp = buildApp({ pool: restoredPool, blobs, auth: { mode: "local", origin, bindHost: "127.0.0.1" } });
       const restoredMetadata = await restoredApp.inject({ url: `/api/v1/publications/${pub.publicationId}`, headers: { host: headers.host } });
-      assert.equal(restoredMetadata.statusCode, 200); assert.deepEqual(restoredMetadata.json(), projection);
+      assert.equal(restoredMetadata.statusCode, 200);
+      // SQL-backed public asset inventory has no ordering contract. Normalize
+      // only that top-level inventory; exhibition arrays and all values stay exact.
+      const normalizedInventory = value => ({ ...value, assets: [...value.assets].sort((a, b) => a.assetId.localeCompare(b.assetId)) });
+      assert.deepEqual(normalizedInventory(restoredMetadata.json()), normalizedInventory(projection));
       for (const slot of projection.assets) {
         const response = await restoredApp.inject({ url: slot.url, headers: { host: headers.host } });
         assert.equal(response.statusCode, 200);
