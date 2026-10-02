@@ -1,0 +1,13 @@
+# Realtime development qualification — 2026-10-02 UTC
+
+Synthetic fixtures only. No hosted CI, paid infrastructure, physical accessibility or production/WAN capacity claim.
+
+Node24.21.0/npm11.19.0, actual local production API, PostgreSQL18.6 with all ten migrations, `ws`8.22.0, Chromium and actual Three scene. `npm run test:realtime` passed seventeen groups including existing publication/audio permissions and a fresh-target retained-blob database restore. Presence groups covered foreign origin, nonexistent publication, wrong revision, identity injection, actual disconnect/resume and rotated token replay rejection, twenty clients and twenty-first rejection, forged movement and flood, two independent browser contexts with real remote avatar transforms, actual keyboard walking, explicit leave, active current-rights revocation, unavailable admission and solo content retention.
+
+Twenty real loopback clients submitted 2,000 poses and 2,000 ping samples over 12,565.27ms. Observed p95 ping round trip24.41ms, aggregate received10,121,440bytes (805,509bytes/sec), measured Node CPU1,746.26ms. CPU includes the local API and client harness process; PostgreSQL CPU, browser FPS, WAN latency and TLS are outside this measurement. The polling harness adds up to20ms resolution. These observations are development evidence, not a production SLO.
+
+The server's seven scoped tests separately passed malformed/binary/oversized/unknown messages, input serialisation, stale sequence, rotated resume/scope, revocation, twenty real TCP clients, reservation capacity, bounded send pressure, swept rotated/scaled artwork OBB collision, mounted painting compatibility, authored ceilings and unsupported space transforms. Client eleven tests covered strict inbound snapshots, secret separation,10Hz sends, bounded reconnect/flapping, cleanup/abort, interpolation/reduced motion, denied publication/backpressure and zero realtime effects in default solo.
+
+Actual browser resume timing is covered by client injected-socket tests plus real server TCP reconnect qualification; the production browser test qualifies join, movement, leave and rights-disconnect. Physical VoiceOver for these new controls, Windows, WAN/proxy/TLS, multi-instance routing and sustained operating load remain separate gates.
+
+Development logs are retained locally at `/private/tmp/exhibitos-realtime-integration-final.log`, `/private/tmp/exhibitos-realtime-e2e.log` and `/private/tmp/exhibitos-realtime-check-3.log`. The actual integration report and active avatar screenshot are in temporary `exhibitos-realtime-oPHDUU/realtime-run.json` and `presence-active.png`. No resume credentials appear in these reports.

@@ -162,3 +162,5 @@ Frozen exhibition and offline display implementation: [docs/freeze.md](docs/free
 템플릿은 [고급 건축 안내](docs/advanced-architecture.md)를 읽으세요.
 템플릿은 작품 bytes를 포함하지 않으며 private/unlicensed 재배포는 차단합니다.
 실제 통합 검증과 기기별 지원 범위는 후속 결과 기록에서 구분합니다.
+
+함께 관람 개발 기능과 권한·복귀·운영 제한은 [multiplayer.md](docs/multiplayer.md), 실제 로컬 부하 및 브라우저 결과는 [realtime-results.md](docs/performance/realtime-results.md)에 기록합니다. `npm run test:realtime`은 격리 PostgreSQL과 Chromium이 필요합니다.

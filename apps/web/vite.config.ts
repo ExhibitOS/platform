@@ -4,5 +4,5 @@ import { studioOfflineShell } from './offline-shell.ts';
 
 export default defineConfig({
   plugins: [react(), studioOfflineShell()],
-  server: { port: 5173, strictPort: true, proxy: { '/api': 'http://127.0.0.1:3000' } },
+  server: { port: 5173, strictPort: true, proxy: { '/api': {target:'http://127.0.0.1:3000',ws:true} } },
 });
