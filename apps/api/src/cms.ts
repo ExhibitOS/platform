@@ -11,10 +11,10 @@ export interface ArtworkMetadata {
   description: string;
   medium?: string;
   creationYear?: number;
-  dimensions: { width: number; height: number; depth: number; unit: "m" };
+  dimensions: { width: number; height: number; depth?: number; unit: "m" };
   rights: unknown;
   provenance: {
-    source: "human-authored" | "ai-assisted" | "ai-generated";
+    source: "human-authored" | "ai-assisted" | "ai-generated" | "synthetic";
     sourceUnits: "m" | "cm" | "mm";
     scaleApplied: boolean;
     notes: string;
@@ -51,14 +51,14 @@ export function validMetadata(v: unknown): v is ArtworkMetadata {
     text(m.description, 16384) &&
     (!Object.hasOwn(m,"medium") || text(m.medium,512,1) && m.medium!.trim().length>0) &&
     (!Object.hasOwn(m,"creationYear") || Number.isSafeInteger(m.creationYear) && m.creationYear!>=1 && m.creationYear!<=9999) &&
-    exact(d, ["width", "height", "depth", "unit"]) &&
+    !!d && typeof d==='object' && !Array.isArray(d) && ["width","height","unit"].every(k=>Object.hasOwn(d,k)) && Object.keys(d).every(k=>["width","height","depth","unit"].includes(k)) &&
     d.unit === "m" &&
-    [d.width, d.height, d.depth].every(
+    [d.width, d.height, ...(d.depth===undefined?[]:[d.depth])].every(
       (x) => Number.isFinite(x) && x > 0 && x <= 1000000,
     ) &&
     validRights(m.rights) &&
     exact(p, ["source", "sourceUnits", "scaleApplied", "notes"]) &&
-    ["human-authored", "ai-assisted", "ai-generated"].includes(p.source) &&
+    ["human-authored", "ai-assisted", "ai-generated", "synthetic"].includes(p.source) &&
     ["m", "cm", "mm"].includes(p.sourceUnits) &&
     typeof p.scaleApplied === "boolean" &&
     text(p.notes, 4096)
@@ -358,6 +358,7 @@ export class Cms {
     );
     const asset = result.rows[0];
     if (!asset) throw new ApiError(409, "ASSET_NOT_APPROVED");
+    if(asset.mime==='model/gltf-binary'&&a.metadata.dimensions.depth===undefined)throw new ApiError(422,'MODEL_DEPTH_REQUIRED');
     if (!allowedRights(a.metadata.rights, "display"))
       throw new ApiError(403, "RIGHTS_DENIED");
     if (json(a.metadata.rights) !== json(asset.rights)) {
@@ -413,7 +414,7 @@ export class Cms {
     // Snapshot IDs are stable across repeat requests; URI is only a relative inventory name.
     const digest=createHash("sha256").update(`${s.tenantId}:${id}:${approval.revision}`).digest("hex");
     const revisionId=`${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-8${digest.slice(17,20)}-${digest.slice(20,32)}`;
-    const artwork: Artwork={schemaVersion:"1.0.0-draft.1",kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:"meter",coordinates:"right-handed-y-up",dimensions:{width:m.dimensions.width,height:m.dimensions.height,depth:m.dimensions.depth},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}})}};
+    const artwork: Artwork={schemaVersion:"1.0.0-draft.1",kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:"meter",coordinates:"right-handed-y-up",dimensions:{width:m.dimensions.width,height:m.dimensions.height,...(m.dimensions.depth===undefined?{}:{depth:m.dimensions.depth})},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}})}};
     if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }
