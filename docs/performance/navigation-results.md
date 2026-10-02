@@ -61,3 +61,15 @@ Viewer/Studio explanatory paragraphs: Viewer collision/limited-step support and
 stationary fallback are distinguished from authoring preview limitations. Actual
 typecheck/lint/build and normal-Chrome DOM/screenshot checks passed for these
 paragraphs; the earlier full suite was not rerun or claimed at this latest head.
+
+## Physical user check in embedded browser
+
+At sourcef6ad1a6, the user reported actual walking, Q/E rotation and Escape
+pause in the Codex in-app browser, but capture-button activation and mouse
+rotation did not work. The observed controller ended at yaw0.1810, horizontal
+position[-1.2176,2.5032], pausedtrue and zero velocity. The yaw belongs to the
+reported keyboard rotation and is not mouse proof. [User report and observed
+state](navigation-human-iab.json) preserve that distinction. The same approved
+production scene is being checked in ordinary Chrome to distinguish embedded
+browser restrictions from a product defect. Neither cause nor full native
+acceptance is established yet.

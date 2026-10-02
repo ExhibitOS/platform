@@ -1,0 +1,65 @@
+{
+  "source": "f6ad1a6145f1d70620240bba7e10afa84ad334b1",
+  "browser": "Codex in-app browser",
+  "reportedByUser": {
+    "walking": true,
+    "keyboardQE": true,
+    "mouseCapture": false,
+    "mouseRotation": false,
+    "escapePause": true
+  },
+  "observed": {
+    "navigation": {
+      "eyePosition": [
+        -1.2175922503630323,
+        1.6609811000074262,
+        2.503178514420116
+      ],
+      "yaw": 0.18102407884267466,
+      "velocity": [
+        0,
+        0,
+        0
+      ],
+      "grounded": true,
+      "steps": 3265,
+      "paused": true,
+      "blocked": false,
+      "recovered": false,
+      "walking": true,
+      "pitch": -5.551115123125783e-17,
+      "targetYaw": 0.18102407884267466,
+      "targetPitch": -5.551115123125783e-17,
+      "lookTransition": "smoothed",
+      "settings": {
+        "speed": 1.3,
+        "eyeHeight": 1.65,
+        "reducedMotion": false
+      }
+    },
+    "profile": {
+      "physicsVersion": "0.21.0",
+      "fixedStep": 0.016666666666666666,
+      "maxFrameDelta": 0.25,
+      "maxSteps": 15,
+      "radius": 0.25,
+      "bodyHeight": 1.75,
+      "acceleration": 2.6,
+      "deceleration": 3.9,
+      "maxStepHeight": 0.25,
+      "minStepWidth": 0.3,
+      "maxSlopeDegrees": 35,
+      "slopeSlideDegrees": 45,
+      "skin": 0.01,
+      "walkableRegions": 2,
+      "mesh": {
+        "cells": 1544,
+        "triangles": 3088,
+        "edges": 5828,
+        "crossRoomEdges": 36
+      }
+    }
+  },
+  "qualification": "Native mouse gate failed here; ordinary Chrome comparison pending.",
+  "scope": "User physically tested the Codex in-app browser; observed yaw includes reported Q/E keyboard rotation, not native mouse movement."
+}
