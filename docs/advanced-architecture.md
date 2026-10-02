@@ -93,8 +93,23 @@ isolated PostgreSQL, publication projection and private-license READY denial.
 `apps/web/src/geometry/advanced.test.ts` uses real Rapier for generated curve
 collision, stairs/ramp support and connected doors versus an elevated window
 sill. These are synthetic local checks, not physical-device qualification or
-architectural certification. Exact run results are recorded separately after
-execution; a command listed here is not a passing result.
+architectural certification. Frozen source `7da52c6203c47e1c77e0d7a87dd6cd00413c243a` passed local
+qualification on 2026-10-02: 151 unit tests, 9 contract cases, type/lint/build,
+3 baseline E2E cases and 6 production geometry browser groups. An independent
+fresh archive installed the pinned dependencies, built production outputs and
+passed 16 actual isolated PostgreSQL/API, publication-browser and database
+backup/restore groups at 19:52:43 UTC. The public GLB/PNG canvas contained
+14,136 colored derivative pixels with its original camera and strict pixel
+assertion retained. The template was duplicated, customized with curved walls
+and stairs in its second room, saved/reloaded, published and checked through the
+anonymous immutable projection; explicit private licensing blocked a direct
+publication request on the server. The synthetic fixture keeps first-room
+artwork sightlines clear rather than removing geometry or weakening the visual
+assertion. Actual Rapier cases qualify stair ascent, ramp support, curved-wall
+collision, level connected-door routing and elevated-window passage rejection.
+A vertical accessible ramp route graph has not been qualified; these checks
+do not certify an entire authored arrangement or accessibility compliance.
+This is development-branch qualification, not a main-branch or device release.
 
 Draft editor sibling keys are namespaced by component role and draft identity.
 Switching drafts therefore removes the prior geometry/experience editor instead

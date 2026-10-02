@@ -1,6 +1,6 @@
 # ADR 0016: interoperable plane geometry and explicit template provenance
 
-Status: candidate pending integration qualification
+Status: accepted after local integration qualification (2026-10-02)
 
 Advanced architectural generators lower curved wall chords, stair treads/risers
 and inclined ramps into the existing public rigid rectangle model. Rendering,
@@ -23,3 +23,11 @@ No migration, hosted service, paid resource or new package is introduced.
 Existing authorization, ETags, immutable publication and backups remain the
 underlying data paths. Integration qualification must cover a real PostgreSQL
 and production browser, not just generator mathematics or UI controls.
+
+Qualification used frozen source `7da52c6203c47e1c77e0d7a87dd6cd00413c243a`:
+151 unit tests, 9 contract cases, type/lint/build, 3 baseline E2E cases,
+6 production geometry browser groups and 16 actual isolated PostgreSQL/API,
+publication-browser and database backup/restore groups passed. A fresh independent
+source archive completed pinned npm installation and production build before
+the database/browser qualification. No hosted or physical-device qualification
+is implied, and this remains stacked on the local-runtime development branch.
