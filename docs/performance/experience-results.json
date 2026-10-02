@@ -1,0 +1,447 @@
+{
+  "source": "6e5d490037e5a91b9a6adb3c5ddfdf74d4beecd9",
+  "dirtySource": "",
+  "browser": "153.0.8010.12",
+  "fixture": {
+    "start": [
+      0,
+      1.65,
+      3
+    ],
+    "roomBounds": {
+      "x": [
+        -4,
+        4
+      ],
+      "z": [
+        -12,
+        4
+      ]
+    },
+    "door": {
+      "center": [
+        0,
+        1.25,
+        -4
+      ],
+      "width": 1.4,
+      "height": 2.5
+    },
+    "window": {
+      "center": [
+        2,
+        2,
+        -4
+      ],
+      "width": 1.4,
+      "height": 0.8
+    },
+    "sculpture": {
+      "center": [
+        -2,
+        0.5,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "yaw": 0.7853981633974483
+    },
+    "standingBody": {
+      "height": 1.75,
+      "radius": 0.25
+    },
+    "roomVolumesCubicMeters": [
+      256,
+      384
+    ],
+    "roomHeightsMeters": [
+      4,
+      6
+    ]
+  },
+  "checks": [
+    "production load requires no audio context or WAV request before user opt-in; automatic detail defaults off",
+    "actual GLB and PNG detail render, keyboard rotation/zoom, original/translation/annotation/rights and focus return",
+    "opening and credits are keyboard dialogs with return focus and no required audio",
+    "detail pauses walking and preserves camera within1micrometer grounding tolerance and prior paused state",
+    "user opt-in actually decodes verified WAV, spatial zone distance gain and room reverb; mute/volume/pause stop sound",
+    "artist voice explicit playback actually uses decoded buffer and closes without delayed audio",
+    "real authoritative revocation blocks reuse and retains transcript alternative",
+    "labeled404 failure control retains reading fallback without claiming successful playback",
+    "labeled AudioContext refusal control preserves transcript and retry guidance",
+    "production Studio author uses actual login, separate WAV rights upload/approval, transcript binding and READY publication",
+    "synthetic microphone actual AudioWorklet produces local bounded PCM WAV; mount is inert and upload remains explicit",
+    "synthetic microphone cancel releases capture and produces no recording upload",
+    "synthetic microphone automatically closes at60seconds, produces bounded PCM WAV and waits for explicit upload",
+    "actual browser microphone permission denial keeps PCM file fallback usable"
+  ],
+  "sequences": [
+    {
+      "artworkType": "sculpture",
+      "detail": {
+        "rotationY": 0.08726646259971647,
+        "cameraPosition": [
+          0,
+          0,
+          1.909090909090909
+        ],
+        "zoom": 1.1,
+        "dimensions": {
+          "depth": 1,
+          "width": 1,
+          "height": 1
+        },
+        "anchors": [
+          [
+            0.1,
+            0.1,
+            0.1
+          ]
+        ]
+      },
+      "noAudioRequests": 0
+    },
+    {
+      "artworkType": "image",
+      "detail": {
+        "rotationY": 0.08726646259971647,
+        "cameraPosition": [
+          0,
+          0,
+          1.909090909090909
+        ],
+        "zoom": 1.1,
+        "dimensions": {
+          "depth": 0.02,
+          "width": 1,
+          "height": 1
+        },
+        "anchors": []
+      },
+      "noAudioRequests": 0
+    },
+    {
+      "cameraRestore": {
+        "toleranceMeters": 1e-06,
+        "toleranceRadians": 1e-06,
+        "before": {
+          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
+          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "eyePosition": [
+            0,
+            1.6609999940395357,
+            3
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 39,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "duringDetail": {
+          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
+          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "eyePosition": [
+            0,
+            1.6609999940395357,
+            3
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 51,
+          "paused": true,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "restoredActive": {
+          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
+          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "eyePosition": [
+            0,
+            1.6609999940395357,
+            3
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 67,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "paused": {
+          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
+          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "eyePosition": [
+            0,
+            1.6609999940395357,
+            3
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 70,
+          "paused": true,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "restoredPaused": {
+          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
+          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "eyePosition": [
+            0,
+            1.6609999940395357,
+            3
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 70,
+          "paused": true,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        }
+      }
+    },
+    {
+      "stationary": {
+        "enabled": true,
+        "muted": false,
+        "volume": 0.5,
+        "suspended": false,
+        "context": "running",
+        "footsteps": 0,
+        "material": "concrete",
+        "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+        "loaded": 1,
+        "decodedBytes": 384000,
+        "requests": 1,
+        "active": 1,
+        "reverbSeconds": 0.5291336839893999,
+        "zoneGain": 0.25199490785598755,
+        "message": "선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."
+      },
+      "moved": {
+        "enabled": true,
+        "muted": false,
+        "volume": 1,
+        "suspended": false,
+        "context": "running",
+        "footsteps": 2,
+        "material": "wood",
+        "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+        "loaded": 1,
+        "decodedBytes": 384000,
+        "requests": 1,
+        "active": 1,
+        "reverbSeconds": 0.5291336839893999,
+        "zoneGain": 0.5419114700093263,
+        "message": "선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."
+      },
+      "adjacent": {
+        "enabled": true,
+        "muted": false,
+        "volume": 1,
+        "suspended": false,
+        "context": "running",
+        "footsteps": 15,
+        "material": "carpet",
+        "roomId": "81a13be6-5974-4a50-a2ad-9b20636f0b31",
+        "loaded": 0,
+        "decodedBytes": 0,
+        "requests": 1,
+        "active": 2,
+        "reverbSeconds": 0.6057068642773799,
+        "zoneGain": 0,
+        "message": "선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."
+      },
+      "pausedAudio": {
+        "enabled": true,
+        "muted": false,
+        "volume": 1,
+        "suspended": true,
+        "context": "running",
+        "footsteps": 15,
+        "material": "carpet",
+        "roomId": "81a13be6-5974-4a50-a2ad-9b20636f0b31",
+        "loaded": 0,
+        "decodedBytes": 0,
+        "requests": 1,
+        "active": 0,
+        "reverbSeconds": 0.6057068642773799,
+        "zoneGain": 0,
+        "message": "선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."
+      }
+    },
+    {
+      "browserAuthoring": {
+        "publication": {
+          "id": "d614b38d-23b7-45e0-8d6c-448f9f7be2a5",
+          "revisionSha256": "f8308f5269fa1313011c15f7b017d759a51edd6e6ca5951686d39e107db4e469",
+          "publishedAt": "2026-10-02T08:21:30.292Z",
+          "status": "published"
+        },
+        "audioInventory": [
+          {
+            "assetId": "ef81681f-a07e-4f18-b726-ffb794ff3d77",
+            "mime": "audio/wav",
+            "url": "/api/v1/publications/d614b38d-23b7-45e0-8d6c-448f9f7be2a5/assets/ef81681f-a07e-4f18-b726-ffb794ff3d77"
+          }
+        ]
+      }
+    },
+    {
+      "microphone": {
+        "checks": [
+          "synthetic microphone actual AudioWorklet produces local bounded PCM WAV; mount is inert and upload remains explicit",
+          "synthetic microphone cancel releases capture and produces no recording upload",
+          "synthetic microphone automatically closes at60seconds, produces bounded PCM WAV and waits for explicit upload",
+          "actual browser microphone permission denial keeps PCM file fallback usable"
+        ],
+        "observations": [
+          {
+            "provider": "Chromium fake device/UI and fake input/output streams; no physical microphone or OS output",
+            "sampleRate": 48000,
+            "channels": 1,
+            "bits": 16,
+            "bytes": 166956,
+            "durationSeconds": 1.7386666666666666,
+            "requests": [
+              {
+                "method": "POST",
+                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio"
+              },
+              {
+                "method": "PUT",
+                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio/7e3276e8-3cdd-42f2-81c6-19493728ec89/bytes"
+              },
+              {
+                "method": "POST",
+                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio"
+              },
+              {
+                "method": "PUT",
+                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio/27c15433-c76d-4461-b924-c6a089015b32/bytes"
+              }
+            ],
+            "tracksStopped": true
+          },
+          {
+            "provider": "Chromium synthetic microphone; actual automatic timer/sample cap",
+            "elapsedMs": 60434.00475,
+            "maxDurationSeconds": 60,
+            "sampleRate": 48000,
+            "samples": 2877952,
+            "bytes": 5755948,
+            "tracksStopped": true,
+            "uploadOnlyAfterExplicitClick": true
+          },
+          {
+            "provider": "separate isolated browser without fake UI",
+            "channel": "chrome",
+            "browser": "154.0.8037.93",
+            "native": {
+              "calls": 1,
+              "streams": 0,
+              "errors": [
+                {
+                  "name": "NotAllowedError",
+                  "message": "Permission denied"
+                }
+              ]
+            },
+            "permission": "real Browser.setPermission denied; no mocked getUserMedia rejection",
+            "fallback": "original generated WAV selected"
+          }
+        ],
+        "limits": "Successful capture uses Chromium fake device/UI and fake input/output streams; denial uses a separate browser without fake UI. Short capture and actual60second cutoff do not qualify physical microphone, OS audio/privacy UI or device fidelity."
+      }
+    }
+  ],
+  "screenshots": [
+    "detail-sculpture.png",
+    "detail-image.png"
+  ],
+  "limits": [
+    "Production Chromium with emulated keyboard/mouse, actual Web Audio decoding and node state; physical speaker audibility, physical mobile/GPU/RSS are not qualified.",
+    "Explicit request404 and AudioContext refusal injection checks are failure controls, not successful native playback evidence."
+  ],
+  "evidenceNormalization": "Ephemeral local origins replaced with a synthetic-origin marker; screenshot paths reduced to basenames. Values and observed source/checks unchanged.",
+  "originalReportSha256": "73458a8910f74432928981702c20ee6c462705fa3946c76cc47c2c891d483589"
+}
