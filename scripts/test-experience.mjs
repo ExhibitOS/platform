@@ -346,7 +346,7 @@ try {
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID() }), 409, "AUDIO_LIMIT");
   });
   addExperience(candidate, (await json(request(actors.artist, "GET", `${audioPath}/${audio.id}`))).mediaAsset);
-  if (process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1") {
+  if (process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1" || process.env.EXHIBITOS_OPENING_ONLY === "1") {
     candidate.extensions["org.exhibitos.studio/presentation"].viewpoints = [
       { name: "Accessibility safe viewpoint", position: [0, 1.65, 1], target: [0, 1.65, -1] },
       { name: "Accessibility unsafe viewpoint", position: [-2, 1.65, 0], target: [-2, 1.65, -1] },
@@ -509,7 +509,7 @@ try {
     await assert.rejects(pool.query("UPDATE publication_media SET bytes=bytes+1 WHERE publication_id=$1", [pub.publicationId]));
   });
   let curationResult;
-  if(process.env.EXHIBITOS_ACCESSIBILITY_ONLY!=="1" && process.env.EXHIBITOS_SCRIPTING_ONLY!=="1" && process.env.EXHIBITOS_REALTIME_ONLY!=="1") {
+  if(process.env.EXHIBITOS_ACCESSIBILITY_ONLY!=="1" && process.env.EXHIBITOS_SCRIPTING_ONLY!=="1" && process.env.EXHIBITOS_REALTIME_ONLY!=="1" && process.env.EXHIBITOS_OPENING_ONLY!=="1") {
     const {runCurationBrowser}=await import('./curation-browser.mjs');
     curationResult=await runCurationBrowser({origin:browserOrigin,authoring:{tenantId:tenant,subject:"synthetic.publication.artist",password:pass,candidate:draft.candidate,wave}});
     checks.push(...curationResult.checks);console.log(JSON.stringify({curation:curationResult},null,2));
@@ -523,6 +523,11 @@ try {
     const {runRealtimeQualification}=await import('./realtime-qualification.mjs');
     const realtimeResult=await runRealtimeQualification({origin:browserOrigin,publicationId:pub.publicationId,projection,revoke:()=>setRevoked(true),restore:()=>setRevoked(false)});
     checks.push(...realtimeResult.checks);console.log(JSON.stringify({realtime:realtimeResult},null,2));
+  }
+  if(process.env.EXHIBITOS_OPENING_ONLY === "1") {
+    const {runOpeningQualification}=await import('./opening-qualification.mjs');
+    const openingResult=await runOpeningQualification({origin:browserOrigin,publicationId:pub.publicationId,projection,tenantId:tenant,actors,revoke:()=>setRevoked(true),restore:()=>setRevoked(false),hostRole:async role=>{await pool.query('UPDATE memberships SET role=$1 WHERE tenant_id=$2 AND user_id=$3',[role,tenant,actors.artist.userId]);}});
+    checks.push(...openingResult.checks);console.log(JSON.stringify({opening:openingResult},null,2));
   }
   await test("quiesced database dump restores audio approvals and publication media into separate database with retained blobs", async () => {
     const target = `experience_restore_${randomUUID().replaceAll("-", "")}`;
@@ -552,7 +557,7 @@ try {
     console.log("RESTORE SCOPE: isolated database dump, exact rows and publication bytes against retained original FileBlobStore; not a standalone blob backup or production recovery point.");
   });
   const accessibilityOnly = process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1";
-  if(process.env.EXHIBITOS_CURATION_ONLY!=="1" && process.env.EXHIBITOS_SCRIPTING_ONLY!=="1" && process.env.EXHIBITOS_REALTIME_ONLY!=="1") {
+  if(process.env.EXHIBITOS_CURATION_ONLY!=="1" && process.env.EXHIBITOS_SCRIPTING_ONLY!=="1" && process.env.EXHIBITOS_REALTIME_ONLY!=="1" && process.env.EXHIBITOS_OPENING_ONLY!=="1") {
   const { runExperienceBrowser } = await import(accessibilityOnly ? "./accessibility-browser.mjs" : "./experience-browser.mjs");
   const result = await runExperienceBrowser({ origin: browserOrigin, publicationId: pub.publicationId,
     projection, fixture: fixture.geometry, authoring: { tenantId: tenant, subject: "synthetic.publication.artist", password: pass, candidate: draft.candidate, wave }, revoke: () => setRevoked(true), restore: () => setRevoked(false) });

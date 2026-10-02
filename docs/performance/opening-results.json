@@ -1,0 +1,47 @@
+{
+  "checks": [
+    "actual PostgreSQL authorization denies viewer and unrelated artist host grants",
+    "current owning artist host grant is one-use and guests cannot begin a session",
+    "chat consent, host-only reports, guide and meet invitations use public authored viewpoints",
+    "role revocation invalidates actual live host authority and ends voice",
+    "two production browsers default solo and explicitly join as server-authorized host and guest",
+    "production chat and guide/meet consent controls retain readable solo fallback",
+    "production voice consent and microphone establish real RTC; host mute and peer block close media",
+    "production explicit leave closes microphone and returns to independent solo viewing",
+    "current publication revocation closes production session without private bytes"
+  ],
+  "scope": "Actual PostgreSQL production API, WebSockets and two installed Chrome UI contexts with fake microphone and actual RTC; no physical microphone/WAN/TURN/screen-reader qualification",
+  "nativeCandidate": {
+    "adapter": "Native RTCPeerConnection direct mesh; empty ICE servers",
+    "peers": 2,
+    "elapsedMs": 721.0735,
+    "observations": [
+      {
+        "connected": "connected",
+        "receivedAudioBytes": 717,
+        "codecs": [
+          "audio/opus",
+          "audio/opus"
+        ]
+      },
+      {
+        "connected": "connected",
+        "receivedAudioBytes": 1220,
+        "codecs": [
+          "audio/opus",
+          "audio/opus"
+        ]
+      }
+    ],
+    "scope": "Synthetic fake microphone; actual getUserMedia, loopback DTLS/Opus and decoded waveform; no physical microphone/WAN/TURN/audibility claim"
+  },
+  "validation": {
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "check": "47 test files,255 unit tests,10 public consumer tests;types/lint/build11notices PASS",
+    "e2e": "3 PASS",
+    "browserAudio": "both production HTMLAudio streams decoded nonzero waveform; actual fake getUserMedia tracks ended on mute/leave; real WS reconnect retains identity but no automatic mic",
+    "guide": "no camera movement without follow consent; explicit accept reaches authored grounded paused pose",
+    "database": "10 migrations and quiesced DB restoration into separate DB with retained blobs"
+  }
+}
