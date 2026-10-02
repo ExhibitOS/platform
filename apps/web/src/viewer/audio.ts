@@ -112,6 +112,7 @@ export class ExhibitionAudio implements AudioApi {
   private visible = true;
   private moving = false;
   private audible = false;
+  private emittedZoneGain = 0;
   private loadQueue: Promise<unknown> = Promise.resolve();
   private availabilityTimer?: ReturnType<typeof setInterval>;
   private detail = false;
@@ -134,6 +135,7 @@ export class ExhibitionAudio implements AudioApi {
     this.state.decodedBytes = [...this.buffers.values()].reduce((n, b) => n + b.length * b.numberOfChannels * 4, 0);
     this.state.active = this.playing.size;
     this.state.suspended = !this.visible || !this.audible;
+    this.emittedZoneGain=this.state.zoneGain;
     this.changed(this.snapshot());
   }
   /** Must be called synchronously from the opt-in click, never from mount/effect. */
@@ -196,7 +198,9 @@ export class ExhibitionAudio implements AudioApi {
         const p = this.worldPosition(zone.roomId, zone.position);
         const gain=zone.roomId === this.room ? zone.volume * distanceGain(Math.hypot(...p.map((v, i) => v - this.position[i]!)), zone.radius) : 0;
         this.zone.gain.gain.setValueAtTime(gain, now);
-        if(Math.abs(gain-this.state.zoneGain)>0.005) {this.state.zoneGain=gain;this.emit();}
+        const previousGain=this.state.zoneGain;
+        this.state.zoneGain=gain;
+        if(Math.abs(gain-this.emittedZoneGain)>0.005 || (gain===0 && previousGain!==0) || (gain!==0 && previousGain===0)) this.emit();
       }
     }
   }

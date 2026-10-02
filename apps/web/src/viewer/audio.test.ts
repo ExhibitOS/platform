@@ -142,3 +142,23 @@ test("displacement-triggered footsteps cap long custom WAV playback and retain s
     assert.deepEqual(calls,[[0,0,custom?0.2:0.19]]);
   }
 });
+
+test("zone diagnostics follow actual gain at small changes and announce exact cross-room silence",()=>{
+  const {id,runtime}=voiceRuntime();
+  const internal=runtime as unknown as {state:{enabled:boolean;zoneGain:number};context:AudioContext;publication:import("../publication-client").PublicPublication;room:string;zone:{id:string;gain:GainNode}};
+  const gains:number[]=[];
+  const parameter=()=>({setValueAtTime:()=>{}});
+  internal.context={currentTime:0,listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()}} as unknown as AudioContext;
+  internal.state.enabled=true;
+  internal.publication.exhibition.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:1,volume:1,autoplay:false,transcript:"Synthetic zone"}];
+  internal.room=id;
+  internal.zone={id,gain:{gain:{setValueAtTime:(value:number)=>{gains.push(value);}}} as unknown as GainNode};
+  runtime.update(state(.95,{eyePosition:[.95,0,0]}));
+  assert(Math.abs(runtime.snapshot().zoneGain-.0025)<1e-12);
+  runtime.update(state(.96,{eyePosition:[.96,0,0]}));
+  assert(Math.abs(runtime.snapshot().zoneGain-.0016)<1e-12);
+  internal.room="another-room";
+  runtime.update(state(.96,{eyePosition:[.96,0,0]}));
+  assert.equal(gains.at(-1),0);
+  assert.equal(runtime.snapshot().zoneGain,0);
+});
