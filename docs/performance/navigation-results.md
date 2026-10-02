@@ -18,7 +18,7 @@ Production browser checks cover explicit lazy physics entrance, pause/resume pos
 
 ## Remaining native gate
 
-[Native refusal evidence](navigation-native-capture.json) records real WrongDocumentError in independent minimal pages and production, using bundled headless/headed Chromium and isolated standard Chrome154. A subsequent native computer-use observation reported the Mac locked; this is environment evidence, not a proven explanation for every refusal. Unlock and actual foreground capture/mouse/Esc testing remain necessary. Mocked request promises and injected events cannot replace native acquisition. Keyboard/touch/stationary alternatives are implemented and tested independently.
+[Native refusal evidence](navigation-native-capture.json) records real WrongDocumentError in independent minimal pages and production, using bundled headless/headed Chromium and isolated standard Chrome154. A subsequent native computer-use observation reported the Mac locked; this is environment evidence, not a proven explanation for every refusal. The Oct02 foreground observations below update the unlock condition; full native capture/mouse/Esc qualification remains necessary. Mocked request promises and injected events cannot replace native acquisition. Keyboard/touch/stationary alternatives are implemented and tested independently.
 
 The [protocol](navigation-protocol.md), [usage and geometry limits](../viewer-navigation.md) and [ADR0010](../adr/0010-viewer-first-person-collision.md) define supported scope. Floor apertures, non-supported transforms/complexity and arbitrary curved/stair spaces are not silently certified. No API/migration/hosted workflow change or private dependency is introduced.
 
@@ -38,3 +38,24 @@ mouse yaw change and Escape unlock/pause. It launches no browser and expires
 after five minutes. Writing `{"complete":true}` to the printed completion path
 requests cleanup only; it never asserts native success. These adapters do not
 remove the pending native gate or change the production implementation.
+
+## Oct02 foreground observation
+
+At actual product source `6c9dd1d78e6d7b7cabd323fbe550b4e7ec376e2b`,
+normal Chrome native app access confirmed an unlocked desktop. The approved
+synthetic production fixture passed its two publication checks and all four
+anonymous asset hash/revision-header checks. Native capture clicks displayed
+Chrome's cursor/Esc banner twice. Two native app drags left actual camera yaw
+unchanged, so mouse look remains unqualified; neither an input-adapter limitation
+nor a product defect has been established as the cause. Native Escape paused the
+actual controller, with zero velocity and explicit resume. The final UI was left
+paused. [Raw DOM/controller observations](navigation-native-foreground.json)
+retain the unsuccessful movement result and the limits of DOM-scope pointer-lock
+inspection. Physical relative-mouse qualification is still required before
+acceptance. No injected native success or operator-cleanup pass is claimed.
+
+The only product changes from the previous tested physics/input code are two
+Viewer/Studio explanatory paragraphs: Viewer collision/limited-step support and
+stationary fallback are distinguished from authoring preview limitations. Actual
+typecheck/lint/build and normal-Chrome DOM/screenshot checks passed for these
+paragraphs; the earlier full suite was not rerun or claimed at this latest head.
