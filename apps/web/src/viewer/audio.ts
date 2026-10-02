@@ -29,7 +29,7 @@ export interface AudioApi {
 interface Experience {
   footsteps: Array<{ surfaceId: string; material: string; assetId?: string }>;
   rooms: Array<{ roomId: string; reverb: number }>;
-  voices: Array<{ assetId: string }>;
+  voices: Array<{ assetId: string; placementId: string }>;
 }
 const MAX_DECODED = 24 * 1024 * 1024;
 /** Each original, deterministic waveform is synthesized locally; no recordings or network assets. */
@@ -76,7 +76,8 @@ export function verifyPcmWav(bytes: ArrayBuffer) {
   const view=new DataView(bytes), tag=(at:number)=>String.fromCharCode(...new Uint8Array(bytes,at,4));
   if(bytes.byteLength<44||bytes.byteLength>12*1024*1024||tag(0)!=="RIFF"||tag(8)!=="WAVE"||view.getUint32(4,true)!==bytes.byteLength-8)throw Error("AUDIO_WAV_INVALID");
   let format: {channels:number;rate:number;align:number}|undefined, data=0;
-  for(let at=12;at+8<=bytes.byteLength;) {
+  for(let at=12;at<bytes.byteLength;) {
+    if(at+8>bytes.byteLength)throw Error("AUDIO_WAV_INVALID");
     const size=view.getUint32(at+4,true), end=at+8+size;
     if(end>bytes.byteLength)throw Error("AUDIO_WAV_INVALID");
     if(tag(at)==="fmt ") {
@@ -84,7 +85,8 @@ export function verifyPcmWav(bytes: ArrayBuffer) {
       const channels=view.getUint16(at+10,true), rate=view.getUint32(at+12,true), align=view.getUint16(at+20,true);
       if(channels<1||channels>2||rate<8000||rate>48000||align!==channels*2||view.getUint32(at+16,true)!==rate*align)throw Error("AUDIO_WAV_INVALID");
       format={channels,rate,align};
-    } else if(tag(at)==="data") { if(data||size===0)throw Error("AUDIO_WAV_INVALID");data=size; }
+    } else if(tag(at)==="data") { if(!format||data||size===0)throw Error("AUDIO_WAV_INVALID");data=size; }
+    else throw Error("AUDIO_WAV_INVALID");
     at=end+(size%2);
     if(at>bytes.byteLength)throw Error("AUDIO_WAV_INVALID");
   }
@@ -137,7 +139,7 @@ export class ExhibitionAudio implements AudioApi {
   async enable() {
     if (this.disposed) return;
     try {
-      this.context ??= new AudioContext();
+      this.context ??= new AudioContext({sampleRate:48000});
       if (!this.master) {
         this.master = this.context.createGain();
         this.master.connect(this.context.destination);
@@ -223,6 +225,7 @@ export class ExhibitionAudio implements AudioApi {
     const doc = this.publication.exhibition, index = doc.rooms.findIndex(r => r.id === id);
     const rooms = new Set([id, doc.rooms[index + 1]?.id].filter(Boolean));
     this.allowed = new Set(doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId));
+    for(const voice of this.experience.voices) {const placement=doc.placements.find(p=>p.id===voice.placementId);if(placement&&rooms.has(placement.roomId))this.allowed.add(voice.assetId);}
     for (const entry of this.experience.footsteps) { const surface = doc.surfaces.find(s => s.id === entry.surfaceId); if (entry.assetId && surface && rooms.has(surface.roomId)) this.allowed.add(entry.assetId); }
     for (const [key] of this.buffers) if (!this.allowed.has(key) && this.voice?.buffer !== this.buffers.get(key)) this.buffers.delete(key);
     if (this.context && this.convolver && this.wet) {
