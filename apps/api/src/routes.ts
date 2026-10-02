@@ -1,5 +1,6 @@
 import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import { Publications } from './publication.ts';
+import { registerRealtime } from './realtime.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
@@ -101,6 +102,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
  for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
  const publications=new Publications(pool,store);
+ registerRealtime(app,{origin:settings.origin,publication:async id=>await publications.anonymous(id) as import('./realtime.ts').RealtimePublication});
  app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
  app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));

@@ -1,3 +1,6 @@
+import { ExhibitionPresence, advancePresenceFrame, type RealtimeState } from "./viewer/realtime";
+import { RealtimeControls } from "./viewer/RealtimeControls";
+import type { RealtimeScene } from "./GeometryPreview";
 import { spatialProgramFor, spatialScopeFor, experienceFor } from "@exhibitos/studio-contract";
 import { ScriptSession, type ScriptScene, type ScriptState } from "./viewer/scripting";
 import { ScriptEdges } from "./viewer/scripting-events";
@@ -70,6 +73,20 @@ export function Viewer({
   },[publication,scriptProgram]);
   useEffect(()=>{if(suspendNavigation)script.current?.stop();},[suspendNavigation]);
   const startScript=()=>{if(suspendNavigation||document.visibilityState!=='visible'||!scriptScene.current)return;scriptEdges.current=new ScriptEdges(publication.exhibition);void script.current?.start(performance.now(),Date.now());};
+  const presence=useRef<ExhibitionPresence|null>(null),presenceScene=useRef<RealtimeScene|null>(null),presencePose=useRef<{roomId:string;position:[number,number,number];yaw:number}|null>(null);
+  const [presenceState,setPresenceState]=useState<RealtimeState|null>(null);
+  const presenceReduced=useRef(reducedMotion??matchMedia("(prefers-reduced-motion: reduce)").matches);if(reducedMotion!==undefined)presenceReduced.current=reducedMotion;
+  const presenceSuspended=useRef(suspendNavigation);presenceSuspended.current=suspendNavigation;
+  useEffect(()=>{if(publication.local)return;
+    const runtime=new ExhibitionPresence({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,roomIds:new Set(publication.exhibition.rooms.map(r=>r.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:state=>{setPresenceState(state);if(state.status!=='joined')presenceScene.current?.clear();}});
+    presence.current=runtime;setPresenceState(runtime.snapshot());
+    const leave=()=>{runtime.leave();presenceScene.current?.clear();},visibility=()=>{if(document.visibilityState!=='visible')leave();};
+    document.addEventListener('visibilitychange',visibility);
+    const timer=setInterval(()=>{if(presenceSuspended.current||document.visibilityState!=='visible')return;advancePresenceFrame(runtime,presenceScene.current,presencePose.current,presenceReduced.current);},50);
+    return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visibility);runtime.dispose();presenceScene.current?.clear();presence.current=null;};
+  },[publication]);
+  useEffect(()=>{if(suspendNavigation){presence.current?.leave();presenceScene.current?.clear();}},[suspendNavigation]);
+  const capturePresencePose=(position:[number,number,number],yaw:number)=>{const room=publication.exhibition.rooms.find(r=>{const p=position.map((v,i)=>v-r.transform.position[i]!),[x,y,z,w]=r.transform.rotation,tx=2*(-y*p[2]!+z*p[1]!),ty=2*(-z*p[0]!+x*p[2]!),tz=2*(-x*p[1]!+y*p[0]!),a=p[0]!+w*tx-y*tz+z*ty,b=p[1]!+w*ty-z*tx+x*tz,c=p[2]!+w*tz-x*ty+y*tx;return Math.abs(a)<=r.dimensions.width/2&&Math.abs(c)<=r.dimensions.depth/2&&b>=0&&b<=r.dimensions.height;});presencePose.current=room?{roomId:room.id,position:[...position],yaw}:null;};
   const [profile, setProfile] = useState<"auto" | "compact" | "desktop">(
     "auto",
   );
@@ -120,15 +137,18 @@ export function Viewer({
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
         guideRequest={guideRequest}
+        onPresencePose={publication.local?undefined:capturePresencePose}
+        onPresenceSceneReady={publication.local?undefined:scene=>{presenceScene.current=scene;}}
         onScriptSceneReady={scriptProgram.rules.length?scene=>{if(!scene)script.current?.stop();scriptScene.current=scene;}:undefined}
         onScriptPose={scriptProgram.rules.length?(position,forward)=>{scriptPose.current={position,forward};}:undefined}
         onScriptClick={scriptProgram.rules.length?id=>script.current?.event({type:'artwork_click',placementId:id},performance.now(),Date.now()):undefined}
         reducedMotion={reducedMotion}
-        onReducedMotionChange={onReducedMotionChange}
+        onReducedMotionChange={value=>{presenceReduced.current=value;onReducedMotionChange?.(value);}}
         onNavigationState={state => audio.current?.update(state)}
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
+      <RealtimeControls state={presenceState} offline={!!publication.local} join={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.join();}} retry={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.retry();}} leave={()=>{presence.current?.leave();presenceScene.current?.clear();}}/>
       <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
       {scriptProgram.rules.length>0&&<ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>}
       <p className="cms-note">

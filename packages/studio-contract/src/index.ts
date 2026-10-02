@@ -232,3 +232,5 @@ export * from "./scripting.js";
 export * from "./scripting-runtime.js";
 
 export * from "./scripting-profile.js";
+
+export * from "./realtime.js";

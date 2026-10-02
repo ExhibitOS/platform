@@ -1,3 +1,4 @@
+import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +24,7 @@ import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
 
 type Document = Draft["candidate"];
+export interface RealtimeScene { update: (visitors:readonly PresenceVisitor[])=>void; clear:()=>void }
 export interface SurfaceAppearance {
   baseColor: [number, number, number];
   roughness: number;
@@ -112,6 +114,8 @@ export function GeometryPreview({
   onScriptSceneReady,
   onScriptPose,
   onScriptClick,
+  onPresenceSceneReady,
+  onPresencePose,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -127,6 +131,8 @@ export function GeometryPreview({
   onScriptSceneReady?: (scene:ScriptScene|null)=>void;
   onScriptPose?: (position:[number,number,number],forward:[number,number,number])=>void;
   onScriptClick?: (placementId:string)=>void;
+  onPresenceSceneReady?: (scene:RealtimeScene|null)=>void;
+  onPresencePose?: (position:[number,number,number],yaw:number)=>void;
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
   publicSource?: {
@@ -149,8 +155,8 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
-  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick });
-  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick };
+  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
+  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
   const suspendedWasWalking = useRef(false);
@@ -484,6 +490,7 @@ export function GeometryPreview({
         if (!disposed && !gpuLost) {
           const at = performance.now();
           renderer.render(scene, camera);
+          navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
           navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           if (trace.started)
@@ -494,6 +501,12 @@ export function GeometryPreview({
             });
         }
       };
+      const remoteAvatars=new Map<string,InstanceType<typeof three.Group>>();
+      let avatarResources:{body:InstanceType<typeof three.CapsuleGeometry>;head:InstanceType<typeof three.SphereGeometry>;nose:InstanceType<typeof three.BoxGeometry>;material:InstanceType<typeof three.MeshBasicMaterial>}|undefined;
+      const avatarAssets=()=>{if(!avatarResources){avatarResources={body:new three.CapsuleGeometry(.14,.8,4,8),head:new three.SphereGeometry(.16,8,6),nose:new three.BoxGeometry(.07,.05,.08),material:new three.MeshBasicMaterial({color:0x987aee})};owned.push(avatarResources.body,avatarResources.head,avatarResources.nose,avatarResources.material);}return avatarResources;};
+      const presenceDiagnostics=()=>{renderer.domElement.dataset.realtimeAvatars=JSON.stringify([...remoteAvatars].map(([visitorId,group])=>({visitorId,position:group.position.toArray(),yaw:group.rotation.y})));};
+      const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
+      presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -1337,6 +1350,7 @@ export function GeometryPreview({
         );
     });
     return () => {
+      navigationCallbacks.current.onPresenceSceneReady?.(null);
       navigationCallbacks.current.onScriptSceneReady?.(null);
       disposed = true;
       abort.abort();
