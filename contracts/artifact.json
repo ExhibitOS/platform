@@ -1,14 +1,14 @@
 {
   "package": "@exhibitos/spec",
-  "packageVersion": "0.1.0-draft.1",
+  "packageVersion": "0.1.0-draft.2",
   "contractVersion": "1.0.0-draft.1",
   "stability": "draft",
-  "file": "vendor/exhibitos-spec-0.1.0-draft.1-8d0c41c8d787.tgz",
-  "bytes": 66715,
-  "sha256": "8d0c41c8d787a612fcf38b80589e9225e8458b611cce36419987b503df4aeaec",
+  "file": "vendor/exhibitos-spec-0.1.0-draft.2-164525a8cbcf.tgz",
+  "bytes": 82477,
+  "sha256": "164525a8cbcf4f81dbf16d119fdf37f614aaaa9bbc9c362f2723348753bea154",
   "upstreamRepository": "https://github.com/ExhibitOS/spec",
-  "upstreamSourceCommit": "8ee5741860b626448dcba0c82657de6621e1c058",
-  "upstreamTag": null,
+  "upstreamSourceCommit": "312f870167e1e47efa935d65cad81f5943212651",
+  "upstreamTag": "spec-package-v0.1.0-draft.2",
   "licenseMapping": {
     "codeSchemasMetadataDocumentation": "Apache-2.0",
     "originalSyntheticAssets": "CC0-1.0",
@@ -18,8 +18,13 @@
     "fixtures/synthetic/sculpture.glb",
     "fixtures/synthetic/painting.png",
     "fixtures/synthetic/reference-scene.json",
-    "fixtures/synthetic/manifest.json"
+    "fixtures/synthetic/manifest.json",
+    "fixtures/synthetic/audio.wav"
   ],
-  "proposedTag": "spec-package-v0.1.0-draft.1",
-  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.1.tgz"
+  "proposedTag": "spec-package-v0.1.0-draft.2",
+  "upstreamArtifactName": "exhibitos-spec-0.1.0-draft.2.tgz",
+  "oexContractVersions": [
+    "1.0.0-draft.1",
+    "1.0.0-draft.2"
+  ]
 }

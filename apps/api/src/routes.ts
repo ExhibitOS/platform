@@ -3,11 +3,12 @@ import { Publications } from './publication.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
+import { Oex, MAX_OEX_UPLOAD, type OexInput } from './oex.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false) {
  const settings=config(input), auth=new Auth(pool);
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
@@ -55,6 +56,23 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
  app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
+ const oex=store?new Oex(pool,store):null;
+ const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
+ const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
+ app.post(`${sp}/:id/oex/export`,{schema:{body:object({})}},call(true,async(c,s,req,reply)=>{const bytes=await requireOex().export(c,s,jobId(req),requiredMatch(req.headers['if-match']));return reply.header('content-type','application/vnd.exhibitos.oex+zip').header('content-disposition','attachment; filename="exhibition.oex"').send(bytes);}));
+ app.get(op,call(false,async(c,s)=>requireOex().list(c,s)));
+ app.post(op,{schema:{body:object({requestId:id,bytes:{type:'integer',minimum:1,maximum:MAX_OEX_UPLOAD},sha256:{...str,pattern:'^[a-f0-9]{64}$'}})}},call(true,async(c,s,req,reply)=>{reply.code(201);return requireOex().create(c,s,req.body as OexInput);}));
+ app.get(`${op}/:id`,call(false,async(c,s,req)=>requireOex().view(await requireOex().access(c,s,jobId(req)))));
+ app.put(`${op}/:id/bytes`,{bodyLimit:MAX_OEX_UPLOAD},call(true,async(c,s,req)=>{if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return requireOex().upload(c,s,jobId(req),req.body);}));
+ app.post(`${op}/:id/complete`,{schema:{body:object({})}},call(true,async(c,s,req)=>requireOex().complete(c,s,jobId(req))));
+ for(const action of ['retry','cancel'] as const)app.post(`${op}/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>requireOex().action(c,s,jobId(req),action)));
+ if(oexWorker&&oex){
+  let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
+  const tick=async()=>{try{await oex.runNext();}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM oex_import_jobs LIMIT 0');running=tick();});
+  app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
+ }
+
  const audio=new Audio(store),ap=`${sp}/:id/audio`;
  const audioParams=(req:FastifyRequest)=>req.params as {id:string;audioId:string};
  app.get(ap,call(false,async(c,s,req)=>audio.list(c,s,audioParams(req).id)));
@@ -73,7 +91,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const cms=new Cms(store),cp=`${prefix}/cms`;
  app.get(`${prefix}/studio/artworks/:id`,call(false,async(c,s,req)=>cms.studioArtwork(c,s,cmsId(req))));
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};
- const fields={medium:{...str,minLength:1,maxLength:512},creationYear:{type:'integer',minimum:1,maximum:9999},title:{...str,minLength:1,maxLength:512},description:{...str,maxLength:16384},dimensions:object({width:{type:'number',exclusiveMinimum:0,maximum:1000000},height:{type:'number',exclusiveMinimum:0,maximum:1000000},depth:{type:'number',exclusiveMinimum:0,maximum:1000000},unit:{const:'m'}}),rights:{type:'object'},provenance:object({source:{enum:['human-authored','ai-assisted','ai-generated']},sourceUnits:{enum:['m','cm','mm']},scaleApplied:{type:'boolean'},notes:{...str,maxLength:4096}})};
+ const fields={medium:{...str,minLength:1,maxLength:512},creationYear:{type:'integer',minimum:1,maximum:9999},title:{...str,minLength:1,maxLength:512},description:{...str,maxLength:16384},dimensions:object({width:{type:'number',exclusiveMinimum:0,maximum:1000000},height:{type:'number',exclusiveMinimum:0,maximum:1000000},depth:{type:'number',exclusiveMinimum:0,maximum:1000000},unit:{const:'m'}},['width','height','unit']),rights:{type:'object'},provenance:object({source:{enum:['human-authored','ai-assisted','ai-generated','synthetic']},sourceUnits:{enum:['m','cm','mm']},scaleApplied:{type:'boolean'},notes:{...str,maxLength:4096}})};
  const cmsId=(req:FastifyRequest)=>{const p=req.params as {id:string};uuid(p.id);return p.id;};
  app.post(`${cp}/artists`,{schema:{body:object({...artistBody,userId:{anyOf:[id,{type:'null'}]}},['name','bio'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtist(c,s,req.body as {name:string;bio:string;userId?:string|null});}));
  app.get(`${cp}/artists`,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100},archived:{enum:['true','false']}},[])}},call(false,async(c,s,req)=>cms.list(c,s,'artists',req.query as Record<string,string>)));

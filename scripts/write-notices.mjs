@@ -47,7 +47,7 @@ for (const name of packages) {
   );
 }
 notices.push(
-  "\n--- @exhibitos/spec 0.1.0-draft.1 browser document validators/schemas (Apache-2.0) ---\nCopyright 2026 ExhibitOS contributors\nDocument-only browser adaptation; original package bytes are pinned in vendor/.\n" +
+  "\n--- @exhibitos/spec 0.1.0-draft.2 browser document validators/schemas (Apache-2.0) ---\nCopyright 2026 ExhibitOS contributors\nDocument-only browser adaptation; original package bytes are pinned in vendor/.\n" +
     (await readFile("node_modules/@exhibitos/spec/LICENSE", "utf8")),
 );
 await mkdir("apps/web/public", { recursive: true });

@@ -40,7 +40,8 @@
     "test:navigation": "npm run build && node scripts/test-navigation.mjs",
     "test:viewer": "npm run build && node --test scripts/viewer-variants.test.mjs && node scripts/test-viewer.mjs",
     "test:experience": "npm run build && node scripts/test-experience.mjs",
-    "test:accessibility": "npm run build && EXHIBITOS_ACCESSIBILITY_ONLY=1 node scripts/test-experience.mjs"
+    "test:accessibility": "npm run build && EXHIBITOS_ACCESSIBILITY_ONLY=1 node scripts/test-experience.mjs",
+    "test:oex": "npm run build && node scripts/test-oex.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -50,7 +51,8 @@
     "globals": "17.12.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.0",
-    "vitest": "5.0.3"
+    "vitest": "5.0.3",
+    "@exhibitos/spec": "file:vendor/exhibitos-spec-0.1.0-draft.2-164525a8cbcf.tgz"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {

@@ -52,8 +52,8 @@ export function OexPanel({session,record,dirty,disabled,onImported}:{session:Ses
     <ul className="cms-list">{jobs.map(job=><li key={job.id}><span>작업 {job.id} · {job.state}{job.errorCode?` · ${job.errorCode}`:''}</span>
       <div className="cms-actions">
         {job.state==='failed'&&<button onClick={()=>void work(async()=>{if(!session)return;await oexRequest(`${oexPath(session)}/${job.id}/retry`,session,'POST',{});await refresh();})}>가져오기 재시도</button>}
-        {!['completed','ready','cancelled'].includes(job.state)&&<button onClick={()=>void work(async()=>{if(!session)return;await oexRequest(`${oexPath(session)}/${job.id}/cancel`,session,'POST',{});await refresh();})}>가져오기 취소</button>}
-        {job.result&&<button disabled={dirty} onClick={()=>void work(async()=>{if(job.result){await onImported(job.result);if(active())setNotice('가져온 전시를 새 로컬 사본으로 열었습니다. 공개하려면 별도로 READY 검사와 공개를 실행하세요.');}})}>가져온 전시 열기</button>}
+        {!['complete','cancelled'].includes(job.state)&&<button onClick={()=>void work(async()=>{if(!session)return;await oexRequest(`${oexPath(session)}/${job.id}/cancel`,session,'POST',{});await refresh();})}>가져오기 취소</button>}
+        {job.state==='complete'&&<button disabled={dirty} onClick={()=>void work(async()=>{if(!session)return;const completed=await oexRequest<OexJob>(`${oexPath(session)}/${job.id}`,session);if(!active())return;if(completed.result){await onImported(completed.result);if(active())setNotice('가져온 전시를 새 로컬 사본으로 열었습니다. 공개하려면 별도로 READY 검사와 공개를 실행하세요.');}})}>가져온 전시 열기</button>}
       </div></li>)}</ul>
     {dirty&&<p>현재 미저장 입력을 보존하기 위해 전시 열기와 내보내기를 잠시 막았습니다. 먼저 로컬·서버 저장을 완료하세요.</p>}
   </fieldset>;

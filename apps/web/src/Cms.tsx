@@ -1026,6 +1026,7 @@ export function Cms() {
                       </p>
                       <fieldset>
                         <legend>실제 치수 (미터)</legend>
+                        <p className="cms-note">이미지의 깊이를 기록하지 않았다면 비워 두세요. 3D 모델 승인에는 깊이가 필요합니다.</p>
                         <div className="cms-dimensions">
                           {(
                             [
@@ -1039,17 +1040,17 @@ export function Cms() {
                               <input
                                 aria-label={label}
                                 type="number"
-                                required
+                                required={key !== "depth"}
                                 min="0.000001"
                                 max="1000000"
                                 step="any"
-                                value={metadata.dimensions[key]}
+                                value={metadata.dimensions[key] ?? ""}
                                 onChange={(e) =>
                                   setMetadata({
                                     ...metadata,
                                     dimensions: {
                                       ...metadata.dimensions,
-                                      [key]: Number(e.target.value),
+                                      [key]: key === "depth" && e.target.value === "" ? undefined : Number(e.target.value),
                                     },
                                   })
                                 }
@@ -1085,6 +1086,7 @@ export function Cms() {
                             <option value="human-authored">사람이 제작</option>
                             <option value="ai-assisted">AI 보조</option>
                             <option value="ai-generated">AI 생성</option>
+                            <option value="synthetic">합성 예제</option>
                           </select>
                         </label>
                         <label>

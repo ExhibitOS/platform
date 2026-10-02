@@ -3,7 +3,7 @@ import { RequestError } from './cms-client';
 import type { Draft } from './drafts/store';
 export const MAX_OEX_BYTES = 64 * 1024 * 1024;
 export interface OexResult { revision:number; etag:string; draft:Draft }
-export interface OexJob { id:string; state:string; errorCode:string|null; result?:OexResult|null }
+export interface OexJob { id:string; state:string; errorCode:string|null; result?:OexResult|null; exhibitionId?:string|null }
 export const oexPath = (session:Session) => `/api/v1/tenants/${session.tenantId}/oex/imports`;
 export async function oexRequest<T>(path:string,session:Session,method='GET',body?:unknown,etag?:string):Promise<T> {
   const binary=body instanceof ArrayBuffer;

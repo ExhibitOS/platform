@@ -1,8 +1,7 @@
 # Public draft contract consumer
 
 This repository vendors an immutable public `@exhibitos/spec` npm tarball for
-Node-only development checks. Package version 0.1.0-draft.1 and format contract
-version 1.0.0-draft.1 are distinct; neither is stable. Provenance, bytes, SHA-256,
+Node-only development checks. Package version 0.1.0-draft.2 supports OES/OED1.0.0-draft.1 and OEX1.0.0-draft.1/draft.2; neither is stable. Provenance, bytes, SHA-256,
 upstream commit and license mapping are recorded in [artifact.json](artifact.json).
 The original license texts remain inside the archive and installed package.
 
@@ -36,3 +35,5 @@ package to make a consumer pass. Breaking changes require coordinated schema,
 fixture and consumer migration with compatibility evidence. Original synthetic
 assets listed by upstream are CC0; other code/schema/documentation is Apache-2.0.
 These licenses do not grant rights to actual user artworks or private Capture code.
+
+OEX media draft.2 adds bounded validated read/write and PCM16 WAV without changing OES or old OEX schema/example bytes. The public release tag and downloaded artifact hash are pinned in artifact.json. Previous draft.1 tarball remains retained for rollback; reverting the dependency cannot undo imported DB/data changes.
