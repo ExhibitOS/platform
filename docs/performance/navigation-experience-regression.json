@@ -1,0 +1,2938 @@
+{
+  "source": "6e5d490037e5a91b9a6adb3c5ddfdf74d4beecd9",
+  "browser": "153.0.8010.12",
+  "headed": false,
+  "channel": "bundled-chromium",
+  "captureInputProvider": "Playwright CDP",
+  "nativeCaptureQualification": "Strict native acquisition check unless explicitly excluded by named filter; excluded checks are not passes.",
+  "filter": "^(?!browser pointer lock)",
+  "dirtySource": "",
+  "fixture": {
+    "start": [
+      0,
+      1.65,
+      3
+    ],
+    "roomBounds": {
+      "x": [
+        -4,
+        4
+      ],
+      "z": [
+        -12,
+        4
+      ]
+    },
+    "door": {
+      "center": [
+        0,
+        1.25,
+        -4
+      ],
+      "width": 1.4,
+      "height": 2.5
+    },
+    "window": {
+      "center": [
+        2,
+        2,
+        -4
+      ],
+      "width": 1.4,
+      "height": 0.8
+    },
+    "sculpture": {
+      "center": [
+        -2,
+        0.5,
+        0
+      ],
+      "dimensions": [
+        1,
+        1,
+        1
+      ],
+      "yaw": 0.7853981633974483
+    },
+    "standingBody": {
+      "height": 1.75,
+      "radius": 0.25
+    }
+  },
+  "checks": [
+    "qualified artwork entrance is usable before physics is requested; explicit walking initializes safe first-person controller",
+    "actual focused WASD speeds accelerate, decelerate and pause/resume at the current position",
+    "held movement loses canvas focus on settings; eye height changes preserve feet and fixed body clearance",
+    "reduced-motion setting removes look interpolation without forced camera motion",
+    "actual room wall and rotated artwork collision prevent penetration at maximum speed",
+    "real door cutout permits adjacent-room crossing; solid outer boundary retains grounded in-bounds camera",
+    "lowering eye height cannot pass the raised narrow window",
+    "injected pointer-lock refusal keeps visible fallback and focused keyboard look usable",
+    "window-blur and hidden lifecycle handler injections clear movement and require explicit resume",
+    "stationary mode and quality replacement stop walking and dispose physics/input resources",
+    "missing approved artwork bytes retain physical collision bounds and the keyboard/list alternative",
+    "invalid spawn fails closed with stationary/list alternative",
+    "narrow real two-pointer touch moves and looks independently; release and cancellation do not leave movement held"
+  ],
+  "sequences": [
+    {
+      "key": "KeyW",
+      "requestedMs": 1500,
+      "elapsedMs": 2093.0985409999994,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 44,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 0.7,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          4.6852456231150086e-05,
+          1.6608523826128805,
+          1.9713412357959896
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 172,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 0.7,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyW",
+      "requestedMs": 1500,
+      "elapsedMs": 2098.849416000001,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 188,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          -4.319793081108969e-05,
+          1.6608787721619012,
+          1.1769841999630444
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 314,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyW",
+      "requestedMs": 1500,
+      "elapsedMs": 2159.3621249999997,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 331,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          -0.00015204181567796127,
+          1.6609999821069652,
+          0.8111534731579013
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 460,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyA",
+      "requestedMs": 4000,
+      "elapsedMs": 4641.560458,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 2453,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          -3.729341388330795,
+          1.6610012649255952,
+          2.998982147981156
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 2731,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "rotatedArtworkTrajectory": [
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.06558091227456,
+            1.6609999858904632,
+            2.955304736343722
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.4766666666666667
+          ],
+          "grounded": true,
+          "steps": 2881,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.249154263635037
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.065580634045181,
+            1.65999996931199,
+            2.803637793359856
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.9966666666666667
+          ],
+          "grounded": true,
+          "steps": 2893,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.0975564604001025
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.0655858013937087,
+            1.6599826895529406,
+            2.557622050938706
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.516666666666668
+          ],
+          "grounded": true,
+          "steps": 2905,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.851677148136348
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.0655861293237403,
+            1.6600000428282657,
+            2.26495378285418
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2916,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.5592269946882344
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.0654746121937744,
+            1.6613515571355821,
+            1.9584141476802035
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2928,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.2530191739487526
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.0654784225241865,
+            1.660895929102786,
+            1.727971603234808
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2937,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.022962564667878
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.0654780031559397,
+            1.6614163314937616,
+            1.4079726963094874
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2949,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.7039178928528563
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.065434407736747,
+            1.6599783896948213,
+            1.167934141194026
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2958,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.46544980121095886
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.0966907796380965,
+            1.6600329454398308,
+            0.9497953376989319
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2970,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26124096602387564
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.2274667686713783,
+            1.659982092622464,
+            0.8487542813085458
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2982,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26100320249651066
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.374869327147111,
+            1.6599999834691845,
+            0.701411547269716
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2994,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26104550476152544
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.540709509600505,
+            1.6599989122663248,
+            0.5355256527103922
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3007,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26101318142144014
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.693973587912127,
+            1.6599569084840697,
+            0.3822755181603572
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3019,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610230411498137
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.8494008324040023,
+            1.660913398275021,
+            0.22680906498809073
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3031,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2609953164260276
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9683735894557954,
+            1.661092998110995,
+            -0.02106003636489895
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3044,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26211423127119754
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.968364574665246,
+            1.6613525245923813,
+            -0.3410727343149045
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3056,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.42591200071852886
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9683776643191755,
+            1.6610501507533046,
+            -0.6877196150458911
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3069,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6710376165436309
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.968380906683087,
+            1.6599842307044457,
+            -1.034441176671491
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3082,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.9162090766501909
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.968377681933712,
+            1.6607760214831944,
+            -1.72778350288044
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3108,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.4069599514823092
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.96836426019617,
+            1.6611006565220452,
+            -2.52242747681211
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3138,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.057454390355167
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9683625535446585,
+            1.6599841289283506,
+            -3.4291100463456967
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3172,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.8891223253169125
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.968377277950323,
+            1.6599840680649651,
+            -3.729072746311969
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3191,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1733315059771012
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9679469613426606,
+            1.6609976380171576,
+            -3.728999351457416
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3207,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1731303197679677
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.967978237673082,
+            1.6608215722265742,
+            -3.7292069580440437
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3223,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1733375722684776
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9680095303012473,
+            1.6609978251984432,
+            -3.7289993283489746
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3238,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1731493846571204
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.968777600082563,
+            1.659984129550445,
+            -3.7290719787566484
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3252,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1734529606954367
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.969236677434156,
+            1.6610134149780935,
+            -3.72899924161956
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3267,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1735238740720835
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.969483608872269,
+            1.6599840453821673,
+            -3.7292082314239376
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3281,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1737982991045497
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.969016934150592,
+            1.6608213597049473,
+            -3.7300169773958185
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3295,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1744259123527496
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.969034889561686,
+            1.6608004628418132,
+            -3.728999544212085
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3310,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.173462539311587
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.968896419250909,
+            1.6600377344141963,
+            -3.7289991280564134
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3324,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1734198630669557
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.96916318495717,
+            1.6600374534478635,
+            -3.729072789560261
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3339,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1735714636419456
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9691978149214124,
+            1.6599130356967964,
+            -3.729004333858567
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3353,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1735168541058023
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9692034217257675,
+            1.6609999768312138,
+            -3.729071374561128
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3367,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.173582404207355
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.969230781081644,
+            1.6600138253994248,
+            -3.7290000891813104
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 3381,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.173522880317655
+        }
+      ]
+    },
+    {
+      "doorCrossing": {
+        "floorSurfaceId": "9488f15f-3100-4522-b2be-4ce23eae08c2",
+        "roomId": "20b470f0-7fd5-4be0-9a14-cb62335f5fd3",
+        "eyePosition": [
+          -0.0002759588026370885,
+          1.661361819349928,
+          -5.678876609366853
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          -1.6
+        ],
+        "grounded": true,
+        "steps": 3803,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "boundary": {
+        "floorSurfaceId": "9488f15f-3100-4522-b2be-4ce23eae08c2",
+        "roomId": "20b470f0-7fd5-4be0-9a14-cb62335f5fd3",
+        "eyePosition": [
+          0.00022751350959548944,
+          1.6599431653955536,
+          -11.729623077946599
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4111,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "KeyW",
+      "requestedMs": 6500,
+      "elapsedMs": 7200.773415999996,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          2.119161131733563,
+          1.2109297571834179,
+          2.9999880680504303
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4246,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.2,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          2.1189561530962466,
+          1.2109724474992265,
+          -3.7296568031536426
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4678,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.2,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 779.2642909999995,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4705,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.18012000000000697,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4751,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.18012000000000697,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 779.6000829999975,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.18012000000000697,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4786,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.18012000000000697,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.3800400000000139,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4832,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.3800400000000139,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 783.5552920000046,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4855,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.2000399999999965,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4901,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.2000399999999965,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 783.1175419999927,
+      "from": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.2000399999999965,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4933,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.2000399999999965,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.3800399999999965,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4979,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.3800399999999965,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "rotatedArtworkTrajectory": [
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1455706699079684,
+            1.6612831247751603,
+            2.8340944724773376
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -0.91
+          ],
+          "grounded": true,
+          "steps": 147,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.1319632874043544
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1455705505748845,
+            1.6610000045169147,
+            2.595761714751026
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.430000000000001
+          ],
+          "grounded": true,
+          "steps": 159,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.8942566466221304
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1455716779537166,
+            1.6609998496845366,
+            2.3065959515665977
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 170,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.60609984732747
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1459400255384598,
+            1.6608012557392942,
+            1.98793298962166
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 182,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.2891137526488625
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1459815517894416,
+            1.6599899857086131,
+            1.6679754781221359
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 194,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.971894678560156
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1459838827655435,
+            1.660999855447095,
+            1.3480139582102506
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 206,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6573228305694215
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.1459834206522377,
+            1.6599720746292734,
+            1.046561913812658
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 218,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.3695144735616435
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.235586291170586,
+            1.6599869323148015,
+            0.8406964803730457
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 230,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26104684623275365
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.380891735657025,
+            1.6600541823211972,
+            0.6953682337048317
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 242,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26103072265539495
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.5351864639584907,
+            1.6599230621330536,
+            0.5410888237970735
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 254,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26104155439546217
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.6598263028924354,
+            1.6599718302223538,
+            0.41640516427334795
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 265,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610105685592726
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.8299580300142058,
+            1.6600000228773626,
+            0.24633284528728971
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 278,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610525764548923
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9642554609951564,
+            1.6601657343563476,
+            0.048403208712008094
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 290,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26166450684211773
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.967665297161,
+            1.6599062975147592,
+            -0.27104832268330803
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 302,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.37590280054004543
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.96767697995133,
+            1.6608967878274472,
+            -0.6177126713005041
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 315,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.6210397732231476
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.967670529515372,
+            1.65999995858882,
+            -0.9644150439557766
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 328,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.8661908108341487
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9676759179196726,
+            1.6598588831257859,
+            -1.3298358287570213
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 342,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.1245861359308398
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9676752891860474,
+            1.6598651253153422,
+            -1.6498365424481367
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 354,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.3508603659845524
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9676675987963463,
+            1.6588393832208441,
+            -2.0231856539753412
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 368,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.6335373216309779
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9676835851633925,
+            1.6612981944345722,
+            -2.3431258950290417
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 380,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 1.9007814345296665
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9676833224497443,
+            1.6610730967368783,
+            -2.707116153454516
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 394,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.221811986129135
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.967681452622376,
+            1.6607486012508945,
+            -3.0804571028706764
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 408,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.563044896834137
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.967679523673839,
+            1.6599840853014813,
+            -3.4371129138303136
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 422,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.8964352478193263
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9676883632007574,
+            1.6599840826821366,
+            -3.7290722890315724
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 436,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.173120908329716
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9677264753901085,
+            1.6600000431136197,
+            -3.728999778962569
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 452,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1730634757563103
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9677506833612597,
+            1.6609246571825553,
+            -3.7290049829602854
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 466,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1730758148883766
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.967537814731318,
+            1.6600000223771405,
+            -3.7289992910659553
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 480,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.173005478123277
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9670804939409168,
+            1.6609483776411127,
+            -3.729000051927395
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 494,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1728667828179966
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9673996557249818,
+            1.6609633232729595,
+            -3.7290889664577467
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 510,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.173048758212409
+        },
+        {
+          "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+          "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+          "eyePosition": [
+            -2.9675889639974495,
+            1.6610135595111262,
+            -3.7290000528296137
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 524,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 3.1730218008156346
+        }
+      ]
+    },
+    {
+      "touchBefore": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 1,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "touchBoth": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          -0.07671633014160761,
+          1.6618113442221658,
+          2.0397405477124266
+        ],
+        "yaw": 0.18,
+        "velocity": [
+          -0.23273844545357145,
+          0,
+          -1.278996800624558
+        ],
+        "grounded": true,
+        "steps": 65,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0.18,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "touchReleased": {
+        "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+        "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+        "eyePosition": [
+          -0.11704611271034082,
+          1.659969133978244,
+          1.8182269815006293
+        ],
+        "yaw": 0.18,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 96,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0.18,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.3,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    }
+  ],
+  "screenshots": [
+    "narrow-walking.png"
+  ],
+  "limits": [
+    "Keyboard/touch checks use emulated input; physical mobile, GPU and RSS unverified. Native capture provider is recorded separately.",
+    "Window blur and hidden lifecycle handler injections are labeled separately from actual canvas focus and pointer-lock transitions."
+  ],
+  "entrance": {
+    "ms": 984.4534589999994,
+    "requests": [
+      "<isolated-synthetic-origin>/p/cfe0e497-34c0-4d96-935e-559470978a60",
+      "<isolated-synthetic-origin>/assets/index-DLXULjs1.js",
+      "<isolated-synthetic-origin>/assets/index-B58okrGg.css",
+      "<isolated-synthetic-origin>/api/v1/publications/cfe0e497-34c0-4d96-935e-559470978a60",
+      "<isolated-synthetic-origin>/assets/three.module-4gI5Z-_B.js",
+      "<isolated-synthetic-origin>/assets/OrbitControls-Dh36RsEH.js",
+      "<isolated-synthetic-origin>/api/v1/publications/cfe0e497-34c0-4d96-935e-559470978a60/assets/359a1659-34ba-4cf9-bb55-3f7b9b727ecc",
+      "<isolated-synthetic-origin>/api/v1/publications/cfe0e497-34c0-4d96-935e-559470978a60/assets/a4ed49cb-0b37-4ece-ac5a-35719ba94b19",
+      "<isolated-synthetic-origin>/assets/GLTFLoader-QPJIvrGm.js"
+    ],
+    "physicsRequested": false
+  },
+  "profile": {
+    "physicsVersion": "0.21.0",
+    "fixedStep": 0.016666666666666666,
+    "maxFrameDelta": 0.25,
+    "maxSteps": 15,
+    "radius": 0.25,
+    "bodyHeight": 1.75,
+    "acceleration": 2.6,
+    "deceleration": 3.9,
+    "maxStepHeight": 0.25,
+    "minStepWidth": 0.3,
+    "maxSlopeDegrees": 35,
+    "slopeSlideDegrees": 45,
+    "skin": 0.01,
+    "walkableRegions": 2,
+    "mesh": {
+      "cells": 1544,
+      "triangles": 3088,
+      "edges": 5828,
+      "crossRoomEdges": 36
+    }
+  },
+  "touchEvents": [
+    {
+      "type": "pointerdown",
+      "id": 2,
+      "target": "forward"
+    },
+    {
+      "type": "pointerdown",
+      "id": 3,
+      "target": "CANVAS"
+    },
+    {
+      "type": "pointerup",
+      "id": 2,
+      "target": "forward"
+    },
+    {
+      "type": "lostpointercapture",
+      "id": 2,
+      "target": "forward"
+    }
+  ],
+  "touchReleased": {
+    "floorSurfaceId": "71c15c9c-ef9d-4dc6-9b78-47b8d8163f15",
+    "roomId": "596acbf9-60ea-4a5a-b4f5-1a2c97fd51fb",
+    "eyePosition": [
+      -0.11704611271034082,
+      1.659969133978244,
+      1.8182269815006293
+    ],
+    "yaw": 0.18,
+    "velocity": [
+      0,
+      0,
+      0
+    ],
+    "grounded": true,
+    "steps": 96,
+    "paused": false,
+    "blocked": false,
+    "recovered": false,
+    "walking": true,
+    "pitch": -5.551115123125783e-17,
+    "targetYaw": 0.18,
+    "targetPitch": -5.551115123125783e-17,
+    "lookTransition": "immediate",
+    "settings": {
+      "speed": 1.3,
+      "eyeHeight": 1.65,
+      "reducedMotion": true
+    }
+  },
+  "originalReportSha256": "74bc40fa53904fc0e090b00ece91500ab03e7e7a27cdebc366fa26239c0b82dc"
+}
