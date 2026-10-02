@@ -2,7 +2,7 @@
 import {createPrivateKey,createPublicKey,sign,verify,randomUUID,type KeyObject} from 'node:crypto';
 import {constants} from 'node:fs';
 import {open,lstat,realpath,readFile} from 'node:fs/promises';
-import {resolve,join} from 'node:path';
+import {resolve,join,relative} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,transaction,type BlobStore} from '@exhibitos/storage';
 import {revisionHash,type Exhibition} from '@exhibitos/spec';
@@ -15,7 +15,9 @@ const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&
 const hash=(v:unknown)=>sha256(Buffer.from(freezeCanonical(v)));
 const CHUNK=16*1024*1024;
 async function safeFile(root:string,path:string,max:number){
- const target=join(root,path);let current=root;
+ const target=resolve(root,path),local=relative(root,target);
+ if(freezeFileMime(path)===null||!local||local.startsWith('..')||local!==path)throw new ApiError(503,'FREEZE_RUNTIME_INVALID');
+ let current=root;
  for(const segment of path.split('/')){current=join(current,segment);const stat=await lstat(current);if(stat.isSymbolicLink())throw new ApiError(503,'FREEZE_RUNTIME_INVALID');}
  const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{const stat=await file.stat();if(!stat.isFile()||stat.size<1||stat.size>max)throw new ApiError(503,'FREEZE_RUNTIME_INVALID');return await file.readFile();}finally{await file.close();}
@@ -42,7 +44,7 @@ export async function loadFreezeRuntime(runtimeRoot:string):Promise<{runtime:Fre
   if(hash(sorted)!==descriptor.coreDigest||freezeCanonical(core)!==freezeCanonical(sorted))throw Error('digest');
   const files=new Map<string,Buffer>();let total=0;
   for(const file of core){
-   if(!object(file)||Object.keys(file).sort().join(',')!=='bytes,mime,path,sha256'||typeof file.path!=='string'||file.path.length>240||['freeze-runtime.json','studio-sw.js'].includes(file.path)||freezeFileMime(file.path)!==file.mime||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>MAX_RUNTIME_BYTES||!/^([a-f0-9]{64})$/.test(file.sha256)||files.has(file.path))throw Error('file');
+   if(!object(file)||Object.keys(file).sort().join(',')!=='bytes,mime,path,sha256'||typeof file.path!=='string'||file.path.length>240||['freeze-runtime.json','studio-sw.js'].includes(file.path)||typeof file.mime!=='string'||freezeFileMime(file.path)===null||freezeFileMime(file.path)!==file.mime||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>MAX_RUNTIME_BYTES||!/^([a-f0-9]{64})$/.test(file.sha256)||files.has(file.path))throw Error('file');
    const bytes=await safeFile(root,file.path,MAX_RUNTIME_BYTES);if(bytes.length!==file.bytes||sha256(bytes)!==file.sha256)throw Error('integrity');files.set(file.path,bytes);total+=bytes.length;if(total>MAX_RUNTIME_BYTES)throw Error('limit');
   }
   if(!['index.html','THIRD_PARTY_NOTICES.txt','offline-server.mjs'].every(x=>files.has(x)))throw Error('required');

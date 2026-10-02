@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {generateKeyPairSync,createPublicKey} from 'node:crypto';
-import {mkdtemp,writeFile,chmod,symlink,realpath} from 'node:fs/promises';
+import {mkdtemp,writeFile,chmod,symlink,realpath,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe,it,expect} from 'vitest';
@@ -34,6 +34,12 @@ describe('signed freeze service boundaries',()=>{
   const old=first.files.get('index.html')!.toString();await writeFile(join(dir,'index.html'),'tampered');await expect(loadFreezeRuntime(dir)).rejects.toMatchObject({code:'FREEZE_RUNTIME_INVALID'});expect(first.files.get('index.html')!.toString()).toBe(old);
   await runtime(dir);const outside=await root();await writeFile(join(outside,'external.txt'),'Synthetic external text');await writeFile(join(dir,'index.html'),'placeholder');
   const {unlink}=await import('node:fs/promises');await unlink(join(dir,'index.html'));await symlink(join(outside,'external.txt'),join(dir,'index.html'));await expect(loadFreezeRuntime(dir)).rejects.toMatchObject({code:'FREEZE_RUNTIME_INVALID'});
+ });
+ it('rejects a real parent traversal descriptor even when its outside bytes and digest exactly match and MIME is null',async()=>{
+  const base=await root(),dir=join(base,'runtime');await mkdir(dir);const {files}=await runtime(dir),outside=Buffer.from('Synthetic outside file must not enter runtime');await writeFile(join(base,'outside.txt'),outside);
+  const malformed=[...files,{path:'../outside.txt',bytes:outside.length,sha256:sha256(outside),mime:null}].sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
+  await writeFile(join(dir,'freeze-runtime.json'),JSON.stringify({schemaVersion:FREEZE_VERSION,version:'0.1.0',coreDigest:digest(malformed),files:malformed}));
+  await expect(loadFreezeRuntime(dir)).rejects.toMatchObject({code:'FREEZE_RUNTIME_INVALID'});
  });
  it('caps disconnected display at requested interval, session expiry and each current or historical governing expiry',()=>{
   const now=Date.parse('2026-10-03T00:00:00Z'),s={expiresAt:new Date(now+3600000).toISOString()}as Session;
