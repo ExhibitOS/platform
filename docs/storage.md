@@ -46,3 +46,18 @@ reads retain shared 82002 while reading and verifying the object. Quiesced backu
 holds exclusive 82002 only; it must never acquire 82003 while that lock is held.
 Internal Storage resource methods now check enabled users and restrict artist
 ownership and curator assignments; database credentials remain privileged.
+
+## Portable OEX data in the backup inventory
+
+Migration009 adds durable `oex_import_jobs` receipts, leases, retries, results and
+cleanup inventories. Include these rows in the same quiesced database dump and
+include every referenced staging chunk, pending cleanup key, and completed
+`oex-import` object in the byte inventory. Stop the HTTP OEX worker before taking
+the maintenance lock. Resume it only after new-environment row/key/hash validation
+and review of interrupted leases and cleanup ownership. Do not discard failed
+staging or job receipts merely because an exhibition already exports successfully.
+
+An OEX file is an authorized logical exhibition snapshot. It does not include
+accounts, sessions, service configuration, all CMS revision history, job receipts,
+or unrelated object data, and cannot replace this administrative backup. Actual
+OEX crash recovery tests do not qualify a new full-service backup scheduler.
