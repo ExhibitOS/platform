@@ -3,12 +3,13 @@ import { Publications } from './publication.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
+import { Freezes, type FreezeConfig } from './freeze.ts';
 import { Oex, MAX_OEX_UPLOAD, type OexInput } from './oex.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig) {
  const settings=config(input), auth=new Auth(pool);
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
@@ -56,6 +57,21 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
  app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
+ const freezes=store&&freezeConfig?new Freezes(pool,store,freezeConfig):null;
+ const requireFreeze=()=>{if(!freezes)throw new ApiError(503,'FREEZE_UNAVAILABLE');return freezes;};
+ app.get('/api/v1/freeze/authority',call(false,async(_c,s)=>({authority:requireFreeze().authority,tenantId:s.tenantId,subjectId:s.userId,expiresAt:s.expiresAt})));
+ const fp=`${sp}/:id/freezes`, freezeId=(req:FastifyRequest)=>(req.params as {freezeId:string}).freezeId;
+ // A nested route must match the actual owning exhibition, not merely possess an ID.
+ const target=async(c:PoolClient,s:Session,req:FastifyRequest)=>{const f=requireFreeze(),info=await f.get(c,s,freezeId(req));if(info.manifest.source.exhibitionId!==(req.params as {id:string}).id)throw new ApiError(403,'FORBIDDEN');return f;};
+ app.post(fp,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{reply.code(201);return requireFreeze().create(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));}));
+ app.get(fp,call(false,async(c,s,req)=>requireFreeze().list(c,s,(req.params as {id:string}).id)));
+ app.get(`${fp}/:freezeId`,call(false,async(c,s,req)=>{await target(c,s,req);return requireFreeze().get(c,s,freezeId(req));}));
+ app.get(`${fp}/:freezeId/check`,call(false,async(c,s,req)=>(await target(c,s,req)).check(c,s,freezeId(req))));
+ const grantBody={schema:{body:object({seconds:{type:'integer',minimum:1,maximum:28800}})}};
+ app.post(`${fp}/:freezeId/offline`,grantBody,call(true,async(c,s,req,reply)=>{const f=await target(c,s,req);return reply.header('content-disposition','attachment; filename="exhibition.oef"').send(await f.offline(c,s,freezeId(req),(req.body as {seconds:number}).seconds));}));
+ app.post(`${fp}/:freezeId/authorize`,grantBody,call(true,async(c,s,req)=>(await target(c,s,req)).authorize(c,s,freezeId(req),(req.body as {seconds:number}).seconds)));
+ for(const action of ['revoke','restore'] as const)app.post(`${fp}/:freezeId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>(await target(c,s,req)).availability(c,s,freezeId(req),action==='restore')));
+ if(freezes)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
  const oex=store?new Oex(pool,store):null;
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
@@ -68,7 +84,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  for(const action of ['retry','cancel'] as const)app.post(`${op}/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>requireOex().action(c,s,jobId(req),action)));
  if(oexWorker&&oex){
   let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
-  const tick=async()=>{try{await oex.runNext();}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  const tick=async()=>{try{await oex.runNext();await freezes?.recover();}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM oex_import_jobs LIMIT 0');running=tick();});
   app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
  }

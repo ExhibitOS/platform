@@ -221,3 +221,6 @@ export * from "./viewer.js";
 export * from "./experience.js";
 
 export * from "./artwork-details.js";
+
+export * from "./freeze.js";
+export * from "./freeze-bundle.js";

@@ -1,3 +1,4 @@
+import { notifyAuthChange } from "./auth-change";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { ArtworkPreview } from "./ArtworkPreview";
@@ -329,6 +330,7 @@ export function Cms() {
       });
       form.reset();
       setSession(await request<Session>("/api/v1/auth/session", null));
+      notifyAuthChange();
       setExpired(false);
       clearWorkspace();
       setNotice("로그인되었습니다. 로그인 계정과 작가 identity는 별개입니다.");
@@ -578,6 +580,7 @@ export function Cms() {
               void action(async () => {
                 await request("/api/v1/auth/logout", session, "POST");
                 setSession(null);
+                notifyAuthChange();
                 setExpired(false);
                 clearWorkspace();
                 setNotice("로그아웃되었습니다.");
