@@ -237,6 +237,42 @@ try {
     assert.equal((await validateOex(reexport.rawPayload)).valid, true);
     assert.deepEqual(exportedEntries(reexport.rawPayload).filter(([name]) => name.startsWith("assets/")).map(([, bytes]) => sha256(bytes)).sort(), exportedEntries(original).filter(([name]) => name.startsWith("assets/")).map(([, bytes]) => sha256(bytes)).sort());
   });
+  await test("custom UUID-shaped license holder and credit survive actual import reexport READY and explicit publication", async () => {
+    let sourceLicense, sourceRights;
+    const custom = modifiedPackage(document => {
+      sourceLicense = document.rooms[0].id;
+      for (const value of [...document.artworks, ...document.mediaAssets]) {
+        value.rights.licenseId = sourceLicense;
+        value.rights.holder = sourceLicense;
+        value.rights.creditLine = sourceLicense;
+      }
+      sourceRights = structuredClone([...document.artworks, ...document.mediaAssets].map(value => value.rights));
+    });
+    assert.equal((await validateOex(custom)).valid, true, JSON.stringify(await validateOex(custom)));
+    const hashes = exportedEntries(custom).filter(([name]) => name.startsWith("assets/")).map(([, bytes]) => sha256(bytes)).sort();
+    const { job } = await submit(destinationActor, custom); await worker.run(job.id);
+    const status = await json(request(destinationActor, "GET", `/oex/imports/${job.id}`)); assert.equal(status.state, "complete", JSON.stringify(status));
+    const scene = status.result.draft.candidate, path = `/studio/exhibitions/${status.result.exhibitionId}`;
+    assert.notEqual(scene.rooms[0].id, sourceLicense);
+    assert.deepEqual([...scene.artworks, ...scene.mediaAssets].map(value => value.rights), sourceRights);
+    for (const artwork of scene.artworks) for (const asset of artwork.assets) {
+      const stored = (await pool.query("SELECT sha256,object_key FROM assets WHERE tenant_id=$1 AND id=$2", [destination, asset.id])).rows[0];
+      assert.equal(stored.sha256, asset.sha256); assert.equal(sha256(await blobs.get(stored.object_key)), asset.sha256);
+    }
+    const reexport = await expected(request(destinationActor, "POST", `${path}/oex/export`, {}, { "if-match": status.result.etag }), 200);
+    assert.equal((await validateOex(reexport.rawPayload)).valid, true);
+    const roundtrip = JSON.parse(exportedEntries(reexport.rawPayload).find(([name]) => name === "exhibition.json")[1]);
+    assert.deepEqual([...roundtrip.artworks, ...roundtrip.mediaAssets].map(value => value.rights), sourceRights);
+    assert.deepEqual(exportedEntries(reexport.rawPayload).filter(([name]) => name.startsWith("assets/")).map(([, bytes]) => sha256(bytes)).sort(), hashes);
+    const baseline = (await originalCounts(destination)).studio_publications;
+    assert.equal((await json(request(destinationActor, "GET", `${path}/ready`))).status, "READY");
+    assert.equal((await originalCounts(destination)).studio_publications, baseline);
+    const publication = await json(request(destinationActor, "POST", `${path}/publications`, { requestId: randomUUID() }, { "if-match": status.result.etag }), 201);
+    const projection = await json(app.inject({ url: `/api/v1/publications/${publication.publicationId}`, headers }));
+    assert.deepEqual([...projection.exhibition.artworks, ...projection.exhibition.mediaAssets].map(value => value.rights), sourceRights);
+    assert.equal(validateExhibition(projection.exhibition).valid, true);
+    assert.equal((await originalCounts(destination)).studio_publications, baseline + 1);
+  });
   await test("job ownership and foreign tenant boundaries apply to status bytes complete retry cancel", async () => {
     const { job } = await submit(actors.artist);
     for (const actor of [actors.other, actors.viewer, actors.curator, destinationActor]) {
@@ -278,6 +314,7 @@ try {
     }
   });
   await test("export-only preservation grants import privately but cannot pass READY or publish", async () => {
+    const publicationsBefore = (await originalCounts(destination)).studio_publications;
     const preservation = modifiedPackage(document => {
       for (const value of [...document.artworks, ...document.mediaAssets]) value.rights.permissions.display = false;
     });
@@ -287,7 +324,7 @@ try {
     const path = `/studio/exhibitions/${status.result.exhibitionId}`;
     assert.equal((await json(request(destinationActor, "GET", `${path}/ready`))).status, "BLOCKED");
     await expected(request(destinationActor, "POST", `${path}/publications`, { requestId: randomUUID() }, { "if-match": status.result.etag }), 422);
-    assert.equal((await originalCounts(destination)).studio_publications, 0);
+    assert.equal((await originalCounts(destination)).studio_publications, publicationsBefore);
   });
   await test("real filesystem rejection leaves no partial rows and retry succeeds after fixture-only fault repair", async () => {
     const baseline = await originalCounts(destination), { job } = await submit(destinationActor);
