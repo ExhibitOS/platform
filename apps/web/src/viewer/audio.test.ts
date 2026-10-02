@@ -100,3 +100,23 @@ test("queued preload skipped after room leaves current-next set performs no requ
   assert.equal(runtime.snapshot().requests,0);
   assert.equal(runtime.snapshot().decodedBytes,0);
 });
+
+test("publication availability validates the metadata JSON contract without requiring the asset-only revision header",async()=>{
+  const {id,runtime}=voiceRuntime();
+  const internal=runtime as unknown as {checkAvailability:()=>Promise<void>};
+  const metadata={publication:{id,status:"published",revisionSha256:"a".repeat(64)}};
+  try {
+    vi.stubGlobal("fetch",async()=>new Response(JSON.stringify(metadata),{status:200,headers:{"content-type":"application/json"}}));
+    await internal.checkAvailability();
+    for(const publication of [{...metadata.publication,id:"wrong"},{...metadata.publication,status:"unpublished"},{...metadata.publication,revisionSha256:"b".repeat(64)}]){
+      vi.stubGlobal("fetch",async()=>new Response(JSON.stringify({publication}),{status:200,headers:{"x-exhibitos-publication-revision":"a".repeat(64)}}));
+      await assert.rejects(internal.checkAvailability(),/PUBLICATION_UNAVAILABLE/);
+    }
+    vi.stubGlobal("fetch",async()=>new Response("malformed JSON",{status:200}));
+    await assert.rejects(internal.checkAvailability());
+    vi.stubGlobal("fetch",async()=>new Response("null",{status:200}));
+    await assert.rejects(internal.checkAvailability(),/PUBLICATION_UNAVAILABLE/);
+    vi.stubGlobal("fetch",async()=>new Response("",{status:404}));
+    await assert.rejects(internal.checkAvailability(),/PUBLICATION_UNAVAILABLE/);
+  } finally {vi.unstubAllGlobals();}
+});

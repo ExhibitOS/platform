@@ -262,7 +262,9 @@ export class ExhibitionAudio implements AudioApi {
   }
   private async checkAvailability() {
     const response=await fetch(`/api/v1/publications/${this.publication.publication.id}`,{credentials:"omit",cache:"no-store",signal:AbortSignal.any([this.abort.signal,AbortSignal.timeout(10000)])});
-    if(!response.ok || response.headers.get("x-exhibitos-publication-revision")!==this.publication.publication.revisionSha256)throw Error("PUBLICATION_UNAVAILABLE");
+    if(!response.ok)throw Error("PUBLICATION_UNAVAILABLE");
+    const value=await response.json() as {publication?:{id?:string;status?:string;revisionSha256?:string}} | null;
+    if(value?.publication?.id!==this.publication.publication.id||value.publication.status!=="published"||value.publication.revisionSha256!==this.publication.publication.revisionSha256)throw Error("PUBLICATION_UNAVAILABLE");
   }
   async playVoice(id: string) {
     this.stopVoice();
