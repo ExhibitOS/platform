@@ -73,3 +73,26 @@ state](navigation-human-iab.json) preserve that distinction. The same approved
 production scene is being checked in ordinary Chrome to distinguish embedded
 browser restrictions from a product defect. Neither cause nor full native
 acceptance is established yet.
+
+## Capture lifecycle correction
+
+Source `a02075a2fdff2cbcea70a92efdd8751e92ac7b54` supports document
+`pointerlockchange`/`pointerlockerror` completion for legacy void-returning
+requests, deduplicates event plus Promise outcomes, serializes pending native
+requests, and releases a late success after pause/resume or disposal. An old
+Promise completion cannot release a newer capture. These are compatibility and
+lifecycle fixes; they do not establish why the embedded browser refused native
+capture or demonstrate physical mouse rotation.
+
+A fresh public-only clone with Node24.21.0/npm11.19.0 passed `npm ci`,
+`npm run check` (62 unit tests, eight public contract checks, typecheck, lint,
+production build and 11 original runtime notices), and `npm run test:e2e`
+(three actual Chromium tests). The 13 input unit tests use modeled EventTargets,
+not native pointer lock. Production navigation regression and physical Chrome
+qualification are recorded separately.
+
+A legacy native request cannot be cancelled. If an implementation emits neither
+a completion event nor a Promise outcome, its one pending record and two event
+guards remain until an outcome or document teardown, including after controller
+disposal. A timeout is not treated as completion and cannot authorize overlapping
+native requests. No physical mouse success is inferred from these safeguards.
