@@ -204,7 +204,8 @@ try {
         await target.pool.query("UPDATE rights SET metadata=jsonb_set(metadata,'{expiresAt}',to_jsonb('2000-01-01T00:00:00.000Z'::text)) WHERE tenant_id=$1", [corpus.tenant]);
         const denied = await actualRequest(corpus.actors.artist, 'POST', `${corpus.path}/freezes/${corpus.frozen.id}/offline`, { seconds: 300 });
         assert.equal(denied.status, 403); assert.equal(denied.value().code, 'RIGHTS_DENIED');
-        assert.equal((await fetch(`${origin}/api/v1/publications/${corpus.publication.id}`)).status, 404);
+        const publicDenied = await fetch(`${origin}/api/v1/publications/${corpus.publication.id}`);
+        assert.equal(publicDenied.status, 404, await publicDenied.text());
         const report = await actualRequest(corpus.actors.admin, 'GET', '/integrity'); assert.equal(report.status, 200); assert.equal(report.value().healthy, true); assert(report.value().rights.displayDenied > 0);
         const deniedBackup = await createServiceBackup({pool:target.pool,store:destinationStore,destination:`${root}/expired-rights-backup`,encryptionKey,snapshot:snapshot(destinationStore),dump:(path,token)=>backends.pgFile(target,path,'dump',token)});
         assert.equal(deniedBackup.status, 'complete');
