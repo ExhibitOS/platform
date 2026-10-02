@@ -212,6 +212,30 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
         assert.equal(published.exhibition.mediaAssets.length, 1);
         assert.equal(published.exhibition.extensions["org.exhibitos.viewer/experience"].voices[0].transcript, "Original browser authored transcript");
         sequences.push({ browserAuthoring: { publication: published.publication, audioInventory: published.assets.filter(a => a.mime === "audio/wav") } });
+      } catch (error) {
+        // Read the still-open authoring page before teardown; never serialize
+        // input values, request headers, passwords, cookies or session tokens.
+        try {
+          const read = async operation => { try { return await operation(); } catch (failure) { return { unavailable: String(failure.message).slice(0, 1000) }; } };
+          const [selects, visibleStatus] = await Promise.all([
+            read(() => author.locator("select").evaluateAll(elements => elements.map(select => ({
+              ariaLabel: select.getAttribute("aria-label"),
+              wrappingLabels: [...(select.labels ?? [])].map(label => label.textContent?.trim()),
+              disabled: select.disabled,
+              options: [...select.options].map(option => ({ text: option.textContent, value: option.value, disabled: option.disabled, selected: option.selected })),
+            })))),
+            read(() => author.getByRole("status").allTextContents()),
+          ]);
+          const path = `${dir}/authoring-failure.png`;
+          const screenshot = await read(async () => {
+            await author.screenshot({ path, timeout: 5000, mask: [author.locator('input[type="password"], input[name="subject"], input[name="tenantId"]')] });
+            screenshots.push(path); return path;
+          });
+          report.authoringFailure = { observedAt: new Date().toISOString(), check: currentCheck, selects, visibleStatus, screenshot };
+          await writeFile(`${dir}/authoring-failure.json`, JSON.stringify(report.authoringFailure, null, 2) + "\n");
+          console.error(JSON.stringify({ authoringFailure: report.authoringFailure, reportPath: `${dir}/authoring-failure.json` }, null, 2));
+        } catch (diagnosticError) { console.error(`Authoring diagnostics unavailable: ${diagnosticError.message}`); }
+        throw error;
       } finally { await author.close(); }
     });
     currentCheck = "synthetic microphone lifecycle verification";
