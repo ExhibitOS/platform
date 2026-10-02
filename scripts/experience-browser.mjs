@@ -375,8 +375,9 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
     });
     await context.close();
     await check("actual browser microphone permission denial keeps PCM file fallback usable", async () => {
-      deniedBrowser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
-      currentProvider = "separate Chromium fake device/input/output with NO fake UI; native permission denial";
+      const denialChannel = process.env.EXHIBITOS_EXPERIENCE_DENIAL_CHANNEL || undefined;
+      deniedBrowser = await chromium.launch({ channel: denialChannel, args: ["--use-fake-device-for-media-stream", "--disable-audio-input", "--disable-audio-output"] });
+      currentProvider = `separate ${denialChannel ?? "bundled-chromium"} fake device/input/output with NO fake UI; native permission denial`;
       const denied = await deniedBrowser.newContext(), page = await denied.newPage(), cdp = await denied.newCDPSession(page);
       await observe(page);
       const { targetInfo } = await cdp.send("Target.getTargetInfo");
@@ -390,7 +391,7 @@ async function runSyntheticRecording({ origin, authoring, dir, onCheck, onFailur
       assert.equal(nativeDenial.errors.length, 1); assert.equal(nativeDenial.errors[0].name, "NotAllowedError", "A hardware failure must not qualify as native permission denial");
       await page.getByLabel("작가 음성 WAV 파일", { exact: true }).setInputFiles({ name: "denied-fallback.wav", mimeType: "audio/wav", buffer: authoring.wave });
       await expect(page.getByText(/준비한 파일: denied-fallback.wav/)).toBeVisible();
-      observations.push({ provider: "separate isolated Chromium without fake UI", native: nativeDenial, permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
+      observations.push({ provider: "separate isolated browser without fake UI", channel: denialChannel ?? "bundled-chromium", browser: deniedBrowser.version(), native: nativeDenial, permission: "real Browser.setPermission denied; no mocked getUserMedia rejection", fallback: "original generated WAV selected" });
       await denied.close();
     });
     return { checks, observations, limits: "Successful capture uses Chromium fake device/UI and fake input/output streams; denial uses a separate browser without fake UI. Short capture and actual60second cutoff do not qualify physical microphone, OS audio/privacy UI or device fidelity." };
