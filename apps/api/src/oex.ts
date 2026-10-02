@@ -43,7 +43,27 @@ export function remapOex(e:Exhibition){
  const presentation=e.extensions?.[PRESENTATION_NAMESPACE] as {viewpoints?:{id:string}[]}|undefined;
  for(const v of presentation?.viewpoints??[])if(!ids.has(v.id.toLowerCase()))ids.set(v.id.toLowerCase(),randomUUID());
  const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(/^(id|revisionId|.*Id|.*Ids)$/.test(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[ids.get(k.toLowerCase())??k,visit(x,k)])):v;
- return {exhibition:visit(structuredClone(e))as Exhibition,idMap:Object.fromEntries(ids)};
+ const exhibition=visit(structuredClone(e))as Exhibition;
+ const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
+ const assetAliases:{sourceAssetId:string;sourceArtworkRevisionId:string;destinationArtworkId:string;destinationArtworkRevisionId:string;destinationAssetId:string;sourceArtifactPath:string;destinationArtifactPath:string}[]=[];
+ const scoped=new Map<string,Map<string,string>>();
+ for(const[index,source]of e.artworks.entries()){
+  const target=exhibition.artworks[index]!,aliases=new Map<string,string>();scoped.set(source.revisionId.toLowerCase(),aliases);
+  for(const[ai,asset]of source.assets.entries()){
+   const destination=target.assets[ai]!;let newId=ids.get(asset.id.toLowerCase())!;
+   if((counts.get(asset.id.toLowerCase())??0)>1){if(assetAliases.some(x=>x.sourceAssetId.toLowerCase()===asset.id.toLowerCase()))newId=randomUUID();destination.id=newId;destination.path=`imported/${newId}/${asset.path.split('/').at(-1)!}`;}
+   aliases.set(asset.id.toLowerCase(),newId);
+   assetAliases.push({sourceAssetId:asset.id,sourceArtworkRevisionId:source.revisionId,destinationArtworkId:target.id,destinationArtworkRevisionId:target.revisionId,destinationAssetId:newId,sourceArtifactPath:asset.path,destinationArtifactPath:destination.path});
+  }
+  const scopedId=(value:string)=>aliases.get(value.toLowerCase())??ids.get(value.toLowerCase())??value;
+  target.primaryAssetId=scopedId(source.primaryAssetId);
+  const lod=target.extensions?.[LOD_NAMESPACE]as {variants:{assetId:string}[]}|undefined,sourceLod=source.extensions?.[LOD_NAMESPACE]as {variants:{assetId:string}[]}|undefined;
+  if(lod&&sourceLod)for(const[i,variant]of sourceLod.variants.entries())lod.variants[i]!.assetId=scopedId(variant.assetId);
+  for(const[i,event]of source.provenance.events.entries())if(event.sourceAssetIds)target.provenance.events[i]!.sourceAssetIds=event.sourceAssetIds.map(scopedId);
+  if(source.provenance.scaleConversion&&target.provenance.scaleConversion)target.provenance.scaleConversion.appliedToAssetIds=source.provenance.scaleConversion.appliedToAssetIds.map(scopedId);
+ }
+ for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
+ return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
 export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>}>{
  return new Promise((resolve,reject)=>{
@@ -150,19 +170,22 @@ export class Oex {
    const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights)];
    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
    const qualified=new Map<string,Buffer>();
-   for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await decode(bytes,asset.mime);qualified.set(asset.path,bytes);}
+   for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path))await decode(bytes,asset.mime);qualified.set(asset.path,bytes);}
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');validatePcmWav(bytes);qualified.set(m.path,bytes);}
-   const {exhibition:e,idMap}=remapOex(parsed.exhibition),keys=new Map<string,string>();
-   for(const path of qualified.keys())keys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
+   const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
+   for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
+   for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
+   for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
+   const storedBytes=new Map([...sourceKeys].map(([path,key])=>[key,qualified.get(path)!]));
    // Commit the cleanup inventory before any destination byte write, including process death.
-   const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...keys.values()])])).rowCount;});
+   const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...storedBytes.keys()])])).rowCount;});
    if(!inventoried)return true;
    await transaction(this.pool,async c=>{
     await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     const current=(await c.query("SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() FOR UPDATE",[row.tenant_id,id,lease])).rows[0]as Job|undefined;if(!current)return;
     const s=await this.actor(c,current),at=new Date().toISOString();
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
-    for(const[path,bytes]of qualified)await this.blobs.put(keys.get(path)!,bytes);
+    for(const[key,bytes]of storedBytes)await this.blobs.put(key,bytes);
     for(const a of e.artworks){
      const m:ArtworkMetadata={title:a.metadata.title,description:a.metadata.description??'',...(a.metadata.medium===undefined?{}:{medium:a.metadata.medium}),...(creationYearFor(a)===undefined?{}:{creationYear:creationYearFor(a)}),dimensions:{width:a.dimensions.width,height:a.dimensions.height,...(a.dimensions.depth===undefined?{}:{depth:a.dimensions.depth}),unit:'m'},rights:structuredClone(a.rights),provenance:{source:a.provenance.authorship,sourceUnits:'m',scaleApplied:true,notes:'Imported from an integrity-checked OEX package; source provenance remains in the exhibition snapshot.'}};
      if(!validMetadata(m))throw new ApiError(422,'OEX_CMS_METADATA_INVALID');
@@ -179,7 +202,7 @@ export class Oex {
     e.revision=1; // New local revision identity, scene settings and authored prose preserved.
     // Paths stay package-relative and bytes/hash exact; private storage keys never enter the draft.
     const draft:Draft={schemaVersion:'1.0.0-draft.1',kind:'exhibition-draft',id:randomUUID(),exhibitionId:e.id,editVersion:1,createdAt:at,updatedAt:at,candidate:e};
-    const mediaSources=new Map(e.mediaAssets.map(m=>[m.id,{key:keys.get(m.path)!,bytes:qualified.get(m.path)!}]));
+    const mediaSources=new Map(e.mediaAssets.map(m=>[m.id,{key:keys.get(m.path)!,bytes:restoredBytes.get(m.path)!}]));
     for(const m of e.mediaAssets)m.path=`media/${m.id}/audio.wav`;
     const response=await this.studio.create(c,s,{draft,requestId:randomUUID()});
     for(const m of e.mediaAssets){
@@ -190,7 +213,7 @@ export class Oex {
     }
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
-    await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3",[s.tenantId,id,lease,{...response,exhibitionId:e.id,idMap}]);
+    await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3",[s.tenantId,id,lease,{...response,exhibitionId:e.id,idMap,assetAliases}]);
     await c.query('INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,randomUUID(),{action:'oex.imported',actor:s.userId,jobId:id,exhibitionId:e.id,payloadSha256:row.payload_sha256}]);
    });
   }catch(error){await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');await c.query("UPDATE oex_import_jobs SET state='failed',error_code=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3",[row.tenant_id,id,lease,error instanceof ApiError?error.code:'OEX_IMPORT_FAILED']);});}

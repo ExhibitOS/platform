@@ -653,7 +653,7 @@
               "object",
               "null"
             ],
-            "description": "Only completed jobs include a new private Studio draft, revision/etag, exhibitionId and typed old-to-new idMap. Never publication."
+            "description": "Only completed jobs include a new private Studio draft, revision/etag, exhibitionId and typed old-to-new idMap plus assetAliases. Shared source assets materialize per-artwork IDs/paths while reusing identical private bytes. idMap is not bijective for shared assets; assetAliases provides source artwork revision, source asset/path and destination artwork revision/asset/path. Never publication. Re-export remains bounded64MiB including distinct aliased package entries."
           },
           "cleanupPending": {
             "type": "boolean"

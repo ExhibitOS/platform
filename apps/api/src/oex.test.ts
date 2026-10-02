@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
-import {fixtureURL,type Exhibition} from '@exhibitos/spec';
+import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
 import {checkOexProfile,remapOex,decodeOex} from './oex.ts';
 import {validMetadata} from './cms.ts';
@@ -22,6 +22,19 @@ describe('OEX service boundaries',()=>{
   expect(Object.keys((r.exhibition.extensions![MATERIAL_NAMESPACE]as {surfaces:object}).surfaces)).toEqual([r.idMap[surface.id.toLowerCase()]]);
   const x=r.exhibition.extensions![EXPERIENCE_NAMESPACE]as {translations:{placementId:string;title:string;description:string}[]};expect(x.translations[0]!.placementId).toBe(r.exhibition.placements[0]!.id);expect(x.translations[0]!.title).toBe(room.id);expect(x.translations[0]!.description).toBe(placement.id);
   expect(e.rooms[0]!.id).toBe(room.id);
+ });
+ it('materializes shared asset owner aliases with scoped primary/placement/LOD/provenance and scale references',async()=>{
+  const e=await fixture(),first=e.artworks[0]!,second=e.artworks[1]!,secondRevision=second.revisionId;
+  const shared=first.assets[0]!;second.artworkType=first.artworkType;second.dimensions=structuredClone(first.dimensions);second.assets=structuredClone(first.assets);second.primaryAssetId=first.primaryAssetId;
+  for(const p of e.placements)if(p.artworkRevisionId===secondRevision)p.assetId=shared.id;
+  for(const a of e.artworks){a.provenance.events[0]!.sourceAssetIds=[shared.id];a.provenance.scaleConversion={sourceUnit:'meter',multiplierToMeters:1,appliedToAssetIds:[shared.id],bakedIntoGeometry:true};a.extensions={'org.exhibitos.viewer/lod':{version:1,variants:[{assetId:shared.id,detail:'full'}]}};}
+  expect(validateExhibition(e)).toEqual({valid:true,errors:[]});
+  const r=remapOex(e),a=r.exhibition.artworks[0]!,b=r.exhibition.artworks[1]!;
+  expect(a.assets[0]!.id).not.toBe(b.assets[0]!.id);expect(a.assets[0]!.path).not.toBe(b.assets[0]!.path);
+  for(const artwork of r.exhibition.artworks){expect(artwork.primaryAssetId).toBe(artwork.assets[0]!.id);expect(artwork.provenance.events[0]!.sourceAssetIds).toEqual([artwork.primaryAssetId]);expect(artwork.provenance.scaleConversion!.appliedToAssetIds).toEqual([artwork.primaryAssetId]);}
+  for(const p of r.exhibition.placements){const artwork=r.exhibition.artworks.find(x=>x.revisionId===p.artworkRevisionId)!;expect(p.assetId).toBe(artwork.primaryAssetId);}
+  expect(r.assetAliases.filter(x=>x.sourceAssetId===shared.id)).toHaveLength(2);expect(r.idMap[shared.id]).toBe(a.primaryAssetId);
+  expect(validateExhibition(r.exhibition).valid).toBe(true);
  });
  it('rejects unknown namespaces on both scene and nested geometry',async()=>{
   const e=await fixture();e.extensions={'com.unreviewed/execution':{url:'https://invalid.example/script'}};expect(()=>checkOexProfile(e)).toThrow('OEX_EXTENSION_UNSUPPORTED');
