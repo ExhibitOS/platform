@@ -68,7 +68,7 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
   await c.query('COMMIT');transaction=false;
   const receipt:BackupReceipt={id,status:'complete',manifestSha256:encrypted.cipherSha256,objectCount:inventory.objects.length};await jsonExclusive(join(directory,'complete.json'),receipt);return receipt;
  }catch{await jsonExclusive(join(directory,'failed.json'),{id,status:'failed'}).catch(()=>{});throw Error('BACKUP_FAILED');}
- finally{if(transaction)await c.query('ROLLBACK').catch(()=>{});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{});c.release();await rm(scratch,{recursive:true,force:true});}
+ finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);await rm(scratch,{recursive:true,force:true});}
 }
 export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt}>{
  const source=await privateDirectory(options.source,false),destination=await privateDirectory(options.destination,true);
@@ -106,5 +106,5 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   for(const role of ['runtime','configuration'] as const){const entries=verified.files.filter(f=>f.role===role);if(!entries.length)continue;const root=join(resolve(options.destination),role);await mkdir(root,{mode:0o700});for(const f of entries){let directory=root;const parts=f.name!.split('/');for(const part of parts.slice(0,-1)){directory=join(directory,part);await mkdir(directory,{mode:0o700}).catch(error=>{if(error.code!=='EEXIST')throw error;});const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('RESTORE_PATH_INVALID');}await writeFile(join(directory,parts.at(-1)!),await readFile(f.plainPath),{mode:0o600,flag:'wx'});}}
   const receipt={...verified.receipt,inventory};await jsonExclusive(join(resolve(options.destination),'restored.json'),verified.receipt);return receipt;
  }catch{await jsonExclusive(join(resolve(options.destination),'restore-failed.json'),{status:'failed'}).catch(()=>{});throw Error('RESTORE_FAILED');}
- finally{if(transaction)await c.query('ROLLBACK').catch(()=>{});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{});c.release();}
+ finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);}
 }
