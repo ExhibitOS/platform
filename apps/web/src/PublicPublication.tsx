@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { Viewer } from "./Viewer";
 import { ArtworkDetail } from "./ArtworkDetail";
-import type { SurfaceAppearance } from "./GeometryPreview";
+import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
@@ -16,6 +16,9 @@ export function PublicPublication({ id }: { id: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [proximityDetail, setProximityDetail] = useState(false);
   const [overview, setOverview] = useState<"opening" | "credits" | null>(null);
+  const detailEntry = useRef<DetailEntryActions | null>(null);
+  const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
+  const prepareDetailEntry = useCallback(() => { detailEntry.current?.prepare(); }, []);
   const audio = useRef<{ playVoice(id: string): Promise<void>; stopVoice(): void } | null>(null);
   const registerAudio = useCallback((api: typeof audio.current) => { audio.current = api; }, []);
   const playVoice = useCallback(async (assetId: string) => {
@@ -113,11 +116,11 @@ export function PublicPublication({ id }: { id: string }) {
           <p className="cms-note">
             Revision SHA-256 <code>{value.publication.revisionSha256}</code>
           </p>
-          <button onClick={() => setOverview("opening")}>전시 시작 안내</button>
-          <button onClick={() => setOverview("credits")}>전시 크레딧</button>
+          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 시작 안내</button>
+          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
           <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
-            suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} />
+            suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry} />
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
             onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} onClose={() => setOverview(null)} />}
@@ -137,7 +140,7 @@ export function PublicPublication({ id }: { id: string }) {
                 return (
                   <li key={p.id}>
                     <h3>{a?.metadata.title}</h3>
-                    <button onClick={() => setSelectedId(p.id)} aria-label={`${a?.metadata.title ?? "작품"} 상세 보기`}>작품 상세 보기</button>
+                    <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setSelectedId(p.id); }} aria-label={`${a?.metadata.title ?? "작품"} 상세 보기`}>작품 상세 보기</button>
                     <p>
                       {a?.metadata.artist} · {a?.rights.creditLine}
                     </p>
