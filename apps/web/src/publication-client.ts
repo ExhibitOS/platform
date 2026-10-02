@@ -24,7 +24,10 @@ export interface PublicAsset {
   url: string;
   mime: string;
 }
+/** Only constructed by verified offline preparation; never accepted from HTTP JSON. */
+export interface LocalPublicationSource {fetcher: typeof fetch; check(): Promise<void>}
 export interface PublicPublication {
+  local?: LocalPublicationSource;
   publication: {
     id: string;
     revisionSha256: string;

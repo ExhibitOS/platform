@@ -9,7 +9,7 @@ import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-export function PublicPublication({ id }: { id: string }) {
+export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
@@ -53,6 +53,11 @@ export function PublicPublication({ id }: { id: string }) {
     setError("");
     try {
       if (!uuid.test(id)) throw Error("PUBLICATION_UNAVAILABLE");
+      if (initial) {
+        await initial.local?.check();
+        if (generation.current === current) setValue(initial);
+        return;
+      }
       const response = await fetch(`/api/v1/publications/${id}`, {
         credentials: "omit",
         cache: "no-store",
@@ -78,7 +83,7 @@ export function PublicPublication({ id }: { id: string }) {
         )
       )
         throw Error("INVALID_PUBLICATION");
-      if (generation.current === current) setValue(result);
+      if (generation.current === current) setValue({publication:result.publication, exhibition:result.exhibition, assets:result.assets});
     } catch {
       if (generation.current === current)
         setError(
@@ -93,7 +98,7 @@ export function PublicPublication({ id }: { id: string }) {
     return () => {
       generation.current++;
     };
-  }, [id]);
+  }, [id, initial]);
   const appearance = useCallback(
     (surfaceId: string): SurfaceAppearance => {
       const material = materialFor(value?.exhibition ?? {}, surfaceId);
@@ -117,15 +122,15 @@ export function PublicPublication({ id }: { id: string }) {
         <a className="brand" href="/">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <span>공개 revision preview</span>
+        <span>{initial ? "고정 전시·오프라인" : "공개 revision preview"}</span>
       </header>
       <p role="status" data-testid="public-state">
         {loading
           ? "공개 revision을 확인합니다."
-          : error || "서버가 현재 공개 상태와 전시 권리를 확인했습니다."}
+          : error || (initial ? "서명과 유효한 오프라인 표시 기한을 확인했습니다." : "서버가 현재 공개 상태와 전시 권리를 확인했습니다.")}
       </p>
       <button disabled={loading} onClick={() => void load()}>
-        공개 상태 다시 확인
+        {initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}
       </button>
       {value && (
         <article>

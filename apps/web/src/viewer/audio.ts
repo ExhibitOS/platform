@@ -253,7 +253,7 @@ export class ExhibitionAudio implements AudioApi {
       const inventory = this.publication.exhibition.mediaAssets.find(a => a.id === id), asset = this.publication.assets.find(a => a.assetId === id);
       if (!inventory || !asset || inventory.mime !== "audio/wav") throw Error("AUDIO_MISSING");
       this.state.requests++; this.emit();
-      const bytes = await fetchVerifiedAsset({ publicationId:this.publication.publication.id, revisionSha256:this.publication.publication.revisionSha256, asset, inventory, signal:this.abort.signal, maxBytes:12*1024*1024 });
+      const bytes = await fetchVerifiedAsset({ publicationId:this.publication.publication.id, revisionSha256:this.publication.publication.revisionSha256, asset, inventory, signal:this.abort.signal, maxBytes:12*1024*1024, ...this.publication.local });
       verifyPcmWav(bytes);
       const buffer = await this.context.decodeAudioData(bytes);
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
@@ -265,6 +265,7 @@ export class ExhibitionAudio implements AudioApi {
     this.pending.set(id,promise); return promise;
   }
   private async checkAvailability() {
+    if(this.publication.local) return this.publication.local.check();
     const response=await fetch(`/api/v1/publications/${this.publication.publication.id}`,{credentials:"omit",cache:"no-store",signal:AbortSignal.any([this.abort.signal,AbortSignal.timeout(10000)])});
     if(!response.ok)throw Error("PUBLICATION_UNAVAILABLE");
     const value=await response.json() as {publication?:{id?:string;status?:string;revisionSha256?:string}} | null;
