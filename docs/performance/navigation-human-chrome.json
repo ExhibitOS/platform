@@ -1,0 +1,116 @@
+{
+  "observedAt": "2026-10-02T06:15:27.141971+00:00",
+  "source": "766a64e0933ccecfbf08ca2fd2b175a8bebeb55b",
+  "dirtySource": "",
+  "productInputCode": "a02075a2fdff2cbcea70a92efdd8751e92ac7b54",
+  "browser": "Ordinary Google Chrome on unlocked macOS, extension provider1, native app foreground",
+  "publication": {
+    "id": "6f09be27-40a4-4562-bad3-12264286a275",
+    "revisionSha256": "f96253aafba92048dadc9ab591200736b34fcd775b4fa35b5f69a45b5aaf1d99",
+    "publishedAt": "2026-10-02T06:09:14.129Z",
+    "status": "published"
+  },
+  "productionAssets": [
+    {
+      "path": "index.html",
+      "bytes": 479,
+      "sha256": "c2c0780ffe1d95f38f2daae7c2bfd6a91cccf24fba71bafb066dfaae1bdb2fec"
+    },
+    {
+      "path": "assets/GLTFLoader-QPJIvrGm.js",
+      "bytes": 45971,
+      "sha256": "76265122b2a19202875fa3caab06dad8a113f934404912aebd02336179b4e1eb"
+    },
+    {
+      "path": "assets/OrbitControls-Dh36RsEH.js",
+      "bytes": 19915,
+      "sha256": "42cb12f2d7d07d6d9e5c3adb05ac5879d26be81e04a40d365254d3c61585241b"
+    },
+    {
+      "path": "assets/index-BC7rds77.js",
+      "bytes": 652146,
+      "sha256": "8058e6fbf84a5eb719b1edc96ac914cf43e023fec5775642237b8be3834ba884"
+    },
+    {
+      "path": "assets/index-BUObxlc9.css",
+      "bytes": 7051,
+      "sha256": "2de3741460ed369daac053377778db2f42dbd90008457566eef24ce35cc3d0d7"
+    },
+    {
+      "path": "assets/navigation-camera-Dujdlmd4.js",
+      "bytes": 4353612,
+      "sha256": "fadec6977dff2e75ea50ca1d6ebf577d26659a6072e2ced1dfb9bb33b297c4b8"
+    },
+    {
+      "path": "assets/three.module-4gI5Z-_B.js",
+      "bytes": 736589,
+      "sha256": "fa8a86cbea42289132ac214fc87ffa268ec82b09ad3b366861d1fc9e7a089f20"
+    }
+  ],
+  "publicAssets": [
+    {
+      "assetId": "7921001d-c5a8-469e-ab5e-84cb690b2f78",
+      "url": "/api/v1/publications/6f09be27-40a4-4562-bad3-12264286a275/assets/7921001d-c5a8-469e-ab5e-84cb690b2f78",
+      "mime": "model/gltf-binary",
+      "bytes": 75728,
+      "sha256": "0d16e17b4703b790905d12cee45d67fd8b2feee92a2086b1dc3bb03222fdfda6"
+    },
+    {
+      "assetId": "8df1d2ac-fb17-4b0b-ad24-e229015f942e",
+      "url": "/api/v1/publications/6f09be27-40a4-4562-bad3-12264286a275/assets/8df1d2ac-fb17-4b0b-ad24-e229015f942e",
+      "mime": "model/gltf-binary",
+      "bytes": 513324,
+      "sha256": "4a7aaad291b1afae854602a7a5e79c21beb1adebc307442fb92e03b4b4ee5c25"
+    },
+    {
+      "assetId": "bf1a2c47-b2c4-4619-823c-8e18a06ef3d4",
+      "url": "/api/v1/publications/6f09be27-40a4-4562-bad3-12264286a275/assets/bf1a2c47-b2c4-4619-823c-8e18a06ef3d4",
+      "mime": "image/png",
+      "bytes": 25598,
+      "sha256": "1c22cd329d2d397864a11a56cbc9e92b5c2497813861da572eeb38fd48b61289"
+    },
+    {
+      "assetId": "d7a5d58a-40ad-440e-a347-7f02ee0bf4e3",
+      "url": "/api/v1/publications/6f09be27-40a4-4562-bad3-12264286a275/assets/d7a5d58a-40ad-440e-a347-7f02ee0bf4e3",
+      "mime": "image/png",
+      "bytes": 182357,
+      "sha256": "455cf6e36d21ac770e844b4fed73038ba0ee8f48e61263a4af777642ebad4c18"
+    }
+  ],
+  "humanInstruction": "Walking start, mouse capture, physical left/right mouse movement without Q/E, Escape",
+  "humanReport": "마우스 회전 됨 정지 됨",
+  "provenance": "Direct human report of actual physical mouse rotation and Escape stop; read-only post-action application DOM observation. No injected capture or synthetic success.",
+  "observedNavigation": {
+    "eyePosition": [
+      1.0207792136871383,
+      1.6609999829218725,
+      0.6399443121468806
+    ],
+    "yaw": 1.3436607523558828,
+    "velocity": [
+      0,
+      0,
+      0
+    ],
+    "grounded": true,
+    "steps": 984,
+    "paused": true,
+    "walking": true,
+    "pitch": -0.2320047908603634,
+    "targetYaw": 1.3436607523558828,
+    "targetPitch": -0.2320047908603634,
+    "settings": {
+      "speed": 1.3,
+      "eyeHeight": 1.65,
+      "reducedMotion": false
+    }
+  },
+  "observedStatus": "걷기가 일시 정지되었습니다. 다시 걷기는 직접 선택하세요.",
+  "qualification": "PASS for this ordinary Chrome/macOS synthetic production scene: user-confirmed physical mouse rotation and Escape stop; actual DOM paused with zero velocity.",
+  "limitations": [
+    "No continuous pointerlock or mouse-event trace was collected; acquisition is supported by the direct physical mouse report, not a separate DOM-scope assertion.",
+    "Post-action yaw is corroboration, not independent proof excluding keyboard; input attribution comes from direct user response to the instructed physical-only sequence.",
+    "Physical mobile/GPU/RSS and arbitrary geometry are not qualified.",
+    "Earlier embedded-browser physical failure and automated native-drag failure remain valid historical evidence."
+  ]
+}

@@ -362,16 +362,34 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
         await reset(page);
         await page.evaluate(() => {
           window.nativeLockRequest = Element.prototype.requestPointerLock;
-          Element.prototype.requestPointerLock = async () => { throw new DOMException("Synthetic qualification refusal", "NotAllowedError"); };
         });
         try {
-          await button(page,"마우스 시점 잡기").click();
-          await page.waitForTimeout(700);
-          await expect(page.getByRole("status",{name:"보행 상태"})).toContainText("화살표와 터치");
-          const before=await state(page);
-          await hold(page,"ArrowRight",150);
-          assert(Math.abs((await state(page)).yaw-before.yaw)>.05);
-          assert.equal(await page.evaluate(()=>document.pointerLockElement),null);
+          // Both adapters deliberately refuse capture. They prove production
+          // fallback/retry handling, never native acquisition or physical look.
+          for (const mode of ["promise", "legacy-event"]) {
+            await page.evaluate((mode) => {
+              window.refusalCount = 0;
+              Element.prototype.requestPointerLock = mode === "promise"
+                ? async () => {
+                    window.refusalCount++;
+                    throw new DOMException("Synthetic qualification refusal", "NotAllowedError");
+                  }
+                : () => {
+                    window.refusalCount++;
+                    setTimeout(() => document.dispatchEvent(new Event("pointerlockerror")), 0);
+                  };
+            }, mode);
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              await button(page,"마우스 시점 잡기").click();
+              await expect(page.getByRole("status",{name:"보행 상태"})).toContainText("화살표와 터치");
+              assert.equal(await page.evaluate(() => window.refusalCount), attempt);
+              const before=await state(page);
+              await hold(page,"ArrowRight",150);
+              assert(Math.abs((await state(page)).yaw-before.yaw)>.05);
+              assert.equal(await page.evaluate(()=>document.pointerLockElement),null);
+            }
+            await reset(page);
+          }
         } finally {
           await page.evaluate(()=>{Element.prototype.requestPointerLock=window.nativeLockRequest;});
           await reset(page);

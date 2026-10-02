@@ -1,6 +1,6 @@
-# Navigation candidate verification
+# Navigation verification
 
-Status: implemented candidate, native pointer-lock acquisition UNQUALIFIED. Do not treat filtered browser checks or this record as completion of the walking task.
+Status: implemented and verified within the documented geometry/input scope. The physical Chrome qualification below resolves the ordinary macOS Chrome mouse gate; earlier native failures and physical-mobile/GPU/RSS limits remain. Filtered browser checks alone never qualify mouse capture.
 
 ## Exact source and executed checks
 
@@ -16,9 +16,9 @@ Independent review and targeted probes found three errors during qualification: 
 
 Production browser checks cover explicit lazy physics entrance, pause/resume position, settings focus, eye height independent of body dimensions, reduced-motion look, walls/rotated art, door/window, disposal/quality replacement, missing assets and unsafe spawn fallback, two-pointer release/cancellation and persistent refused-capture fallback. Tests do not establish physical mobile/GPU/RSS or graphics60FPS support. Existing [Viewer baseline](viewer-baseline.md) retains its measured limits.
 
-## Remaining native gate
+## Historical native gate
 
-[Native refusal evidence](navigation-native-capture.json) records real WrongDocumentError in independent minimal pages and production, using bundled headless/headed Chromium and isolated standard Chrome154. A subsequent native computer-use observation reported the Mac locked; this is environment evidence, not a proven explanation for every refusal. The Oct02 foreground observations below update the unlock condition; full native capture/mouse/Esc qualification remains necessary. Mocked request promises and injected events cannot replace native acquisition. Keyboard/touch/stationary alternatives are implemented and tested independently.
+[Native refusal evidence](navigation-native-capture.json) records real WrongDocumentError in independent minimal pages and production, using bundled headless/headed Chromium and isolated standard Chrome154. A subsequent native computer-use observation reported the Mac locked; this is environment evidence, not a proven explanation for every refusal. The earlier Oct02 foreground observations below updated the unlock condition; the later direct-user Chrome qualification resolves the ordinary macOS Chrome gate. Mocked request promises and injected events cannot replace native acquisition. Keyboard/touch/stationary alternatives are implemented and tested independently.
 
 The [protocol](navigation-protocol.md), [usage and geometry limits](../viewer-navigation.md) and [ADR0010](../adr/0010-viewer-first-person-collision.md) define supported scope. Floor apertures, non-supported transforms/complexity and arbitrary curved/stair spaces are not silently certified. No API/migration/hosted workflow change or private dependency is introduced.
 
@@ -104,3 +104,26 @@ This includes injected refusal with usable keyboard fallback, focus/visibility
 pausing, stationary/quality disposal and independent two-pointer touch.
 [Exact-source raw browser results](navigation-capture-fix-results.json) retain
 the explicit native exclusion; all historical failed capture evidence remains.
+
+## Physical Chrome qualification
+
+At clean documentation head `766a64e0933ccecfbf08ca2fd2b175a8bebeb55b`
+(product input code a02075a), the user followed the ordinary macOS Chrome
+physical-only sequence: walking start, mouse capture, mouse left/right without
+Q/E, Escape. Their direct result was “마우스 회전 됨 정지 됨”. Root then read
+actual pausedtrue, zero velocity, yaw1.34366/pitch-0.23200 and explicit-resume
+status. [Source, production hashes and human evidence](navigation-human-chrome.json)
+record the result and its provenance. This qualifies mouse rotation and Escape
+stop in this ordinary Chrome scene. No continuous native event trace was
+collected; post-action yaw alone does not attribute the input. The direct user
+report establishes that attribution. Earlier embedded-browser failure,
+automation drag failure and scope limits remain recorded.
+
+A separate fresh public-only clone at766a64e plus the reviewed test-script diff
+passed installation, production build and a focused navigation run covering
+two PostgreSQL/publication groups and entrance/refusal browser groups. The
+refusal group now exercises Promise rejection and legacy void/event error,
+two consecutive attempts for each, actual visible feedback and keyboard yaw.
+These test adapters inject failure only and are not native-success evidence.
+Script syntax, ESLint and diff checks passed. The human fixture's build was
+preserved throughout this additional check.

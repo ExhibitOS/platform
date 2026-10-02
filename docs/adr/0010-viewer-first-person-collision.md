@@ -1,6 +1,6 @@
 # ADR 0010: fixed-step first-person collision
 
-Status: implemented candidate; simulation and non-native production-browser checks passed, native pointer-lock acquisition remains unqualified. See [executed evidence](../performance/navigation-results.md).
+Status: implemented and verified within the recorded geometry/input scope; simulation and production-browser checks passed, and a direct physical-user check qualified mouse rotation and Escape stop in macOS Chrome. Embedded-browser refusal and physical-mobile/GPU/RSS limits remain recorded. See [executed evidence](../performance/navigation-results.md).
 
 The first-person controller uses pinned Apache-2.0 `@dimforge/rapier3d-compat`0.21.0. Rapier's [official character-controller documentation](https://rapier.rs/docs/user_guides/javascript/character_controller/) describes translation shape casts, move-and-slide, autostep and slope/snap-to-ground settings. Application code supplies desired movement and gravity and applies the corrected translation. It is a collision engine; choosing it alone does not prove the application's camera, input lifecycle or navigation mesh.
 
