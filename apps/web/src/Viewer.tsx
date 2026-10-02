@@ -31,8 +31,13 @@ export function Viewer({
     setAudioState(runtime.snapshot());
     audioReady.current?.(runtime);
     const visible = () => runtime.visibility(document.visibilityState === "visible");
+    const blur = () => runtime.visibility(false);
+    const escape = (event: KeyboardEvent) => {if(event.key === "Escape")runtime.lifecycle(false);};
     document.addEventListener("visibilitychange",visible);
-    return () => { document.removeEventListener("visibilitychange",visible); runtime.dispose(); audio.current = null; audioReady.current?.(null); };
+    window.addEventListener("blur",blur);
+    window.addEventListener("focus",visible);
+    window.addEventListener("keydown",escape);
+    return () => { document.removeEventListener("visibilitychange",visible); window.removeEventListener("blur",blur); window.removeEventListener("focus",visible); window.removeEventListener("keydown",escape); runtime.dispose(); audio.current = null; audioReady.current?.(null); };
   }, [publication]);
   useEffect(() => { audio.current?.lifecycle(!suspendNavigation && movement.current,suspendNavigation); }, [suspendNavigation]);
   const [profile, setProfile] = useState<"auto" | "compact" | "desktop">(
