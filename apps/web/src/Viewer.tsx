@@ -13,6 +13,8 @@ export function Viewer({
   proximityDetail = false,
   onAudioReady,
   onDetailEntryReady,
+  reducedMotion,
+  onReducedMotionChange,
 }: {
   publication: PublicPublication;
   appearance: (id: string) => SurfaceAppearance;
@@ -21,6 +23,8 @@ export function Viewer({
   proximityDetail?: boolean;
   onAudioReady?: (api: AudioApi | null) => void;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
+  reducedMotion?: boolean;
+  onReducedMotionChange?: (value: boolean) => void;
 }) {
   const audio = useRef<ExhibitionAudio | null>(null);
   const [audioState, setAudioState] = useState<AudioState | null>(null);
@@ -90,6 +94,8 @@ export function Viewer({
         onArtworkSelect={onArtworkSelect}
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
+        reducedMotion={reducedMotion}
+        onReducedMotionChange={onReducedMotionChange}
         onNavigationState={state => audio.current?.update(state)}
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}

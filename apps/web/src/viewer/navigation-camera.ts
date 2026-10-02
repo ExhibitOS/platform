@@ -5,10 +5,12 @@ import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
+import { teleportToViewpoint } from "./navigation-teleport";
 import { createWalkingInput } from "./navigation-input";
 export async function createWalkingCamera({
   document,
   camera,
+  initialCamera,
   controls,
   canvas,
   settings,
@@ -19,6 +21,7 @@ export async function createWalkingCamera({
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
+  initialCamera?: PerspectiveCamera;
   controls: OrbitControls;
   canvas: HTMLCanvasElement;
   settings: WalkingSettings;
@@ -28,9 +31,9 @@ export async function createWalkingCamera({
   onState?: (state: NavigationState) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
-  const angles = new Euler().setFromQuaternion(camera.quaternion, "YXZ");
+  const angles = new Euler().setFromQuaternion((initialCamera ?? camera).quaternion, "YXZ");
   const controller = await createNavigationController(document, {
-    position: camera.position.toArray() as [number, number, number],
+    position: (initialCamera ?? camera).position.toArray() as [number, number, number],
     yaw: angles.y,
     ...settings,
   });
@@ -148,6 +151,28 @@ export async function createWalkingCamera({
   };
   const actions: WalkingActions = {
     start,
+    teleport: (viewpointId) => {
+      input.pause();
+      try {
+        const result=teleportToViewpoint(controller,document,viewpointId);
+        pitch=result.pitch;targetPitch=pitch;targetYaw=result.state.yaw;
+        walking=false;
+        controls.enabled=true;
+        canvas.style.touchAction=previousTouchAction;
+        camera.fov=result.fov;
+        camera.updateProjectionMatrix();
+        camera.position.fromArray(result.state.eyePosition);
+        camera.rotation.set(pitch,result.state.yaw,0,"YXZ");
+        controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
+        controls.update();
+        onMode(false,true);
+        apply();
+        onMessage("검증된 viewpoint의 바닥과 눈높이로 즉시 이동했습니다. 정지 관람 중이며 걷기는 직접 선택하세요.");
+      } catch {
+        if(!walking)controls.enabled=true;
+        onMessage("이 viewpoint는 몸의 여유 공간·바닥·시점 조건을 만족하지 않습니다. 기존 위치에서 정지했습니다. 작품 목록을 사용할 수 있습니다.");
+      }
+    },
     pause: () => input.pause(),
     stationary: () => {
       input.pause();
