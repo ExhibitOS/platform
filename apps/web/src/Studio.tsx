@@ -95,6 +95,11 @@ export function Studio() {
   const dirty = record !== null && text !== savedText;
   const textRef = useRef(text);
   textRef.current = text;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const sessionScope = `${session?.tenantId}:${session?.userId}:${session?.csrfToken}`;
+  const sessionGeneration = useRef({scope:sessionScope,value:0});
+  if (sessionGeneration.current.scope !== sessionScope) sessionGeneration.current = {scope:sessionScope,value:sessionGeneration.current.value+1};
   const candidate = useMemo(() => {
     try {
       if (!record) return null;
@@ -508,13 +513,18 @@ export function Studio() {
           busyRef.current = true;
           setBusy(true);
           try {
-            const restored = await store.save({ ...value.draft, id: crypto.randomUUID() }, 0, {
-              tenantId: session.tenantId,
-              userId: session.userId,
-              id: value.draft.exhibitionId,
-              etag: value.etag,
-              revision: value.revision,
-            });
+            const generation = sessionGeneration.current.value;
+            const existing = await store.get(value.draft.id);
+            if (sessionGeneration.current.value !== generation) throw new RemoteError(403, "ACCOUNT_BINDING_MISMATCH");
+            if (existing && (existing.remote?.id !== value.draft.exhibitionId || existing.remote.tenantId !== session.tenantId || existing.remote.userId !== session.userId)) throw new DraftError("LOCAL_CONFLICT");
+            const restored = existing ?? await store.save(value.draft, 0, {
+                tenantId: session.tenantId,
+                userId: session.userId,
+                id: value.draft.exhibitionId,
+                etag: value.etag,
+                revision: value.revision,
+              });
+            if (sessionGeneration.current.value !== generation || sessionRef.current?.tenantId !== session.tenantId || sessionRef.current.userId !== session.userId || sessionRef.current.csrfToken !== session.csrfToken) throw new RemoteError(403, "ACCOUNT_BINDING_MISMATCH");
             select(restored);
             await refresh();
             setPublished(false);

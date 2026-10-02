@@ -9,9 +9,11 @@ export function OexPanel({session,record,dirty,disabled,onImported}:{session:Ses
   const [jobs,setJobs]=useState<OexJob[]>([]),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
   const [file,setFile]=useState<File|null>(null);
   const pending=useRef<{file:File;id:string;sha256:string;jobId?:string}|null>(null);
-  const scope=`${session?.tenantId}:${session?.userId}`;
-  const current=useRef(scope);current.current=scope;
-  const active=()=>current.current===scope;
+  const scope=`${session?.tenantId}:${session?.userId}:${session?.csrfToken}`;
+  const current=useRef({scope,generation:0});
+  if(current.current.scope!==scope)current.current={scope,generation:current.current.generation+1};
+  const generation=current.current.generation;
+  const active=()=>current.current.scope===scope&&current.current.generation===generation;
   useEffect(()=>{setJobs([]);setNotice('');setFile(null);pending.current=null;setBusy(false);},[scope]);
   const permitted=!!session&&['artist','admin'].includes(session.role);
   const connected=!!session&&record?.remote?.tenantId===session.tenantId&&record.remote.userId===session.userId;
