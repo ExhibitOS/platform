@@ -94,8 +94,8 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
  for(const table of tables){
   if(options.tenantId&&(!table.scoped||!referencedTables.has(table.name)))continue;
   const cursor='inventory_'+randomUUID().replaceAll('-','');const rowHash=createHash('sha256');let rowCount=0;
-  await c.query(`DECLARE ${quote(cursor)} NO SCROLL CURSOR FOR SELECT to_jsonb(t) AS row FROM public.${quote(table.name)} t ${options.tenantId?'WHERE tenant_id=$1':''} ORDER BY to_jsonb(t)::text COLLATE "C"`,options.tenantId?[options.tenantId]:[]);
-  try{for(;;){const batch=await c.query(`FETCH 1000 FROM ${quote(cursor)}`);if(!batch.rowCount)break;for(const item of batch.rows){rowHash.update(inventoryCanonical(item.row)+'\n');rowCount++;if(referencedTables.has(table.name)){const extracted=rowObjectReferences(table.name,item.row);report.references.push(...extracted.references);report.issues.push(...extracted.issues);}}}}finally{await c.query(`CLOSE ${quote(cursor)}`);}
+  await c.query(`DECLARE ${quote(cursor)} NO SCROLL CURSOR FOR SELECT to_jsonb(t)::text AS raw FROM public.${quote(table.name)} t ${options.tenantId?'WHERE tenant_id=$1':''} ORDER BY to_jsonb(t)::text COLLATE "C"`,options.tenantId?[options.tenantId]:[]);
+  try{for(;;){const batch=await c.query(`FETCH 1000 FROM ${quote(cursor)}`);if(!batch.rowCount)break;for(const item of batch.rows){rowHash.update(item.raw+'\n');rowCount++;if(referencedTables.has(table.name)){const extracted=rowObjectReferences(table.name,JSON.parse(item.raw));report.references.push(...extracted.references);report.issues.push(...extracted.issues);}}}}finally{await c.query(`CLOSE ${quote(cursor)}`);}
   if(!options.tenantId)report.tables.push({name:table.name,rowCount,sha256:rowHash.digest('hex')});
  }
  const listing=options.tenantId?await store.list(options.tenantId):store.listAll?await store.listAll():(()=>{throw Error('full store listing required');})();

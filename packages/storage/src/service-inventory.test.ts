@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {describe,it,expect} from 'vitest';
-import {inventoryCanonical,rowObjectReferences} from './service-inventory.js';
+import {createHash} from 'node:crypto';
+import {mkdtemp} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import type {PoolClient} from 'pg';
+import type {BlobStore} from './blobs.js';
+import {collectServiceInventory,inventoryCanonical,rowObjectReferences} from './service-inventory.js';
 const tenant='4d0bd5cc-76c5-4df4-b763-63d0f2484777',id='89dbf776-904b-4a49-96ab-e946f49ea2f9',key=tenant+'/objects/model.glb',sha='a'.repeat(64);
 const row={tenant_id:tenant,id,object_key:key,target_key:tenant+'/objects/final.glb',bytes:123,sha256:sha};
 describe('service inventory typed references',()=>{
@@ -12,4 +18,23 @@ describe('service inventory typed references',()=>{
  it('freezes include revoked historical runtime and ordered full OEX archive',()=>{const manifest={oex:{bytes:123,sha256:sha},runtime:{files:[{path:'index.html',bytes:1,sha256:sha}]}},inventory={oex:[key],runtime:[{path:'index.html',key:row.target_key}]};const r=rowObjectReferences('exhibition_freezes',{...row,manifest,inventory});expect(r.references).toHaveLength(2);expect(r.references[0].aggregate?.sha256).toBe(sha);expect(r.references[1].expectedBytes).toBe(1);expect(rowObjectReferences('freeze_requests',{...row,object_keys:[key],state:'creating'}).references[0].required).toBe(false);expect(rowObjectReferences('freeze_requests',{...row,object_keys:[key],state:'complete'}).references[0].required).toBe(true);});
  it('refuses duplicate runtime mappings and invalid aggregate inventory',()=>{const manifest={oex:{bytes:123,sha256:sha},runtime:{files:[{path:'index.html',bytes:1,sha256:sha}]}},inventory={oex:[],runtime:[{path:'index.html',key},{path:'index.html',key}]};const r=rowObjectReferences('exhibition_freezes',{...row,manifest,inventory});expect(r.issues.map(v=>v.code)).toContain('INVALID_AGGREGATE');expect(r.issues.map(v=>v.code)).toContain('INVALID_INVENTORY');});
  it('canonical hashes preserve every value but ignore property insertion order',()=>{expect(inventoryCanonical({z:[2,1],a:{b:'secret'}})).toBe(inventoryCanonical({a:{b:'secret'},z:[2,1]}));expect(inventoryCanonical({a:1})).not.toBe(inventoryCanonical({a:2}));});
+});
+
+it('hashes PostgreSQL raw numeric rows without IEEE754 rounding',async()=>{
+ const migrationDirectory=await mkdtemp(join(tmpdir(),'exhibitos-numeric-inventory-'));
+ const run=async(raw:string)=>{
+  let fetched=false;
+  const c={query:async(sql:string)=>{
+   if(sql.startsWith('SELECT c.relname AS name'))return {rows:[{name:'numeric_fixture',scoped:false}]};
+   if(sql.startsWith('DECLARE'))expect(sql).toContain('to_jsonb(t)::text AS raw');
+   if(sql.startsWith('FETCH')&&!fetched){fetched=true;return {rows:[{raw}],rowCount:1};}
+   return {rows:[],rowCount:0};
+  }}as unknown as PoolClient;
+  return collectServiceInventory(c,{listAll:async()=>[]}as unknown as BlobStore,{migrationDirectory});
+ };
+ const first='{"n": 9007199254740992}',second='{"n": 9007199254740993}';
+ expect(JSON.parse(first)).toEqual(JSON.parse(second)); // Reproduces the old precision loss.
+ const a=await run(first),b=await run(second);
+ expect(a.tables[0]?.sha256).toBe(createHash('sha256').update(first+'\n').digest('hex'));
+ expect(b.tables[0]?.sha256).not.toBe(a.tables[0]?.sha256);
 });
