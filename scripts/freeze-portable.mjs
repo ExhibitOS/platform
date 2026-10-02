@@ -81,6 +81,8 @@ export async function runPortableFreeze({ bundle, shortBundle }) {
       await expiryPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click(); await expect(expiryPage.getByTestId("audio-state")).toBeVisible();
       await expiryPage.getByRole("button", { name: "소리 켜기", exact: true }).click();
       await expect.poll(() => expiryPage.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState).loaded)).toBeGreaterThan(0);
+      await expiryPage.getByRole("button", { name: /^공간 소리 재생 / }).click();
+      await expect.poll(() => expiryPage.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState).active)).toBeGreaterThan(0);
       const remaining = Date.parse(expiring.authorization.grant.expiresAt) - Date.now(); assert(remaining > 0 && remaining < 15000);
       await new Promise(resolve => setTimeout(resolve, remaining + 100));
       await expect(expiryPage.getByRole("button", { name: "오프라인 관람 닫기", exact: true })).toHaveCount(0);

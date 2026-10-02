@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, verify } from "node:crypto";
-import { chmod, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { Pool } from "pg";
@@ -213,6 +213,31 @@ try {
     assert.deepEqual((await pool.query("SELECT id,manifest_sha256 FROM exhibition_freezes WHERE id<>$1 ORDER BY id", [restored.id])).rows, originalFreezes);
     assert.deepEqual((await json(request(actors.artist, "GET", path))).draft, latest.draft);
   });
+  let changedRuntimeBundle;
+  await test("a separately changed verified runtime image creates a distinct freeze while previous signed runtime bytes remain reconstructible", async () => {
+    const changedRoot = await realpath(await mkdtemp(`${tmpdir()}/exhibitos-freeze-next-runtime-`));
+    for (const file of bundle.runtimeFiles) {
+      const target = `${changedRoot}/${file.path}`; await mkdir(target.slice(0, target.lastIndexOf("/")), { recursive: true }); await writeFile(target, Buffer.from(file.data, "base64"));
+    }
+    const descriptor = JSON.parse(await readFile(`${changedRoot}/freeze-runtime.json`, "utf8"));
+    const changedFile = descriptor.files.find(file => /^assets\/index-.*\.js$/.test(file.path)); assert(changedFile);
+    const bytes = Buffer.concat([await readFile(`${changedRoot}/${changedFile.path}`), Buffer.from("\n/* Synthetic independent runtime-image variation. */\n")]);
+    await writeFile(`${changedRoot}/${changedFile.path}`, bytes); changedFile.bytes = bytes.length; changedFile.sha256 = sha256(bytes);
+    descriptor.coreDigest = sha256(Buffer.from(canonical(descriptor.files))); await writeFile(`${changedRoot}/freeze-runtime.json`, JSON.stringify(descriptor));
+    const nextConfig = await loadFreezeConfig({ runtimeRoot: changedRoot, signingKeyFile: keyFile, origin });
+    const { buildApp } = await import("../apps/api/dist/app.js"), nextApp = buildApp({ pool, blobs: fixture.blobs, freeze: nextConfig, auth: { mode: "local", origin, bindHost: "127.0.0.1" } });
+    const next = (method, path, payload, extra = {}) => nextApp.inject({ method, url: `/api/v1/tenants/${fixture.tenant}${path}`, headers: { ...fixture.headers, cookie: actors.artist.cookie, "x-csrf-token": actors.artist.csrfToken, ...extra }, ...(payload === undefined ? {} : { payload }) });
+    try {
+      const latest = await json(request(actors.artist, "GET", path));
+      const created = await json(next("POST", freezePath, { requestId: randomUUID() }, { "if-match": latest.etag }), 201);
+      changedRuntimeBundle = await json(next("POST", `${freezePath}/${created.id}/offline`, { seconds: 300 }));
+      assert.notEqual(created.manifest.runtime.coreDigest, bundle.manifest.runtime.coreDigest);
+      assert.notEqual(created.manifest.runtime.imageDigest, bundle.manifest.runtime.imageDigest);
+      await verifyFreezeBundle(Buffer.from(JSON.stringify(changedRuntimeBundle)), { trustedKeys: [sha256(trustedKey.export({ format: "der", type: "spki" }))] });
+      const old = await json(next("POST", `${frozenPath}/offline`, { seconds: 300 }));
+      assert.deepEqual(old.manifest, bundle.manifest); assert.equal(old.signature, bundle.signature); assert.equal(old.oex, bundle.oex); assert.deepEqual(old.runtimeFiles, bundle.runtimeFiles);
+    } finally { await nextApp.close(); }
+  });
   await fixture.app.listen({ host: "127.0.0.1", port });
   const { Oex } = await import("../apps/api/dist/oex.js"), oex = new Oex(pool, fixture.blobs);
   const studioReport = await runStudioFreezeBrowser({ origin, tenantId: fixture.tenant, subject: fixture.subject, password: fixture.password,
@@ -221,6 +246,7 @@ try {
   checks.push(...studioReport.checks);
   const browserReport = await runFreezeBrowser({ origin, tenantId: fixture.tenant, subject: fixture.subject, password: fixture.password, bundle,
     otherSubject: "synthetic.oex.other",
+    changedRuntimeBundle,
     revoke: () => expected(request(actors.artist, "POST", `${frozenPath}/revoke`, {}), 200),
     restore: () => expected(request(actors.artist, "POST", `${frozenPath}/restore`, {}), 200) });
   checks.push(...browserReport.checks);

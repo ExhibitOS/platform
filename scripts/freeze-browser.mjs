@@ -61,7 +61,7 @@ async function stored(page) {
 }
 
 /** Real production UI and verified byte-provider; no intercepted successful HTTP responses. */
-export async function runFreezeBrowser({ origin, tenantId, subject, password, bundle, revoke, restore, otherSubject }) {
+export async function runFreezeBrowser({ origin, tenantId, subject, password, bundle, revoke, restore, otherSubject, changedRuntimeBundle }) {
   const browser = await chromium.launch(), context = await browser.newContext({ viewport: { width: 1200, height: 900 } }), page = await context.newPage();
   const directory = await mkdtemp(`${tmpdir()}/exhibitos-freeze-browser-`), checks = [], assetRequests = [], errors = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -87,6 +87,11 @@ export async function runFreezeBrowser({ origin, tenantId, subject, password, bu
         await expect(status()).toContainText("기존 사본은 유지합니다"); assert.deepEqual(await stored(page), baseline);
       }
     });
+    await check("actual correctly signed package for a different retained runtime is refused without changing the earlier verified cache", async () => {
+      const baseline = await stored(page); assert.notEqual(changedRuntimeBundle.manifest.runtime.coreDigest, bundle.manifest.runtime.coreDigest);
+      await upload(changedRuntimeBundle); await expect(status()).toContainText("기존 사본은 유지합니다");
+      assert.deepEqual(await stored(page), baseline); await expect(button("고정 전시 열기")).toHaveCount(1);
+    });
     await check("actual disconnected reload uses retained shell and GLB PNG PCM byte-provider with no publication asset HTTP calls", async () => {
       await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), { timeout: 15000 }).toBe(true);
       const cached = await page.evaluate(async () => { const urls = []; for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) urls.push(new URL(request.url).pathname); return urls; });
@@ -110,6 +115,7 @@ export async function runFreezeBrowser({ origin, tenantId, subject, password, bu
       await button("소리 켜기").click();
       const audio = () => page.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState));
       await expect.poll(async () => (await audio()).loaded).toBeGreaterThan(0); assert((await audio()).decodedBytes > 0);
+      await page.getByRole("button", { name: /^공간 소리 재생 / }).click(); await expect.poll(async () => (await audio()).active).toBeGreaterThan(0);
       assert.deepEqual(assetRequests, []);
     });
     await check("disconnected revocation is bounded by existing grant and actual reconnect denial closes renderer and audio", async () => {
@@ -131,7 +137,7 @@ export async function runFreezeBrowser({ origin, tenantId, subject, password, bu
         };
       }));
       assert(high - 1000 > Date.parse(bundle.authorization.grant.issuedAt));
-      await page.clock.setSystemTime(new Date(high - 1000));
+      await page.clock.setFixedTime(new Date(high - 1000));
       try {
         await context.setOffline(true); await button("고정 전시 열기").click(); await expect(status()).toContainText("전시를 열지 않았습니다");
         await expect(button("오프라인 관람 닫기")).toHaveCount(0); assert.deepEqual(await stored(page), baseline);
