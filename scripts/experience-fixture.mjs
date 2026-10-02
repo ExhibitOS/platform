@@ -14,6 +14,20 @@ export function syntheticWav({ rate = 16000, channels = 1, seconds = 2, frequenc
 }
 export function addExperience(document, mediaAsset) {
   const doc = document, placementId = doc.placements[0].id, annotationId = randomUUID();
+  // Experience-only acoustic contrast: retain the shared navigation fixture's
+  // floor plan and reciprocal openings, but give room2 a genuinely taller volume.
+  const taller = doc.rooms[1], delta = 6 - taller.dimensions.height;
+  taller.dimensions.height = 6;
+  for (const surface of doc.surfaces.filter(s => s.roomId === taller.id)) {
+    if (surface.type === "ceiling") surface.transform.position[1] += delta;
+    if (surface.type === "wall") {
+      surface.dimensions.height += delta;
+      surface.transform.position[1] += delta / 2;
+      // Offsets are measured from wall center. Retain exact world heights for
+      // both door and window, including the reciprocal4m/6m partition pair.
+      for (const opening of doc.openings.filter(o => o.surfaceId === surface.id)) opening.offset[1] -= delta / 2;
+    }
+  }
   doc.mediaAssets = [mediaAsset];
   doc.annotations = [{ id: annotationId, placementId, text: "Original synthetic material annotation" }];
   doc.audioZones = [{ id: randomUUID(), roomId: doc.rooms[0].id, assetId: mediaAsset.id,

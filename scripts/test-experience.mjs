@@ -343,6 +343,21 @@ try {
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID() }), 409, "AUDIO_LIMIT");
   });
   addExperience(candidate, (await json(request(actors.artist, "GET", `${audioPath}/${audio.id}`))).mediaAsset);
+  await test("experience fixture has distinct room volumes with aligned floor and reciprocal door heights", async () => {
+    const volumes = candidate.rooms.map(room => room.dimensions.width * room.dimensions.height * room.dimensions.depth);
+    assert(volumes[1] > volumes[0]);
+    const second = candidate.rooms[1], surfaces = candidate.surfaces.filter(surface => surface.roomId === second.id);
+    assert(surfaces.filter(surface => surface.type === "floor").every(surface => surface.transform.position[1] === 0));
+    assert(surfaces.filter(surface => surface.type === "ceiling").every(surface => surface.transform.position[1] === second.dimensions.height));
+    assert(surfaces.filter(surface => surface.type === "wall").every(surface => surface.dimensions.height === second.dimensions.height && surface.transform.position[1] === second.dimensions.height / 2));
+    const doors = candidate.openings.filter(opening => opening.type === "door");
+    const height = opening => candidate.surfaces.find(surface => surface.id === opening.surfaceId).transform.position[1] + opening.offset[1];
+    assert.equal(height(doors[0]), height(doors[1])); assert.equal(height(doors[0]), 1.25);
+    assert(candidate.openings.filter(opening => opening.type === "window").every(opening => height(opening) === 2));
+    assert.equal(validateExhibition(candidate).valid, true, JSON.stringify(validateExhibition(candidate)));
+    fixture.geometry.roomVolumesCubicMeters = volumes;
+    fixture.geometry.roomHeightsMeters = candidate.rooms.map(room => room.dimensions.height);
+  });
   draft.editVersion++;
   const updated = await json(request(actors.artist, "PUT", `/studio/exhibitions/${candidate.id}`, { draft, requestId: randomUUID() }, { "if-match": saved.etag }));
   await test("bounded experience references reject invalid annotation and unknown version", async () => {
