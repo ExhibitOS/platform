@@ -63,5 +63,13 @@ remain separate qualifications.
 The existing3D software-renderer FPS and physical working-set limitations in
 [Viewer baseline](viewer-baseline.md) remain in force. An initial new3D measurement
 ran alongside a navigation suite; that performance run is retained locally and
-excluded from acceptance. Serial remeasurement at0efd393 completed: optional3D cold p95 desktop7049.62ms/narrow7644.27ms; SwiftShader desktop26.77FPS/narrow42.18FPS. Desktop3D rendering and bothoptional3D load targets missed; text fallback is independently measured above. ActualMac GPU diagnosis and final phase review are pending. No paid CI, new dependency, private build input, DB migration or actual
+excluded from acceptance. Serial remeasurement at0efd393 completed: optional3D cold p95 desktop7049.62ms/narrow7644.27ms; SwiftShader desktop26.77FPS/narrow42.18FPS. Desktop3D rendering and bothoptional3D load targets missed; text fallback is independently measured above. The installed Chrome hardware measurement below resolves the Mac GPU diagnostic; physical mobile qualification remains unavailable. No paid CI, new dependency, private build input, DB migration or actual
 data deletion was introduced.
+
+## Installed Chrome twenty-artwork reference
+
+Root ran `EXHIBITOS_VIEWER_CHANNEL=chrome EXHIBITOS_VIEWER_HEADED=1 node scripts/test-viewer.mjs` serially in the public-only clone at clean fc939500ac50a6e5f850a0f4851fffcf9eaed656; exit0, all14 actual API/browser groups passed. Chrome154.0.8037.93 reported `ANGLE Metal Renderer: Apple M1` for both traces, with no known software renderer detected. [Raw reference](accessibility-reference-results.json) retains all twenty cold/warm samples, browser-clock diagnostics, request inventories, 60-second render samples and original raw hash. Historical Viewer baseline files are unchanged.
+
+At10Mbps/100ms, five cold samples per viewport: desktop text p951450.91ms / optional3D3322.60ms; narrow text1142.21ms / optional3D3377.57ms. Warm3D p95desktop2938.95ms / narrow3297.43ms. Largest initial transfer1656019bytes. All samples had20actual text list items and zero publication artwork requests before explicit3D entry. Retained Node-observed five-second/15MB loading gates pass; browser-clock timings are separate diagnostics.
+
+Full twenty-artwork qualified-coarse gallery rendering: desktop3601frames/60009.8ms =60.0069FPS (frame p9517.6ms; render-call p951.0ms), narrow3601/60010.4ms =60.0063FPS (17.5ms;1.1ms). This qualifies this Mac/Chrome/reference workload against the recorded desktop60FPS and narrow30FPS proposals. It does not qualify a physical iPhone or mobile400MB working set; recorded JS heap and renderer resource estimates are proxies. The [serial software diagnostic](accessibility-software-results.json) retains its failed loading/desktopFPS targets; software and hardware results must not be combined. Temporary fixture/browser cleanup completed on runner exit.

@@ -1,0 +1,85 @@
+{
+  "source": {
+    "head": "0efd393a9042b975a3d6aa7271bc9a438dd1aade",
+    "dirty": ""
+  },
+  "originalRawSha256": "4fdc4a483e646fcbad6da8ea2f35e0b61201634b8e65463ab85b50c372f1b810",
+  "environment": {
+    "os": "darwin",
+    "release": "27.0.0",
+    "arch": "arm64",
+    "cpu": "Apple M1",
+    "node": "v24.21.0",
+    "browser": "153.0.8010.12",
+    "network": {
+      "downloadBytesPerSecond": 1250000,
+      "uploadBytesPerSecond": 1250000,
+      "latencyMs": 100
+    },
+    "memoryMethod": "performance.memory JS heap and renderer geometry/texture/buffer estimates; physical tab RSS unverified",
+    "warmScope": "Same anonymous context HTTP app cache. Publication metadata and artwork endpoints remain no-store; no service worker."
+  },
+  "summary": {
+    "desktop": {
+      "cold": {
+        "samples": 5,
+        "p95EntranceMs": 7049.619249999989,
+        "maxInitialTransferBytes": 1834160,
+        "targetPass": false
+      },
+      "warm": {
+        "samples": 5,
+        "p95EntranceMs": 5300.473166000011,
+        "maxInitialTransferBytes": 1834160,
+        "targetPass": false
+      }
+    },
+    "narrow": {
+      "cold": {
+        "samples": 5,
+        "p95EntranceMs": 7644.2725419999915,
+        "maxInitialTransferBytes": 1834160,
+        "targetPass": false
+      },
+      "warm": {
+        "samples": 5,
+        "p95EntranceMs": 5523.160207999987,
+        "maxInitialTransferBytes": 1834160,
+        "targetPass": false
+      }
+    }
+  },
+  "traces": [
+    {
+      "profile": "desktop",
+      "gl": {
+        "vendor": "Google Inc. (Google)",
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "summary": {
+        "frames": 1608,
+        "elapsedMs": 60073.800000000745,
+        "averageFps": 26.7670764959097,
+        "frameIntervalP95Ms": 59,
+        "renderCallP95Ms": 0.8000000007450581,
+        "fpsTarget": 60
+      }
+    },
+    {
+      "profile": "narrow",
+      "gl": {
+        "vendor": "Google Inc. (Google)",
+        "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
+      },
+      "summary": {
+        "frames": 2531,
+        "elapsedMs": 60006.300000000745,
+        "averageFps": 42.178904548355234,
+        "frameIntervalP95Ms": 32.899999998509884,
+        "renderCallP95Ms": 0.6999999992549419,
+        "fpsTarget": 30
+      }
+    }
+  ],
+  "scope": "Serial bundled headless software-renderer diagnostic; original raw retained locally. Does not supersede installed Chrome hardware measurement or historical baseline."
+}
