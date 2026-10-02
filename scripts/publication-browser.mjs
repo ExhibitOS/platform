@@ -185,10 +185,15 @@ export async function runPublicationBrowser({
         await click("현재 서버 계정 확인");
         await click("두 방 template 복제");await saved();
         const templateBefore=await candidate();assert.equal(templateBefore.rooms.length,2);
+        // Keep the original GLB/PNG camera sightline in room1 unobstructed.
+        // Customize room2 through the real target-room control instead.
+        await page.getByLabel('건축 대상 방',{exact:true}).selectOption(templateBefore.rooms[1].id);
         await page.getByLabel('건축 유형',{exact:true}).selectOption('curve');await click('건축 추가');await saved();
         await page.getByLabel('건축 유형',{exact:true}).selectOption('stairs');await click('건축 추가');await saved();
         await page.getByLabel('자연광 hour',{exact:true}).fill('8');await saved();
         const customized=await candidate();assert.equal(customized.surfaces.length,24);assert.equal(customized.openings.filter(o=>o.type==='window').length,1);
+        assert.deepEqual(customized.surfaces.slice(0,12),templateBefore.surfaces);
+        assert(customized.surfaces.slice(12).every(surface=>surface.roomId===templateBefore.rooms[1].id));
         const templateLocalId=await page.getByTestId('draft-id').innerText();await page.reload();await page.getByTestId(`draft-${templateLocalId}`).click();await saved();await click('현재 서버 계정 확인');
         for (const id of artworkIds) {
           await page.getByLabel("CMS 작품 ID", { exact: true }).fill(id);
@@ -286,6 +291,7 @@ export async function runPublicationBrowser({
         assert.equal(publicResponse.exhibition.extensions['org.exhibitos.studio/template'].creator,'ExhibitOS contributors');
         assert.equal(publicResponse.exhibition.extensions['org.exhibitos.studio/daylight'].hour,8);
         assert.equal(publicResponse.exhibition.rooms.length,2);assert.equal(publicResponse.exhibition.surfaces.length,24);
+        assert(publicResponse.exhibition.surfaces.slice(12).every(surface=>surface.roomId===publicResponse.exhibition.rooms[1].id));
         const serialized = JSON.stringify(publicResponse);
         for (const forbidden of [
           hiddenMarker,
@@ -360,7 +366,12 @@ export async function runPublicationBrowser({
                 count++;
             return count;
           });
-        assert(colorful > 200, `Actual public GLB/PNG pixels: ${colorful}`);
+        const renderDir = await mkdtemp(`${tmpdir()}/exhibitos-publication-render-`);
+        const renderScreenshot = `${renderDir}/anonymous-derivative-pixels.png`;
+        await publicPage.locator('.geometry-preview').screenshot({path:renderScreenshot});
+        screenshots.push(renderScreenshot);
+        console.log(JSON.stringify({publicDerivativePixels:colorful,renderScreenshot}));
+        assert(colorful > 200, `Actual public GLB/PNG pixels: ${colorful}; screenshot ${renderScreenshot}`);
         assert(
           !requests.some(
             (path) => path.includes("/tenants/") || path.includes("/cms/"),
