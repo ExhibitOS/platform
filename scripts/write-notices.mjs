@@ -1,4 +1,4 @@
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 const resolveWeb = createRequire(
@@ -36,12 +36,10 @@ for (const name of packages) {
     root = parent;
   }
   const metadata = JSON.parse(await readFile(`${root}/package.json`, "utf8"));
-  let license;
-  try {
-    license = await readFile(`${root}/LICENSE`, "utf8");
-  } catch {
-    license = await readFile(`${root}/LICENSE.md`, "utf8");
-  }
+  // npm packages may ship lowercase `license`; Linux filesystems are case-sensitive.
+  const licenseFiles = (await readdir(root)).filter(file => /^license(?:\.md|\.txt)?$/i.test(file)).sort();
+  if (!licenseFiles.length) throw Error(`Missing original bundled package license: ${name}`);
+  const license = await readFile(`${root}/${licenseFiles[0]}`, "utf8");
   notices.push(
     `\n--- ${name} ${metadata.version} (${metadata.license}) ---\n\n${license}`,
   );
