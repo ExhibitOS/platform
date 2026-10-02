@@ -30,6 +30,8 @@ export interface NavigationState {
     yaw: number;
     velocity: Vec3;
     grounded: boolean;
+    floorSurfaceId?: string;
+    roomId?: string;
     steps: number;
     paused: boolean;
     blocked: boolean;
@@ -115,6 +117,7 @@ export async function createNavigationController(doc: Exhibition, options: {
     if (doc.rooms.length > 32 || doc.surfaces.length > 256 || doc.openings.length > 128 || doc.placements.length > 128 || !doc.rooms.length)
         throw Error("NAVIGATION_COMPLEXITY");
     await (initialized ??= RAPIER.init());
+    const floors = new Map<number, { floorSurfaceId: string; roomId: string }>();
     const kinds = new Map<number, "floor" | "solid">(), regions: WalkableRegion[] = [], solids: CollisionVolume[] = [];
     const settings: NavigationSettings = { speed: options.speed ?? 1.3, eyeHeight: options.eyeHeight ?? 1.6, reducedMotion: options.reducedMotion ?? false };
     const checkSettings = (s: NavigationSettings) => {
@@ -148,6 +151,7 @@ export async function createNavigationController(doc: Exhibition, options: {
                 const desc = RAPIER.ColliderDesc.trimesh(new Float32Array(points.flat()), new Uint32Array([0, 1, 2, 0, 2, 3]), RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
                 const c = world.createCollider(desc);
                 kinds.set(c.handle, "floor");
+                floors.set(c.handle, {floorSurfaceId:s.id, roomId:room.id});
                 regions.push({ roomId: room.id, surfaceId: s.id, exclusions: solids, capsuleRadius: NAVIGATION_PROFILE.radius, bodyHeight: NAVIGATION_PROFILE.bodyHeight, normal: rotate([0, 0, 1], rot), corners: points });
             }
             else
@@ -193,13 +197,13 @@ export async function createNavigationController(doc: Exhibition, options: {
         world.step();
         let center: Vec3 = [0, 0, 0], yaw = options.yaw ?? 0, velocity: Vec3 = [0, 0, 0], accumulator = 0, steps = 0, paused = true, grounded = false, blocked = false, recovered = false, disposed = false;
         const shape = new RAPIER.Capsule(half - radius, radius), initial = structuredClone(options.position);
-        const snapshot = (): NavigationState => ({ eyePosition: [center[0], center[1] - half + settings.eyeHeight, center[2]], yaw, velocity: [...velocity], grounded, steps, paused, blocked, recovered });
+        const snapshot = (): NavigationState => ({ ... (grounded ? groundInfo(center[0], center[2], center[1] - half)?.floor : undefined), eyePosition: [center[0], center[1] - half + settings.eyeHeight, center[2]], yaw, velocity: [...velocity], grounded, steps, paused, blocked, recovered });
         const ensure = () => {
             if (disposed)
                 throw Error("NAVIGATION_DISPOSED");
         };
         const inside = (p: Vec3) => doc.rooms.some(room => { const local = rotate(p.map((n, i) => n - room.transform.position[i]!) as Vec3, inverse(room.transform.rotation)); return Math.abs(local[0]) <= room.dimensions.width / 2 && Math.abs(local[2]) <= room.dimensions.depth / 2 && local[1] >= -0.02 && local[1] <= room.dimensions.height; });
-        function groundInfo(x: number, z: number, foot: number) { const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x, y: foot + 0.4, z }, { x: 0, y: -1, z: 0 }), 2, true, undefined, undefined, character, undefined, c => kinds.get(c.handle) === "floor"); return hit && hit.normal.y >= Math.cos(35 * Math.PI / 180) - 0.001 ? { height: foot + 0.4 - hit.timeOfImpact, normalY: hit.normal.y } : undefined; }
+        function groundInfo(x: number, z: number, foot: number) { const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x, y: foot + 0.4, z }, { x: 0, y: -1, z: 0 }), 2, true, undefined, undefined, character, undefined, c => kinds.get(c.handle) === "floor"); return hit && hit.normal.y >= Math.cos(35 * Math.PI / 180) - 0.001 ? { height: foot + 0.4 - hit.timeOfImpact, normalY: hit.normal.y, floor: floors.get(hit.collider.handle) } : undefined; }
         function support(x: number, z: number, foot: number) { return groundInfo(x, z, foot)?.height; }
         function standingAt(eye: Vec3): Vec3 | undefined { const ground = groundInfo(eye[0], eye[2], eye[1] - settings.eyeHeight); return ground ? [eye[0], ground.height + half + (radius + 0.011) / ground.normalY - radius, eye[2]] : undefined; }
         function supported(p: Vec3) {

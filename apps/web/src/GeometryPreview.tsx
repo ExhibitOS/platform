@@ -14,6 +14,7 @@ import {
   type WalkingActions,
   type WalkingSettings,
 } from "./WalkingControls";
+import type { NavigationState } from "./viewer/navigation";
 import type { PublicAsset } from "./publication-client";
 import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
@@ -91,9 +92,21 @@ export function GeometryPreview({
   session,
   publicSource,
   viewerBudget,
+  suspendNavigation = false,
+  onNavigationState,
+  onCameraPose,
+  onNavigationMode,
+  onArtworkSelect,
+  proximityDetail = false,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
+  suspendNavigation?: boolean;
+  onNavigationState?: (state: NavigationState) => void;
+  onCameraPose?: (position: [number,number,number],yaw: number) => void;
+  onNavigationMode?: (walking: boolean, paused: boolean) => void;
+  onArtworkSelect?: (id: string) => void;
+  proximityDetail?: boolean;
   session: Session | null;
   publicSource?: {
     publicationId: string;
@@ -111,6 +124,13 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
+  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail });
+  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail };
+  const suspendedRef = useRef(suspendNavigation);
+  suspendedRef.current = suspendNavigation;
+  const suspendedWasWalking = useRef(false);
+  const orbitEnabled = useRef<((enabled: boolean) => void) | null>(null);
+  const currentWalkMode = useRef({ walking: false, paused: true });
   const walkingActions = useRef<WalkingActions | null>(null);
   const [walkingMode, setWalkingMode] = useState(false),
     [walkPaused, setWalkPaused] = useState(true),
@@ -131,11 +151,27 @@ export function GeometryPreview({
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
   useEffect(() => {
+    if (suspendNavigation) {
+      suspendedWasWalking.current = currentWalkMode.current.walking && !currentWalkMode.current.paused;
+      walkingActions.current?.pause();
+      orbitEnabled.current?.(false);
+    } else {
+      orbitEnabled.current?.(!currentWalkMode.current.walking);
+      if (suspendedWasWalking.current) {
+        const focused = globalThis.document.activeElement;
+        walkingActions.current?.start();
+        if (focused instanceof HTMLElement && focused !== globalThis.document.body) focused.focus({preventScroll:true});
+      }
+      suspendedWasWalking.current = false;
+    }
+  }, [suspendNavigation]);
+  useEffect(() => {
     const abort = new AbortController();
     let gpuLost = false;
     let disposed = false,
       release = () => {};
     let walkingRelease = () => {};
+    let nearPlacement: string | undefined;
     walkingActions.current = null;
     setWalkingMode(false);
     setWalkPaused(true);
@@ -298,6 +334,7 @@ export function GeometryPreview({
         );
         if (!artwork) continue;
         const group = new three.Group();
+        group.userData.placementId = placement.id;
         pose(group, placement.transform);
         rooms.get(placement.roomId.toLowerCase())?.add(group);
         placements.set(placement.id.toLowerCase(), group);
@@ -367,6 +404,19 @@ export function GeometryPreview({
           extent * 100,
         );
       const controls = new OrbitControls(camera, renderer.domElement);
+      let pointerStart: [number,number] | undefined;
+      const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
+      renderer.domElement.addEventListener("pointerdown",down);
+      const pick = (event: MouseEvent) => {
+        if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
+        if (suspendedRef.current || !navigationCallbacks.current.onArtworkSelect) return;
+        const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
+        ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
+        const hit=ray.intersectObject(model,true)[0];
+        let object=hit?.object;
+        while(object) { if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onArtworkSelect(object.userData.placementId); return; } object=object.parent ?? undefined; }
+      };
+      renderer.domElement.addEventListener("click",pick);
       controls.enableDamping = false;
       controls.enablePan = true;
       controls.minDistance = extent / 20;
@@ -380,6 +430,7 @@ export function GeometryPreview({
         if (!disposed && !gpuLost) {
           const at = performance.now();
           renderer.render(scene, camera);
+          navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           if (trace.started)
             trace.samples.push({
               at,
@@ -543,6 +594,9 @@ export function GeometryPreview({
       setReady(true);
       release = () => {
         walkingRelease();
+        orbitEnabled.current = null;
+        renderer.domElement.removeEventListener("click",pick);
+        renderer.domElement.removeEventListener("pointerdown",down);
         walkingActions.current = null;
         action.current = null;
         demand.current = null;
@@ -559,6 +613,8 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      orbitEnabled.current = (enabled) => { controls.enabled = enabled; };
+      if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
         renderer.domElement.tabIndex = 0;
         renderer.domElement.setAttribute(
@@ -586,7 +642,25 @@ export function GeometryPreview({
                 canvas: renderer.domElement,
                 settings: { ...walkSettingsRef.current },
                 render,
+                onState: (state) => {
+                  navigationCallbacks.current.onNavigationState?.(state);
+                  const cb = navigationCallbacks.current;
+                  if (cb.proximityDetail && cb.onArtworkSelect && !suspendedRef.current && !state.paused) {
+                    const placement = document.placements.find(p => {
+                      const room = document.rooms.find(r => r.id === p.roomId);
+                      if (!room || room.id !== state.roomId) return false;
+                      const [x,y,z,w] = room.transform.rotation, [a,b,c] = p.transform.position;
+                      const tx=2*(y*c-z*b), ty=2*(z*a-x*c), tz=2*(x*b-y*a);
+                      const position=[a+w*tx+y*tz-z*ty+room.transform.position[0],b+w*ty+z*tx-x*tz+room.transform.position[1],c+w*tz+x*ty-y*tx+room.transform.position[2]];
+                      return Math.hypot(position[0]!-state.eyePosition[0],position[2]!-state.eyePosition[2]) < 1;
+                    });
+                    if (placement && nearPlacement !== placement.id) { nearPlacement = placement.id; cb.onArtworkSelect(placement.id); }
+                    else if (!placement) nearPlacement = undefined;
+                  }
+                },
                 onMode: (walking, paused) => {
+                  currentWalkMode.current = { walking, paused };
+                  navigationCallbacks.current.onNavigationMode?.(walking, paused);
                   if (!disposed) {
                     setWalkingMode(walking);
                     setWalkPaused(paused);
@@ -621,13 +695,13 @@ export function GeometryPreview({
         const pending: WalkingActions = {
           start: () => {
             void initialize().then(() => {
-              if (!disposed && walkingActions.current !== pending)
+              if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.start();
             });
           },
           capture: () => {
             void initialize().then(() => {
-              if (!disposed && walkingActions.current !== pending)
+              if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.capture();
             });
           },
@@ -1180,12 +1254,12 @@ export function GeometryPreview({
     restart,
   ]);
   return (
-    <figure className="geometry-preview">
+    <figure className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       <div className="geometry-stage">
         <div ref={host} />
         {viewerBudget && walkingMode && (
           <WalkingTouch
-            available={ready}
+            available={ready && !suspendNavigation}
             paused={walkPaused}
             actions={walkingActions.current}
           />
@@ -1243,7 +1317,7 @@ export function GeometryPreview({
       </div>
       {viewerBudget && (
         <WalkingControls
-          available={ready && !walkLoading}
+          available={ready && !walkLoading && !suspendNavigation}
           walking={walkingMode}
           paused={walkPaused}
           settings={walkSettings}
