@@ -66,17 +66,26 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
         await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0); await expect(opener).toBeFocused();
       }
     });
-    await check("detail pauses walking while keeping exact camera position and prior paused state", async () => {
+    await check("detail pauses walking and preserves camera within1micrometer grounding tolerance and prior paused state", async () => {
+      const toleranceMeters = 1e-6, toleranceRadians = 1e-6;
+      const sameCamera = (actual, expected) => {
+        for (let axis = 0; axis < 3; axis++) assert(Math.abs(actual.eyePosition[axis] - expected.eyePosition[axis]) <= toleranceMeters,
+          `Camera axis${axis} changed beyond ${toleranceMeters}m: ${actual.eyePosition} / ${expected.eyePosition}`);
+        assert(Math.abs(actual.yaw - expected.yaw) <= toleranceRadians,
+          `Camera yaw changed beyond ${toleranceRadians}rad: ${actual.yaw} / ${expected.yaw}`);
+      };
+      const canvas = page.getByRole("region", { name: "전시 Viewer", exact: true }).locator("canvas").first();
       await button("걷기 시작").click(); await expect.poll(async () => (await nav())?.paused).toBe(false);
       await page.waitForTimeout(300);
       const before = await nav(), opener = page.getByRole("button", { name: /상세 보기$/, exact: false }).first();
       await opener.click(); await expect.poll(async () => (await nav())?.paused).toBe(true);
-      assert.deepEqual((await nav()).eyePosition, before.eyePosition); assert.equal((await nav()).yaw, before.yaw);
+      const duringDetail = await nav(); sameCamera(duringDetail, before);
       await page.keyboard.press("Escape"); await expect.poll(async () => (await nav())?.paused).toBe(false);
-      assert.deepEqual((await nav()).eyePosition, before.eyePosition); assert.equal((await nav()).yaw, before.yaw);
+      const restoredActive = await nav(); sameCamera(restoredActive, before); await expect(canvas).toBeFocused();
       await pause(); const paused = await nav(); await opener.click(); await page.keyboard.press("Escape");
-      await expect.poll(async () => (await nav())?.paused).toBe(true); assert.deepEqual((await nav()).eyePosition, paused.eyePosition);
-      sequences.push({ before, restored: await nav() });
+      await expect.poll(async () => (await nav())?.paused).toBe(true);
+      const restoredPaused = await nav(); sameCamera(restoredPaused, paused); await expect(opener).toBeFocused();
+      sequences.push({ cameraRestore: { toleranceMeters, toleranceRadians, before, duringDetail, restoredActive, paused, restoredPaused } });
     });
     await check("user opt-in actually decodes verified WAV, spatial zone distance gain and room reverb; mute/volume/pause stop sound", async () => {
       await button("소리 켜기").click(); await expect.poll(async () => (await state()).enabled).toBe(true);
