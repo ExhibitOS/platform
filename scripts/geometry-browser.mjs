@@ -125,7 +125,7 @@ export async function runGeometryBrowser() {
         await page
           .getByRole("button", { name: "새 로컬 전시", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "계정 없이 로컬 전시",
         );
         const initial = await candidate();

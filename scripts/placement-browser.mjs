@@ -578,7 +578,7 @@ export async function runPlacementBrowser({
         await page.reload();
         await page.getByTestId(`draft-${localId}`).click();
         await click("현재 서버 계정 확인");
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "현재 서버 계정을 확인했습니다",
         );
         await expect(page.getByTestId("geometry-render-state")).toContainText(
