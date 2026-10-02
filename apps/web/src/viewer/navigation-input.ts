@@ -9,6 +9,7 @@ export function createWalkingInput(
   const keys = new Set<string>(),
     touch = new Map<number, WalkAction>();
   let disposed = false, captureGeneration = 0;
+  let pendingCapture: { generation: number } | undefined;
   let enabled = false,
     look: { id: number; x: number; y: number } | undefined,
     yawDelta = 0,
@@ -25,6 +26,7 @@ export function createWalkingInput(
     captureGeneration++;
     clear();
     enabled = false;
+    hadLock = false;
     onPause();
   };
   const codes = new Set([
@@ -70,6 +72,7 @@ export function createWalkingInput(
   };
   const lockchange = () => {
     const locked = document.pointerLockElement === canvas;
+    if (locked && pendingCapture && pendingCapture.generation !== captureGeneration) return;
     if (hadLock && !locked) stop();
     hadLock = locked;
   };
@@ -116,6 +119,7 @@ export function createWalkingInput(
       captureGeneration++;
       clear();
       enabled = true;
+      hadLock = document.pointerLockElement === canvas;
       canvas.focus({ preventScroll: true });
     },
     pause() {
@@ -151,19 +155,46 @@ export function createWalkingInput(
       return output;
     },
     async capture() {
-      if (!enabled || disposed) return;
-      const generation = ++captureGeneration;
-      try {
-        await canvas.requestPointerLock();
-        if ((disposed || !enabled || generation !== captureGeneration) && document.pointerLockElement === canvas)
-          document.exitPointerLock();
-      } catch (error) {
-        void error;
-        if (!disposed && enabled && generation === captureGeneration)
-          onCaptureError(
-            "마우스 시점을 잡을 수 없습니다. 화살표와 터치 시점을 사용할 수 있습니다.",
-          );
-      }
+      if (!enabled || disposed || pendingCapture || document.pointerLockElement === canvas)
+        return;
+      const request = { generation: ++captureGeneration };
+      pendingCapture = request;
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = (success: boolean) => {
+          if (settled)
+            return;
+          settled = true;
+          document.removeEventListener("pointerlockchange", changed);
+          document.removeEventListener("pointerlockerror", failed);
+          if (pendingCapture === request)
+            pendingCapture = undefined;
+          const current = !disposed && enabled && request.generation === captureGeneration;
+          if (success && !current && document.pointerLockElement === canvas)
+            document.exitPointerLock();
+          if (!success && current)
+            onCaptureError("마우스 시점을 잡을 수 없습니다. 화살표와 터치 시점을 사용할 수 있습니다.");
+          resolve();
+        };
+        const changed = () => {
+          if (document.pointerLockElement === canvas)
+            finish(true);
+        };
+        const failed = () => finish(false);
+        // Legacy implementations return void and complete only through document events.
+        // Keep these guards after disposal until the browser settles its uncancellable
+        // request, so a late success cannot leave native capture behind.
+        document.addEventListener("pointerlockchange", changed);
+        document.addEventListener("pointerlockerror", failed);
+        try {
+          const result = canvas.requestPointerLock() as Promise<void> | undefined;
+          if (result && typeof result.then === "function")
+            void result.then(() => finish(true), failed);
+        }
+        catch {
+          failed();
+        }
+      });
     },
     dispose() {
       disposed = true;
