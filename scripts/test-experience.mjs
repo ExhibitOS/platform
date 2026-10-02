@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { execFileSync } from "node:child_process";
 import { randomUUID, randomBytes } from "node:crypto";
-import { readFile, mkdtemp, readdir } from "node:fs/promises";
+import { readFile, mkdtemp, readdir, open } from "node:fs/promises";
+import { constants } from "node:fs";
+import { resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { Pool } from "pg";
@@ -428,8 +430,19 @@ try {
     await corrupt("audio_approvals", "audio_approval_immutable", "UPDATE audio_approvals SET snapshot=$2 WHERE audio_id=$1", [audio.id, { ...approval, bytes: approval.bytes + 1 }]);
     await allUnavailable(); await corrupt("audio_approvals", "audio_approval_immutable", "UPDATE audio_approvals SET snapshot=$2 WHERE audio_id=$1", [audio.id, approval]);
     const row = (await pool.query("SELECT object_key FROM studio_audio WHERE id=$1", [audio.id])).rows[0];
-    await blobs.put(row.object_key, Buffer.alloc(wave.length)); assert.equal((await fetch(`${browserOrigin}${audioSlot.url}`)).status, 404);
-    await blobs.put(row.object_key, wave); assert.equal((await fetch(`${browserOrigin}${audioSlot.url}`)).status, 200);
+    // Existing immutable put must reject replacement. Fault injection directly
+    // edits ONLY this freshly generated isolated fixture file, then restores it.
+    await assert.rejects(blobs.put(row.object_key, Buffer.alloc(wave.length)), /immutable object conflict/);
+    const root = resolve(blobs.root), path = resolve(root, row.object_key);
+    assert(path.startsWith(root + sep));
+    assert.equal(sha256(await blobs.get(row.object_key)), sha256(wave));
+    const file = await open(path, constants.O_RDWR | constants.O_NOFOLLOW);
+    try {
+      assert((await file.stat()).isFile());
+      await file.write(Buffer.alloc(wave.length), 0, wave.length, 0); await file.sync();
+      assert.equal((await fetch(`${browserOrigin}${audioSlot.url}`)).status, 404);
+    } finally { await file.write(wave, 0, wave.length, 0); await file.sync(); await file.close(); }
+    assert.equal((await fetch(`${browserOrigin}${audioSlot.url}`)).status, 200);
   });
   await test("approved audio triggers reject normal source/approval/publication mutations", async () => {
     await assert.rejects(pool.query("UPDATE studio_audio SET rights=$2 WHERE id=$1", [audio.id, { ...rights, holder: "Changed" }]));
