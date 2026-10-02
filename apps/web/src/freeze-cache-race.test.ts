@@ -3,8 +3,8 @@ import {afterEach,describe,it,expect,vi} from 'vitest';
 import {clearOfflineAuthority,offlineOperation,saveOfflineAuthority,type OfflineAuthority} from './freeze-cache';
 // Controllable IndexedDB boundary, exercising production queue/guard code (native IDB is covered by browser integration).
 function cache(){
- const profiles:unknown[]=[],transactions:{oncomplete?:()=>void;onabort?:()=>void;error:null;abort:()=>void;objectStore:()=>{put:(value:unknown)=>void;delete:()=>void}}[]=[];
- const db={close(){},transaction(){const tx={error:null,oncomplete:undefined as (()=>void)|undefined,onabort:undefined as (()=>void)|undefined,abort(){queueMicrotask(()=>tx.onabort?.());},objectStore(){return {put(value:unknown){profiles.push(value);},delete(){profiles.push('deleted');}};}};transactions.push(tx);return tx;}};
+ const profiles:unknown[]=[],transactions:{oncomplete?:()=>void;onabort?:()=>void;error:null;abort:()=>void;objectStore:()=>{put:(value:unknown,key:string)=>void;delete:(key:string)=>void}}[]=[];
+ const db={close(){},transaction(){const tx={error:null,oncomplete:undefined as (()=>void)|undefined,onabort:undefined as (()=>void)|undefined,abort(){queueMicrotask(()=>tx.onabort?.());},objectStore(){return {put(value:unknown,key:string){if(key==='profile')profiles.push(value);},delete(key:string){if(key==='profile')profiles.push('deleted');}};}};transactions.push(tx);return tx;}};
  vi.stubGlobal('indexedDB',{open(){const request={result:db,onsuccess:undefined as (()=>void)|undefined};queueMicrotask(()=>request.onsuccess?.());return request;}});
  return {profiles,transactions};
 }

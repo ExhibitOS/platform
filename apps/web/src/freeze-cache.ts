@@ -16,16 +16,17 @@ function profileWrite(action:(tx:IDBTransaction,done:(value:void)=>void)=>void){
 /** Add, never put: a failed/duplicate/quota import cannot overwrite an earlier verified package. */
 export function addFreezeRecord(record:FreezeRecord,guard:()=>void=()=>{}){return transaction<void>(['records'],'readwrite',(tx,done)=>{guard();tx.objectStore('records').add(record);done();});}
 export function listFreezeRecords(scope:string){return transaction<FreezeRecord[]>(['records'],'readonly',(tx,done)=>{const r=tx.objectStore('records').getAll();r.onsuccess=()=>done((r.result as FreezeRecord[]).filter(x=>x.scope===scope));});}
-export function saveOfflineAuthority(authority:OfflineAuthority,guard:()=>void=()=>{}){return profileWrite((tx,done)=>{guard();tx.objectStore('control').put(authority,'profile');done();});}
-export function readOfflineAuthority(){return transaction<OfflineAuthority|undefined>(['control'],'readonly',(tx,done)=>{const r=tx.objectStore('control').get('profile');r.onsuccess=()=>done(r.result as OfflineAuthority|undefined);});}
+export function saveOfflineAuthority(authority:OfflineAuthority,guard:()=>void=()=>{}){return profileWrite((tx,done)=>{guard();const store=tx.objectStore('control');store.put(authority,'profile');store.put(offlineAuthMarker(),'profileAuthMarker');done();});}
+export function readOfflineAuthority(){return transaction<OfflineAuthority|undefined>(['control'],'readonly',(tx,done)=>{const r=tx.objectStore('control').get('profile');r.onsuccess=()=>{const profile=r.result as OfflineAuthority|undefined,marker=tx.objectStore('control').get('profileAuthMarker');marker.onsuccess=()=>done(marker.result===offlineAuthMarker()?profile:undefined);};});}
 /** Persistent monotonic wall-clock guard. Even a reload cannot reopen a grant after clock rollback. */
 export function observeOfflineTime(now?:number){return transaction<boolean>(['control'],'readwrite',(tx,done)=>{const store=tx.objectStore('control'),r=store.get('maxObservedTime');r.onsuccess=()=>{const observed=now??Date.now(),last=typeof r.result==='number'?r.result:0;if(!Number.isFinite(observed)||observed<last){done(false);return;}store.put(observed,'maxObservedTime');done(true);};});}
 
 /** Invalidating an account retains package bytes but removes the selected cached authority. */
-export function clearOfflineAuthority(){return profileWrite((tx,done)=>{tx.objectStore('control').delete('profile');done();});}
+export function clearOfflineAuthority(){return profileWrite((tx,done)=>{tx.objectStore('control').delete('profile');tx.objectStore('control').delete('profileAuthMarker');done();});}
+export function offlineAuthMarker():string|null{try{return localStorage.getItem('exhibitos-auth-change')??'';}catch{return null;}}
 export function offlineOperation(generation:{current:number}){
- const epoch=generation.current;
- const valid=()=>generation.current===epoch;
+ const epoch=generation.current,marker=offlineAuthMarker();
+ const valid=()=>generation.current===epoch&&offlineAuthMarker()===marker;
  const assert=()=>{if(!valid())throw Error('OFFLINE_OPERATION_CANCELLED');};
  return {valid,assert,async wait<T>(work:Promise<T>):Promise<T>{const result=await work;assert();return result;}};
 }

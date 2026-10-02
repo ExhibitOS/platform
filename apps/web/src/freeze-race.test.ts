@@ -22,6 +22,10 @@ describe('offline account generation races',()=>{
   const cache=deferred<void>();vi.mocked(addFreezeRecord).mockReturnValue(cache.promise);const generation={current:0};const record={scope:'old-profile'} as FreezeRecord;
   const result=stageFreezeRecord(record,offlineOperation(generation)),rejected=expect(result).rejects.toThrow('OFFLINE_OPERATION_CANCELLED');generation.current++;cache.resolve();await rejected;expect(listFreezeRecords).not.toHaveBeenCalled();
  });
+ it('a durable cross-tab auth marker cancels a pending preparation even before its storage event is dispatched',async()=>{
+  let marker='before';vi.stubGlobal('localStorage',{getItem:()=>marker});const response=deferred<Response>();vi.stubGlobal('fetch',vi.fn(()=>response.promise));const generation={current:0};
+  const result=prepareOfflineProfile(false,offlineOperation(generation)),rejected=expect(result).rejects.toThrow('OFFLINE_OPERATION_CANCELLED');marker='after-login';response.resolve(Response.json(authority));await rejected;expect(saveOfflineAuthority).not.toHaveBeenCalled();expect(listFreezeRecords).not.toHaveBeenCalled();
+ });
  it('a current preparation returns only its scoped records and passes a commit-time cache guard',async()=>{
   vi.stubGlobal('fetch',vi.fn(async()=>Response.json(authority)));const records=[{scope:'current-profile'} as FreezeRecord];vi.mocked(listFreezeRecords).mockResolvedValue(records);
   const generation={current:0};const result=await prepareOfflineProfile(false,offlineOperation(generation));expect(result).toEqual({authority,records});expect(vi.mocked(saveOfflineAuthority).mock.calls[0]![1]).toBeTypeOf('function');
