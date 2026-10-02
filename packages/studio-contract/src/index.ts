@@ -227,3 +227,6 @@ export * from "./freeze-bundle.js";
 export * from './architecture.js';
 
 export * from './curation.js';
+
+export * from "./scripting.js";
+export * from "./scripting-runtime.js";
