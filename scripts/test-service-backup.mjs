@@ -197,6 +197,20 @@ try {
       for (const actor of [corpus.actors.artist, corpus.actors.viewer, corpus.actors.curator, corpus.destinationActor]) assert([401, 403].includes((await actualRequest(actor, "GET", "/integrity")).status));
       assert.equal((await actualRequest(null, "GET", "/integrity")).status, 401);
     });
+    await test(`${kind}: restored current expired rights deny display and grant renewal while remaining valid backup history`, async () => {
+      const rows = (await target.pool.query('SELECT id,metadata FROM rights WHERE tenant_id=$1', [corpus.tenant])).rows;
+      assert(rows.length > 0);
+      try {
+        await target.pool.query("UPDATE rights SET metadata=jsonb_set(metadata,'{expiresAt}',to_jsonb('2000-01-01T00:00:00.000Z'::text)) WHERE tenant_id=$1", [corpus.tenant]);
+        const denied = await actualRequest(corpus.actors.artist, 'POST', `${corpus.path}/freezes/${corpus.frozen.id}/offline`, { seconds: 300 });
+        assert.equal(denied.status, 403); assert.equal(denied.value().code, 'RIGHTS_DENIED');
+        assert.equal((await fetch(`${origin}/api/v1/publications/${corpus.publication.id}`)).status, 404);
+        const report = await actualRequest(corpus.actors.admin, 'GET', '/integrity'); assert.equal(report.status, 200); assert.equal(report.value().healthy, true); assert(report.value().rights.displayDenied > 0);
+        const deniedBackup = await createServiceBackup({pool:target.pool,store:destinationStore,destination:`${root}/expired-rights-backup`,encryptionKey,snapshot:snapshot(destinationStore),dump:(path,token)=>backends.pgFile(target,path,'dump',token)});
+        assert.equal(deniedBackup.status, 'complete');
+      } finally { for (const row of rows) await target.pool.query('UPDATE rights SET metadata=$3 WHERE tenant_id=$1 AND id=$2', [corpus.tenant,row.id,JSON.stringify(row.metadata)]); }
+      assert.equal((await actualRequest(corpus.actors.artist, 'POST', `${corpus.path}/freezes/${corpus.frozen.id}/offline`, {seconds:300})).status, 200);
+    });
     await test(`${kind}: restored complete queued uploading failed and interrupted receipts resume using only retained owned bytes`, async () => {
       const worker = new Oex(target.pool, destinationStore);
       const completed = await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.completed.id}`); assert.deepEqual(completed.value(), corpus.completed);
