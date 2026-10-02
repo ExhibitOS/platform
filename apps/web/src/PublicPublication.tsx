@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { Viewer } from "./Viewer";
+import { ArtworkDetail } from "./ArtworkDetail";
 import type { SurfaceAppearance } from "./GeometryPreview";
 import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
@@ -12,9 +13,21 @@ export function PublicPublication({ id }: { id: string }) {
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
   const generation = useRef(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [proximityDetail, setProximityDetail] = useState(false);
+  const [overview, setOverview] = useState<"opening" | "credits" | null>(null);
+  const audio = useRef<{ playVoice(id: string): Promise<void>; stopVoice(): void } | null>(null);
+  const registerAudio = useCallback((api: typeof audio.current) => { audio.current = api; }, []);
+  const playVoice = useCallback(async (assetId: string) => {
+    if (!audio.current) throw Error("AUDIO_UNAVAILABLE");
+    await audio.current.playVoice(assetId);
+  }, []);
+  const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
   async function load() {
     const current = ++generation.current;
     setLoading(true);
+    setSelectedId(null);
+    setOverview(null);
     setValue(null);
     setError("");
     try {
@@ -100,7 +113,14 @@ export function PublicPublication({ id }: { id: string }) {
           <p className="cms-note">
             Revision SHA-256 <code>{value.publication.revisionSha256}</code>
           </p>
-          <Viewer publication={value} appearance={appearance} />
+          <button onClick={() => setOverview("opening")}>전시 시작 안내</button>
+          <button onClick={() => setOverview("credits")}>전시 크레딧</button>
+          <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
+          <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
+            suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} />
+          {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
+            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} />}
+          {overview && <ExhibitionOverview publication={value} mode={overview} onClose={() => setOverview(null)} />}
           <section aria-label="작품 목록형 대체 보기">
             <h2>작품 목록</h2>
             <ul>
@@ -117,6 +137,7 @@ export function PublicPublication({ id }: { id: string }) {
                 return (
                   <li key={p.id}>
                     <h3>{a?.metadata.title}</h3>
+                    <button onClick={() => setSelectedId(p.id)} aria-label={`${a?.metadata.title ?? "작품"} 상세 보기`}>작품 상세 보기</button>
                     <p>
                       {a?.metadata.artist} · {a?.rights.creditLine}
                     </p>
@@ -142,4 +163,24 @@ export function PublicPublication({ id }: { id: string }) {
       </footer>
     </main>
   );
+}
+
+function ExhibitionOverview({ publication, mode, onClose }: {
+  publication: PublicResponse; mode: "opening" | "credits"; onClose(): void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement, element = dialog.current;
+    element?.showModal();
+    return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+  }, []);
+  return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
+    <header><h2 id="exhibition-overview-title">{mode === "opening" ? "전시 시작 안내" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
+    <h3>{publication.exhibition.title}</h3>
+    {mode === "opening" ? <><p>걷기 시작 후 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 안내를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
+      <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
+      <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
+      <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>
+      <p>공개 revision {publication.publication.revisionSha256}</p></>}
+  </dialog>;
 }
