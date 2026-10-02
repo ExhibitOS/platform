@@ -38,7 +38,7 @@ export interface AudioApi {
 interface Experience {
   footsteps: Array<{ surfaceId: string; material: string; assetId?: string }>;
   rooms: Array<{ roomId: string; reverb: number }>;
-  voices: Array<{ assetId: string; placementId: string }>;
+  voices: Array<{ assetId: string; placementId: string; transcript:string }>;
 }
 const MAX_DECODED = 24 * 1024 * 1024;
 /** Each original, deterministic waveform is synthesized locally; no recordings or network assets. */
@@ -113,6 +113,9 @@ export class ExhibitionAudio implements AudioApi {
   private explicitLoads = new Set<string>();
   private steps = new Map<FloorSound, AudioBuffer>();
   private playing = new Set<AudioBufferSourceNode>();
+  private scriptGeneration=0;
+  private scriptMediaGenerations=new Map<string,number>();
+  private scriptSources=new Map<string,AudioBufferSourceNode>();
   private voice?: AudioBufferSourceNode;
   private voiceStartedAt = 0;
   private voiceTimer?: ReturnType<typeof setInterval>;
@@ -187,7 +190,7 @@ export class ExhibitionAudio implements AudioApi {
   mute(value: boolean) { this.state.muted = value; if (value) this.silence(); this.updateMaster(); this.emit(); }
   private updateMaster() { if (this.master && this.context) this.master.gain.setValueAtTime(this.state.muted || !this.visible || !this.audible ? 0 : this.state.volume, this.context.currentTime); }
   private stop(source: AudioBufferSourceNode) { try { source.stop(); } catch { /* Already ended. */ } source.disconnect(); this.playing.delete(source); source.onended?.(new Event("ended")); source.onended=null; }
-  private silence() { this.audible=false; this.updateMaster(); this.generation++; this.voice = undefined; this.voiceStatus("stopped"); for (const source of [...this.playing]) this.stop(source); this.zone = undefined; this.state.zoneId=null; this.zoneRequest=undefined; this.transitionZone=undefined; this.state.zoneGain=0; this.stride.reset(); }
+  private silence() { this.stopScriptAudio(); this.audible=false; this.updateMaster(); this.generation++; this.voice = undefined; this.voiceStatus("stopped"); for (const source of [...this.playing]) this.stop(source); this.zone = undefined; this.state.zoneId=null; this.zoneRequest=undefined; this.transitionZone=undefined; this.state.zoneGain=0; this.stride.reset(); }
   lifecycle(moving: boolean, detail = false) {
     this.moving = moving; this.detail = detail;
     if (!moving) this.silence();
@@ -282,15 +285,16 @@ export class ExhibitionAudio implements AudioApi {
       const buffer = await this.context.decodeAudioData(bytes);
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
       const size = buffer.length * buffer.numberOfChannels * 4;
-      while (size + [...this.buffers.values()].reduce((n,b)=>n+b.length*b.numberOfChannels*4,0)>MAX_DECODED) { const key = [...this.buffers.keys()].find(k=>this.buffers.get(k)!==this.voice?.buffer && this.buffers.get(k)!==this.zone?.source.buffer); if (!key) throw Error("AUDIO_CACHE_LIMIT"); this.buffers.delete(key); }
+      while (size + [...this.buffers.values()].reduce((n,b)=>n+b.length*b.numberOfChannels*4,0)>MAX_DECODED) { const key = [...this.buffers.keys()].find(k=>this.buffers.get(k)!==this.voice?.buffer && this.buffers.get(k)!==this.zone?.source.buffer && ![...this.scriptSources.values()].some(s=>s.buffer===this.buffers.get(k))); if (!key) throw Error("AUDIO_CACHE_LIMIT"); this.buffers.delete(key); }
       this.buffers.set(id, buffer); this.emit(); return buffer;
     }).finally(()=>{this.pending.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;
     this.pending.set(id,promise); return promise;
   }
-  private async checkAvailability() {
+  private async checkAvailability(signal?:AbortSignal) {
+    if(signal?.aborted)throw Error("AUDIO_CANCELLED");
     if(this.publication.local) return this.publication.local.check();
-    const response=await fetch(`/api/v1/publications/${this.publication.publication.id}`,{credentials:"omit",cache:"no-store",signal:AbortSignal.any([this.abort.signal,AbortSignal.timeout(10000)])});
+    const response=await fetch(`/api/v1/publications/${this.publication.publication.id}`,{credentials:"omit",cache:"no-store",signal:AbortSignal.any([this.abort.signal,AbortSignal.timeout(10000),...(signal?[signal]:[])])});
     if(!response.ok)throw Error("PUBLICATION_UNAVAILABLE");
     const value=await response.json() as {publication?:{id?:string;status?:string;revisionSha256?:string}} | null;
     if(value?.publication?.id!==this.publication.publication.id||value.publication.status!=="published"||value.publication.revisionSha256!==this.publication.publication.revisionSha256)throw Error("PUBLICATION_UNAVAILABLE");
@@ -393,6 +397,24 @@ export class ExhibitionAudio implements AudioApi {
     if(zone?.id===this.transitionZone)return;
     this.transitionZone=zone?.id;
     if(zone){if(this.zone?.id!==zone.id&&this.zoneRequest!==zone.id)void this.playZone(zone.id);}else this.stopZone();
+  }
+  async checkScriptAvailability(signal?:AbortSignal) {await this.checkAvailability(signal);if(signal?.aborted)throw Error("AUDIO_CANCELLED");}
+  stopScriptAudio(id?:string) {if(id===undefined){this.scriptGeneration++;this.scriptMediaGenerations.clear();}else{if(!this.publication.exhibition.mediaAssets?.some(a=>a.id===id))return;this.scriptMediaGenerations.set(id,(this.scriptMediaGenerations.get(id)??0)+1);}for(const [key,source]of this.scriptSources){if(id===undefined||key===id){this.stop(source);this.scriptSources.delete(key);}}}
+  async playScriptAudio(id:string,volume:number,consent:()=>boolean) {
+    const generation=this.scriptGeneration,mediaGeneration=this.scriptMediaGenerations.get(id)??0;
+    const current=()=>generation===this.scriptGeneration&&mediaGeneration===(this.scriptMediaGenerations.get(id)??0)&&!this.disposed&&this.visible&&!this.state.muted&&this.state.enabled&&this.context?.state==='running'&&consent();
+    if(!current())throw Error('SCRIPT_AUDIO_DENIED');
+    if(!this.publication.exhibition.audioZones?.some(z=>z.assetId===id&&z.transcript.trim().length>0)&&!this.experience.voices.some(v=>v.assetId===id&&v.transcript.trim().length>0))throw Error('SCRIPT_AUDIO_TRANSCRIPT_MISSING');
+    if(!Number.isFinite(volume)||volume<0||volume>1||!this.publication.exhibition.mediaAssets.some(a=>a.id===id&&a.mime==='audio/wav')||!this.publication.assets.some(a=>a.assetId===id))throw Error('AUDIO_MISSING');
+    await this.checkAvailability();if(!current())throw Error('AUDIO_CANCELLED');
+    const buffer=await this.load(id);if(!current())throw Error('AUDIO_CANCELLED');
+    if(!this.scriptSources.has(id)&&this.scriptSources.size>=4)throw Error('SCRIPT_AUDIO_LIMIT');
+    const source=this.context!.createBufferSource(),gain=this.context!.createGain();source.buffer=buffer;gain.gain.value=volume;
+    const previous=this.scriptSources.get(id);if(previous)this.stop(previous);
+    source.connect(gain).connect(this.master!);this.scriptSources.set(id,source);
+    this.track(source,()=>{gain.disconnect();if(this.scriptSources.get(id)===source)this.scriptSources.delete(id);});
+    try{source.start();}catch(error){this.stop(source);throw error;}
+    this.audible=true;this.updateMaster();this.emit();
   }
   dispose() { if(this.disposed)return; this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.voiceListeners.clear(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
 }

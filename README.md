@@ -145,7 +145,8 @@ Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택
 선언형 Spatial Scripting의 개발용 계약·관람객별 실행 코어는
 [실행 코어 안내](docs/spatial-scripting-core.md)에 있습니다. `npm run test:spatial-core`는
 실제 컴파일된 코어의 지연·권한·취소·재귀 제한을 검사합니다. Studio 블록 편집기와
-Viewer 연결은 후속 작업이며 기존 OES의 비활성 script를 켜지 않습니다.
+선택적 Viewer 연결은 [공간 스크립트 안내](docs/spatial-scripting.md)를 따릅니다.
+`npm run test:scripting`으로 실제 저장·공개·장면과 취소를 검사합니다. 기존 OES의 비활성 script를 켜지 않습니다.
 
 글·목록으로 시작하고 선택적으로 3D를 여는 접근성 관람 후보는
 [관람 안내](docs/viewer-accessibility.md)와 [검사 프로토콜](docs/accessibility-protocol.md)에 있습니다.

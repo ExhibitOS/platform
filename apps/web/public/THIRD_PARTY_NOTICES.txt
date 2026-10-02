@@ -500,7 +500,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
---- @exhibitos/spec 0.1.0-draft.2 browser document validators/schemas (Apache-2.0) ---
+--- @exhibitos/spec 0.1.0-draft.3 browser document validators/schemas (Apache-2.0) ---
 Copyright 2026 ExhibitOS contributors
 Document-only browser adaptation; original package bytes are pinned in vendor/.
 ExhibitOS spec licensing

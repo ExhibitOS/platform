@@ -1,3 +1,4 @@
+import {SPATIAL_NAMESPACE,spatialProgramFor,validateSpatialProfile} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -6,6 +7,14 @@ import { sha256 } from "@exhibitos/storage";
 import { CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
 import { projectPublication } from "./publication.ts";
 describe("immutable anonymous publication projection", () => {
+    it('preserves author rule IDs and UUID-shaped text while mapping only executable scene references',async()=>{
+        const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+        e.extensions={[SPATIAL_NAMESPACE]:{version:1,rules:[{id:'author-rule',once:true,trigger:{type:'room_enter',roomId:e.rooms[0]!.id},actions:[{type:'set_light',lightId:e.lights[0]!.id,multiplier:.4,delayMs:0},{type:'show_text',text:e.lights[0]!.id,locale:'en',delayMs:0}]}]}};
+        const prepared=e.artworks.map(a=>({artwork:a,sourceAssetId:a.primaryAssetId,sourceSha256:a.assets[0]!.sha256,bytes:Buffer.from('synthetic'),mime:a.artworkType==='image'?'image/png' as const:'model/gltf-binary' as const}));
+        const {snapshot}=projectPublication(e,prepared,'2026-10-02T00:00:00.000Z'),p=spatialProgramFor(snapshot);
+        expect(validateSpatialProfile(snapshot).valid).toBe(true);expect(p.rules[0]!.id).toBe('author-rule');expect(p.rules[0]!.trigger).toEqual({type:'room_enter',roomId:snapshot.rooms[0]!.id});expect(p.rules[0]!.actions[0]).toMatchObject({lightId:snapshot.lights[0]!.id});expect(p.rules[0]!.actions[1]).toMatchObject({text:e.lights[0]!.id});expect(snapshot.lights[0]!.id).not.toBe(e.lights[0]!.id);
+    });
+
     it("remaps all references, strips private and foreign extensions, and inventories actual qualified bytes", async () => {
         const candidate = JSON.parse(await readFile(fixtureURL("oes/v1/examples/exhibition.json"), "utf8")) as Exhibition;
         candidate.extensions = { "private.example/notes": { secret: "Private authoring extension" }, [MATERIAL_NAMESPACE]: { version: 1, surfaces: { [candidate.surfaces[0]!.id]: { color: "#112233", roughness: 0.5, metalness: 0 } } }, [PRESENTATION_NAMESPACE]: { version: 1, viewpoints: [], credits: "Public credit", startCamera: { roomId: candidate.rooms[0]!.id, position: [0, 1.6, 3], target: [0, 1.6, 0], fov: 60 } } };

@@ -1,3 +1,7 @@
+import { spatialProgramFor, spatialScopeFor, experienceFor } from "@exhibitos/studio-contract";
+import { ScriptSession, type ScriptScene, type ScriptState } from "./viewer/scripting";
+import { ScriptEdges } from "./viewer/scripting-events";
+import { ScriptControls } from "./viewer/ScriptControls";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GuideRequest } from "./GuidedRoutes";
 import { GeometryPreview } from "./GeometryPreview";
@@ -49,6 +53,23 @@ export function Viewer({
     return () => { document.removeEventListener("visibilitychange",visible); window.removeEventListener("blur",blur); window.removeEventListener("focus",visible); window.removeEventListener("keydown",escape); runtime.dispose(); audio.current = null; audioReady.current?.(null); };
   }, [publication]);
   useEffect(() => { audio.current?.lifecycle(!suspendNavigation && movement.current,suspendNavigation); }, [suspendNavigation]);
+  const scriptProgram=useMemo(()=>spatialProgramFor(publication.exhibition),[publication]);
+  const script=useRef<ScriptSession|null>(null),scriptScene=useRef<ScriptScene|null>(null),scriptEdges=useRef<ScriptEdges|null>(null);
+  const scriptPose=useRef<{position:[number,number,number];forward:[number,number,number]}|null>(null);
+  const [scriptState,setScriptState]=useState<ScriptState|null>(null),[scriptConsent,setScriptConsent]=useState(false);
+  const consent=useRef(false);consent.current=scriptConsent;
+  const scriptSuspended=useRef(suspendNavigation);scriptSuspended.current=suspendNavigation;
+  useEffect(()=>{if(!scriptProgram.rules.length)return;
+    const runtime=new ScriptSession(scriptProgram,spatialScopeFor(publication.exhibition),{scene:()=>scriptScene.current,audioAllowed:(id)=>((!id)||publication.exhibition.audioZones.some(z=>z.assetId===id&&z.transcript.trim().length>0)||experienceFor(publication.exhibition).voices.some(v=>v.assetId===id&&v.transcript.trim().length>0))&&consent.current&&!scriptSuspended.current&&document.visibilityState==='visible'&&!!audio.current?.snapshot().enabled&&!audio.current?.snapshot().muted,
+      check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},playAudio:async(id,volume,allowed)=>{if(!audio.current)throw Error('AUDIO_MISSING');await audio.current.playScriptAudio(id,volume,allowed);},stopAudio:id=>audio.current?.stopScriptAudio(id),changed:setScriptState});
+    script.current=runtime;setScriptState(runtime.snapshot());
+    const stop=()=>runtime.stop(),visibility=()=>{if(document.visibilityState!=='visible')stop();},escape=(e:KeyboardEvent)=>{if(e.key==='Escape')stop();};
+    window.addEventListener('blur',stop);document.addEventListener('visibilitychange',visibility);window.addEventListener('keydown',escape);
+    const timer=setInterval(()=>{if(scriptSuspended.current||document.visibilityState!=='visible')return;const now=performance.now(),utc=Date.now();if(runtime.snapshot().enabled&&scriptPose.current){for(const event of scriptEdges.current?.update(scriptPose.current.position,scriptPose.current.forward,now)??[])runtime.event(event,now,utc);}runtime.advance(now,utc);},100);
+    return()=>{clearInterval(timer);window.removeEventListener('blur',stop);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('keydown',escape);runtime.stop();script.current=null;};
+  },[publication,scriptProgram]);
+  useEffect(()=>{if(suspendNavigation)script.current?.stop();},[suspendNavigation]);
+  const startScript=()=>{if(suspendNavigation||document.visibilityState!=='visible'||!scriptScene.current)return;scriptEdges.current=new ScriptEdges(publication.exhibition);void script.current?.start(performance.now(),Date.now());};
   const [profile, setProfile] = useState<"auto" | "compact" | "desktop">(
     "auto",
   );
@@ -99,13 +120,17 @@ export function Viewer({
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
         guideRequest={guideRequest}
+        onScriptSceneReady={scriptProgram.rules.length?scene=>{if(!scene)script.current?.stop();scriptScene.current=scene;}:undefined}
+        onScriptPose={scriptProgram.rules.length?(position,forward)=>{scriptPose.current={position,forward};}:undefined}
+        onScriptClick={scriptProgram.rules.length?id=>script.current?.event({type:'artwork_click',placementId:id},performance.now(),Date.now()):undefined}
         reducedMotion={reducedMotion}
         onReducedMotionChange={onReducedMotionChange}
         onNavigationState={state => audio.current?.update(state)}
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
-        onNavigationMode={(walking,paused)=>{movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
+        onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
       <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
+      {scriptProgram.rules.length>0&&<ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>}
       <p className="cms-note">
         입구에 가까운 작품부터 불러옵니다. 다음 묶음과 상세 품질은 직접 요청할
         수 있습니다. 기기 품질은 texture·3D geometry·화면 해상도 예산을 함께
