@@ -1,0 +1,35 @@
+{
+  "source": "61ee70649a0748022e45101c5c48604a03854b4f",
+  "checks": [
+    "additive OEX migration preserves every existing schema checksum",
+    "OEX export is exact-revision bound and server enforces owner, tenant, session and CSRF",
+    "actual OEX export contains bounded self-contained GLB PNG PCM and rich scene accepted by public contract",
+    "export rechecks authoritative current asset export grants and expiry",
+    "fresh tenant import atomically produces an editable private draft, no publication, receipt retry gives identical result",
+    "imported scene preserves geometry material lighting routes camera audio transcripts annotations and literal text",
+    "same-tenant collision restore remaps identifiers and leaves original authoritative draft intact",
+    "public shared-asset package with valid 240-character source path restores bounded ownership aliases and exact bytes",
+    "unchanged public draft1 OEX fixture imports and reexports exact original GLB PNG bytes and provenance",
+    "custom UUID-shaped license holder and credit survive actual import reexport READY and explicit publication",
+    "job ownership and foreign tenant boundaries apply to status bytes complete retry cancel",
+    "actual malformed ZIP packages fail closed with no partial destination rows or publications",
+    "export-only preservation grants import privately but cannot pass READY or publish",
+    "real filesystem rejection leaves no partial rows and retry succeeds after fixture-only fault repair",
+    "actual PostgreSQL mid-transaction failure rolls back CMS audio Studio rows and removes disposable destination bytes",
+    "real SIGKILL after destination byte writes rolls back transaction and expired lease resumes without duplicates",
+    "all original source snapshots and visual/audio bytes survive restore failures, cancellation and killed workers unchanged",
+    "actual Studio file upload and explicit worker completion create a new private editable local copy",
+    "actual Studio download is a valid self-contained OEX archive",
+    "unsaved title edits prevent export and imported-record opening without discarding local input",
+    "imported draft stays private through editing and server save; publication requires explicit READY and publish clicks",
+    "real A to B to A session changes discard a delayed prior-account job response without opening another local record",
+    "production-enabled HTTP scheduler completes an uploaded OEX without explicit worker calls and closes quiescently",
+    "production scheduler startup fails closed when required additive migration is absent"
+  ],
+  "checkedAt": "2026-10-02T11:15:07.556Z",
+  "archive": {
+    "bytes": 664293,
+    "sha256": "949f4fad92ee8eab8409f5dc34a3557a6ce5d3840993773a69a50f690749e3f7"
+  },
+  "scope": "Actual isolated PostgreSQL, FileBlobStore, authentication and synthetic approved GLB/PNG/PCM WAV; no original data or public release"
+}

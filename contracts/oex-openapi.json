@@ -1,0 +1,665 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ExhibitOS OEX preservation API",
+    "version": "0.1.0",
+    "description": "Authentication/tenant role and current grant validation are server-side. No publication, source overwrite, arbitrary URL fetch or executable scripts. Quiesced DB/blob backups must include migration009 and OEX staged receipts. Workers revalidate current actor membership under policy and maintenance locks. Failed import leaves prior rows unchanged, owned disposable cleanup is durable, successful destination bytes retained."
+  },
+  "paths": {
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/oex/export": {
+      "post": {
+        "summary": "Export the exact If-Match Studio immutable revision with current explicit export grants and source ownership",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded complete OEX ZIP, no-store attachment. Private CMS bindings stripped; unknown namespaces denied. Received copies cannot be remotely revoked.",
+            "content": {
+              "application/vnd.exhibitos.oex+zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/oex/imports": {
+      "get": {
+        "summary": "List latest50 owned jobs (admin tenantwide), summaries omit full draft results",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a durable artist/admin import receipt (max16 retained staging jobs and512MiB tenant staging quota)",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          },
+          "201": {
+            "description": "Created or exact idempotent receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "requestId",
+                  "bytes",
+                  "sha256"
+                ],
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 67108864
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/oex/imports/{id}": {
+      "get": {
+        "summary": "Read owned job state; completed result includes the new private draft",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/oex/imports/{id}/bytes": {
+      "put": {
+        "summary": "Upload exact immutable payload; archive up to64MiB staged in at most4 bounded16MiB objects",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/oex/imports/{id}/complete": {
+      "post": {
+        "summary": "Verify complete upload and queue bounded isolated validation; restart-safe atomic restore",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/oex/imports/{id}/retry": {
+      "post": {
+        "summary": "Retry failed job with identical retained payload, at most5 attempts",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/oex/imports/{id}/cancel": {
+      "post": {
+        "summary": "Cancel noncomplete job and durably schedule cleanup of only its disposable staging",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "403": {
+            "description": "Tenant/owner/rights/CSRF/Origin denied"
+          },
+          "409": {
+            "description": "Job state, source approval or idempotency conflict"
+          },
+          "422": {
+            "description": "Package/profile/decoder/hash rejected"
+          },
+          "413": {
+            "description": "Body bound exceeded"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_session"
+      }
+    },
+    "schemas": {
+      "Job": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "attempts",
+          "errorCode",
+          "result",
+          "cleanupPending"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "enum": [
+              "uploading",
+              "queued",
+              "processing",
+              "failed",
+              "cancelled",
+              "complete"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Only completed jobs include a new private Studio draft, revision/etag, exhibitionId and typed old-to-new idMap plus assetAliases. Shared source assets materialize per-artwork IDs/paths while reusing identical private bytes. idMap is not bijective for shared assets; assetAliases provides source artwork revision, source asset/path and destination artwork revision/asset/path. Never publication. Re-export remains bounded64MiB including distinct aliased package entries."
+          },
+          "cleanupPending": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

@@ -466,7 +466,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
---- @exhibitos/spec 0.1.0-draft.1 browser document validators/schemas (Apache-2.0) ---
+--- @exhibitos/spec 0.1.0-draft.2 browser document validators/schemas (Apache-2.0) ---
 Copyright 2026 ExhibitOS contributors
 Document-only browser adaptation; original package bytes are pinned in vendor/.
 ExhibitOS spec licensing
@@ -477,7 +477,7 @@ Code, configuration and documentation in this repository are licensed under
 Apache-2.0 unless a more specific notice applies. See LICENSES/Apache-2.0.txt.
 
 The original synthetic assets fixtures/synthetic/sculpture.glb,
-fixtures/synthetic/painting.png, fixtures/synthetic/reference-scene.json and
+fixtures/synthetic/painting.png, fixtures/synthetic/audio.wav, fixtures/synthetic/reference-scene.json and
 their fixtures/synthetic/manifest.json are
 dedicated under CC0-1.0, to the extent copyright and related rights apply.
 See LICENSES/CC0-1.0.txt and fixtures/synthetic/README.md for scope.

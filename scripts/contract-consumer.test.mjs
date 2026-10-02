@@ -55,6 +55,22 @@ test('OEX packaged bytes validate and a byte mutation is rejected', async () => 
   assert.ok(invalid.errors.length > 0);
 });
 
+test('installed media OEX reader/writer preserves exact asset bytes and legacy profile', async () => {
+  const source = await readFile(spec.fixtureURL('oex/v1/examples/synthetic-media.oex'));
+  const decoded = await spec.readOex(source);
+  assert.equal(decoded.manifest.formatVersion, '1.0.0-draft.2');
+  const assets = new Map(decoded.manifest.assets.map(asset => [asset.artifactPath, decoded.files.get(asset.path)]));
+  const rebuilt = await spec.writeOex(decoded.exhibition, assets, {createdAt:decoded.manifest.createdAt,generator:decoded.manifest.generator});
+  assert.deepEqual(rebuilt, source);
+  assert.ok(decoded.manifest.assets.some(asset => asset.kind === 'media' && asset.mime === 'audio/wav'));
+  const legacy = await spec.readOex(await readFile(spec.fixtureURL('oex/v1/examples/synthetic.oex')));
+  assert.equal(legacy.manifest.formatVersion, '1.0.0-draft.1');
+  assert.equal(spec.adaptOexManifest(legacy.manifest, '1.0.0-draft.2').valid, false);
+  const incomplete = new Map(assets);
+  incomplete.delete(decoded.manifest.assets.find(asset => asset.kind === 'media').artifactPath);
+  await assert.rejects(() => spec.writeOex(decoded.exhibition, incomplete, {createdAt:decoded.manifest.createdAt,generator:decoded.manifest.generator}));
+});
+
 test('OED public fixture validates and an undeclared field is rejected', async () => {
   const deployment = await json('oed/v1/examples/local.json');
   assert.equal(spec.validateOed(deployment).valid, true);
@@ -89,7 +105,7 @@ test('tarball byte corruption is rejected by the provenance gate', async () => {
 
 
 test('all documented packaged JSON schema aliases resolve with import attributes', async () => {
-  for (const name of ['artwork', 'exhibition', 'lifecycle', 'oex', 'oed']) {
+  for (const name of ['artwork', 'exhibition', 'lifecycle', 'oex', 'oex-media', 'oed']) {
     const imported = await import(`@exhibitos/spec/schemas/${name}.json`, { with: { type: 'json' } });
     const original = JSON.parse(await readFile(spec.schemaURL(name), 'utf8'));
     assert.deepEqual(imported.default, original);

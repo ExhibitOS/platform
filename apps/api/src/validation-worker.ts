@@ -34,7 +34,8 @@ function png(data: Buffer) {
     channels = 0,
     ended = false,
     seenIdat = false,
-    closedIdat = false;
+    closedIdat = false,
+    seenSrgb = false;
   const compressed: Buffer[] = [];
   let chunkCount = 0;
   while (offset < data.length) {
@@ -65,6 +66,10 @@ function png(data: Buffer) {
         body[12] !== 0
       )
         fail();
+    } else if (kind === "sRGB") {
+      // One bounded color-space intent byte; no text, profiles or external data.
+      if (seenSrgb || seenIdat || size !== 1 || body[0]! > 3) fail();
+      seenSrgb = true;
     } else if (kind === "IDAT") {
       if (closedIdat) fail();
       seenIdat = true;
@@ -74,7 +79,7 @@ function png(data: Buffer) {
       ended = true;
     } else {
       if (seenIdat) closedIdat = true;
-      /* Conservative profile rejects all ancillary metadata and unknown critical chunks. */ fail();
+      /* Reject other ancillary metadata and unknown critical chunks. */ fail();
     }
     offset = end;
   }

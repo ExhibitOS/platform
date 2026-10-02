@@ -25,10 +25,10 @@ export interface Metadata {
   description: string;
   medium?: string;
   creationYear?: number;
-  dimensions: { width: number; height: number; depth: number; unit: "m" };
+  dimensions: { width: number; height: number; depth?: number; unit: "m" };
   rights: Rights;
   provenance: {
-    source: "human-authored" | "ai-assisted" | "ai-generated";
+    source: "human-authored" | "ai-assisted" | "ai-generated" | "synthetic";
     sourceUnits: "m" | "cm" | "mm";
     scaleApplied: boolean;
     notes: string;

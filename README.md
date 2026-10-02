@@ -134,3 +134,5 @@ Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택
 `npm run test:accessibility`는 실제 합성 공개 전시의 키보드·텍스트·대본 흐름과
 대비·움직임 설정, cold-load 수치를 검사합니다. 실제 결과와 screen reader/물리 기기
 gate가 확인되기 전 전체 접근성 적합성이나 MVP 완료를 뜻하지 않습니다.
+
+OEX 전시 파일 흐름의 지원 형식·권한·복원·한계는 [OEX 안내](docs/oex.md)와 [OEX API](contracts/oex-openapi.json)에 있습니다. `npm run test:oex`는 실제 격리 PostgreSQL/파일/production 브라우저의 round-trip와 오류 처리를 검사합니다. [실제 검증 결과](docs/performance/oex-results.md)를 확인하세요. 전체 오프라인 배포판이나 관리용 DB 백업 완료를 뜻하지 않습니다.

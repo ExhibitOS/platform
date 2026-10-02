@@ -14,7 +14,7 @@ if(configured) {
  pool=new Pool({connectionString:process.env.DATABASE_URL});
  // Startup fails closed until the auth migration is applied. No automatic DB mutation.
  try {await pool.query('SELECT 1 FROM auth_sessions LIMIT 0');}catch{await pool.end();throw Error('authentication database unavailable or migrations missing');}
- app=buildApp({pool,auth:settings,...(process.env.BLOB_ROOT?{blobs:new FileBlobStore(process.env.BLOB_ROOT)}:{})});
+ app=buildApp({pool,auth:settings,...(process.env.BLOB_ROOT?{blobs:new FileBlobStore(process.env.BLOB_ROOT),oexWorker:true}:{})});
 } else app=buildApp();
 await app.listen({port,host});
 console.info(`ExhibitOS API listening on port ${port}`);

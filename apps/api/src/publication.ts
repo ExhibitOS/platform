@@ -47,6 +47,7 @@ interface AssetRow {
     bytes: number;
     mime: string;
 }
+const PUBLIC_REFERENCE_FIELDS = new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId']);
 const issue = (code: string, path: string, message: string, remediation: string): PublicationIssue => ({ code, path, message, remediation });
 const equal = (a: unknown, b: unknown): boolean => {
     const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, sorted(x)])) : v;
@@ -94,7 +95,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         return a;
     });
     doc.mediaAssets=media.map(p=>({...structuredClone(p.source),path:`media/${map(p.source.id)}/audio.wav`}));
-    const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (/^(id|revisionId|.*Id|.*Ids)$/.test(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [ids.get(k.toLowerCase()) ?? k, remap(x,k)])) : v;
+    const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (PUBLIC_REFERENCE_FIELDS.has(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [field === 'surfaces' ? ids.get(k.toLowerCase()) ?? k : k, remap(x,k)])) : v;
     const snapshot = remap(doc) as Exhibition;
     snapshot.createdAt = at;
     snapshot.revision = 1;

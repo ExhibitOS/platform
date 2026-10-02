@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DraftError, DraftStore } from "./drafts/store";
 import type { Draft, LocalDraft, RemoteBinding } from "./drafts/store";
 import { PublicationPanel } from "./PublicationPanel";
+import { OexPanel } from "./OexPanel";
 import { GeometryEditor } from "./GeometryEditor";
 import { StudioExperienceEditor } from "./StudioExperienceEditor";
 import { newDraft } from "./drafts/example";
@@ -92,6 +93,13 @@ export function Studio() {
     [remoteConflict, setRemoteConflict] = useState(false);
   const attempt = useRef<{ signature: string; id: string } | null>(null);
   const dirty = record !== null && text !== savedText;
+  const textRef = useRef(text);
+  textRef.current = text;
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const sessionScope = `${session?.tenantId}:${session?.userId}:${session?.csrfToken}`;
+  const sessionGeneration = useRef({scope:sessionScope,value:0});
+  if (sessionGeneration.current.scope !== sessionScope) sessionGeneration.current = {scope:sessionScope,value:sessionGeneration.current.value+1};
   const candidate = useMemo(() => {
     try {
       if (!record) return null;
@@ -493,9 +501,39 @@ export function Studio() {
         이 브라우저의 IndexedDB에 저장합니다. 공유 기기의 다른 사용자가 로컬
         draft를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
         있습니다. 파일 백업을 별도로 보관하세요. 현재 단계는 versioned 문서
-        저장, 공간·작품 배치 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. OEX 패키지 생성은
-        후속 기능입니다.
+        저장, 공간·작품 배치 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. OEX 파일 흐름은 아래에서 현재 계정과 서버 저장본을 대상으로 실행합니다.
       </p>
+      <OexPanel
+        session={session}
+        record={record}
+        dirty={dirty}
+        disabled={busy || saving}
+        onImported={async (value) => {
+          if (!session || textRef.current !== savedTextRef.current || busyRef.current) throw new DraftError("LOCAL_CONFLICT");
+          busyRef.current = true;
+          setBusy(true);
+          try {
+            const generation = sessionGeneration.current.value;
+            const existing = await store.get(value.draft.id);
+            if (sessionGeneration.current.value !== generation) throw new RemoteError(403, "ACCOUNT_BINDING_MISMATCH");
+            if (existing && (existing.remote?.id !== value.draft.exhibitionId || existing.remote.tenantId !== session.tenantId || existing.remote.userId !== session.userId)) throw new DraftError("LOCAL_CONFLICT");
+            const restored = existing ?? await store.save(value.draft, 0, {
+                tenantId: session.tenantId,
+                userId: session.userId,
+                id: value.draft.exhibitionId,
+                etag: value.etag,
+                revision: value.revision,
+              });
+            if (sessionGeneration.current.value !== generation || sessionRef.current?.tenantId !== session.tenantId || sessionRef.current.userId !== session.userId || sessionRef.current.csrfToken !== session.csrfToken) throw new RemoteError(403, "ACCOUNT_BINDING_MISMATCH");
+            select(restored);
+            await refresh();
+            setPublished(false);
+          } finally {
+            busyRef.current = false;
+            setBusy(false);
+          }
+        }}
+      />
       <div className="cms-grid">
         <section className="cms-card">
           <div className="cms-actions">
