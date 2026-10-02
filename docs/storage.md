@@ -1,5 +1,10 @@
 # Storage development and recovery
 
+For the encrypted full service DB/blob tool and new environment recovery, see
+[operator service backup](storage-service-backup.md) and
+[ADR0015](adr/0015-operator-service-backup.md). Git bundles and portable exhibition
+exports do not contain the complete administrative service state.
+
 This package provides internal storage primitives and metadata tables. Configure one blob backend for each database; switching backends requires a verified object migration before starting workers. It exposes no new HTTP endpoint. Read [ADR 0002](adr/0002-storage-foundation.md) for boundaries and failure semantics.
 
 Use the documented Node 24.21.0/npm 11.19.0 runtime, then:

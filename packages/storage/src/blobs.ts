@@ -20,6 +20,8 @@ function keyCheck(key: string) {
     throw new Error("invalid object key");
 }
 export interface BlobStore {
+  /** Required by full-service backups; absence fails closed rather than omitting unknown tenant prefixes. */
+  listAll?(): Promise<string[]>;
   get(key: string): Promise<Uint8Array>;
   put(key: string, bytes: Uint8Array): Promise<void>;
   list(prefix: string): Promise<string[]>;
@@ -90,6 +92,20 @@ export class FileBlobStore implements BlobStore {
   }
   async remove(key: string) {
     await unlink(await this.path(key));
+  }
+  async listAll() {
+    const output:string[]=[],root=resolve(this.root);
+    const info=await lstat(root);if(!info.isDirectory()||info.isSymbolicLink())throw Error('unsafe root');
+    const walk=async(path:string,relative:string)=>{
+      for(const entry of await readdir(path,{withFileTypes:true})){
+        if(entry.isSymbolicLink())throw Error('unsafe object inventory');
+        const key=relative?`${relative}/${entry.name}`:entry.name;
+        if(entry.isDirectory())await walk(resolve(path,entry.name),key);
+        else if(entry.isFile()){keyCheck(key);output.push(key);}
+        else throw Error('unsafe object inventory');
+      }
+    };
+    await walk(root,'');return output.sort();
   }
   async list(prefix: string) {
     keyCheck(`${prefix}/sentinel`);
@@ -172,6 +188,16 @@ export class S3BlobStore implements BlobStore {
       if (sha256(await this.get(key)) !== sha256(bytes))
         throw new Error("immutable object conflict", { cause: error });
     }
+  }
+  async listAll() {
+    const keys:string[]=[];let token:string|undefined;
+    do {
+      const result=await this.client.send(new ListObjectsV2Command({Bucket:this.bucket,ContinuationToken:token}));
+      for(const entry of result.Contents??[])if(entry.Key){keyCheck(entry.Key);keys.push(entry.Key);}
+      if(result.IsTruncated&&(!result.NextContinuationToken||result.NextContinuationToken===token))throw Error('invalid pagination');
+      token=result.IsTruncated?result.NextContinuationToken:undefined;
+    }while(token);
+    return keys.sort();
   }
   async list(prefix: string) {
     keyCheck(`${prefix}/sentinel`);

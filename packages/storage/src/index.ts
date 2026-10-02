@@ -313,3 +313,7 @@ export class Storage {
     });
   }
 }
+
+export * from "./service-inventory.js";
+export * from "./encrypted-files.js";
+export * from "./service-backup.js";

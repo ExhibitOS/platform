@@ -4,6 +4,8 @@ import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
 import { Freezes, type FreezeConfig } from './freeze.ts';
+import { Integrities } from './integrity.ts';
+import { fileURLToPath } from 'node:url';
 import { Oex, MAX_OEX_UPLOAD, type OexInput } from './oex.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -50,6 +52,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ if(store){const integrity=new Integrities(store,{migrationDirectory:fileURLToPath(new URL('../../../database/migrations/',import.meta.url))});app.get(`${prefix}/integrity`,call(false,async(c,s)=>integrity.inspect(c,s)));}
 
  const studio=new Studio(),sp=`${prefix}/studio/exhibitions`;
  const studioBody=object({draft:{type:'object'},requestId:id});
