@@ -1,3 +1,4 @@
+import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import { Publications } from './publication.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
@@ -54,6 +55,14 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
  app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
+ const audio=new Audio(store),ap=`${sp}/:id/audio`;
+ const audioParams=(req:FastifyRequest)=>req.params as {id:string;audioId:string};
+ app.get(ap,call(false,async(c,s,req)=>audio.list(c,s,audioParams(req).id)));
+ app.post(ap,{schema:{body:object({requestId:id,mime:{const:'audio/wav'},bytes:{type:'integer',minimum:44,maximum:MAX_AUDIO},sha256:{...str,pattern:'^[a-f0-9]{64}$'},rights:{type:'object'}})}},call(true,async(c,s,req,reply)=>{reply.code(201);return audio.create(c,s,audioParams(req).id,req.body as AudioInput);}));
+ app.get(`${ap}/:audioId`,call(false,async(c,s,req)=>{const p=audioParams(req);return audio.view(await audio.access(c,s,p.id,p.audioId));}));
+ app.put(`${ap}/:audioId/bytes`,{bodyLimit:MAX_AUDIO},call(true,async(c,s,req)=>{const p=audioParams(req);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return audio.upload(c,s,p.id,p.audioId,req.body);}));
+ app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
+ for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
  const publications=new Publications(pool,store);
  app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));

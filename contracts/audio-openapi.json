@@ -1,0 +1,545 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ExhibitOS bounded Studio audio",
+    "version": "0.1.0",
+    "description": "Same-origin cookie sessions and X-CSRF-Token required for mutations. Studio owner/admin authorization applies to every method. Mono/stereo PCM16 8\u201348kHz maximum60seconds, fmt/data chunks only. No arbitrary URL/import of remote audio. Original bytes retained; revocation affects future anonymous access, not already received bytes. Add approved mediaAsset to matching exhibition candidate.mediaAssets; no audio is published automatically."
+  },
+  "security": [
+    {
+      "session": []
+    }
+  ],
+  "paths": {
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/audio": {
+      "parameters": [
+        {
+          "name": "tenantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "summary": "List at most64 authorized exhibition audio uploads",
+        "responses": {
+          "200": {
+            "description": "Uploads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "maxItems": 64,
+                      "items": {
+                        "$ref": "#/components/schemas/Audio"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create immutable audio metadata; replay same UUID and exact canonical input",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Current authorized audio snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audio"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong tenant, owner, role, session, CSRF or current rights"
+          },
+          "409": {
+            "description": "Immutable inventory or idempotency conflict"
+          },
+          "422": {
+            "description": "Unsupported WAV, hash/size mismatch or invalid rights"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/audio/{audioId}": {
+      "parameters": [
+        {
+          "name": "tenantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "audioId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Current authorized audio snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audio"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong tenant, owner, role, session, CSRF or current rights"
+          },
+          "409": {
+            "description": "Immutable inventory or idempotency conflict"
+          },
+          "422": {
+            "description": "Unsupported WAV, hash/size mismatch or invalid rights"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/audio/{audioId}/bytes": {
+      "parameters": [
+        {
+          "name": "tenantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "audioId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "put": {
+        "summary": "Bounded exact hash/bytes PCM16 WAV validation; retry cannot replace content",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "maxLength": 12582912
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized audio snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audio"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong tenant, owner, role, session, CSRF or current rights"
+          },
+          "409": {
+            "description": "Immutable inventory or idempotency conflict"
+          },
+          "422": {
+            "description": "Unsupported WAV, hash/size mismatch or invalid rights"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/audio/{audioId}/approve": {
+      "parameters": [
+        {
+          "name": "tenantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "audioId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "approve current availability (approval is immutable; revoke is reversible)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "revision"
+                ],
+                "properties": {
+                  "revision": {
+                    "const": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized audio snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audio"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong tenant, owner, role, session, CSRF or current rights"
+          },
+          "409": {
+            "description": "Immutable inventory or idempotency conflict"
+          },
+          "422": {
+            "description": "Unsupported WAV, hash/size mismatch or invalid rights"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/audio/{audioId}/revoke": {
+      "parameters": [
+        {
+          "name": "tenantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "audioId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "revoke current availability (approval is immutable; revoke is reversible)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized audio snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audio"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong tenant, owner, role, session, CSRF or current rights"
+          },
+          "409": {
+            "description": "Immutable inventory or idempotency conflict"
+          },
+          "422": {
+            "description": "Unsupported WAV, hash/size mismatch or invalid rights"
+          }
+        }
+      }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/audio/{audioId}/restore": {
+      "parameters": [
+        {
+          "name": "tenantId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "audioId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "post": {
+        "summary": "restore current availability (approval is immutable; revoke is reversible)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authorized audio snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Audio"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong tenant, owner, role, session, CSRF or current rights"
+          },
+          "409": {
+            "description": "Immutable inventory or idempotency conflict"
+          },
+          "422": {
+            "description": "Unsupported WAV, hash/size mismatch or invalid rights"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_session"
+      }
+    },
+    "schemas": {
+      "Audio": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "revision",
+          "revoked",
+          "durationSeconds",
+          "mediaAsset"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "enum": [
+              "uploading",
+              "validated",
+              "approved"
+            ]
+          },
+          "revision": {
+            "const": 1
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "durationSeconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 60
+          },
+          "mediaAsset": {
+            "$ref": "#/components/schemas/MediaAsset"
+          }
+        }
+      },
+      "MediaAsset": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path",
+          "mime",
+          "bytes",
+          "sha256",
+          "rights"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^media/[0-9a-f-]+/audio.wav$"
+          },
+          "mime": {
+            "const": "audio/wav"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 44,
+            "maximum": 12582912
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "rights": {
+            "$ref": "https://exhibitos.github.io/spec/oes/v1/1.0.0-draft.1/artwork.schema.json#/$defs/rights"
+          }
+        }
+      },
+      "AudioInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "mime",
+          "bytes",
+          "sha256",
+          "rights"
+        ],
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mime": {
+            "const": "audio/wav"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 44,
+            "maximum": 12582912
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "rights": {
+            "$ref": "https://exhibitos.github.io/spec/oes/v1/1.0.0-draft.1/artwork.schema.json#/$defs/rights"
+          }
+        }
+      }
+    }
+  }
+}

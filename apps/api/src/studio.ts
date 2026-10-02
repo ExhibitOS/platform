@@ -1,4 +1,4 @@
-import { validateStudioMaterials, validateStudioPresentation, validateViewerLod } from "@exhibitos/studio-contract";
+import { validateStudioMaterials, validateStudioPresentation, validateViewerLod, validateViewerExperience } from "@exhibitos/studio-contract";
 import { createHash, randomUUID } from "node:crypto";
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
@@ -40,6 +40,7 @@ function checked(input: StudioInput) {
     !validateLifecycle(input.draft).valid ||
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
+    !validateViewerExperience(input.draft.candidate).valid ||
     input.draft.candidate.artworks.some(a=>!validateViewerLod(a).valid)
   )
     throw new ApiError(422, "DRAFT_INVALID");
@@ -76,6 +77,7 @@ export class Studio {
       !validateLifecycle(row.metadata).valid ||
       !validateStudioMaterials(row.metadata.candidate).valid ||
       !validateStudioPresentation(row.metadata.candidate).valid ||
+      !validateViewerExperience(row.metadata.candidate).valid ||
       row.metadata.candidate.artworks.some((a:unknown)=>!validateViewerLod(a).valid)
     )
       throw new ApiError(409, "DRAFT_CORRUPT");
