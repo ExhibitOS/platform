@@ -416,6 +416,12 @@ export async function createNavigationController(doc: Exhibition, options: {
                     steps++;
                     const len = Math.max(1, Math.hypot(input.forward, input.right)), forward = Math.max(-1, Math.min(1, input.forward)) / len, right = Math.max(-1, Math.min(1, input.right)) / len, target: Vec3 = [(-Math.sin(yaw) * forward + Math.cos(yaw) * right) * settings.speed, 0, (-Math.cos(yaw) * forward - Math.sin(yaw) * right) * settings.speed], moving = Math.hypot(target[0], target[2]) > 0, rate = (moving ? NAVIGATION_PROFILE.acceleration : NAVIGATION_PROFILE.deceleration) * NAVIGATION_PROFILE.fixedStep, delta = [target[0] - velocity[0], 0, target[2] - velocity[2]] as Vec3, distance = Math.hypot(delta[0], delta[2]);
                     velocity = distance <= rate ? target.map(n => n === 0 ? 0 : n) as Vec3 : add(velocity, delta.map(n => n / distance * rate) as Vec3);
+                    // Static floors are already validated. Idle grounded bodies keep their
+                    // exact pose across pause/resume instead of settling another skin gap.
+                    if (grounded && !recovered && !moving && velocity[0] === 0 && velocity[2] === 0) {
+                        world.step();
+                        continue;
+                    }
                     controller.computeColliderMovement(character!, { x: velocity[0] / 60, y: -0.002, z: velocity[2] / 60 });
                     const movement = controller.computedMovement();
                     let next = add(center, [movement.x, movement.y, movement.z]);
