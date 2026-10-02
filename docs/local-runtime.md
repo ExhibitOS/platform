@@ -50,7 +50,8 @@ installation. Back up the runtime configuration and signing key with the encrypt
 
 The local adapter currently contains Platform and database services. Realtime,
 network deployment, verified release signatures, automatic updates, production
-recovery, and Windows/Podman qualification remain separate gates. Test results
+recovery, Windows qualification, and native Manager GUI qualification remain
+separate gates. Engine checks below cover Linux arm64 containers on macOS only. Test results
 must distinguish the actual engine/architecture exercised from untested candidates.
 
 ## Local verification
@@ -62,13 +63,45 @@ npm run test:e2e
 node scripts/test-local-runtime.mjs
 ```
 
-The final command requires Docker/Compose and an unused loopback port13200. It
+The final command requires Docker/Compose, or Podman with a compatible Compose
+provider selected through `CONTAINER_ENGINE`, and an unused loopback port13200. It
 builds a real image, checks private artifact hashes and nonroot production
 dependencies, starts a synthetic isolated installation, tests server-side auth
 and a real GLB import worker, and verifies stop/restart retains metadata, bytes,
 signing authority, account and session. The container's actual readiness health
-probe must become healthy. Teardown verifies labels and removes only its own
+probe must become healthy. It also proves installed-origin worker control and
+HTTP-cache-disabled offline draft recovery while excluding authenticated private
+asset bytes from CacheStorage. Teardown verifies labels and removes only its own
 synthetic volumes; existing installations are never targeted. Generated private
 fixtures, image archives and the result JSON remain in a restricted temporary
 directory for review. `EXHIBITOS_PROXY_ONLY=1` selects only the two actual HTTP
 boundary tests; that shorter mode does not qualify an installed container.
+
+## Podman producer and consumer
+
+The producer accepts `CONTAINER_ENGINE=podman` (or its absolute executable path).
+It records `preferredEngine` and normalizes only the optional sha256 prefix of
+the actual immutable engine image ID. Docker29 may identify an OCI index while
+Podman identifies the image configuration; an existing Docker archive reference
+is not silently treated as an equivalent Podman ID. Generate a bundle with the
+intended producer, or explicitly verify a converted archive and its native ID.
+
+Podman production uses `--format docker` to preserve the Dockerfile HEALTHCHECK;
+Podman's default OCI output omits that extension. Original archive bytes/hash,
+Compose hash and engine image digest remain checked independently. Manager also
+normalizes the ID prefix without accepting a different digest.
+
+macOS Podman requires a Linux VM. The current development check uses rootless
+Podman6.1.3 and the independent Apache-2.0 Compose5.5.1 CLI, selected with
+`PODMAN_COMPOSE_PROVIDER`. The separate podman-compose1.6 provider does not meet
+this adapter's Compose2-or-later JSON contract. No Docker Desktop server or
+privileged Podman socket helper is required for the Podman lifecycle operations.
+Keep a new verification VM's configuration/data separate from existing machines;
+use a named connection and share only a designated scratch directory. The actual
+fixture needed2GiB RAM; a1GiB startup attempt did not complete SSH connection.
+Do not change an existing machine's rootful/default connection or delete its data.
+
+The verified public shell/static files use `public, max-age=0, must-revalidate`,
+allowing the Studio worker to install only build-hash-verified bytes. API responses
+retain their existing no-store policy. Actual installed-origin offline reload and
+private-byte cache exclusion are checked separately from a successful HTML GET.

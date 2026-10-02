@@ -52,7 +52,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
     if (!allowed.has(path)) { deny(404); return; }
     let file;
     try {
-      file = await safeStatic(root, path); reply.writeHead(200, { "content-type": mime(path), "x-content-type-options": "nosniff", "cache-control": "no-store", "content-length": (await file.stat()).size });
+      file = await safeStatic(root, path); reply.writeHead(200, { "content-type": mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": (await file.stat()).size });
       if (req.method === "HEAD") { reply.end(); await file.close(); }
       else { const stream = file.createReadStream(); stream.once("error", () => reply.destroy()); reply.once("close", () => { if (!reply.writableFinished) stream.destroy(); }); stream.pipe(reply); }
     } catch { await file?.close().catch(() => {}); if (!reply.headersSent) deny(404); else reply.destroy(); }

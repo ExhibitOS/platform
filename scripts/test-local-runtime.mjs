@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from "node:assert/strict";
+import { chromium, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createServer, request } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { basename } from "node:path";
 import { createLocalProxy } from "./local-runtime.mjs";
 import { packageLocalRuntime } from "./package-local-runtime.mjs";
 import { loadViewerFixtures } from "./viewer-fixtures.mjs";
 
 const directory = await realpath(await mkdtemp(`${tmpdir()}/exhibitos-local-runtime-`)), checks = [], engine = process.env.CONTAINER_ENGINE ?? "docker";
+const engineKind = basename(engine).replace(/\.exe$/i, "");
 const run = args => execFileSync(engine, args, { encoding: "utf8", timeout: 240000, stdio: ["ignore", "pipe", "pipe"] }).trim();
 const test = async (title, action) => { await action(); checks.push(title); console.log(`PASS ${title}`); };
 async function listen(server, port = 0) { await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", resolve); }); return server.address().port; }
@@ -21,17 +24,18 @@ const http = (port, path, headers = {}, body) => new Promise((resolve, reject) =
 const web = `${directory}/proxy-web`; await mkdir(`${web}/assets`, { recursive: true });
 await writeFile(`${web}/index.html`, "<!doctype html><title>Synthetic proxy</title>"); await writeFile(`${web}/assets/good.js`, "/* synthetic */"); await writeFile(`${directory}/hidden.txt`, "synthetic-private-content"); await symlink(`${directory}/hidden.txt`, `${web}/assets/linked.js`);
 let received;
-const upstream = createServer((req, reply) => { const chunks = []; req.on("data", chunk => chunks.push(chunk)); req.on("end", () => { received = { headers: req.headers, body: Buffer.concat(chunks) }; reply.setHeader("content-type", "application/json"); reply.end('{"accepted":true}'); }); });
+const upstream = createServer((req, reply) => { const chunks = []; req.on("data", chunk => chunks.push(chunk)); req.on("end", () => { received = { headers: req.headers, body: Buffer.concat(chunks) }; reply.setHeader("content-type", "application/json"); reply.setHeader("cache-control", "no-store"); reply.end('{"accepted":true}'); }); });
 const upstreamPort = await listen(upstream), proxy = await createLocalProxy({ webRoot: web, origin: "http://127.0.0.1:13200", apiPort: upstreamPort }), proxyPort = await listen(proxy);
 try {
   await test("actual HTTP proxy serves only closed static routes and rejects traversal symlinks secret paths wrong Host and methods", async () => {
     for (const path of ["/", "/studio", "/cms", "/offline", "/assets/good.js"]) assert.equal((await http(proxyPort, path, { host: "127.0.0.1:13200" })).status, 200);
+    assert.equal((await http(proxyPort, "/studio", { host: "127.0.0.1:13200" })).headers["cache-control"], "public, max-age=0, must-revalidate");
     for (const path of ["/.env", "/package.json", "/operations/AGENTS.md", "/assets/linked.js"]) assert.equal((await http(proxyPort, path, { host: "127.0.0.1:13200" })).status, 404);
     assert.equal((await http(proxyPort, "/%2e%2e/hidden.txt", { host: "127.0.0.1:13200" })).status, 400); assert.equal((await http(proxyPort, "/", { host: "attacker.invalid" })).status, 403); assert.equal((await http(proxyPort, "/studio", { host: "127.0.0.1:13200" }, "x")).status, 405);
   });
   await test("actual HTTP streaming proxy preserves browser Host Origin cookie CSRF and excludes spoofed forwarding headers", async () => {
     const payload = randomBytes(16384), result = await http(proxyPort, "/api/v1/synthetic", { host: "127.0.0.1:13200", origin: "http://127.0.0.1:13200", cookie: "synthetic=private", "x-csrf-token": "synthetic-csrf", "x-forwarded-host": "attacker.invalid", forwarded: "host=attacker.invalid", "content-type": "application/octet-stream" }, payload);
-    assert.equal(result.status, 200); assert.deepEqual(received.body, payload); assert.equal(received.headers.host, "127.0.0.1:13200"); assert.equal(received.headers.origin, "http://127.0.0.1:13200"); assert.equal(received.headers.cookie, "synthetic=private"); assert.equal(received.headers["x-csrf-token"], "synthetic-csrf"); assert.equal(received.headers.forwarded, undefined); assert.equal(received.headers["x-forwarded-host"], undefined);
+    assert.equal(result.status, 200); assert.equal(result.headers["cache-control"], "no-store"); assert.deepEqual(received.body, payload); assert.equal(received.headers.host, "127.0.0.1:13200"); assert.equal(received.headers.origin, "http://127.0.0.1:13200"); assert.equal(received.headers.cookie, "synthetic=private"); assert.equal(received.headers["x-csrf-token"], "synthetic-csrf"); assert.equal(received.headers.forwarded, undefined); assert.equal(received.headers["x-forwarded-host"], undefined);
     assert.equal((await http(proxyPort, "/api/v1/synthetic", { host: "127.0.0.1:13200", "content-length": 66 * 1024 * 1024 }, "")).status, 413);
   });
 } finally { await stop(proxy); await stop(upstream); }
@@ -50,7 +54,7 @@ async function api(method, path, body, expected = 200, extra = {}) {
 try {
   await test("real image tar and Compose manifest match hashes private named volumes loopback ports and pruned nonroot image", async () => {
     assert.equal(sha256(await readFile(`${bundle.directory}/compose.yaml`)), manifest.composeSha256); const image = manifest.images.find(item => item.archive); assert.equal(sha256(await readFile(`${bundle.directory}/${image.archive.path}`)), image.archive.sha256);
-    run(["load", "--input", `${bundle.directory}/platform-image.tar`]); assert.equal(run(["image", "inspect", "--format", "{{.Id}}", image.reference]), image.reference);
+    run(["load", "--input", `${bundle.directory}/platform-image.tar`]); const inspectedId = run(["image", "inspect", "--format", "{{.Id}}", image.reference]); assert.equal(inspectedId.startsWith("sha256:") ? inspectedId : `sha256:${inspectedId}`, image.reference);
     assert.equal(run(["image", "inspect", "--format", "{{.Config.User}}", image.reference]), "node");
     run(["run", "--rm", "--entrypoint", "node", image.reference, "-e", "const f=require('node:fs');for(const p of['.local','operations','capture-ios','.env','node_modules/typescript','node_modules/vite'])if(f.existsSync(p))process.exit(1);if(!f.existsSync('apps/web/dist/THIRD_PARTY_NOTICES.txt'))process.exit(2)"]);
     const resolved = JSON.parse(run([...compose, "config", "--format", "json"])); assert.equal(resolved.services.platform.ports[0].host_ip, "127.0.0.1"); assert.equal(Number(resolved.services.platform.ports[0].published), 13200); assert.equal(resolved.services.database.ports, undefined);
@@ -65,7 +69,8 @@ try {
       if (attempt >= 240) throw Error("Actual local runtime readiness deadline exceeded"); await new Promise(resolve => setTimeout(resolve, 250));
     }
     const platform = run([...compose, "ps", "--all", "--quiet", "platform"]);
-    for (let attempt = 0; run(["inspect", "--format", "{{.State.Health.Status}}", platform]) !== "healthy"; attempt++) { if (attempt >= 90) throw Error("Actual runtime container health check did not become healthy"); await new Promise(resolve => setTimeout(resolve, 250)); }
+    const health = () => { const state = JSON.parse(run(["inspect", platform]))[0].State; return (state.Health ?? state.Healthcheck)?.Status; };
+    for (let attempt = 0; health() !== "healthy"; attempt++) { if (attempt >= 90) throw Error("Actual runtime container health check did not become healthy"); await new Promise(resolve => setTimeout(resolve, 250)); }
     const ready = await (await api("GET", "/api/v1/readiness")).json(); assert.equal(ready.ready, true); assert.equal(ready.protocolVersion, "1"); assert.equal(ready.platformVersion, "0.1.0"); assert.deepEqual(ready.services.map(item => item.name).sort(), ["api", "database", "platform", "storage", "web"]); assert(ready.services.every(item => item.status === "ready"));
     assert((await (await api("GET", "/studio")).text()).includes("<html")); assert((await (await api("GET", "/THIRD_PARTY_NOTICES.txt")).text()).includes("three.js authors"));
     const login = await api("POST", "/api/v1/auth/login", { subject: "synthetic-local-admin", password: adminPassword, tenantId }); cookie = login.headers.get("set-cookie").split(";")[0]; csrf = (await (await api("GET", "/api/v1/auth/session")).json()).csrfToken;
@@ -85,6 +90,31 @@ try {
     for (let attempt = 0; ; attempt++) { const result = await (await api("GET", `${prefix}/imports/${job.id}`)).json(); if (result.state === "approved") { asset = { id: result.assetId, bytes }; break; } assert.notEqual(result.state, "failed"); if (attempt > 90) throw Error("Actual local import worker did not finish"); await new Promise(resolve => setTimeout(resolve, 250)); }
     assert.equal(sha256(Buffer.from(await (await api("GET", `${prefix}/assets/${asset.id}/bytes`)).arrayBuffer())), sha256(bytes));
   });
+  await test("installed-origin Studio worker verifies public shell and offline draft reload without caching protected bytes", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const context = await browser.newContext(), page = await context.newPage();
+      await page.goto(`${origin}/studio`);
+      await expect(page.getByTestId("shell-status")).toContainText("오프라인 앱 준비 완료", {timeout: 30000});
+      await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+      await page.getByRole("button", {name: "새 로컬 전시", exact: true}).click();
+      const id = await page.getByTestId("draft-id").innerText();
+      const cookieSeparator = cookie.indexOf("=");
+      await context.addCookies([{name: cookie.slice(0, cookieSeparator), value: cookie.slice(cookieSeparator + 1), url: origin}]);
+      const privatePath = `/api/v1/tenants/${tenantId}/assets/${asset.id}/bytes`;
+      const privateResult = await page.evaluate(async path => {
+        const response = await fetch(path);
+        return {status: response.status, policy: response.headers.get("cache-control"), bytes: (await response.arrayBuffer()).byteLength};
+      }, privatePath);
+      assert.equal(privateResult.status, 200); assert.equal(privateResult.policy, "no-store"); assert.equal(privateResult.bytes, asset.bytes.length);
+      const urls = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async name => (await (await caches.open(name)).keys()).map(request => request.url)))).flat());
+      assert(urls.length > 2); assert(urls.every(url => !new URL(url).pathname.startsWith("/api/")));
+      const control = await context.newCDPSession(page); await control.send("Network.enable"); await control.send("Network.setCacheDisabled", {cacheDisabled: true});
+      await context.setOffline(true); const navigation = await page.reload(); assert.equal(navigation.fromServiceWorker(), true);
+      await page.getByTestId(`draft-${id}`).click(); await expect(page.getByTestId("draft-id")).toHaveText(id);
+      assert.equal(await page.evaluate(async path => {try {await fetch(path); return true;} catch {return false;}}, privatePath), false);
+    } finally { await browser.close(); }
+  });
   await test("actual stop and restart preserve CMS metadata object hashes signing authority account and session", async () => {
     run([...compose, "stop"]); await assert.rejects(fetch(`${origin}/api/v1/readiness`)); run([...compose, "start", "--wait", "--wait-timeout", "240"]);
     assert.equal((await (await api("GET", "/api/v1/readiness")).json()).ready, true); assert.equal((await (await api("GET", `/api/v1/tenants/${tenantId}/cms/artworks/${artifact.id}`)).json()).metadata.title, artifact.metadata.title);
@@ -92,7 +122,7 @@ try {
     assert.equal(run([...compose, "exec", "--no-TTY", "database", "psql", "-U", "exhibitos", "-d", "exhibitos", "-At", "-c", "SELECT count(*) FROM auth_credentials"]), "1");
     const logs = run([...compose, "logs", "--no-color"]); for (const secret of [postgresPassword, adminPassword, cookie, csrf]) assert.equal(logs.includes(secret), false);
   });
-  const report = { schemaVersion: "1.0.0-draft.1", passed: true, checks, manifest, engineVersion: run(["version", "--format", "{{.Server.Version}}"]), architecture: run(["image", "inspect", "--format", "{{.Architecture}}", manifest.images[0].reference]), limits: ["Only synthetic owned Docker resources", "No Windows/Podman or signed downloadable release qualification", "Port13200 local HTTP only"] };
+  const report = { schemaVersion: "1.0.0-draft.1", passed: true, checks, manifest, engine: engineKind, engineVersion: run(["version", "--format", "{{.Server.Version}}"]), architecture: run(["image", "inspect", "--format", "{{.Architecture}}", manifest.images[0].reference]), limits: [`Only synthetic owned ${engineKind} resources`, "No Windows, native Manager GUI, or signed downloadable release qualification", "Port13200 local HTTP only"] };
   await writeFile(`${directory}/local-runtime-run.json`, JSON.stringify(report, null, 2), { mode: 0o600 }); console.log(`Actual local runtime checks ${checks.length} PASS; report ${directory}/local-runtime-run.json`);
 } catch (error) {
   if (started) { const logs = run([...compose, "logs", "--no-color"]); for (const secret of [postgresPassword, adminPassword]) assert.equal(logs.includes(secret), false); await writeFile(`${directory}/failed-container-logs.txt`, logs, { mode: 0o600 }); console.log(`Private synthetic failure diagnostics: ${directory}/failed-container-logs.txt`); }
