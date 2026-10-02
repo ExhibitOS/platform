@@ -1,6 +1,7 @@
 # ADR0018: standalone declarative visitor-local execution core
 
-Status: implementation candidate; final qualification pending.
+Status: locally qualified standalone development core.
+Full editor/Viewer/public Spec integration remains pending.
 
 The existing public OES scripts are disabled declarations. Keep their wire
 format and behavior unchanged. A standalone development version1 program is a

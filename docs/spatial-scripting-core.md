@@ -68,3 +68,5 @@ No new DB or browser state is persisted. Future stored programs will join the
 existing consistent revision/DB/blob backup inventory; evaluator/session transient
 queues are not a recovery point. No original artwork, voice bytes or credentials
 are included. Full integration and release gates remain outstanding.
+
+Local qualification at implementation796ef166 (2026-10-02): `npm run check`201unit tests/36files +9contracts/types/lint/build; E2E3; independent public tracked-only archive `npm ci` and `npm run test:spatial-core`7 actual compiled probe groups PASS. New contract10/runtime19 unit cases cover all trigger/action shapes, clocks/delays, once/re-entry, identity/consent/revocation, queue/pump/lifetime/recursion budgets, cancellation/reentrancy, accessors/sparse/cyclic/aggregate inputs and immutable visitor isolation. This qualification excludes editor/Viewer/server action adapters and actual media execution.
