@@ -18,7 +18,7 @@ export async function createFreezeFixture(pool, options = {}) {
   let app;
   const tenant = randomUUID(), destination = randomUUID(), pass = "Synthetic-OEX-password123", origin = options.origin ?? "http://127.0.0.1:3000", headers = { host: new URL(origin).host, origin };
   await bootstrap(pool, tenant, "synthetic.oex.admin", pass);
-  const blobs = new FileBlobStore(await mkdtemp(`${tmpdir()}/exhibitos-oex-blobs-`));
+  const blobs = options.blobs ?? new FileBlobStore(await mkdtemp(`${tmpdir()}/exhibitos-oex-blobs-`));
   app = buildApp({ pool, blobs, ...options.appOptions, auth: { mode: "local", origin, bindHost: "127.0.0.1" } });
   await options.configureApp?.(app);
   const expected = async (promise, status, code) => { const response = await promise; assert.equal(response.statusCode, status, response.body); if (code) assert.equal(response.json().code, code); return response; };
