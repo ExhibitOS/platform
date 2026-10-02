@@ -2,7 +2,7 @@
 
 This section records the historical draft.1 qualification. The current runtime
 uses the immutable draft.2 pin in artifact.json; its OEX media qualification is
-recorded in docs/oex.md and the OEX result document when accepted. Draft.1 remains
+recorded in docs/oex.md and [OEX results](../docs/performance/oex-results.md). Draft.1 remains
 a compatibility fixture, not the current runtime dependency.
 
 Date: 2026-10-01. Implementation source: `953ba56` on

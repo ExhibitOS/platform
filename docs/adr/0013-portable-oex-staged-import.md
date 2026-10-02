@@ -1,6 +1,7 @@
 # ADR0013: Portable OEX with private atomic import
 
-Status: implementation candidate; actual integration acceptance pending.
+Status: accepted for the bounded profile after actual independent integration qualification;
+see [OEX results](../performance/oex-results.md).
 
 Adopt the digest-pinned public Spec0.1.0-draft.2 artifact to package approved
 artwork and PCM WAV alongside the exact saved exhibition revision. Keep old OEX

@@ -1,6 +1,7 @@
 # Portable exhibition files
 
-Implementation candidate; actual round-trip and failure qualification is pending.
+The bounded profile passed actual round-trip, failure and browser qualification.
+See [executed results and limits](performance/oex-results.md).
 
 In Studio, save the current input locally and to your account's server, then select
 **OEX 내보내기**. The server binds the saved immutable revision to its ETag and
