@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { GuideRequest } from "./GuidedRoutes";
 import { GeometryPreview } from "./GeometryPreview";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
@@ -15,6 +16,7 @@ export function Viewer({
   onDetailEntryReady,
   reducedMotion,
   onReducedMotionChange,
+  guideRequest,
 }: {
   publication: PublicPublication;
   appearance: (id: string) => SurfaceAppearance;
@@ -24,6 +26,7 @@ export function Viewer({
   onAudioReady?: (api: AudioApi | null) => void;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
+  guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
   const audio = useRef<ExhibitionAudio | null>(null);
@@ -95,6 +98,7 @@ export function Viewer({
         onArtworkSelect={onArtworkSelect}
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
+        guideRequest={guideRequest}
         reducedMotion={reducedMotion}
         onReducedMotionChange={onReducedMotionChange}
         onNavigationState={state => audio.current?.update(state)}

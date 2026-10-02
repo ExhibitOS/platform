@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useMemo, useRef, useState } from "react";
-import { creationYearFor, experienceFor } from "@exhibitos/studio-contract";
+import { creationYearFor, experienceFor, curationFor } from "@exhibitos/studio-contract";
 import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
+import { TimedTranscript } from "./TimedTranscript";
+import type { VoicePlayback } from "./viewer/audio";
 
-export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true }: {
+export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null }: {
   publication: PublicPublication; placementId: string; onClose(): void;
-  renderPreview?: boolean;
+  renderPreview?: boolean; voicePlayback?: VoicePlayback | null;
   onVoicePlay(assetId: string): Promise<void>; onVoiceStop(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), close = useRef(onClose), stop = useRef(onVoiceStop);
@@ -17,6 +19,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   const placement = publication.exhibition.placements.find(p => p.id === placementId);
   const artwork = publication.exhibition.artworks.find(a => a.revisionId === placement?.artworkRevisionId);
   const experience = useMemo(() => experienceFor(publication.exhibition), [publication]);
+  const curation = useMemo(() => curationFor(publication.exhibition), [publication]);
   const annotations = useMemo(() => publication.exhibition.annotations.filter(a => a.placementId === placementId), [publication, placementId]);
   const anchors = useMemo(() => annotations.flatMap(a => {
     const point = experience.annotations.find(p => p.annotationId === a.id);
@@ -54,12 +57,13 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
         {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작가 음성 듣기 ({v.locale})</button>
         <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button></>}
         <p lang={v.locale} className="detail-text">원문 대본 ({v.locale}): {v.transcript}</p>
+        {curation.transcripts.filter(t=>t.placementId===placementId&&t.locale===v.locale).map(t=><TimedTranscript key={t.locale} transcript={t} assetId={v.assetId} playback={voicePlayback} />)}
       </div>)}
       {!experience.voices.some(v => v.placementId === placementId) && <p>등록된 작가 음성이 없습니다. 위 설명을 읽어주세요.</p>}
       <p role="status">{voiceStatus}</p>
     </section>
     <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>{renderPreview ? "금색 점은 작품 중심을 원점으로 한 미터 좌표의 주석 위치입니다." : "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다."}</p>
-      <ol>{annotations.map(a => { const anchor = anchors.find(p => p.id === a.id); return <li key={a.id}>{a.text} {anchor ? <span> · 위치 ({anchor.position.join(", ")}) m</span> : <span> · 좌표 미등록</span>}</li>; })}</ol>
+      <ol>{annotations.map(a => { const anchor = anchors.find(p => p.id === a.id); return <li key={a.id}>{a.text} {anchor ? <span> · 위치 ({anchor.position.join(", ")}) m</span> : <span> · 좌표 미등록</span>}{curation.annotationTranslations.filter(t=>t.annotationId===a.id).map(t=><p key={t.locale} lang={t.locale}>별도 주석 번역 ({t.locale}): {t.text}</p>)}</li>; })}</ol>
     </section>
     <section aria-label="공개 provenance"><h3>공개 제작·전시 이력</h3><ul>{artwork.provenance.events.map(event => <li key={event.id}>{event.at} · {event.type} · {event.description}</li>)}</ul>
       <p>현재 공개 revision에 제공된 이력입니다. 비공개 원본·저장소·계정 정보는 요청하지 않습니다.</p>

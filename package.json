@@ -44,7 +44,8 @@
     "test:freeze": "npm run build && node scripts/test-freeze.mjs",
     "test:service-backup": "npm run build && node scripts/test-service-backup.mjs",
     "freeze:init": "node scripts/init-freeze-key.mjs",
-    "test:oex": "npm run build && node --test scripts/png-profile.test.mjs && node scripts/test-oex.mjs"
+    "test:oex": "npm run build && node --test scripts/png-profile.test.mjs && node scripts/test-oex.mjs",
+    "test:curation": "npm run build && EXHIBITOS_CURATION_ONLY=1 node scripts/test-experience.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

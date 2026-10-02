@@ -2,11 +2,22 @@
 import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
-import {MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
+import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
 import {checkOexProfile,remapOex,decodeOex} from './oex.ts';
 import {validMetadata} from './cms.ts';
 async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'))as Exhibition;}
 describe('OEX service boundaries',()=>{
+ it('retains closed curation and remaps only typed route/annotation bindings',async()=>{
+  const e=await fixture(),route=e.navigation[0]!,annotation=e.annotations[0]!;
+  e.extensions={[CURATION_NAMESPACE]:{version:1,audioZones:[],transcripts:[],annotationTranslations:[{annotationId:annotation.id,locale:'ko',text:route.id}],routes:[{routeId:route.id,stops:route.waypoints.map((_w,i)=>({waypointIndex:i,title:route.id,description:annotation.id}))}]}};
+  expect(()=>checkOexProfile(e)).not.toThrow();const mapped=remapOex(e).exhibition;
+  expect(validateViewerCuration(mapped).valid).toBe(true);const c=curationFor(mapped);
+  expect(c.routes[0]!.routeId).toBe(mapped.navigation[0]!.id);expect(c.routes[0]!.routeId).not.toBe(route.id);
+  expect(c.annotationTranslations[0]!.annotationId).toBe(mapped.annotations[0]!.id);
+  expect(c.annotationTranslations[0]!.text).toBe(route.id);expect(c.routes[0]!.stops[0]!.title).toBe(route.id);
+  (e.extensions[CURATION_NAMESPACE] as {version:number}).version=2;expect(()=>checkOexProfile(e)).toThrow('OEX_PROFILE_INVALID');
+ });
+
  it('remaps typed scene/material/navigation/experience references but never UUID-shaped prose',async()=>{
   const e=await fixture(),room=e.rooms[0]!,surface=e.surfaces[0]!,placement=e.placements[0]!;
   e.title=room.id;e.artworks[0]!.metadata.description=placement.id;

@@ -1,3 +1,4 @@
+import type { GuideRequest } from "./GuidedRoutes";
 import { useEffect, useRef, useState } from "react";
 import {
   AssetScheduler,
@@ -106,6 +107,7 @@ export function GeometryPreview({
   onDetailEntryReady,
   reducedMotion,
   onReducedMotionChange,
+  guideRequest,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -117,6 +119,7 @@ export function GeometryPreview({
   proximityDetail?: boolean;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
+  guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
   publicSource?: {
@@ -129,6 +132,8 @@ export function GeometryPreview({
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
+  const guideAction=useRef<((routeId:string,index:number)=>void)|null>(null);
+  const consumedGuide=useRef<number|undefined>(undefined);
   const host = useRef<HTMLDivElement>(null),
     action = useRef<
       | ((
@@ -183,6 +188,7 @@ export function GeometryPreview({
   const [restart, setRestart] = useState(0);
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
     if (suspendNavigation) {
       suspendedWasWalking.current = committedEntry.current ?? (currentWalkMode.current.walking && !currentWalkMode.current.paused);
@@ -620,6 +626,22 @@ export function GeometryPreview({
       const observer = new ResizeObserver(resize);
       observer.observe(host.current);
       controls.addEventListener("change", render);
+      guideAction.current=(routeId,index)=>{
+        if(suspendedRef.current)return;
+        const waypoint=document.navigation.find(r=>r.id===routeId)?.waypoints[index];
+        if(!waypoint)return;
+        const room=rooms.get(waypoint.roomId.toLowerCase());if(!room)return;
+        walkingActions.current?.stationary();
+        const pos=room.localToWorld(new three.Vector3(...waypoint.position));
+        const curation=document.extensions?.['org.exhibitos.viewer/curation'] as unknown as {routes?:{routeId:string;stops:{placementId?:string}[]}[]}|undefined;
+        const id=curation?.routes?.find(r=>r.routeId===routeId)?.stops[index]?.placementId;
+        const placement=document.placements.find(p=>p.id===id);
+        const owner=placement?rooms.get(placement.roomId.toLowerCase()):undefined;
+        const target=placement&&owner?owner.localToWorld(new three.Vector3(...placement.transform.position)):room.localToWorld(new three.Vector3(...waypoint.position).add(new three.Vector3(0,0,-1)));
+        if(pos.distanceToSquared(target)<.000001)target.copy(pos).add(new three.Vector3(0,0,-1));
+        camera.up.set(0,1,0);camera.position.copy(pos);controls.target.copy(target);camera.lookAt(target);controls.update();render();
+        setWalkMessage('선택한 안내 정류점의 정지 시점입니다. 보행이나 소리를 자동으로 시작하지 않습니다. 글 안내도 계속 읽을 수 있습니다.');
+      };
       action.current = view;
       resize();
       view(
@@ -638,6 +660,7 @@ export function GeometryPreview({
         renderer.domElement.removeEventListener("pointerdown",down);
         walkingActions.current = null;
         action.current = null;
+        guideAction.current=null;
         demand.current = null;
         cancelAnimationFrame(trace.frame);
         renderer.domElement.removeEventListener(

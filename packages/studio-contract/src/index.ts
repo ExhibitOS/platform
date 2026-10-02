@@ -225,3 +225,5 @@ export * from "./artwork-details.js";
 export * from "./freeze.js";
 export * from "./freeze-bundle.js";
 export * from './architecture.js';
+
+export * from './curation.js';
