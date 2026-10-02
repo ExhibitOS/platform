@@ -154,6 +154,8 @@ export async function runPublicationBrowser({
       await expect(publicPage.getByTestId("public-state")).toContainText(
         "서버가 현재 공개 상태",
       );
+      const start3D = publicPage.getByRole("button", { name: "3D 관람 시작", exact: true });
+      if (await start3D.count()) await start3D.click();
       await expect(
         publicPage.getByTestId("geometry-render-state"),
       ).toContainText("승인된 작품 derivative 2개");
