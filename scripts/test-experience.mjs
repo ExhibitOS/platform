@@ -346,6 +346,13 @@ try {
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID() }), 409, "AUDIO_LIMIT");
   });
   addExperience(candidate, (await json(request(actors.artist, "GET", `${audioPath}/${audio.id}`))).mediaAsset);
+  if (process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1") {
+    candidate.extensions["org.exhibitos.studio/presentation"].viewpoints = [
+      { name: "Accessibility safe viewpoint", position: [0, 1.65, 1], target: [0, 1.65, -1] },
+      { name: "Accessibility unsafe viewpoint", position: [-2, 1.65, 0], target: [-2, 1.65, -1] },
+      { name: "Accessibility vertical viewpoint", position: [0, 1.65, 1], target: [0, 0, 1] },
+    ].map(value => ({ ...value, id: randomUUID(), roomId: candidate.rooms[0].id, fov: 55 }));
+  }
   await test("experience fixture has distinct room volumes with aligned floor and reciprocal door heights", async () => {
     assert.equal(candidate.rooms[0].dimensions.height, 4);
     assert.equal(candidate.rooms[1].dimensions.height, 6);
@@ -533,6 +540,11 @@ try {
   const result = await runExperienceBrowser({ origin: browserOrigin, publicationId: pub.publicationId,
     projection, fixture: fixture.geometry, authoring: { tenantId: tenant, subject: "synthetic.publication.artist", password: pass, candidate: draft.candidate, wave }, revoke: () => setRevoked(true), restore: () => setRevoked(false) });
   checks.push(...result.checks);
+  if (accessibilityOnly) {
+    const { runTeleportBrowser } = await import("./accessibility-teleport-browser.mjs");
+    const teleportResult = await runTeleportBrowser({ origin: browserOrigin, publicationId: pub.publicationId, projection });
+    checks.push(...teleportResult.checks);
+  }
   if (accessibilityOnly && process.env.EXHIBITOS_ACCESSIBILITY_HOLD === "1") {
     console.log(`NATIVE ACCESSIBILITY FIXTURE: ${browserOrigin}/p/${pub.publicationId}`);
     console.log("Synthetic local fixture only. Press Enter in this test terminal to finish and clean up its isolated database container.");
