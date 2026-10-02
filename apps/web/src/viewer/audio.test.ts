@@ -50,7 +50,7 @@ test("voice Promise fulfills only after the actual source start call succeeds",a
 });
 
 test("stop, pause and dispose cancel a zone requested while audio permission is pending",async()=>{
-  for(const action of ["stop", "pause", "dispose"]){
+  for(const action of ["stop", "pause", "mute", "hide", "optout", "dispose"]){
     const {id,runtime,internal,starts}=preparedVoice();
     const doc=(internal as unknown as {publication:import("../publication-client").PublicPublication}).publication.exhibition;
     doc.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:0.5,autoplay:false,transcript:"Synthetic zone"}];
@@ -62,7 +62,7 @@ test("stop, pause and dispose cancel a zone requested while audio permission is 
     (internal.context as unknown as {close:()=>Promise<void>}).close=async()=>{};
     (internal.master as unknown as {disconnect:()=>void}).disconnect=()=>{};
     const request=runtime.playZone(id);
-    if(action==="stop")runtime.stopZone();else if(action==="pause")runtime.lifecycle(false);else runtime.dispose();
+    if(action==="stop")runtime.stopZone();else if(action==="pause")runtime.lifecycle(false);else if(action==="mute")runtime.mute(true);else if(action==="hide")runtime.visibility(false);else if(action==="optout")await runtime.zoneTransitions(false);else runtime.dispose();
     finish();await request;
     assert.equal(loads,0);assert.equal(starts(),0);assert.equal(runtime.snapshot().active,0);
   }
@@ -161,4 +161,65 @@ test("zone diagnostics follow actual gain at small changes and announce exact cr
   runtime.update(state(.96,{eyePosition:[.96,0,0]}));
   assert.equal(gains.at(-1),0);
   assert.equal(runtime.snapshot().zoneGain,0);
+});
+
+
+test("voice transcript clock follows AudioContext media time and stops at lifecycle cancellation",async()=>{
+ const {id,runtime,internal}=preparedVoice();internal.load=async()=>({duration:12} as AudioBuffer);
+ const updates:ReturnType<typeof runtime.voicePlayback>[]=[];const off=runtime.subscribeVoice(v=>updates.push(v));
+ await runtime.playVoice(id);assert.equal(runtime.voicePlayback().status,"playing");
+ internal.context.currentTime=3.25;assert.equal(runtime.voicePlayback().positionSeconds,3.25);
+ runtime.mute(true);assert.equal(runtime.voicePlayback().status,"stopped");
+ internal.context.currentTime=9;assert.equal(runtime.voicePlayback().positionSeconds,3.25);
+ assert.equal(updates.at(-1)?.status,"stopped");off();
+});
+test("voice natural end reports decoded duration and clears playback polling",async()=>{
+ const {id,runtime,internal}=preparedVoice();internal.load=async()=>({duration:4} as AudioBuffer);
+ let source:AudioBufferSourceNode|undefined;const create=internal.context.createBufferSource;internal.context.createBufferSource=()=>{source=create();return source;};
+ await runtime.playVoice(id);source!.onended!(new Event("ended"));
+ assert.deepEqual(runtime.voicePlayback(),{assetId:id,durationSeconds:4,positionSeconds:4,status:"ended"});
+ assert.equal(runtime.snapshot().active,0);
+});
+test("volume rejects nonfinite input instead of sending NaN into WebAudio",()=>{const {runtime}=voiceRuntime();runtime.volume(NaN);assert.equal(runtime.snapshot().volume,0);runtime.volume(Infinity);assert.equal(runtime.snapshot().volume,0);});
+
+test("zone entry remains opt-in, transitions once on entry, stops on exit and reenters after pause",async()=>{
+ const {id,runtime,internal}=preparedVoice();
+ const priv=runtime as unknown as {publication:import("../publication-client").PublicPublication;room:string};
+ priv.publication.exhibition.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:"Synthetic readable fallback"}];priv.room=id;
+ const parameter=()=>({setValueAtTime:()=>{}});(internal.context as unknown as {listener:unknown}).listener={positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()};
+ let starts=0,stops=0;runtime.playZone=async()=>{starts++;};const stop=runtime.stopZone.bind(runtime);runtime.stopZone=()=>{stops++;stop();};
+ runtime.lifecycle(true);runtime.update(state(0,{grounded:false}));assert.equal(starts,0);
+ await runtime.zoneTransitions(true);assert.equal(starts,1);
+ runtime.update(state(.1,{grounded:false}));assert.equal(starts,1);
+ runtime.update(state(8,{grounded:false}));assert.equal(stops,1);
+ runtime.update(state(0,{grounded:false}));assert.equal(starts,2);
+ runtime.lifecycle(false);runtime.lifecycle(true);runtime.update(state(0,{grounded:false}));assert.equal(starts,3);
+ runtime.mute(true);runtime.update(state(0,{grounded:false}));assert.equal(starts,3);runtime.mute(false);runtime.update(state(0,{grounded:false}));assert.equal(starts,4);
+ runtime.visibility(false);runtime.update(state(0,{grounded:false}));assert.equal(starts,4);runtime.visibility(true);runtime.update(state(0,{grounded:false}));assert.equal(starts,5);
+ assert.equal(runtime.snapshot().zoneTransitions,true);
+ await runtime.zoneTransitions(false);runtime.update(state(0,{grounded:false}));assert.equal(starts,5);
+});
+test("authored zone gain applies actual distance and remains bounded across room boundary",()=>{
+ const {id,runtime}=voiceRuntime();const internal=runtime as unknown as {position:[number,number,number];room:string;curation:{audioZones:unknown[]};zoneGain:(zone:import("@exhibitos/spec").Exhibition["audioZones"][number],p:[number,number,number])=>number;publication:import("../publication-client").PublicPublication};
+ internal.publication.exhibition.surfaces=[];internal.publication.exhibition.openings=[];
+ const zone={id,roomId:id,assetId:id,position:[0,0,0],radius:20,volume:.8,autoplay:false,transcript:"Synthetic"} as const;
+ internal.curation.audioZones=[{zoneId:id,referenceDistance:1,maxDistance:20,rolloff:1,occlusion:{enabled:true,closedGain:.2}}];internal.position=[2,0,0];internal.room="another-room";
+ assert.equal(internal.zoneGain({...zone,position:[0,0,0]},[0,0,0]),.4);
+ internal.position=[20,0,0];assert.equal(internal.zoneGain({...zone,position:[0,0,0]},[0,0,0]),0);
+});
+
+
+test("zone start failure clears selected gain and ID and disconnects allocated nodes",async()=>{
+ const {id,runtime,internal}=preparedVoice();
+ const priv=runtime as unknown as {publication:import("../publication-client").PublicPublication;room:string};
+ priv.publication.exhibition.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:"Synthetic fallback"}];priv.room=id;
+ let sourceDisconnected=0,gainDisconnected=0,pannerDisconnected=0,stops=0;
+ const context=internal.context as unknown as {createBufferSource:()=>AudioBufferSourceNode;createGain:()=>GainNode;createPanner:()=>PannerNode};
+ context.createBufferSource=()=>({connect:()=>panner,disconnect:()=>{sourceDisconnected++;},start:()=>{throw Error("SOURCE_START_FAILED");},stop:()=>{stops++;}} as unknown as AudioBufferSourceNode);
+ const gain={gain:{value:0},connect:()=>gain,disconnect:()=>{gainDisconnected++;}};context.createGain=()=>gain as unknown as GainNode;
+ const panner={positionX:{value:0},positionY:{value:0},positionZ:{value:0},connect:()=>gain,disconnect:()=>{pannerDisconnected++;}};context.createPanner=()=>panner as unknown as PannerNode;
+ await runtime.playZone(id);
+ assert.equal(runtime.snapshot().active,0);assert.equal(runtime.snapshot().zoneId,null);assert.equal(runtime.snapshot().zoneGain,0);
+ assert.match(runtime.snapshot().message,/재생할 수 없습니다/);
+ assert.equal(stops,1);assert.ok(sourceDisconnected>0);assert.equal(gainDisconnected,1);assert.equal(pannerDisconnected,1);
 });

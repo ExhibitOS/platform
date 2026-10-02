@@ -6,6 +6,7 @@ import { PublicationPanel } from "./PublicationPanel";
 import { FreezePanel } from "./FreezePanel";
 import { OexPanel } from "./OexPanel";
 import { GeometryEditor } from "./GeometryEditor";
+import { CurationEditor } from "./CurationEditor";
 import { StudioExperienceEditor } from "./StudioExperienceEditor";
 import { newDraft } from "./drafts/example";
 import { validateDraft } from "./drafts/validator";
@@ -739,6 +740,7 @@ export function Studio() {
                 }}
               />
             )}
+            {candidate && <CurationEditor key={`curation:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
             {published && (
               <p className="cms-note">
                 이 서버 revision에는 공개 이력이 있습니다. 기존 snapshot을
