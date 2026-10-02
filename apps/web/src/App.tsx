@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Cms } from "./Cms";
+import { OfflineExhibition } from "./OfflineExhibition";
 import { Studio } from "./Studio";
 import { PublicPublication } from "./PublicPublication";
 
@@ -33,6 +34,7 @@ export function App() {
       setChecking(false);
     }
   }
+  if (typeof window !== "undefined" && window.location.pathname === "/offline") return <OfflineExhibition />;
   if (typeof window !== "undefined" && window.location.pathname === "/cms")
     return <Cms />;
   if (typeof window !== "undefined" && window.location.pathname === "/studio")

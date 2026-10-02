@@ -1,0 +1,25 @@
+{
+  "checks": [
+    "portable launch rejects an operator fingerprint that does not trust the embedded signing key",
+    "fresh portable process serves only exact signed runtime files and package without project or API dependencies",
+    "actual retained portable browser runtime prepares displays and decodes synthetic geometry image and audio without external requests",
+    "portable renderer audio and package access stop at the real signed grant deadline as wall-clock time advances"
+  ],
+  "requests": [
+    "http://127.0.0.1:63142/offline",
+    "http://127.0.0.1:63142/assets/index-B6WPnQ8S.js",
+    "http://127.0.0.1:63142/assets/index-By93fOos.css",
+    "http://127.0.0.1:63142/offline-authority",
+    "http://127.0.0.1:63142/offline-package",
+    "http://127.0.0.1:63142/freeze-runtime.json",
+    "http://127.0.0.1:63142/freeze-runtime.json",
+    "http://127.0.0.1:63142/assets/Viewer-B1vSBvLv.js",
+    "http://127.0.0.1:63142/assets/three.module-4gI5Z-_B.js",
+    "http://127.0.0.1:63142/assets/OrbitControls-Dh36RsEH.js",
+    "http://127.0.0.1:63142/assets/GLTFLoader-QPJIvrGm.js"
+  ],
+  "checkedAt": "2026-10-02T12:10:52.586Z",
+  "limits": [
+    "Retained browser runtime only, not OCI or external deployment qualification."
+  ]
+}

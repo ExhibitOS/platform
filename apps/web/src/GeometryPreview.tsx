@@ -123,6 +123,8 @@ export function GeometryPreview({
     publicationId: string;
     revisionSha256: string;
     assets: PublicAsset[];
+    fetcher?: typeof fetch;
+    check?: () => Promise<void>;
   };
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
@@ -797,6 +799,8 @@ export function GeometryPreview({
           const cached = byteCache.get(inventory.id);
           if (cached) {
             // Reuse is scoped to this renderer/publication and still checks authoritative availability.
+            if (publicSource.check) await publicSource.check();
+            else {
             const current = await fetch(
               `/api/v1/publications/${publicSource.publicationId}`,
               { credentials: "omit", cache: "no-store", signal },
@@ -807,6 +811,7 @@ export function GeometryPreview({
                 publicSource.revisionSha256
             )
               throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
+            }
             bytes = cached;
             cacheHits++;
           } else {

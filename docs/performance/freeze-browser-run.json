@@ -1,0 +1,17 @@
+{
+  "checks": [
+    "actual offline UI prepares account-pinned key and atomically stores a fully verified synthetic freeze",
+    "actual malformed or duplicate file import never overwrites the earlier verified IndexedDB record",
+    "actual correctly signed package for a different retained runtime is refused without changing the earlier verified cache",
+    "actual disconnected reload uses retained shell and GLB PNG PCM byte-provider with no publication asset HTTP calls",
+    "disconnected revocation is bounded by existing grant and actual reconnect denial closes renderer and audio",
+    "actual persistent clock rollback rejects opening and reload while retaining the earlier verified bytes",
+    "real cross-tab logout and A to B to A login discard a delayed prepare authority response without restoring stale profile"
+  ],
+  "browser": "153.0.8010.12",
+  "assetRequests": [],
+  "checkedAt": "2026-10-02T12:10:36.034Z",
+  "limits": [
+    "Production Chromium and native Web Audio decoding on synthetic data; physical speaker/device and mobile qualification excluded."
+  ]
+}

@@ -33,7 +33,7 @@ try {
   await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname);
   await test("additive OEX migration preserves every existing schema checksum", async () => {
     assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'009' ORDER BY name")).rows, earlier);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 9);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 10);
   });
   const tenant = randomUUID(), destination = randomUUID(), pass = "Synthetic-OEX-password123", origin = "http://127.0.0.1:3000", headers = { host: "127.0.0.1:3000", origin };
   await bootstrap(pool, tenant, "synthetic.oex.admin", pass);

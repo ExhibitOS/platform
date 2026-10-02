@@ -39,7 +39,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         const asset = publication.assets.find(a => a.assetId === inventory.id);
         if (!asset) throw Error("DETAIL_UNAVAILABLE");
         const bytes = await fetchVerifiedAsset({ publicationId: publication.publication.id,
-          revisionSha256: publication.publication.revisionSha256, asset, inventory, signal: abort.signal });
+          revisionSha256: publication.publication.revisionSha256, asset, inventory, signal: abort.signal, ...publication.local });
         let object: THREE.Object3D;
         if (inventory.mime === "image/png") {
           const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
@@ -107,6 +107,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
     }
     // No persistent cache. Revoke the visible detail if authoritative publication availability changes.
     const check = async () => { try {
+      if (publication.local) { await publication.local.check(); return; }
       const response = await fetch(`/api/v1/publications/${publication.publication.id}`, { cache: "no-store", credentials: "omit", signal: abort.signal });
       if (!response.ok || (await response.json()).publication.revisionSha256 !== publication.publication.revisionSha256) throw Error("REVOKED");
     } catch { if (!disposed) { abort.abort(); cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); setError("공개 상태를 확인할 수 없어 상세 표시를 중단했습니다."); } } };

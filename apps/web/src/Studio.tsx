@@ -1,7 +1,9 @@
+import { notifyAuthChange } from "./auth-change";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DraftError, DraftStore } from "./drafts/store";
 import type { Draft, LocalDraft, RemoteBinding } from "./drafts/store";
 import { PublicationPanel } from "./PublicationPanel";
+import { FreezePanel } from "./FreezePanel";
 import { OexPanel } from "./OexPanel";
 import { GeometryEditor } from "./GeometryEditor";
 import { StudioExperienceEditor } from "./StudioExperienceEditor";
@@ -503,6 +505,7 @@ export function Studio() {
         있습니다. 파일 백업을 별도로 보관하세요. 현재 단계는 versioned 문서
         저장, 공간·작품 배치 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. OEX 파일 흐름은 아래에서 현재 계정과 서버 저장본을 대상으로 실행합니다.
       </p>
+      <FreezePanel session={session} record={record} dirty={dirty} disabled={busy || saving} />
       <OexPanel
         session={session}
         record={record}
@@ -883,6 +886,7 @@ export function Studio() {
                         attempt.current = null;
                       }
                       setSession(value);
+                      notifyAuthChange();
                       setNotice(
                         "현재 서버 계정을 확인했습니다. draft 내용은 보내지 않았습니다.",
                       );

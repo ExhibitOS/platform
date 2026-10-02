@@ -41,6 +41,8 @@
     "test:viewer": "npm run build && node --test scripts/viewer-variants.test.mjs && node scripts/test-viewer.mjs",
     "test:experience": "npm run build && node scripts/test-experience.mjs",
     "test:accessibility": "npm run build && EXHIBITOS_ACCESSIBILITY_ONLY=1 node scripts/test-experience.mjs",
+    "test:freeze": "npm run build && node scripts/test-freeze.mjs",
+    "freeze:init": "node scripts/init-freeze-key.mjs",
     "test:oex": "npm run build && node --test scripts/png-profile.test.mjs && node scripts/test-oex.mjs"
   },
   "devDependencies": {

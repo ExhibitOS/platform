@@ -50,13 +50,14 @@ export class MemoryAssetCache<T> {
  clear(){for(const entry of this.entries.values())this.onDispose(entry.value);this.entries.clear();this.used=0;}
  stats(){return {entries:this.entries.size,bytes:this.used,maxBytes:this.maxBytes,pinned:[...this.entries.values()].filter(e=>e.pins>0).length,evictions:this.evictions};}
 }
-export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;maxBytes?:number}):Promise<ArrayBuffer> {
+export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;check?:()=>Promise<void>;maxBytes?:number}):Promise<ArrayBuffer> {
  const {publicationId,revisionSha256,asset,inventory,signal}=input,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
  if(!uuid.test(publicationId)||!uuid.test(asset.assetId)||asset.assetId!==inventory.id||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||asset.mime!==inventory.mime||!/^[a-f0-9]{64}$/.test(revisionSha256)||!/^[a-f0-9]{64}$/.test(inventory.sha256)||!Number.isSafeInteger(inventory.bytes)||inventory.bytes<1||inventory.bytes>Math.min(input.maxBytes??33554432,33554432))throw Error("ASSET_CONTRACT_INVALID");
+ await input.check?.();
  const response=await (input.fetcher??fetch)(asset.url,{credentials:"omit",cache:"no-store",signal});
  if(!response.ok)throw Error(`ASSET_HTTP_${response.status}`);if(response.headers.get("x-exhibitos-publication-revision")!==revisionSha256||response.headers.get("content-type")?.split(";")[0]!==inventory.mime)throw Error("ASSET_RESPONSE_INVALID");
  const reader=response.body?.getReader();if(!reader)throw Error("ASSET_BODY_MISSING");const chunks:Uint8Array[]=[];let length=0;const onAbort=()=>{void reader.cancel(signal.reason).catch(()=>{});};signal.addEventListener("abort",onAbort,{once:true});
  try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>inventory.bytes)throw Error("ASSET_INTEGRITY");chunks.push(value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{signal.removeEventListener("abort",onAbort);reader.releaseLock();}
  signal.throwIfAborted();if(length!==inventory.bytes)throw Error("ASSET_INTEGRITY");const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
- const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");return bytes.buffer;
+ const hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))].map(v=>v.toString(16).padStart(2,"0")).join("");if(hash!==inventory.sha256)throw Error("ASSET_INTEGRITY");await input.check?.();return bytes.buffer;
 }
