@@ -58,7 +58,7 @@ export function remapOex(e:Exhibition){
   const target=exhibition.artworks[index]!,aliases=new Map<string,string>();scoped.set(source.revisionId.toLowerCase(),aliases);
   for(const[ai,asset]of source.assets.entries()){
    const destination=target.assets[ai]!;let newId=ids.get(asset.id.toLowerCase())!;
-   if((counts.get(asset.id.toLowerCase())??0)>1){if(assetAliases.some(x=>x.sourceAssetId.toLowerCase()===asset.id.toLowerCase()))newId=randomUUID();destination.id=newId;destination.path=`imported/${newId}/${asset.path.split('/').at(-1)!}`;}
+   if((counts.get(asset.id.toLowerCase())??0)>1){if(assetAliases.some(x=>x.sourceAssetId.toLowerCase()===asset.id.toLowerCase()))newId=randomUUID();destination.id=newId;destination.path=`imported/${newId}/${asset.mime==='image/png'?'image.png':'model.glb'}`;}
    aliases.set(asset.id.toLowerCase(),newId);
    assetAliases.push({sourceAssetId:asset.id,sourceArtworkRevisionId:source.revisionId,destinationArtworkId:target.id,destinationArtworkRevisionId:target.revisionId,destinationAssetId:newId,sourceArtifactPath:asset.path,destinationArtifactPath:destination.path});
   }

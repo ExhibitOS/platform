@@ -36,6 +36,16 @@ describe('OEX service boundaries',()=>{
   expect(r.assetAliases.filter(x=>x.sourceAssetId===shared.id)).toHaveLength(2);expect(r.idMap[shared.id]).toBe(a.primaryAssetId);
   expect(validateExhibition(r.exhibition).valid).toBe(true);
  });
+ it('normalizes valid long shared source paths to bounded MIME-specific paths and retains source audit identity',async()=>{
+  const e=await fixture(),first=e.artworks[0]!,second=e.artworks[1]!,shared=first.assets[0]!;
+  shared.path='assets/'+('x'.repeat(229))+'.glb';
+  second.artworkType=first.artworkType;second.dimensions=structuredClone(first.dimensions);second.assets=structuredClone(first.assets);second.primaryAssetId=first.primaryAssetId;
+  for(const p of e.placements)if(p.artworkRevisionId===second.revisionId)p.assetId=shared.id;
+  expect(shared.path.length).toBe(240);expect(validateExhibition(e)).toEqual({valid:true,errors:[]});
+  const r=remapOex(e);expect(validateExhibition(r.exhibition)).toEqual({valid:true,errors:[]});
+  for(const a of r.exhibition.artworks){expect(a.assets[0]!.path).toMatch(/^imported\/[a-f0-9-]{36}\/model\.glb$/);expect(a.assets[0]!.path.length).toBeLessThan(240);}
+  expect(r.assetAliases.every(a=>a.sourceArtifactPath===shared.path)).toBe(true);
+ });
  it('preserves strictly bounded inert public Apache and CC0 notices at exhibition scope only',async()=>{
   const e=await fixture();e.extensions={'org.exhibitos/apache-license':{scope:'Synthetic specification fixture',licenseId:'Apache-2.0',text:'Apache license notice'},'org.exhibitos/cc0-license':{scope:'Synthetic asset bytes',licenseId:'CC0-1.0',text:'CC0 notice'}};
   expect(()=>checkOexProfile(e)).not.toThrow();expect(remapOex(e).exhibition.extensions).toEqual(e.extensions);
