@@ -96,3 +96,11 @@ a completion event nor a Promise outcome, its one pending record and two event
 guards remain until an outcome or document teardown, including after controller
 disposal. A timeout is not treated as completion and cannot authorize overlapping
 native requests. No physical mouse success is inferred from these safeguards.
+
+The same clean source passed two actual isolated PostgreSQL/publication groups
+and 13 production Chromium navigation groups with
+`EXHIBITOS_NAVIGATION_FILTER='^(?!browser pointer lock)' node scripts/test-navigation.mjs`.
+This includes injected refusal with usable keyboard fallback, focus/visibility
+pausing, stationary/quality disposal and independent two-pointer touch.
+[Exact-source raw browser results](navigation-capture-fix-results.json) retain
+the explicit native exclusion; all historical failed capture evidence remains.
