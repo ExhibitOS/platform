@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Official Node index digest verified with docker buildx imagetools inspect.
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
+WORKDIR /opt/exhibitos
+COPY . .
+RUN test ! -e .local && test ! -e operations && test ! -e capture-ios && test ! -e .env && test ! -e .git \
+    && test "$(node --version)" = v24.21.0 && test "$(npm --version)" = 11.19.0 \
+    && npm ci && npm run build && npm prune --omit=dev \
+    && test -s apps/web/dist/THIRD_PARTY_NOTICES.txt
+
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+LABEL org.opencontainers.image.title="ExhibitOS local runtime" \
+      org.opencontainers.image.version="0.1.0" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.source="https://github.com/ExhibitOS/platform"
+WORKDIR /opt/exhibitos
+COPY --from=build /opt/exhibitos/node_modules ./node_modules
+COPY --from=build /opt/exhibitos/apps/api ./apps/api
+COPY --from=build /opt/exhibitos/apps/web/dist ./apps/web/dist
+COPY --from=build /opt/exhibitos/packages ./packages
+COPY --from=build /opt/exhibitos/database ./database
+COPY --from=build /opt/exhibitos/contracts ./contracts
+COPY --from=build /opt/exhibitos/package.json ./package.json
+COPY --from=build /opt/exhibitos/LICENSE ./LICENSE
+COPY --from=build /opt/exhibitos/scripts/local-runtime.mjs ./scripts/local-runtime.mjs
+RUN mkdir -p /data/blobs /data/config && chmod 0700 /data/blobs /data/config && chown -R node:node /data
+USER node
+ENV NODE_ENV=production
+EXPOSE 8080
+HEALTHCHECK --interval=5s --timeout=4s --start-period=90s --retries=12 \
+  CMD node -e 'const h=require("node:http");const q=h.get({hostname:"127.0.0.1",port:8080,path:"/api/v1/readiness",headers:{host:"127.0.0.1:"+(process.env.EXHIBITOS_PORT||13200)}},r=>{let s="";r.on("data",b=>{s+=b;if(s.length>16384)q.destroy()});r.on("end",()=>{try{if(r.statusCode!==200||!JSON.parse(s).ready)process.exit(1)}catch{process.exit(1)}})});q.setTimeout(2000,()=>q.destroy());q.on("error",()=>process.exit(1))'
+CMD ["node", "scripts/local-runtime.mjs"]
