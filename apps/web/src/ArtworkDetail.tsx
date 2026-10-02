@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useMemo, useRef, useState } from "react";
-import { experienceFor } from "@exhibitos/studio-contract";
+import { creationYearFor, experienceFor } from "@exhibitos/studio-contract";
 import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
@@ -31,6 +31,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   </dialog>;
   const description = publication.exhibition.accessibility.artworkDescriptions.find(a => a.placementId === placementId)?.text ?? artwork.metadata.description;
   const created = artwork.provenance.events.find(event => event.type === "created");
+  const creationYear = creationYearFor(artwork) ?? created?.at.slice(0, 4);
   return <dialog ref={dialog} className="artwork-detail" aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
     <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>상세 보기 닫기</button></header>
     <p>{artwork.metadata.artist}</p>
@@ -38,7 +39,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     <dl>
       <dt>실제 치수 (너비 × 높이 × 깊이)</dt><dd>{artwork.dimensions.width} × {artwork.dimensions.height} × {artwork.dimensions.depth ?? "미기록"} m</dd>
       <dt>재료·기법</dt><dd>{artwork.metadata.medium ?? "미기록"}</dd>
-      <dt>제작 연도 (공개 제작 기록)</dt><dd>{created?.at.slice(0, 4) ?? "미기록"}</dd>
+      <dt>제작 연도 (공개 제작 기록)</dt><dd data-testid="artwork-creation-year">{creationYear ?? "미기록"}</dd>
       <dt>권리자</dt><dd>{artwork.rights.holder}</dd><dt>권리·출처 표기</dt><dd>{artwork.rights.creditLine}</dd>
       <dt>라이선스</dt><dd>{artwork.rights.licenseId ?? artwork.rights.licenseText}</dd>
     </dl>

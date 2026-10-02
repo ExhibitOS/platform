@@ -59,6 +59,9 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
         const canvas = dialog.locator("canvas"); await expect(canvas).toHaveCount(1, { timeout: 30000 });
         await expect(dialog.getByText(artwork.rights.holder, { exact: true })).toBeVisible();
         await expect(dialog.getByText(artwork.metadata.medium ?? "미기록", { exact: true }).first()).toBeVisible();
+        await expect(dialog.getByTestId("artwork-creation-year")).toHaveText(artwork.artworkType === "sculpture" ? "2024" : "미기록");
+        if (artwork.artworkType === "sculpture") await expect(dialog.getByText("Synthetic painted polymer", { exact: true })).toBeVisible();
+        await expect(dialog).not.toContainText("PRIVATE AUTHORING NOTES");
         const detail = () => canvas.evaluate(c => JSON.parse(c.dataset.detailState ?? "null"));
         await expect.poll(async () => (await detail())?.zoom).toBe(1);
         await dialog.getByLabel("작품 회전", { exact: true }).focus(); await page.keyboard.press("ArrowRight");

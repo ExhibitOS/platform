@@ -206,6 +206,7 @@ try {
     const m = {
       ...metadata,
       title: type === "image" ? "Synthetic public painting" : metadata.title,
+      ...(type === "sculpture" ? { medium: "Synthetic painted polymer", creationYear: 2024 } : {}),
       dimensions: {
         ...metadata.dimensions,
         depth: type === "image" ? 0.02 : 1,
@@ -384,6 +385,14 @@ try {
     assert.equal(p.exhibition.placements.length, 2);
     assert.equal(p.assets.length, 5);
     assert.equal(p.exhibition.mediaAssets.length, 1);
+    const sculpture = p.exhibition.artworks.find(artwork => artwork.artworkType === "sculpture");
+    assert.equal(sculpture.metadata.medium, "Synthetic painted polymer");
+    assert.deepEqual(sculpture.extensions["org.exhibitos.artwork/details"], { version: 1, creationYear: 2024 });
+    const painting = p.exhibition.artworks.find(artwork => artwork.artworkType === "image");
+    assert.equal(painting.metadata.medium, undefined);
+    assert.equal(painting.extensions["org.exhibitos.artwork/details"], undefined);
+    assert(!JSON.stringify(p).includes("PRIVATE AUTHORING NOTES"));
+    assert(!JSON.stringify(p).includes("PRIVATE ARTIST BIO"));
   });
   await app.close();
   const { createServer } = await import("node:net"),
