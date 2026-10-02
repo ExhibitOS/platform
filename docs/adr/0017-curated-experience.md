@@ -1,6 +1,7 @@
 # ADR0017: optional curation, opt-in zones and readable guided routes
 
-Status: implementation candidate; production-browser qualification pending.
+Status: implementation candidate; local production-browser curation qualified.
+New physical audio/mobile and actual VoiceOver controls remain unqualified.
 
 Keep public OES geometry/media/navigation/annotations and existing experience v1
 unchanged. The optional `org.exhibitos.viewer/curation` version1 is closed and
