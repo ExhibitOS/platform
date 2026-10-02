@@ -85,8 +85,8 @@ export function StudioExperienceEditor({ candidate, session, exhibitionId, disab
     </fieldset>
     <fieldset disabled={disabled || busy}>
       <legend>작품 음성·읽기 설명·번역·위치 설명</legend>
-      <label>설명할 작품 배치<select value={placementId} onChange={e => setPlacementId(e.target.value)}><option value="">작품 선택</option>{candidate.placements.map(p => <option key={p.id} value={p.id}>{candidate.artworks.find(a => a.revisionId === p.artworkRevisionId)?.metadata.title ?? p.id}</option>)}</select></label>
-      <label>승인된 오디오<select value={audioId} onChange={e => setAudioId(e.target.value)}><option value="">오디오 선택</option>{items.filter(a => a.state === "approved" && !a.revoked).map(a => <option value={a.id} key={a.id}>{a.mediaAsset.rights.creditLine}</option>)}</select></label>
+      <label>설명할 작품 배치<select aria-label="설명할 작품 배치" value={placementId} onChange={e => setPlacementId(e.target.value)}><option value="">작품 선택</option>{candidate.placements.map(p => <option key={p.id} value={p.id}>{candidate.artworks.find(a => a.revisionId === p.artworkRevisionId)?.metadata.title ?? p.id}</option>)}</select></label>
+      <label>승인된 오디오<select aria-label="승인된 오디오" value={audioId} onChange={e => setAudioId(e.target.value)}><option value="">오디오 선택</option>{items.filter(a => a.state === "approved" && !a.revoked).map(a => <option value={a.id} key={a.id}>{a.mediaAsset.rights.creditLine}</option>)}</select></label>
       <label>설명 언어<input value={locale} onChange={e => setLocale(e.target.value)} maxLength={48} /></label>
       <label>음성 대본<textarea value={transcript} onChange={e => setTranscript(e.target.value)} maxLength={16384} /></label>
       <button disabled={!placementId || !audioId || !transcript.trim()} onClick={() => change((doc, x) => {
@@ -116,10 +116,10 @@ export function StudioExperienceEditor({ candidate, session, exhibitionId, disab
     </fieldset>
     <fieldset disabled={disabled || busy}>
       <legend>바닥 소리와 공간 울림</legend>
-      <label>발소리 바닥<select value={surfaceId} onChange={e => setSurfaceId(e.target.value)}><option value="">바닥 선택</option>{candidate.surfaces.filter(s => s.type === "floor").map(s => <option key={s.id} value={s.id}>{candidate.rooms.find(r => r.id === s.roomId)?.name ?? s.id}</option>)}</select></label>
-      <label>발소리 재질<select value={material} onChange={e => setMaterial(e.target.value as typeof material)}>{["wood", "stone", "concrete", "carpet", "metal"].map(m => <option key={m}>{m}</option>)}</select></label>
+      <label>발소리 바닥<select aria-label="발소리 바닥" value={surfaceId} onChange={e => setSurfaceId(e.target.value)}><option value="">바닥 선택</option>{candidate.surfaces.filter(s => s.type === "floor").map(s => <option key={s.id} value={s.id}>{candidate.rooms.find(r => r.id === s.roomId)?.name ?? s.id}</option>)}</select></label>
+      <label>발소리 재질<select aria-label="발소리 재질" value={material} onChange={e => setMaterial(e.target.value as typeof material)}>{["wood", "stone", "concrete", "carpet", "metal"].map(m => <option key={m}>{m}</option>)}</select></label>
       <button disabled={!surfaceId} onClick={() => change((_doc, x) => { x.footsteps = x.footsteps.filter(f => f.surfaceId !== surfaceId); x.footsteps.push({ surfaceId, material }); })}>바닥 발소리 적용</button>
-      <label>울림 공간<select value={roomId} onChange={e => setRoomId(e.target.value)}><option value="">공간 선택</option>{candidate.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+      <label>울림 공간<select aria-label="울림 공간" value={roomId} onChange={e => setRoomId(e.target.value)}><option value="">공간 선택</option>{candidate.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
       <label>공간 울림<input type="range" min="0" max="1" step="0.05" value={reverb} onChange={e => setReverb(Number(e.target.value))} /></label>
       <button disabled={!roomId} onClick={() => change((_doc, x) => { x.rooms = x.rooms.filter(r => r.roomId !== roomId); x.rooms.push({ roomId, reverb }); })}>공간 울림 적용</button>
     </fieldset>
