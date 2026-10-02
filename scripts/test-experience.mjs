@@ -308,8 +308,12 @@ try {
       await expected(request(actor, "POST", `${audioPath}/${audio.id}/approve`, { revision: 1 }), 403);
     }
     const foreignTenant = randomUUID();
-    await bootstrap(pool, foreignTenant, "synthetic.foreign.admin", pass);
-    const foreign = await login("synthetic.foreign.admin", foreignTenant);
+    // Explicit isolated fixture seeding: existing API-created user gets a foreign
+    // tenant membership, then authenticates through the real login endpoint.
+    // Bootstrap is global one-time initialization and must not be called again.
+    await pool.query("INSERT INTO tenants(id,name) VALUES($1,'Synthetic foreign audio institution')", [foreignTenant]);
+    await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'artist')", [foreignTenant, actors.other.userId]);
+    const foreign = await login("synthetic.publication.other", foreignTenant);
     await expected(request(foreign, "GET", audioPath), 403);
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID(), bytes: 12582913 }), 400);
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID(), mime: "audio/mpeg" }), 400);
