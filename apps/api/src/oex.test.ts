@@ -36,6 +36,12 @@ describe('OEX service boundaries',()=>{
   expect(r.assetAliases.filter(x=>x.sourceAssetId===shared.id)).toHaveLength(2);expect(r.idMap[shared.id]).toBe(a.primaryAssetId);
   expect(validateExhibition(r.exhibition).valid).toBe(true);
  });
+ it('preserves strictly bounded inert public Apache and CC0 notices at exhibition scope only',async()=>{
+  const e=await fixture();e.extensions={'org.exhibitos/apache-license':{scope:'Synthetic specification fixture',licenseId:'Apache-2.0',text:'Apache license notice'},'org.exhibitos/cc0-license':{scope:'Synthetic asset bytes',licenseId:'CC0-1.0',text:'CC0 notice'}};
+  expect(()=>checkOexProfile(e)).not.toThrow();expect(remapOex(e).exhibition.extensions).toEqual(e.extensions);
+  for(const bad of [{scope:'fixture',licenseId:'Apache-2.0',text:'notice',script:'evil'},{scope:'fixture',licenseId:'CC0-1.0',text:'wronglicense'},{scope:'fixture',licenseId:'Apache-2.0',text:{}},{scope:'',licenseId:'Apache-2.0',text:'notice'},{scope:'x'.repeat(513),licenseId:'Apache-2.0',text:'notice'},{scope:'fixture',licenseId:'Apache-2.0',text:'x'.repeat(32769)}]){e.extensions={'org.exhibitos/apache-license':bad as NonNullable<Exhibition['extensions']>[string]};expect(()=>checkOexProfile(e)).toThrow('OEX_LEGAL_NOTICE_INVALID');}
+  delete e.extensions;e.artworks[0]!.extensions={'org.exhibitos/apache-license':{scope:'fixture',licenseId:'Apache-2.0',text:'notice'}};expect(()=>checkOexProfile(e)).toThrow('OEX_EXTENSION_UNSUPPORTED');
+ });
  it('rejects unknown namespaces on both scene and nested geometry',async()=>{
   const e=await fixture();e.extensions={'com.unreviewed/execution':{url:'https://invalid.example/script'}};expect(()=>checkOexProfile(e)).toThrow('OEX_EXTENSION_UNSUPPORTED');
   delete e.extensions;Object.assign(e.rooms[0]!,{extensions:{'com.unreviewed/execution':{}}});expect(()=>checkOexProfile(e)).toThrow('OEX_PROFILE_INVALID');

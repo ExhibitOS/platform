@@ -13,6 +13,7 @@ import {decode,MAX_UPLOAD} from './imports.ts';
 import {validatePcmWav,audioMedia,type AudioRow} from './audio.ts';
 export const MAX_OEX_UPLOAD=67108864;
 const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
+const LEGAL_NOTICES={'org.exhibitos/apache-license':'Apache-2.0','org.exhibitos/cc0-license':'CC0-1.0'}as const;
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -20,13 +21,19 @@ export interface OexInput {requestId:string;bytes:number;sha256:string}
 interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean}
 /** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
 export function checkOexProfile(e:Exhibition,privateBindings=false){
+ for(const[namespace,licenseId]of Object.entries(LEGAL_NOTICES))if(e.extensions&&Object.hasOwn(e.extensions,namespace)){
+  const notice=e.extensions[namespace];
+  if(!object(notice)||Object.keys(notice).length!==3||!['scope','licenseId','text'].every(k=>Object.hasOwn(notice,k))||notice.licenseId!==licenseId||typeof notice.scope!=='string'||notice.scope.length<1||notice.scope.length>512||!notice.scope.trim()||typeof notice.text!=='string'||notice.text.length<1||notice.text.length>32768||!notice.text.trim())throw new ApiError(422,'OEX_LEGAL_NOTICE_INVALID');
+ }
+
+
  if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
