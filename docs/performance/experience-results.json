@@ -1,5 +1,5 @@
 {
-  "source": "6e5d490037e5a91b9a6adb3c5ddfdf74d4beecd9",
+  "source": "f99d1119a2730189a03a6298bbf13f5fcf1cf92c",
   "dirtySource": "",
   "browser": "153.0.8010.12",
   "fixture": {
@@ -75,6 +75,7 @@
     "production Studio author uses actual login, separate WAV rights upload/approval, transcript binding and READY publication",
     "synthetic microphone actual AudioWorklet produces local bounded PCM WAV; mount is inert and upload remains explicit",
     "synthetic microphone cancel releases capture and produces no recording upload",
+    "controlled pre-addModule delay verifies immediate release of real synthetic microphone and context during setup cancellation",
     "synthetic microphone automatically closes at60seconds, produces bounded PCM WAV and waits for explicit upload",
     "actual browser microphone permission denial keeps PCM file fallback usable"
   ],
@@ -128,8 +129,8 @@
         "toleranceMeters": 1e-06,
         "toleranceRadians": 1e-06,
         "before": {
-          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
-          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "floorSurfaceId": "fa7fa40e-3533-4ffd-b9c7-555fefa2dec2",
+          "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
           "eyePosition": [
             0,
             1.6609999940395357,
@@ -142,7 +143,7 @@
             0
           ],
           "grounded": true,
-          "steps": 39,
+          "steps": 24,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -158,8 +159,8 @@
           }
         },
         "duringDetail": {
-          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
-          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "floorSurfaceId": "fa7fa40e-3533-4ffd-b9c7-555fefa2dec2",
+          "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
           "eyePosition": [
             0,
             1.6609999940395357,
@@ -172,7 +173,7 @@
             0
           ],
           "grounded": true,
-          "steps": 51,
+          "steps": 33,
           "paused": true,
           "blocked": false,
           "recovered": false,
@@ -188,8 +189,8 @@
           }
         },
         "restoredActive": {
-          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
-          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "floorSurfaceId": "fa7fa40e-3533-4ffd-b9c7-555fefa2dec2",
+          "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
           "eyePosition": [
             0,
             1.6609999940395357,
@@ -202,7 +203,7 @@
             0
           ],
           "grounded": true,
-          "steps": 67,
+          "steps": 35,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -218,8 +219,8 @@
           }
         },
         "paused": {
-          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
-          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "floorSurfaceId": "fa7fa40e-3533-4ffd-b9c7-555fefa2dec2",
+          "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
           "eyePosition": [
             0,
             1.6609999940395357,
@@ -232,7 +233,7 @@
             0
           ],
           "grounded": true,
-          "steps": 70,
+          "steps": 36,
           "paused": true,
           "blocked": false,
           "recovered": false,
@@ -248,8 +249,8 @@
           }
         },
         "restoredPaused": {
-          "floorSurfaceId": "225a0c39-408e-40b1-b068-702c36f65dfd",
-          "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+          "floorSurfaceId": "fa7fa40e-3533-4ffd-b9c7-555fefa2dec2",
+          "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
           "eyePosition": [
             0,
             1.6609999940395357,
@@ -262,7 +263,7 @@
             0
           ],
           "grounded": true,
-          "steps": 70,
+          "steps": 36,
           "paused": true,
           "blocked": false,
           "recovered": false,
@@ -288,7 +289,7 @@
         "context": "running",
         "footsteps": 0,
         "material": "concrete",
-        "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+        "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
         "loaded": 1,
         "decodedBytes": 384000,
         "requests": 1,
@@ -305,7 +306,7 @@
         "context": "running",
         "footsteps": 2,
         "material": "wood",
-        "roomId": "3ff28842-a959-4305-b2f7-4ff8a99c6ae4",
+        "roomId": "62c90ad6-2e06-47d6-8654-b4c96fb95a33",
         "loaded": 1,
         "decodedBytes": 384000,
         "requests": 1,
@@ -320,13 +321,13 @@
         "volume": 1,
         "suspended": false,
         "context": "running",
-        "footsteps": 15,
+        "footsteps": 14,
         "material": "carpet",
-        "roomId": "81a13be6-5974-4a50-a2ad-9b20636f0b31",
+        "roomId": "68a59a7d-7d87-4b53-a0a6-72706f589be2",
         "loaded": 0,
         "decodedBytes": 0,
         "requests": 1,
-        "active": 2,
+        "active": 1,
         "reverbSeconds": 0.6057068642773799,
         "zoneGain": 0,
         "message": "선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."
@@ -337,9 +338,9 @@
         "volume": 1,
         "suspended": true,
         "context": "running",
-        "footsteps": 15,
+        "footsteps": 14,
         "material": "carpet",
-        "roomId": "81a13be6-5974-4a50-a2ad-9b20636f0b31",
+        "roomId": "68a59a7d-7d87-4b53-a0a6-72706f589be2",
         "loaded": 0,
         "decodedBytes": 0,
         "requests": 1,
@@ -352,16 +353,16 @@
     {
       "browserAuthoring": {
         "publication": {
-          "id": "d614b38d-23b7-45e0-8d6c-448f9f7be2a5",
-          "revisionSha256": "f8308f5269fa1313011c15f7b017d759a51edd6e6ca5951686d39e107db4e469",
-          "publishedAt": "2026-10-02T08:21:30.292Z",
+          "id": "55471146-56a7-4cf5-b252-44f85fc2f654",
+          "revisionSha256": "25459c44a3b5e28c4937c7b38ebc93131c049ca6b1ead05ea0136b19c632d1d8",
+          "publishedAt": "2026-10-02T08:41:33.579Z",
           "status": "published"
         },
         "audioInventory": [
           {
-            "assetId": "ef81681f-a07e-4f18-b726-ffb794ff3d77",
+            "assetId": "ce256379-cf8b-48d4-a3c7-e71aee554c13",
             "mime": "audio/wav",
-            "url": "/api/v1/publications/d614b38d-23b7-45e0-8d6c-448f9f7be2a5/assets/ef81681f-a07e-4f18-b726-ffb794ff3d77"
+            "url": "/api/v1/publications/55471146-56a7-4cf5-b252-44f85fc2f654/assets/ce256379-cf8b-48d4-a3c7-e71aee554c13"
           }
         ]
       }
@@ -371,6 +372,7 @@
         "checks": [
           "synthetic microphone actual AudioWorklet produces local bounded PCM WAV; mount is inert and upload remains explicit",
           "synthetic microphone cancel releases capture and produces no recording upload",
+          "controlled pre-addModule delay verifies immediate release of real synthetic microphone and context during setup cancellation",
           "synthetic microphone automatically closes at60seconds, produces bounded PCM WAV and waits for explicit upload",
           "actual browser microphone permission denial keeps PCM file fallback usable"
         ],
@@ -380,35 +382,85 @@
             "sampleRate": 48000,
             "channels": 1,
             "bits": 16,
-            "bytes": 166956,
-            "durationSeconds": 1.7386666666666666,
+            "bytes": 134444,
+            "durationSeconds": 1.4,
             "requests": [
               {
                 "method": "POST",
-                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio"
+                "url": "/api/v1/tenants/0f5d8d7b-b609-432e-ae22-a10713c6be4c/studio/exhibitions/9a3dd552-fc29-4412-bdf2-b92e10535d1e/audio"
               },
               {
                 "method": "PUT",
-                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio/7e3276e8-3cdd-42f2-81c6-19493728ec89/bytes"
+                "url": "/api/v1/tenants/0f5d8d7b-b609-432e-ae22-a10713c6be4c/studio/exhibitions/9a3dd552-fc29-4412-bdf2-b92e10535d1e/audio/069d7ae7-979c-4812-9207-078514520ad4/bytes"
               },
               {
                 "method": "POST",
-                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio"
+                "url": "/api/v1/tenants/0f5d8d7b-b609-432e-ae22-a10713c6be4c/studio/exhibitions/9a3dd552-fc29-4412-bdf2-b92e10535d1e/audio"
               },
               {
                 "method": "PUT",
-                "url": "/api/v1/tenants/e6cd939e-14cd-49dd-9d9b-cceef5bd07c7/studio/exhibitions/3ba0a0b5-0719-4a9d-b066-52065d488beb/audio/27c15433-c76d-4461-b924-c6a089015b32/bytes"
+                "url": "/api/v1/tenants/0f5d8d7b-b609-432e-ae22-a10713c6be4c/studio/exhibitions/9a3dd552-fc29-4412-bdf2-b92e10535d1e/audio/8f2f528f-4f43-4167-9ad7-88b034c691e2/bytes"
               }
             ],
             "tracksStopped": true
           },
           {
+            "provider": "Chromium fake device/UI and fake streams",
+            "control": "explicit controlled delay BEFORE native AudioWorklet.addModule invocation; no network pause or invented module outcome",
+            "live": {
+              "calls": 1,
+              "tracks": [
+                "live"
+              ],
+              "contexts": [
+                "running"
+              ],
+              "gate": {
+                "entered": true,
+                "forwarded": false,
+                "settled": false,
+                "error": null
+              }
+            },
+            "cancelledBeforeNativeCall": {
+              "calls": 1,
+              "tracks": [
+                "ended"
+              ],
+              "contexts": [
+                "closed"
+              ],
+              "gate": {
+                "entered": true,
+                "forwarded": false,
+                "settled": false,
+                "error": null
+              }
+            },
+            "afterNativeSettlement": {
+              "calls": 1,
+              "tracks": [
+                "ended"
+              ],
+              "contexts": [
+                "closed"
+              ],
+              "gate": {
+                "entered": true,
+                "forwarded": true,
+                "settled": true,
+                "error": null
+              }
+            },
+            "uploadRequests": 0
+          },
+          {
             "provider": "Chromium synthetic microphone; actual automatic timer/sample cap",
-            "elapsedMs": 60434.00475,
+            "elapsedMs": 60205.70566600001,
             "maxDurationSeconds": 60,
             "sampleRate": 48000,
-            "samples": 2877952,
-            "bytes": 5755948,
+            "samples": 2876416,
+            "bytes": 5752876,
             "tracksStopped": true,
             "uploadOnlyAfterExplicitClick": true
           },
@@ -443,5 +495,5 @@
     "Explicit request404 and AudioContext refusal injection checks are failure controls, not successful native playback evidence."
   ],
   "evidenceNormalization": "Ephemeral local origins replaced with a synthetic-origin marker; screenshot paths reduced to basenames. Values and observed source/checks unchanged.",
-  "originalReportSha256": "73458a8910f74432928981702c20ee6c462705fa3946c76cc47c2c891d483589"
+  "originalReportSha256": "a090fe1e5bc8bdd05302d214ca94b6c560101acd93b349357d58e011dee9b74c"
 }

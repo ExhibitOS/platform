@@ -1,6 +1,6 @@
 # ADR0011: bounded opt-in exhibition audio and isolated artwork detail
 
-Status: implementation candidate; full integrated production qualification pending.
+Status: accepted within the bounded implementation profile; actual qualification and device limits are recorded in [experience results](../performance/experience-results.md).
 
 The existing public OES media inventory, audio zones (autoplayfalse and required transcript), and text annotations remain the portable base. Platform optional `org.exhibitos.viewer/experience` version1 adds bounded floor material assignments, placement voice/transcript/locale associations, artwork-local centered-meter annotation coordinates, room reverb and separate translations. The shared browser/API validator rejects unknown own versions/fields, invalid/case-aliased references and positions outside artwork bounds; absence remains backwards compatible. No private Capture implementation is required.
 
