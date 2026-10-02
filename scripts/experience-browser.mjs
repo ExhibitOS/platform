@@ -11,14 +11,35 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
     dirtySource: execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim(), browser: browser.version(), fixture, checks, sequences, screenshots,
     limits: ["Production Chromium with emulated keyboard/mouse, actual Web Audio decoding and node state; physical speaker audibility, physical mobile/GPU/RSS are not qualified.", "Explicit request404 and AudioContext refusal injection checks are failure controls, not successful native playback evidence."] };
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
-  const requests = [];
+  const requests = [], audioResponses = [], pageErrors = [];
+  let currentCheck = "production page load", failureRecorded = false;
+  page.on("pageerror", error => pageErrors.push(error.message));
   const audioURL = projection.assets.find(a => a.mime === "audio/wav").url;
   page.on("request", r => { if (new URL(r.url()).pathname === audioURL) requests.push(r.url()); });
+  page.on("response", response => {
+    if (new URL(response.url()).pathname === audioURL) audioResponses.push({ status: response.status(), contentType: response.headers()["content-type"], revision: response.headers()["x-exhibitos-publication-revision"] });
+  });
   const state = () => page.getByTestId("audio-state").evaluate(e => JSON.parse(e.getAttribute("data-audio-state")));
   const nav = () => page.getByRole("region", { name: "전시 Viewer", exact: true }).locator("canvas").first().evaluate(c => JSON.parse(c.dataset.navigationState ?? "null"));
   // section aria-label is exposed as region; this selects only the persistent gallery canvas.
   const button = name => page.getByRole("button", { name, exact: true });
-  const check = async (name, fn) => { await fn(); checks.push(name); console.log(`PASS ${name}`); };
+  const check = async (name, fn) => { currentCheck = name; await fn(); checks.push(name); console.log(`PASS ${name}`); };
+  const recordFailure = async error => {
+    if (failureRecorded) return;
+    failureRecorded = true;
+    const safe = async operation => { try { return await operation(); } catch (failure) { return { unavailable: String(failure?.message ?? failure).slice(0, 1000) }; } };
+    const [audio, navigation, visibleStatus] = await Promise.all([
+      safe(state), safe(nav), safe(() => page.getByRole("status").allTextContents()),
+    ]);
+    const screenshotPath = `${dir}/failure.png`;
+    const screenshot = await safe(async () => { await page.screenshot({ path: screenshotPath, timeout: 5000 }); screenshots.push(screenshotPath); return screenshotPath; });
+    const diagnostic = { check: currentCheck, observedAt: new Date().toISOString(), error: String(error?.message ?? error).slice(0, 4000), audio, navigation, visibleStatus, audioRequests: requests, audioResponses, pageErrors, screenshot };
+    const failure = { ...report, outcome: "failed", diagnostic };
+    const reportPath = `${dir}/experience-run.json`;
+    await writeFile(reportPath, JSON.stringify(failure, null, 2) + "\n");
+    await writeFile(`${dir}/failure.json`, JSON.stringify(diagnostic, null, 2) + "\n");
+    console.error(JSON.stringify({ experienceFailure: diagnostic, reportPath }, null, 2));
+  };
   const load = async () => { await page.goto(`${origin}/p/${publicationId}`); await expect(page.getByRole("heading", { name: projection.exhibition.title, exact: true })).toBeVisible(); await expect(page.getByTestId("audio-state")).toBeVisible(); };
   const pause = async () => { await page.keyboard.press("Escape"); await expect.poll(async () => (await nav())?.paused).toBe(true); };
   try {
@@ -98,9 +119,13 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
       await expect.poll(async () => (await state()).volume).toBe(0); await page.keyboard.press("End"); await expect.poll(async () => (await state()).volume).toBe(1);
       await page.getByLabel("소리 끄기", { exact: true }).check(); await expect.poll(async () => (await state()).active).toBe(0);
       await page.getByLabel("소리 끄기", { exact: true }).uncheck();
-      await button("걷기 재개").click(); await expect.poll(async () => (await nav())?.paused).toBe(false);
+      // Choose zone playback while paused, then explicitly resume walking.
+      // Clicking an external zone control after resume intentionally blurs and
+      // pauses the navigation canvas; mere canvas focus must not auto-resume.
       await button(`공간 소리 재생 ${projection.exhibition.audioZones[0].id}`).click();
-      await page.getByRole("region", { name: "전시 Viewer", exact: true }).locator("canvas").first().focus();
+      await expect.poll(async () => (await state()).active).toBeGreaterThan(0);
+      await button("걷기 재개").click(); await expect.poll(async () => (await nav())?.paused).toBe(false);
+      await expect(page.getByRole("region", { name: "전시 Viewer", exact: true }).locator("canvas").first()).toBeFocused();
       await page.keyboard.down("w"); await page.waitForTimeout(1300); await page.keyboard.up("w");
       await expect.poll(async () => (await state()).footsteps).toBeGreaterThan(0);
       const moved = await state(); assert.equal(moved.material, "wood"); assert(moved.zoneGain > stationary.zoneGain);
@@ -186,13 +211,19 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
         sequences.push({ browserAuthoring: { publication: published.publication, audioInventory: published.assets.filter(a => a.mime === "audio/wav") } });
       } finally { await author.close(); }
     });
-    const recording = await runSyntheticRecording({ origin, authoring });
+    currentCheck = "synthetic microphone lifecycle verification";
+    const recording = await runSyntheticRecording({ origin, authoring, onCheck: name => { currentCheck = name; } });
     checks.push(...recording.checks); sequences.push({ microphone: recording });
     await writeFile(`${dir}/experience-run.json`, JSON.stringify(report, null, 2) + "\n"); return { ...report, reportPath: `${dir}/experience-run.json` };
+  } catch (error) {
+    // Best-effort diagnostics preserve the original failed assertion even when
+    // the page is unavailable. Only this isolated synthetic publication is read.
+    try { await recordFailure(error); } catch (diagnosticError) { console.error(`Experience diagnostics unavailable: ${diagnosticError.message}`); }
+    throw error;
   } finally { await restore(); await browser.close(); }
 }
 
-async function runSyntheticRecording({ origin, authoring }) {
+async function runSyntheticRecording({ origin, authoring, onCheck }) {
   // Isolated browser synthetic input only. Never requests a human microphone.
   const browser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   const checks = [], observations = [];
@@ -206,7 +237,7 @@ async function runSyntheticRecording({ origin, authoring }) {
     await page.goto(`${origin}/studio`);
     await page.getByRole("button", { name: "새 로컬 전시", exact: true }).click();
   }
-  const check = async (title, fn) => { await fn(); checks.push(title); console.log(`PASS ${title}`); };
+  const check = async (title, fn) => { onCheck(title); await fn(); checks.push(title); console.log(`PASS ${title}`); };
   try {
     const context = await browser.newContext({ permissions: ["microphone"] }), page = await context.newPage();
     // Transparent observation forwards the native API and keeps only synthetic
