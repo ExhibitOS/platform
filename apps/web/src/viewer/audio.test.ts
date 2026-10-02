@@ -120,3 +120,25 @@ test("publication availability validates the metadata JSON contract without requ
     await assert.rejects(internal.checkAvailability(),/PUBLICATION_UNAVAILABLE/);
   } finally {vi.unstubAllGlobals();}
 });
+
+test("displacement-triggered footsteps cap long custom WAV playback and retain short original clip duration",()=>{
+  for(const custom of [true,false]){
+    const {id,runtime}=voiceRuntime();
+    const internal=runtime as unknown as {state:{enabled:boolean};context:AudioContext;master:GainNode;convolver:ConvolverNode;experience:{footsteps:unknown[]};buffers:Map<string,AudioBuffer>;steps:Map<string,AudioBuffer>};
+    const calls:Array<[number?,number?,number?]>=[];
+    const node=()=>({connect:()=>node(),disconnect:()=>{}});
+    const parameter=()=>({setValueAtTime:()=>{}});
+    internal.context={state:"running",currentTime:0,listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},createGain:()=>({...node(),gain:{value:0}}),createBufferSource:()=>({...node(),start:(...args:[number?,number?,number?])=>{calls.push(args);}})} as unknown as AudioContext;
+    internal.master={gain:parameter()} as unknown as GainNode;
+    internal.convolver={} as ConvolverNode;
+    internal.state.enabled=true;
+    internal.experience.footsteps=[{surfaceId:id,material:"stone",...(custom?{assetId:id}:{})}];
+    const buffer={duration:custom?60:0.19,length:custom?2880000:9120,numberOfChannels:1} as AudioBuffer;
+    if(custom)internal.buffers.set(id,buffer);else internal.steps.set("stone",buffer);
+    runtime.lifecycle(true);
+    runtime.update(state(0,{floorSurfaceId:id}));
+    for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{floorSurfaceId:id}));
+    assert.equal(runtime.snapshot().footsteps,1);
+    assert.deepEqual(calls,[[0,0,custom?0.2:0.19]]);
+  }
+});

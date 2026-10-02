@@ -211,7 +211,7 @@ export class ExhibitionAudio implements AudioApi {
     }
     const source = context.createBufferSource(), gain = context.createGain();
     source.buffer = buffer; gain.gain.value = 0.35; source.connect(gain).connect(this.master!); gain.connect(this.convolver!);
-    this.track(source, () => gain.disconnect()); source.start(); this.state.footsteps++; this.emit();
+    this.track(source, () => gain.disconnect()); source.start(0, 0, Math.min(buffer.duration, 0.2)); this.state.footsteps++; this.emit();
   }
   private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) { this.playing.add(source); source.onended = () => { this.playing.delete(source); source.disconnect(); cleanup(); this.emit(); }; }
   private worldPosition(roomId: string, local: [number, number, number]): [number, number, number] {
