@@ -716,7 +716,7 @@ export function Studio() {
             )}
             {candidate && (
               <GeometryEditor
-                key={record.id}
+                key={`geometry:${record.id}`}
                 candidate={candidate}
                 session={session}
                 disabled={busy || published}
@@ -728,7 +728,7 @@ export function Studio() {
             )}
             {candidate && (
               <StudioExperienceEditor
-                key={record.id}
+                key={`experience:${record.id}`}
                 candidate={candidate}
                 session={sameActor ? session : null}
                 exhibitionId={record.remote?.id}

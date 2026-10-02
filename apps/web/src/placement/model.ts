@@ -28,7 +28,7 @@ export function newLight(roomId: string, type: Light["type"] = "point"): Light {
     id: crypto.randomUUID(), roomId, type,
     transform: { ...pose(), position: [0, 3, 0] },
     color: [1, 1, 1], intensity: 100,
-    unit: type === "directional" ? "lux" : "candela", castsShadow: false,
+    unit: type === "directional" ? "lux" : type === "area" ? "lumen" : "candela", castsShadow: false,
     ...(type === "spot" ? { beamAngle: Math.PI / 4 } : {}),
     ...(type === "area" ? { dimensions: { width: 1, height: 1 } } : {}),
   };
@@ -61,3 +61,10 @@ export function alignPlacement(doc: Exhibition, p: Placement, s: Exhibition["sur
     return { ...structuredClone(p), transform: { position, rotation: [...s.transform.rotation], scale: [...p.transform.scale] } };
 }
 export function syntheticArtwork(type: Artwork["artworkType"] = "sculpture"): Artwork { const id = crypto.randomUUID(), assetId = crypto.randomUUID(); return { schemaVersion: "1.0.0-draft.1", kind: "artwork", id, revisionId: crypto.randomUUID(), revision: 1, createdAt: "2026-01-01T00:00:00.000Z", metadata: { title: type === "image" ? "Synthetic painting" : "Synthetic sculpture", artist: "ExhibitOS synthetic fixture", description: "Synthetic demonstration metadata; no original artwork bytes." }, artworkType: type, units: "meter", coordinates: "right-handed-y-up", dimensions: { width: 1, height: 1, depth: type === "image" ? 0.02 : 1 }, transform: pose(), primaryAssetId: assetId, assets: [{ id: assetId, path: `assets/${id}/${type === "image" ? "painting.png" : "sculpture.glb"}`, role: type === "image" ? "image" : "model", mime: type === "image" ? "image/png" : "model/gltf-binary", bytes: 1, sha256: "0".repeat(64) }], rights: { holder: "ExhibitOS", ownership: "owner", licenseId: "CC0-1.0", permissions: { display: true, download: true, export: true, commercial: true }, creditLine: "Synthetic demonstration" }, provenance: { authorship: "synthetic", events: [{ id: crypto.randomUUID(), type: "created", at: "2026-01-01T00:00:00.000Z", description: "Original synthetic demonstration metadata." }] } }; }
+
+/** Bounded visual Kelvin approximation; not a calibrated luminaire spectrum. */
+export function kelvinColor(kelvin:number):string {
+ if(!Number.isFinite(kelvin)||kelvin<1000||kelvin>20000)throw Error('색온도는1000..20000K');
+ const t=kelvin/100,clamp=(n:number)=>Math.round(Math.max(0,Math.min(255,n))).toString(16).padStart(2,'0');
+ return '#'+[t<=66?255:329.698727446*Math.pow(t-60,-.1332047592),t<=66?99.4708025861*Math.log(t)-161.1195681661:288.1221695283*Math.pow(t-60,-.0755148492),t>=66?255:t<=19?0:138.5177312231*Math.log(t-10)-305.0447927307].map(clamp).join('');
+}

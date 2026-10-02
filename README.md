@@ -146,3 +146,8 @@ gate가 확인되기 전 전체 접근성 적합성이나 MVP 완료를 뜻하�
 OEX 전시 파일 흐름의 지원 형식·권한·복원·한계는 [OEX 안내](docs/oex.md)와 [OEX API](contracts/oex-openapi.json)에 있습니다. `npm run test:oex`는 실제 격리 PostgreSQL/파일/production 브라우저의 round-trip와 오류 처리를 검사합니다. [실제 검증 결과](docs/performance/oex-results.md)를 확인하세요. 전체 오프라인 배포판이나 관리용 DB 백업 완료를 뜻하지 않습니다.
 
 Frozen exhibition and offline display implementation: [docs/freeze.md](docs/freeze.md). Actual bounded qualification and limits are recorded in [freeze-results.md](docs/performance/freeze-results.md).
+
+고급 분할 곡선벽·계단·경사로, 자연광 시각 근사와 명시적 license의 건축
+템플릿은 [고급 건축 안내](docs/advanced-architecture.md)를 읽으세요.
+템플릿은 작품 bytes를 포함하지 않으며 private/unlicensed 재배포는 차단합니다.
+실제 통합 검증과 기기별 지원 범위는 후속 결과 기록에서 구분합니다.

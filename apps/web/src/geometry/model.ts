@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from "@exhibitos/spec";
 import {
+  TEMPLATE_NAMESPACE,
   MATERIAL_NAMESPACE,
   type PbrMaterial,
   type StudioMaterials,
@@ -19,6 +20,7 @@ export interface GeometryState {
   future: Exhibition[];
 }
 export type GeometryCommand =
+  | { type: "replace-architecture"; candidate: Exhibition }
   | { type: "add-artwork"; artwork: Artwork }
   | { type: "add-placement"; placement: Placement }
   | { type: "set-placement"; id: string; placement: Omit<Placement,"id"> }
@@ -172,8 +174,9 @@ export function applyGeometryCommand(
   state: GeometryState,
   command: GeometryCommand,
 ): GeometryState {
-  const doc = clone(state.present);
+  let doc = clone(state.present);
   switch (command.type) {
+    case "replace-architecture": {if(command.candidate.id!==doc.id||command.candidate.revisionId!==doc.revisionId)throw new GeometryError("DOCUMENT_ID_CHANGED");doc=clone(command.candidate);break;}
     case "add-artwork": doc.artworks.push(clone(command.artwork)); break;
     case "add-placement": { doc.placements.push(clone(command.placement)); const artwork=doc.artworks.find(a=>same(a.revisionId,command.placement.artworkRevisionId)); if(artwork)doc.accessibility.artworkDescriptions.push({placementId:command.placement.id,text:artwork.metadata.description?.trim()||artwork.metadata.title}); break; }
     case "set-placement": replace(doc.placements,command.id,command.placement); break;
@@ -276,6 +279,7 @@ export function applyGeometryCommand(
       break;
     }
   }
+  if(doc.extensions?.[TEMPLATE_NAMESPACE]){const provenance=doc.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};provenance.modified=true;}
   checked(doc);
   return {
     present: doc,

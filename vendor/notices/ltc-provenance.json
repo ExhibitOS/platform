@@ -1,0 +1,7 @@
+{
+  "upstream": "https://raw.githubusercontent.com/selfshadow/ltc_code/master/LICENSE",
+  "sha256": "7a9dfa5a6ed9866d0ba60cc4616af6add1b175747342779d154361d2a735ff45",
+  "usage": "Three.js RectAreaLightTexturesLib precomputed LTC BRDF data",
+  "upstreamSha256": "692a54e97fcadd0f04b14027386e53809c1dcf96de3e15b15af15731b15c1e94",
+  "normalization": "Trailing line-end spaces removed; all license wording retained"
+}
