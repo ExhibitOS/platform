@@ -429,20 +429,43 @@ try {
     const approval = (await pool.query("SELECT snapshot FROM audio_approvals WHERE audio_id=$1", [audio.id])).rows[0].snapshot;
     await corrupt("audio_approvals", "audio_approval_immutable", "UPDATE audio_approvals SET snapshot=$2 WHERE audio_id=$1", [audio.id, { ...approval, bytes: approval.bytes + 1 }]);
     await allUnavailable(); await corrupt("audio_approvals", "audio_approval_immutable", "UPDATE audio_approvals SET snapshot=$2 WHERE audio_id=$1", [audio.id, approval]);
-    const row = (await pool.query("SELECT object_key FROM studio_audio WHERE id=$1", [audio.id])).rows[0];
-    // Existing immutable put must reject replacement. Fault injection directly
-    // edits ONLY this freshly generated isolated fixture file, then restores it.
-    await assert.rejects(blobs.put(row.object_key, Buffer.alloc(wave.length)), /immutable object conflict/);
-    const root = resolve(blobs.root), path = resolve(root, row.object_key);
-    assert(path.startsWith(root + sep));
-    assert.equal(sha256(await blobs.get(row.object_key)), sha256(wave));
-    const file = await open(path, constants.O_RDWR | constants.O_NOFOLLOW);
-    try {
-      assert((await file.stat()).isFile());
-      await file.write(Buffer.alloc(wave.length), 0, wave.length, 0); await file.sync();
+  });
+  await test("separate immutable public WAV survives private original fault but rejects corrupt served publication bytes", async () => {
+    const privateRow = (await pool.query("SELECT object_key FROM studio_audio WHERE id=$1", [audio.id])).rows[0];
+    const publicRow = (await pool.query("SELECT object_key FROM publication_media WHERE publication_id=$1 AND id=$2", [pub.publicationId, audioSlot.assetId])).rows[0];
+    assert(privateRow); assert(publicRow); assert.notEqual(privateRow.object_key, publicRow.object_key);
+    const exactPublic = async () => {
+      const response = await fetch(`${browserOrigin}${audioSlot.url}`);
+      assert.equal(response.status, 200);
+      assert.equal(sha256(Buffer.from(await response.arrayBuffer())), sha256(wave));
+    };
+    const injectFixtureFault = async (key, check) => {
+      // Existing immutable put must reject replacement. Only this freshly
+      // generated isolated file is edited directly, with unconditional restore.
+      await assert.rejects(blobs.put(key, Buffer.alloc(wave.length)), /immutable object conflict/);
+      const root = resolve(blobs.root), path = resolve(root, key);
+      assert(path.startsWith(root + sep));
+      assert.equal(sha256(await blobs.get(key)), sha256(wave));
+      const file = await open(path, constants.O_RDWR | constants.O_NOFOLLOW);
+      try {
+        assert((await file.stat()).isFile());
+        await file.write(Buffer.alloc(wave.length), 0, wave.length, 0); await file.sync();
+        await check();
+      } finally { await file.write(wave, 0, wave.length, 0); await file.sync(); await file.close(); }
+    };
+    // Current source DB approvals/rights remain gated; its separate private
+    // bytes are not fetched to serve a verified immutable publication copy.
+    await injectFixtureFault(privateRow.object_key, async () => {
+      await exactPublic();
+      const approval = await fetch(`${browserOrigin}/api/v1/tenants/${tenant}${audioPath}/${audio.id}/approve`, {
+        method: "POST", headers: { origin: browserOrigin, cookie: actors.artist.cookie, "x-csrf-token": actors.artist.csrfToken, "content-type": "application/json" }, body: JSON.stringify({ revision: 1 }),
+      });
+      assert.equal(approval.status, 409); assert.equal((await approval.json()).code, "ASSET_INTEGRITY");
+    }); await exactPublic();
+    await injectFixtureFault(publicRow.object_key, async () => {
       assert.equal((await fetch(`${browserOrigin}${audioSlot.url}`)).status, 404);
-    } finally { await file.write(wave, 0, wave.length, 0); await file.sync(); await file.close(); }
-    assert.equal((await fetch(`${browserOrigin}${audioSlot.url}`)).status, 200);
+    });
+    await exactPublic();
   });
   await test("approved audio triggers reject normal source/approval/publication mutations", async () => {
     await assert.rejects(pool.query("UPDATE studio_audio SET rights=$2 WHERE id=$1", [audio.id, { ...rights, holder: "Changed" }]));
