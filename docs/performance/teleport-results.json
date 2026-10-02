@@ -1,0 +1,177 @@
+{
+  "source": "0efd393a9042b975a3d6aa7271bc9a438dd1aade",
+  "dirtySource": "",
+  "browser": "153.0.8010.12",
+  "checks": [
+    "first sculpture-colliding teleport rejects before controller creation and preserves the real rendered canvas",
+    "valid authored teleport immediately reaches a grounded paused pose, clears velocity and leaves capture/audio off",
+    "rejected teleport after initialization preserves exact existing pose and rendered camera with paused inputs",
+    "first vertical-only authored direction rejects without seeding a controller or changing the actual rendered camera"
+  ],
+  "sequences": [
+    {
+      "firstUnsafe": {
+        "viewpointId": "80c48dc7-f37d-48b6-a1ad-edbda246ec2a",
+        "before": {
+          "sha256": "9714e7b6b9eadf5d16d292dd155c4a809b476f71af356ccc3464a15e555ea3fb",
+          "bytes": 9692,
+          "path": "first-unsafe-before.png"
+        },
+        "after": {
+          "sha256": "9714e7b6b9eadf5d16d292dd155c4a809b476f71af356ccc3464a15e555ea3fb",
+          "bytes": 9692,
+          "path": "first-unsafe-after.png"
+        },
+        "navigation": null
+      }
+    },
+    {
+      "valid": {
+        "viewpointId": "ad33ea42-8415-49a6-be3c-b99f2bac989f",
+        "state": {
+          "floorSurfaceId": "dea20d75-db07-4d6a-b203-fdbb60f8038e",
+          "roomId": "b0247481-db0a-4fb9-b035-8be7b7872f95",
+          "eyePosition": [
+            0,
+            1.6609999940395355,
+            1
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 0,
+          "paused": true,
+          "blocked": false,
+          "recovered": false,
+          "walking": false,
+          "pitch": -0.00549994156253114,
+          "targetYaw": 0,
+          "targetPitch": -0.00549994156253114,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "image": {
+          "sha256": "f74bacb178d589f010c07c4a7292da7dffa2ff97c248b2b45c1308cc8316b736",
+          "bytes": 7936,
+          "path": "valid-teleport.png"
+        }
+      }
+    },
+    {
+      "repeatedUnsafe": {
+        "before": {
+          "floorSurfaceId": "dea20d75-db07-4d6a-b203-fdbb60f8038e",
+          "roomId": "b0247481-db0a-4fb9-b035-8be7b7872f95",
+          "eyePosition": [
+            0,
+            1.6609999940395355,
+            1
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 0,
+          "paused": true,
+          "blocked": false,
+          "recovered": false,
+          "walking": false,
+          "pitch": -0.00549994156253114,
+          "targetYaw": 0,
+          "targetPitch": -0.00549994156253114,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "after": {
+          "floorSurfaceId": "dea20d75-db07-4d6a-b203-fdbb60f8038e",
+          "roomId": "b0247481-db0a-4fb9-b035-8be7b7872f95",
+          "eyePosition": [
+            0,
+            1.6609999940395355,
+            1
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            0
+          ],
+          "grounded": true,
+          "steps": 0,
+          "paused": true,
+          "blocked": false,
+          "recovered": false,
+          "walking": false,
+          "pitch": -0.00549994156253114,
+          "targetYaw": 0,
+          "targetPitch": -0.00549994156253114,
+          "lookTransition": "smoothed",
+          "settings": {
+            "speed": 1.3,
+            "eyeHeight": 1.65,
+            "reducedMotion": false
+          }
+        },
+        "image": {
+          "sha256": "f74bacb178d589f010c07c4a7292da7dffa2ff97c248b2b45c1308cc8316b736",
+          "bytes": 7936,
+          "path": "repeated-unsafe-before.png"
+        },
+        "afterImage": {
+          "sha256": "f74bacb178d589f010c07c4a7292da7dffa2ff97c248b2b45c1308cc8316b736",
+          "bytes": 7936,
+          "path": "repeated-unsafe-after.png"
+        }
+      }
+    },
+    {
+      "firstVertical": {
+        "viewpointId": "f6477fcc-9f57-4f9b-bd41-f51e3b3c694d",
+        "before": {
+          "sha256": "9714e7b6b9eadf5d16d292dd155c4a809b476f71af356ccc3464a15e555ea3fb",
+          "bytes": 9692,
+          "path": "first-vertical-before.png"
+        },
+        "after": {
+          "sha256": "9714e7b6b9eadf5d16d292dd155c4a809b476f71af356ccc3464a15e555ea3fb",
+          "bytes": 9692,
+          "path": "first-vertical-after.png"
+        },
+        "navigation": null
+      }
+    }
+  ],
+  "screenshots": [
+    "first-unsafe-before.png",
+    "first-unsafe-after.png",
+    "valid-teleport.png",
+    "repeated-unsafe-before.png",
+    "repeated-unsafe-after.png",
+    "first-vertical-before.png",
+    "first-vertical-after.png"
+  ],
+  "limits": [
+    "Actual Chromium production render/input with approved synthetic GLB/PNG; not physical mobile/GPU or native mouse-capture qualification.",
+    "Before physics initialization the actual rendered canvas bitmap and absent controller state are observed; no numeric pre-initialization camera pose is inferred."
+  ],
+  "outcome": "passed",
+  "rawProvenance": {
+    "sha256": "1a4ed04567b99a066350932b6720ed5ebf5fa37e795b029caa6f0bc3b73735c3",
+    "normalization": "Only temporary screenshot paths, including before/after canvas records, replaced by basenames. Original raw retained locally; no private repository or credentials."
+  }
+}

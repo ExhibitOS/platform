@@ -346,6 +346,13 @@ try {
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID() }), 409, "AUDIO_LIMIT");
   });
   addExperience(candidate, (await json(request(actors.artist, "GET", `${audioPath}/${audio.id}`))).mediaAsset);
+  if (process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1") {
+    candidate.extensions["org.exhibitos.studio/presentation"].viewpoints = [
+      { name: "Accessibility safe viewpoint", position: [0, 1.65, 1], target: [0, 1.65, -1] },
+      { name: "Accessibility unsafe viewpoint", position: [-2, 1.65, 0], target: [-2, 1.65, -1] },
+      { name: "Accessibility vertical viewpoint", position: [0, 1.65, 1], target: [0, 0, 1] },
+    ].map(value => ({ ...value, id: randomUUID(), roomId: candidate.rooms[0].id, fov: 55 }));
+  }
   await test("experience fixture has distinct room volumes with aligned floor and reciprocal door heights", async () => {
     assert.equal(candidate.rooms[0].dimensions.height, 4);
     assert.equal(candidate.rooms[1].dimensions.height, 6);
@@ -528,10 +535,22 @@ try {
     } finally { await restoredApp?.close(); await restoredPool.end(); }
     console.log("RESTORE SCOPE: isolated database dump, exact rows and publication bytes against retained original FileBlobStore; not a standalone blob backup or production recovery point.");
   });
-  const { runExperienceBrowser } = await import("./experience-browser.mjs");
+  const accessibilityOnly = process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1";
+  const { runExperienceBrowser } = await import(accessibilityOnly ? "./accessibility-browser.mjs" : "./experience-browser.mjs");
   const result = await runExperienceBrowser({ origin: browserOrigin, publicationId: pub.publicationId,
     projection, fixture: fixture.geometry, authoring: { tenantId: tenant, subject: "synthetic.publication.artist", password: pass, candidate: draft.candidate, wave }, revoke: () => setRevoked(true), restore: () => setRevoked(false) });
   checks.push(...result.checks);
+  if (accessibilityOnly) {
+    const { runTeleportBrowser } = await import("./accessibility-teleport-browser.mjs");
+    const teleportResult = await runTeleportBrowser({ origin: browserOrigin, publicationId: pub.publicationId, projection });
+    checks.push(...teleportResult.checks);
+  }
+  if (accessibilityOnly && process.env.EXHIBITOS_ACCESSIBILITY_HOLD === "1") {
+    console.log(`NATIVE ACCESSIBILITY FIXTURE: ${browserOrigin}/p/${pub.publicationId}`);
+    console.log("Synthetic local fixture only. Press Enter in this test terminal to finish and clean up its isolated database container.");
+    await new Promise(resolve => process.stdin.once("data", resolve));
+    process.stdin.pause();
+  }
   console.log(JSON.stringify({ checks, result, scope: "Actual isolated PostgreSQL8migrations, approved synthetic WAV + GLB/PNG immutable publication and production Chromium" }, null, 2));
 } finally {
   await app?.close(); await pool?.end(); if (started) run("rm", "-f", name);

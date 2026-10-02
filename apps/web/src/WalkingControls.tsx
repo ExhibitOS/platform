@@ -7,6 +7,7 @@ export interface WalkingSettings {
 }
 export interface WalkingActions {
   start: () => void;
+  teleport?: (viewpointId: string) => void;
   pause: () => void;
   stationary: () => void;
   capture: () => void;

@@ -11,3 +11,8 @@
 .artwork-detail .detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .artwork-detail button { margin: 4px; }
 @media (max-width: 480px) { .artwork-detail { padding: 12px; } }
+
+.publication-skip-links { display: flex; flex-wrap: wrap; gap: 12px; }
+.publication-skip-links a { padding: 8px; }
+.publication-shell [tabindex="-1"]:focus { outline: 3px solid currentColor; outline-offset: 4px; }
+.publication-guide { border: 2px solid currentColor; padding: 12px; margin: 12px 0; }

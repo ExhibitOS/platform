@@ -1,0 +1,45 @@
+{
+  "source": "0efd393a9042b975a3d6aa7271bc9a438dd1aade",
+  "checkedAt": "2026-10-02T09:54:54.394051+00:00",
+  "environment": {
+    "os": "macOS27.0.1",
+    "browser": "installed Google Chrome; version not independently read during this human VoiceOver run",
+    "screenReader": "built-in VoiceOver"
+  },
+  "authorization": "User explicitly permitted temporary VoiceOver/caption test and restoration",
+  "observations": [
+    {
+      "source": "root native System Settings observation",
+      "masterBefore": "off",
+      "masterAfterEnable": "on",
+      "masterBeforeHumanTest": "off",
+      "captionOriginalAndUnchanged": true
+    },
+    {
+      "source": "user direct physical test report",
+      "scope": [
+        "exhibition title",
+        "artwork description",
+        "voice transcript",
+        "detail close and opener return"
+      ],
+      "result": "모두 작동하고 VoiceOver를 껐음"
+    },
+    {
+      "source": "root native Chrome AX observation after human test",
+      "dialogPresent": false,
+      "focusedElement": "Synthetic sculpture <script>plain text</script> 상세 보기"
+    }
+  ],
+  "cleanup": {
+    "temporaryUtilityQuitObserved": true,
+    "settingsViewReturnedToOriginalGeneral": true,
+    "temporarySyntheticChromeTabClosedObserved": true,
+    "testFixtureTerminalExit": 0
+  },
+  "limits": [
+    "No captured speech audio or rotor/caption transcript; selecting separate VoiceOver app timed out.",
+    "Speech/navigation result is human-reported; agent independently observed matching opener focus.",
+    "No universal WCAG, all screen reader, physical iPhone or speaker/microphone qualification."
+  ]
+}

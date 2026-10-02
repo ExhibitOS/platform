@@ -93,3 +93,19 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .geometry-stage { position: relative; }
 .geometry-stage .walking-touch { position: absolute; left: 10px; bottom: 10px; width: 146px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .geometry-stage .walking-touch button { padding: 5px; font-size: 11px; background: #183b2de6; }
+
+/* Accessible public entrance: readable without graphics or sound. */
+.publication-shell { overflow-wrap: anywhere; }
+.publication-shell :is(button, input, select, a):focus-visible, .publication-shell [tabindex="-1"]:focus { outline: 3px solid #765723; outline-offset: 4px; }
+.publication-shell .skip-link { position: absolute; left: 12px; top: -200px; z-index: 10; padding: 12px; background: #fff; color: #172a21; }
+.publication-shell .skip-link:focus { top: 12px; }
+.publication-high-contrast { background: #fff; color: #111; }
+.publication-high-contrast :is(.cms-note, footer, .eyebrow) { color: #111; }
+.publication-high-contrast :is(button, select, input) { border: 2px solid #111; }
+.publication-high-contrast button { background: #111; color: #fff; }
+.publication-high-contrast :is(a, button, input, select):focus-visible, .publication-high-contrast [tabindex="-1"]:focus { outline: 3px solid #000; outline-offset: 4px; }
+.publication-high-contrast dialog { background: #fff; color: #111; border: 2px solid #111; }
+.publication-high-contrast dialog :is(p, dd, dt, section) { color: #111; }
+.publication-shell[data-reduced-motion="true"] *, .publication-shell[data-reduced-motion="true"] *::before, .publication-shell[data-reduced-motion="true"] *::after { scroll-behavior: auto; animation: none; transition: none; }
+@media (prefers-reduced-motion: reduce) { .publication-shell { scroll-behavior: auto; } }
+@media (max-width: 600px) { .publication-shell header { flex-wrap: wrap; } .publication-shell h1 { font-size: 36px; } .publication-shell ul { padding-left: 22px; } }

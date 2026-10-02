@@ -14,6 +14,7 @@ import {
   type WalkingActions,
   type WalkingSettings,
 } from "./WalkingControls";
+import { viewpointPose } from "./viewer/navigation-teleport";
 import type { NavigationState } from "./viewer/navigation";
 import type { PublicAsset } from "./publication-client";
 import type { Session } from "./cms-client";
@@ -103,6 +104,8 @@ export function GeometryPreview({
   onArtworkSelect,
   proximityDetail = false,
   onDetailEntryReady,
+  reducedMotion,
+  onReducedMotionChange,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -113,6 +116,8 @@ export function GeometryPreview({
   onArtworkSelect?: (id: string) => void;
   proximityDetail?: boolean;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
+  reducedMotion?: boolean;
+  onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
   publicSource?: {
     publicationId: string;
@@ -162,9 +167,14 @@ export function GeometryPreview({
   const [walkSettings, setWalkSettings] = useState<WalkingSettings>(() => ({
     speed: 1.3,
     eyeHeight: 1.65,
-    reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+    reducedMotion: reducedMotion ?? matchMedia("(prefers-reduced-motion: reduce)").matches,
   }));
   const walkSettingsRef = useRef(walkSettings);
+  useEffect(() => {
+    if(reducedMotion === undefined || reducedMotion === walkSettingsRef.current.reducedMotion)return;
+    const next={...walkSettingsRef.current,reducedMotion};
+    walkSettingsRef.current=next;setWalkSettings(next);walkingActions.current?.settings(next);
+  },[reducedMotion]);
   const demand = useRef<
     ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
@@ -644,14 +654,24 @@ export function GeometryPreview({
           "walking-instructions",
         );
         let initialization: Promise<void> | undefined;
-        const initialize = async () => {
+        const initialize = async (teleportViewpointId?: string) => {
           if (disposed) return;
           if (!initialization) {
             setWalkLoading(true);
             setWalkMessage(
               "걷기와 안전한 충돌을 준비합니다. 작품 목록은 계속 사용할 수 있습니다.",
             );
-            view("start");
+            let initialCamera: InstanceType<typeof three.PerspectiveCamera> | undefined;
+            if(teleportViewpointId) {
+              try {
+                const destination=viewpointPose(document,teleportViewpointId);
+                initialCamera=camera.clone();
+                initialCamera.position.fromArray(destination.position);
+                initialCamera.lookAt(new three.Vector3(...destination.target));
+              } catch {
+                setWalkLoading(false);setWalkMessage("이 viewpoint의 참조나 시점 방향을 지원하지 않습니다. 기존 위치와 정지 관람을 유지합니다.");return;
+              }
+            } else view("start");
             controls.enabled = false;
             initialization = (async () => {
               const { createWalkingCamera } =
@@ -660,6 +680,7 @@ export function GeometryPreview({
               const adapter = await createWalkingCamera({
                 document,
                 camera,
+                initialCamera,
                 controls,
                 canvas: renderer.domElement,
                 settings: { ...walkSettingsRef.current },
@@ -696,6 +717,8 @@ export function GeometryPreview({
                 adapter.dispose();
                 return;
               }
+              // Media/user preferences can change while the physics module loads.
+              adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
               walkingActions.current = adapter.actions;
             })()
@@ -725,6 +748,12 @@ export function GeometryPreview({
             void initialize().then(() => {
               if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.capture();
+            });
+          },
+          teleport: (viewpointId) => {
+            void initialize(viewpointId).then(() => {
+              if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
+                walkingActions.current?.teleport?.(viewpointId);
             });
           },
           pause: () => {},
@@ -1276,7 +1305,7 @@ export function GeometryPreview({
     restart,
   ]);
   return (
-    <figure className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
+    <figure data-reduced-motion={walkSettings.reducedMotion} className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       <div className="geometry-stage">
         <div ref={host} />
         {viewerBudget && walkingMode && (
@@ -1344,6 +1373,7 @@ export function GeometryPreview({
           paused={walkPaused}
           settings={walkSettings}
           onSettings={(value) => {
+            if(value.reducedMotion!==walkSettingsRef.current.reducedMotion)onReducedMotionChange?.(value.reducedMotion);
             walkSettingsRef.current = value;
             setWalkSettings(value);
             walkingActions.current?.settings(value);
@@ -1351,6 +1381,12 @@ export function GeometryPreview({
           actions={walkingActions.current}
           message={walkMessage}
         />
+      )}
+      {viewerBudget && presentationFor(document).viewpoints.length>0 && (
+        <section aria-label="검증된 viewpoint 순간 이동">
+          <p>직접 선택한 위치의 바닥·몸 여유 공간을 검사하고 움직임 없이 이동합니다. 안전하지 않은 위치는 거부하며 정지 상태를 유지합니다.</p>
+          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
+        </section>
       )}
       {viewerBudget && (
         <div className="cms-actions">

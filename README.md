@@ -128,3 +128,9 @@ Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택
 [소리와 상세 보기 안내](docs/viewer-experience.md), 계약은
 [오디오 API](contracts/audio-openapi.json)를 읽으세요. `npm run test:experience`는
 격리된 PostgreSQL과 production Chromium을 사용합니다. 실제 검증 범위와 물리 기기·코덱 제한은 [결과](docs/performance/experience-results.md)에 기록합니다.
+
+글·목록으로 시작하고 선택적으로 3D를 여는 접근성 관람 후보는
+[관람 안내](docs/viewer-accessibility.md)와 [검사 프로토콜](docs/accessibility-protocol.md)에 있습니다.
+`npm run test:accessibility`는 실제 합성 공개 전시의 키보드·텍스트·대본 흐름과
+대비·움직임 설정, cold-load 수치를 검사합니다. 실제 결과와 screen reader/물리 기기
+gate가 확인되기 전 전체 접근성 적합성이나 MVP 완료를 뜻하지 않습니다.

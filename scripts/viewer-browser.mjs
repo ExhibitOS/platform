@@ -10,7 +10,12 @@ export async function runViewerBrowser({
   reportPath = process.env.EXHIBITOS_VIEWER_REPORT ??
     new URL("../docs/performance/viewer-baseline.json", import.meta.url),
 }) {
-  const browser = await chromium.launch({ headless: true });
+  const channel=process.env.EXHIBITOS_VIEWER_CHANNEL;
+  if(channel!==undefined && channel!=="chrome")throw Error("EXHIBITOS_VIEWER_CHANNEL must be chrome when supplied");
+  const headed=process.env.EXHIBITOS_VIEWER_HEADED;
+  if(headed!==undefined && !["0","1"].includes(headed))throw Error("EXHIBITOS_VIEWER_HEADED must be0 or1 when supplied");
+  const headless=headed!=="1";
+  const browser = await chromium.launch({ headless, ...(channel?{channel}:{}) });
   const screenshotDir = await mkdtemp(`${os.tmpdir()}/exhibitos-viewer-`);
   const screenshots = [];
   const samples = [],
@@ -33,6 +38,9 @@ export async function runViewerBrowser({
       cpu: os.cpus()[0]?.model,
       node: process.version,
       browser: browser.version(),
+      browserMode: headless ? "headless" : "headed",
+      browserChannel: channel ?? "bundled Chromium",
+      graphicsQualification: "Actual WebGL vendor and renderer are recorded for each trace. Headed Chrome alone does not prove hardware acceleration.",
       network: {
         downloadBytesPerSecond: 1250000,
         uploadBytesPerSecond: 1250000,
@@ -84,6 +92,11 @@ export async function runViewerBrowser({
         `${origin}/api/v1/publications/${publicationId}`,
       )
     ).json();
+    assert.equal(manifest.exhibition.placements.length,20,"The reference publication must contain twenty actual placements");
+    assert.equal(manifest.exhibition.artworks.length,20,"The reference publication must contain twenty actual artwork records");
+    report.referencePlacementCount=manifest.exhibition.placements.length;
+    report.referenceArtworkCount=manifest.exhibition.artworks.length;
+    const publicationAssetURLs=new Set(manifest.assets.map(asset=>new URL(asset.url,origin).href));
     report.assets = manifest.exhibition.artworks.flatMap((art) =>
       art.assets.map((asset) => ({
         artworkId: art.id,
@@ -105,6 +118,7 @@ export async function runViewerBrowser({
         return route.fulfill({ response, body });
       });
       await testPage.goto(`${origin}/p/${publicationId}`);
+    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
       await expect
         .poll(async () => (await state(testPage)).failed, { timeout: 60000 })
         .toBe(4);
@@ -152,6 +166,7 @@ export async function runViewerBrowser({
       await route.fulfill({ response, json: body });
     });
     await testPage.goto(`${origin}/p/${publicationId}`);
+    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
     await expect
       .poll(async () => (await state(testPage)).loadedAssets, {
         timeout: 60000,
@@ -180,6 +195,7 @@ export async function runViewerBrowser({
     );
     await testPage.unroute(metadataPath);
     await testPage.goto(`${origin}/p/${publicationId}`);
+    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
     await expect.poll(async () => (await state(testPage)).loadedAssets).toBe(4);
     await testPage.route(pattern, async (route) => {
       await new Promise((r) => setTimeout(r, 1500));
@@ -244,6 +260,31 @@ export async function runViewerBrowser({
         });
         const page = await context.newPage();
         page.setDefaultTimeout(60000);
+        // Observe production DOM readiness in the browser clock, independently of
+        // Node-side polling/control round trips. This changes no application state.
+        await page.addInitScript(() => {
+          const measurement={optInMs:null,readySinceNavigationMs:null,optInToReadyMs:null};
+          window.viewerEntranceMeasurement=measurement;
+          document.addEventListener("click",event=>{
+            const button=event.target instanceof Element?event.target.closest("button"):null;
+            if(button?.textContent?.trim()==="3D 관람 시작")measurement.optInMs=performance.now();
+          },true);
+          let finishing=false;
+          const observer=new MutationObserver(()=>{
+            if(finishing)return;
+            const canvas=document.querySelector("canvas");
+            if(!canvas?.dataset.viewerState)return;
+            let state;try{state=JSON.parse(canvas.dataset.viewerState);}catch{return;}
+            const control=[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="시점 왼쪽 회전");
+            if(state.loadedAssets!==4||state.failed!==0||!control||control.disabled)return;
+            finishing=true;observer.disconnect();
+            requestAnimationFrame(()=>{
+              measurement.readySinceNavigationMs=performance.now();
+              measurement.optInToReadyMs=measurement.optInMs===null?null:measurement.readySinceNavigationMs-measurement.optInMs;
+            });
+          });
+          observer.observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:["data-viewer-state","disabled"]});
+        });
         const errors = [];
         page.on("pageerror", (e) => errors.push(e.message));
         const cdp = await context.newCDPSession(page);
@@ -257,6 +298,8 @@ export async function runViewerBrowser({
         for (const phase of ["cold", "warm"]) {
           const requests = new Map();
           const finished = [];
+          const publicationAssetRequests=[];
+          const started=(event)=>{if(publicationAssetURLs.has(event.request.url))publicationAssetRequests.push(event.request.url);};
           const received = (e) => {
             requests.set(e.requestId, {
               url: e.response.url,
@@ -275,10 +318,21 @@ export async function runViewerBrowser({
                 finished: e.timestamp,
               });
           };
+          cdp.on("Network.requestWillBeSent", started);
           cdp.on("Network.responseReceived", received);
           cdp.on("Network.loadingFinished", loaded);
           const at = performance.now();
           await page.goto(`${origin}/p/${publicationId}`);
+          await expect(page.getByRole("heading",{name:manifest.exhibition.title,exact:true}).first()).toBeVisible();
+          const textList=page.getByRole("region",{name:"작품 목록형 대체 보기",exact:true});
+          await expect(textList).toBeVisible();
+          await expect(textList.getByRole("listitem")).toHaveCount(20);
+          await expect(page.locator("canvas")).toHaveCount(0);
+          const textEntranceMs=performance.now()-at;
+          assert.equal(publicationAssetRequests.length,0,"Default twenty-artwork text entrance must not request published artwork assets before3D opt-in");
+          const textEntranceFinishedRequests=structuredClone(finished);
+          const textEntranceAssetRequests=[...publicationAssetRequests];
+          await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
           await expect
             .poll(async () => (await state(page)).loadedAssets, {
               timeout: 60000,
@@ -289,6 +343,10 @@ export async function runViewerBrowser({
           ).toBeEnabled();
           const entranceMs = performance.now() - at,
             entrance = await state(page);
+          await expect.poll(async()=>page.evaluate(()=>window.viewerEntranceMeasurement.readySinceNavigationMs)).not.toBe(null);
+          const browserReadiness=await page.evaluate(()=>window.viewerEntranceMeasurement);
+          assert(Number.isFinite(browserReadiness.readySinceNavigationMs)&&browserReadiness.readySinceNavigationMs>0);
+          assert(Number.isFinite(browserReadiness.optInToReadyMs)&&browserReadiness.optInToReadyMs>=0);
           assert.equal(entrance.deferred, 16);
           assert.equal(entrance.failed, 0);
           assert(
@@ -329,8 +387,12 @@ export async function runViewerBrowser({
               .evaluate((c) => c.viewerTrace);
             assert(trace.samples.length > 100);
             assert(trace.samples.every((s) => s.triangles > 0));
+            const softwareRendererDetected=/swiftshader|llvmpipe|softpipe|software/i.test(`${gl.vendor??""} ${gl.renderer??""}`);
             traces.push({
               profile: profile.name,
+              browserMode: headless ? "headless" : "headed",
+              browserChannel: channel ?? "bundled Chromium",
+              softwareRendererDetected,
               quality: "qualified coarse",
               viewport: {
                 width: profile.width,
@@ -390,7 +452,7 @@ export async function runViewerBrowser({
             );
           }
           console.log(
-            `MEASURE ${profile.name} ${phase} ${n + 1}/5 entrance ${entranceMs.toFixed(0)}ms`,
+            `MEASURE ${profile.name} ${phase} ${n + 1}/5 text ${textEntranceMs.toFixed(0)}ms explicit3D entrance ${entranceMs.toFixed(0)}ms`,
           );
           samples.push({
             viewport: {
@@ -402,6 +464,12 @@ export async function runViewerBrowser({
             profile: profile.name,
             phase,
             index: n,
+            textEntranceMs,
+            browserReadiness,
+            textEntrancePlacementCount:20,
+            textEntranceAssetRequests,
+            textEntranceTransferBytes:textEntranceFinishedRequests.reduce((total,request)=>total+request.encodedDataLength,0),
+            textEntranceFinishedRequests,
             entranceMs,
             entrance,
             entranceTransferBytes: entranceRequests.reduce(
@@ -411,6 +479,7 @@ export async function runViewerBrowser({
             entranceRequests,
             completeRequests: finished,
           });
+          cdp.off("Network.requestWillBeSent", started);
           cdp.off("Network.responseReceived", received);
           cdp.off("Network.loadingFinished", loaded);
           assert.deepEqual(errors, []);
@@ -445,6 +514,10 @@ export async function runViewerBrowser({
               phase,
               {
                 samples: values.length,
+                p95TextEntranceMs:Math.max(...values.map(sample=>sample.textEntranceMs)),
+                textEntranceTargetPass:values.every(sample=>sample.textEntranceMs<=5000 && sample.textEntranceAssetRequests.length===0 && sample.textEntrancePlacementCount===20),
+                p95BrowserReadySinceNavigationMs:Math.max(...values.map(sample=>sample.browserReadiness.readySinceNavigationMs)),
+                p95BrowserOptInToReadyMs:Math.max(...values.map(sample=>sample.browserReadiness.optInToReadyMs)),
                 p95EntranceMs: Math.max(...values.map((s) => s.entranceMs)),
                 maxInitialTransferBytes: Math.max(
                   ...values.map((s) => s.entranceTransferBytes),

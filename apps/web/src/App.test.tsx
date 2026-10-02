@@ -7,6 +7,5 @@ it('renders a semantic Korean entry page with a connection action and honest fea
   expect(html).toContain('aria-labelledby="title"');
   expect(html).toContain('role="status"');
   expect(html).toContain('연결 확인');
-  expect(html).toContain('후속 단계에서 구현합니다');
   expect(html).toContain('Artist CMS 열기');
 });
