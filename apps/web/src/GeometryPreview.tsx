@@ -116,6 +116,7 @@ export function GeometryPreview({
   onScriptClick,
   onPresenceSceneReady,
   onPresencePose,
+  openingViewpoint,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -133,6 +134,7 @@ export function GeometryPreview({
   onScriptClick?: (placementId:string)=>void;
   onPresenceSceneReady?: (scene:RealtimeScene|null)=>void;
   onPresencePose?: (position:[number,number,number],yaw:number)=>void;
+  openingViewpoint?: {viewpointId:string;sequence:number};
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
   publicSource?: {
@@ -145,6 +147,7 @@ export function GeometryPreview({
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
+  const openingConsumed=useRef<number|undefined>(undefined);
   const guideAction=useRef<((routeId:string,index:number)=>void)|null>(null);
   const consumedGuide=useRef<number|undefined>(undefined);
   const host = useRef<HTMLDivElement>(null),
@@ -201,6 +204,7 @@ export function GeometryPreview({
   const [restart, setRestart] = useState(0);
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  useEffect(()=>{if(openingViewpoint&&ready&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
     if (suspendNavigation) {

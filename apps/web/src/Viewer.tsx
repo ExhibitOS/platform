@@ -1,3 +1,6 @@
+import { OpeningSession, type OpeningState } from "./viewer/opening";
+import { OpeningControls } from "./viewer/OpeningControls";
+import { presentationFor } from "@exhibitos/studio-contract";
 import { ExhibitionPresence, advancePresenceFrame, type RealtimeState } from "./viewer/realtime";
 import { RealtimeControls } from "./viewer/RealtimeControls";
 import type { RealtimeScene } from "./GeometryPreview";
@@ -87,6 +90,11 @@ export function Viewer({
   },[publication]);
   useEffect(()=>{if(suspendNavigation){presence.current?.leave();presenceScene.current?.clear();}},[suspendNavigation]);
   const capturePresencePose=(position:[number,number,number],yaw:number)=>{const room=publication.exhibition.rooms.find(r=>{const p=position.map((v,i)=>v-r.transform.position[i]!),[x,y,z,w]=r.transform.rotation,tx=2*(-y*p[2]!+z*p[1]!),ty=2*(-z*p[0]!+x*p[2]!),tz=2*(-x*p[1]!+y*p[0]!),a=p[0]!+w*tx-y*tz+z*ty,b=p[1]!+w*ty-z*tx+x*tz,c=p[2]!+w*tz-x*ty+y*tx;return Math.abs(a)<=r.dimensions.width/2&&Math.abs(c)<=r.dimensions.depth/2&&b>=0&&b<=r.dimensions.height;});presencePose.current=room?{roomId:room.id,position:[...position],yaw}:null;};
+  const opening=useRef<OpeningSession|null>(null),openingAudio=useRef<HTMLDivElement|null>(null);
+  const [openingState,setOpeningState]=useState<OpeningState|null>(null),[openingView,setOpeningView]=useState<{viewpointId:string;sequence:number}|undefined>(undefined);
+  const openingSequence=useRef(0);
+  useEffect(()=>{if(publication.local)return;const runtime=new OpeningSession({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,viewpointIds:new Set(presentationFor(publication.exhibition).viewpoints.map(v=>v.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:setOpeningState,attachAudio:element=>openingAudio.current?.append(element),viewpoint:id=>{if(!presenceSuspended.current&&document.visibilityState==='visible')setOpeningView({viewpointId:id,sequence:++openingSequence.current});}});opening.current=runtime;setOpeningState(runtime.snapshot());const hidden=()=>{if(document.visibilityState!=='visible')runtime.leave();};document.addEventListener('visibilitychange',hidden);const timer=setInterval(()=>runtime.measureVoice(),1000);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);runtime.dispose();opening.current=null;};},[publication]);
+  useEffect(()=>{if(suspendNavigation){opening.current?.leave();setOpeningView(undefined);}},[suspendNavigation]);
   const [profile, setProfile] = useState<"auto" | "compact" | "desktop">(
     "auto",
   );
@@ -137,6 +145,7 @@ export function Viewer({
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
         guideRequest={guideRequest}
+        openingViewpoint={openingView}
         onPresencePose={publication.local?undefined:capturePresencePose}
         onPresenceSceneReady={publication.local?undefined:scene=>{presenceScene.current=scene;}}
         onScriptSceneReady={scriptProgram.rules.length?scene=>{if(!scene)script.current?.stop();scriptScene.current=scene;}:undefined}
@@ -148,6 +157,7 @@ export function Viewer({
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
+      <OpeningControls session={opening.current} state={openingState} offline={!!publication.local} viewpoints={presentationFor(publication.exhibition).viewpoints} audioReady={node=>{openingAudio.current=node;}}/>
       <RealtimeControls state={presenceState} offline={!!publication.local} join={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.join();}} retry={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.retry();}} leave={()=>{presence.current?.leave();presenceScene.current?.clear();}}/>
       <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
       {scriptProgram.rules.length>0&&<ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>}

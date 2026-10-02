@@ -234,3 +234,5 @@ export * from "./scripting-runtime.js";
 export * from "./scripting-profile.js";
 
 export * from "./realtime.js";
+
+export * from "./opening.js";

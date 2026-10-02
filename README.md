@@ -164,3 +164,5 @@ Frozen exhibition and offline display implementation: [docs/freeze.md](docs/free
 실제 통합 검증과 기기별 지원 범위는 후속 결과 기록에서 구분합니다.
 
 함께 관람 개발 기능과 권한·복귀·운영 제한은 [multiplayer.md](docs/multiplayer.md), 실제 로컬 부하 및 브라우저 결과는 [realtime-results.md](docs/performance/realtime-results.md)에 기록합니다. `npm run test:realtime`은 격리 PostgreSQL과 Chromium이 필요합니다.
+
+행사·음성·안내 개발 후보의 사용법과 개인정보 한도는 [docs/opening.md](docs/opening.md)를 참고하세요. 최종 실제 DB/브라우저 검증은 `npm run test:opening`, 독립 native 음성 후보 검사는 `EXHIBITOS_VOICE_CHROME=1 npm run test:voice-transport`입니다. 전체 릴리스·실기기·인터넷 중계 지원 완료를 의미하지 않습니다.
