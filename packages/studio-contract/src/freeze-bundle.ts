@@ -31,7 +31,7 @@ export function validateFreezeManifest(value: unknown): asserts value is FreezeM
  let total=0; const paths=new Set<string>();
  for (const file of value.runtime.files) {
   exact(file,['path','bytes','sha256','mime']);
-  if (!text(file.path,240) || paths.has(file.path) || freezeFileMime(file.path)!==file.mime || !Number.isSafeInteger(file.bytes) || (file.bytes as number)<1 || (file.bytes as number)>MAX_RUNTIME_BYTES || !sha(file.sha256)) throw Error('FREEZE_RUNTIME_INVALID');
+  if (!text(file.path,240) || paths.has(file.path) || typeof file.mime!=='string' || freezeFileMime(file.path)===null || freezeFileMime(file.path)!==file.mime || !Number.isSafeInteger(file.bytes) || (file.bytes as number)<1 || (file.bytes as number)>MAX_RUNTIME_BYTES || !sha(file.sha256)) throw Error('FREEZE_RUNTIME_INVALID');
   paths.add(file.path); total+=file.bytes as number;
  }
  if (total>MAX_RUNTIME_BYTES || ['index.html','THIRD_PARTY_NOTICES.txt','freeze-runtime.json','studio-sw.js','offline-server.mjs'].some(path=>!paths.has(path)) || ![...paths].some(path=>/^assets\/.*\.js$/.test(path))) throw Error('FREEZE_RUNTIME_INVALID');
