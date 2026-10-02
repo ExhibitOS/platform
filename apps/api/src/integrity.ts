@@ -9,8 +9,9 @@ export class Integrities {
  constructor(store:BlobStore,config:{migrationDirectory:string}){this.store=store;this.config=config;}
  async inspect(c:PoolClient,s:Session):Promise<TenantIntegrity>{
   if(s.role!=='admin'||await membership(c,{tenantId:s.tenantId,userId:s.userId},true)!=='admin')throw new ApiError(403,'FORBIDDEN');
-  // Auth.read already holds shared82003. Only shared82002 is acquired here.
-  await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+  // Auth.read already holds shared82003; maintenance is exclusive so workers
+  // cannot materialize objects between reference and byte inventory queries.
+  await c.query('SELECT pg_advisory_xact_lock(82002)');
   let report:ServiceInventory;try{report=await collectServiceInventory(c,this.store,{...this.config,tenantId:s.tenantId});}catch{throw new ApiError(503,'INTEGRITY_UNAVAILABLE');}
   if(report.objects.length>10000||report.references.length>50000||report.issues.length>50000)throw new ApiError(503,'INTEGRITY_LIMIT');
   const rights={total:0,displayDenied:0,exportDenied:0,downloadDenied:0},now=Date.now();
