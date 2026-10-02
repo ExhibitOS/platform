@@ -14,6 +14,22 @@ Define entrance usable before timing: valid immutable metadata loaded, the entra
 
 The initial targets are sample entrance p95≤5seconds and initial transfer≤15MB. With five samples, nearest-rank p95 is the sample maximum; it does not estimate production population p95. Any failure remains a measured failure with remediation, rather than silently changing the usable definition or target.
 
+## Default text entrance and optional 3D timings
+
+The twenty-artwork reference now opens its real publication heading and list before the user explicitly selects `3D 관람 시작`. Every cold/warm sample records `textEntranceMs`, twenty actual list entries, the finished app/metadata request inventory, and zero published artwork requests started before opt-in. This measures the accessible text fallback on the same twenty-artwork publication; it is separate from the optional 3D entrance target. It does not turn a failed 3D or rendering target into a pass.
+
+Keep the existing `entranceMs`/`p95EntranceMs` and `targetPass` definition unchanged: Node-observed navigation through explicit 3D entry, four decoded entrance artworks and enabled controls. Those measurements include automation round trips and polling observation delay. A browser-owned MutationObserver separately watches the actual production `data-viewer-state` (`loadedAssets=4`, no failed assets) and enabled rotation control, then records the next animation frame with `performance.now()`. `browserReadiness.readySinceNavigationMs` uses the document navigation time origin; `optInToReadyMs` starts at the observed explicit button click. Both are diagnostics with different clock/boundary definitions, not replacements for the retained gate. No application state, GPU or readiness metadata is injected.
+
+## Installed Chrome reference
+
+The default runner remains headless bundled Chromium. To measure installed Chrome in a separate headed browser session, use the existing fixture runner with:
+
+```sh
+EXHIBITOS_VIEWER_CHANNEL=chrome EXHIBITOS_VIEWER_HEADED=1 EXHIBITOS_VIEWER_REPORT=/private/tmp/exhibitos-viewer-chrome.json node scripts/test-viewer.mjs
+```
+
+Use the repository's documented exact Node/npm and a current production build. The only accepted channel override is `chrome`; headed accepts `0` or `1`. Missing Chrome is a failed/unavailable environment, not permission to substitute another browser silently. The report records channel, headed/headless mode, browser version, OS and actual WebGL vendor/renderer per trace. `softwareRendererDetected` checks the returned renderer string for known software implementations. An unreported renderer or a false software flag alone does not prove physical hardware acceleration. A headed Chrome launch may still use SwiftShader; preserve that observation and all measured failures. A narrow viewport on this Mac is not a physical iPhone/Android performance result.
+
 ## Rendering and memory
 
 After all reference placements are loaded under a recorded quality profile, capture at least60seconds of actual scene rendering. Record real renderer.render invocations and their timings, rendered scene/triangle/texture counts, quality/resolution changes and frame intervals. An idle requestAnimationFrame counter or DOM-only FPS is insufficient to demonstrate scene performance. If a deterministic camera trace is used, record it separately from production reduced-motion behavior. Frame-time p95, frame count and elapsed time must be reproducible from retained raw samples. Headless/software-WebGL results are not physical GPU or real-mobile qualification.
