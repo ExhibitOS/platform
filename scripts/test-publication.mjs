@@ -34,7 +34,7 @@ try {
     await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname, "006_studio.sql");
     const existing = (await pool.query("SELECT name,sha256 FROM schema_migrations ORDER BY name")).rows;
     await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname);
-    await test("additive publication migration preserves all earlier migration checksums", async () => { assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'007' ORDER BY name")).rows, existing); assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 7); });
+    await test("additive publication migration preserves all earlier migration checksums", async () => { assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'007' ORDER BY name")).rows, existing); assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 8); });
     const tenant = randomUUID(), pass = "Synthetic-publication-password123", origin = "http://127.0.0.1:3000", headers = { host: "127.0.0.1:3000", origin };
     await bootstrap(pool, tenant, "synthetic.publication.admin", pass);
     const blobs = new FileBlobStore(await mkdtemp(`${tmpdir()}/exhibitos-publication-blobs-`));
