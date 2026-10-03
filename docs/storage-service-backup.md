@@ -274,3 +274,39 @@ object이다. trusted bundle에서 확인한 크기·SHA-256을 사용하고 pri
 image trust/import/실행 또는 Manager 전체 복구 완료를 뜻하지 않는다. Manager는
 별도로 trusted bundle/image provenance·compatibility를 확인한 뒤 import해야 한다.
 키·OCI archives·private runtime.env·복호화 후보는 Git backup에 포함하지 않는다.
+
+## Runtime 이미지까지 포함하는 로컬 복구 검사
+
+새 `Dockerfile.maintenance`는 현재 생산 웹 Runtime 파일도 포함한다. 작성 시
+`FREEZE_RUNTIME_ROOT=/opt/exhibitos/apps/web/dist`를 지정할 수 있으며, host 웹
+경로가 없더라도 같은 image 안에서 버전/hash 검증된 Runtime을 읽는다. 생산
+notices와 Node license도 image에 보존한다. 이전 immutable image는 바뀌지 않는다.
+
+`test-deployment-image-backup.mjs`는 운영 복원 도구가 아닌 실제 합성 qualification
+검사다. Node24.21.0/npm11.19.0으로 build한 독립 source에서 실행한다. 다음 image는
+시험 전용으로 새로 만들고 다른 설치에 연결하지 않는다. source image의 정확한
+태그/digest·qualification label·사용 container 없음·충분한 디스크를 검사한 뒤에만
+시험용 image catalog entry를 제거한다. 다른 image/data/cache를 prune하지 않는다.
+
+```sh
+docker build -f Dockerfile.local \
+  --label exhibitos.qualification=runtime-recovery-e033f3f \
+  --tag exhibitos-local:recovery-e033f3f --iidfile /private/tmp/runtime-recovery.iid .
+BACKUP_RECOVERY_IMAGE="$(cat /private/tmp/runtime-recovery.iid)" \
+  node scripts/test-deployment-image-backup.mjs
+```
+
+이 검사는 PostgreSQL dump·전체 row/blob inventory·관리자 credential·서명 설정·
+실제 Runtime Docker archive를 암호화하고 원래 DB/blob/archive 경로와 image catalog
+entry가 unavailable인 상태에서 새 DB/blob/config/image로 복원한다. 원래 image ID·
+파일 hash·private mode와 실제 readiness/web/기존 관리자 로그인을 확인한다.
+단일 Docker 엔진에 남은 content/build cache까지 없애는 재해 복구 검사는 아니다.
+새 엔진, 실제 작품/전시 전체, production, Windows/Podman, Manager native UI,
+signed update/rollback은 별도 qualification을 유지한다. 시험 key는 메모리에만
+존재하며 보존된 합성 archive를 운영 복원 지점으로 사용하면 안 된다.
+
+실패 후보와 이전 archive/데이터는 자동 삭제하지 않는다. 정상 종료 시에는 정확한
+owner label을 확인한 이번 disposable DB/Runtime container와 연결 anonymous
+volume만 정리하며, 복원 image와 private report/workspace는 보존한다. 강제 종료는
+owner label로 별도 조사한다. Docker29의 local multi-platform digest를 처리하는
+시험이므로 다른 image store 방식에서는 precondition이 실패할 수 있다.
