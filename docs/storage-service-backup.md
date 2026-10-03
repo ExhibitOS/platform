@@ -259,3 +259,18 @@ Freeze의 Spec provenance는 검증된 version/hash 조합을 명시적으로 �
 기존 draft.2 보존 metadata와 현재 draft.3 생성 metadata를 지원하며 version/hash
 혼합이나 임의의 신규 artifact는 거부한다. 이것은 기존 signed archive 전체의
 새 Runtime replay gate를 대신하지 않는다.
+
+## 배포 파일 보존 (draft2)
+
+`BACKUP_DEPLOYMENT_FILES`는 논리 이름을 `{path,bytes,sha256}`에 연결하는 JSON
+object이다. trusted bundle에서 확인한 크기·SHA-256을 사용하고 private 환경 파일로
+전달한다. canonical private 단일-link regular file만 허용하며 최대32개/각8GiB이다.
+입력 파일은 스트리밍 암호화하고 크기/해시 불일치 시 complete receipt를 만들지 않는다.
+키를 artifact로 선택하면 안 된다. CLI는 키와 같은 경로를 거부한다.
+
+배포 파일 포함 시 manifest는 `1.0.0-draft.2`다. 새 reader는 draft1도 읽지만
+기존 maintenance image는 draft2를 거부하므로 새 image build/qualification이 필요하다.
+새 target의 DB/blob 비교 뒤 `deployment/<논리 이름>`에 파일을 보관한다. 이는 OCI
+image trust/import/실행 또는 Manager 전체 복구 완료를 뜻하지 않는다. Manager는
+별도로 trusted bundle/image provenance·compatibility를 확인한 뒤 import해야 한다.
+키·OCI archives·private runtime.env·복호화 후보는 Git backup에 포함하지 않는다.

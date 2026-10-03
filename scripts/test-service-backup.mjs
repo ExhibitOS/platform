@@ -79,10 +79,14 @@ try {
     const configSecret = `synthetic-protected-configuration-${randomUUID()}`; confidential.push(configSecret);
     const configuration = new Map([["signing-key.json", await readFile(keyFile)], ["private-configuration.json", Buffer.from(JSON.stringify({ origin, sentinel: configSecret }))]]);
     const backupKeyFile = `${root}/backup-encryption-key.bin`, privateConfigFile = `${root}/source-configuration.json`; await writeFile(backupKeyFile, encryptionKey, { mode: 0o600 }); await writeFile(privateConfigFile, configuration.get("private-configuration.json"), { mode: 0o600 });
+    const deploymentPath = `${root}/source-deployment.bin`, deploymentBytes = Buffer.alloc(4*1024*1024,0x6d);
+    await writeFile(deploymentPath,deploymentBytes,{mode:0o600});
+    const deployment = new Map([["images/synthetic.bin",{path:deploymentPath,bytes:deploymentBytes.length,sha256:sha256(deploymentBytes)}]]);
     const cliEnvironment = { DATABASE_URL: `postgresql://postgres:${encodeURIComponent(source.password)}@127.0.0.1:${source.database.port}/postgres`, BACKUP_POSTGRES_CONTAINER: source.name, FREEZE_RUNTIME_ROOT: runtimeRoot,
+      BACKUP_DEPLOYMENT_FILES: JSON.stringify(Object.fromEntries(deployment)),
       BACKUP_CONFIGURATION_FILES: JSON.stringify({ "signing-key.json": keyFile, "private-configuration.json": privateConfigFile }),
       ...(s3 ? { BACKUP_BLOB_BACKEND: "s3", S3_ENDPOINT: s3.config.client.endpoint, S3_BUCKET: s3.config.bucket, S3_FORCE_PATH_STYLE: "1", AWS_REGION: "us-east-1", AWS_ACCESS_KEY_ID: s3.config.client.credentials.accessKeyId, AWS_SECRET_ACCESS_KEY: s3.config.client.credentials.secretAccessKey } : { BLOB_ROOT: sourceStore.root }) };
-    const backupOptions = { pool: source.pool, store: sourceStore, encryptionKey, snapshot: snapshot(sourceStore), runtime: { metadata: runtime, files: runtimeFiles }, configuration };
+    const backupOptions = { pool: source.pool, store: sourceStore, encryptionKey, snapshot: snapshot(sourceStore), runtime: { metadata: runtime, files: runtimeFiles }, configuration, deployment };
     const dump = (path, snapshotId) => { assert.match(snapshotId, /^[0-9A-Fa-f-]+$/); return backends.pgFile(source, path, "dump", snapshotId); };
     await test(`${kind}: exact all-row inventory and large PostgreSQL numbers include required blobs and unknown orphan namespaces`, async () => {
       const value = await inventory(source.pool, sourceStore); assert.deepEqual(value.issues, []); assert(value.objects.some(item => item.key === corpus.unlinkedKey && !item.referenced));
@@ -140,6 +144,8 @@ try {
       receipt = await createServiceBackup({ ...backupOptions, destination: archive, dump }); assert.equal(receipt.status, "complete"); assert.equal(receipt.objectCount, originalObjects.length);
       verified = await verifyServiceBackup({ source: archive, encryptionKey, destination: `${root}/verify-private` });
       assert.equal(sha256(Buffer.from(JSON.stringify(await metadataSnapshot(source.pool)))), sha256(Buffer.from(JSON.stringify(originalRows)))); assert.deepEqual(await completeObjectSnapshot(sourceStore), originalObjects);
+      assert.equal(verified.manifest.schemaVersion,"1.0.0-draft.2");
+      assert.equal(verified.files.find(file=>file.role==="deployment").sha256,sha256(deploymentBytes));
       assert.equal((await stat(archive)).mode & 0o777, 0o700);
       const privateBytes = Buffer.from(configSecret), keyBytes = Buffer.from(JSON.parse(await readFile(keyFile, "utf8")).privateKey);
       async function scan(path) { const { readdir } = await import("node:fs/promises"); for (const entry of await readdir(path, { withFileTypes: true })) { if (entry.isDirectory()) await scan(`${path}/${entry.name}`); else { const bytes = await readFile(`${path}/${entry.name}`); assert.equal(bytes.includes(privateBytes), false); assert.equal(bytes.includes(keyBytes), false); } } }
@@ -182,6 +188,7 @@ try {
     });
     await corpus.app.close(); await source.pool.end(); backends.stop(source.name);
     if (s3) backends.stop(s3.name); else await rename(sourceStore.root, `${root}/stopped-source-blobs`);
+    await rename(deploymentPath,`${root}/unavailable-source-deployment.bin`);
     await rename(keyFile, `${root}/stopped-source-signing-key.json`);
     await test(`${kind}: original service database object store and signing-key path are unavailable before restoration`, async () => {
       const inaccessible = new Pool({ ...source.database, connectionTimeoutMillis: 1000 }); try { await assert.rejects(inaccessible.query("SELECT 1")); } finally { await inaccessible.end(); }
@@ -192,6 +199,9 @@ try {
     await test(`${kind}: fresh database and fresh blob root reconstruct every row object hash and schema from encrypted backup alone`, async () => {
       await runCli(["restore", "--key-file", backupKeyFile, "--source", archive, "--destination", restoredDirectory, "--quiesced", "--fresh-destination"], { DATABASE_URL: `postgresql://postgres:${encodeURIComponent(target.password)}@127.0.0.1:${target.database.port}/postgres`, BACKUP_POSTGRES_CONTAINER: target.name, BLOB_ROOT: destinationStore.root });
       restored = JSON.parse(await readFile(`${restoredDirectory}/restored.json`, "utf8")); assert.equal(restored.status, "complete");
+      const stagedDeployment=`${restoredDirectory}/deployment/images/synthetic.bin`;
+      assert.deepEqual(await readFile(stagedDeployment),deploymentBytes);assert.equal((await stat(stagedDeployment)).mode&0o777,0o600);
+      await assert.rejects(readFile(deploymentPath));
       assert.deepEqual(await metadataSnapshot(target.pool), originalRows); assert.deepEqual(await completeObjectSnapshot(destinationStore), originalObjects);
       const actual = await inventory(target.pool, destinationStore); assert.deepEqual(actual.issues, []); assert.equal(actual.schemaDigest, originalInventory.schemaDigest); assert.deepEqual(actual.tables, originalInventory.tables);
     });

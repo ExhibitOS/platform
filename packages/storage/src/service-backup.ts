@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomUUID} from 'node:crypto';
 import {constants} from 'node:fs';
-import {mkdir,mkdtemp,rm,lstat,realpath,readdir,readFile,writeFile,open} from 'node:fs/promises';
+import {mkdir,mkdtemp,rm,lstat,realpath,readdir,readFile,writeFile,open,copyFile,chmod} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from './blobs.js';
 import {inventoryCanonical,type ServiceInventory} from './service-inventory.js';
 import {encryptBackupFile,decryptBackupFile,hashBackupFile,type EncryptedFile} from './encrypted-files.js';
-export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration';path:string;key?:string;name?:string}
-export interface BackupManifest {schemaVersion:'1.0.0-draft.1';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
+export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration'|'deployment';path:string;key?:string;name?:string}
+export interface BackupManifest {schemaVersion:'1.0.0-draft.1'|'1.0.0-draft.2';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
 export interface BackupReceipt {id:string;status:'complete';manifestSha256:string;objectCount:number}
 type Snapshot=(client:PoolClient)=>Promise<ServiceInventory>;
 const sha=(data:Uint8Array|string)=>createHash('sha256').update(data).digest('hex');
@@ -35,18 +35,18 @@ function validateInventory(v:ServiceInventory){
  if(new Set(v.objects.map(o=>o.key)).size!==v.objects.length)throw Error('BACKUP_INVENTORY_INVALID');
 }
 function validateManifest(m:BackupManifest){
- if(!m||m.schemaVersion!=='1.0.0-draft.1'||m.kind!=='service-backup'||typeof m.id!=='string'||!/^[-a-f0-9]{36}$/.test(m.id)||typeof m.createdAt!=='string'||!Number.isFinite(Date.parse(m.createdAt))||!m.sourceIdentity||!/^\d+$/.test(m.sourceIdentity.systemIdentifier)||!/^\d+$/.test(m.sourceIdentity.databaseOid)||typeof m.sourceIdentity.database!=='string'||!Array.isArray(m.files)||m.files.length>100000)throw Error('BACKUP_MANIFEST_INVALID');
+ if(!m||!['1.0.0-draft.1','1.0.0-draft.2'].includes(m.schemaVersion)||m.kind!=='service-backup'||typeof m.id!=='string'||!/^[-a-f0-9]{36}$/.test(m.id)||typeof m.createdAt!=='string'||!Number.isFinite(Date.parse(m.createdAt))||!m.sourceIdentity||!/^\d+$/.test(m.sourceIdentity.systemIdentifier)||!/^\d+$/.test(m.sourceIdentity.databaseOid)||typeof m.sourceIdentity.database!=='string'||!Array.isArray(m.files)||m.files.length>100000)throw Error('BACKUP_MANIFEST_INVALID');
  validateInventory(m.inventory);const paths=new Set<string>(),keys=new Set<string>(),names=new Set<string>();let databases=0;
  for(const f of m.files){
-  if(!f||!['database','object','runtime','configuration'].includes(f.role)||typeof f.path!=='string'||!/^files\/[0-9]{8}\.gcm$/.test(f.path)||paths.has(f.path)||!Number.isSafeInteger(f.bytes)||f.bytes<1||!Number.isSafeInteger(f.cipherBytes)||f.cipherBytes!==f.bytes+36||!hex(f.sha256)||!hex(f.cipherSha256))throw Error('BACKUP_MANIFEST_INVALID');paths.add(f.path);
+  if(!f||!['database','object','runtime','configuration',...(m.schemaVersion==='1.0.0-draft.2'?['deployment']:[])].includes(f.role)||typeof f.path!=='string'||!/^files\/[0-9]{8}\.gcm$/.test(f.path)||paths.has(f.path)||!Number.isSafeInteger(f.bytes)||f.bytes<1||!Number.isSafeInteger(f.cipherBytes)||f.cipherBytes!==f.bytes+36||!hex(f.sha256)||!hex(f.cipherSha256))throw Error('BACKUP_MANIFEST_INVALID');paths.add(f.path);
   if(f.role==='database'){databases++;if(f.key!==undefined||f.name!==undefined)throw Error('BACKUP_MANIFEST_INVALID');}
   else if(f.role==='object'){if(!objectKey(f.key)||f.name!==undefined||keys.has(f.key))throw Error('BACKUP_MANIFEST_INVALID');keys.add(f.key);const o=m.inventory.objects.find(o=>o.key===f.key);if(!o||o.bytes!==f.bytes||o.sha256!==f.sha256)throw Error('BACKUP_MANIFEST_INVALID');}
-  else {if(!nameValid(f.name)||f.key!==undefined||names.has(f.role+':'+f.name))throw Error('BACKUP_MANIFEST_INVALID');names.add(f.role+':'+f.name);}
+  else {if(f.role==='deployment'&&(f.bytes>8*1024*1024*1024||m.files.filter(v=>v.role==='deployment').length>32))throw Error('BACKUP_MANIFEST_INVALID');if(!nameValid(f.name)||f.key!==undefined||names.has(f.role+':'+f.name))throw Error('BACKUP_MANIFEST_INVALID');names.add(f.role+':'+f.name);}
  }
  if(databases!==1||keys.size!==m.inventory.objects.length)throw Error('BACKUP_MANIFEST_INVALID');
 }
 /** Operator only: contains all tenants, account hashes and signing configuration. */
-export async function createServiceBackup(options:{pool:Pool;store:BlobStore;destination:string;encryptionKey:Uint8Array;snapshot:Snapshot;dump:(path:string,snapshotId:string)=>Promise<void>;runtime?:{metadata:unknown;files:Map<string,Uint8Array>};configuration?:Map<string,Uint8Array>}):Promise<BackupReceipt>{
+export async function createServiceBackup(options:{pool:Pool;store:BlobStore;destination:string;encryptionKey:Uint8Array;snapshot:Snapshot;dump:(path:string,snapshotId:string)=>Promise<void>;runtime?:{metadata:unknown;files:Map<string,Uint8Array>};configuration?:Map<string,Uint8Array>;deployment?:Map<string,{path:string;bytes:number;sha256:string}>}):Promise<BackupReceipt>{
  if(options.encryptionKey.length!==32||!options.store.listAll)throw Error('BACKUP_CONFIG');
  const directory=await privateDirectory(options.destination,true),id=randomUUID(),createdAt=new Date().toISOString();
  await jsonExclusive(join(directory,'writing.json'),{id,status:'writing',createdAt});await mkdir(join(directory,'files'),{mode:0o700});const scratch=await mkdtemp(join(tmpdir(),'exhibitos-backup-private-'));
@@ -56,11 +56,12 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
   await c.query('SELECT pg_advisory_lock(82002)');locked=true;await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');transaction=true;
   await supportedDatabase(c);const sourceIdentity=await identity(c),inventory=await options.snapshot(c);validateInventory(inventory);
   const snapshotId=(await c.query('SELECT pg_export_snapshot() AS id')).rows[0]?.id;if(typeof snapshotId!=='string'||!/^[-a-fA-F0-9]+$/.test(snapshotId))throw Error('BACKUP_SNAPSHOT');
-  const manifest:BackupManifest={schemaVersion:'1.0.0-draft.1',kind:'service-backup',id,createdAt,sourceIdentity,inventory,...(options.runtime?{runtimeMetadata:options.runtime.metadata}:{}),files:[]};
-  const append=async(role:BackupFile['role'],plain:string,extra:{key?:string;name?:string}={})=>{const path=`files/${String(manifest.files.length).padStart(8,'0')}.gcm`;const hashes=await encryptBackupFile(plain,join(directory,path),options.encryptionKey,id+':'+path);manifest.files.push({role,path,...extra,...hashes});};
+  const manifest:BackupManifest={schemaVersion:options.deployment?.size?'1.0.0-draft.2':'1.0.0-draft.1',kind:'service-backup',id,createdAt,sourceIdentity,inventory,...(options.runtime?{runtimeMetadata:options.runtime.metadata}:{}),files:[]};
+  const append=async(role:BackupFile['role'],plain:string,extra:{key?:string;name?:string}={},expected?:{bytes:number;sha256:string})=>{const path=`files/${String(manifest.files.length).padStart(8,'0')}.gcm`;const hashes=await encryptBackupFile(plain,join(directory,path),options.encryptionKey,id+':'+path,expected);manifest.files.push({role,path,...extra,...hashes});};
   const dump=join(scratch,'database.dump');await options.dump(dump,snapshotId);await append('database',dump);
   for(const o of inventory.objects){const data=await options.store.get(o.key);if(data.length!==o.bytes||sha(data)!==o.sha256)throw Error('BACKUP_SOURCE_CHANGED');const plain=join(scratch,`object-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append('object',plain,{key:o.key});}
   for(const [role,files]of [['runtime',options.runtime?.files],['configuration',options.configuration]] as const){if(!files)continue;for(const [name,data]of files){if(!nameValid(name)||!data.length)throw Error('BACKUP_CONFIG');const plain=join(scratch,`extra-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append(role,plain,{name});}}
+  if(options.deployment){if(options.deployment.size>32)throw Error('BACKUP_DEPLOYMENT_LIMIT');for(const [name,file]of options.deployment){if(!nameValid(name)||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>8*1024*1024*1024||!hex(file.sha256)||resolve(file.path)!==await realpath(file.path))throw Error('BACKUP_DEPLOYMENT_INVALID');await append('deployment',file.path,{name},file);}}
   // Recheck the entire DB/object inventory before publishing a complete receipt.
   if(comparable(await options.snapshot(c))!==comparable(inventory))throw Error('BACKUP_SOURCE_CHANGED');
   validateManifest(manifest);if(Buffer.byteLength(inventoryCanonical(manifest)+'\n')>16*1024*1024)throw Error('BACKUP_MANIFEST_LIMIT');const plainManifest=join(scratch,'manifest.json');await jsonExclusive(plainManifest,manifest);
@@ -103,7 +104,7 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   await c.query('COMMIT');transaction=false;
   // Reconstitute named configuration/runtime only after DB/object equality passes.
   // These are staged files in the new private candidate, never the running source.
-  for(const role of ['runtime','configuration'] as const){const entries=verified.files.filter(f=>f.role===role);if(!entries.length)continue;const root=join(resolve(options.destination),role);await mkdir(root,{mode:0o700});for(const f of entries){let directory=root;const parts=f.name!.split('/');for(const part of parts.slice(0,-1)){directory=join(directory,part);await mkdir(directory,{mode:0o700}).catch(error=>{if(error.code!=='EEXIST')throw error;});const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('RESTORE_PATH_INVALID');}await writeFile(join(directory,parts.at(-1)!),await readFile(f.plainPath),{mode:0o600,flag:'wx'});}}
+  for(const role of ['runtime','configuration','deployment'] as const){const entries=verified.files.filter(f=>f.role===role);if(!entries.length)continue;const root=join(resolve(options.destination),role);await mkdir(root,{mode:0o700});for(const f of entries){let directory=root;const parts=f.name!.split('/');for(const part of parts.slice(0,-1)){directory=join(directory,part);await mkdir(directory,{mode:0o700}).catch(error=>{if(error.code!=='EEXIST')throw error;});const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('RESTORE_PATH_INVALID');}const target=join(directory,parts.at(-1)!);await copyFile(f.plainPath,target,constants.COPYFILE_EXCL);await chmod(target,0o600);}}
   const receipt={...verified.receipt,inventory};await jsonExclusive(join(resolve(options.destination),'restored.json'),verified.receipt);return receipt;
  }catch{await jsonExclusive(join(resolve(options.destination),'restore-failed.json'),{status:'failed'}).catch(()=>{});throw Error('RESTORE_FAILED');}
  finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);}
