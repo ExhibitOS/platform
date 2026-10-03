@@ -24,3 +24,15 @@ describe('closed freeze runtime inventory',()=>{
   expect(()=>validateFreezeManifest(value)).toThrow('FREEZE_RUNTIME_INVALID');
  });
 });
+
+describe('freeze Spec provenance compatibility',()=>{
+ it('accepts old and current exact immutable artifact pairs',()=>{
+  const old=manifest();expect(()=>validateFreezeManifest(old)).not.toThrow();
+  const current=manifest();current.formats.specPackage='0.1.0-draft.3';current.formats.specSha256='22c4bc6a931f2c705d0ed2803f51a53b40a575e11c03b7a934be97edba13e5a8';expect(()=>validateFreezeManifest(current)).not.toThrow();
+ });
+ it('rejects swapped version/hash pairs, unknown and malformed provenance',()=>{
+  for(const [version,digest] of [['0.1.0-draft.3','164525a8cbcf4f81dbf16d119fdf37f614aaaa9bbc9c362f2723348753bea154'],['0.1.0-draft.2','22c4bc6a931f2c705d0ed2803f51a53b40a575e11c03b7a934be97edba13e5a8'],['0.1.0-draft.4',hash],['0.1.0-draft.3',hash],['0.1.0-draft.3','invalid']]){
+   const value=manifest();value.formats.specPackage=version!;value.formats.specSha256=digest!;expect(()=>validateFreezeManifest(value)).toThrow('FREEZE_FORMAT_UNSUPPORTED');
+  }
+ });
+});

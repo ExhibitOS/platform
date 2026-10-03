@@ -229,3 +229,33 @@ private 운영 기록에 남깁니다. 원본 설치와 원래 자격 증명은 
 결과와 함께 읽으세요. 단일 개발 환경의 통합 성공을 운영 disaster-recovery SLA,
 임의 DB extension/schema, 모든 S3 구현 또는 실물 장치 복구 보장으로 확대하지
 않습니다.
+
+## 유지보수 이미지 개발 경로
+
+`Dockerfile.maintenance`는 공개 소스와 고정된 Node24.21/PostgreSQL18.6 base에서
+기존 service-backup CLI를 빌드하는 별도 one-shot 이미지다. 일반 Viewer/API
+컨테이너의 실행 이미지와 분리하며 PostgreSQL 서버를 시작하지 않는다.
+기본 UID1000은 Runtime의 private blob 파일 소유자와 맞춘다. 실제 운영자는
+mount의 소유권/권한과 필요한 최소 UID를 확인해야 한다. key는 별도 private
+read-only mount, archive/새 복원 대상만 writable mount로 제공한다. Docker
+socket과 arbitrary host root를 mount하지 않는다. DB URL/비밀은 trusted 환경
+파일로 전달하고 command 인수·로그에 넣지 않는다.
+
+이미지에는 pg_dump/pg_restore18.6과 Node CLI가 들어 있다. 기존 create/verify/
+restore 명령·quiesced/fresh-destination 요구·현재 권리/무결성 검사와 실패 시
+원본 보존 규칙은 그대로 적용한다. 이미지 생성만으로 Manager UI·backup
+adapter·자동 update/rollback이나 production restore가 완료된 것은 아니다.
+
+로컬 Docker Desktop 합성 회귀에서 `BACKUP_CLI_IMAGE=sha256:<검사한 local image ID>`
+를 지정해 `node scripts/test-service-backup.mjs`를 실행할 수 있다. 시험은 새로
+소유한 fixture 경로와 정확한 검사 runtime의 `/private/tmp` 사본만 mount하고 실제 CLI를 이미지에서
+실행한다. private 환경 이름만 Docker 인수로 전달한다. 검사 user는 host private 파일의 UID/GID와 일치시킨다.
+선택적 `BACKUP_CLI_DIAGNOSTIC=1`은 시험용 wrapper에서 제한된 BACKUP/허용된 native 오류 code만 출력하며 raw error·비밀은 출력하지 않는다. Host fixture의 loopback
+DB/S3 endpoint는 container의 host.docker.internal로 변환하므로 이 경로는
+현재 Docker Desktop 검사 전용이며 일반 Linux/Podman 배포 보장과 다르다.
+강제 중단 검사는 해당 소유 label을 확인한 CLI 컨테이너만 제거한다.
+
+Freeze의 Spec provenance는 검증된 version/hash 조합을 명시적으로 허용한다.
+기존 draft.2 보존 metadata와 현재 draft.3 생성 metadata를 지원하며 version/hash
+혼합이나 임의의 신규 artifact는 거부한다. 이것은 기존 signed archive 전체의
+새 Runtime replay gate를 대신하지 않는다.
