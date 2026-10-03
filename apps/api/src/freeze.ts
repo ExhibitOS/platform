@@ -6,7 +6,7 @@ import {resolve,join,relative} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,transaction,type BlobStore} from '@exhibitos/storage';
 import {revisionHash,type Exhibition} from '@exhibitos/spec';
-import {FREEZE_VERSION,MAX_RUNTIME_BYTES,MAX_OFFLINE_SECONDS,freezeCanonical,freezeFileMime,type FreezeRuntime,type FreezeFile,type FreezeManifest,type FreezeSummary,type FreezeBundle,type SignedOfflineGrant,type OfflineGrant} from '@exhibitos/studio-contract';
+import {supportedFreezeSpec,FREEZE_VERSION,MAX_RUNTIME_BYTES,MAX_OFFLINE_SECONDS,freezeCanonical,freezeFileMime,type FreezeRuntime,type FreezeFile,type FreezeManifest,type FreezeSummary,type FreezeBundle,type SignedOfflineGrant,type OfflineGrant} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {Oex,decodeOex} from './oex.ts';
 import {Studio} from './studio.ts';
@@ -99,7 +99,7 @@ export class Freezes {
  }
  private async formats(){
   const artifact=JSON.parse(await readFile(new URL('../../../contracts/artifact.json',import.meta.url),'utf8'))as {packageVersion:string;sha256:string};
-  if(!/^[a-f0-9]{64}$/.test(artifact.sha256)||artifact.packageVersion!=='0.1.0-draft.2')throw new ApiError(503,'FREEZE_FORMAT_INVALID');
+  if(!supportedFreezeSpec(artifact.packageVersion,artifact.sha256))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
   const migrations=(await this.pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
   if(!migrations.some(x=>x.name==='010_freeze.sql'))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
   for(const migration of migrations){if(!/^\d{3}_[a-z_]+\.sql$/.test(migration.name)||!/^[a-f0-9]{64}$/.test(migration.sha256)||sha256(await readFile(new URL(`../../../database/migrations/${migration.name}`,import.meta.url)))!==migration.sha256)throw new ApiError(503,'FREEZE_FORMAT_INVALID');}

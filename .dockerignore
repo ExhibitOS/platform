@@ -1,6 +1,7 @@
 # Build context is an allowlist; local secrets/private repositories never enter it.
 **
 !Dockerfile.local
+!Dockerfile.maintenance
 !.dockerignore
 !package.json
 !package-lock.json
@@ -20,6 +21,7 @@
 !scripts/write-notices.mjs
 !scripts/serve-offline.mjs
 !scripts/local-runtime.mjs
+!scripts/service-backup.mjs
 **/node_modules/**
 **/dist/**
 **/.env

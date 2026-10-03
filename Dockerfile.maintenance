@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
+WORKDIR /opt/exhibitos
+COPY . .
+RUN test ! -e .local && test ! -e operations && test ! -e capture-ios && test ! -e .env && test ! -e .git \
+    && npm ci && npm run build && npm prune --omit=dev
+
+# Maintenance process only; never starts the bundled PostgreSQL server.
+FROM postgres:18.6@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+LABEL org.opencontainers.image.title="ExhibitOS service backup maintenance" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.source="https://github.com/ExhibitOS/platform"
+WORKDIR /opt/exhibitos
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
+COPY --from=build /usr/local/LICENSE /opt/exhibitos/licenses/Node-LICENSE
+COPY --from=build /opt/exhibitos/node_modules ./node_modules
+COPY --from=build /opt/exhibitos/packages ./packages
+COPY --from=build /opt/exhibitos/apps/api ./apps/api
+COPY --from=build /opt/exhibitos/contracts ./contracts
+COPY --from=build /opt/exhibitos/database ./database
+COPY --from=build /opt/exhibitos/package.json ./package.json
+COPY --from=build /opt/exhibitos/LICENSE ./LICENSE
+COPY --from=build /opt/exhibitos/apps/web/dist/THIRD_PARTY_NOTICES.txt ./THIRD_PARTY_NOTICES.txt
+COPY --from=build /opt/exhibitos/scripts/service-backup.mjs ./scripts/service-backup.mjs
+# Trusted operator must set a UID that can read mounted private files; default matches runtime node UID.
+USER 1000:1000
+ENTRYPOINT ["node", "scripts/service-backup.mjs"]
