@@ -92,6 +92,18 @@ async function configurationFiles(environment,keyPath){
  for(const[name,path]of Object.entries(input)){if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string'||resolve(path)===resolve(keyPath))fail('BACKUP_CONFIGURATION_INVALID');files.set(name,await privateFile(path,1024*1024));}
  return files;
 }
+export async function deploymentFiles(environment,keyPath,destination){
+ if(!environment.BACKUP_DEPLOYMENT_FILES)return undefined;
+ let input;try{input=JSON.parse(environment.BACKUP_DEPLOYMENT_FILES);}catch{fail('BACKUP_DEPLOYMENT_INVALID');}
+ if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length>32)fail('BACKUP_DEPLOYMENT_INVALID');
+ const files=new Map();
+ for(const [name,file]of Object.entries(input)){
+  if(!/^[A-Za-z0-9_-][A-Za-z0-9_./-]{0,1023}$/.test(name)||name.split('/').some(p=>!p||p==='.'||p==='..')||!file||typeof file!=='object'||Array.isArray(file)||Object.keys(file).sort().join(',')!=='bytes,path,sha256'||typeof file.path!=='string'||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>8*1024*1024*1024||typeof file.sha256!=='string'||!/^[a-f0-9]{64}$/.test(file.sha256))fail('BACKUP_DEPLOYMENT_INVALID');
+  const path=resolve(file.path);if(path===resolve(keyPath)||inside(destination,path)||await realpath(path)!==path)fail('BACKUP_DEPLOYMENT_PATH');
+  files.set(name,{...file,path});
+ }
+ return files;
+}
 export async function main(argv=process.argv.slice(2),environment=process.env){
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
@@ -109,7 +121,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
   const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=c=>collectServiceInventory(c,blobs.store,{migrationDirectory});
   if(command==='create'){
    const runtime=environment.FREEZE_RUNTIME_ROOT?await import('../apps/api/dist/freeze.js').then(m=>m.loadFreezeRuntime(environment.FREEZE_RUNTIME_ROOT)):undefined;
-   const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath)});
+   const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});
    return {operation:'created',backupId:result.id};
   }
   const existing=await pool.query("SELECT count(*)::integer AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");if(existing.rows[0].count!==0||(await blobs.store.listAll()).length!==0)fail('BACKUP_DESTINATION_NOT_EMPTY');

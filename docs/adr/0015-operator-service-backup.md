@@ -44,3 +44,30 @@ deployment qualification.
 Primary references: [PostgreSQL pg_dump snapshot and trusted-source rules](https://www.postgresql.org/docs/18/app-pgdump.html),
 [pg_restore](https://www.postgresql.org/docs/current/app-pgrestore.html),
 [Node24 authenticated encryption](https://nodejs.org/download/release/v24.21.0/docs/api/crypto.html).
+
+## Deployment artifacts (draft2)
+
+Operator-selected local deployment files (for example an OCI archive, pinned
+bundle manifest and Compose definition) are encrypted from file streams with
+expected SHA-256 and size. Inputs are canonical regular single-link private
+files, at most32 artifacts and8GiB each. Changed/mismatching files fail before
+completion publication. Artifacts are opaque bytes: authentication does not
+establish the trust, licensing, compatibility or executable safety of an image.
+A trusted installer must independently validate bundle/image provenance before
+import or activation; the backup reader never runs an archive.
+
+Archives containing this separate deployment role use1.0.0-draft.2. New readers
+accept prior draft1 archives, while older readers reject draft2. The supplied
+maintenance image must therefore be rebuilt and qualified before Manager uses
+this format; existing image receipts do not qualify the new reader. Archives
+without deployment files retain draft1. Fresh restoration stages authenticated
+files under deployment/ only after DB/blob inventory equality, using exclusive
+file copies rather than allocating a whole image in memory. Activation and
+Docker/Podman image import remain separate Manager responsibilities.
+
+CLI configuration BACKUP_DEPLOYMENT_FILES is a JSON object mapping logical
+relative names to {path,bytes,sha256}. The operator supplies expected digests
+from a trusted bundle; never substitute an untrusted downloaded checksum.
+The key must not be selected as an artifact. Files and key paths belong in a
+private environment file, not command lines, Git or logs. Deployment image
+archives, runtime credentials and decrypted candidates remain Git-excluded.
