@@ -310,3 +310,20 @@ owner label을 확인한 이번 disposable DB/Runtime container와 연결 anonym
 volume만 정리하며, 복원 image와 private report/workspace는 보존한다. 강제 종료는
 owner label로 별도 조사한다. Docker29의 local multi-platform digest를 처리하는
 시험이므로 다른 image store 방식에서는 precondition이 실패할 수 있다.
+
+## 업데이트 전 원본 데이터의 읽기 전용 재검사
+
+`check-source-inventory`는 신뢰한 업데이트 계획에 고정된 **인증된 plaintext manifest의 원시 SHA-256**과 현재 DB·blob inventory를 비교합니다. 사용자가 임의로 준 manifest/hash는 백업 인증을 대신하지 않습니다. 먼저 기존 verify/완전 복원으로 원본 백업을 인증하고 계획에 manifest hash를 고정해야 합니다. 외부 작성자와 migration을 정지한 상태에서 private 환경의 DATABASE_URL/BLOB_ROOT 및 기존 filesystem/S3 설정을 사용합니다. 비밀번호나 manifest 내용을 명령행·Git·로그에 넣지 마세요.
+
+```sh
+node scripts/service-backup.mjs check-source-inventory \
+  --manifest-file /private/authenticated/manifest.json \
+  --manifest-sha256 <trusted-plan-raw-manifest-sha256> \
+  --quiesced
+```
+
+Manifest는 canonical 단일 링크0600 regular file, 최대16MiB입니다. DB에 연결하기 전에 hash와 형식을 검사합니다. 유지보수 exclusive82002 잠금을 기다리지 않고 획득하며, public 밖의 application schema와 다른 DB identity를 거부합니다. 별도의 읽기 전용 repeatable-read transaction 두 번으로 schema/migrations/모든 행/sequence state/모든 blob·orphan/reference를 수집하여 createdAt만 제외하고 인증된 inventory와 정확히 비교합니다. 두 번째는 첫 번째 transaction을 종료한 뒤 새 snapshot을 얻습니다. DB·blob·서명 설정을 쓰거나 dump/restore/update를 실행하지 않습니다. 매 transaction은 ROLLBACK하며 잠금 해제 실패는 성공 결과도 거부하고 pooled session을 폐기합니다. stdout에는 backup ID·hash·관찰 시각과 제한된 결과만 나오며 DB 행/작품 이름/키/자격 증명은 없습니다.
+
+이 결과는 관찰 당시 원본 데이터 비교입니다. 외부 writer 격리나 미래 불변성, config volume/signing-key 보존, 전체 업데이트 preflight/application/rollback을 증명하지 않습니다. 기존 stopped-source Manager의 DB를 자동으로 시작하지 않습니다. Manager는 원본을 바꾸지 않는 별도 안전한 DB 관찰 adapter와 계획·source/candidate lock을 연결해야 합니다. 새 maintenance image는 재빌드·실행 검사 전까지 이전 image와 같은 기능으로 취급하지 않습니다. 기존 create/verify/restore 인자는 그대로 유지합니다.
+
+`node scripts/test-source-inventory.mjs`는 별도 합성 PostgreSQL과 실제 암호화 백업으로 CLI 정상/변경/잠금/identity 경로를 검사합니다. 모든 시험 container를 정지하고 archive/blob/volume을 보존하며, 원본 사용자 데이터에는 연결하지 않습니다.

@@ -75,9 +75,9 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
 }
 
 function parse(argv){
- const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore'].includes(command))fail('BACKUP_USAGE');
- for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
- if(!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');return {command,flags};
+ const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory'].includes(command))fail('BACKUP_USAGE');
+ for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
+ if(command!=='check-source-inventory'&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(command!=='check-source-inventory'&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');return {command,flags};
 }
 async function storeFor(environment){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
@@ -106,6 +106,14 @@ export async function deploymentFiles(environment,keyPath,destination){
 }
 export async function main(argv=process.argv.slice(2),environment=process.env){
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
+ if(command==='check-source-inventory'){
+  if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
+  if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
+  const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
+  const blobs=await storeFor(environment),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
+  try{return await backup.verifySourceInventory({pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})});}
+  finally{await pool.end();blobs.dispose();}
+ }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
  let destination=flags['--destination'],source=flags['--source'];if(!destination||command!=='create'&&!source||command==='create'&&source)fail('BACKUP_USAGE');
  destination=resolve(destination);if(await realpath(dirname(destination))!==dirname(destination))fail('BACKUP_DIRECTORY_PATH');if(source){source=resolve(source);if(await realpath(source)!==source)fail('BACKUP_DIRECTORY_PATH');}
