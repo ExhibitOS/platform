@@ -143,3 +143,21 @@ export async function verifySourceInventory(options:{pool:Pool;snapshot:Snapshot
  if(broken)throw Error('SOURCE_INVENTORY_CLEANUP_FAILED');
  return observation;
 }
+
+/** Trusted operator only: the exact complete configuration name set must be bound
+ * to authenticated backup bytes. Repeated reads do not isolate external writers.
+ * Readers return fresh owned byte buffers, erased after comparison. */
+export async function verifySourceConfiguration(options:{manifestBytes:Uint8Array;expectedManifestSha256:string;configuration:Map<string,()=>Promise<Uint8Array>>}){
+ const expectedManifestSha256=options.expectedManifestSha256;
+ if(!hex(expectedManifestSha256)||options.manifestBytes.length<1||options.manifestBytes.length>16*1024*1024||sha(options.manifestBytes)!==expectedManifestSha256)throw Error('SOURCE_MANIFEST_MISMATCH');
+ const manifest=JSON.parse(Buffer.from(options.manifestBytes).toString('utf8')) as BackupManifest;validateManifest(manifest);
+ const entries=manifest.files.filter(f=>f.role==='configuration').sort((a,b)=>a.name!.localeCompare(b.name!));
+ // Capture the callbacks before asynchronous work; callers cannot reduce coverage mid-read.
+ const readers=new Map(options.configuration);
+ if(!entries.length||entries.length>32||readers.size!==entries.length||entries.some(f=>f.bytes>1024*1024||!readers.has(f.name!)||typeof readers.get(f.name!)!=='function'))throw Error('SOURCE_CONFIGURATION_SCOPE');
+ for(let pass=0;pass<2;pass++)for(const f of entries){
+  const data=await readers.get(f.name!)!();
+  try{if(data.length!==f.bytes||sha(data)!==f.sha256)throw Error('SOURCE_CONFIGURATION_MISMATCH');}finally{data.fill(0);}
+ }
+ return {operation:'source-configuration-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,files:entries.map(f=>({name:f.name!,bytes:f.bytes,sha256:f.sha256})),observedAt:new Date().toISOString(),configurationFilesVerified:true,currentInventoryVerified:false,preflightVerified:false,updateExecuted:false};
+}
