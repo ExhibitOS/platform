@@ -18,6 +18,17 @@ async function privateFile(path,max){
  const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{const stat=await file.stat();if(!stat.isFile()||stat.nlink!==1||(stat.mode&0o7777)!==0o600||stat.size<1||stat.size>max)fail('BACKUP_FILE_MODE');return await file.readFile();}finally{await file.close();}
 }
+async function privateConfigurationFile(path){
+ const target=resolve(path);if(await realpath(target)!==target)fail('BACKUP_FILE_PATH');
+ const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+ try{
+  const before=await file.stat({bigint:true});
+  if(!before.isFile()||before.nlink!==1n||(before.mode&0o7777n)!==0o600n||before.size<1n||before.size>1048576n||typeof process.getuid==='function'&&before.uid!==BigInt(process.getuid()))fail('BACKUP_FILE_MODE');
+  const bytes=await file.readFile(),after=await file.stat({bigint:true}),current=await lstat(target,{bigint:true});
+  if(await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
+  return bytes;
+ }finally{await file.close();}
+}
 export async function initializeBackupKey(path){
  const target=resolve(path),parent=dirname(target),stat=await lstat(parent);
  if(await realpath(parent)!==parent||!stat.isDirectory()||stat.isSymbolicLink()||(stat.mode&0o077)!==0)fail('BACKUP_KEY_DIRECTORY');
@@ -75,9 +86,9 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
 }
 
 function parse(argv){
- const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory'].includes(command))fail('BACKUP_USAGE');
+ const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration'].includes(command))fail('BACKUP_USAGE');
  for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
- if(command!=='check-source-inventory'&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(command!=='check-source-inventory'&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');return {command,flags};
+ if(!['check-source-inventory','check-source-configuration'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');return {command,flags};
 }
 async function storeFor(environment){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
@@ -106,6 +117,17 @@ export async function deploymentFiles(environment,keyPath,destination){
 }
 export async function main(argv=process.argv.slice(2),environment=process.env){
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
+ if(command==='check-source-configuration'){
+  if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
+  let input;try{input=JSON.parse(environment.BACKUP_CONFIGURATION_FILES);}catch{fail('BACKUP_CONFIGURATION_INVALID');}
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length<1||Object.keys(input).length>32)fail('BACKUP_CONFIGURATION_INVALID');
+  const configuration=new Map();for(const [name,path] of Object.entries(input)){
+   if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string')fail('BACKUP_CONFIGURATION_INVALID');
+   configuration.set(name,()=>privateConfigurationFile(path));
+  }
+  const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
+  return backup.verifySourceConfiguration({manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],configuration});
+ }
  if(command==='check-source-inventory'){
   if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
