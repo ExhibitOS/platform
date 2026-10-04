@@ -327,3 +327,5 @@ Manifest는 canonical 단일 링크0600 regular file, 최대16MiB입니다. DB�
 이 결과는 관찰 당시 원본 데이터 비교입니다. 외부 writer 격리나 미래 불변성, config volume/signing-key 보존, 전체 업데이트 preflight/application/rollback을 증명하지 않습니다. 기존 stopped-source Manager의 DB를 자동으로 시작하지 않습니다. Manager는 원본을 바꾸지 않는 별도 안전한 DB 관찰 adapter와 계획·source/candidate lock을 연결해야 합니다. 새 maintenance image는 재빌드·실행 검사 전까지 이전 image와 같은 기능으로 취급하지 않습니다. 기존 create/verify/restore 인자는 그대로 유지합니다.
 
 `node scripts/test-source-inventory.mjs`는 별도 합성 PostgreSQL과 실제 암호화 백업으로 CLI 정상/변경/잠금/identity 경로를 검사합니다. 모든 시험 container를 정지하고 archive/blob/volume을 보존하며, 원본 사용자 데이터에는 연결하지 않습니다.
+
+유지보수 이미지의 새 명령은 이미지 빌드 뒤 `BACKUP_CLI_IMAGE=sha256:<local-image-content-id> node scripts/test-source-inventory.mjs`로 실제 검사합니다. 고정된 local image ID만 받고 pull하지 않습니다. 시험 원본 PostgreSQL에 연결하며 private fixture root를 이미지에 읽기 전용으로 mount합니다. 각 관찰 helper는 ephemeral container로 종료 시 정리하고, source DB·volume·archive·blob은 정지·보존합니다. Docker Desktop의 host.docker.internal을 사용하는 Linux arm64 검사이며, private host 파일을 읽도록 명시적으로 UID0을 사용합니다. 기본 UID1000·Windows/Podman·cold engine·다른 네트워크·Manager의 정지된 DB 관찰 adapter를 대신하는 검사가 아닙니다. 결과는 이미지 ID와 실제 관찰 receipt를 private report에 기록합니다.
