@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {constants} from 'node:fs';
-import {open,lstat,realpath} from 'node:fs/promises';
+import {open,lstat,realpath,statfs} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
@@ -18,14 +18,18 @@ async function privateFile(path,max){
  const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{const stat=await file.stat();if(!stat.isFile()||stat.nlink!==1||(stat.mode&0o7777)!==0o600||stat.size<1||stat.size>max)fail('BACKUP_FILE_MODE');return await file.readFile();}finally{await file.close();}
 }
+// Docker Desktop shared mounts reported this type while masking mode and link counts.
+// Refuse this observed Linux backend; Manager still needs independent host guards.
+export function configurationFilesystemSupported(platform,type){return platform!=='linux'||type!==0x65735546n;}
 async function privateConfigurationFile(path){
  const target=resolve(path);if(await realpath(target)!==target)fail('BACKUP_FILE_PATH');
+ if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type))fail('SOURCE_CONFIGURATION_FILESYSTEM_UNVERIFIED');
  const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{
   const before=await file.stat({bigint:true});
   if(!before.isFile()||before.nlink!==1n||(before.mode&0o7777n)!==0o600n||before.size<1n||before.size>1048576n||typeof process.getuid==='function'&&before.uid!==BigInt(process.getuid()))fail('BACKUP_FILE_MODE');
   const bytes=await file.readFile(),after=await file.stat({bigint:true}),current=await lstat(target,{bigint:true});
-  if(await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
+  if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type)||await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
   return bytes;
  }finally{await file.close();}
 }
