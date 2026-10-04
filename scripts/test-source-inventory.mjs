@@ -9,11 +9,20 @@ const root=await realpath(await mkdtemp('/private/tmp/exhibitos-source-inventory
 const images=JSON.parse(await readFile(new URL('../database/images.json',import.meta.url))),backends=new IsolatedBackends(images),checks=[];
 const hash=data=>createHash('sha256').update(data).digest('hex'),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname;
 const step=async(name,fn)=>{await fn();checks.push(name);console.log('PASS '+name);};
-let source,manifestPath,manifestBytes,store,environment,report;
+let source,manifestPath,manifestBytes,store,environment,report,observation;
 function cli(flags=[],override={}){
- try{return {ok:true,value:JSON.parse(execFileSync(process.execPath,[new URL('./service-backup.mjs',import.meta.url).pathname,'check-source-inventory','--manifest-file',manifestPath,'--manifest-sha256',hash(manifestBytes),...flags],{env:{...process.env,...environment,...override},encoding:'utf8',timeout:90000,stdio:['ignore','pipe','pipe']}))};}
+ const args=['check-source-inventory','--manifest-file',manifestPath,'--manifest-sha256',hash(manifestBytes),...flags],image=process.env.BACKUP_CLI_IMAGE;
+ let binary=process.execPath,command=[new URL('./service-backup.mjs',import.meta.url).pathname,...args],env={...process.env,...environment,...override};
+ if(image){
+  assert.match(image,/^sha256:[a-f0-9]{64}$/);assert.equal(backends.run(['image','inspect','--format','{{.Id}}',image]),image);
+  const url=new URL(env.DATABASE_URL);assert.equal(url.hostname,'127.0.0.1');url.hostname='host.docker.internal';env={...env,DATABASE_URL:url.href};
+  binary=process.env.DOCKER_BIN??'docker';command=['run','--rm','--pull=never','--user','0:0','--name',backends.owner+'-observer','--label','exhibitos.service.backup.test='+backends.owner,'--mount',`type=bind,src=${root},dst=${root},readonly`,...['DATABASE_URL','BLOB_ROOT','BACKUP_BLOB_BACKEND'].flatMap(n=>['-e',n]),image,...args];
+ }
+ try{return {ok:true,value:JSON.parse(execFileSync(binary,command,{env,encoding:'utf8',timeout:90000,stdio:['ignore','pipe','pipe']}))};}
  catch(e){assert(!String(e.stdout??'').includes(environment.DATABASE_URL));assert(!String(e.stderr??'').includes(source.password));return {ok:false};}
+ finally{if(image){const name=backends.owner+'-observer',existing=backends.run(['ps','-a','--filter','name=^/'+name+'$','--format','{{.Names}}']);if(existing){assert.equal(existing,name);assert.equal(backends.run(['inspect','--format','{{index .Config.Labels "exhibitos.service.backup.test"}}',name]),backends.owner);backends.run(['stop','-t','1',name]);}}}
 }
+
 const snapshot=c=>collectServiceInventory(c,store,{migrationDirectory});
 try{
  source=await backends.postgres('source');await migrate(source.pool,migrationDirectory);
@@ -22,7 +31,7 @@ try{
  const archive=root+'/archive',key=randomBytes(32);await createServiceBackup({pool:source.pool,store,destination:archive,encryptionKey:key,snapshot,dump:(path,id)=>backends.pgFile(source,path,'dump',id)});
  const verified=await verifyServiceBackup({source:archive,destination:root+'/authenticated',encryptionKey:key});key.fill(0);manifestPath=root+'/authenticated/manifest.json';manifestBytes=await readFile(manifestPath);
  environment={DATABASE_URL:`postgresql://postgres:${source.password}@127.0.0.1:${source.database.port}/postgres`,BLOB_ROOT:root+'/blobs',BACKUP_BLOB_BACKEND:'filesystem'};
- await step('actual encrypted authenticated backup matches two fresh source DB/blob snapshots',async()=>{const result=cli(['--quiesced']);assert(result.ok);assert.equal(result.value.backupId,verified.manifest.id);assert.equal(result.value.authenticatedManifestSha256,hash(manifestBytes));assert.equal(result.value.currentInventoryVerified,true);assert.equal(result.value.configurationVerified,false);assert.equal(result.value.preflightVerified,false);assert.equal(result.value.updateExecuted,false);assert(!JSON.stringify(result.value).includes('synthetic preserved'));});
+ await step('actual encrypted authenticated backup matches two fresh source DB/blob snapshots',async()=>{const result=cli(['--quiesced']);assert(result.ok);assert.equal(result.value.backupId,verified.manifest.id);assert.equal(result.value.authenticatedManifestSha256,hash(manifestBytes));assert.equal(result.value.currentInventoryVerified,true);assert.equal(result.value.configurationVerified,false);assert.equal(result.value.preflightVerified,false);assert.equal(result.value.updateExecuted,false);observation=result.value;assert(!JSON.stringify(result.value).includes('synthetic preserved'));});
  await step('missing quiescence acknowledgement refuses before observation',async()=>{assert.equal(cli().ok,false);});
  await step('tampered private authenticated manifest refuses pinned raw hash',async()=>{try{await writeFile(manifestPath,Buffer.concat([manifestBytes,Buffer.from(' ')]),{mode:0o600});assert.equal(cli(['--quiesced']).ok,false);}finally{await writeFile(manifestPath,manifestBytes,{mode:0o600});}});
  await step('committed source row change refuses and exact row restoration matches again',async()=>{try{await source.pool.query("UPDATE synthetic_update_rows SET value='synthetic changed row'");assert.equal(cli(['--quiesced']).ok,false);}finally{await source.pool.query("UPDATE synthetic_update_rows SET value='synthetic preserved row'");}assert(cli(['--quiesced']).ok);});
@@ -32,7 +41,7 @@ try{
  await step('busy exclusive maintenance fence refuses and is usable after unlock',async()=>{const c=await source.pool.connect();try{await c.query('SELECT pg_advisory_lock(82002)');assert.equal(cli(['--quiesced']).ok,false);}finally{await c.query('SELECT pg_advisory_unlock(82002)');c.release();}assert(cli(['--quiesced']).ok);});
  await step('foreign database identity cannot supply original source proof',async()=>{const foreign=await backends.postgres('foreign');assert.equal(cli(['--quiesced'],{DATABASE_URL:`postgresql://postgres:${foreign.password}@127.0.0.1:${foreign.database.port}/postgres`}).ok,false);});
  await step('final source inventory and original authenticated bytes remain exact',async()=>{assert.deepEqual(await readFile(manifestPath),manifestBytes);assert.deepEqual(await store.get('synthetic/objects/preserved'),originalObject);assert(cli(['--quiesced']).ok);});
- report={checks,manifestSha256:hash(manifestBytes),backupId:verified.manifest.id,sourceRetained:true,containersStoppedAndRetained:false,fullManagerPreflightVerified:false};
+ report={checks,manifestSha256:hash(manifestBytes),backupId:verified.manifest.id,sourceRetained:true,containersStoppedAndRetained:false,fullManagerPreflightVerified:false,maintenanceImage:process.env.BACKUP_CLI_IMAGE??null,observation};
 }finally{
  for(const pool of backends.pools)await pool.end().catch(()=>{});
  for(const name of backends.containers){assert.equal(backends.run(['inspect','--format','{{index .Config.Labels "exhibitos.service.backup.test"}}',name]),backends.owner);backends.stop(name);}
