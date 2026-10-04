@@ -109,3 +109,37 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
  }catch{await jsonExclusive(join(resolve(options.destination),'restore-failed.json'),{status:'failed'}).catch(()=>{});throw Error('RESTORE_FAILED');}
  finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);}
 }
+
+/** Trusted operator observation only. Pin raw manifest bytes from an authenticated
+ * backup in a trusted update plan; a caller-supplied hash is not backup authentication.
+ * No SQL/blob/configuration writes, dump, restore or update authorization occurs here. */
+export async function verifySourceInventory(options:{pool:Pool;snapshot:Snapshot;manifestBytes:Uint8Array;expectedManifestSha256:string}){
+ const expectedManifestSha256=options.expectedManifestSha256;
+ if(!hex(expectedManifestSha256)||options.manifestBytes.length<1||options.manifestBytes.length>16*1024*1024||sha(options.manifestBytes)!==expectedManifestSha256)throw Error('SOURCE_MANIFEST_MISMATCH');
+ const manifest=JSON.parse(Buffer.from(options.manifestBytes).toString('utf8')) as BackupManifest;validateManifest(manifest);
+ const expected=comparable(manifest.inventory),c=await options.pool.connect();let locked=false,transaction=false;
+ const observe=async()=>{
+  // Fail busy instead of waiting; obtain the fence before either DB snapshot.
+  locked=(await c.query('SELECT pg_try_advisory_lock(82002) AS locked')).rows[0]?.locked===true;
+  if(!locked)throw Error('SOURCE_INVENTORY_BUSY');
+  for(let pass=0;pass<2;pass++){
+   // Two fresh snapshots detect committed noncooperating changes between passes;
+   // an external writer can still race afterwards, so operator quiescence is required.
+   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');transaction=true;
+   await supportedDatabase(c);
+   if(inventoryCanonical(await identity(c))!==inventoryCanonical(manifest.sourceIdentity))throw Error('SOURCE_DATABASE_MISMATCH');
+   const actual=await options.snapshot(c);validateInventory(actual);
+   if(comparable(actual)!==expected)throw Error('SOURCE_INVENTORY_MISMATCH');
+   await c.query('ROLLBACK');transaction=false;
+  }
+  return {operation:'source-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+ };
+ let observation:Awaited<ReturnType<typeof observe>>,broken=false;
+ try{observation=await observe();}finally{
+  if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});
+  if(locked)try{if((await c.query('SELECT pg_advisory_unlock(82002) AS unlocked')).rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}
+  c.release(broken);
+ }
+ if(broken)throw Error('SOURCE_INVENTORY_CLEANUP_FAILED');
+ return observation;
+}
