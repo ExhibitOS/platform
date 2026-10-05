@@ -20,7 +20,7 @@
     "test": "vitest run",
     "build": "npm run notices && npm run build --workspace @exhibitos/studio-contract && npm run build --workspace @exhibitos/storage && npm run build --workspace @exhibitos/api && npm run build --workspace @exhibitos/web",
     "test:e2e": "playwright test",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:contracts",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:contracts && npm run test:packaging",
     "measure:baseline": "node scripts/measure-baseline.mjs",
     "notices": "node scripts/write-notices.mjs",
     "test:contracts": "node --test scripts/contract-consumer.test.mjs",
@@ -50,7 +50,8 @@
     "test:scripting": "npm run build && EXHIBITOS_SCRIPTING_ONLY=1 node scripts/test-experience.mjs",
     "test:realtime": "npm run build && EXHIBITOS_REALTIME_ONLY=1 node scripts/test-experience.mjs",
     "test:opening": "npm run build && EXHIBITOS_OPENING_ONLY=1 node scripts/test-experience.mjs",
-    "test:voice-transport": "node scripts/voice-transport-spike.mjs"
+    "test:voice-transport": "node scripts/voice-transport-spike.mjs",
+    "test:packaging": "node --test scripts/package-local-runtime.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
