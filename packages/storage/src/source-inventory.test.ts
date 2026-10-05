@@ -3,7 +3,7 @@ import {test,expect} from 'vitest';
 import {createHash} from 'node:crypto';
 import type {Pool} from 'pg';
 import type {ServiceInventory} from './service-inventory.js';
-import {verifySourceInventory} from './service-backup.js';
+import {verifySourceInventory,verifyRestoredInventory} from './service-backup.js';
 const hash=(v:string|Uint8Array)=>createHash('sha256').update(v).digest('hex');
 function fixture(){
  const inventory:ServiceInventory={schemaVersion:'1.0.0-draft.1',createdAt:'2026-01-01T00:00:00Z',schemaDigest:hash('schema'),migrations:[{name:'001.sql',sha256:hash('migration')}],tables:[{name:'rows',rowCount:1,sha256:hash('row')},{name:'sequence',rowCount:1,sha256:hash('sequence')}],objects:[{key:'synthetic/objects/one',bytes:3,sha256:hash('obj'),referenced:false,bindings:[]}],references:[],issues:[]};
@@ -46,4 +46,38 @@ test('unsupported application schema and collector failure unwind the read-only 
  const f=fixture(),original=f.client.query;f.client.query=async sql=>sql.includes('SELECT nspname')?{rows:[{nspname:'unbacked'}]}:original(sql);
  await expect(verifySourceInventory(f.options)).rejects.toThrow('BACKUP_UNSUPPORTED_SCHEMA');expect(f.queries.at(-2)).toBe('ROLLBACK');expect(f.queries.at(-1)).toContain('pg_advisory_unlock');
  const g=fixture();await expect(verifySourceInventory({...g.options,snapshot:async()=>{throw Error('synthetic collector failed');}})).rejects.toThrow('synthetic collector failed');expect(g.queries.at(-2)).toBe('ROLLBACK');expect(g.released()).toBe(false);
+});
+
+function candidateFixture(){
+ const f=fixture(),query=f.client.query;
+ f.client.query=async sql=>sql.includes('pg_control_system')?{rows:[{system:'789',oid:'999',database:'synthetic'}]}:query(sql);
+ return {...f,options:{...f.options,snapshotSystemIdentifier:'789'}};
+}
+test('restored inventory binds new physical cluster and repeats complete logical equality',async()=>{
+ const f=candidateFixture(),v=await verifyRestoredInventory(f.options);
+ expect(v.operation).toBe('restored-inventory-matched');expect(v.currentInventoryVerified).toBe(true);
+ expect(v.preflightVerified).toBe(false);expect(v.updateExecuted).toBe(false);
+ expect(f.queries.filter(q=>q==='BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')).toHaveLength(2);
+ await expect(verifySourceInventory(f.options)).rejects.toThrow('SOURCE_DATABASE_MISMATCH');
+});
+test('candidate original, invalid and foreign physical identities refuse before inventory',async()=>{
+ const f=candidateFixture();await expect(verifyRestoredInventory({...f.options,snapshotSystemIdentifier:'123'})).rejects.toThrow('CANDIDATE_ORIGINAL_DATABASE');expect(f.queries).toEqual([]);
+ for(const id of ['', '0','01','-1','18446744073709551616','123,other'])await expect(verifyRestoredInventory({...f.options,snapshotSystemIdentifier:id})).rejects.toThrow('CANDIDATE_DATABASE_ID_INVALID');
+ expect(f.queries).toEqual([]);
+ await expect(verifyRestoredInventory({...f.options,snapshotSystemIdentifier:'999'})).rejects.toThrow('CANDIDATE_DATABASE_MISMATCH');expect(f.queries.at(-1)).toContain('pg_advisory_unlock');
+});
+test.each(['row','sequence','object','migration','schema','second-pass'])('restored candidate changed %s refuses equality',async kind=>{
+ const f=candidateFixture();let pass=0;
+ const snapshot=async()=>{const v=structuredClone(f.inventory);if(kind==='second-pass'&&++pass===1)return v;
+ if(kind==='row'||kind==='second-pass')v.tables[0]!.sha256=hash('changed');
+ if(kind==='sequence')v.tables[1]!.sha256=hash('changed');
+ if(kind==='object')v.objects[0]!.sha256=hash('changed');
+ if(kind==='migration')v.migrations[0]!.sha256=hash('changed');
+ if(kind==='schema')v.schemaDigest=hash('changed');return v;};
+ await expect(verifyRestoredInventory({...f.options,snapshot})).rejects.toThrow('SOURCE_INVENTORY_MISMATCH');expect(f.released()).toBe(false);
+});
+test('restored manifest binding precedes connection and unlock failure refuses success',async()=>{
+ const f=candidateFixture();await expect(verifyRestoredInventory({...f.options,expectedManifestSha256:hash('foreign')})).rejects.toThrow('SOURCE_MANIFEST_MISMATCH');expect(f.queries).toEqual([]);
+ const query=f.client.query;f.client.query=async sql=>sql.includes('pg_advisory_unlock')?{rows:[{unlocked:false}]}:query(sql);
+ await expect(verifyRestoredInventory(f.options)).rejects.toThrow('SOURCE_INVENTORY_CLEANUP_FAILED');expect(f.released()).toBe(true);
 });

@@ -113,10 +113,23 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
 /** Trusted operator observation only. Pin raw manifest bytes from an authenticated
  * backup in a trusted update plan; a caller-supplied hash is not backup authentication.
  * No SQL/blob/configuration writes, dump, restore or update authorization occurs here. */
-export async function verifySourceInventory(options:{pool:Pool;snapshot:Snapshot;manifestBytes:Uint8Array;expectedManifestSha256:string}){
+type InventoryObservationOptions={pool:Pool;snapshot:Snapshot;manifestBytes:Uint8Array;expectedManifestSha256:string};
+export async function verifySourceInventory(options:InventoryObservationOptions){
+ return observeInventory(options);
+}
+/** Restored candidate only: bind the isolated physical copy's observed identifier,
+ * require a different cluster from the authenticated original, then compare the
+ * complete logical inventory twice. This does not grant activation or preflight. */
+export async function verifyRestoredInventory(options:InventoryObservationOptions&{snapshotSystemIdentifier:string}){
+ const id=options.snapshotSystemIdentifier;
+ if(!/^[1-9][0-9]{0,19}$/.test(id)||BigInt(id)>18446744073709551615n)throw Error('CANDIDATE_DATABASE_ID_INVALID');
+ return observeInventory(options,id);
+}
+async function observeInventory(options:InventoryObservationOptions,candidateSystemIdentifier?:string){
  const expectedManifestSha256=options.expectedManifestSha256;
  if(!hex(expectedManifestSha256)||options.manifestBytes.length<1||options.manifestBytes.length>16*1024*1024||sha(options.manifestBytes)!==expectedManifestSha256)throw Error('SOURCE_MANIFEST_MISMATCH');
  const manifest=JSON.parse(Buffer.from(options.manifestBytes).toString('utf8')) as BackupManifest;validateManifest(manifest);
+ if(candidateSystemIdentifier===manifest.sourceIdentity.systemIdentifier)throw Error('CANDIDATE_ORIGINAL_DATABASE');
  const expected=comparable(manifest.inventory),c=await options.pool.connect();let locked=false,transaction=false;
  const observe=async()=>{
   // Fail busy instead of waiting; obtain the fence before either DB snapshot.
@@ -127,12 +140,15 @@ export async function verifySourceInventory(options:{pool:Pool;snapshot:Snapshot
    // an external writer can still race afterwards, so operator quiescence is required.
    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');transaction=true;
    await supportedDatabase(c);
-   if(inventoryCanonical(await identity(c))!==inventoryCanonical(manifest.sourceIdentity))throw Error('SOURCE_DATABASE_MISMATCH');
+   const current=await identity(c);
+   if(candidateSystemIdentifier===undefined){
+    if(inventoryCanonical(current)!==inventoryCanonical(manifest.sourceIdentity))throw Error('SOURCE_DATABASE_MISMATCH');
+   }else if(current.systemIdentifier!==candidateSystemIdentifier||current.database!==manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
    const actual=await options.snapshot(c);validateInventory(actual);
    if(comparable(actual)!==expected)throw Error('SOURCE_INVENTORY_MISMATCH');
    await c.query('ROLLBACK');transaction=false;
   }
-  return {operation:'source-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+  return {operation:candidateSystemIdentifier===undefined?'source-inventory-matched':'restored-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
  };
  let observation:Awaited<ReturnType<typeof observe>>,broken=false;
  try{observation=await observe();}finally{
