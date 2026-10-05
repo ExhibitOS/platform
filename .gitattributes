@@ -12,3 +12,6 @@
 *.webp binary
 *.ktx2 binary
 *.oex binary
+
+# Hash-bound third-party license bytes must survive Windows autocrlf checkout.
+/vendor/notices/ltc-LICENSE.txt -text
