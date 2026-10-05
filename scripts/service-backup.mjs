@@ -90,9 +90,9 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
 }
 
 function parse(argv){
- const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration'].includes(command))fail('BACKUP_USAGE');
- for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
- if(!['check-source-inventory','check-source-configuration'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');return {command,flags};
+ const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command))fail('BACKUP_USAGE');
+ for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256','--snapshot-system-identifier'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
+ if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&flags['--snapshot-system-identifier'])fail('BACKUP_USAGE');return {command,flags};
 }
 async function storeFor(environment){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
@@ -132,12 +132,13 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   return backup.verifySourceConfiguration({manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],configuration});
  }
- if(command==='check-source-inventory'){
-  if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
+ if(command==='check-source-inventory'||command==='check-restored-inventory'){
+  const required=command==='check-restored-inventory'?'--manifest-file,--manifest-sha256,--quiesced,--snapshot-system-identifier':'--manifest-file,--manifest-sha256,--quiesced';
+  if(Object.keys(flags).sort().join(',')!==required||!flags['--quiesced'])fail('BACKUP_USAGE');
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{return await backup.verifySourceInventory({pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})});}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
   finally{await pool.end();blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
