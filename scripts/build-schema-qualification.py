@@ -5,8 +5,10 @@ Caller must budget build cache plus OCI bytes before execution. No service data,
 keys, private repositories or operation profiles enter the allowlisted context.
 This is a development qualification release, not a production publisher.
 """
-import argparse,hashlib,json,os,re,stat,subprocess
+import argparse,hashlib,json,os,re,stat,subprocess,sys
 from pathlib import Path
+if sys.flags.optimize:
+ raise RuntimeError('qualification requires assertions enabled')
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--output-directory',type=Path,required=True)
 a=p.parse_args();root=Path(__file__).resolve().parents[1];out=a.output_directory
