@@ -16,6 +16,7 @@ for name in ('source-root','manifest','manifest-sha256','postgres-container','ru
  parser.add_argument('--'+name,required=True)
 parser.add_argument('--runtime-image')
 parser.add_argument('--expected-target-schema')
+parser.add_argument('--retained-catalog-inventory',action='store_true')
 a=parser.parse_args()
 assert bool(a.runtime_image)==bool(a.expected_target_schema)
 if a.runtime_image: assert a.runtime_image.startswith('sha256:') and len(a.runtime_image)==71 and len(a.expected_target_schema)==64
@@ -81,6 +82,7 @@ try:
  def observe(extra=(),error=False,exercise=False):
   name='exhibitos-restored-schema-reader-'+str(uuid.uuid4())
   args=['run','--name',name,'--interactive','--pull','never','--label',label,'--network',network,'--user','1000:1000','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','256m','--pids-limit','32','--tmpfs','/var/lib/postgresql:rw,size=1m','--mount','type=volume,source='+blobvolume+',target=/data/blobs,readonly','--mount','type=bind,source='+str(root/'packages/storage/dist')+',target=/opt/exhibitos/packages/storage/dist,readonly','--mount','type=bind,source='+str(root/'scripts/qualify-runtime-schema.mjs')+',target=/opt/exhibitos/scripts/qualify-runtime-schema.mjs,readonly','--mount','type=bind,source='+str(root/'database/migrations')+',target=/original-migrations,readonly','--env-file',str(source/'runtime.env'),'--env','EXHIBITOS_SCHEMA_QUALIFICATION_DATABASE_URL','--env','BLOB_ROOT=/data/blobs','--env','EXHIBITOS_SCHEMA_MODE=restored','--env','EXHIBITOS_SCHEMA_MANIFEST_SHA256='+pin,'--env','EXHIBITOS_SCHEMA_SNAPSHOT_SYSTEM_IDENTIFIER='+physical,'--env','EXHIBITOS_SCHEMA_ORIGINAL_MIGRATION_DIRECTORY=/original-migrations']
+  if a.retained_catalog_inventory and not exercise:args+=['--env','EXHIBITOS_SCHEMA_RETAINED_CATALOG=1']
   if exercise:
    overlay='type=bind,source='+str(root/'packages/storage/dist')+',target=/opt/exhibitos/packages/storage/dist,readonly'
    index=args.index(overlay);assert args[index-1]=='--mount';del args[index-1:index+1]
@@ -93,7 +95,9 @@ try:
   assert not v['State']['Running'] and v['Image']==actual_image and v['HostConfig']['ReadonlyRootfs'] and v['HostConfig']['NetworkMode']==network and v['Config']['User']=='1000:1000' and all(not m['RW'] for m in v['Mounts']) and v['Config']['Labels']['org.exhibitos.restored.schema']==nonce
   record('helper-'+name+'.json',{'inspect':safe,'exit_code':r.returncode,'stdout':r.stdout.decode(),'stderr':r.stderr.decode()})
   if error:assert r.returncode!=0;return json.loads(r.stderr)
-  assert r.returncode==0,r.stderr.decode();proof=json.loads(r.stdout);assert proof['restoredContextVerified'] and proof['originalDataPreserved'] and not proof['updateExecuted'];run(['rm',v['Id']]);return proof
+  assert r.returncode==0,r.stderr.decode();proof=json.loads(r.stdout);assert proof['restoredContextVerified'] and proof['originalDataPreserved'] and not proof['updateExecuted'];
+  if a.retained_catalog_inventory and not exercise:assert proof['inventoryCollection']=='retained-target-catalog'
+  run(['rm',v['Id']]);return proof
  original=observe();assert original['sourceSchemaSha256']==original['targetSchemaSha256']==a.expected_source_schema;record('source-catalog.json',original)
  failed=observe([failure],error=True);assert failed['phase']=='migration' and failed['databaseCode']=='42P01';record('failed-migration.json',failed)
  recovered=observe();assert recovered['targetSchemaSha256']==original['targetSchemaSha256'];record('post-failed-migration-catalog.json',recovered)
