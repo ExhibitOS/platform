@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {describe,it,expect} from 'vitest';
 import {createHash} from 'node:crypto';
-import {mkdtemp} from 'node:fs/promises';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {PoolClient} from 'pg';
@@ -37,4 +37,29 @@ it('hashes PostgreSQL raw numeric rows without IEEE754 rounding',async()=>{
  const a=await run(first),b=await run(second);
  expect(a.tables[0]?.sha256).toBe(createHash('sha256').update(first+'\n').digest('hex'));
  expect(b.tables[0]?.sha256).not.toBe(a.tables[0]?.sha256);
+});
+
+
+describe('retained migration catalog inventory',()=>{
+ const sql='CREATE TABLE fixture(id bigint PRIMARY KEY);',entry={name:'000001_fixture.sql',sha256:createHash('sha256').update(sql).digest('hex')};
+ const blobs={listAll:async()=>[]} as unknown as BlobStore;
+ const client=(migrations:{name:string;sha256:string}[],onQuery?:()=>void)=>({query:async(sql:string)=>{onQuery?.();return {rows:sql.startsWith('SELECT name,sha256 FROM schema_migrations')?migrations:[],rowCount:0};}} as unknown as PoolClient);
+ it('observes the same whole catalog/schema as the existing directory path',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'exhibitos-catalog-inventory-'));
+  try{await writeFile(join(directory,entry.name),sql);const a=await collectServiceInventory(client([entry]),blobs,{migrationDirectory:directory}),b=await collectServiceInventory(client([entry]),blobs,{migrationCatalog:[entry]});
+   expect({...a,createdAt:''}).toEqual({...b,createdAt:''});expect(b.issues).toEqual([]);
+  }finally{await rm(directory,{recursive:true});}
+ });
+ it('reports missing, replaced and unknown database migrations without accepting input as an observation',async()=>{
+  const wrong={...entry,sha256:'b'.repeat(64)},extra={name:'000002_extra.sql',sha256:'c'.repeat(64)};
+  for(const actual of [[],[wrong],[entry,extra]]){const r=await collectServiceInventory(client(actual),blobs,{migrationCatalog:[entry]});expect(r.migrations).toEqual(actual);expect(r.issues.length).toBeGreaterThan(0);}
+ });
+ it('captures the complete caller catalog before asynchronous database queries',async()=>{
+  const mutable=[{...entry}];let called=false;const r=await collectServiceInventory(client([entry],()=>{if(!called){called=true;mutable[0]!.sha256='b'.repeat(64);mutable.length=0;}}),blobs,{migrationCatalog:mutable});expect(r.issues).toEqual([]);
+ });
+ it.each(['empty','duplicate','unsorted','escape','hash','unknown','both','tenant'])('refuses %s before database or blob access',async kind=>{
+  let queried=false;const second={name:'000002_extra.sql',sha256:'b'.repeat(64)};let catalog:unknown=[entry];const extra:Record<string,unknown>={};
+  if(kind==='empty')catalog=[];if(kind==='duplicate')catalog=[entry,entry];if(kind==='unsorted')catalog=[second,entry];if(kind==='escape')catalog=[{...entry,name:'../escape.sql'}];if(kind==='hash')catalog=[{...entry,sha256:'invalid'}];if(kind==='unknown')catalog=[{...entry,verified:true}];if(kind==='both')extra.migrationDirectory='/unused';if(kind==='tenant')extra.tenantId=tenant;
+  await expect(collectServiceInventory(client([],()=>{queried=true;}),blobs,{migrationCatalog:catalog,...extra} as never)).rejects.toThrow('MIGRATION_CATALOG_INVALID');expect(queried).toBe(false);
+ });
 });
