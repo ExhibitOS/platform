@@ -353,3 +353,43 @@ Image regression seeds the authenticated immutable manifest into the same privat
 `check-restored-inventory --manifest-file <private-file> --manifest-sha256 <authenticated-hash> --snapshot-system-identifier <observed-id> --quiesced` is a separate trusted operator check. Manager obtains the decimal PostgreSQL cluster identifier from `pg_controldata` on its fresh, byte-verified physical copy. The isolated read-only server must report that exact identifier, a different cluster from the authenticated original, and the same database name. Two complete logical inventories must match the authenticated backup. Source observation still requires the original physical database identity; it cannot accept candidate evidence.
 
 This check writes only to an independent physical snapshot needed to start the isolated PostgreSQL reader. It does not start the original or candidate service, authorize activation, prove current configuration or image bytes, advance update state, or constitute full backup/rollback qualification. The supplied manifest hash and physical identifier require a trusted calling adapter; arbitrary operator values are not authentication. The command adds an optional capability; existing backup formats and source commands are unchanged.
+
+
+### Additive migration preservation prerequisite
+
+The operator API `verifyMigratedInventory` is separate from exact restoration.
+It requires authenticated raw backup manifest bytes and their trusted hash, the
+new candidate's observed physical identifier, and a target schema hash plus
+ordered migration checksums supplied by trusted artifact inspection. Arbitrary
+caller values do not authenticate an artifact or backup. Existing restoration
+continues to require the original complete logical inventory.
+
+The target migrations must strictly extend the original sorted list without
+changing any original SQL checksum. Under the maintenance lock, two fresh read
+only transactions compare every original table and sequence's count and hash,
+all blob bytes, bindings and references, and the exact expected target catalog.
+Original `schema_migrations` rows are queried separately, including their original
+`applied_at` values, and must match the original backup hash. The full target
+inventory must also remain unchanged between observations. Busy locks, changed
+physical identities, unknown schemas, inventory issues or failed cleanup refuse
+success.
+
+This supports only changes preserving the existing full row representation.
+Column/data transformations remain unqualified. New-table contents are observed
+for stability, but are not authenticated as migration-authored data. Success
+reports `originalDataPreserved:true`, `currentInventoryVerified:false`,
+`configurationVerified:false`, `preflightVerified:false`, and
+`updateExecuted:false`. Configuration, signed artifact compatibility, actual
+health, complete recovery and activation need separate proofs. Manager's changed
+schema execution gate remains closed until those integrations are qualified.
+
+The small native component regression is
+`scripts/migration-preservation-native.mjs`. Build Storage first and explicitly
+provide `EXHIBITOS_MIGRATION_TEST_DATABASE_URL` for a fresh disposable PostgreSQL
+cluster. The script refuses an existing public schema and creates synthetic SQL
+fixtures. It mutates that disposable database to exercise row/sequence/history
+faults and actual failed-SQL transaction rollback. Never point it at service data.
+The fixture uses an in-memory synthetic blob store and a synthetic manifest; it
+is not an encrypted backup, artifact authentication or Manager end-to-end proof.
+For low disk usage, run PostgreSQL in a bounded isolated tmpfs instead of keeping
+a new database volume or full verification-tree copy for each run.

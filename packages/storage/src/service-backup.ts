@@ -160,6 +160,69 @@ async function observeInventory(options:InventoryObservationOptions,candidateSys
  return observation;
 }
 
+/** Operator-only prerequisite for additive migrations. Trusted artifact inspection
+ * must supply the target schema/migrations; this function does not authenticate
+ * an artifact or authorize activation. Existing rows, sequence state, objects and
+ * references must remain byte-identical. Column/data transformations are refused.
+ * New tables may exist; their content is not attested as migration-authored data.
+ * Configuration, runtime health and recoverability require separate proofs. */
+export async function verifyMigratedInventory(options:InventoryObservationOptions&{
+ snapshotSystemIdentifier:string;targetSchemaSha256:string;
+ targetMigrations:ServiceInventory['migrations'];
+}){
+ const manifestBytes=Buffer.from(options.manifestBytes),expectedManifestSha256=options.expectedManifestSha256;
+ if(!hex(expectedManifestSha256)||manifestBytes.length<1||manifestBytes.length>16*1024*1024||sha(manifestBytes)!==expectedManifestSha256)throw Error('SOURCE_MANIFEST_MISMATCH');
+ const manifest=JSON.parse(manifestBytes.toString('utf8')) as BackupManifest;validateManifest(manifest);
+ const candidate=options.snapshotSystemIdentifier,targetSchemaSha256=options.targetSchemaSha256;
+ if(!/^[1-9][0-9]{0,19}$/.test(candidate)||BigInt(candidate)>18446744073709551615n)throw Error('CANDIDATE_DATABASE_ID_INVALID');
+ if(candidate===manifest.sourceIdentity.systemIdentifier)throw Error('CANDIDATE_ORIGINAL_DATABASE');
+ const targetMigrations=structuredClone(options.targetMigrations);
+ const ordered=(entries:ServiceInventory['migrations'])=>Array.isArray(entries)&&entries.length>0&&entries.length<=10000&&entries.every((m,i)=>m&&typeof m.name==='string'&&/^[0-9][a-zA-Z0-9_.-]*\.sql$/.test(m.name)&&m.name.length<=1024&&hex(m.sha256)&&(!i||entries[i-1]!.name<m.name));
+ if(!hex(targetSchemaSha256)||!ordered(manifest.inventory.migrations)||!ordered(targetMigrations)||targetMigrations.length<=manifest.inventory.migrations.length||inventoryCanonical(targetMigrations.slice(0,manifest.inventory.migrations.length))!==inventoryCanonical(manifest.inventory.migrations))throw Error('MIGRATION_TARGET_INVALID');
+ const schemaHash=(v:ServiceInventory)=>sha(inventoryCanonical({schemaDigest:v.schemaDigest,schemaVersion:v.schemaVersion,migrations:v.migrations}));
+ if(targetSchemaSha256===schemaHash(manifest.inventory))throw Error('MIGRATION_TARGET_INVALID');
+ const uniqueTables=(v:ServiceInventory)=>new Set(v.tables.map(t=>t.name)).size===v.tables.length;
+ const sourceLog=manifest.inventory.tables.find(t=>t.name==='schema_migrations');
+ if(!uniqueTables(manifest.inventory)||!sourceLog||sourceLog.rowCount!==manifest.inventory.migrations.length)throw Error('MIGRATION_SOURCE_INVALID');
+ const c=await options.pool.connect();let locked=false,transaction=false,broken=false;
+ const history=async()=>{
+  // Hash only the original log rows, including applied_at. Never drop this table
+  // from preservation checks just because new migration rows are expected.
+  await c.query("SET LOCAL TimeZone='UTC'");await c.query("SET LOCAL DateStyle='ISO, YMD'");await c.query('SET LOCAL extra_float_digits=3');
+  const cursor='migration_history_'+randomUUID().replaceAll('-',''),digest=createHash('sha256');let rowCount=0;
+  await c.query(`DECLARE "${cursor}" NO SCROLL CURSOR FOR SELECT to_jsonb(t)::text AS raw FROM public.schema_migrations t WHERE name=ANY($1::text[]) ORDER BY to_jsonb(t)::text COLLATE "C"`,[manifest.inventory.migrations.map(m=>m.name)]);
+  try{for(;;){const batch=await c.query(`FETCH 1000 FROM "${cursor}"`);if(!batch.rows.length)break;for(const row of batch.rows){if(typeof row.raw!=='string'||++rowCount>sourceLog.rowCount)throw Error('MIGRATION_HISTORY_MISMATCH');digest.update(row.raw+'\n');}}}finally{await c.query(`CLOSE "${cursor}"`);}
+  if(rowCount!==sourceLog.rowCount||digest.digest('hex')!==sourceLog.sha256)throw Error('MIGRATION_HISTORY_MISMATCH');
+ };
+ const observe=async()=>{
+  locked=(await c.query('SELECT pg_try_advisory_lock(82002) AS locked')).rows[0]?.locked===true;if(!locked)throw Error('SOURCE_INVENTORY_BUSY');
+  let previous:string|undefined;
+  for(let pass=0;pass<2;pass++){
+   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');transaction=true;
+   await supportedDatabase(c);const current=await identity(c);
+   if(current.systemIdentifier!==candidate||current.database!==manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
+   const actual=await options.snapshot(c);validateInventory(actual);
+   if(!uniqueTables(actual)||schemaHash(actual)!==targetSchemaSha256||inventoryCanonical(actual.migrations)!==inventoryCanonical(targetMigrations))throw Error('MIGRATION_SCHEMA_MISMATCH');
+   for(const table of manifest.inventory.tables){if(table.name==='schema_migrations')continue;const found=actual.tables.find(t=>t.name===table.name);if(!found||inventoryCanonical(found)!==inventoryCanonical(table))throw Error('MIGRATION_DATA_MISMATCH');}
+   if(inventoryCanonical(actual.objects)!==inventoryCanonical(manifest.inventory.objects)||inventoryCanonical(actual.references)!==inventoryCanonical(manifest.inventory.references))throw Error('MIGRATION_DATA_MISMATCH');
+   const log=actual.tables.find(t=>t.name==='schema_migrations');if(!log||log.rowCount!==targetMigrations.length)throw Error('MIGRATION_HISTORY_MISMATCH');
+   await history();const observed=comparable(actual);
+   // Detect even new-table changes between passes, without claiming their content
+   // is authenticated by the original backup.
+   if(previous!==undefined&&previous!==observed)throw Error('MIGRATION_OBSERVATION_CHANGED');previous=observed;
+   await c.query('ROLLBACK');transaction=false;
+  }
+  return {operation:'migrated-inventory-preserved' as const,backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,sourceInventorySha256:sha(inventoryCanonical(manifest.inventory)),sourceSchemaSha256:schemaHash(manifest.inventory),targetSchemaSha256,targetMigrationsSha256:sha(inventoryCanonical(targetMigrations)),observedAt:new Date().toISOString(),originalDataPreserved:true,currentInventoryVerified:false,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+ };
+ let observation:Awaited<ReturnType<typeof observe>>;
+ try{observation=await observe();}finally{
+  if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});
+  if(locked)try{if((await c.query('SELECT pg_advisory_unlock(82002) AS unlocked')).rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}
+  c.release(broken);
+ }
+ if(broken)throw Error('SOURCE_INVENTORY_CLEANUP_FAILED');return observation;
+}
+
 /** Trusted operator only: the exact complete configuration name set must be bound
  * to authenticated backup bytes. Repeated reads do not isolate external writers.
  * Readers return fresh owned byte buffers, erased after comparison. */
