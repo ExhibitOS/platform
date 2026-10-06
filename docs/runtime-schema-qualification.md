@@ -1,0 +1,34 @@
+# Runtime schema qualification
+
+`qualify-runtime-schema.mjs` is an operator prerequisite for independently observing a target catalog. It does not authorize Manager updates or attest a signed runtime artifact. A bootstrap catalog can omit additional tables in an installed service; use the full restored source context for compatibility work.
+
+## Full restored context with bounded storage
+
+Build storage with `npm run build`. Prepare an independently authenticated service manifest, stopped restored source services, exact local PostgreSQL/maintenance image IDs, and a fresh private result path. The operator must prevent other privileged writers throughout the test. Run:
+
+```sh
+python3 scripts/test-restored-runtime-schema.py \
+  --source-root <canonical-restored-installation> \
+  --manifest <authenticated-manifest-within-source-root> \
+  --manifest-sha256 <trusted-exact-manifest-sha256> \
+  --postgres-container <exact-64-character-stopped-container-id> \
+  --runtime-container <exact-64-character-stopped-container-id> \
+  --postgres-image sha256:<exact-existing-image-id> \
+  --maintenance-image sha256:<exact-existing-maintenance-image-id> \
+  --expected-source-schema <authenticated-source-schema-sha256> \
+  --output-directory <new-canonical-private-result-directory>
+```
+
+The driver supports the existing PostgreSQL18 `/var/lib/postgresql/18/docker` layout and `database` internal hostname. It pins Compose ownership, immutable images, source volume names, private regular manifest/environment files, and stopped services. It observes the complete physical source tree before and after, and refuses an existing active writer. These observations do not exclude a later privileged writer; run only in an isolated operator environment.
+
+It copies the entire source cluster into a **256MiB tmpfs**. Source DB/blob mounts remain readonly; no ports or new persistent volumes are created. It first requires exact original inventory/schema equality, then executes deliberately failing synthetic SQL and verifies transaction rollback by complete original inventory equality. It observes a successful additive SQL migration twice, verifies original rows/sequences/blob bindings and historical migration rows, and refuses replay against the original pre-migration manifest. The original services are never started. A stopped scratch DB releases its tmpfs even on failure; inspected container metadata is retained on failure and original volumes/images are preserved. Private reports may include paths and synthetic catalog metadata; never commit private environment values or original manifests.
+
+The script is a synthetic qualification driver, not a general migration command. It preserves every additional public table in the restored source. Non-public custom schemas are unsupported and refused. Transformations of original rows are not qualified by the additive preservation contract.
+
+## Direct operator adapter
+
+Explicitly provide `EXHIBITOS_SCHEMA_QUALIFICATION_DATABASE_URL`. For restored mode, set `EXHIBITOS_SCHEMA_MODE=restored`, `EXHIBITOS_SCHEMA_MANIFEST_SHA256`, `EXHIBITOS_SCHEMA_SNAPSHOT_SYSTEM_IDENTIFIER`, `EXHIBITOS_SCHEMA_ORIGINAL_MIGRATION_DIRECTORY`, `EXHIBITOS_SCHEMA_MIGRATION_DIRECTORY`, and `BLOB_ROOT`; send raw authenticated manifest bytes on standard input. The outer maintenance advisory lock spans original inventory, SQL migration, target observations, and preservation. Original inventory and preservation verifiers borrow the same client and release only their own reentrant lock acquisitions.
+
+Fresh mode requires `EXHIBITOS_SCHEMA_SOURCE_SYSTEM_IDENTIFIER` and an empty public schema in a different disposable cluster. Its output sets `originalDataPreserved=false`; it cannot replace the restored-context result.
+
+Both modes return a canonical catalog (`schemaVersion`, `schemaDigest`, `migrations`) and `targetSchemaSha256`. `artifactAuthenticated`, `compatibilityQualified`, `configurationVerified`, `preflightVerified`, and `updateExecuted` remain false. A caller must independently bind the complete SQL artifact and signed plan, retained native identities and full recovery proof before admitting a real update. SQL transaction rollback here does not prove full host/configuration/image rollback, cold recovery, crash recovery, GUI behavior, or Windows compatibility.
