@@ -32,3 +32,21 @@ Explicitly provide `EXHIBITOS_SCHEMA_QUALIFICATION_DATABASE_URL`. For restored m
 Fresh mode requires `EXHIBITOS_SCHEMA_SOURCE_SYSTEM_IDENTIFIER` and an empty public schema in a different disposable cluster. Its output sets `originalDataPreserved=false`; it cannot replace the restored-context result.
 
 Both modes return a canonical catalog (`schemaVersion`, `schemaDigest`, `migrations`) and `targetSchemaSha256`. `artifactAuthenticated`, `compatibilityQualified`, `configurationVerified`, `preflightVerified`, and `updateExecuted` remain false. A caller must independently bind the complete SQL artifact and signed plan, retained native identities and full recovery proof before admitting a real update. SQL transaction rollback here does not prove full host/configuration/image rollback, cold recovery, crash recovery, GUI behavior, or Windows compatibility.
+
+## Genuine development artifact
+
+After a clean committed checkout and a passing storage budget, run
+`python3 scripts/build-schema-qualification.py --output-directory <fresh-private-directory>`.
+It builds the complete allowlisted Platform source with Dockerfile.local plus the
+synthetic additive SQL used by the restored-context driver, and exports a tagless
+linux/arm64 OCI without loading or starting it. The original migration files stay
+byte-identical. The report pins source, generated Dockerfile, SQL, OCI bytes and
+BuildKit image digest. Build cache and export bytes must both be budgeted. This
+development fixture is separate from production release authority.
+
+Use the Manager OCI inspector with the full restored-context target catalog, its
+exact private bytes pin, the authenticated original manifest and observed target
+schema hash. Then independently verify an ephemeral development Ed25519 envelope
+against the entire OCI byte stream. These bindings do not admit a native update:
+Rust typed compatibility, full failure recovery and original-scope cold/crash
+checks remain required. Never replace them with a green artifact receipt.

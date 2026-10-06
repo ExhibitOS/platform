@@ -7,8 +7,10 @@ are readonly. Synthetic SQL is never applied to original services. Results and
 failure metadata stay in a private caller-selected output directory.
 """
 from pathlib import Path
-import argparse,json,subprocess,uuid,ipaddress,hashlib,time,os,stat
+import argparse,json,subprocess,uuid,ipaddress,hashlib,time,os,stat,sys
 from urllib.parse import urlsplit
+if sys.flags.optimize:
+ raise RuntimeError('qualification requires assertions enabled')
 parser=argparse.ArgumentParser(description=__doc__)
 for name in ('source-root','manifest','manifest-sha256','postgres-container','runtime-container','postgres-image','maintenance-image','expected-source-schema','output-directory'):
  parser.add_argument('--'+name,required=True)
