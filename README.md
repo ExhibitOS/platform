@@ -181,3 +181,5 @@ node scripts/package-local-runtime.mjs C:\ExhibitOS\new-runtime --platform linux
 이는 로컬 소스 빌드 도구입니다. 배포 서명·공증·자동 업데이트 권한이나 Windows 실제 설치/복원 검증을 대신하지 않습니다. `npm run test:packaging`은 파일 보존/잘못된 옵션/합성 subprocess의 아키텍처 불일치 거부 검사이며 실제 Docker 검사는 별도로 실행합니다.
 
 Windows Git checkout은 해시로 고정한 LTC 원문 라이선스의 바이트를 `.gitattributes`로 보존합니다. `core.autocrlf=true` 환경도 검사합니다. 이전 checkout의 변환된 파일은 설정 변경만으로 자동 복구되지 않으므로 수정본을 새 폴더에 clone하세요. 라이선스 해시 검사는 계속 적용되며, 실패한 묶음 폴더는 덮어쓰지 않습니다. 재시도에는 Manager에서 만든 새 검사 공간을 사용하세요.
+
+복원된 원본 문맥에서 새 Runtime을 실행하고 데이터 보존을 검사하는 개발 도구는 [Runtime 검사 안내](docs/runtime-packaging.md)를 참고하세요. 이 검사는 Manager 전체 업데이트·복구 완료를 뜻하지 않습니다.

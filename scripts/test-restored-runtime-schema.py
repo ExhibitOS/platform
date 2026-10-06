@@ -14,7 +14,11 @@ if sys.flags.optimize:
 parser=argparse.ArgumentParser(description=__doc__)
 for name in ('source-root','manifest','manifest-sha256','postgres-container','runtime-container','postgres-image','maintenance-image','expected-source-schema','output-directory'):
  parser.add_argument('--'+name,required=True)
+parser.add_argument('--runtime-image')
+parser.add_argument('--expected-target-schema')
 a=parser.parse_args()
+assert bool(a.runtime_image)==bool(a.expected_target_schema)
+if a.runtime_image: assert a.runtime_image.startswith('sha256:') and len(a.runtime_image)==71 and len(a.expected_target_schema)==64
 root=Path(__file__).resolve().parents[1]
 source=Path(a.source_root);manifest=Path(a.manifest);out=Path(a.output_directory)
 assert source.is_absolute() and source.resolve()==source and source.is_dir()
@@ -74,25 +78,32 @@ try:
  physical=run(['exec',db,'psql','-h','/tmp','-U','exhibitos','-d','exhibitos','-Atc','SELECT system_identifier::text FROM pg_control_system()']).stdout.decode().strip()
  extension=out/'999998_schema_qualification.sql';extension.write_text('CREATE TABLE exhibitos_schema_qualification(id bigint PRIMARY KEY, marker text NOT NULL);');extension.chmod(0o444)
  failure=out/'999999_failed_schema_qualification.sql';failure.write_text('CREATE TABLE qualification_must_rollback(id bigint); SELECT * FROM qualification_definitely_absent;');failure.chmod(0o444)
- def observe(extra=(),error=False):
+ def observe(extra=(),error=False,exercise=False):
   name='exhibitos-restored-schema-reader-'+str(uuid.uuid4())
   args=['run','--name',name,'--interactive','--pull','never','--label',label,'--network',network,'--user','1000:1000','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges:true','--memory','256m','--pids-limit','32','--tmpfs','/var/lib/postgresql:rw,size=1m','--mount','type=volume,source='+blobvolume+',target=/data/blobs,readonly','--mount','type=bind,source='+str(root/'packages/storage/dist')+',target=/opt/exhibitos/packages/storage/dist,readonly','--mount','type=bind,source='+str(root/'scripts/qualify-runtime-schema.mjs')+',target=/opt/exhibitos/scripts/qualify-runtime-schema.mjs,readonly','--mount','type=bind,source='+str(root/'database/migrations')+',target=/original-migrations,readonly','--env-file',str(source/'runtime.env'),'--env','EXHIBITOS_SCHEMA_QUALIFICATION_DATABASE_URL','--env','BLOB_ROOT=/data/blobs','--env','EXHIBITOS_SCHEMA_MODE=restored','--env','EXHIBITOS_SCHEMA_MANIFEST_SHA256='+pin,'--env','EXHIBITOS_SCHEMA_SNAPSHOT_SYSTEM_IDENTIFIER='+physical,'--env','EXHIBITOS_SCHEMA_ORIGINAL_MIGRATION_DIRECTORY=/original-migrations']
+  if exercise:
+   overlay='type=bind,source='+str(root/'packages/storage/dist')+',target=/opt/exhibitos/packages/storage/dist,readonly'
+   index=args.index(overlay);assert args[index-1]=='--mount';del args[index-1:index+1]
+   config=[m for m in runtime['Mounts'] if m['Destination']=='/data/config' and m['Type']=='volume'];assert len(config)==1 and config[0]['Name']==project+'_configuration'
+   args+=['--tmpfs','/probe:rw,size=256m,uid=1000,gid=1000,mode=0700','--mount','type=volume,source='+config[0]['Name']+',target=/source-config,readonly','--mount','type=bind,source='+str(root/'scripts/exercise-restored-runtime.mjs')+',target=/opt/exhibitos/scripts/exercise-restored-runtime.mjs,readonly']
   for path in extra:args+=['--mount','type=bind,source='+str(path)+',target=/opt/exhibitos/database/migrations/'+path.name+',readonly']
-  args+=['--entrypoint','node',helperimage,'scripts/qualify-runtime-schema.mjs'];r=run(args,input=raw,check=False);v=inspect('container',name)
+  actual_image=a.runtime_image if exercise else helperimage
+  args+=['--entrypoint','node',actual_image,'scripts/exercise-restored-runtime.mjs' if exercise else 'scripts/qualify-runtime-schema.mjs'];r=run(args,input=raw,check=False);v=inspect('container',name)
   safe={'id':v['Id'],'image':v['Image'],'running':v['State']['Running'],'exitCode':v['State']['ExitCode'],'readonly':v['HostConfig']['ReadonlyRootfs'],'mounts':v['Mounts']}
-  assert not v['State']['Running'] and all(not m['RW'] for m in v['Mounts']) and v['Config']['Labels']['org.exhibitos.restored.schema']==nonce
+  assert not v['State']['Running'] and v['Image']==actual_image and v['HostConfig']['ReadonlyRootfs'] and v['HostConfig']['NetworkMode']==network and v['Config']['User']=='1000:1000' and all(not m['RW'] for m in v['Mounts']) and v['Config']['Labels']['org.exhibitos.restored.schema']==nonce
   record('helper-'+name+'.json',{'inspect':safe,'exit_code':r.returncode,'stdout':r.stdout.decode(),'stderr':r.stderr.decode()})
   if error:assert r.returncode!=0;return json.loads(r.stderr)
   assert r.returncode==0,r.stderr.decode();proof=json.loads(r.stdout);assert proof['restoredContextVerified'] and proof['originalDataPreserved'] and not proof['updateExecuted'];run(['rm',v['Id']]);return proof
  original=observe();assert original['sourceSchemaSha256']==original['targetSchemaSha256']==a.expected_source_schema;record('source-catalog.json',original)
  failed=observe([failure],error=True);assert failed['phase']=='migration' and failed['databaseCode']=='42P01';record('failed-migration.json',failed)
  recovered=observe();assert recovered['targetSchemaSha256']==original['targetSchemaSha256'];record('post-failed-migration-catalog.json',recovered)
- target=observe([extension]);assert target['sourceSchemaSha256']==original['sourceSchemaSha256'] and target['targetSchemaSha256']!=original['targetSchemaSha256'];record('target-catalog.json',target)
+ target=observe(exercise=True) if a.runtime_image else observe([extension]);assert target['sourceSchemaSha256']==original['sourceSchemaSha256'] and target['targetSchemaSha256']!=original['targetSchemaSha256'];record('target-catalog.json',target)
+ if a.runtime_image: assert target['targetSchemaSha256']==a.expected_target_schema and target['runtime']['closed'] and target['runtime']['configurationPreserved']
  # After successful extension, original pre-migration equality must refuse replay.
  # The failed SQL case above independently verified transaction rollback first.
  replay=observe([extension,failure],error=True);record('replay-refusal.json',replay)
  after=source_tree();record('source-tree-after.json',after);assert after==before and source_state()==initial
- report={'status':'PASS','originalFullInventoryMatched':True,'originalAdditionalPublicTablePreserved':True,'targetSchemaObservedFromRestoredContext':True,'originalRowsSequencesBlobsHistoryPreserved':True,'actualFailedSqlTransactionRolledBack':True,'sourcePhysicalFilesUnchanged':len(before),'sourcePhysicalBytes':sum(v['bytes'] for v in before),'sourceSchemaSha256':original['targetSchemaSha256'],'targetSchemaSha256':target['targetSchemaSha256'],'targetMigrationsSha256':hashlib.sha256(json.dumps(target['migrations'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),'manifestSha256':pin,'limits':['actual isolated physical full-source-copy component only','readonly source volumes, no original service start/write; no global privileged writer isolation','synthetic SQL overlay, not complete extended signed OCI artifact','no real Manager update admission/apply/failure restore/cold/crash/GUI/Windows proof'],'newPersistentVolumes':0};record('report.json',report);success=True;print(json.dumps({'report':str(out/'report.json'),**report}))
+ report={'status':'PASS','originalFullInventoryMatched':True,'originalAdditionalPublicTablePreserved':True,'targetSchemaObservedFromRestoredContext':True,'originalRowsSequencesBlobsHistoryPreserved':True,'actualFailedSqlTransactionRolledBack':True,'sourcePhysicalFilesUnchanged':len(before),'sourcePhysicalBytes':sum(v['bytes'] for v in before),'sourceSchemaSha256':original['targetSchemaSha256'],'targetSchemaSha256':target['targetSchemaSha256'],'targetMigrationsSha256':hashlib.sha256(json.dumps(target['migrations'],sort_keys=True,separators=(',',':')).encode()).hexdigest(),'manifestSha256':pin,'limits':['actual isolated physical full-source-copy component only','readonly source volumes, no original service start/write; no global privileged writer isolation','genuine immutable runtime image' if a.runtime_image else 'synthetic SQL overlay, not complete extended signed OCI artifact','no real Manager update admission/apply/failure restore/cold/crash/GUI/Windows proof'],'newPersistentVolumes':0,'genuineRuntimeExercised':bool(a.runtime_image),'runtimeImage':a.runtime_image};record('report.json',report);success=True;print(json.dumps({'report':str(out/'report.json'),**report}))
 finally:
  if db:
   run(['stop','--time','10',db]);v=inspect('container',db);assert not v['State']['Running'];record('database-terminal.json',{'id':v['Id'],'image':v['Image'],'running':v['State']['Running'],'mounts':v['Mounts'],'tmpfs':v['HostConfig']['Tmpfs']})
