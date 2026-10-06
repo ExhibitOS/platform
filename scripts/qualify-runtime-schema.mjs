@@ -61,9 +61,10 @@ export async function qualifyRuntimeSchema({pool,migrationDirectory,sourceSystem
  * bootstrap can miss additional public tables present in authenticated backups.
  * The trusted adapter owns an independent physical copy, readonly complete blobs,
  * exact original manifest pin, writer quiescence and original/target SQL identity. */
-export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedManifestSha256,snapshotSystemIdentifier,originalMigrationDirectory,migrationDirectory,store}){
+export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedManifestSha256,snapshotSystemIdentifier,originalMigrationDirectory,migrationDirectory,store,exerciseRuntime}){
  const {verifyRestoredInventory,verifyMigratedInventory}=await import('../packages/storage/dist/service-backup.js');
  const raw=Buffer.from(manifestBytes);
+ if(exerciseRuntime!==undefined&&typeof exerciseRuntime!=='function')fail('SCHEMA_INPUT_INVALID');
  if(!/^[a-f0-9]{64}$/.test(expectedManifestSha256)||raw.length<1||raw.length>16*1024*1024||sha(raw)!==expectedManifestSha256||![originalMigrationDirectory,migrationDirectory].every(p=>typeof p==='string'&&resolve(p)===p))fail('SCHEMA_INPUT_INVALID');
  if(typeof snapshotSystemIdentifier!=='string'||!/^([1-9][0-9]{0,19})$/.test(snapshotSystemIdentifier)||BigInt(snapshotSystemIdentifier)>18446744073709551615n)fail('SCHEMA_INPUT_INVALID');
  const c=await pool.connect();let locked=false,broken=false,transaction=false,phase='restored-fence';
@@ -77,6 +78,17 @@ export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedM
   phase='original-inventory';const original=await verifyRestoredInventory({pool:borrowed,manifestBytes:raw,expectedManifestSha256,snapshotSystemIdentifier,snapshot:snapshot(originalMigrationDirectory)});
   if(broken)fail('SCHEMA_CLEANUP_FAILED');
   phase='migration';await migrate(pool,migrationDirectory);
+  // Runtime startup performs legitimate scratch-DB maintenance writes. The adapter
+  // owns this independent cluster and excludes other writers; originals stay readonly.
+  // Release only the scratch SQL fence, then reacquire it after runtime.close before
+  // either full catalog observation or preservation check. No spanning SQL-lock claim.
+  let runtime;
+  if(exerciseRuntime){
+   phase='runtime-exercise';
+   if((await c.query('SELECT pg_advisory_unlock(82002) AS unlocked')).rows[0]?.unlocked!==true)fail('SCHEMA_CLEANUP_FAILED');locked=false;
+   runtime=await exerciseRuntime();
+   phase='runtime-refence';locked=(await c.query('SELECT pg_try_advisory_lock(82002) AS locked')).rows[0]?.locked===true;if(!locked)fail('SCHEMA_BUSY');
+  }
   phase='catalog-observation';let catalog,previous;
   for(let pass=0;pass<2;pass++){
    await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');transaction=true;await supported(c);
@@ -92,7 +104,7 @@ export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedM
   const options={pool:borrowed,manifestBytes:raw,expectedManifestSha256,snapshotSystemIdentifier,snapshot:snapshot(migrationDirectory)};
   const proof=targetSchemaSha256===original.schemaSha256?await verifyRestoredInventory(options):await verifyMigratedInventory({...options,targetSchemaSha256,targetMigrations:catalog.migrations});
   if(broken)fail('SCHEMA_CLEANUP_FAILED');
-  result={...catalog,operation:'restored-runtime-schema-observed',targetSchemaSha256,sourceSchemaSha256:original.schemaSha256,authenticatedManifestSha256:expectedManifestSha256,observedAt:new Date().toISOString(),observedSystemIdentifier:snapshotSystemIdentifier,restoredContextVerified:true,scratchMigrationsExecuted:true,originalDataPreserved:proof.originalDataPreserved===true||proof.currentInventoryVerified===true,artifactAuthenticated:false,compatibilityQualified:false,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+  result={...catalog,...(exerciseRuntime?{runtime,runtimeSqlFence:'released-only-for-isolated-runtime-then-reacquired'}:{}),operation:'restored-runtime-schema-observed',targetSchemaSha256,sourceSchemaSha256:original.schemaSha256,authenticatedManifestSha256:expectedManifestSha256,observedAt:new Date().toISOString(),observedSystemIdentifier:snapshotSystemIdentifier,restoredContextVerified:true,scratchMigrationsExecuted:true,originalDataPreserved:proof.originalDataPreserved===true||proof.currentInventoryVerified===true,artifactAuthenticated:false,compatibilityQualified:false,configurationVerified:false,preflightVerified:false,updateExecuted:false};
  }catch(error){error.qualificationPhase=phase;throw error;}finally{
   if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});
   if(locked)try{if((await c.query('SELECT pg_advisory_unlock(82002) AS unlocked')).rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}
