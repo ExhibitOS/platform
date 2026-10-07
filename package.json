@@ -51,7 +51,8 @@
     "test:realtime": "npm run build && EXHIBITOS_REALTIME_ONLY=1 node scripts/test-experience.mjs",
     "test:opening": "npm run build && EXHIBITOS_OPENING_ONLY=1 node scripts/test-experience.mjs",
     "test:voice-transport": "node scripts/voice-transport-spike.mjs",
-    "test:packaging": "node --test scripts/package-local-runtime.test.mjs scripts/license-checkout.test.mjs"
+    "test:packaging": "node --test scripts/package-local-runtime.test.mjs scripts/license-checkout.test.mjs",
+    "test:processing-authorization": "node scripts/test-processing-authorization.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
