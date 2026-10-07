@@ -1,0 +1,196 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ExhibitOS input policy observation",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/tenants/{tenantId}/artworks/{artworkId}/processing-authorization": {
+      "post": {
+        "summary": "Observe current artwork export policy for an explicitly consented input digest; creates no job or capability",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "artworkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "datasetDigest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "processingConsent": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "datasetDigest",
+                  "requestId",
+                  "processingConsent"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "No-store observation expires within thirty seconds, session expiry and rights expiry. Not replayable authority.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "tenantId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "subjectId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "artworkId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "requestId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "datasetDigest": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "rightsDigest": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "const": 1
+                    },
+                    "purpose": {
+                      "type": "string",
+                      "const": "register-local-input"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "artist"
+                      ]
+                    },
+                    "artworkRevision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "policy": {
+                      "type": "string",
+                      "const": "current-artwork-export-and-explicit-processing-consent"
+                    },
+                    "checkedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "capability": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "jobCreated": {
+                      "type": "boolean",
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "tenantId",
+                    "subjectId",
+                    "artworkId",
+                    "requestId",
+                    "datasetDigest",
+                    "rightsDigest",
+                    "version",
+                    "purpose",
+                    "origin",
+                    "role",
+                    "artworkRevision",
+                    "policy",
+                    "checkedAt",
+                    "expiresAt",
+                    "capability",
+                    "jobCreated"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Closed input validation failed"
+          },
+          "401": {
+            "description": "Session absent, revoked or expired"
+          },
+          "403": {
+            "description": "Origin/Host/CSRF/current membership/ownership/rights denied"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "exhibitos_local_session",
+        "description": "Configured session cookie; production cookie name differs. Exact configured Origin and Host required."
+      }
+    }
+  }
+}

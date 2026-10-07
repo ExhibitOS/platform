@@ -1,3 +1,4 @@
+import { authorizeProcessingInput } from './processing-authorization.ts';
 import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import { Publications } from './publication.ts';
 import { registerRealtime } from './realtime.ts';
@@ -55,6 +56,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ app.post(`${prefix}/artworks/:id/processing-authorization`,{bodyLimit:4096,schema:{body:object({datasetDigest:{...str,pattern:'^[a-f0-9]{64}$'},requestId:id,processingConsent:{type:'boolean',const:true}})}},call(true,async(c,s,req)=>authorizeProcessingInput(c,s,(req.params as {id:string}).id,req.body as {datasetDigest:string;requestId:string;processingConsent:true},settings.origin)));
  if(store){const integrity=new Integrities(store,{migrationDirectory:fileURLToPath(new URL('../../../database/migrations/',import.meta.url))});app.get(`${prefix}/integrity`,call(false,async(c,s)=>integrity.inspect(c,s)));}
 
  const studio=new Studio(),sp=`${prefix}/studio/exhibitions`;
