@@ -61,10 +61,11 @@ export async function qualifyRuntimeSchema({pool,migrationDirectory,sourceSystem
  * bootstrap can miss additional public tables present in authenticated backups.
  * The trusted adapter owns an independent physical copy, readonly complete blobs,
  * exact original manifest pin, writer quiescence and original/target SQL identity. */
-export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedManifestSha256,snapshotSystemIdentifier,originalMigrationDirectory,migrationDirectory,store,exerciseRuntime}){
+export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedManifestSha256,snapshotSystemIdentifier,originalMigrationDirectory,migrationDirectory,store,exerciseRuntime,retainedCatalogInventory=false}){
  const {verifyRestoredInventory,verifyMigratedInventory}=await import('../packages/storage/dist/service-backup.js');
  const raw=Buffer.from(manifestBytes);
  if(exerciseRuntime!==undefined&&typeof exerciseRuntime!=='function')fail('SCHEMA_INPUT_INVALID');
+ if(typeof retainedCatalogInventory!=='boolean')fail('SCHEMA_INPUT_INVALID');
  if(!/^[a-f0-9]{64}$/.test(expectedManifestSha256)||raw.length<1||raw.length>16*1024*1024||sha(raw)!==expectedManifestSha256||![originalMigrationDirectory,migrationDirectory].every(p=>typeof p==='string'&&resolve(p)===p))fail('SCHEMA_INPUT_INVALID');
  if(typeof snapshotSystemIdentifier!=='string'||!/^([1-9][0-9]{0,19})$/.test(snapshotSystemIdentifier)||BigInt(snapshotSystemIdentifier)>18446744073709551615n)fail('SCHEMA_INPUT_INVALID');
  const c=await pool.connect();let locked=false,broken=false,transaction=false,phase='restored-fence';
@@ -101,10 +102,10 @@ export async function qualifyRestoredRuntimeSchema({pool,manifestBytes,expectedM
    await c.query('ROLLBACK');transaction=false;
   }
   const targetSchemaSha256=sha(inventoryCanonical(catalog));phase='preservation';
-  const options={pool:borrowed,manifestBytes:raw,expectedManifestSha256,snapshotSystemIdentifier,snapshot:snapshot(migrationDirectory)};
+  const options={pool:borrowed,manifestBytes:raw,expectedManifestSha256,snapshotSystemIdentifier,snapshot:retainedCatalogInventory?client=>collectServiceInventory(client,store,{migrationCatalog:catalog.migrations}):snapshot(migrationDirectory)};
   const proof=targetSchemaSha256===original.schemaSha256?await verifyRestoredInventory(options):await verifyMigratedInventory({...options,targetSchemaSha256,targetMigrations:catalog.migrations});
   if(broken)fail('SCHEMA_CLEANUP_FAILED');
-  result={...catalog,...(exerciseRuntime?{runtime,runtimeSqlFence:'released-only-for-isolated-runtime-then-reacquired'}:{}),operation:'restored-runtime-schema-observed',targetSchemaSha256,sourceSchemaSha256:original.schemaSha256,authenticatedManifestSha256:expectedManifestSha256,observedAt:new Date().toISOString(),observedSystemIdentifier:snapshotSystemIdentifier,restoredContextVerified:true,scratchMigrationsExecuted:true,originalDataPreserved:proof.originalDataPreserved===true||proof.currentInventoryVerified===true,artifactAuthenticated:false,compatibilityQualified:false,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+  result={...catalog,...(retainedCatalogInventory?{inventoryCollection:'retained-target-catalog'}:{}),...(exerciseRuntime?{runtime,runtimeSqlFence:'released-only-for-isolated-runtime-then-reacquired'}:{}),operation:'restored-runtime-schema-observed',targetSchemaSha256,sourceSchemaSha256:original.schemaSha256,authenticatedManifestSha256:expectedManifestSha256,observedAt:new Date().toISOString(),observedSystemIdentifier:snapshotSystemIdentifier,restoredContextVerified:true,scratchMigrationsExecuted:true,originalDataPreserved:proof.originalDataPreserved===true||proof.currentInventoryVerified===true,artifactAuthenticated:false,compatibilityQualified:false,configurationVerified:false,preflightVerified:false,updateExecuted:false};
  }catch(error){error.qualificationPhase=phase;throw error;}finally{
   if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});
   if(locked)try{if((await c.query('SELECT pg_advisory_unlock(82002) AS unlocked')).rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}
@@ -120,9 +121,11 @@ async function inputManifest(){
 async function main(){
  const connectionString=process.env.EXHIBITOS_SCHEMA_QUALIFICATION_DATABASE_URL,sourceSystemIdentifier=process.env.EXHIBITOS_SCHEMA_SOURCE_SYSTEM_IDENTIFIER;
  const restored=process.env.EXHIBITOS_SCHEMA_MODE==='restored';
+ const explicit=process.env.EXHIBITOS_SCHEMA_RETAINED_CATALOG;
+ if(explicit!==undefined&&explicit!=='1')fail('SCHEMA_INPUT_INVALID');
  if(!connectionString||(!restored&&!sourceSystemIdentifier))fail('SCHEMA_INPUT_INVALID');
  const pool=new pg.Pool({connectionString,max:2,connectionTimeoutMillis:10000});
  try{const migrationDirectory=resolve(process.env.EXHIBITOS_SCHEMA_MIGRATION_DIRECTORY??'database/migrations');
- const result=restored?await qualifyRestoredRuntimeSchema({pool,manifestBytes:await inputManifest(),expectedManifestSha256:process.env.EXHIBITOS_SCHEMA_MANIFEST_SHA256,snapshotSystemIdentifier:process.env.EXHIBITOS_SCHEMA_SNAPSHOT_SYSTEM_IDENTIFIER,originalMigrationDirectory:resolve(process.env.EXHIBITOS_SCHEMA_ORIGINAL_MIGRATION_DIRECTORY??'database/migrations'),migrationDirectory,store:new FileBlobStore(process.env.BLOB_ROOT??'/data/blobs')}):await qualifyRuntimeSchema({pool,sourceSystemIdentifier,migrationDirectory});console.log(JSON.stringify(result));}finally{await pool.end();}
+ const result=restored?await qualifyRestoredRuntimeSchema({pool,manifestBytes:await inputManifest(),expectedManifestSha256:process.env.EXHIBITOS_SCHEMA_MANIFEST_SHA256,snapshotSystemIdentifier:process.env.EXHIBITOS_SCHEMA_SNAPSHOT_SYSTEM_IDENTIFIER,originalMigrationDirectory:resolve(process.env.EXHIBITOS_SCHEMA_ORIGINAL_MIGRATION_DIRECTORY??'database/migrations'),migrationDirectory,store:new FileBlobStore(process.env.BLOB_ROOT??'/data/blobs'),retainedCatalogInventory:explicit==='1'}):await qualifyRuntimeSchema({pool,sourceSystemIdentifier,migrationDirectory});console.log(JSON.stringify(result));}finally{await pool.end();}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(error=>{console.error(JSON.stringify({error:codes.has(error.message)?error.message:'SCHEMA_QUALIFICATION_FAILED',phase:error.qualificationPhase,databaseCode:typeof error.code==='string'&&/^[0-9A-Z]{5}$/.test(error.code)?error.code:undefined}));process.exitCode=1;});

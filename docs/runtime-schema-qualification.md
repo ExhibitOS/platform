@@ -50,3 +50,24 @@ schema hash. Then independently verify an ephemeral development Ed25519 envelope
 against the entire OCI byte stream. These bindings do not admit a native update:
 Rust typed compatibility, full failure recovery and original-scope cold/crash
 checks remain required. Never replace them with a green artifact receipt.
+
+
+## Inventory collection against a retained target catalog
+
+`collectServiceInventory(client, blobs, {migrationCatalog: catalog.migrations})`
+can collect actual database rows, sequence state, schema, migration history and
+blob/reference inventory using an explicit target migration catalog. The existing
+`{migrationDirectory: '/absolute/migrations'}` form remains supported. Choose exactly
+one form. Explicit catalogs must be nonempty, ordered, unique, bounded lists of
+SQL names and SHA256 digests; tenant filtering is not accepted with this form.
+The collector copies the catalog before database work so asynchronous caller
+mutation cannot change the expected scope. Missing/replaced/unknown observed
+migration rows still produce inventory issues. No SQL files are copied or executed.
+
+Catalog input is metadata rather than authentication or admission. A native
+consumer must bind it to the retained signed OCI bytes, observed target schema
+and original authenticated manifest before calling `verifyMigratedInventory`.
+That verifier still checks original rows/sequences/history/blobs, target schema
+and both repeatable-read observations. Collection alone never proves an update
+completed or grants permission to apply one. This is additive to the existing
+storage API and retains the original exact-restoration contract.
