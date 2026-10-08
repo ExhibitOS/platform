@@ -1,3 +1,4 @@
+import { embeddedPNGManager } from './embedded-glb.js';
 import { useEffect, useRef, useState } from "react";
 
 export function ArtworkPreview({
@@ -47,20 +48,20 @@ export function ArtworkPreview({
       ]);
       if (disposed || !host.current) return;
       const manager = new three.LoadingManager();
-      manager.setURLModifier(() => {
-        throw Error("EXTERNAL_RESOURCE_REJECTED");
-      });
-      const model = await new GLTFLoader(manager).parseAsync(bytes, "");
-      const releaseModel = () =>
+      const protectedBytes = embeddedPNGManager(manager, bytes);
+      cleanup=protectedBytes.dispose;
+      const model = await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "");
+      const releaseModel = () => {protectedBytes.dispose();
         model.scene.traverse((node) => {
           if (node instanceof three.Mesh) {
             node.geometry.dispose();
             for (const material of Array.isArray(node.material)
               ? node.material
               : [node.material])
-              material.dispose();
+              {for(const value of Object.values(material))if(value instanceof three.Texture)value.dispose();material.dispose();}
           }
-        });
+        });};
+      cleanup=releaseModel;protectedBytes.assertLoaded();
       if (disposed || !host.current) {
         releaseModel();
         return;
@@ -138,6 +139,7 @@ export function ArtworkPreview({
       setMessage("전시용 3D 미리보기. 아래 버튼으로 회전할 수 있습니다.");
     }
     void load().catch(() => {
+      cleanup();
       if (!disposed)
         setMessage(
           "미리보기를 사용할 수 없습니다. 전시 권리·승인 상태 또는 그래픽 지원을 확인해 주세요. 원본으로 대체하지 않습니다.",

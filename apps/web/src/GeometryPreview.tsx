@@ -1,3 +1,4 @@
+import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
@@ -983,10 +984,10 @@ export function GeometryPreview({
             const { GLTFLoader } =
               await import("three/addons/loaders/GLTFLoader.js");
             const manager = new three.LoadingManager();
-            manager.setURLModifier(() => {
-              throw Error("EXTERNAL_RESOURCE_REJECTED");
-            });
-            const gltf = await new GLTFLoader(manager).parseAsync(bytes!, "");
+            const protectedBytes = embeddedPNGManager(manager, bytes!);
+            resources.push(protectedBytes);
+            const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
+            let gltf;try{gltf=await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
                 resources.push(node.geometry);
@@ -999,6 +1000,7 @@ export function GeometryPreview({
                 }
               }
             });
+            protectedBytes.assertLoaded();
             if (disposed || signal.aborted) {
               gltf.scene.traverse((node) => {
                 if (node instanceof three.Mesh) {
