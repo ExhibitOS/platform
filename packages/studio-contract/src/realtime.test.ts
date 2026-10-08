@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {it,expect} from 'vitest';
+import {validatePresenceClientMessage as client,validatePresenceServerMessage as server} from './realtime.js';
+const id='10000000-0000-4000-8000-000000000001',hash='a'.repeat(64),rooms=new Set([id]);
+const join={version:1,type:'join',publicationId:id,revisionSha256:hash};
+const snapshot={version:1,type:'snapshot',publicationId:id,revisionSha256:hash,selfId:id,serverTime:1,sequence:0,visitors:[{visitorId:id,displayName:'Visitor ABC123',roomId:id,position:[0,1.65,0],yaw:0,connected:true}]};
+it('closes client identities and bounded protocol shapes',()=>{expect(client(join)).toBe(true);for(const extra of [{visitorId:id},{displayName:'Owner'},{token:'secret'},{url:'https://invalid.example'}])expect(client({...join,...extra})).toBe(false);for(const n of [NaN,Infinity,10001])expect(client({version:1,type:'pose',seq:0,roomId:id,position:[n,1,0],yaw:0})).toBe(false);expect(client({...join,version:2})).toBe(false);});
+it('binds snapshots to public publication/revision/self and bounded unique visitor list',()=>{expect(server(snapshot,id,hash,rooms)).toBe(true);expect(server({...snapshot,resumeToken:'x'.repeat(43)},id,hash,rooms)).toBe(false);expect(server({...snapshot,type:'welcome',resumeToken:'x'.repeat(43),resumeExpiresAt:30},id,hash,rooms)).toBe(true);expect(server(snapshot,id,'b'.repeat(64),rooms)).toBe(false);expect(server({...snapshot,visitors:[...snapshot.visitors,...snapshot.visitors]},id,hash,rooms)).toBe(false);expect(server({...snapshot,selfId:'20000000-0000-4000-8000-000000000002'},id,hash,rooms)).toBe(false);expect(server({...snapshot,visitors:Array(21).fill(snapshot.visitors[0])},id,hash,rooms)).toBe(false);});

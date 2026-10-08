@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {constants} from 'node:fs';
-import {open,lstat,realpath} from 'node:fs/promises';
+import {open,lstat,realpath,statfs} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes} from 'node:crypto';
@@ -17,6 +17,21 @@ async function privateFile(path,max){
  const target=resolve(path);if(await realpath(target)!==target)fail('BACKUP_FILE_PATH');
  const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{const stat=await file.stat();if(!stat.isFile()||stat.nlink!==1||(stat.mode&0o7777)!==0o600||stat.size<1||stat.size>max)fail('BACKUP_FILE_MODE');return await file.readFile();}finally{await file.close();}
+}
+// Docker Desktop shared mounts reported this type while masking mode and link counts.
+// Refuse this observed Linux backend; Manager still needs independent host guards.
+export function configurationFilesystemSupported(platform,type){return platform!=='linux'||type!==0x65735546n;}
+async function privateConfigurationFile(path){
+ const target=resolve(path);if(await realpath(target)!==target)fail('BACKUP_FILE_PATH');
+ if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type))fail('SOURCE_CONFIGURATION_FILESYSTEM_UNVERIFIED');
+ const file=await open(target,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+ try{
+  const before=await file.stat({bigint:true});
+  if(!before.isFile()||before.nlink!==1n||(before.mode&0o7777n)!==0o600n||before.size<1n||before.size>1048576n||typeof process.getuid==='function'&&before.uid!==BigInt(process.getuid()))fail('BACKUP_FILE_MODE');
+  const bytes=await file.readFile(),after=await file.stat({bigint:true}),current=await lstat(target,{bigint:true});
+  if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type)||await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
+  return bytes;
+ }finally{await file.close();}
 }
 export async function initializeBackupKey(path){
  const target=resolve(path),parent=dirname(target),stat=await lstat(parent);
@@ -75,9 +90,9 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
 }
 
 function parse(argv){
- const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore'].includes(command))fail('BACKUP_USAGE');
- for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
- if(!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');return {command,flags};
+ const [command,...args]=argv,flags={};if(!['key-init','create','verify','restore','check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command))fail('BACKUP_USAGE');
+ for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256','--snapshot-system-identifier'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
+ if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&flags['--snapshot-system-identifier'])fail('BACKUP_USAGE');return {command,flags};
 }
 async function storeFor(environment){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
@@ -92,8 +107,40 @@ async function configurationFiles(environment,keyPath){
  for(const[name,path]of Object.entries(input)){if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string'||resolve(path)===resolve(keyPath))fail('BACKUP_CONFIGURATION_INVALID');files.set(name,await privateFile(path,1024*1024));}
  return files;
 }
+export async function deploymentFiles(environment,keyPath,destination){
+ if(!environment.BACKUP_DEPLOYMENT_FILES)return undefined;
+ let input;try{input=JSON.parse(environment.BACKUP_DEPLOYMENT_FILES);}catch{fail('BACKUP_DEPLOYMENT_INVALID');}
+ if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length>32)fail('BACKUP_DEPLOYMENT_INVALID');
+ const files=new Map();
+ for(const [name,file]of Object.entries(input)){
+  if(!/^[A-Za-z0-9_-][A-Za-z0-9_./-]{0,1023}$/.test(name)||name.split('/').some(p=>!p||p==='.'||p==='..')||!file||typeof file!=='object'||Array.isArray(file)||Object.keys(file).sort().join(',')!=='bytes,path,sha256'||typeof file.path!=='string'||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>8*1024*1024*1024||typeof file.sha256!=='string'||!/^[a-f0-9]{64}$/.test(file.sha256))fail('BACKUP_DEPLOYMENT_INVALID');
+  const path=resolve(file.path);if(path===resolve(keyPath)||inside(destination,path)||await realpath(path)!==path)fail('BACKUP_DEPLOYMENT_PATH');
+  files.set(name,{...file,path});
+ }
+ return files;
+}
 export async function main(argv=process.argv.slice(2),environment=process.env){
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
+ if(command==='check-source-configuration'){
+  if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
+  let input;try{input=JSON.parse(environment.BACKUP_CONFIGURATION_FILES);}catch{fail('BACKUP_CONFIGURATION_INVALID');}
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length<1||Object.keys(input).length>32)fail('BACKUP_CONFIGURATION_INVALID');
+  const configuration=new Map();for(const [name,path] of Object.entries(input)){
+   if(!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(name)||typeof path!=='string')fail('BACKUP_CONFIGURATION_INVALID');
+   configuration.set(name,()=>privateConfigurationFile(path));
+  }
+  const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
+  return backup.verifySourceConfiguration({manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],configuration});
+ }
+ if(command==='check-source-inventory'||command==='check-restored-inventory'){
+  const required=command==='check-restored-inventory'?'--manifest-file,--manifest-sha256,--quiesced,--snapshot-system-identifier':'--manifest-file,--manifest-sha256,--quiesced';
+  if(Object.keys(flags).sort().join(',')!==required||!flags['--quiesced'])fail('BACKUP_USAGE');
+  if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
+  const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
+  const blobs=await storeFor(environment),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  finally{await pool.end();blobs.dispose();}
+ }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
  let destination=flags['--destination'],source=flags['--source'];if(!destination||command!=='create'&&!source||command==='create'&&source)fail('BACKUP_USAGE');
  destination=resolve(destination);if(await realpath(dirname(destination))!==dirname(destination))fail('BACKUP_DIRECTORY_PATH');if(source){source=resolve(source);if(await realpath(source)!==source)fail('BACKUP_DIRECTORY_PATH');}
@@ -109,7 +156,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
   const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=c=>collectServiceInventory(c,blobs.store,{migrationDirectory});
   if(command==='create'){
    const runtime=environment.FREEZE_RUNTIME_ROOT?await import('../apps/api/dist/freeze.js').then(m=>m.loadFreezeRuntime(environment.FREEZE_RUNTIME_ROOT)):undefined;
-   const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath)});
+   const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});
    return {operation:'created',backupId:result.id};
   }
   const existing=await pool.query("SELECT count(*)::integer AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");if(existing.rows[0].count!==0||(await blobs.store.listAll()).length!==0)fail('BACKUP_DESTINATION_NOT_EMPTY');

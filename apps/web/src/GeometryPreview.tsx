@@ -1,3 +1,7 @@
+import { embeddedPNGManager } from './embedded-glb.js';
+import type { PresenceVisitor } from "./viewer/realtime-motion";
+import type { ScriptScene } from "./viewer/scripting";
+import type { GuideRequest } from "./GuidedRoutes";
 import { useEffect, useRef, useState } from "react";
 import {
   AssetScheduler,
@@ -7,7 +11,7 @@ import {
   selectAssetVariant,
   type DeviceBudget,
 } from "./viewer/loading";
-import { presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
+import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -21,6 +25,7 @@ import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
 
 type Document = Draft["candidate"];
+export interface RealtimeScene { update: (visitors:readonly PresenceVisitor[])=>void; clear:()=>void }
 export interface SurfaceAppearance {
   baseColor: [number, number, number];
   roughness: number;
@@ -106,6 +111,13 @@ export function GeometryPreview({
   onDetailEntryReady,
   reducedMotion,
   onReducedMotionChange,
+  guideRequest,
+  onScriptSceneReady,
+  onScriptPose,
+  onScriptClick,
+  onPresenceSceneReady,
+  onPresencePose,
+  openingViewpoint,
 }: {
   document: Document;
   viewerBudget?: DeviceBudget;
@@ -117,6 +129,13 @@ export function GeometryPreview({
   proximityDetail?: boolean;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
+  guideRequest?: GuideRequest;
+  onScriptSceneReady?: (scene:ScriptScene|null)=>void;
+  onScriptPose?: (position:[number,number,number],forward:[number,number,number])=>void;
+  onScriptClick?: (placementId:string)=>void;
+  onPresenceSceneReady?: (scene:RealtimeScene|null)=>void;
+  onPresencePose?: (position:[number,number,number],yaw:number)=>void;
+  openingViewpoint?: {viewpointId:string;sequence:number};
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
   publicSource?: {
@@ -129,6 +148,9 @@ export function GeometryPreview({
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
+  const openingConsumed=useRef<number|undefined>(undefined);
+  const guideAction=useRef<((routeId:string,index:number)=>void)|null>(null);
+  const consumedGuide=useRef<number|undefined>(undefined);
   const host = useRef<HTMLDivElement>(null),
     action = useRef<
       | ((
@@ -137,8 +159,8 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
-  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail });
-  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail };
+  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
+  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
   const suspendedWasWalking = useRef(false);
@@ -183,6 +205,8 @@ export function GeometryPreview({
   const [restart, setRestart] = useState(0);
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  useEffect(()=>{if(openingViewpoint&&ready&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
+  useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
     if (suspendNavigation) {
       suspendedWasWalking.current = committedEntry.current ?? (currentWalkMode.current.walking && !currentWalkMode.current.paused);
@@ -242,9 +266,11 @@ export function GeometryPreview({
       );
       if (rectangles.reduce((total, items) => total + items.length, 0) > 8192)
         throw Error("PREVIEW_COMPLEXITY");
+      if(!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
+      if(document.lights.some(l=>l.type==='area')){const {RectAreaLightUniformsLib}=await import('three/addons/lights/RectAreaLightUniformsLib.js');RectAreaLightUniformsLib.init();}
       if (disposed || !host.current) return;
       const renderer = new three.WebGLRenderer({
         antialias: true,
@@ -271,7 +297,9 @@ export function GeometryPreview({
         0xffffff,
         document.lights.length ? 0 : 3,
       );
-      sun.position.set(20, 30, 25);
+      const daylight=daylightFor(document);
+      if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100) as [number,number,number]);sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20, 30, 25);
+      renderer.domElement.dataset.daylight=JSON.stringify(daylight?{...daylight,direction:daylightDirection(daylight),effectiveIntensity:sun.intensity}:null);
       scene.add(sun);
       const rooms = new Map<string, InstanceType<typeof three.Group>>(),
         surfaces = new Map<string, InstanceType<typeof three.Group>>();
@@ -388,6 +416,7 @@ export function GeometryPreview({
         group.add(bounds);
         owned.push(geometry, edges, material);
       }
+      const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
       for (const item of document.lights) {
         const color = new three.Color().setRGB(
           ...item.color,
@@ -403,7 +432,9 @@ export function GeometryPreview({
               )
             : item.type === "directional"
               ? new three.DirectionalLight(color, item.intensity)
-              : new three.PointLight(color, item.intensity);
+              : item.type==='area'?new three.RectAreaLight(color,1,item.dimensions!.width,item.dimensions!.height): new three.PointLight(color, item.intensity);
+        if(light instanceof three.RectAreaLight)light.power=item.intensity;
+        scriptLights.set(item.id,{light,original:light.intensity});
         pose(light, item.transform);
         rooms.get(item.roomId.toLowerCase())?.add(light);
         if (
@@ -443,12 +474,12 @@ export function GeometryPreview({
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
-        if (suspendedRef.current || !navigationCallbacks.current.onArtworkSelect) return;
+        if (suspendedRef.current || (!navigationCallbacks.current.onArtworkSelect&&!navigationCallbacks.current.onScriptClick)) return;
         const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
         const hit=ray.intersectObject(model,true)[0];
         let object=hit?.object;
-        while(object) { if(typeof object.userData.placementId === "string") { detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId); return; } object=object.parent ?? undefined; }
+        while(object) { if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
       };
       renderer.domElement.addEventListener("click",pick);
       controls.enableDamping = false;
@@ -464,6 +495,8 @@ export function GeometryPreview({
         if (!disposed && !gpuLost) {
           const at = performance.now();
           renderer.render(scene, camera);
+          navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
+          navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
           navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           if (trace.started)
             trace.samples.push({
@@ -473,6 +506,15 @@ export function GeometryPreview({
             });
         }
       };
+      const remoteAvatars=new Map<string,InstanceType<typeof three.Group>>();
+      let avatarResources:{body:InstanceType<typeof three.CapsuleGeometry>;head:InstanceType<typeof three.SphereGeometry>;nose:InstanceType<typeof three.BoxGeometry>;material:InstanceType<typeof three.MeshBasicMaterial>}|undefined;
+      const avatarAssets=()=>{if(!avatarResources){avatarResources={body:new three.CapsuleGeometry(.14,.8,4,8),head:new three.SphereGeometry(.16,8,6),nose:new three.BoxGeometry(.07,.05,.08),material:new three.MeshBasicMaterial({color:0x987aee})};owned.push(avatarResources.body,avatarResources.head,avatarResources.nose,avatarResources.material);}return avatarResources;};
+      const presenceDiagnostics=()=>{renderer.domElement.dataset.realtimeAvatars=JSON.stringify([...remoteAvatars].map(([visitorId,group])=>({visitorId,position:group.position.toArray(),yaw:group.rotation.y})));};
+      const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
+      presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
+      const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
+      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;scriptDiagnostics();render();}};
+      scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
         if (!viewerBudget || trace.started) return;
         trace.started = performance.now();
@@ -615,6 +657,22 @@ export function GeometryPreview({
       const observer = new ResizeObserver(resize);
       observer.observe(host.current);
       controls.addEventListener("change", render);
+      guideAction.current=(routeId,index)=>{
+        if(suspendedRef.current)return;
+        const waypoint=document.navigation.find(r=>r.id===routeId)?.waypoints[index];
+        if(!waypoint)return;
+        const room=rooms.get(waypoint.roomId.toLowerCase());if(!room)return;
+        walkingActions.current?.stationary();
+        const pos=room.localToWorld(new three.Vector3(...waypoint.position));
+        const curation=document.extensions?.['org.exhibitos.viewer/curation'] as unknown as {routes?:{routeId:string;stops:{placementId?:string}[]}[]}|undefined;
+        const id=curation?.routes?.find(r=>r.routeId===routeId)?.stops[index]?.placementId;
+        const placement=document.placements.find(p=>p.id===id);
+        const owner=placement?rooms.get(placement.roomId.toLowerCase()):undefined;
+        const target=placement&&owner?owner.localToWorld(new three.Vector3(...placement.transform.position)):room.localToWorld(new three.Vector3(...waypoint.position).add(new three.Vector3(0,0,-1)));
+        if(pos.distanceToSquared(target)<.000001)target.copy(pos).add(new three.Vector3(0,0,-1));
+        camera.up.set(0,1,0);camera.position.copy(pos);controls.target.copy(target);camera.lookAt(target);controls.update();render();
+        setWalkMessage('선택한 안내 정류점의 정지 시점입니다. 보행이나 소리를 자동으로 시작하지 않습니다. 글 안내도 계속 읽을 수 있습니다.');
+      };
       action.current = view;
       resize();
       view(
@@ -633,6 +691,7 @@ export function GeometryPreview({
         renderer.domElement.removeEventListener("pointerdown",down);
         walkingActions.current = null;
         action.current = null;
+        guideAction.current=null;
         demand.current = null;
         cancelAnimationFrame(trace.frame);
         renderer.domElement.removeEventListener(
@@ -925,10 +984,10 @@ export function GeometryPreview({
             const { GLTFLoader } =
               await import("three/addons/loaders/GLTFLoader.js");
             const manager = new three.LoadingManager();
-            manager.setURLModifier(() => {
-              throw Error("EXTERNAL_RESOURCE_REJECTED");
-            });
-            const gltf = await new GLTFLoader(manager).parseAsync(bytes!, "");
+            const protectedBytes = embeddedPNGManager(manager, bytes!);
+            resources.push(protectedBytes);
+            const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
+            let gltf;try{gltf=await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
                 resources.push(node.geometry);
@@ -941,6 +1000,7 @@ export function GeometryPreview({
                 }
               }
             });
+            protectedBytes.assertLoaded();
             if (disposed || signal.aborted) {
               gltf.scene.traverse((node) => {
                 if (node instanceof three.Mesh) {
@@ -1296,6 +1356,8 @@ export function GeometryPreview({
         );
     });
     return () => {
+      navigationCallbacks.current.onPresenceSceneReady?.(null);
+      navigationCallbacks.current.onScriptSceneReady?.(null);
       disposed = true;
       abort.abort();
       release();
@@ -1416,8 +1478,8 @@ export function GeometryPreview({
       <p className="cms-note">
         {publicSource
           ? "사각형 표면과 실제 사각 개구부의 전시 보기입니다. 걷기는 벽·작품 충돌과 제한된 단차·경사를 지원합니다. 안전한 시작 위치나 지원되는 바닥이 없으면 정지 관람을 이용하세요."
-          : "사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 곡선벽·계단·충돌·보행 가능성은 지원하지 않습니다."}
-        저장된 point/spot 조명은 시각적 근사이며 물리적 조도 측정을 지원하지
+          : "사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 분할 곡선벽·계단·경사로를 동일한 평면으로 렌더링합니다. 실제 보행 가능성은 공개 Viewer에서 검사하세요."}
+        저장된 조명은 시각적 근사이며 물리적 조도 측정을 지원하지
         않습니다. 마우스 없이 위 버튼으로 시점을 바꿀 수 있습니다.
       </p>
     </figure>

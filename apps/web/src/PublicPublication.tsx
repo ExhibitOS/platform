@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
+import { GuidedRoutes, type GuideRequest } from "./GuidedRoutes";
+import type { AudioApi, VoicePlayback } from "./viewer/audio";
 import { ArtworkDetail } from "./ArtworkDetail";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication as PublicResponse } from "./publication-client";
@@ -15,6 +17,10 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     [loading, setLoading] = useState(false);
   const generation = useRef(0);
   const [mode, setMode] = useState<"text" | "3d">("text");
+  const [guideRequest,setGuideRequest]=useState<GuideRequest>();
+  const [voicePlayback,setVoicePlayback]=useState<VoicePlayback|null>(null);
+  const voiceSubscription=useRef<(()=>void)|null>(null);
+  useEffect(()=>()=>{voiceSubscription.current?.();},[]);
   const [guidedIndex, setGuidedIndex] = useState<number | null>(null);
   const [reducedMotion, setReducedMotion] = useMediaPreference("(prefers-reduced-motion: reduce)");
   const [highContrast, setHighContrast] = useMediaPreference("(prefers-contrast: more)");
@@ -35,8 +41,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
   const prepareDetailEntry = useCallback(() => { detailEntry.current?.prepare(); }, []);
-  const audio = useRef<{ playVoice(id: string): Promise<void>; stopVoice(): void } | null>(null);
-  const registerAudio = useCallback((api: typeof audio.current) => { audio.current = api; }, []);
+  const audio = useRef<AudioApi | null>(null);
+  const registerAudio = useCallback((api: typeof audio.current) => { audio.current = api; voiceSubscription.current?.();voiceSubscription.current=api?.subscribeVoice(setVoicePlayback)??null;if(!api)setVoicePlayback(null); }, []);
   const playVoice = useCallback(async (assetId: string) => {
     if (!audio.current) throw Error("AUDIO_UNAVAILABLE");
     await audio.current.playVoice(assetId);
@@ -47,6 +53,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     setLoading(true);
     setMode("text");
     setGuidedIndex(null);
+    setGuideRequest(undefined);
     setSelectedId(null);
     setOverview(null);
     setValue(null);
@@ -159,11 +166,12 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           {mode === "3d" && <Suspense fallback={<p role="status">3D 관람 도구를 불러옵니다. 작품 목록은 계속 사용할 수 있습니다.</p>}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
               suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
-              reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} />
+              reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
           </Suspense>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
-            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d"} />}
+            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d"} voicePlayback={voicePlayback} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => setOverview(null)} />}
+          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !selectedId && !overview ? (routeId,index)=>{stopVoice();setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
             <p>아래 순서는 공개된 작품 목록의 순서입니다. 작가가 지정한 공간 이동 경로가 아닙니다.</p>

@@ -1,5 +1,9 @@
+import { authorizeProcessingInput } from './processing-authorization.ts';
 import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import { Publications } from './publication.ts';
+import { registerRealtime } from './realtime.ts';
+import { registerOpening } from './opening.ts';
+import { openingHostAuthority } from './opening-authority.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
@@ -52,6 +56,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ app.post(`${prefix}/artworks/:id/processing-authorization`,{bodyLimit:4096,schema:{body:object({datasetDigest:{...str,pattern:'^[a-f0-9]{64}$'},requestId:id,processingConsent:{type:'boolean',const:true}})}},call(true,async(c,s,req)=>authorizeProcessingInput(c,s,(req.params as {id:string}).id,req.body as {datasetDigest:string;requestId:string;processingConsent:true},settings.origin)));
  if(store){const integrity=new Integrities(store,{migrationDirectory:fileURLToPath(new URL('../../../database/migrations/',import.meta.url))});app.get(`${prefix}/integrity`,call(false,async(c,s)=>integrity.inspect(c,s)));}
 
  const studio=new Studio(),sp=`${prefix}/studio/exhibitions`;
@@ -101,6 +106,24 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
  for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
  const publications=new Publications(pool,store);
+ const authorizeHost=openingHostAuthority(pool);
+ const opening=registerOpening(app,{origin:settings.origin,publication:async id=>await publications.anonymous(id) as import('./realtime.ts').RealtimePublication,authorizeHost});
+ registerRealtime(app,{origin:settings.origin,publication:async id=>await publications.anonymous(id) as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
+ app.post(`${prefix}/studio/publications/:id/opening-host`,{schema:{body:object({revisionSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}})}},async(req,reply)=>{
+  guarded(req,true);reply.header('cache-control','no-store');
+  const params=req.params as {id:string;tenantId:string};uuid(params.id);uuid(params.tenantId);
+  // Finish the authenticated mutation gate before anonymous publication takes its
+  // own shared policy locks. Keeping the exclusive auth lock would self-deadlock.
+  const subject=await auth.request(token(req),params.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,true,async(_c,s)=>{
+   const subject={userId:s.userId,tenantId:s.tenantId,sessionId:s.id};
+   if(!await authorizeHost(subject,params.id))throw new ApiError(403,'FORBIDDEN');
+   return subject;
+  });
+  const current=await publications.anonymous(params.id) as import('./realtime.ts').RealtimePublication;
+  if(current.publication.revisionSha256!==(req.body as {revisionSha256:string}).revisionSha256)throw new ApiError(409,'REVISION_CONFLICT');
+  // issueHost and socket admission each recheck live session/owner authority.
+  return opening.issueHost(params.id,subject);
+ });
  app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
  app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));

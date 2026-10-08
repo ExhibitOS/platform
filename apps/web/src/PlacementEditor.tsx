@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Exhibition } from "@exhibitos/spec";
 import type { GeometryCommand } from "./geometry/model";
-import { newPlacement, newLight, placementDimensions } from "./placement/model";
+import { newPlacement, newLight, kelvinColor, placementDimensions } from "./placement/model";
 import { request, failureMessage } from "./cms-client";
 import type { Session } from "./cms-client";
 import { presentationFor } from "@exhibitos/studio-contract";
@@ -68,6 +68,9 @@ export function PlacementEditor({
     [intensity, setIntensity] = useState("100"),
     [target, setTarget] = useState(""),
     [beam, setBeam] = useState("0.6");
+  const [lightingError,setLightingError]=useState("");
+  useEffect(()=>{if(!document.rooms.some(r=>r.id===room))setRoom(document.rooms[0]?.id??"");},[document.rooms,room]);
+  const [areaWidth,setAreaWidth]=useState("1"),[areaHeight,setAreaHeight]=useState("1"),[temperature,setTemperature]=useState("6500");
   const light = document.lights.find((l) => l.id === lightId);
   const presentation = presentationFor(document);
   const [cameraPosition, setCameraPosition] = useState<Vector>([0, 1.6, 3]),
@@ -90,7 +93,7 @@ export function PlacementEditor({
       setLightPosition([...light.transform.position]);
       setIntensity(String(light.intensity));
       setTarget(light.targetPlacementId ?? "");
-      setBeam(String(light.beamAngle ?? 0.6));
+      setBeam(String(light.beamAngle ?? 0.6));setAreaWidth(String(light.dimensions?.width??1));setAreaHeight(String(light.dimensions?.height??1));
       setLightColor(
         `#${light.color
           .map((v) =>
@@ -347,7 +350,7 @@ export function PlacementEditor({
         </ul>
       </fieldset>
       <fieldset disabled={disabled}>
-        <legend>기본 조명·spotlight</legend>
+        <legend>기본 조명·spotlight</legend><p role="alert">{lightingError}</p>
         <button
           onClick={() => {
             const l = newLight(room, "point");
@@ -366,6 +369,7 @@ export function PlacementEditor({
         >
           spotlight 추가
         </button>
+        {(["directional","area"] as const).map(type=><button key={type} onClick={()=>{const l=newLight(room,type);execute({type:"add-light",light:l});setLightId(l.id);}}>{type} 조명 추가</button>)}
         <label>
           조명 선택
           <select
@@ -397,10 +401,12 @@ export function PlacementEditor({
                 onChange={(e) => setLightColor(e.target.value)}
               />
             </label>
+            <label>색온도 근사(K)<input aria-label="색온도 근사(K)" type="number" value={temperature} onChange={e=>setTemperature(e.target.value)}/></label><button onClick={()=>{try{setLightColor(kelvinColor(Number(temperature)));}catch(e){setLightingError(e instanceof Error?e.message:'색온도 오류');}}}>색온도 색상 적용</button>
+            {light.type==='area'&&<><label>Area 폭(m)<input aria-label="Area 폭(m)" type="number" value={areaWidth} onChange={e=>setAreaWidth(e.target.value)}/></label><label>Area 높이(m)<input aria-label="Area 높이(m)" type="number" value={areaHeight} onChange={e=>setAreaHeight(e.target.value)}/></label></>}
             <label>
-              조명 밝기 (candela)
+              조명 밝기 ({light.unit})
               <input
-                aria-label="조명 밝기 (candela)"
+                aria-label={`조명 밝기 (${light.unit})`}
                 type="number"
                 value={intensity}
                 onChange={(e) => setIntensity(e.target.value)}
@@ -451,6 +457,7 @@ export function PlacementEditor({
                       (i) => parseInt(lightColor.slice(i, i + 2), 16) / 255,
                     ) as Vector,
                     intensity: Number(intensity),
+                    ...(light.type==='area'?{dimensions:{width:Number(areaWidth),height:Number(areaHeight)}}:{}),
                     ...(light.type === "spot"
                       ? {
                           beamAngle: Number(beam),

@@ -82,6 +82,7 @@ try {
   const approvedAudio = await json(request(actors.artist, "POST", `${audioPath}/${audio.id}/approve`, { revision: 1 }));
   const draft = oexFixture(template, works, approvedAudio.mediaAsset);
   draft.id = baseDraft.id; draft.exhibitionId = base.id; draft.candidate.id = base.id; draft.editVersion = 2;
+  draft.candidate.extensions['org.exhibitos.runtime/spatial-scripting']={version:1,rules:[{id:'preserved-oex-rule',once:false,trigger:{type:'room_enter',roomId:draft.candidate.rooms[0].id},actions:[{type:'set_light',lightId:draft.candidate.lights[0].id,multiplier:.4,delayMs:0},{type:'play_audio',mediaAssetId:audio.id,volume:.5,delayMs:800},{type:'set_artwork_visibility',placementId:draft.candidate.placements[0].id,visible:false,delayMs:800},{type:'show_text',text:'Original OEX rule '+draft.candidate.rooms[0].id,locale:'en',delayMs:0}]}]};
   bytesByAsset.set(audio.id, wave);
   assert.equal(validateExhibition(draft.candidate).valid, true, JSON.stringify(validateExhibition(draft.candidate)));
   const updated = await json(request(actors.artist, "PUT", `/studio/exhibitions/${base.id}`, { draft, requestId: randomUUID() }, { "if-match": saved.etag }));
@@ -172,6 +173,8 @@ try {
     assert.equal(target.extensions["org.exhibitos.viewer/experience"].voices[0].placementId, target.placements[0].id);
     assert.equal(target.extensions["org.exhibitos.viewer/experience"].voices[0].assetId, target.mediaAssets[0].id);
     assert.deepEqual(target.extensions["org.exhibitos.studio/presentation"].viewpoints.map(value => value.roomId), target.rooms.map(value => value.id));
+    const spatial=target.extensions['org.exhibitos.runtime/spatial-scripting'].rules[0];
+    assert.equal(spatial.id,'preserved-oex-rule');assert.equal(spatial.trigger.roomId,target.rooms[0].id);assert.equal(spatial.actions[0].lightId,target.lights[0].id);assert.equal(spatial.actions[1].mediaAssetId,target.mediaAssets[0].id);assert.equal(spatial.actions[2].placementId,target.placements[0].id);assert.equal(spatial.actions[3].text,'Original OEX rule '+source.rooms[0].id);
     assert.equal(validateExhibition(target).valid, true, JSON.stringify(validateExhibition(target)));
     const reexport = await expected(request(destinationActor, "POST", `/studio/exhibitions/${imported.result.exhibitionId}/oex/export`, {}, { "if-match": imported.result.etag }), 200);
     assert.equal((await validateOex(reexport.rawPayload)).valid, true);
@@ -372,7 +375,9 @@ try {
       for (let attempt = 0; ; attempt++) {
         const paused = (await pool.query("SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND wait_event='advisory' AND query LIKE 'INSERT INTO exhibitions%'", [applicationName])).rowCount;
         if (paused) break;
-        assert.equal(child.exitCode, null, childError); if (attempt > 200) throw new Error("Actual worker never reached transaction pause");
+        assert.equal(child.exitCode, null, childError); // Cold Node/module startup on a synchronized checkout may exceed10s.
+        // Still require the real advisory-lock INSERT before SIGKILL; no timing substitute.
+        if (attempt > 1200) throw new Error("Actual worker never reached transaction pause within60s: "+childError);
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       assert.equal((await pool.query("SELECT state FROM oex_import_jobs WHERE id=$1", [job.id])).rows[0].state, "processing");

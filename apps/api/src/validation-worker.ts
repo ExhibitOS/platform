@@ -22,7 +22,7 @@ function crc(data: Buffer) {
   }
   return (value ^ 0xffffffff) >>> 0;
 }
-function png(data: Buffer) {
+function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192) {
   if (
     data.length < 33 ||
     !data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -56,9 +56,9 @@ function png(data: Buffer) {
       if (
         !width ||
         !height ||
-        width * height > PIXELS ||
-        width > 8192 ||
-        height > 8192 ||
+        width * height > pixelLimit ||
+        width > dimensionLimit ||
+        height > dimensionLimit ||
         body[8] !== 8 ||
         !channels ||
         body[10] !== 0 ||
@@ -129,6 +129,64 @@ function png(data: Buffer) {
   }
   return { pixels: result.buffer, width, height, channels };
 }
+function closed(value: unknown, required: string[], optional: string[] = []) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const object = value as Record<string, unknown>;
+  return required.every(k => Object.hasOwn(object, k)) && Object.keys(object).every(k => required.includes(k) || optional.includes(k));
+}
+function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number) {
+  const texturePixels = 2 * 1024 * 1024, textureBytes = 8 * 1024 * 1024;
+  if (binHeader + 8 > data.length || binHeader % 4 || data.readUInt32LE(binHeader + 4) !== 0x004e4942 || data.readUInt32LE(binHeader) % 4 || binHeader + 8 + data.readUInt32LE(binHeader) !== data.length || !Array.isArray(doc.buffers) || doc.buffers.length !== 1 || !closed(doc.buffers[0], ["byteLength"]) || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength < 1 || doc.buffers[0].byteLength > data.length - binHeader - 8 || data.length - binHeader - 8 - doc.buffers[0].byteLength > 3) fail();
+  if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 8 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !Array.isArray(doc.samplers) || doc.samplers.length < 1 || doc.samplers.length > 8 || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined || doc.extensionsUsed !== undefined || doc.extensionsRequired !== undefined) fail();
+  const bin = data.subarray(binHeader + 8, binHeader + 8 + doc.buffers[0].byteLength);
+  const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0;
+  const view = (index: unknown) => {
+    if (!integer(index)) fail(); const v = doc.bufferViews[index];
+    if (!v || v.buffer !== 0 || !integer(v.byteOffset ?? 0) || !integer(v.byteLength) || v.byteLength < 1 || (v.byteOffset ?? 0) + v.byteLength > bin.length) fail();
+    return bin.subarray(v.byteOffset ?? 0, (v.byteOffset ?? 0) + v.byteLength);
+  };
+  let compressed = 0, pixels = 0;
+  // Sum all image declarations before any expansion or third-party validator.
+  const imageBytes: Buffer[] = [];
+  for (const image of doc.images) {
+    if (!closed(image, ["bufferView", "mimeType"], ["name"]) || image.mimeType !== "image/png") fail();
+    const bytes = view(image.bufferView), v = doc.bufferViews[image.bufferView];
+    if (!closed(v, ["buffer", "byteLength"], ["byteOffset", "name"]) || bytes.length < 33 || bytes.length > textureBytes || !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.readUInt32BE(8) !== 13 || bytes.toString("ascii",12,16) !== "IHDR") fail();
+    compressed += bytes.length; const w = bytes.readUInt32BE(16), h = bytes.readUInt32BE(20);
+    pixels += w * h;
+    if (!w || !h || w > 2048 || h > 2048 || pixels > texturePixels || compressed > textureBytes) fail();
+    imageBytes.push(bytes);
+  }
+  for (const bytes of imageBytes) png(bytes, texturePixels, 2048);
+  for (const sampler of doc.samplers) {
+    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || sampler.magFilter !== 9729 || sampler.minFilter !== 9729 || sampler.wrapS !== 33071 || sampler.wrapT !== 33071) fail();
+  }
+  for (const t of doc.textures) if (!closed(t,["source","sampler"],["name"]) || !integer(t.source) || t.source >= doc.images.length || !integer(t.sampler) || t.sampler >= doc.samplers.length) fail();
+  if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();
+  const usedTextures = new Set<number>();
+  for (const m of doc.materials) {
+    if (!closed(m,[],["name","pbrMetallicRoughness","doubleSided","alphaMode","alphaCutoff"]) || m.pbrMetallicRoughness !== undefined && !closed(m.pbrMetallicRoughness,[],["baseColorTexture","baseColorFactor","metallicFactor","roughnessFactor"])) fail();
+    const t = m.pbrMetallicRoughness?.baseColorTexture;
+    if (t !== undefined) {
+      if (!closed(t,["index"],["texCoord"]) || !integer(t.index) || t.index >= doc.textures.length || (t.texCoord ?? 0) !== 0) fail();
+      usedTextures.add(t.index);
+    }
+  }
+  if (usedTextures.size !== doc.textures.length) fail();
+  const usedImages = new Set(doc.textures.map((t: {source: number}) => t.source));
+  if (usedImages.size !== doc.images.length) fail();
+  for (const mesh of doc.meshes ?? []) for (const primitive of mesh.primitives ?? []) {
+    const material = doc.materials[primitive.material];
+    if (!material?.pbrMetallicRoughness?.baseColorTexture) continue;
+    const a = doc.accessors?.[primitive.attributes?.TEXCOORD_0], position = doc.accessors?.[primitive.attributes?.POSITION];
+    if (!a || a.type !== "VEC2" || a.componentType !== 5126 || a.normalized !== undefined || a.sparse !== undefined || !integer(a.count) || a.count < 1 || a.count > 131072 || a.count !== position?.count || !integer(a.byteOffset ?? 0)) fail();
+    const bytes = view(a.bufferView), v = doc.bufferViews[a.bufferView], stride = v.byteStride ?? 8;
+    if (!integer(stride) || stride < 8 || stride > 252 || stride % 4 || (a.byteOffset ?? 0) + (a.count - 1) * stride + 8 > bytes.length) fail();
+    for (let i = 0; i < a.count; i++) for (let j = 0; j < 2; j++) {
+      const x = bytes.readFloatLE((a.byteOffset ?? 0) + i * stride + j * 4); if (!Number.isFinite(x) || x < 0 || x > 1) fail();
+    }
+  }
+}
 async function glb(data: Buffer) {
   if (
     data.length < 20 ||
@@ -149,29 +207,25 @@ async function glb(data: Buffer) {
       data.subarray(20, 20 + jsonSize),
     ),
   );
-  // No extensions, embedded images or URI fetches in this first qualified profile.
-  if (document.extensionsUsed?.length || document.extensionsRequired?.length)
-    fail();
+  // URI and extension rejection applies recursively, including nested extras.
   const scan = (v: unknown, depth = 0) => {
     if (depth > 64) fail();
     if (v && typeof v === "object") {
       if (Array.isArray(v)) {
         if (v.length > 100000) fail();
         for (const x of v) scan(x, depth + 1);
-      } else
-        for (const [k, x] of Object.entries(v)) {
-          if (
-            k === "uri" ||
-            k === "extensions" ||
-            k === "images" ||
-            k === "textures"
-          )
-            fail();
-          scan(x, depth + 1);
-        }
+      } else for (const [k, x] of Object.entries(v)) {
+        if (k === "uri" || k === "extensions" || k === "extensionsUsed" || k === "extensionsRequired" || depth > 0 && (k === "images" || k === "textures")) fail();
+        scan(x, depth + 1);
+      }
     }
   };
-  scan(document);
+  // Legacy empty extension declarations were previously allowed.
+  if (document.extensionsUsed?.length || document.extensionsRequired?.length) fail();
+  const scanned = {...document}; delete scanned.extensionsUsed; delete scanned.extensionsRequired;
+  scan(scanned);
+  if (document.images !== undefined || document.textures !== undefined)
+    embeddedPngProfile(document, data, 20 + jsonSize);
   const report = await validateBytes(data, {
     maxIssues: 64,
     externalResourceFunction: () =>

@@ -14,9 +14,11 @@ import { Oex } from "../apps/api/dist/oex.js";
 import { addInterruptedFreeze, completeObjectSnapshot, createServiceCorpus, metadataSnapshot } from "./service-backup-fixture.mjs";
 import { IsolatedBackends } from "./service-backup-adapters.mjs";
 
-const directory = await realpath(await mkdtemp(`${tmpdir()}/exhibitos-service-backup-report-`));
+const directory = await realpath(await mkdtemp(`${process.env.BACKUP_CLI_IMAGE ? "/private/tmp" : tmpdir()}/exhibitos-service-backup-report-`));
 const images = JSON.parse(await readFile(new URL("../database/images.json", import.meta.url))), backends = new IsolatedBackends(images);
-const migrationDirectory = new URL("../database/migrations/", import.meta.url).pathname, runtimeRoot = new URL("../apps/web/dist/", import.meta.url).pathname;
+const migrationDirectory = new URL("../database/migrations/", import.meta.url).pathname, sourceRuntimeRoot = new URL("../apps/web/dist/", import.meta.url).pathname;
+const runtimeRoot = process.env.BACKUP_CLI_IMAGE ? `${directory}/runtime` : sourceRuntimeRoot;
+if (process.env.BACKUP_CLI_IMAGE) await cp(sourceRuntimeRoot, runtimeRoot, { recursive: true });
 const checks = [], results = [], applications = [], confidential = [], encryptionKey = randomBytes(32);
 const test = async (name, fn) => { await fn(); checks.push(name); console.log(`PASS ${name}`); };
 const snapshot = store => client => collectServiceInventory(client, store, { migrationDirectory });
@@ -32,14 +34,36 @@ async function fixtureSigning(path) {
   return sha256(createPublicKey(privateKey).export({ format: "der", type: "spki" }));
 }
 function launchCli(args, environment) {
-  const child = spawn(process.execPath, [new URL("./service-backup.mjs", import.meta.url).pathname, ...args], { env: { ...process.env, ...environment }, stdio: ["ignore", "pipe", "pipe"] });
+  const image = process.env.BACKUP_CLI_IMAGE;
+  let maintenanceName = null;
+  let binary = process.execPath, command = [new URL("./service-backup.mjs", import.meta.url).pathname, ...args], env = { ...process.env, ...environment };
+  if (image) {
+    assert.match(image, /^sha256:[a-f0-9]{64}$/, "Maintenance test must use an immutable local image ID");
+    binary = process.env.DOCKER_BIN ?? "docker";
+    const privateEnvironment = { ...environment };
+    delete privateEnvironment.BACKUP_POSTGRES_CONTAINER; delete privateEnvironment.DOCKER_BIN;
+    for (const name of ["DATABASE_URL", "S3_ENDPOINT"]) if (privateEnvironment[name]) {
+      const url = new URL(privateEnvironment[name]); if (url.hostname === "127.0.0.1") url.hostname = "host.docker.internal";
+      privateEnvironment[name] = url.href;
+    }
+    env = { ...process.env, ...privateEnvironment };
+    maintenanceName = `${backends.owner}-cli-${randomUUID()}`;
+    command = ["run", "--rm", "--name", maintenanceName, "--label", `exhibitos.service.backup.test=${backends.owner}`, "--user", `${process.getuid()}:${process.getgid()}`, "--read-only",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m,mode=1777", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+      "--mount", `type=bind,source=${directory},target=${directory}`,
+      "--mount", `type=bind,source=${runtimeRoot},target=${runtimeRoot},readonly`,
+      ...Object.keys(privateEnvironment).flatMap(name => ["-e", name]),
+      ...(process.env.BACKUP_CLI_DIAGNOSTIC ? ["--entrypoint", "node", image, "--input-type=module", "-e", "import {main} from './scripts/service-backup.mjs';try{console.log(JSON.stringify(await main(process.argv.slice(1))))}catch(e){console.error(/^BACKUP_[A-Z_]{1,58}$/.test(e.message)?e.message:['ERR_MODULE_NOT_FOUND','EACCES','ENOENT','ENOTFOUND','ECONNREFUSED'].includes(e.code)?e.code:'BACKUP_FAILED');process.exitCode=1;}", "--"] : [image]), ...args];
+  }
+  const child = spawn(binary, command, { env, stdio: ["ignore", "pipe", "pipe"] });
   let output = ""; child.stdout.on("data", value => { output += value; }); child.stderr.on("data", value => { output += value; });
-  const exited = new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code, signal) => { for (const secret of confidential) assert.equal(output.includes(secret), false, "Operator logs must not expose credential or configuration values"); resolve({ code, signal, output }); }); });
+  const exited = new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code, signal) => { if (signal && maintenanceName) { try { assert.equal(backends.run(["inspect", "--format", '{{index .Config.Labels "exhibitos.service.backup.test"}}', maintenanceName]), backends.owner); backends.run(["rm", "--force", maintenanceName]); } catch (error) { reject(error); return; } } for (const secret of confidential) assert.equal(output.includes(secret), false, "Operator logs must not expose credential or configuration values"); resolve({ code, signal, output }); }); });
   return { child, exited };
 }
 async function runCli(args, environment) { const value = await launchCli(args, environment).exited; assert.equal(value.code, 0, value.output); return value; }
 try {
-  for (const kind of ["file", "s3"]) {
+  if (process.env.BACKUP_TEST_ADAPTER && !["file", "s3"].includes(process.env.BACKUP_TEST_ADAPTER)) throw Error("BACKUP_TEST_ADAPTER");
+  for (const kind of process.env.BACKUP_TEST_ADAPTER ? [process.env.BACKUP_TEST_ADAPTER] : ["file", "s3"]) {
     const root = `${directory}/${kind}`; await mkdir(root, { mode: 0o700 });
     const source = await backends.postgres(`${kind}-source`), target = await backends.postgres(`${kind}-target`); confidential.push(source.password, target.password);
     await migrate(source.pool, migrationDirectory);
@@ -55,10 +79,14 @@ try {
     const configSecret = `synthetic-protected-configuration-${randomUUID()}`; confidential.push(configSecret);
     const configuration = new Map([["signing-key.json", await readFile(keyFile)], ["private-configuration.json", Buffer.from(JSON.stringify({ origin, sentinel: configSecret }))]]);
     const backupKeyFile = `${root}/backup-encryption-key.bin`, privateConfigFile = `${root}/source-configuration.json`; await writeFile(backupKeyFile, encryptionKey, { mode: 0o600 }); await writeFile(privateConfigFile, configuration.get("private-configuration.json"), { mode: 0o600 });
+    const deploymentPath = `${root}/source-deployment.bin`, deploymentBytes = Buffer.alloc(4*1024*1024,0x6d);
+    await writeFile(deploymentPath,deploymentBytes,{mode:0o600});
+    const deployment = new Map([["images/synthetic.bin",{path:deploymentPath,bytes:deploymentBytes.length,sha256:sha256(deploymentBytes)}]]);
     const cliEnvironment = { DATABASE_URL: `postgresql://postgres:${encodeURIComponent(source.password)}@127.0.0.1:${source.database.port}/postgres`, BACKUP_POSTGRES_CONTAINER: source.name, FREEZE_RUNTIME_ROOT: runtimeRoot,
+      BACKUP_DEPLOYMENT_FILES: JSON.stringify(Object.fromEntries(deployment)),
       BACKUP_CONFIGURATION_FILES: JSON.stringify({ "signing-key.json": keyFile, "private-configuration.json": privateConfigFile }),
       ...(s3 ? { BACKUP_BLOB_BACKEND: "s3", S3_ENDPOINT: s3.config.client.endpoint, S3_BUCKET: s3.config.bucket, S3_FORCE_PATH_STYLE: "1", AWS_REGION: "us-east-1", AWS_ACCESS_KEY_ID: s3.config.client.credentials.accessKeyId, AWS_SECRET_ACCESS_KEY: s3.config.client.credentials.secretAccessKey } : { BLOB_ROOT: sourceStore.root }) };
-    const backupOptions = { pool: source.pool, store: sourceStore, encryptionKey, snapshot: snapshot(sourceStore), runtime: { metadata: runtime, files: runtimeFiles }, configuration };
+    const backupOptions = { pool: source.pool, store: sourceStore, encryptionKey, snapshot: snapshot(sourceStore), runtime: { metadata: runtime, files: runtimeFiles }, configuration, deployment };
     const dump = (path, snapshotId) => { assert.match(snapshotId, /^[0-9A-Fa-f-]+$/); return backends.pgFile(source, path, "dump", snapshotId); };
     await test(`${kind}: exact all-row inventory and large PostgreSQL numbers include required blobs and unknown orphan namespaces`, async () => {
       const value = await inventory(source.pool, sourceStore); assert.deepEqual(value.issues, []); assert(value.objects.some(item => item.key === corpus.unlinkedKey && !item.referenced));
@@ -116,6 +144,8 @@ try {
       receipt = await createServiceBackup({ ...backupOptions, destination: archive, dump }); assert.equal(receipt.status, "complete"); assert.equal(receipt.objectCount, originalObjects.length);
       verified = await verifyServiceBackup({ source: archive, encryptionKey, destination: `${root}/verify-private` });
       assert.equal(sha256(Buffer.from(JSON.stringify(await metadataSnapshot(source.pool)))), sha256(Buffer.from(JSON.stringify(originalRows)))); assert.deepEqual(await completeObjectSnapshot(sourceStore), originalObjects);
+      assert.equal(verified.manifest.schemaVersion,"1.0.0-draft.2");
+      assert.equal(verified.files.find(file=>file.role==="deployment").sha256,sha256(deploymentBytes));
       assert.equal((await stat(archive)).mode & 0o777, 0o700);
       const privateBytes = Buffer.from(configSecret), keyBytes = Buffer.from(JSON.parse(await readFile(keyFile, "utf8")).privateKey);
       async function scan(path) { const { readdir } = await import("node:fs/promises"); for (const entry of await readdir(path, { withFileTypes: true })) { if (entry.isDirectory()) await scan(`${path}/${entry.name}`); else { const bytes = await readFile(`${path}/${entry.name}`); assert.equal(bytes.includes(privateBytes), false); assert.equal(bytes.includes(keyBytes), false); } } }
@@ -158,6 +188,7 @@ try {
     });
     await corpus.app.close(); await source.pool.end(); backends.stop(source.name);
     if (s3) backends.stop(s3.name); else await rename(sourceStore.root, `${root}/stopped-source-blobs`);
+    await rename(deploymentPath,`${root}/unavailable-source-deployment.bin`);
     await rename(keyFile, `${root}/stopped-source-signing-key.json`);
     await test(`${kind}: original service database object store and signing-key path are unavailable before restoration`, async () => {
       const inaccessible = new Pool({ ...source.database, connectionTimeoutMillis: 1000 }); try { await assert.rejects(inaccessible.query("SELECT 1")); } finally { await inaccessible.end(); }
@@ -168,6 +199,9 @@ try {
     await test(`${kind}: fresh database and fresh blob root reconstruct every row object hash and schema from encrypted backup alone`, async () => {
       await runCli(["restore", "--key-file", backupKeyFile, "--source", archive, "--destination", restoredDirectory, "--quiesced", "--fresh-destination"], { DATABASE_URL: `postgresql://postgres:${encodeURIComponent(target.password)}@127.0.0.1:${target.database.port}/postgres`, BACKUP_POSTGRES_CONTAINER: target.name, BLOB_ROOT: destinationStore.root });
       restored = JSON.parse(await readFile(`${restoredDirectory}/restored.json`, "utf8")); assert.equal(restored.status, "complete");
+      const stagedDeployment=`${restoredDirectory}/deployment/images/synthetic.bin`;
+      assert.deepEqual(await readFile(stagedDeployment),deploymentBytes);assert.equal((await stat(stagedDeployment)).mode&0o777,0o600);
+      await assert.rejects(readFile(deploymentPath));
       assert.deepEqual(await metadataSnapshot(target.pool), originalRows); assert.deepEqual(await completeObjectSnapshot(destinationStore), originalObjects);
       const actual = await inventory(target.pool, destinationStore); assert.deepEqual(actual.issues, []); assert.equal(actual.schemaDigest, originalInventory.schemaDigest); assert.deepEqual(actual.tables, originalInventory.tables);
     });
@@ -216,8 +250,8 @@ try {
     await test(`${kind}: restored complete queued uploading failed and interrupted receipts resume using only retained owned bytes`, async () => {
       const worker = new Oex(target.pool, destinationStore);
       const completed = await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.completed.id}`); assert.deepEqual(completed.value(), corpus.completed);
-      await worker.run(corpus.queued.id); assert.equal((await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.queued.id}`)).value().state, "complete");
-      assert.equal((await actualRequest(corpus.actors.artist, "POST", `/oex/imports/${corpus.uploading.id}/complete`, {})).status, 200); await worker.run(corpus.uploading.id); assert.equal((await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.uploading.id}`)).value().state, "complete");
+      await worker.run(corpus.queued.id); const queuedResult = (await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.queued.id}`)).value(); assert.equal(queuedResult.state, "complete", `queued recovery: ${queuedResult.errorCode}`);
+      assert.equal((await actualRequest(corpus.actors.artist, "POST", `/oex/imports/${corpus.uploading.id}/complete`, {})).status, 200); await worker.run(corpus.uploading.id); const uploadingResult = (await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.uploading.id}`)).value(); assert.equal(uploadingResult.state, "complete", `upload recovery: ${uploadingResult.errorCode}`);
       assert.equal((await actualRequest(corpus.actors.artist, "GET", `/oex/imports/${corpus.failed.id}`)).value().state, "failed");
       await target.pool.query("UPDATE freeze_requests SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1", [pending.id]); assert.equal(await new Freezes(target.pool, destinationStore, restoredFreeze).recover(), true);
       for (const key of pending.object_keys) await assert.rejects(destinationStore.get(key));

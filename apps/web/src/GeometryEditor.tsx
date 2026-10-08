@@ -1,3 +1,4 @@
+import { AdvancedArchitectureEditor } from "./AdvancedArchitectureEditor";
 import { materialFor } from "@exhibitos/studio-contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Draft } from "./drafts/store";
@@ -260,8 +261,7 @@ export function GeometryEditor({
     <section className="geometry-editor" aria-label="공간 편집기">
       <h2>공간 · 표면 · 개구부 편집</h2>
       <p className="cms-note">
-        직사각형 방과 평면 벽·바닥·천장을 편집합니다. 곡선벽·계단은 지원하지
-        않습니다. 문은 실제 사각 개구부이며 외부 출입문 또는 다른 방의 문과
+        직사각형 방과 평면 벽·바닥·천장, 분할 곡선벽과 계단·경사로를 편집합니다. 문은 실제 사각 개구부이며 외부 출입문 또는 다른 방의 문과
         연결합니다. 충돌·보행 가능성을 보장하지 않습니다.
       </p>
       <p role="alert" data-testid="geometry-error">
@@ -729,6 +729,7 @@ export function GeometryEditor({
           )}
         </fieldset>
       )}
+      <AdvancedArchitectureEditor document={document} disabled={disabled} onChange={candidate=>execute({type:"replace-architecture",candidate})}/>
       <PlacementEditor
         document={document}
         execute={execute}

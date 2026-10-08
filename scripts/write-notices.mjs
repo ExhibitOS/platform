@@ -1,4 +1,5 @@
-import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 const resolveWeb = createRequire(
@@ -19,7 +20,11 @@ const packages = [
   "json-schema-traverse",
   "require-from-string",
 ];
+const ltcNotice=await readFile(new URL("../vendor/notices/ltc-LICENSE.txt",import.meta.url),"utf8");
+const ltcProvenance=JSON.parse(await readFile(new URL("../vendor/notices/ltc-provenance.json",import.meta.url),"utf8"));
+if(createHash("sha256").update(ltcNotice).digest("hex")!==ltcProvenance.sha256)throw Error("LTC_LICENSE_INTEGRITY");
 const notices = [
+  "LTC BRDF data bundled through Three.js RectAreaLightTexturesLib. Original source: https://github.com/selfshadow/ltc_code/\n"+ltcNotice+"\n",
   "Third-party implementations included in the ExhibitOS web bundle.\nTheir original licenses apply independently of the project AGPL license.\n",
 ];
 for (const name of packages) {
@@ -36,18 +41,16 @@ for (const name of packages) {
     root = parent;
   }
   const metadata = JSON.parse(await readFile(`${root}/package.json`, "utf8"));
-  let license;
-  try {
-    license = await readFile(`${root}/LICENSE`, "utf8");
-  } catch {
-    license = await readFile(`${root}/LICENSE.md`, "utf8");
-  }
+  // npm packages may ship lowercase `license`; Linux filesystems are case-sensitive.
+  const licenseFiles = (await readdir(root)).filter(file => /^license(?:\.md|\.txt)?$/i.test(file)).sort();
+  if (!licenseFiles.length) throw Error(`Missing original bundled package license: ${name}`);
+  const license = await readFile(`${root}/${licenseFiles[0]}`, "utf8");
   notices.push(
     `\n--- ${name} ${metadata.version} (${metadata.license}) ---\n\n${license}`,
   );
 }
 notices.push(
-  "\n--- @exhibitos/spec 0.1.0-draft.2 browser document validators/schemas (Apache-2.0) ---\nCopyright 2026 ExhibitOS contributors\nDocument-only browser adaptation; original package bytes are pinned in vendor/.\n" +
+  "\n--- @exhibitos/spec 0.1.0-draft.3 browser document validators/schemas (Apache-2.0) ---\nCopyright 2026 ExhibitOS contributors\nDocument-only browser adaptation; original package bytes are pinned in vendor/.\n" +
     (await readFile("node_modules/@exhibitos/spec/LICENSE", "utf8")),
 );
 await mkdir("apps/web/public", { recursive: true });

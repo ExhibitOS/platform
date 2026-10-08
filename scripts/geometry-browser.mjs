@@ -8,7 +8,7 @@ export async function runGeometryBrowser() {
   const dist = new URL("../apps/web/dist/", import.meta.url),
     assets = new Set(await readdir(new URL("assets/", dist))),
     checks = [],
-    screenshots = [];
+    screenshots = [],switchWitnesses=[];
   const server = createServer(async (req, res) => {
     try {
       const path = new URL(req.url, "http://localhost").pathname;
@@ -17,9 +17,10 @@ export async function runGeometryBrowser() {
         res.writeHead(405).end();
         return;
       }
-      if (path === "/studio") {
+      if (path === "/studio" || path === "/offline") {
         file = "index.html";
         type = "text/html";
+      } else if (path === "/freeze-runtime.json") {file="freeze-runtime.json";type="application/json";
       } else if (path === "/studio-sw.js") {
         file = "studio-sw.js";
         type = "application/javascript";
@@ -54,7 +55,8 @@ export async function runGeometryBrowser() {
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext(),
       page = await context.newPage(),
-      errors = [];
+      errors = [],consoleErrors=[];
+    page.on("console",m=>{if(m.type()==="error")consoleErrors.push(m.text());});
     page.on("pageerror", (error) => errors.push(error.message));
     page.setDefaultTimeout(20000);
     const check = async (title, work) => {
@@ -95,6 +97,7 @@ export async function runGeometryBrowser() {
         "로컬 version",
       );
     };
+    const qualifyDraftEditors=async()=>{await expect(page.locator('.geometry-editor')).toHaveCount(1);switchWitnesses.push({draftId:await page.getByTestId('draft-id').innerText(),geometryEditors:await page.locator('.geometry-editor').count()});};
     const select = async (kind, id) => {
       await page
         .getByLabel("공간 요소 선택", { exact: true })
@@ -128,6 +131,7 @@ export async function runGeometryBrowser() {
         await expect(page.getByRole("status", { name: "전시 편집 상태", exact: true })).toContainText(
           "계정 없이 로컬 전시",
         );
+        await qualifyDraftEditors();
         const initial = await candidate();
         initial.extensions = {
           "org.synthetic.fixture/retained": { notes: "keep foreign extension" },
@@ -331,6 +335,36 @@ export async function runGeometryBrowser() {
         assert.deepEqual(await candidate(), before);
       },
     );
+    await check("licensed template duplicate customize export import and daylight retain native IndexedDB state", async()=>{
+      await page.getByRole("button",{name:"새 로컬 전시",exact:true}).click();
+      await expect(page.getByRole('status',{name:'전시 편집 상태',exact:true})).toContainText('계정 없이 로컬 전시');
+      await qualifyDraftEditors();
+      await page.getByRole("button",{name:"두 방 template 복제",exact:true}).click();await saved();
+      const template=await candidate();assert.equal(template.rooms.length,2);
+      await page.getByRole('button',{name:'area 조명 추가',exact:true}).click();await page.getByLabel('Area 폭(m)',{exact:true}).fill('2');await page.getByRole('button',{name:'조명 속성 적용',exact:true}).click();await saved();
+      await page.getByRole('button',{name:'directional 조명 추가',exact:true}).click();await saved();
+      const artificial=await candidate();assert.equal(artificial.lights.find(l=>l.type==='area').unit,'lumen');assert.equal(artificial.lights.find(l=>l.type==='area').dimensions.width,2);assert.equal(artificial.lights.find(l=>l.type==='directional').unit,'lux');assert.equal(template.openings.filter(o=>o.type==='window').length,1);
+      await page.getByLabel("건축 유형",{exact:true}).selectOption('curve');await page.getByRole('button',{name:'건축 추가',exact:true}).click();await saved();
+      assert.equal((await candidate()).surfaces.length,template.surfaces.length+4);
+      await page.getByLabel('자연광 hour',{exact:true}).fill('8');await saved();await render();
+      const solar=await page.locator('.geometry-preview canvas').getAttribute('data-daylight');assert.equal(JSON.parse(solar).hour,8);
+      const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Template JSON 저장',exact:true}).click();const download=await pending;const exported=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(exported.extensions['org.exhibitos.studio/template'].license,'CC0-1.0');
+      await page.getByLabel('Template JSON 가져오기',{exact:true}).setInputFiles({name:'template.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(exported))});await saved();
+      const imported=await candidate();assert.equal(imported.surfaces.length,exported.surfaces.length);assert.notEqual(imported.rooms[0].id,exported.rooms[0].id);assert.equal(imported.extensions['org.exhibitos.studio/daylight'].hour,8);
+      await page.evaluate(()=>{const original=File.prototype.text;window.__templateReads=[];window.__originalTemplateText=original;File.prototype.text=function(){return new Promise(resolve=>{window.__templateReads.push(()=>original.call(this).then(resolve));});};});
+      await page.getByLabel('Template JSON 가져오기',{exact:true}).setInputFiles({name:'deferred.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(exported))});
+      await expect.poll(()=>page.evaluate(()=>window.__templateReads.length)).toBe(1);
+      const edited=await candidate();edited.title='Newer edit survives pending template';await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(edited));await saved();
+      await page.evaluate(()=>window.__templateReads.shift()());await expect(page.getByRole('region',{name:'고급 건축과 template'}).getByRole('alert')).toContainText('Draft changed');assert.equal((await candidate()).title,edited.title);
+      await page.getByLabel('Template JSON 가져오기',{exact:true}).setInputFiles({name:'unmounted.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(exported))});await expect.poll(()=>page.evaluate(()=>window.__templateReads.length)).toBe(1);
+      await page.getByRole('button',{name:'새 로컬 전시',exact:true}).click();await saved();await qualifyDraftEditors();const fresh=await candidate();await page.evaluate(()=>window.__templateReads.shift()());await page.waitForTimeout(100);assert.deepEqual(await candidate(),fresh);
+      await page.evaluate(()=>{File.prototype.text=window.__originalTemplateText;delete window.__originalTemplateText;delete window.__templateReads;});
+      await page.getByRole('button',{name:'두 방 template 복제',exact:true}).click();await saved();
+      localId=await page.getByTestId('draft-id').innerText();
+      const currentTemplate=await candidate();const privateTemplate=structuredClone(currentTemplate);privateTemplate.extensions['org.exhibitos.studio/template'].license='private';await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(privateTemplate));await saved();
+      await page.getByRole('button',{name:'Template JSON 저장',exact:true}).click();await expect(page.getByRole('region',{name:'고급 건축과 template'}).getByRole('alert')).toContainText('license');
+      await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(currentTemplate));await saved();
+    });
     await check(
       "true offline reload retains exact room walls openings and PBR; keyboard camera controls and mobile layout",
       async () => {
@@ -353,7 +387,7 @@ export async function runGeometryBrowser() {
         await expect(camera).toBeFocused();
         await expect(
           page
-            .getByText("곡선벽·계단은 지원하지 않습니다.", { exact: false })
+            .getByText("분할 곡선벽과 계단·경사로", { exact: false })
             .first(),
         ).toBeVisible();
         await page.setViewportSize({ width: 375, height: 812 });
@@ -368,12 +402,13 @@ export async function runGeometryBrowser() {
         );
         screenshots.push(`${directory}/mobile-geometry.png`);
         await page.screenshot({ path: screenshots.at(-1), fullPage: true });
-        assert.deepEqual(errors, []);
+        assert.deepEqual(errors, []);assert.deepEqual(consoleErrors.filter(x=>x.includes("same key")||x.includes("unique \"key\"")),[]);
         await cdp.detach();
       },
     );
     await context.close();
-    return { checks, screenshots };
+    assert.equal(switchWitnesses.length,3);assert.equal(new Set(switchWitnesses.map(x=>x.draftId)).size,3);
+    return { checks, screenshots, switchWitnesses };
   } finally {
     await browser?.close();
     await new Promise((resolve) => server.close(resolve));

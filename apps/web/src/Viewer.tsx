@@ -1,4 +1,15 @@
+import { OpeningSession, type OpeningState } from "./viewer/opening";
+import { OpeningControls } from "./viewer/OpeningControls";
+import { presentationFor } from "@exhibitos/studio-contract";
+import { ExhibitionPresence, advancePresenceFrame, type RealtimeState } from "./viewer/realtime";
+import { RealtimeControls } from "./viewer/RealtimeControls";
+import type { RealtimeScene } from "./GeometryPreview";
+import { spatialProgramFor, spatialScopeFor, experienceFor } from "@exhibitos/studio-contract";
+import { ScriptSession, type ScriptScene, type ScriptState } from "./viewer/scripting";
+import { ScriptEdges } from "./viewer/scripting-events";
+import { ScriptControls } from "./viewer/ScriptControls";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { GuideRequest } from "./GuidedRoutes";
 import { GeometryPreview } from "./GeometryPreview";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
@@ -15,6 +26,7 @@ export function Viewer({
   onDetailEntryReady,
   reducedMotion,
   onReducedMotionChange,
+  guideRequest,
 }: {
   publication: PublicPublication;
   appearance: (id: string) => SurfaceAppearance;
@@ -24,6 +36,7 @@ export function Viewer({
   onAudioReady?: (api: AudioApi | null) => void;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
+  guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
   const audio = useRef<ExhibitionAudio | null>(null);
@@ -46,6 +59,42 @@ export function Viewer({
     return () => { document.removeEventListener("visibilitychange",visible); window.removeEventListener("blur",blur); window.removeEventListener("focus",visible); window.removeEventListener("keydown",escape); runtime.dispose(); audio.current = null; audioReady.current?.(null); };
   }, [publication]);
   useEffect(() => { audio.current?.lifecycle(!suspendNavigation && movement.current,suspendNavigation); }, [suspendNavigation]);
+  const scriptProgram=useMemo(()=>spatialProgramFor(publication.exhibition),[publication]);
+  const script=useRef<ScriptSession|null>(null),scriptScene=useRef<ScriptScene|null>(null),scriptEdges=useRef<ScriptEdges|null>(null);
+  const scriptPose=useRef<{position:[number,number,number];forward:[number,number,number]}|null>(null);
+  const [scriptState,setScriptState]=useState<ScriptState|null>(null),[scriptConsent,setScriptConsent]=useState(false);
+  const consent=useRef(false);consent.current=scriptConsent;
+  const scriptSuspended=useRef(suspendNavigation);scriptSuspended.current=suspendNavigation;
+  useEffect(()=>{if(!scriptProgram.rules.length)return;
+    const runtime=new ScriptSession(scriptProgram,spatialScopeFor(publication.exhibition),{scene:()=>scriptScene.current,audioAllowed:(id)=>((!id)||publication.exhibition.audioZones.some(z=>z.assetId===id&&z.transcript.trim().length>0)||experienceFor(publication.exhibition).voices.some(v=>v.assetId===id&&v.transcript.trim().length>0))&&consent.current&&!scriptSuspended.current&&document.visibilityState==='visible'&&!!audio.current?.snapshot().enabled&&!audio.current?.snapshot().muted,
+      check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},playAudio:async(id,volume,allowed)=>{if(!audio.current)throw Error('AUDIO_MISSING');await audio.current.playScriptAudio(id,volume,allowed);},stopAudio:id=>audio.current?.stopScriptAudio(id),changed:setScriptState});
+    script.current=runtime;setScriptState(runtime.snapshot());
+    const stop=()=>runtime.stop(),visibility=()=>{if(document.visibilityState!=='visible')stop();},escape=(e:KeyboardEvent)=>{if(e.key==='Escape')stop();};
+    window.addEventListener('blur',stop);document.addEventListener('visibilitychange',visibility);window.addEventListener('keydown',escape);
+    const timer=setInterval(()=>{if(scriptSuspended.current||document.visibilityState!=='visible')return;const now=performance.now(),utc=Date.now();if(runtime.snapshot().enabled&&scriptPose.current){for(const event of scriptEdges.current?.update(scriptPose.current.position,scriptPose.current.forward,now)??[])runtime.event(event,now,utc);}runtime.advance(now,utc);},100);
+    return()=>{clearInterval(timer);window.removeEventListener('blur',stop);document.removeEventListener('visibilitychange',visibility);window.removeEventListener('keydown',escape);runtime.stop();script.current=null;};
+  },[publication,scriptProgram]);
+  useEffect(()=>{if(suspendNavigation)script.current?.stop();},[suspendNavigation]);
+  const startScript=()=>{if(suspendNavigation||document.visibilityState!=='visible'||!scriptScene.current)return;scriptEdges.current=new ScriptEdges(publication.exhibition);void script.current?.start(performance.now(),Date.now());};
+  const presence=useRef<ExhibitionPresence|null>(null),presenceScene=useRef<RealtimeScene|null>(null),presencePose=useRef<{roomId:string;position:[number,number,number];yaw:number}|null>(null);
+  const [presenceState,setPresenceState]=useState<RealtimeState|null>(null);
+  const presenceReduced=useRef(reducedMotion??matchMedia("(prefers-reduced-motion: reduce)").matches);if(reducedMotion!==undefined)presenceReduced.current=reducedMotion;
+  const presenceSuspended=useRef(suspendNavigation);presenceSuspended.current=suspendNavigation;
+  useEffect(()=>{if(publication.local)return;
+    const runtime=new ExhibitionPresence({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,roomIds:new Set(publication.exhibition.rooms.map(r=>r.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:state=>{setPresenceState(state);if(state.status!=='joined')presenceScene.current?.clear();}});
+    presence.current=runtime;setPresenceState(runtime.snapshot());
+    const leave=()=>{runtime.leave();presenceScene.current?.clear();},visibility=()=>{if(document.visibilityState!=='visible')leave();};
+    document.addEventListener('visibilitychange',visibility);
+    const timer=setInterval(()=>{if(presenceSuspended.current||document.visibilityState!=='visible')return;advancePresenceFrame(runtime,presenceScene.current,presencePose.current,presenceReduced.current);},50);
+    return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visibility);runtime.dispose();presenceScene.current?.clear();presence.current=null;};
+  },[publication]);
+  useEffect(()=>{if(suspendNavigation){presence.current?.leave();presenceScene.current?.clear();}},[suspendNavigation]);
+  const capturePresencePose=(position:[number,number,number],yaw:number)=>{const room=publication.exhibition.rooms.find(r=>{const p=position.map((v,i)=>v-r.transform.position[i]!),[x,y,z,w]=r.transform.rotation,tx=2*(-y*p[2]!+z*p[1]!),ty=2*(-z*p[0]!+x*p[2]!),tz=2*(-x*p[1]!+y*p[0]!),a=p[0]!+w*tx-y*tz+z*ty,b=p[1]!+w*ty-z*tx+x*tz,c=p[2]!+w*tz-x*ty+y*tx;return Math.abs(a)<=r.dimensions.width/2&&Math.abs(c)<=r.dimensions.depth/2&&b>=0&&b<=r.dimensions.height;});presencePose.current=room?{roomId:room.id,position:[...position],yaw}:null;};
+  const opening=useRef<OpeningSession|null>(null),openingAudio=useRef<HTMLDivElement|null>(null);
+  const [openingState,setOpeningState]=useState<OpeningState|null>(null),[openingView,setOpeningView]=useState<{viewpointId:string;sequence:number}|undefined>(undefined);
+  const openingSequence=useRef(0);
+  useEffect(()=>{if(publication.local)return;const runtime=new OpeningSession({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,viewpointIds:new Set(presentationFor(publication.exhibition).viewpoints.map(v=>v.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:setOpeningState,attachAudio:element=>openingAudio.current?.append(element),viewpoint:id=>{if(!presenceSuspended.current&&document.visibilityState==='visible')setOpeningView({viewpointId:id,sequence:++openingSequence.current});}});opening.current=runtime;setOpeningState(runtime.snapshot());const hidden=()=>{if(document.visibilityState!=='visible')runtime.leave();};document.addEventListener('visibilitychange',hidden);const timer=setInterval(()=>runtime.measureVoice(),1000);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);runtime.dispose();opening.current=null;};},[publication]);
+  useEffect(()=>{if(suspendNavigation){opening.current?.leave();setOpeningView(undefined);}},[suspendNavigation]);
   const [profile, setProfile] = useState<"auto" | "compact" | "desktop">(
     "auto",
   );
@@ -95,13 +144,23 @@ export function Viewer({
         onArtworkSelect={onArtworkSelect}
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
+        guideRequest={guideRequest}
+        openingViewpoint={openingView}
+        onPresencePose={publication.local?undefined:capturePresencePose}
+        onPresenceSceneReady={publication.local?undefined:scene=>{presenceScene.current=scene;}}
+        onScriptSceneReady={scriptProgram.rules.length?scene=>{if(!scene)script.current?.stop();scriptScene.current=scene;}:undefined}
+        onScriptPose={scriptProgram.rules.length?(position,forward)=>{scriptPose.current={position,forward};}:undefined}
+        onScriptClick={scriptProgram.rules.length?id=>script.current?.event({type:'artwork_click',placementId:id},performance.now(),Date.now()):undefined}
         reducedMotion={reducedMotion}
-        onReducedMotionChange={onReducedMotionChange}
+        onReducedMotionChange={value=>{presenceReduced.current=value;onReducedMotionChange?.(value);}}
         onNavigationState={state => audio.current?.update(state)}
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
-        onNavigationMode={(walking,paused)=>{movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
+        onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
+      <OpeningControls session={opening.current} state={openingState} offline={!!publication.local} viewpoints={presentationFor(publication.exhibition).viewpoints} audioReady={node=>{openingAudio.current=node;}}/>
+      <RealtimeControls state={presenceState} offline={!!publication.local} join={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.join();}} retry={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.retry();}} leave={()=>{presence.current?.leave();presenceScene.current?.clear();}}/>
       <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
+      {scriptProgram.rules.length>0&&<ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>}
       <p className="cms-note">
         입구에 가까운 작품부터 불러옵니다. 다음 묶음과 상세 품질은 직접 요청할
         수 있습니다. 기기 품질은 texture·3D geometry·화면 해상도 예산을 함께

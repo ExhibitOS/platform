@@ -137,6 +137,17 @@ Studio의 계정 없는 로컬 draft·오프라인 준비·JSON 백업과 선택
 [오디오 API](contracts/audio-openapi.json)를 읽으세요. `npm run test:experience`는
 격리된 PostgreSQL과 production Chromium을 사용합니다. 실제 검증 범위와 물리 기기·코덱 제한은 [결과](docs/performance/experience-results.md)에 기록합니다.
 
+공간 음향의 거리·차폐 설정, 원문을 보존하는 시간 대본·번역과 선택적 안내 동선은
+[편집·관람 안내](docs/studio-curation.md)를 읽으세요. `npm run test:curation`은
+합성 WAV·실제 PostgreSQL·Chromium으로 저장·공개·구역 전환·대본·글 안내를 검사합니다.
+새 컨트롤의 실제 VoiceOver 및 물리 음향 검증은 별도입니다.
+
+선언형 Spatial Scripting의 개발용 계약·관람객별 실행 코어는
+[실행 코어 안내](docs/spatial-scripting-core.md)에 있습니다. `npm run test:spatial-core`는
+실제 컴파일된 코어의 지연·권한·취소·재귀 제한을 검사합니다. Studio 블록 편집기와
+선택적 Viewer 연결은 [공간 스크립트 안내](docs/spatial-scripting.md)를 따릅니다.
+`npm run test:scripting`으로 실제 저장·공개·장면과 취소를 검사합니다. 기존 OES의 비활성 script를 켜지 않습니다.
+
 글·목록으로 시작하고 선택적으로 3D를 여는 접근성 관람 후보는
 [관람 안내](docs/viewer-accessibility.md)와 [검사 프로토콜](docs/accessibility-protocol.md)에 있습니다.
 `npm run test:accessibility`는 실제 합성 공개 전시의 키보드·텍스트·대본 흐름과
@@ -146,3 +157,29 @@ gate가 확인되기 전 전체 접근성 적합성이나 MVP 완료를 뜻하�
 OEX 전시 파일 흐름의 지원 형식·권한·복원·한계는 [OEX 안내](docs/oex.md)와 [OEX API](contracts/oex-openapi.json)에 있습니다. `npm run test:oex`는 실제 격리 PostgreSQL/파일/production 브라우저의 round-trip와 오류 처리를 검사합니다. [실제 검증 결과](docs/performance/oex-results.md)를 확인하세요. 전체 오프라인 배포판이나 관리용 DB 백업 완료를 뜻하지 않습니다.
 
 Frozen exhibition and offline display implementation: [docs/freeze.md](docs/freeze.md). Actual bounded qualification and limits are recorded in [freeze-results.md](docs/performance/freeze-results.md).
+
+고급 분할 곡선벽·계단·경사로, 자연광 시각 근사와 명시적 license의 건축
+템플릿은 [고급 건축 안내](docs/advanced-architecture.md)를 읽으세요.
+템플릿은 작품 bytes를 포함하지 않으며 private/unlicensed 재배포는 차단합니다.
+실제 통합 검증과 기기별 지원 범위는 후속 결과 기록에서 구분합니다.
+
+함께 관람 개발 기능과 권한·복귀·운영 제한은 [multiplayer.md](docs/multiplayer.md), 실제 로컬 부하 및 브라우저 결과는 [realtime-results.md](docs/performance/realtime-results.md)에 기록합니다. `npm run test:realtime`은 격리 PostgreSQL과 Chromium이 필요합니다.
+
+행사·음성·안내 개발 후보의 사용법과 개인정보 한도는 [docs/opening.md](docs/opening.md)를 참고하세요. 최종 실제 DB/브라우저 검증은 `npm run test:opening`, 독립 native 음성 후보 검사는 `EXHIBITOS_VOICE_CHROME=1 npm run test:voice-transport`입니다. 전체 릴리스·실기기·인터넷 중계 지원 완료를 의미하지 않습니다.
+
+
+### Windows x64 개발 Runtime 묶음
+
+Node24.21.0, 실행 중인 Docker Linux engine, 이 저장소의 고정 소스에서 다음을 실행합니다.
+
+```powershell
+node scripts/package-local-runtime.mjs C:\ExhibitOS\new-runtime --platform linux/amd64
+```
+
+목적지는 없는 새 폴더여야 합니다. Manager가 만든 **새 검사 공간**을 대상으로 할 때만 앱을 닫고 `--existing-root`를 추가합니다. 기존 `bundle` 또는 `installed.json`이 있으면 덮어쓰지 않고 거부합니다. 기존 사용자 공간이나 실행 중인 서버에는 이 개발 도구를 적용하지 않습니다. 빌드 후 Engine이 보고한 OS/아키텍처가 요청과 일치해야 image archive와 manifest를 만들며, 파일 해시·고정 이미지 ID·Compose labels·loopback origin을 포함합니다.
+
+이는 로컬 소스 빌드 도구입니다. 배포 서명·공증·자동 업데이트 권한이나 Windows 실제 설치/복원 검증을 대신하지 않습니다. `npm run test:packaging`은 파일 보존/잘못된 옵션/합성 subprocess의 아키텍처 불일치 거부 검사이며 실제 Docker 검사는 별도로 실행합니다.
+
+Windows Git checkout은 해시로 고정한 LTC 원문 라이선스의 바이트를 `.gitattributes`로 보존합니다. `core.autocrlf=true` 환경도 검사합니다. 이전 checkout의 변환된 파일은 설정 변경만으로 자동 복구되지 않으므로 수정본을 새 폴더에 clone하세요. 라이선스 해시 검사는 계속 적용되며, 실패한 묶음 폴더는 덮어쓰지 않습니다. 재시도에는 Manager에서 만든 새 검사 공간을 사용하세요.
+
+복원된 원본 문맥에서 새 Runtime을 실행하고 데이터 보존을 검사하는 개발 도구는 [Runtime 검사 안내](docs/runtime-packaging.md)를 참고하세요. 이 검사는 Manager 전체 업데이트·복구 완료를 뜻하지 않습니다.

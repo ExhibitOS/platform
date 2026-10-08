@@ -64,16 +64,38 @@ const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
 const referencedTables=new Set(['assets','asset_derivatives','publication_assets','publication_media','studio_audio','import_jobs','oex_import_jobs','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
-export async function collectServiceInventory(c:PoolClient,store:BlobStore,options:{migrationDirectory:string;tenantId?:string}):Promise<ServiceInventory>{
+export type MigrationCatalogEntry = {name:string;sha256:string};
+export type ServiceInventoryOptions = {tenantId?:string} & (
+ {migrationDirectory:string;migrationCatalog?:never} |
+ {migrationCatalog:readonly MigrationCatalogEntry[];migrationDirectory?:never}
+);
+// Explicit catalog values are input metadata, not a verified artifact or permission.
+// Consumers must bind them to their retained signed artifact and compare the result.
+export async function collectServiceInventory(c:PoolClient,store:BlobStore,options:ServiceInventoryOptions):Promise<ServiceInventory>{
+ const explicit=options.migrationCatalog;
+ let expected:MigrationCatalogEntry[]|undefined;
+ if(explicit!==undefined){
+  if(options.migrationDirectory!==undefined||options.tenantId!==undefined||!Array.isArray(explicit)||explicit.length<1||explicit.length>10000)throw Error('MIGRATION_CATALOG_INVALID');
+  expected=explicit.map((m,i)=>{
+   if(!m||Object.keys(m).sort().join(',')!=='name,sha256'||typeof m.name!=='string'||m.name.length>1024||!/^\d[a-zA-Z0-9_.-]*\.sql$/.test(m.name)||typeof m.sha256!=='string'||!/^[a-f0-9]{64}$/.test(m.sha256)||i>0&&explicit[i-1]!.name>=m.name)throw Error('MIGRATION_CATALOG_INVALID');
+   return {name:m.name,sha256:m.sha256};
+  });
+ }else if(typeof options.migrationDirectory!=='string'||!options.migrationDirectory)throw Error('MIGRATION_CATALOG_INVALID');
  if(options.tenantId&&!/^[a-f0-9-]{36}$/i.test(options.tenantId))throw Error('invalid tenant scope');
  await c.query("SET LOCAL search_path='public','pg_catalog'");await c.query("SET LOCAL TimeZone='UTC'");await c.query("SET LOCAL DateStyle='ISO, YMD'");await c.query("SET LOCAL extra_float_digits=3");
  const report:ServiceInventory={schemaVersion:'1.0.0-draft.1',createdAt:new Date().toISOString(),migrations:[],tables:[],objects:[],references:[],issues:[]};
  const tables=(await c.query("SELECT c.relname AS name,EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='tenant_id' AND NOT a.attisdropped) AS scoped FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') ORDER BY c.relname COLLATE \"C\"")).rows as {name:string;scoped:boolean}[];
  if(!options.tenantId){
   const actual=(await c.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows as {name:string;sha256:string}[];report.migrations=actual;
-  const files=(await readdir(options.migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
-  for(const name of files){const digest=createHash('sha256').update(await readFile(join(options.migrationDirectory,name))).digest('hex');if(actual.find(m=>m.name===name)?.sha256!==digest)report.issues.push({code:'MIGRATION_CHECKSUM',binding:name});}
-  for(const m of actual)if(!files.includes(m.name))report.issues.push({code:'MIGRATION_UNKNOWN',binding:m.name});
+  const catalogEntries=expected??await (async()=>{
+   const directory=options.migrationDirectory!;
+   const files=(await readdir(directory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
+   const entries:MigrationCatalogEntry[]=[];
+   for(const name of files)entries.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+   return entries;
+  })();
+  for(const {name,sha256:digest} of catalogEntries)if(actual.find(m=>m.name===name)?.sha256!==digest)report.issues.push({code:'MIGRATION_CHECKSUM',binding:name});
+  for(const m of actual)if(!catalogEntries.some(e=>e.name===m.name))report.issues.push({code:'MIGRATION_UNKNOWN',binding:m.name});
   const catalog=[];
   for(const sql of [
    "SELECT c.relname,a.attname,a.attnum,format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) AS default,a.attidentity,a.attgenerated FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE n.nspname='public' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",

@@ -14,6 +14,11 @@ function origin(value: unknown): value is string {
  if (!text(value,512)) return false;
  try { const parsed=new URL(value); return parsed.origin === value && !parsed.username && !parsed.password && (parsed.protocol === 'https:' || parsed.protocol === 'http:' && ['127.0.0.1','localhost','[::1]'].includes(parsed.hostname)); } catch { return false; }
 }
+// Compatibility is tied to immutable verified artifacts, never a version regex.
+export function supportedFreezeSpec(version: unknown, digest: unknown): boolean {
+ return (version === '0.1.0-draft.2' && digest === '164525a8cbcf4f81dbf16d119fdf37f614aaaa9bbc9c362f2723348753bea154') ||
+        (version === '0.1.0-draft.3' && digest === '22c4bc6a931f2c705d0ed2803f51a53b40a575e11c03b7a934be97edba13e5a8');
+}
 export function validateFreezeManifest(value: unknown): asserts value is FreezeManifest {
  exact(value,['schemaVersion','kind','id','createdAt','source','formats','oex','runtime','authority']);
  if (value.schemaVersion !== FREEZE_VERSION || value.kind !== 'exhibition-freeze') throw Error('FREEZE_VERSION_UNSUPPORTED');
@@ -21,7 +26,7 @@ export function validateFreezeManifest(value: unknown): asserts value is FreezeM
  exact(value.source,['exhibitionId','revision','etag','exhibitionHash']);
  if (!identity(value.source.exhibitionId) || !Number.isSafeInteger(value.source.revision) || (value.source.revision as number)<1 || (value.source.revision as number)>2147483647 || !text(value.source.etag,128) || !/^"studio-r[1-9][0-9]*-[a-f0-9]{64}"$/.test(value.source.etag) || !sha(value.source.exhibitionHash)) throw Error('FREEZE_INVALID');
  exact(value.formats,['oes','oex','specPackage','specSha256','migrations']);
- if (value.formats.oes !== '1.0.0-draft.1' || value.formats.oex !== '1.0.0-draft.2' || value.formats.specPackage !== '0.1.0-draft.2' || value.formats.specSha256 !== '164525a8cbcf4f81dbf16d119fdf37f614aaaa9bbc9c362f2723348753bea154') throw Error('FREEZE_FORMAT_UNSUPPORTED');
+ if (value.formats.oes !== '1.0.0-draft.1' || value.formats.oex !== '1.0.0-draft.2' || !supportedFreezeSpec(value.formats.specPackage, value.formats.specSha256)) throw Error('FREEZE_FORMAT_UNSUPPORTED');
  const migrations=value.formats.migrations;
  if (!Array.isArray(migrations) || migrations.length<1 || migrations.length>64 || migrations.some(x=>typeof x!=='string'||!/^\d{3}_[a-z0-9_-]+\.sql:[a-f0-9]{64}$/.test(x)) || new Set(migrations.map(x=>(x as string).split(':')[0])).size!==migrations.length) throw Error('FREEZE_INVALID');
  exact(value.oex,['bytes','sha256']);

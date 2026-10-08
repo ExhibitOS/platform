@@ -11,5 +11,7 @@ export function measureFullVariant(bytes:Buffer,mime:string):VariantMetric {
  if(mime!=="model/gltf-binary"||bytes.length<28||bytes.toString("ascii",0,4)!=="glTF")throw Error("FULL_VARIANT_INVALID");
  const size=bytes.readUInt32LE(12);if(size>1048576||20+size>bytes.length)throw Error("FULL_VARIANT_INVALID");const doc=JSON.parse(bytes.toString("utf8",20,20+size));let triangles=0;
  for(const node of doc.nodes??[]){if(node.mesh===undefined)continue;for(const primitive of doc.meshes?.[node.mesh]?.primitives??[]){if((primitive.mode??4)!==4)throw Error("FULL_VARIANT_UNSUPPORTED");const accessor=doc.accessors?.[primitive.indices??primitive.attributes?.POSITION];if(!accessor||!Number.isSafeInteger(accessor.count)||accessor.count<3||accessor.count%3)throw Error("FULL_VARIANT_INVALID");triangles+=accessor.count/3;}}
- if(!Number.isSafeInteger(triangles)||triangles<1||triangles>1000000)throw Error("FULL_VARIANT_INVALID");return {triangles};
+ if(!Number.isSafeInteger(triangles)||triangles<1||triangles>1000000)throw Error("FULL_VARIANT_INVALID");let textureSize = 0;
+ for(const image of doc.images??[]){if(image.mimeType!=="image/png"||image.uri!==undefined)throw Error("FULL_VARIANT_UNSUPPORTED");const v=doc.bufferViews?.[image.bufferView],at=28+size+(v?.byteOffset??0);if(!v||v.buffer!==0||at+24>bytes.length)throw Error("FULL_VARIANT_INVALID");const width=bytes.readUInt32BE(at+16),height=bytes.readUInt32BE(at+20);if(!width||!height||Math.max(width,height)>2048)throw Error("FULL_VARIANT_INVALID");textureSize=Math.max(textureSize,width,height);}
+ return {triangles,...(textureSize?{textureSize}:{})};
 }

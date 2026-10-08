@@ -1,3 +1,4 @@
+import { embeddedPNGManager } from './embedded-glb.js';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
@@ -53,8 +54,9 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         } else {
           const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
           const manager = new three.LoadingManager();
-          manager.setURLModifier(() => { throw Error("EXTERNAL_RESOURCE_REJECTED"); });
-          object = (await new GLTFLoader(manager).parseAsync(bytes, "")).scene; collect(object);
+          const protectedBytes = embeddedPNGManager(manager, bytes);
+          resources.add(protectedBytes);
+          object = (await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "")).scene;collect(object);protectedBytes.assertLoaded();
           let triangles = 0, estimatedBytes = 0;
           const measured = new Set<unknown>();
           object.traverse(node => {

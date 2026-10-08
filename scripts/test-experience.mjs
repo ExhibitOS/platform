@@ -95,7 +95,7 @@ try {
     assert.equal(
       (await pool.query("SELECT count(*)::int AS n FROM schema_migrations"))
         .rows[0].n,
-      9,
+      10,
     );
   });
   const tenant = randomUUID(),
@@ -346,7 +346,7 @@ try {
     await expected(request(actors.artist, "POST", audioPath, { ...audioInput, requestId: randomUUID() }), 409, "AUDIO_LIMIT");
   });
   addExperience(candidate, (await json(request(actors.artist, "GET", `${audioPath}/${audio.id}`))).mediaAsset);
-  if (process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1") {
+  if (process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1" || process.env.EXHIBITOS_OPENING_ONLY === "1") {
     candidate.extensions["org.exhibitos.studio/presentation"].viewpoints = [
       { name: "Accessibility safe viewpoint", position: [0, 1.65, 1], target: [0, 1.65, -1] },
       { name: "Accessibility unsafe viewpoint", position: [-2, 1.65, 0], target: [-2, 1.65, -1] },
@@ -508,6 +508,27 @@ try {
     await assert.rejects(pool.query("UPDATE audio_approvals SET snapshot='{}'::jsonb WHERE audio_id=$1", [audio.id]));
     await assert.rejects(pool.query("UPDATE publication_media SET bytes=bytes+1 WHERE publication_id=$1", [pub.publicationId]));
   });
+  let curationResult;
+  if(process.env.EXHIBITOS_ACCESSIBILITY_ONLY!=="1" && process.env.EXHIBITOS_SCRIPTING_ONLY!=="1" && process.env.EXHIBITOS_REALTIME_ONLY!=="1" && process.env.EXHIBITOS_OPENING_ONLY!=="1") {
+    const {runCurationBrowser}=await import('./curation-browser.mjs');
+    curationResult=await runCurationBrowser({origin:browserOrigin,authoring:{tenantId:tenant,subject:"synthetic.publication.artist",password:pass,candidate:draft.candidate,wave}});
+    checks.push(...curationResult.checks);console.log(JSON.stringify({curation:curationResult},null,2));
+  }
+  if (process.env.EXHIBITOS_SCRIPTING_ONLY === "1") {
+    const { runScriptingBrowser } = await import('./scripting-browser.mjs');
+    const scriptingResult = await runScriptingBrowser({origin:browserOrigin,authoring:{tenantId:tenant,subject:"synthetic.publication.artist",password:pass,candidate:draft.candidate,wave}});
+    checks.push(...scriptingResult.checks); console.log(JSON.stringify({scripting:scriptingResult},null,2));
+  }
+  if(process.env.EXHIBITOS_REALTIME_ONLY === "1") {
+    const {runRealtimeQualification}=await import('./realtime-qualification.mjs');
+    const realtimeResult=await runRealtimeQualification({origin:browserOrigin,publicationId:pub.publicationId,projection,revoke:()=>setRevoked(true),restore:()=>setRevoked(false)});
+    checks.push(...realtimeResult.checks);console.log(JSON.stringify({realtime:realtimeResult},null,2));
+  }
+  if(process.env.EXHIBITOS_OPENING_ONLY === "1") {
+    const {runOpeningQualification}=await import('./opening-qualification.mjs');
+    const openingResult=await runOpeningQualification({origin:browserOrigin,publicationId:pub.publicationId,projection,tenantId:tenant,actors,revoke:()=>setRevoked(true),restore:()=>setRevoked(false),hostRole:async role=>{await pool.query('UPDATE memberships SET role=$1 WHERE tenant_id=$2 AND user_id=$3',[role,tenant,actors.artist.userId]);}});
+    checks.push(...openingResult.checks);console.log(JSON.stringify({opening:openingResult},null,2));
+  }
   await test("quiesced database dump restores audio approvals and publication media into separate database with retained blobs", async () => {
     const target = `experience_restore_${randomUUID().replaceAll("-", "")}`;
     // No browser/request job is active during this application-quiesced dump.
@@ -536,6 +557,7 @@ try {
     console.log("RESTORE SCOPE: isolated database dump, exact rows and publication bytes against retained original FileBlobStore; not a standalone blob backup or production recovery point.");
   });
   const accessibilityOnly = process.env.EXHIBITOS_ACCESSIBILITY_ONLY === "1";
+  if(process.env.EXHIBITOS_CURATION_ONLY!=="1" && process.env.EXHIBITOS_SCRIPTING_ONLY!=="1" && process.env.EXHIBITOS_REALTIME_ONLY!=="1" && process.env.EXHIBITOS_OPENING_ONLY!=="1") {
   const { runExperienceBrowser } = await import(accessibilityOnly ? "./accessibility-browser.mjs" : "./experience-browser.mjs");
   const result = await runExperienceBrowser({ origin: browserOrigin, publicationId: pub.publicationId,
     projection, fixture: fixture.geometry, authoring: { tenantId: tenant, subject: "synthetic.publication.artist", password: pass, candidate: draft.candidate, wave }, revoke: () => setRevoked(true), restore: () => setRevoked(false) });
@@ -551,7 +573,8 @@ try {
     await new Promise(resolve => process.stdin.once("data", resolve));
     process.stdin.pause();
   }
-  console.log(JSON.stringify({ checks, result, scope: "Actual isolated PostgreSQL8migrations, approved synthetic WAV + GLB/PNG immutable publication and production Chromium" }, null, 2));
+  console.log(JSON.stringify({ checks, result, scope: "Actual isolated PostgreSQL10migrations, approved synthetic WAV + GLB/PNG immutable publication and production Chromium" }, null, 2));
+  } else console.log(JSON.stringify({checks,curationResult,scope:"Actual isolated PostgreSQL10 migrations, production selected browser qualification and retained-blob DB restore; synthetic only"},null,2));
 } finally {
   await app?.close(); await pool?.end(); if (started) run("rm", "-f", name);
 }

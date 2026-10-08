@@ -229,3 +229,167 @@ private 운영 기록에 남깁니다. 원본 설치와 원래 자격 증명은 
 결과와 함께 읽으세요. 단일 개발 환경의 통합 성공을 운영 disaster-recovery SLA,
 임의 DB extension/schema, 모든 S3 구현 또는 실물 장치 복구 보장으로 확대하지
 않습니다.
+
+## 유지보수 이미지 개발 경로
+
+`Dockerfile.maintenance`는 공개 소스와 고정된 Node24.21/PostgreSQL18.6 base에서
+기존 service-backup CLI를 빌드하는 별도 one-shot 이미지다. 일반 Viewer/API
+컨테이너의 실행 이미지와 분리하며 PostgreSQL 서버를 시작하지 않는다.
+기본 UID1000은 Runtime의 private blob 파일 소유자와 맞춘다. 실제 운영자는
+mount의 소유권/권한과 필요한 최소 UID를 확인해야 한다. key는 별도 private
+read-only mount, archive/새 복원 대상만 writable mount로 제공한다. Docker
+socket과 arbitrary host root를 mount하지 않는다. DB URL/비밀은 trusted 환경
+파일로 전달하고 command 인수·로그에 넣지 않는다.
+
+이미지에는 pg_dump/pg_restore18.6과 Node CLI가 들어 있다. 기존 create/verify/
+restore 명령·quiesced/fresh-destination 요구·현재 권리/무결성 검사와 실패 시
+원본 보존 규칙은 그대로 적용한다. 이미지 생성만으로 Manager UI·backup
+adapter·자동 update/rollback이나 production restore가 완료된 것은 아니다.
+
+로컬 Docker Desktop 합성 회귀에서 `BACKUP_CLI_IMAGE=sha256:<검사한 local image ID>`
+를 지정해 `node scripts/test-service-backup.mjs`를 실행할 수 있다. 시험은 새로
+소유한 fixture 경로와 정확한 검사 runtime의 `/private/tmp` 사본만 mount하고 실제 CLI를 이미지에서
+실행한다. private 환경 이름만 Docker 인수로 전달한다. 검사 user는 host private 파일의 UID/GID와 일치시킨다.
+선택적 `BACKUP_CLI_DIAGNOSTIC=1`은 시험용 wrapper에서 제한된 BACKUP/허용된 native 오류 code만 출력하며 raw error·비밀은 출력하지 않는다. Host fixture의 loopback
+DB/S3 endpoint는 container의 host.docker.internal로 변환하므로 이 경로는
+현재 Docker Desktop 검사 전용이며 일반 Linux/Podman 배포 보장과 다르다.
+강제 중단 검사는 해당 소유 label을 확인한 CLI 컨테이너만 제거한다.
+
+Freeze의 Spec provenance는 검증된 version/hash 조합을 명시적으로 허용한다.
+기존 draft.2 보존 metadata와 현재 draft.3 생성 metadata를 지원하며 version/hash
+혼합이나 임의의 신규 artifact는 거부한다. 이것은 기존 signed archive 전체의
+새 Runtime replay gate를 대신하지 않는다.
+
+## 배포 파일 보존 (draft2)
+
+`BACKUP_DEPLOYMENT_FILES`는 논리 이름을 `{path,bytes,sha256}`에 연결하는 JSON
+object이다. trusted bundle에서 확인한 크기·SHA-256을 사용하고 private 환경 파일로
+전달한다. canonical private 단일-link regular file만 허용하며 최대32개/각8GiB이다.
+입력 파일은 스트리밍 암호화하고 크기/해시 불일치 시 complete receipt를 만들지 않는다.
+키를 artifact로 선택하면 안 된다. CLI는 키와 같은 경로를 거부한다.
+
+배포 파일 포함 시 manifest는 `1.0.0-draft.2`다. 새 reader는 draft1도 읽지만
+기존 maintenance image는 draft2를 거부하므로 새 image build/qualification이 필요하다.
+새 target의 DB/blob 비교 뒤 `deployment/<논리 이름>`에 파일을 보관한다. 이는 OCI
+image trust/import/실행 또는 Manager 전체 복구 완료를 뜻하지 않는다. Manager는
+별도로 trusted bundle/image provenance·compatibility를 확인한 뒤 import해야 한다.
+키·OCI archives·private runtime.env·복호화 후보는 Git backup에 포함하지 않는다.
+
+## Runtime 이미지까지 포함하는 로컬 복구 검사
+
+새 `Dockerfile.maintenance`는 현재 생산 웹 Runtime 파일도 포함한다. 작성 시
+`FREEZE_RUNTIME_ROOT=/opt/exhibitos/apps/web/dist`를 지정할 수 있으며, host 웹
+경로가 없더라도 같은 image 안에서 버전/hash 검증된 Runtime을 읽는다. 생산
+notices와 Node license도 image에 보존한다. 이전 immutable image는 바뀌지 않는다.
+
+`test-deployment-image-backup.mjs`는 운영 복원 도구가 아닌 실제 합성 qualification
+검사다. Node24.21.0/npm11.19.0으로 build한 독립 source에서 실행한다. 다음 image는
+시험 전용으로 새로 만들고 다른 설치에 연결하지 않는다. source image의 정확한
+태그/digest·qualification label·사용 container 없음·충분한 디스크를 검사한 뒤에만
+시험용 image catalog entry를 제거한다. 다른 image/data/cache를 prune하지 않는다.
+
+```sh
+docker build -f Dockerfile.local \
+  --label exhibitos.qualification=runtime-recovery-e033f3f \
+  --tag exhibitos-local:recovery-e033f3f --iidfile /private/tmp/runtime-recovery.iid .
+BACKUP_RECOVERY_IMAGE="$(cat /private/tmp/runtime-recovery.iid)" \
+  node scripts/test-deployment-image-backup.mjs
+```
+
+이 검사는 PostgreSQL dump·전체 row/blob inventory·관리자 credential·서명 설정·
+실제 Runtime Docker archive를 암호화하고 원래 DB/blob/archive 경로와 image catalog
+entry가 unavailable인 상태에서 새 DB/blob/config/image로 복원한다. 원래 image ID·
+파일 hash·private mode와 실제 readiness/web/기존 관리자 로그인을 확인한다.
+단일 Docker 엔진에 남은 content/build cache까지 없애는 재해 복구 검사는 아니다.
+새 엔진, 실제 작품/전시 전체, production, Windows/Podman, Manager native UI,
+signed update/rollback은 별도 qualification을 유지한다. 시험 key는 메모리에만
+존재하며 보존된 합성 archive를 운영 복원 지점으로 사용하면 안 된다.
+
+실패 후보와 이전 archive/데이터는 자동 삭제하지 않는다. 정상 종료 시에는 정확한
+owner label을 확인한 이번 disposable DB/Runtime container와 연결 anonymous
+volume만 정리하며, 복원 image와 private report/workspace는 보존한다. 강제 종료는
+owner label로 별도 조사한다. Docker29의 local multi-platform digest를 처리하는
+시험이므로 다른 image store 방식에서는 precondition이 실패할 수 있다.
+
+## 업데이트 전 원본 데이터의 읽기 전용 재검사
+
+`check-source-inventory`는 신뢰한 업데이트 계획에 고정된 **인증된 plaintext manifest의 원시 SHA-256**과 현재 DB·blob inventory를 비교합니다. 사용자가 임의로 준 manifest/hash는 백업 인증을 대신하지 않습니다. 먼저 기존 verify/완전 복원으로 원본 백업을 인증하고 계획에 manifest hash를 고정해야 합니다. 외부 작성자와 migration을 정지한 상태에서 private 환경의 DATABASE_URL/BLOB_ROOT 및 기존 filesystem/S3 설정을 사용합니다. 비밀번호나 manifest 내용을 명령행·Git·로그에 넣지 마세요.
+
+```sh
+node scripts/service-backup.mjs check-source-inventory \
+  --manifest-file /private/authenticated/manifest.json \
+  --manifest-sha256 <trusted-plan-raw-manifest-sha256> \
+  --quiesced
+```
+
+Manifest는 canonical 단일 링크0600 regular file, 최대16MiB입니다. DB에 연결하기 전에 hash와 형식을 검사합니다. 유지보수 exclusive82002 잠금을 기다리지 않고 획득하며, public 밖의 application schema와 다른 DB identity를 거부합니다. 별도의 읽기 전용 repeatable-read transaction 두 번으로 schema/migrations/모든 행/sequence state/모든 blob·orphan/reference를 수집하여 createdAt만 제외하고 인증된 inventory와 정확히 비교합니다. 두 번째는 첫 번째 transaction을 종료한 뒤 새 snapshot을 얻습니다. DB·blob·서명 설정을 쓰거나 dump/restore/update를 실행하지 않습니다. 매 transaction은 ROLLBACK하며 잠금 해제 실패는 성공 결과도 거부하고 pooled session을 폐기합니다. stdout에는 backup ID·hash·관찰 시각과 제한된 결과만 나오며 DB 행/작품 이름/키/자격 증명은 없습니다.
+
+이 결과는 관찰 당시 원본 데이터 비교입니다. 외부 writer 격리나 미래 불변성, config volume/signing-key 보존, 전체 업데이트 preflight/application/rollback을 증명하지 않습니다. 기존 stopped-source Manager의 DB를 자동으로 시작하지 않습니다. Manager는 원본을 바꾸지 않는 별도 안전한 DB 관찰 adapter와 계획·source/candidate lock을 연결해야 합니다. 새 maintenance image는 재빌드·실행 검사 전까지 이전 image와 같은 기능으로 취급하지 않습니다. 기존 create/verify/restore 인자는 그대로 유지합니다.
+
+`node scripts/test-source-inventory.mjs`는 별도 합성 PostgreSQL과 실제 암호화 백업으로 CLI 정상/변경/잠금/identity 경로를 검사합니다. 모든 시험 container를 정지하고 archive/blob/volume을 보존하며, 원본 사용자 데이터에는 연결하지 않습니다.
+
+유지보수 이미지의 새 명령은 이미지 빌드 뒤 `BACKUP_CLI_IMAGE=sha256:<local-image-content-id> node scripts/test-source-inventory.mjs`로 실제 검사합니다. 고정된 local image ID만 받고 pull하지 않습니다. 시험 원본 PostgreSQL에 연결하며 private fixture root를 이미지에 읽기 전용으로 mount합니다. 각 관찰 helper는 ephemeral container로 종료 시 정리하고, source DB·volume·archive·blob은 정지·보존합니다. Docker Desktop의 host.docker.internal을 사용하는 Linux arm64 검사이며, private host 파일의 실제 소유 UID/GID를 명시적으로 사용합니다. 설정 관찰은 다른 UID 소유 파일을 거부하므로 root UID0으로 소유권 검사를 우회하지 않습니다. 기본 UID1000·Windows/Podman·cold engine·다른 네트워크·Manager의 정지된 DB 관찰 adapter를 대신하는 검사가 아닙니다. 결과는 이미지 ID와 실제 관찰 receipt를 private report에 기록합니다.
+
+## Current configuration file observation
+
+The trusted operator command `check-source-configuration --manifest-file <private authenticated manifest> --manifest-sha256 <trusted pinned raw hash> --quiesced` reads current files from the `BACKUP_CONFIGURATION_FILES` JSON name-to-absolute-path mapping. Supply the complete configuration name set from the authenticated backup, including the freeze signing key when present. The command needs neither a database connection nor the archive encryption key. A caller-chosen checksum does not authenticate a backup: obtain the exact manifest and pin from authenticated restoration and a trusted update plan.
+
+Every manifest configuration record must have exactly one current reader; missing/extra mappings, empty scope, more than32 records or files over1MiB refuse. Private current files must be canonical regular single-link0600 files owned by the executing UID, with unchanged path identity, size and timestamps across each read. The command compares every file twice and erases the read buffers. Changed contents, alias/hardlink/public files and changed manifest bytes refuse; output contains only names, lengths, hashes, backup identity and observation time, never file values. It writes no source files and performs no dump, restore, DB or engine operation.
+
+Success reports configurationFilesVerified:true, currentInventoryVerified:false, preflightVerified:false and updateExecuted:false. Mapping a name to a historical extracted backup does not prove it is the current source: the trusted Manager adapter must derive the owned current paths/volumes and maintain source/target/profile fences. The backup-generated manager-image-inventory.json needs independently regenerated current engine evidence; reading its historical copy is not current image proof. Repeated file equality is not an atomic cross-file snapshot or external writer isolation. Current DB/blob equality, resource/compatibility observations and actual migration/health/rollback remain separate. The existing source-inventory command continues to return configurationVerified:false. The synthetic Docker Desktop image driver exercises inventory against host read-only fixture blobs, and configuration against a separately owned Linux volume mounted read-only, both with the fixture owner UID/GID. Linux configuration files are seeded from synthetic host files into the new labeled volume; permission/link fault injection occurs inside that test volume, with original bytes and mode/link count restored. The volume remains retained. Default UID1000 and Manager/native/Windows/Podman integration remain pending.
+
+Run `node scripts/test-source-inventory.mjs` after rebuilding Storage for the synthetic actual encrypted-backup regression: ten original DB/blob cases plus eight configuration cases. Test containers/volumes, archives and private synthetic evidence are retained; the temporary shared-link alias is removed after the refusal check while original bytes are preserved.
+
+### Docker Desktop host metadata boundary
+
+Actual Mac shared-bind probing found that changing a host file from0600 to0644 still appeared as0600 in the container, and a host hardlink count2 appeared as1 (GID also differed). Container configuration observation therefore cannot attest host file ownership/mode/link safety on this backend. Do not treat a successful container read of a Mac shared host file as that proof. The trusted Manager must directly validate current host metadata and identities, while source configuration-volume checks run against the owned native Linux volume. The image regression injects and rejects public permissions and shared links on a native Linux volume; it does not omit these tests or claim host-bind metadata qualification. Inode/time observations describe the filesystem actually seen by the reader. External writer isolation and atomic cross-file snapshot remain separate requirements.
+
+The configuration CLI now refuses the observed Linux shared backend type0x65735546 before opening a current configuration file and after reading it, with SOURCE_CONFIGURATION_FILESYSTEM_UNVERIFIED. A Mac direct reader and owned native Linux volume remain supported by the measured regressions. Other filesystem backends and Windows are unqualified; the guard is not external-writer isolation.
+
+Image regression seeds the authenticated immutable manifest into the same private native Linux fixture volume. Both inventory and configuration raw-manifest tamper cases modify that guest manifest and restore it from an unchanged read-only seed. Host shared-bind propagation is not used as the tamper oracle: actual testing observed a host append that the guest reader did not see immediately. The pinned raw manifest hash and refusal assertion remain unchanged. Test fixture data/volume and initial failure logs remain retained.
+
+### Restored candidate inventory observation
+
+`check-restored-inventory --manifest-file <private-file> --manifest-sha256 <authenticated-hash> --snapshot-system-identifier <observed-id> --quiesced` is a separate trusted operator check. Manager obtains the decimal PostgreSQL cluster identifier from `pg_controldata` on its fresh, byte-verified physical copy. The isolated read-only server must report that exact identifier, a different cluster from the authenticated original, and the same database name. Two complete logical inventories must match the authenticated backup. Source observation still requires the original physical database identity; it cannot accept candidate evidence.
+
+This check writes only to an independent physical snapshot needed to start the isolated PostgreSQL reader. It does not start the original or candidate service, authorize activation, prove current configuration or image bytes, advance update state, or constitute full backup/rollback qualification. The supplied manifest hash and physical identifier require a trusted calling adapter; arbitrary operator values are not authentication. The command adds an optional capability; existing backup formats and source commands are unchanged.
+
+
+### Additive migration preservation prerequisite
+
+The operator API `verifyMigratedInventory` is separate from exact restoration.
+It requires authenticated raw backup manifest bytes and their trusted hash, the
+new candidate's observed physical identifier, and a target schema hash plus
+ordered migration checksums supplied by trusted artifact inspection. Arbitrary
+caller values do not authenticate an artifact or backup. Existing restoration
+continues to require the original complete logical inventory.
+
+The target migrations must strictly extend the original sorted list without
+changing any original SQL checksum. Under the maintenance lock, two fresh read
+only transactions compare every original table and sequence's count and hash,
+all blob bytes, bindings and references, and the exact expected target catalog.
+Original `schema_migrations` rows are queried separately, including their original
+`applied_at` values, and must match the original backup hash. The full target
+inventory must also remain unchanged between observations. Busy locks, changed
+physical identities, unknown schemas, inventory issues or failed cleanup refuse
+success.
+
+This supports only changes preserving the existing full row representation.
+Column/data transformations remain unqualified. New-table contents are observed
+for stability, but are not authenticated as migration-authored data. Success
+reports `originalDataPreserved:true`, `currentInventoryVerified:false`,
+`configurationVerified:false`, `preflightVerified:false`, and
+`updateExecuted:false`. Configuration, signed artifact compatibility, actual
+health, complete recovery and activation need separate proofs. Manager's changed
+schema execution gate remains closed until those integrations are qualified.
+
+The small native component regression is
+`scripts/migration-preservation-native.mjs`. Build Storage first and explicitly
+provide `EXHIBITOS_MIGRATION_TEST_DATABASE_URL` for a fresh disposable PostgreSQL
+cluster. The script refuses an existing public schema and creates synthetic SQL
+fixtures. It mutates that disposable database to exercise row/sequence/history
+faults and actual failed-SQL transaction rollback. Never point it at service data.
+The fixture uses an in-memory synthetic blob store and a synthetic manifest; it
+is not an encrypted backup, artifact authentication or Manager end-to-end proof.
+For low disk usage, run PostgreSQL in a bounded isolated tmpfs instead of keeping
+a new database volume or full verification-tree copy for each run.
