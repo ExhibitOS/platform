@@ -64,5 +64,5 @@ describe("physical artwork placement and presentation commands", () => {
     });
 });
 it('preserves artwork affine during placement and accounts for shifted rotated dimensions at wall alignment',()=>{
- const art=syntheticArtwork();art.dimensions={width:1,height:2,depth:1};art.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};const p=newPlacement(art,'room');expect(p.transform.position[1]).toBeCloseTo(-1);const d=placementDimensions(art,p);expect(d.width).toBeCloseTo(2);expect(d.height).toBeCloseTo(2);expect(d.depth).toBeCloseTo(1);expect(art.transform.position).toEqual([1,2,3]);
+ const art=syntheticArtwork();art.dimensions={width:1,height:2,depth:1};art.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};const p=newPlacement(art,'room');expect(p.transform.position[1]).toBe(0);const d=placementDimensions(art,p);expect(d.width).toBeCloseTo(2);expect(d.height).toBeCloseTo(2);expect(d.depth).toBeCloseTo(1);expect(art.transform.position).toEqual([1,2,3]);
 });

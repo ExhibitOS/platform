@@ -13,3 +13,5 @@ Positive nonuniform scales and rotations can produce shear. Client collision the
 Identity artifacts remain compatible. Qualification requires independent numeric goldens for noncommuting transforms, node preservation, annotations, images, planar bounds, shear collision and immutable API roundtrip plus real React controls/revocation. Rendering alone does not complete this contract, T06-03 LOD/quality or physical calibration.
 
 Walking-profile bounds do not narrow base OES validation, stored CMS/library artifacts or nonwalking publications. Unsupported walking is explicitly rejected at client navigation and server presence creation, while text/nonwalking display remains independently available within renderer limits.
+
+New placement defaults keep the placement origin nonnegative in room Y while retaining any upward authored artifact offset. Wall alignment may compensate the approved artifact offset to align assertion bounds, but refuses a resulting placement origin outside its OES room instead of producing an invalid draft or changing the artifact transform.

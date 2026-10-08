@@ -14,7 +14,7 @@ export function newPlacement(artwork: Artwork, roomId: string): Placement {
     roomId,
     artworkRevisionId: artwork.revisionId,
     assetId: artwork.primaryAssetId,
-    transform: { ...pose(), position: [0, -artifactBounds(artifactCorners(artwork.dimensions,[artwork.transform])).min[1], 0] },
+    transform: { ...pose(), position: [0, Math.max(0,-artifactBounds(artifactCorners(artwork.dimensions,[artwork.transform])).min[1]), 0] },
   };
 }
 export function placementDimensions(artwork: Artwork, p: Placement) {
@@ -56,6 +56,7 @@ export function alignPlacement(doc: Exhibition, p: Placement, s: Exhibition["sur
         number,
         number
     ] = [v[0]! + qw * tx + qy * tz - qz * ty + s.transform.position[0], v[1]! + qw * ty + qz * tx - qx * tz + s.transform.position[1], v[2]! + qw * tz + qx * ty - qy * tx + s.transform.position[2]];
+    const room=doc.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase());if(!room||Math.abs(position[0])>room.dimensions.width/2+1e-9||position[1]<0||position[1]>room.dimensions.height||Math.abs(position[2])>room.dimensions.depth/2+1e-9)throw Error('PLACEMENT_ORIGIN_OUTSIDE_ROOM');
     return { ...structuredClone(p), transform: { position, rotation: [...s.transform.rotation], scale: [...p.transform.scale] } };
 }
 export function syntheticArtwork(type: Artwork["artworkType"] = "sculpture"): Artwork { const id = crypto.randomUUID(), assetId = crypto.randomUUID(); return { schemaVersion: "1.0.0-draft.1", kind: "artwork", id, revisionId: crypto.randomUUID(), revision: 1, createdAt: "2026-01-01T00:00:00.000Z", metadata: { title: type === "image" ? "Synthetic painting" : "Synthetic sculpture", artist: "ExhibitOS synthetic fixture", description: "Synthetic demonstration metadata; no original artwork bytes." }, artworkType: type, units: "meter", coordinates: "right-handed-y-up", dimensions: { width: 1, height: 1, depth: type === "image" ? 0.02 : 1 }, transform: pose(), primaryAssetId: assetId, assets: [{ id: assetId, path: `assets/${id}/${type === "image" ? "painting.png" : "sculpture.glb"}`, role: type === "image" ? "image" : "model", mime: type === "image" ? "image/png" : "model/gltf-binary", bytes: 1, sha256: "0".repeat(64) }], rights: { holder: "ExhibitOS", ownership: "owner", licenseId: "CC0-1.0", permissions: { display: true, download: true, export: true, commercial: true }, creditLine: "Synthetic demonstration" }, provenance: { authorship: "synthetic", events: [{ id: crypto.randomUUID(), type: "created", at: "2026-01-01T00:00:00.000Z", description: "Original synthetic demonstration metadata." }] } }; }
