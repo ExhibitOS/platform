@@ -393,3 +393,24 @@ The fixture uses an in-memory synthetic blob store and a synthetic manifest; it
 is not an encrypted backup, artifact authentication or Manager end-to-end proof.
 For low disk usage, run PostgreSQL in a bounded isolated tmpfs instead of keeping
 a new database volume or full verification-tree copy for each run.
+
+## 저용량 스트림 백업의 개발 단계
+
+Storage에 추가한 `encryptBackupStream`은 제한된 입력 조각을 바로 암호화하며,
+입력 EOF와 생산자의 정상 종료를 모두 확인해야 파일 증거를 반환합니다.
+기존 EXBK001 형식·파일별 GCM tag·AAD·SHA-256을 유지하며 기존 create/verify/restore
+명령의 동작을 바꾸지 않습니다. 파일 기록 후 실제 저장 바이트를 같은 descriptor로
+다시 읽어 확인합니다. 실패한 부분 암호문은 보존하며 완료 사본으로 취급하지 않습니다.
+
+`openAuthenticatedBackupFile`은 한 파일을 먼저 출력 없이 전체 인증하고 열린 입력
+descriptor를 유지합니다. 새 후보 파일 쓰기도 같은 입력을 다시 인증한 뒤에만
+성공을 반환합니다. 후보 파일의 실제 저장 바이트·권한·식별자를 재확인합니다.
+늦은 실패의 부분 plaintext 후보는 읽기·실행·활성화하면 안 됩니다. 이 구현은
+POSIX 소유권/권한 검사에 한정하며 Windows 및 container bind 소유권은 미검증입니다.
+
+이는 파일별 내부 도구이며 **전체 백업을 인증했다는 권한이 아닙니다**. 전체 manifest·
+모든 파일·설정·이미지 관계와 shared lock 검증, Manager 작업 기록·취소·재시도·
+Docker 연결, source-unavailable 데이터 복원은 후속 구현과 실제 검사 대상입니다.
+열린 descriptor와 전후 비교는 협조하는 작성자를 대상으로 한 관찰이며 같은 사용자의
+적대적 동시 변경에 대한 불변 snapshot을 보장하지 않습니다. 새 방식으로 용량이
+줄었다는 전체 서비스 결과는 실제 이미지 크기와 복원 실행 전까지 주장하지 않습니다.
