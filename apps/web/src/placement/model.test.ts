@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { applyGeometryCommand, createGeometryState, undoGeometry, redoGeometry } from "../geometry/model";
 import { newDraft } from "../drafts/example";
 import { validateDraft } from "../drafts/validator";
-import { newPlacement, newLight, syntheticArtwork, placementDimensions } from "./model";
+import { newPlacement, newLight, syntheticArtwork, placementDimensions, alignPlacement } from "./model";
 import { PRESENTATION_NAMESPACE, validateStudioPresentation } from "@exhibitos/studio-contract";
 function scene() { let state = createGeometryState(newDraft().candidate); state = applyGeometryCommand(state, { type: "white-cube", roomId: state.present.rooms[0]!.id }); for (const artworkType of ["sculpture", "image"] as const) {
     const artwork = syntheticArtwork(artworkType);
@@ -65,4 +65,12 @@ describe("physical artwork placement and presentation commands", () => {
 });
 it('preserves artwork affine during placement and accounts for shifted rotated dimensions at wall alignment',()=>{
  const art=syntheticArtwork();art.dimensions={width:1,height:2,depth:1};art.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};const p=newPlacement(art,'room');expect(p.transform.position[1]).toBe(0);const d=placementDimensions(art,p);expect(d.width).toBeCloseTo(2);expect(d.height).toBeCloseTo(2);expect(d.depth).toBeCloseTo(1);expect(art.transform.position).toEqual([1,2,3]);
+});
+
+it("rejects wall compensation outside room while preserving approved artwork and placement", () => {
+    const state = scene(), painting = state.present.placements[1]!, artwork = state.present.artworks[1]!, wall = state.present.surfaces[3]!;
+    artwork.transform.position = [100, 0, 0];
+    const before = structuredClone(state.present);
+    expect(() => alignPlacement(state.present, painting, wall, [0, 0], 0)).toThrow("PLACEMENT_ORIGIN_OUTSIDE_ROOM");
+    expect(state.present).toEqual(before);
 });
