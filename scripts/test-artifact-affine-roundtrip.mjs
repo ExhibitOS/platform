@@ -17,10 +17,10 @@ import {exportedEntries,fixtureZip} from './oex-test-zip.mjs';
 const docker=process.env.DOCKER_BIN??'docker',name=`exhibitos-affine-${randomUUID()}`,password=randomBytes(24).toString('hex'),tenant=randomUUID(),scratch=await mkdtemp('/private/tmp/exhibitos-affine-api-'),checks=[];
 const run=(...args)=>execFileSync(docker,args,{encoding:'utf8',timeout:45000,stdio:['ignore','pipe','pipe'],env:{...process.env,POSTGRES_PASSWORD:password}}).trim();
 const close=async p=>{let timer;try{return await Promise.race([p,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('AFFINE_CLEANUP_TIMEOUT')),10000);})]);}finally{clearTimeout(timer);}};
-const image=JSON.parse(await readFile(new URL('../database/images.json',import.meta.url))).postgres;
+const qualifiedImage=JSON.parse(await readFile(new URL('../database/images.json',import.meta.url))).postgres,image=qualifiedImage.split('@').at(-1);assert.match(image,/^sha256:[a-f0-9]{64}$/);
 let started=false,app,pool,receipt,failure;const pass=title=>{checks.push(title);console.log('PASS '+title);};
 try{
- run('image','inspect',image);run('run','-d','--pull=never','--name',name,'--label',`exhibitos.affine.test=${name}`,'--tmpfs','/pgdata:rw,size=268435456','-e','PGDATA=/pgdata','-e','POSTGRES_PASSWORD','-p','127.0.0.1::5432',image);started=true;
+ assert.equal(run('image','inspect','--format','{{.Id}}',image),image);run('run','-d','--pull=never','--name',name,'--label',`exhibitos.affine.test=${name}`,'--memory','256m','--tmpfs','/var/lib/postgresql:rw,size=268435456','-e','POSTGRES_PASSWORD','-p','127.0.0.1::5432',image);started=true;assert(!JSON.parse(run('inspect','--format','{{json .Mounts}}',name)).some(m=>m.Type==='volume'||m.Type==='bind'));
  pool=new Pool({host:'127.0.0.1',port:Number(run('port',name,'5432/tcp').split(':').at(-1)),user:'postgres',password,database:'postgres',connectionTimeoutMillis:2000,statement_timeout:10000});
  for(let n=0;;n++){try{await pool.query('SELECT 1');break;}catch(e){if(n>=30)throw e;await new Promise(r=>setTimeout(r,500));}}
  await migrate(pool,new URL('../database/migrations/',import.meta.url).pathname);
