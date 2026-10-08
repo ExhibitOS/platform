@@ -10,7 +10,7 @@ import type {EncryptedFile} from './encrypted-files.js';
 
 const MAGIC = Buffer.from('EXBK001\0'), HEADER = 20, TAG = 16;
 const CHUNK = 65536;
-const fail = (code: string): never => { throw Error(code); };
+function fail(code: string): never { throw Error(code); }
 function config(key: Uint8Array, aad: string, maximumBytes: number, signal: AbortSignal) {
   if (typeof process.getuid !== 'function') fail('BACKUP_STREAM_PLATFORM_UNVERIFIED');
   if (!(key instanceof Uint8Array) || !(key.buffer instanceof ArrayBuffer) || key.length !== 32 || typeof aad !== 'string' || !aad || Buffer.byteLength(aad) > 2048 ||
