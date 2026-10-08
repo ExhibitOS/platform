@@ -100,3 +100,18 @@ describe('immutable secondary LOD source gate',()=>{
   expect(approvedPublicationSource(snapshot,coarse,primary.id)).toBe(false);
  });
 });
+
+describe('explicit approved LOD projection and unsupported fallback',()=>{
+ it('full-only prepared result strips stale coarse declaration and secondary assets',async()=>{
+  const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+  const a=e.artworks.find(a=>a.artworkType==='sculpture')!,primary=a.assets.find(v=>v.id===a.primaryAssetId)!,coarse={...primary,id:'10000000-0000-4000-8000-000000000098',path:'synthetic/coarse.glb',bytes:primary.bytes-1};a.assets.push(coarse);a.extensions={'org.exhibitos.viewer/lod':{version:1,variants:[{assetId:primary.id,detail:'full',triangles:8},{assetId:coarse.id,detail:'coarse',triangles:2}]}};
+  const result=projectPublication(e,[{artwork:a,sourceAssetId:primary.id,sourceSha256:primary.sha256,bytes:Buffer.from('qualified full display'),mime:'model/gltf-binary',variants:{full:{triangles:8,textureSize:2}}}],'2026-10-01T00:00:00Z');
+  expect(result.snapshot.artworks[0]!.assets).toHaveLength(1);expect(result.assets).toHaveLength(1);
+  expect(result.snapshot.artworks[0]!.extensions?.['org.exhibitos.viewer/lod']).toEqual({version:1,variants:[{assetId:result.snapshot.artworks[0]!.primaryAssetId,detail:'full',triangles:8,textureSize:2}]});
+ });
+ it('approved secondary source ID/hash remains private exact binding while public IDs are regenerated',async()=>{
+  const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,a=e.artworks.find(a=>a.artworkType==='sculpture')!,primary=a.assets.find(v=>v.id===a.primaryAssetId)!,id='10000000-0000-4000-8000-000000000098',hash='b'.repeat(64);
+  const result=projectPublication(e,[{artwork:a,sourceAssetId:primary.id,sourceSha256:primary.sha256,coarseSource:{id,sha256:hash},bytes:Buffer.from('qualified full display bytes'),mime:'model/gltf-binary',variants:{full:{triangles:8,textureSize:2},coarse:{triangles:2,textureSize:2},bytes:Buffer.from('coarse')}}],'2026-10-01T00:00:00Z');
+  expect(result.assets[1]!.prepared.sourceAssetId).toBe(id);expect(result.assets[1]!.prepared.sourceSha256).toBe(hash);expect(result.snapshot.artworks[0]!.assets[1]!.id).not.toBe(id);expect(result.snapshot.artworks[0]!.transform).toEqual(a.transform);
+ });
+});
