@@ -100,12 +100,13 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: sha256(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
         if (p.variants) {
-            const variants = [{assetId:p.sourceAssetId,detail:"full",...p.variants.full}];
+            const metric=(v:GeneratedVariants['full'])=>p.mime==='image/png'?{textureSize:v.textureSize}:{triangles:v.triangles};
+            const variants = [{assetId:p.sourceAssetId,detail:"full",...metric(p.variants.full)}];
             if (p.variants.coarse && p.variants.bytes) {
                 const coarseId=randomUUID();
                 assets.push({id:coarseId,prepared:{...p,bytes:p.variants.bytes,...(p.coarseSource?{sourceAssetId:p.coarseSource.id,sourceSha256:p.coarseSource.sha256}:{})}});
                 a.assets.push({id:coarseId,path:`assets/${coarseId}/${p.mime==="image/png"?"image.png":"model.glb"}`,role:p.mime==="image/png"?"image":"model",mime:p.mime,bytes:p.variants.bytes.length,sha256:sha256(p.variants.bytes)});
-                variants.push({assetId:coarseId,detail:"coarse",...p.variants.coarse});
+                variants.push({assetId:coarseId,detail:"coarse",...metric(p.variants.coarse)});
             }
             a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants}};
         }
