@@ -57,7 +57,9 @@ try{
   pass('Explicit imported full/coarse both publish as independently watermarked assets with exact source and PNG bindings');
   const rights=(await pool.query('SELECT rights_id FROM assets WHERE tenant_id=$1 AND id=$2',[tenant,cms.assets.find(a=>a.id!==cms.primaryAssetId).id])).rows[0].rights_id;
   const oldRights=(await pool.query('SELECT metadata FROM rights WHERE tenant_id=$1 AND id=$2',[tenant,rights])).rows[0].metadata;
+  const fullRightsId=(await pool.query('SELECT rights_id FROM assets WHERE tenant_id=$1 AND id=$2',[tenant,cms.primaryAssetId])).rows[0].rights_id;assert.notEqual(fullRightsId,rights);const fullRightsBefore=(await pool.query('SELECT metadata FROM rights WHERE tenant_id=$1 AND id=$2',[tenant,fullRightsId])).rows[0].metadata;assert.equal(fullRightsBefore.permissions.display,true);
   await pool.query("UPDATE rights SET metadata=jsonb_set(metadata,'{permissions,display}','false'::jsonb) WHERE tenant_id=$1 AND id=$2",[tenant,rights]);
+  assert.deepEqual((await pool.query('SELECT metadata FROM rights WHERE tenant_id=$1 AND id=$2',[tenant,fullRightsId])).rows[0].metadata,fullRightsBefore);
   await request('GET',`/api/v1/publications/${publication.publicationId}`,undefined,{status:404,authorized:false});for(const a of projected.assets)await request('GET',a.url,undefined,{status:404,authorized:false});assert.notEqual((await request('GET',path+'/ready')).json().status,'READY');
   await pool.query('UPDATE rights SET metadata=$3 WHERE tenant_id=$1 AND id=$2',[tenant,rights,oldRights]);
   pass('Revoking only coarse current display rights denies the entire public document and both downloads');
