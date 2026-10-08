@@ -14,6 +14,7 @@ import {buildApp} from '../apps/api/dist/app.js';
 import {Oex} from '../apps/api/dist/oex.js';
 import {createPresenceGeometry} from '../apps/api/dist/realtime-geometry.js';
 import {exportedEntries,fixtureZip} from './oex-test-zip.mjs';
+import {freshPublicPairPackage} from './public-lod-negative-fixture.mjs';
 import {publicTexturedLODPair,publicTexturePNG} from './embedded-texture-fixture.mjs';
 if(process.argv.slice(2).some(v=>v!=='--textured-lod'))throw Error('AFFINE_ARGUMENT_UNSUPPORTED');
 const texturedLOD=process.argv.includes('--textured-lod');
@@ -76,13 +77,7 @@ try{
   const evidenceRoot=`/private/tmp/exhibitos-public-lod-published-${runId}`;await mkdir(evidenceRoot,{mode:0o700});for(const [filename,bytes]of retainedFiles)await writeFile(evidenceRoot+'/'+filename,bytes,{flag:'wx',mode:0o600});publishedFixture={root:evidenceRoot,inventorySha256:sha256(descriptor),files:retainedFiles.map(([filename,bytes])=>({filename,bytes:bytes.length,sha256:sha256(bytes)}))};
   pass('Recovered current rights and exact downloaded public snapshot retained as bounded sanitized React replay evidence');
   const refuseFreshPair=async(title,edit)=>{
-   const next=structuredClone(document),art=next.artworks[0],files=new Map(syntheticMedia),oldAssetIds=art.assets.map(a=>a.id);
-   next.id=randomUUID();next.revisionId=randomUUID();art.id=randomUUID();art.revisionId=randomUUID();for(const a of art.assets)a.id=randomUUID();art.primaryAssetId=art.assets[0].id;next.placements[0].artworkRevisionId=art.revisionId;next.placements[0].assetId=art.primaryAssetId;
-   for(const v of art.extensions['org.exhibitos.viewer/lod'].variants)v.assetId=art.assets[oldAssetIds.indexOf(v.assetId)].id;
-   for(const event of art.provenance.events)if(event.sourceAssetIds)event.sourceAssetIds=event.sourceAssetIds.map(id=>oldAssetIds.includes(id)?art.assets[oldAssetIds.indexOf(id)].id:id);
-   edit(art,files);
-   const nextManifest=structuredClone(manifest),nextBody=Buffer.from(JSON.stringify(next));nextManifest.exhibition={...nextManifest.exhibition,id:next.id,revisionId:next.revisionId,bytes:nextBody.length,sha256:sha256(nextBody),revisionSha256:revisionHash(next)};nextManifest.assets=packageMediaAssetManifest(next).map(a=>{if(nextManifest.formatVersion===OEX_MEDIA_VERSION)return a;const legacy={...a};delete legacy.kind;return legacy;});
-   const payload=fixtureZip([['manifest.json',Buffer.from(JSON.stringify(nextManifest))],['exhibition.json',nextBody],...files]);assert(payload.length<65536);assert.equal((await validateOex(payload)).valid,true);
+   const payload=await freshPublicPairPackage(document,manifest,syntheticMedia,edit);
    const negative=(await request('POST',base+'/oex/imports',{requestId:randomUUID(),bytes:payload.length,sha256:sha256(payload)},{status:201})).json();await request('PUT',base+`/oex/imports/${negative.id}/bytes`,payload);await request('POST',base+`/oex/imports/${negative.id}/complete`,{});await new Oex(pool,blobs).run(negative.id);const observed=(await request('GET',base+`/oex/imports/${negative.id}`)).json();assert.equal(observed.state,'complete',JSON.stringify(observed));
    const negativePath=base+`/studio/exhibitions/${observed.result.exhibitionId}`,approved=(await request('GET',base+`/studio/artworks/${observed.result.draft.candidate.artworks[0].id}`)).json().artwork;assert.deepEqual(approved,observed.result.draft.candidate.artworks[0]);assert.notEqual((await request('GET',negativePath+'/ready')).json().status,'READY');await request('POST',negativePath+'/publications',{requestId:randomUUID()},{status:422,extra:{'if-match':observed.result.etag}});assert.equal((await pool.query('SELECT count(*)::int n FROM studio_publications WHERE exhibition_id=$1',[observed.result.exhibitionId])).rows[0].n,0);pass(title);
   };
