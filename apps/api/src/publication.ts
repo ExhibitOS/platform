@@ -195,7 +195,7 @@ export class Publications {
                         variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
-                    }catch{variants={full:fullMetric};}
+                    }catch(error){if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
                     // Reobserve the entire immutable imported inventory after both decoders.
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full.original)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse.original))throw new ApiError(409,'ASSET_INTEGRITY');

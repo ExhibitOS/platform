@@ -10,7 +10,7 @@ const same=(a:unknown,b:unknown):boolean=>{const sort=(v:unknown):unknown=>Array
 function model(bytes:Buffer){
  if(bytes.length<28||bytes.length>8*1024*1024||bytes.toString('ascii',0,4)!=='glTF'||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length||bytes.readUInt32LE(16)!==0x4e4f534a)fail();
  const n=bytes.readUInt32LE(12),at=20+n;if(!n||n>1048576||n%4||at+8>bytes.length||bytes.readUInt32LE(at+4)!==0x004e4942||bytes.readUInt32LE(at)%4||at+8+bytes.readUInt32LE(at)!==bytes.length)fail();
- const d=JSON.parse(bytes.toString('utf8',20,at)),bin=bytes.subarray(at+8);
+ let d;try{d=JSON.parse(bytes.toString('utf8',20,at));}catch{fail();}const bin=bytes.subarray(at+8);
  if(!closed(d,['asset','scene','scenes','nodes','meshes','materials','images','textures','samplers','buffers','bufferViews','accessors'])||!closed(d.asset,['version'],['generator'])||d.asset.version!=='2.0'||d.scene!==0||!same(d.scenes,[{nodes:[0]}])||!same(d.nodes,[{mesh:0}])||!Array.isArray(d.buffers)||d.buffers.length!==1||!closed(d.buffers[0],['byteLength'])||!integer(d.buffers[0].byteLength)||d.buffers[0].byteLength<1||d.buffers[0].byteLength>bin.length||bin.length-d.buffers[0].byteLength>3)fail();
  if(!Array.isArray(d.meshes)||d.meshes.length!==1||!closed(d.meshes[0],['primitives'])||!Array.isArray(d.meshes[0].primitives)||!d.meshes[0].primitives.length||d.meshes[0].primitives.length>8||!Array.isArray(d.bufferViews)||d.bufferViews.length>64||!Array.isArray(d.accessors)||d.accessors.length>32||!Array.isArray(d.images)||!d.images.length||d.images.length>8||!Array.isArray(d.materials)||d.materials.length!==d.images.length||!Array.isArray(d.textures)||d.textures.length!==d.images.length||!same(d.samplers,[{magFilter:9729,minFilter:9729,wrapS:33071,wrapT:33071}]))fail();
  const view=(i:number)=>{const v=d.bufferViews[i];if(!integer(i)||!closed(v,['buffer','byteLength'],['byteOffset','target'])||v.buffer!==0||!integer(v.byteOffset??0)||!integer(v.byteLength)||!v.byteLength||(v.byteOffset??0)+v.byteLength>d.buffers[0].byteLength)fail();return bin.subarray(v.byteOffset??0,(v.byteOffset??0)+v.byteLength);};
@@ -33,7 +33,8 @@ function model(bytes:Buffer){
  if(parts.length!==images.length)fail();return {images,parts,triangles};
 }
 export function qualifyApprovedTexturedPair(full:Buffer,coarse:Buffer,declaredFull:number,declaredCoarse:number){
- const f=model(full),c=model(coarse);if(full.length<=coarse.length||f.triangles!==declaredFull||c.triangles!==declaredCoarse||c.triangles>=f.triangles||f.parts.length!==c.parts.length)fail();
- for(let i=0;i<f.parts.length;i++){const a=f.parts[i]!,b=c.parts[i]!;if(!f.images[i]!.equals(c.images[i]!)||!same(a.min,b.min)||!same(a.max,b.max)||b.triangles>=a.triangles)fail();for(const key of b.tuples)if(!a.tuples.has(key))fail();}
+ const invalid=():never=>{throw Error('APPROVED_LOD_INVALID');};
+ const f=model(full),c=model(coarse);if(full.length<=coarse.length||f.triangles!==declaredFull||c.triangles!==declaredCoarse||c.triangles>=f.triangles||f.parts.length!==c.parts.length)invalid();
+ for(let i=0;i<f.parts.length;i++){const a=f.parts[i]!,b=c.parts[i]!;if(!f.images[i]!.equals(c.images[i]!)||!same(a.min,b.min)||!same(a.max,b.max)||b.triangles>=a.triangles)invalid();for(const key of b.tuples)if(!a.tuples.has(key))invalid();}
  return {full:measureFullVariant(full,'model/gltf-binary'),coarse:measureFullVariant(coarse,'model/gltf-binary')};
 }
