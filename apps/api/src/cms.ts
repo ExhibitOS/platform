@@ -432,6 +432,27 @@ export class Cms {
     if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }
+  /** Explicit approved inventory only; no asset ID outside the current snapshot is readable. */
+  async approvedVariantOriginal(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number) {
+    const {artwork}=await this.studioArtwork(c,s,id);
+    if(artwork.revision!==expectedRevision)throw new ApiError(409,'REVISION_CONFLICT');
+    const declared=artwork.assets.find(a=>a.id.toLowerCase()===assetId.toLowerCase());
+    if(!declared||declared.mime!=='model/gltf-binary')throw new ApiError(409,'APPROVAL_INVALID');
+    if(!this.blobs)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+    const row=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,assetId])).rows[0];
+    if(!row||!allowedRights(row.rights,'display')||json(row.rights)!==json(artwork.rights))throw new ApiError(403,'RIGHTS_DENIED');
+    if(row.sha256!==declared.sha256||Number(row.bytes)!==declared.bytes||row.mime!==declared.mime)throw new ApiError(409,'ASSET_INTEGRITY');
+    const bytes=Buffer.from(await this.blobs.get(row.object_key));
+    if(bytes.length!==declared.bytes||sha256(bytes)!==declared.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+    return bytes;
+  }
+  async displayApprovedVariant(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number) {
+    const original=await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision);
+    const bytes=await derivative(original,'model/gltf-binary');
+    if(!(await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
+    return {original,bytes,mime:'model/gltf-binary' as const};
+  }
   async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number) {
     if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision > 2147483647))
       throw new ApiError(400, "INVALID_INPUT");

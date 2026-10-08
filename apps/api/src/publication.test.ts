@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { fixtureURL, validateExhibition, type Exhibition } from "@exhibitos/spec";
 import { sha256 } from "@exhibitos/storage";
 import { CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
-import { projectPublication } from "./publication.ts";
+import { projectPublication, approvedPublicationSource } from "./publication.ts";
 describe("immutable anonymous publication projection", () => {
     it('preserves author rule IDs and UUID-shaped text while mapping only executable scene references',async()=>{
         const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
@@ -82,4 +82,21 @@ describe("immutable anonymous publication projection", () => {
         expect(experience.translations[0]!.title).toBe(original);
         expect(snapshot.audioZones[0]!.transcript).toBe(original);
     });
+});
+
+describe('immutable secondary LOD source gate',()=>{
+ it('only accepts exact imported coarse approval while preserving primary source compatibility',async()=>{
+  const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,a=e.artworks.find(a=>a.artworkType==='sculpture')!;
+  const primary=a.assets.find(v=>v.id===a.primaryAssetId)!;
+  const coarse={...primary,id:'10000000-0000-4000-8000-000000000098',path:'assets/coarse.glb',sha256:'b'.repeat(64),bytes:primary.bytes-1};
+  a.assets.push(coarse);a.extensions={ [ 'org.exhibitos.viewer/lod' ]:{version:1,variants:[{assetId:primary.id,detail:'full',triangles:8},{assetId:coarse.id,detail:'coarse',triangles:2}]}};
+  const snapshot={asset:primary,importedArtwork:a};
+  expect(approvedPublicationSource({asset:primary},primary,primary.id)).toBe(true);
+  expect(approvedPublicationSource(snapshot,coarse,primary.id)).toBe(true);
+  for(const bad of [{...coarse,id:'10000000-0000-4000-8000-000000000099'},{...coarse,sha256:'c'.repeat(64)},{...coarse,bytes:coarse.bytes+1},{...coarse,mime:'image/png'}])expect(approvedPublicationSource(snapshot,bad,primary.id)).toBe(false);
+  expect(approvedPublicationSource({asset:primary},coarse,primary.id)).toBe(false);
+  expect(approvedPublicationSource(snapshot,coarse,coarse.id)).toBe(false);
+  a.extensions!['org.exhibitos.viewer/lod']={version:1,variants:[{assetId:primary.id,detail:'full',triangles:8},{assetId:primary.id,detail:'coarse',triangles:2}]};
+  expect(approvedPublicationSource(snapshot,coarse,primary.id)).toBe(false);
+ });
 });
