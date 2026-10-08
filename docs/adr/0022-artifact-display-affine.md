@@ -1,6 +1,6 @@
 # ADR0022: centered artwork metre display and artifact affine composition
 
-Status: approved for bounded Platform implementation; runtime qualification pending.
+Status: implemented and qualified with bounded numeric/Rapier/server unit cases and actual Chromium React synthetic fixtures. Real authority/API deployment qualification and physical accuracy are separate evidence.
 
 Base OES draft defines meter geometry, positive dimensionless XYZ scale, normalized XYZW quaternion and the order artifact then placement then room. Dimensions are assertions before the artifact transform and source-unit conversion is already baked into original bytes. The Platform display profile additionally chooses the measured GLTF scene centre as artwork-local anchor, matching ADR0011 centered-metre annotations. This is an explicit display/pivot policy, not an assertion that the base OES spec requires every consumer to recenter GLTF pivots.
 
