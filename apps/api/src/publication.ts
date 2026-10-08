@@ -100,7 +100,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: sha256(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
         if (p.variants) {
-            const metric=(v:GeneratedVariants['full'])=>p.mime==='image/png'?{textureSize:v.textureSize}:{triangles:v.triangles};
+            const metric=(v:GeneratedVariants['full']):Record<string,number>=>{const key=p.mime==='image/png'?'textureSize':'triangles',n=v[key];if(!Number.isSafeInteger(n)||n===undefined||n<1)throw new ApiError(422,'PUBLICATION_NOT_READY');return {[key]:n};};
             const variants = [{assetId:p.sourceAssetId,detail:"full",...metric(p.variants.full)}];
             if (p.variants.coarse && p.variants.bytes) {
                 const coarseId=randomUUID();
