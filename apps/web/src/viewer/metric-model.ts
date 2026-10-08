@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as THREE from 'three';
+import {validateArtifactPose} from '@exhibitos/studio-contract';
 /** OES is already in metres. Metadata dimensions and historical conversion notes are not a second geometry transform. */
 export function centerMetricModel(three: typeof THREE, source: THREE.Object3D) {
   source.updateWorldMatrix(true,true);
@@ -24,4 +25,11 @@ export function metricCameraFit(extent:number,aspect:number,zoom=1){
  const distance=extent*2.1/zoom/Math.min(1,aspect),near=Math.max(extent/100,distance-extent*4),far=distance+extent*4;
  if(![distance,near,far].every(Number.isFinite)||near<=0||far<=near)throw Error('MODEL_CAMERA_BOUNDS');
  return {distance,near,far};
+}
+/** A is applied outside the centered model, never discarded by recentering after A. */
+export function artifactMetricModel(three:typeof THREE,source:THREE.Object3D,pose:import('@exhibitos/studio-contract').ArtifactPose){
+ validateArtifactPose(pose);const object=new three.Group();object.position.fromArray(pose.position);object.quaternion.fromArray(pose.rotation);object.scale.fromArray(pose.scale);object.add(source);object.updateWorldMatrix(true,true);
+ const box=new three.Box3().setFromObject(object,true),size=box.getSize(new three.Vector3()),center=box.getCenter(new three.Vector3()),extent=Math.max(...size.toArray());
+ if(!box.min.toArray().concat(box.max.toArray()).every(n=>Number.isFinite(n)&&Math.abs(n)<=10000)||extent<1e-6||extent>10000)throw Error('MODEL_METRIC_BOUNDS');
+ return {object,extent,center,measured:{min:box.min.toArray(),max:box.max.toArray(),size:size.toArray(),center:center.toArray(),artifactPose:structuredClone(pose)}};
 }

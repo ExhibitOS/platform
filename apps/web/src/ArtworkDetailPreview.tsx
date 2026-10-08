@@ -1,4 +1,4 @@
-import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
+import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useRef, useState } from "react";
@@ -80,11 +80,12 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         }
         if (disposed || abort.signal.aborted) { release(); return; }
         const scene = new three.Scene(); scene.background = new three.Color("#181a20");
-        const model = new three.Group(); model.add(object); scene.add(model);
+        const artifact=artifactMetricModel(three,object,artwork.transform);object=artifact.object;modelExtent=artifact.extent;const centre=artifact.center;
+        const model = new three.Group();model.position.copy(centre);const contents=new three.Group();contents.position.copy(centre).negate();contents.add(object);model.add(contents);scene.add(model);
         for (const anchor of anchors) {
           const marker = new three.Mesh(new three.SphereGeometry(modelExtent * .015, 12, 8),
             new three.MeshBasicMaterial({ color: "#ffd067", depthTest: false }));
-          marker.position.fromArray(anchor.position); marker.renderOrder = 1; model.add(marker); collect(marker);
+          marker.position.fromArray(anchor.position); marker.renderOrder = 1; object.add(marker); collect(marker);
         }
         scene.add(new three.HemisphereLight(0xffffff, 0x333344, 3));
         const light = new three.DirectionalLight(0xffffff, 3); light.position.set(3, 4, 5); scene.add(light);
@@ -96,9 +97,9 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         const resize = () => { const w = Math.max(1,target!.clientWidth), h = 360; renderer!.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
         observer = new ResizeObserver(resize); observer.observe(target!); resize();
         const render = () => { if (disposed) return; model.rotation.y = controls.current.yaw * Math.PI / 180;
-          const fit=metricCameraFit(extent,camera.aspect,controls.current.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();camera.position.set(0,0,fit.distance);camera.lookAt(0,0,0);
+          const fit=metricCameraFit(extent,camera.aspect,controls.current.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
           renderer!.render(scene, camera);
-          renderer!.domElement.dataset.detailState = JSON.stringify({ rotationY: model.rotation.y, cameraPosition: camera.position.toArray(), clipping:[camera.near,camera.far], zoom: controls.current.zoom, dimensions: artwork.dimensions, measuredGeometry:metric, anchors: anchors.map(a => a.position) });
+          renderer!.domElement.dataset.detailState = JSON.stringify({ rotationY: model.rotation.y, cameraPosition: camera.position.toArray(), clipping:[camera.near,camera.far], zoom: controls.current.zoom, dimensions: artwork.dimensions, measuredGeometry:metric,artifactGeometry:artifact.measured, anchors: anchors.map(a => a.position),anchorWorld:object.children.filter(n=>n.renderOrder===1).map(n=>n.getWorldPosition(new three.Vector3()).toArray()) });
           frame = requestAnimationFrame(render); };
         render();
       } catch { if (!disposed) { setError("현재 권리 또는 그래픽·기기 예산 때문에 상세 이미지를 표시할 수 없습니다. 설명은 아래에서 읽을 수 있습니다."); release(); } }
