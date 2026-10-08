@@ -36,7 +36,7 @@ describe("protected approved CMS to Studio metadata projection", () => {
     it("retains trusted immutable imported OES identity/provenance/paths and denies changed current inventory or artist identity", async()=>{
         const {cms,c,gate,query,approval}=setup();
         const original=(await cms.studioArtwork(c,session,id)).artwork;
-        original.revisionId='10000000-0000-4000-8000-000000000099';original.createdAt='2025-01-01T00:00:00Z';original.assets[0]!.path='imported/original/model.glb';original.provenance.events[0]!.description='Original preserved source provenance';
+        original.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};original.revisionId='10000000-0000-4000-8000-000000000099';original.createdAt='2025-01-01T00:00:00Z';original.assets[0]!.path='imported/original/model.glb';original.provenance.events[0]!.description='Original preserved source provenance';
         Object.assign(approval.snapshot,{importedArtwork:original});
         const displayView=await cms.display(c,session,id)as Extract<Awaited<ReturnType<Cms['display']>>,{id:unknown;artist:unknown}>;
         const current={...approval.snapshot.asset,rights:approval.snapshot.metadata.rights};

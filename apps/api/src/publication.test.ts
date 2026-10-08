@@ -21,6 +21,7 @@ describe("immutable anonymous publication projection", () => {
         for (const artwork of candidate.artworks)
             artwork.extensions = { "org.exhibitos.studio/cms": { tenantId: "10000000-0000-4000-8000-000000000001", artworkId: artwork.id, revision: artwork.revision }, [ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:2024}, "private.example/capture": { secret: "Original capture note" } };
         candidate.artworks[0]!.rights.licenseId = candidate.rooms[0]!.id;
+        candidate.artworks[0]!.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};
         const before = structuredClone(candidate);
         const prepared = candidate.artworks.map(a => ({ artwork: a, sourceAssetId: a.primaryAssetId, sourceSha256: a.assets[0]!.sha256, bytes: Buffer.from(`Qualified synthetic derivative ${a.id}`), mime: a.artworkType === "image" ? "image/png" as const : "model/gltf-binary" as const }));
         const { snapshot, assets } = projectPublication(candidate, prepared, "2026-10-01T00:00:00.000Z");
@@ -36,7 +37,7 @@ describe("immutable anonymous publication projection", () => {
         expect(JSON.stringify(snapshot)).not.toContain("capture");
         expect(JSON.stringify(snapshot)).not.toContain("org.exhibitos.studio/cms");
         for (const [i, a] of snapshot.artworks.entries()) {
-            expect(a.id).not.toBe(candidate.artworks[i]!.id);
+            expect(a.transform).toEqual(candidate.artworks[i]!.transform);expect(a.id).not.toBe(candidate.artworks[i]!.id);
             expect(creationYearFor(a)).toBe(2024);
             expect(a.revisionId).not.toBe(candidate.artworks[i]!.revisionId);
             expect(a.primaryAssetId).not.toBe(candidate.artworks[i]!.primaryAssetId);

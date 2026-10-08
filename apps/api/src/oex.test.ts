@@ -93,3 +93,5 @@ describe('OEX service boundaries',()=>{
   expect(validMetadata(metadata)).toBe(true);expect(validMetadata({...metadata,dimensions:{...metadata.dimensions,depth:0}})).toBe(false);
  });
 });
+
+it('retains nonidentity approved artifact and placement poses without baking or refitting OEX assets',async()=>{const e=await fixture(),a=e.artworks[0]!;a.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};const before=structuredClone(e);expect(()=>checkOexProfile(e)).not.toThrow();const mapped=remapOex(e).exhibition;expect(mapped.artworks[0]!.transform).toEqual(a.transform);expect(mapped.artworks[0]!.assets.map(x=>[x.bytes,x.sha256])).toEqual(a.assets.map(x=>[x.bytes,x.sha256]));expect(mapped.placements.map(p=>p.transform)).toEqual(e.placements.map(p=>p.transform));expect(e).toEqual(before);});

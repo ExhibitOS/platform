@@ -1,4 +1,4 @@
-import {centerMetricModel} from './viewer/metric-model.js';
+import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
@@ -414,7 +414,7 @@ export function GeometryPreview({
           });
         const bounds = new three.LineSegments(edges, material);
         bounds.computeLineDistances();
-        group.add(bounds);
+        const assertionPose=new three.Group();pose(assertionPose,artwork.transform);assertionPose.add(bounds);group.add(assertionPose);
         owned.push(geometry, edges, material);
       }
       const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
@@ -1076,10 +1076,12 @@ export function GeometryPreview({
             throw Error("DECODE_BUDGET_EXCEEDED");
           }
           if(artwork.artworkType!=="image"){const centered=centerMetricModel(three,object);object=centered.object;object.userData.metricGeometry=centered.measured;}
+          const metricGeometry=object.userData.metricGeometry;const artifact=artifactMetricModel(three,object,artwork.transform);object=artifact.object;object.userData.metricGeometry=metricGeometry;object.userData.artifactGeometry=artifact.measured;
           object.userData.viewer = {
             triangles,
             decodedBytes,
             measuredGeometry:object.userData.metricGeometry,
+            artifactGeometry:object.userData.artifactGeometry,
             textureSizes: [...textures].map((t) => {
               const image = t.image as { width: number; height: number };
               return [image.width, image.height];
@@ -1173,6 +1175,7 @@ export function GeometryPreview({
               (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
               0,
             ),
+            artifactPlacements:[...placements.entries()].flatMap(([id,group])=>{const result:{placementId:string;matrix:number[]}[]=[];group.traverse(node=>{if(node.userData.artifactGeometry)result.push({placementId:id,matrix:node.matrixWorld.elements.slice()});});return result;}),
             decoded: [...objects.values()].map(
               (value) => value.userData.viewer,
             ),

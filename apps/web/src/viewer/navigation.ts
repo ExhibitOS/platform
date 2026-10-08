@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {artifactCorners,validateArtworkWalkingProfile} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -41,6 +42,7 @@ export interface CollisionVolume {
     center: Vec3;
     rotation: Quat;
     halfExtents: Vec3;
+    affineCorners?: Vec3[];
 }
 /** Floor support rectangle minus capsule-expanded static collision volumes; not a pathfinding navmesh. */
 export interface WalkableRegion {
@@ -116,6 +118,7 @@ export async function createNavigationController(doc: Exhibition, options: {
 }): Promise<NavigationController> {
     if (doc.rooms.length > 32 || doc.surfaces.length > 256 || doc.openings.length > 128 || doc.placements.length > 128 || !doc.rooms.length)
         throw Error("NAVIGATION_COMPLEXITY");
+    if(!validateArtworkWalkingProfile(doc).valid)throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
     await (initialized ??= RAPIER.init());
     const floors = new Map<number, { floorSurfaceId: string; roomId: string }>();
     const kinds = new Map<number, "floor" | "solid">(), regions: WalkableRegion[] = [], solids: CollisionVolume[] = [];
@@ -180,10 +183,14 @@ export async function createNavigationController(doc: Exhibition, options: {
                 throw Error("NAVIGATION_REFERENCE");
             if (!finite([...p.transform.position, ...p.transform.rotation, ...p.transform.scale]) || Math.abs(Math.hypot(...p.transform.rotation) - 1) > 0.001 || p.transform.scale.some(n => n <= 0 || n > 100))
                 throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
-            const d = art.dimensions;
-            if (art.units !== "meter")
-                throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
-            box(add(room.transform.position, rotate(p.transform.position, room.transform.rotation)), multiply(room.transform.rotation, p.transform.rotation), [d.width * p.transform.scale[0] / 2, d.height * p.transform.scale[1] / 2, Math.max(0.002, (d.depth ?? 0.02) * p.transform.scale[2] / 2)], "solid");
+            if (art.units !== "meter")throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
+            const corners=artifactCorners(art.dimensions,[art.transform,p.transform,room.transform],true);
+            if(++colliderCount>8192)throw Error("NAVIGATION_COMPLEXITY");
+            const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(corners.flat()));if(!desc)throw Error("NAVIGATION_AFFINE_HULL_UNSUPPORTED");
+            const c=world.createCollider(desc);kinds.set(c.handle,"solid");
+            // Affine corners are the authoritative diagnostic; legacy fields only describe the enclosing AABB.
+            const min=[0,1,2].map(i=>Math.min(...corners.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...corners.map(p=>p[i]!)));
+            solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,affineCorners:corners});
         }
         const half = NAVIGATION_PROFILE.bodyHeight / 2, radius = NAVIGATION_PROFILE.radius;
         character = world.createCollider(RAPIER.ColliderDesc.capsule(half - radius, radius).setTranslation(0, 10000, 0));

@@ -236,3 +236,5 @@ export * from "./scripting-profile.js";
 export * from "./realtime.js";
 
 export * from "./opening.js";
+
+export * from "./artifact-affine.js";

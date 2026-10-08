@@ -363,3 +363,7 @@ describe("real Rapier fixed-step first-person collision", () => {
         }
     }, 20000);
 });
+it('uses actual affine convex proxy corners and agrees with server presence on translated/sheared artwork',async()=>{
+ const doc=room(),r=doc.rooms[0]!,art=syntheticArtwork();art.dimensions={width:1,height:2,depth:1};art.transform={position:[2,0,0],rotation:[0,0,Math.sin(Math.PI/8),Math.cos(Math.PI/8)],scale:[1,1,1]};doc.artworks=[art];const p=newPlacement(art,r.id);p.transform={position:[0,1,0],rotation:[0,0,0,1],scale:[2,1,1]};doc.placements=[p];
+ const c=await createNavigationController(doc,{position:[0,1.65,0]});try{const {createPresenceGeometry}=await import('../../../api/src/realtime-geometry.ts');const server=createPresenceGeometry(doc);for(const position of [[0,1.65,0],[4,1.65,0],[4,1.65,2]] as [number,number,number][]){expect(c.isWalkable(position)).toBe(server.valid({roomId:r.id,position,yaw:0}));}const proxy=c.walkableRegions.flatMap(region=>region.exclusions).find(v=>v.affineCorners);expect(proxy?.affineCorners).toHaveLength(8);}finally{c.dispose();}
+});

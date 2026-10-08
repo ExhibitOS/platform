@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {artifactCorners,artifactBounds,IDENTITY_ARTIFACT_POSE} from "@exhibitos/studio-contract";
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 export type Placement = Exhibition["placements"][number];
 export type Light = Exhibition["lights"][number];
@@ -13,15 +14,12 @@ export function newPlacement(artwork: Artwork, roomId: string): Placement {
     roomId,
     artworkRevisionId: artwork.revisionId,
     assetId: artwork.primaryAssetId,
-    transform: { ...pose(), position: [0, artwork.dimensions.height / 2, 0] },
+    transform: { ...pose(), position: [0, -artifactBounds(artifactCorners(artwork.dimensions,[artwork.transform])).min[1], 0] },
   };
 }
 export function placementDimensions(artwork: Artwork, p: Placement) {
-  return {
-    width: artwork.dimensions.width * p.transform.scale[0],
-    height: artwork.dimensions.height * p.transform.scale[1],
-    depth: (artwork.dimensions.depth ?? 0) * p.transform.scale[2],
-  };
+  const size=artifactBounds(artifactCorners(artwork.dimensions,[artwork.transform,p.transform])).size;
+  return {width:size[0],height:size[1],depth:size[2]};
 }
 export function newLight(roomId: string, type: Light["type"] = "point"): Light {
   return {
@@ -45,13 +43,13 @@ export function alignPlacement(doc: Exhibition, p: Placement, s: Exhibition["sur
         throw new Error("WALL_ROOM_MISMATCH");
     if (!Number.isFinite(snap) || snap < 0 || !offset.every(Number.isFinite))
         throw new Error("SNAP_INVALID");
-    const [x, y] = offset.map(v => snap === 0 ? v : Math.round(v / snap) * snap), d = placementDimensions(art, p);
+    const [x, y] = offset.map(v => snap === 0 ? v : Math.round(v / snap) * snap), assertion=artifactBounds(artifactCorners(art.dimensions,[art.transform,{...IDENTITY_ARTIFACT_POSE,scale:p.transform.scale}])),d={width:assertion.size[0],height:assertion.size[1],depth:assertion.size[2]};
     if (Math.abs(x!) + d.width / 2 > s.dimensions.width / 2 + 1e-9 || Math.abs(y!) + d.height / 2 > s.dimensions.height / 2 + 1e-9)
         throw new Error("PLACEMENT_OUTSIDE_WALL");
     for (const opening of doc.openings.filter(o => o.surfaceId.toLowerCase() === s.id.toLowerCase()))
         if (Math.abs(x! - opening.offset[0]) < (d.width + opening.dimensions.width) / 2 && Math.abs(y! - opening.offset[1]) < (d.height + opening.dimensions.height) / 2)
             throw new Error("PLACEMENT_OVERLAPS_OPENING");
-    const [qx, qy, qz, qw] = s.transform.rotation, v = [x!, y!, d.depth / 2 + 0.002];
+    const [qx, qy, qz, qw] = s.transform.rotation, v = [x!-assertion.center[0], y!-assertion.center[1], 0.002-assertion.min[2]];
     const tx = 2 * (qy * v[2]! - qz * v[1]!), ty = 2 * (qz * v[0]! - qx * v[2]!), tz = 2 * (qx * v[1]! - qy * v[0]!);
     const position: [
         number,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from '@exhibitos/spec';
-import { presentationFor } from '@exhibitos/studio-contract';
+import { artifactCorners,artifactHullHit,artifactSweptCapsuleHit,validateArtworkWalkingProfile,presentationFor } from '@exhibitos/studio-contract';
 type V=[number,number,number];type Q=[number,number,number,number];
 export interface PresencePose {roomId:string;position:V;yaw:number}
 const add=(a:V,b:V):V=>a.map((n,i)=>n+b[i]!) as V;
@@ -11,25 +11,19 @@ const finite=(v:V)=>v.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000);
 const radius=.25;
 /** Same authored planes/reciprocal doors govern server world poses; no client coordinate is trusted. */
 export function createPresenceGeometry(exhibition:Exhibition){
+ if(!validateArtworkWalkingProfile(exhibition).valid)throw Error('PRESENCE_GEOMETRY_UNSUPPORTED');
  const transforms=[...exhibition.rooms,...exhibition.surfaces].map(item=>item.transform);
  if(exhibition.units!=='meter'||transforms.some(t=>!finite(t.position)||t.scale.some(n=>n!==1)||t.rotation.some(n=>!Number.isFinite(n))||Math.abs(Math.hypot(...t.rotation)-1)>.001))throw Error('PRESENCE_GEOMETRY_UNSUPPORTED');
  const rooms=new Map(exhibition.rooms.map(r=>[r.id,r]));
  const toWorld=(roomId:string,p:V):V=>{const r=rooms.get(roomId)!;return add(rotate(p,r.transform.rotation),r.transform.position);};
  const fromWorld=(roomId:string,p:V):V=>{const r=rooms.get(roomId)!;return rotate(sub(p,r.transform.position),inverse(r.transform.rotation));};
  const boxes=exhibition.placements.map(placement=>{
-  const art=exhibition.artworks.find(a=>a.revisionId===placement.artworkRevisionId),t=placement.transform;
-  if(!art||!rooms.has(placement.roomId)||art.units!=='meter'||!finite(t.position)||t.rotation.some(n=>!Number.isFinite(n))||Math.abs(Math.hypot(...t.rotation)-1)>.001||t.scale.some(n=>!Number.isFinite(n)||n<=0||n>100))throw Error('PRESENCE_GEOMETRY_UNSUPPORTED');
-  const half:V=[art.dimensions.width*t.scale[0]/2,art.dimensions.height*t.scale[1]/2,Math.max(.002,(art.dimensions.depth??.02)*t.scale[2]/2)];
-  if(half.some(n=>!Number.isFinite(n)||n<=0||n>10000))throw Error('PRESENCE_GEOMETRY_UNSUPPORTED');
-  return {placement,half};
+  const art=exhibition.artworks.find(a=>a.revisionId.toLowerCase()===placement.artworkRevisionId.toLowerCase()),room=rooms.get(placement.roomId);
+  if(!art||!room||art.units!=='meter')throw Error('PRESENCE_GEOMETRY_UNSUPPORTED');
+  return {placement,corners:artifactCorners(art.dimensions,[art.transform,placement.transform,room.transform],true)};
  });
- const boxLocal=(box:typeof boxes[number],p:V)=>rotate(sub(fromWorld(box.placement.roomId,p),box.placement.transform.position),inverse(box.placement.transform.rotation));
- // Segment versus expanded OBB: conservative capsule envelope, independent of model bytes.
- const boxHit=(box:typeof boxes[number],a:V,b:V)=>{
-  const x=boxLocal(box,a),y=boxLocal(box,b);let low=0,high=1;
-  for(let i=0;i<3;i++){const bound=box.half[i]!+radius,delta=y[i]!-x[i]!;if(Math.abs(delta)<1e-10){if(Math.abs(x[i]!)>bound)return false;continue;}let p=(-bound-x[i]!)/delta,q=(bound-x[i]!)/delta;if(p>q)[p,q]=[q,p];low=Math.max(low,p);high=Math.min(high,q);if(low>high)return false;}
-  return true;
- };
+ // World Euclidean capsule radius against the same affine assertion hull used by Rapier, including shear.
+ const boxHit=(box:typeof boxes[number],a:V,b:V)=>artifactHullHit(box.corners,a,b,radius);
  const surfaces=[...exhibition.surfaces];
  for(const room of exhibition.rooms)if(!surfaces.some(s=>s.roomId===room.id&&s.type==='floor'))surfaces.push({id:`implicit-floor:${room.id}`,roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}});
  const planes=surfaces.map(surface=>({surface,room:rooms.get(surface.roomId)!}));
@@ -71,12 +65,9 @@ export function createPresenceGeometry(exhibition:Exhibition){
   if(distance>2*Math.min(Math.max(elapsedMs,10),500)/1000+.15)return false;
   const turn=Math.abs(next.yaw-previous.yaw),angular=Math.min(turn,2*Math.PI-turn);
   if(angular>12*Math.min(Math.max(elapsedMs,10),500)/1000+.35)return false;
-  // Substeps inspect ceilings/support, while swept OBB segments prevent thin-object tunnelling.
+  // Substeps inspect ceilings/support, while swept affine-hull sphere segments prevent thin-object tunnelling.
   const oldFloor=ground(previous.position,previous.roomId)!,newFloor=ground(next.position,next.roomId)!;
-  for(const box of boxes)for(let fraction=0;fraction<=1;fraction+=.05){
-   const a:V=[previous.position[0],(oldFloor+radius)*(1-fraction)+(oldFloor+1.75-radius)*fraction,previous.position[2]],b:V=[next.position[0],(newFloor+radius)*(1-fraction)+(newFloor+1.75-radius)*fraction,next.position[2]];
-   if(boxHit(box,a,b))return false;
-  }
+  for(const box of boxes)if(artifactSweptCapsuleHit(box.corners,[previous.position[0],oldFloor+radius,previous.position[2]],[previous.position[0],oldFloor+1.75-radius,previous.position[2]],[next.position[0],newFloor+radius,next.position[2]],[next.position[0],newFloor+1.75-radius,next.position[2]],radius))return false;
   for(let i=1;i<Math.ceil(distance/.05);i++){const t=i/Math.ceil(distance/.05),position=previous.position.map((n,j)=>n+(next.position[j]!-n)*t) as V;
    if(!valid({roomId:previous.roomId,position,yaw:previous.yaw})&&!valid({roomId:next.roomId,position,yaw:next.yaw}))return false;
   }

@@ -17,3 +17,9 @@ it('rejects low authored ceilings and non-rigid space instead of ignoring transf
  expect(createPresenceGeometry(e).valid({roomId,position:[0,1.65,0],yaw:0})).toBe(false);
  e.rooms[0]!.transform.scale=[2,1,1];expect(()=>createPresenceGeometry(e)).toThrow('PRESENCE_GEOMETRY_UNSUPPORTED');
 });
+it('current artwork affine moves the collision proxy and supports sheared placement composition',async()=>{
+ const e=await scene(),roomId=e.rooms[0]!.id,art=e.artworks[0]!;art.dimensions={width:1,height:2,depth:1};art.transform={position:[2,0,0],rotation:[0,0,Math.sin(Math.PI/8),Math.cos(Math.PI/8)],scale:[1,1,1]};
+ e.placements=[{id:'10000000-0000-4000-8000-000000000002',roomId,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,transform:{position:[0,1,0],rotation:[0,0,0,1],scale:[2,1,1]}}];
+ const geometry=createPresenceGeometry(e);expect(geometry.valid({roomId,position:[0,1.65,0],yaw:0})).toBe(true);expect(geometry.valid({roomId,position:[4,1.65,0],yaw:0})).toBe(false);
+ art.transform.scale=[-1,1,1];expect(()=>createPresenceGeometry(e)).toThrow('PRESENCE_GEOMETRY_UNSUPPORTED');
+});
