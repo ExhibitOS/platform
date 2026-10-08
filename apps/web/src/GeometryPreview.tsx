@@ -1,3 +1,4 @@
+import {centerMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
@@ -1017,21 +1018,7 @@ export function GeometryPreview({
               throw Error("DISPOSED");
             }
             object = gltf.scene;
-            const bounds = new three.Box3().setFromObject(object),
-              center = bounds.getCenter(new three.Vector3()),
-              size = bounds.getSize(new three.Vector3());
-            if (Math.min(size.x, size.y, size.z) <= 0)
-              throw Error("DERIVATIVE_DIMENSIONS");
-            // Qualified derivatives are centered and calibrated to the approved physical dimensions.
-            const normalized = new three.Group();
-            normalized.scale.set(
-              artwork.dimensions.width / size.x,
-              artwork.dimensions.height / size.y,
-              (artwork.dimensions.depth ?? size.z) / size.z,
-            );
-            object.position.sub(center);
-            normalized.add(object);
-            object = normalized;
+
           }
           let triangles = 0,
             decodedBytes = 0;
@@ -1088,9 +1075,11 @@ export function GeometryPreview({
             for (const resource of resources) resource.dispose();
             throw Error("DECODE_BUDGET_EXCEEDED");
           }
+          if(artwork.artworkType!=="image"){const centered=centerMetricModel(three,object);object=centered.object;object.userData.metricGeometry=centered.measured;}
           object.userData.viewer = {
             triangles,
             decodedBytes,
+            measuredGeometry:object.userData.metricGeometry,
             textureSizes: [...textures].map((t) => {
               const image = t.image as { width: number; height: number };
               return [image.width, image.height];
