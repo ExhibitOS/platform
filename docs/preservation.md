@@ -13,3 +13,20 @@ Keep the original artifact and its version/hash inventory. On missing bytes, rec
 For software disappearance or a historical renderer, use the retained signed runtime and [frozen reconstruction guide](freeze.md). Existing grants and expiry remain enforced; archival retention does not authorize indefinite display. An OEX export is an open artifact, not a complete database/blob/configuration backup. Legacy conversion and actual independent reconstruction are separately recorded T11-03 work; this inventory alone does not complete that task.
 
 Explicit legacy conversion uses `migrateLegacyOex(input,{createdAt})`: supported draft.1 OEX is written as a new draft.2 package, preserving its scene, rights, provenance and exact asset bytes. The receipt binds both package hashes and the exhibition revision hash. Keep the original package; current or unknown versions are refused as conversion sources, and signed freezes are never rewritten.
+
+## Reconstruct the historical reference exhibition
+
+After building the current runtime with the pinned toolchain, run
+`node scripts/test-archival-reconstruction.mjs`. It reads the original October 2026
+Spec draft.1 reference OEX, converts it explicitly to draft.2, and compares the
+complete scene, rights/provenance and every asset byte. A new synthetic operator
+signature binds that package to the actual retained runtime. In a separate
+working directory, the embedded server and Chromium open the historical
+exhibition and each GLB/PNG placement without the Platform API or external
+requests. The script prints an independent result path and retains the compact
+package/result for inspection. The historical input is unchanged.
+
+This scenario verifies reconstruction, not production account authorization or
+OCI deployment. The synthetic signing key is ephemeral and explicitly trusted
+for this inspection; it does not rewrite or renew a historical signed freeze.
+Use the normal authenticated freeze flow and current rights for actual display.
