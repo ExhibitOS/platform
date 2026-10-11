@@ -14,6 +14,15 @@ import { loadViewerFixtures } from "./viewer-fixtures.mjs";
 
 const directory = await realpath(await mkdtemp(`${tmpdir()}/exhibitos-local-runtime-`)), checks = [], engine = process.env.CONTAINER_ENGINE ?? "docker";
 const engineKind = basename(engine).replace(/\.exe$/i, "");
+const operatorSubnet = process.env.EXHIBITOS_LOCAL_RUNTIME_SUBNET;
+if (operatorSubnet !== undefined) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(operatorSubnet);
+  const octets = match?.slice(1, 5).map(Number), prefix = Number(match?.[5]);
+  if (!octets || octets.some((value, index) => value > 255 || String(value) !== match[index + 1]) || prefix < 16 || prefix > 29 || String(prefix) !== match[5]) throw Error("LOCAL_RUNTIME_SUBNET_INVALID");
+  const address = octets.reduce((value, octet) => value * 256 + octet, 0);
+  const privateAddress = octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168);
+  if (!privateAddress || address % (2 ** (32 - prefix)) !== 0) throw Error("LOCAL_RUNTIME_SUBNET_INVALID");
+}
 const run = args => execFileSync(engine, args, { encoding: "utf8", timeout: 240000, stdio: ["ignore", "pipe", "pipe"] }).trim();
 const test = async (title, action) => { await action(); checks.push(title); console.log(`PASS ${title}`); };
 async function listen(server, port = 0) { await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", resolve); }); return server.address().port; }
@@ -44,6 +53,16 @@ const reserved = createTcpServer(); await listen(reserved, 13200); await stop(re
 const bundle = await packageLocalRuntime(`${directory}/artifact`, { engine }), manifest = bundle.manifest;
 const postgresPassword = randomBytes(24).toString("hex"), adminPassword = `${randomBytes(24).toString("hex")}Aa1`, tenantId = randomUUID();
 const environmentFile = `${directory}/artifact/runtime.env`, compose = ["compose", "--env-file", environmentFile, "--file", `${bundle.directory}/compose.yaml`, "--project-name", manifest.projectName];
+let operatorNetwork;
+if (operatorSubnet !== undefined) {
+  // Operator checks Docker subnets and host routes before selecting this private CIDR.
+  // Keep the generated package and its manifest hash unchanged.
+  const overlay = JSON.stringify({ networks: { default: { ipam: { config: [{ subnet: operatorSubnet }] } } } }, null, 2) + "\n";
+  const overlayFile = `${directory}/operator-network.json`;
+  await writeFile(overlayFile, overlay, { flag: "wx", mode: 0o600 });
+  compose.push("--file", overlayFile);
+  operatorNetwork = { subnet: operatorSubnet, overlaySha256: createHash("sha256").update(overlay).digest("hex") };
+}
 await writeFile(environmentFile, `EXHIBITOS_PORT=13200\nPOSTGRES_PASSWORD=${postgresPassword}\nDATABASE_URL=postgresql://exhibitos:${postgresPassword}@database:5432/exhibitos\nADMIN_SUBJECT=synthetic-local-admin\nADMIN_PASSWORD=${adminPassword}\nTENANT_ID=${tenantId}\n`, { mode: 0o600 });
 let started = false, artifact, asset, cookie, csrf, authority;
 const origin = manifest.openUrl, sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -122,7 +141,7 @@ try {
     assert.equal(run([...compose, "exec", "--no-TTY", "database", "psql", "-U", "exhibitos", "-d", "exhibitos", "-At", "-c", "SELECT count(*) FROM auth_credentials"]), "1");
     const logs = run([...compose, "logs", "--no-color"]); for (const secret of [postgresPassword, adminPassword, cookie, csrf]) assert.equal(logs.includes(secret), false);
   });
-  const report = { schemaVersion: "1.0.0-draft.1", passed: true, checks, manifest, engine: engineKind, engineVersion: run(["version", "--format", "{{.Server.Version}}"]), architecture: run(["image", "inspect", "--format", "{{.Architecture}}", manifest.images[0].reference]), limits: [`Only synthetic owned ${engineKind} resources`, "No Windows, native Manager GUI, or signed downloadable release qualification", "Port13200 local HTTP only"] };
+  const report = { schemaVersion: "1.0.0-draft.1", passed: true, checks, manifest, ...(operatorNetwork ? { operatorNetwork } : {}), engine: engineKind, engineVersion: run(["version", "--format", "{{.Server.Version}}"]), architecture: run(["image", "inspect", "--format", "{{.Architecture}}", manifest.images[0].reference]), limits: [`Only synthetic owned ${engineKind} resources`, "No Windows, native Manager GUI, or signed downloadable release qualification", "Port13200 local HTTP only"] };
   await writeFile(`${directory}/local-runtime-run.json`, JSON.stringify(report, null, 2), { mode: 0o600 }); console.log(`Actual local runtime checks ${checks.length} PASS; report ${directory}/local-runtime-run.json`);
 } catch (error) {
   if (started) { const logs = run([...compose, "logs", "--no-color"]); for (const secret of [postgresPassword, adminPassword]) assert.equal(logs.includes(secret), false); await writeFile(`${directory}/failed-container-logs.txt`, logs, { mode: 0o600 }); console.log(`Private synthetic failure diagnostics: ${directory}/failed-container-logs.txt`); }
