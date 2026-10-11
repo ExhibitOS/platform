@@ -1,3 +1,4 @@
+import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
@@ -27,6 +28,8 @@ import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
 
 type Document = Draft["candidate"];
+export interface GeometryXrArtwork {revisionId:string;assetId:string;label:string;object:Object3D}
+export interface GeometryXrBridge {renderer:WebGLRenderer;camera:Camera;scene:Scene;artworks:()=>GeometryXrArtwork[];frame:(callback:((time:number,frame?:XRFrame)=>void)|null)=>void;suspend:(active:boolean)=>void}
 export interface RealtimeScene { update: (visitors:readonly PresenceVisitor[])=>void; clear:()=>void }
 export interface SurfaceAppearance {
   baseColor: [number, number, number];
@@ -120,7 +123,11 @@ export function GeometryPreview({
   onPresenceSceneReady,
   onPresencePose,
   openingViewpoint,
+  onXrReady,
+  onXrArtworks,
 }: {
+  onXrReady?: (bridge:GeometryXrBridge|null)=>void;
+  onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
   document: Document;
   viewerBudget?: DeviceBudget;
   suspendNavigation?: boolean;
@@ -150,6 +157,9 @@ export function GeometryPreview({
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
+  const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
+  const xrActive=useRef(false);
+  const [xrRunning,setXrRunning]=useState(false);
   const openingConsumed=useRef<number|undefined>(undefined);
   const guideAction=useRef<((routeId:string,index:number)=>void)|null>(null);
   const consumedGuide=useRef<number|undefined>(undefined);
@@ -207,7 +217,7 @@ export function GeometryPreview({
   const [restart, setRestart] = useState(0);
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
-  useEffect(()=>{if(openingViewpoint&&ready&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
+  useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
     if (suspendNavigation) {
@@ -233,6 +243,7 @@ export function GeometryPreview({
     let walkingRelease = () => {};
     let nearPlacement: string | undefined;
     walkingActions.current = null;
+    xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
     setWalkPaused(true);
     setWalkLoading(false);
@@ -476,7 +487,7 @@ export function GeometryPreview({
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
-        if (suspendedRef.current || (!navigationCallbacks.current.onArtworkSelect&&!navigationCallbacks.current.onScriptClick)) return;
+        if (xrActive.current || suspendedRef.current || (!navigationCallbacks.current.onArtworkSelect&&!navigationCallbacks.current.onScriptClick)) return;
         const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
         const hit=ray.intersectObject(model,true)[0];
@@ -494,7 +505,7 @@ export function GeometryPreview({
         frame: number;
       } = { started: 0, samples: [], frame: 0 };
       const render = () => {
-        if (!disposed && !gpuLost) {
+        if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
           renderer.render(scene, camera);
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
@@ -518,11 +529,11 @@ export function GeometryPreview({
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
-        if (!viewerBudget || trace.started) return;
+        if (!viewerBudget || trace.started || xrActive.current) return;
         trace.started = performance.now();
         trace.samples = [];
         const tick = () => {
-          if (disposed) return;
+          if (disposed || xrActive.current) return;
           const elapsed = performance.now() - trace.started;
           camera.position
             .copy(center)
@@ -552,6 +563,7 @@ export function GeometryPreview({
         kind:
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
       ) => {
+        if(xrActive.current)return;
         camera.up.set(0, 1, 0);
         controls.target.copy(center);
         const savedCamera =
@@ -644,6 +656,7 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        xrCallbacks.current.onXrReady?.(null);renderer.setAnimationLoop(null);
         cancelAnimationFrame(trace.frame);
         walkingActions.current?.pause();
         demand.current?.("cancel");
@@ -660,7 +673,7 @@ export function GeometryPreview({
       observer.observe(host.current);
       controls.addEventListener("change", render);
       guideAction.current=(routeId,index)=>{
-        if(suspendedRef.current)return;
+        if(suspendedRef.current||xrActive.current)return;
         const waypoint=document.navigation.find(r=>r.id===routeId)?.waypoints[index];
         if(!waypoint)return;
         const room=rooms.get(waypoint.roomId.toLowerCase());if(!room)return;
@@ -686,7 +699,12 @@ export function GeometryPreview({
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
       setReady(true);
+      const xrArtworks=new Map<string,GeometryXrArtwork>();
+      let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
+      if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       release = () => {
+        xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         walkingRelease();
         orbitEnabled.current = null;
         renderer.domElement.removeEventListener("click",pick);
@@ -708,7 +726,7 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
-      orbitEnabled.current = (enabled) => { controls.enabled = enabled; };
+      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
         renderer.domElement.tabIndex = 0;
@@ -718,7 +736,7 @@ export function GeometryPreview({
         );
         let initialization: Promise<void> | undefined;
         const initialize = async (teleportViewpointId?: string) => {
-          if (disposed) return;
+          if (disposed || xrActive.current) return;
           if (!initialization) {
             setWalkLoading(true);
             setWalkMessage(
@@ -803,19 +821,19 @@ export function GeometryPreview({
         const pending: WalkingActions = {
           start: () => {
             void initialize().then(() => {
-              if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
+              if (!disposed && !xrActive.current && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.start();
             });
           },
           capture: () => {
             void initialize().then(() => {
-              if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
+              if (!disposed && !xrActive.current && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.capture();
             });
           },
           teleport: (viewpointId) => {
             void initialize(viewpointId).then(() => {
-              if (!disposed && !suspendedRef.current && walkingActions.current !== pending)
+              if (!disposed && !xrActive.current && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.teleport?.(viewpointId);
             });
           },
@@ -1248,9 +1266,10 @@ export function GeometryPreview({
                   group.add(object.clone(true));
                 }
               }
-              if (old && old !== object) destroy(old);
+              if (old && old !== object){xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);destroy(old);}
               objects.set(art.revisionId, object);
               active.set(art.revisionId, inventory.id);
+              xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
               failed.delete(art.revisionId);
               render();
               update();
@@ -1372,7 +1391,7 @@ export function GeometryPreview({
         <div ref={host} />
         {viewerBudget && walkingMode && (
           <WalkingTouch
-            available={ready && !suspendNavigation}
+            available={ready && !xrRunning && !suspendNavigation}
             paused={walkPaused}
             actions={walkingActions.current}
           />
@@ -1430,7 +1449,7 @@ export function GeometryPreview({
       </div>
       {viewerBudget && (
         <WalkingControls
-          available={ready && !walkLoading && !suspendNavigation}
+          available={ready && !xrRunning && !walkLoading && !suspendNavigation}
           walking={walkingMode}
           paused={walkPaused}
           settings={walkSettings}
@@ -1447,7 +1466,7 @@ export function GeometryPreview({
       {viewerBudget && presentationFor(document).viewpoints.length>0 && (
         <section aria-label="검증된 viewpoint 순간 이동">
           <p>직접 선택한 위치의 바닥·몸 여유 공간을 검사하고 움직임 없이 이동합니다. 안전하지 않은 위치는 거부하며 정지 상태를 유지합니다.</p>
-          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
+          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
         </section>
       )}
       {viewerBudget && (

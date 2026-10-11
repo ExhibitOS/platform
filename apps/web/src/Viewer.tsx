@@ -1,3 +1,6 @@
+import {ViewerXr,type XrState} from './viewer/xr';
+import {XrControls} from './viewer/XrControls';
+import type {GeometryXrBridge,GeometryXrArtwork} from './GeometryPreview';
 import { OpeningSession, type OpeningState } from "./viewer/opening";
 import { OpeningControls } from "./viewer/OpeningControls";
 import { presentationFor } from "@exhibitos/studio-contract";
@@ -8,7 +11,7 @@ import { spatialProgramFor, spatialScopeFor, experienceFor } from "@exhibitos/st
 import { ScriptSession, type ScriptScene, type ScriptState } from "./viewer/scripting";
 import { ScriptEdges } from "./viewer/scripting-events";
 import { ScriptControls } from "./viewer/ScriptControls";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GuideRequest } from "./GuidedRoutes";
 import { GeometryPreview } from "./GeometryPreview";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
@@ -39,6 +42,17 @@ export function Viewer({
   guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
+  const xr=useRef<ViewerXr|null>(null),xrBridge=useRef<GeometryXrBridge|null>(null);
+  const xrSelection=useRef('');
+  const xrExportCheck=useRef<(()=>Promise<boolean>)|null>(null);
+  const [xrState,setXrState]=useState<XrState|null>(null),[xrArtworks,setXrArtworks]=useState<GeometryXrArtwork[]>([]),[xrSelected,setXrSelected]=useState('');
+  const publicationRef=useRef(publication);publicationRef.current=publication;
+  const xrDisplay=useCallback(async()=>{const p=publicationRef.current;try{if(p.local){await p.local.check();return true;}const response=await fetch(`/api/v1/publications/${encodeURIComponent(p.publication.id)}`,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});if(!response.ok)return false;const value=await response.json();return value.publication?.id===p.publication.id&&value.publication?.status==='published'&&value.publication?.revisionSha256===p.publication.revisionSha256;}catch{return false;}},[]);
+  const xrReady=useCallback((bridge:GeometryXrBridge|null)=>{xr.current?.dispose();xr.current=null;xrBridge.current=bridge;xrExportCheck.current=null;setXrState(null);if(!bridge)return;
+    const binding={...bridge,artwork:()=>{const selected=bridge.artworks().find(a=>a.revisionId===xrSelection.current);return selected?{object:selected.object,label:selected.label}:null;},authorizeDisplay:xrDisplay,authorizeExport:async()=>{const p=publicationRef.current,a=bridge.artworks().find(a=>a.revisionId===xrSelection.current);if(p.local||!a||!await xrDisplay())return false;try{const response=await fetch(`/api/v1/publications/${encodeURIComponent(p.publication.id)}/xr-export/${encodeURIComponent(a.assetId)}`,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});if(!response.ok)return false;const value=await response.json();return Object.keys(value).sort().join(',')==='assetId,authorized,publicationId,revisionSha256'&&value.authorized===true&&value.publicationId===p.publication.id&&value.assetId===a.assetId&&value.revisionSha256===p.publication.revisionSha256&&publicationRef.current===p&&bridge.artworks().find(x=>x.revisionId===xrSelection.current)?.object===a.object;}catch{return false;}},changed:setXrState};xrExportCheck.current=binding.authorizeExport;const runtime=new ViewerXr(binding);xr.current=runtime;setXrState(runtime.snapshot());void runtime.check();},[xrDisplay]);
+  const xrLoaded=useCallback((items:GeometryXrArtwork[])=>{const old=xrBridge.current?.artworks().find(a=>a.revisionId===xrSelection.current);const selected=items.find(a=>a.revisionId===xrSelection.current);if(xrSelection.current&&(!selected||!old||old.object!==selected.object)){void xr.current?.stop();xrSelection.current='';setXrSelected('');}setXrArtworks(items);},[]);
+  useEffect(()=>{return()=>{xr.current?.dispose();xr.current=null;};},[publication]);
+  useEffect(()=>{if(xrState?.phase!=='active'&&!xrState?.quickLookURL)return;const runtime=xr.current,checkExport=xrExportCheck.current;let checking=false;const timer=setInterval(()=>{if(checking)return;checking=true;void (async()=>{const displayed=await xrDisplay(),exported=!xrState?.quickLookURL||!!checkExport&&await checkExport();if((!displayed||!exported)&&xr.current===runtime)void runtime?.stop();})().finally(()=>{checking=false;});},3000);return()=>clearInterval(timer);},[xrState?.phase,xrState?.quickLookURL,xrDisplay]);
   const audio = useRef<ExhibitionAudio | null>(null);
   const [audioState, setAudioState] = useState<AudioState | null>(null);
   const audioReady = useRef(onAudioReady);
@@ -121,6 +135,7 @@ export function Viewer({
   );
   return (
     <section aria-label="전시 Viewer">
+      <p>내보내기 허락이 바뀌면 이 페이지의 AR 링크를 닫습니다. 이미 기기에 열린 파일이나 내려받은 사본은 회수할 수 없습니다.</p>
       <label>
         Viewer 품질
         <select
@@ -133,7 +148,12 @@ export function Viewer({
           <option value="desktop">균형 · 높은 해상도</option>
         </select>
       </label>
+      <label>AR 작품 선택 · 로딩이 완료된 승인 작품만<select aria-label="실제 크기 AR 작품 선택" value={xrSelected} onChange={e=>{void xr.current?.stop();xrSelection.current=e.target.value;setXrSelected(e.target.value);}}><option value="">작품을 직접 선택하세요</option>{xrArtworks.map(a=><option key={a.revisionId} value={a.revisionId}>{a.label}</option>)}</select></label>
+      {publication.local&&<p>오프라인 저장본의 현재 내보내기 허락을 확인할 수 없어 USDZ 내보내기는 사용할 수 없습니다.</p>}
+      <XrControls runtime={xr.current} state={xrState} reducedMotion={reducedMotion??presenceReduced.current} disabled={suspendNavigation}/>
       <GeometryPreview
+        onXrReady={xrReady}
+        onXrArtworks={xrLoaded}
         document={publication.exhibition}
         selection={null}
         appearance={appearance}
