@@ -295,6 +295,33 @@ export class Publications {
         }
         return [...records,...media];
     }
+    /** Reuse the current public gate inside the caller's policy-fenced transaction. */
+    async discoveryMetadata(c: PoolClient, ids: string[]) {
+        const items: Array<{publicationId:string;title:string;revisionSha256:string;publishedAt:string}> = [];
+        for (const id of ids) {
+            uuid(id);
+            const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1",[id])).rows[0] as PublicationRow|undefined;
+            if (!row || row.status!=="published") continue;
+            try { await this.gate(c,row); }
+            catch(error) { if(error instanceof ApiError && error.code==="PUBLICATION_UNAVAILABLE")continue;throw error; }
+            items.push({publicationId:id,title:row.snapshot.title,revisionSha256:row.revision_sha256,publishedAt:new Date(row.published_at).toISOString()});
+        }
+        return items;
+    }
+    /** Format conversion is a fresh export grant, not a consequence of display access. */
+    async xrExport(id:string, assetId:string) {
+        uuid(id);uuid(assetId);
+        return transaction(this.pool,async c=>{
+            await c.query('SELECT pg_advisory_xact_lock_shared(82003)');
+            await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+            const row=(await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1",[id])).rows[0] as PublicationRow|undefined;
+            if(!row||row.status!=='published')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            const assets=await this.gate(c,row);if(!assets.some(a=>a.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            const rights=(await c.query('SELECT a.metadata AS artwork,r.metadata AS asset FROM publication_assets pa JOIN artworks a ON (a.tenant_id,a.id)=(pa.tenant_id,pa.artwork_id) JOIN assets x ON (x.tenant_id,x.id)=(pa.tenant_id,pa.source_asset_id) JOIN rights r ON (r.tenant_id,r.id)=(x.tenant_id,x.rights_id) WHERE pa.publication_id=$1 AND pa.id=$2',[id,assetId])).rows[0];
+            if(!rights||!allowedRights(rights.artwork?.rights,'export')||!allowedRights(rights.asset,'export'))throw new ApiError(403,'RIGHTS_DENIED');
+            return {authorized:true,publicationId:id,assetId,revisionSha256:row.revision_sha256};
+        });
+    }
     async anonymous(id: string, assetId?: string) {
         uuid(id);
         if (assetId)

@@ -1,3 +1,6 @@
+import { Federation, type FederationConfig } from './federation.ts';
+import { transaction } from '@exhibitos/storage';
+import { Institution, type InstitutionPrincipal } from './institution.ts';
 import { authorizeProcessingInput } from './processing-authorization.ts';
 import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import { Publications } from './publication.ts';
@@ -15,7 +18,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig) {
  const settings=config(input), auth=new Auth(pool);
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
@@ -56,6 +59,29 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ const institution=new Institution(pool),ip=`${prefix}/institution`;
+ const institutionCall=(work:(c:PoolClient,p:InstitutionPrincipal,req:FastifyRequest)=>Promise<unknown>)=>async(req:FastifyRequest,reply:FastifyReply)=>{
+  guarded(req,req.method!=='GET');reply.header('cache-control','no-store');
+  const tenant=(req.params as {tenantId:string}).tenantId;uuid(tenant);
+  if(req.headers.authorization!==undefined){
+   const header=req.headers.authorization;if(!/^Bearer eit_[A-Za-z0-9_-]{43}$/.test(header))throw new ApiError(401,'AUTH_REQUIRED');
+   return institution.request(header.slice(7),tenant,(c,p)=>work(c,p,req));
+  }
+  // Even a GET can persist a bounded page cursor. Retain maintenance/CSRF fences.
+  return auth.request(token(req),tenant,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,true,(c,p)=>work(c,p,req));
+ };
+ const collectionId=(req:FastifyRequest)=>(req.params as {collectionId:string}).collectionId;
+ const pageInput=(req:FastifyRequest)=>{const q=req.query as Record<string,unknown>;if(Object.keys(q).some(k=>!['cursor','filter','limit'].includes(k))||q.cursor!==undefined&&typeof q.cursor!=='string'||q.filter!==undefined&&typeof q.filter!=='string'||q.limit!==undefined&&(typeof q.limit!=='string'||!/^\d{1,3}$/.test(q.limit)))throw new ApiError(400,'INVALID_INPUT');return {...(q.cursor===undefined?{}:{cursor:q.cursor as string}),...(q.filter===undefined?{}:{filter:q.filter as string}),...(q.limit===undefined?{}:{limit:Number(q.limit)})};};
+ app.post(`${ip}/collections`,call(true,async(c,s,req,reply)=>{reply.code(201);return institution.create(c,s,req.body);}));
+ app.post(`${ip}/tokens`,call(true,async(c,s,req,reply)=>{reply.code(201);return institution.issue(c,s,req.body);}));
+ app.post(`${ip}/tokens/:id/revoke`,call(true,async(c,s,req)=>institution.revoke(c,s,(req.params as {id:string}).id)));
+ app.post(`${ip}/collections/:collectionId/import`,{bodyLimit:262144},institutionCall((c,p,r)=>institution.bulk(c,p,collectionId(r),r.body)));
+ app.get(`${ip}/collections/:collectionId/batches/:batchId`,institutionCall((c,p,r)=>institution.batch(c,p,collectionId(r),(r.params as {batchId:string}).batchId)));
+ app.post(`${ip}/collections/:collectionId/batches/:batchId/rollback`,{schema:{body:object({})}},institutionCall((c,p,r)=>institution.rollback(c,p,collectionId(r),(r.params as {batchId:string}).batchId)));
+ app.get(`${ip}/collections/:collectionId/inventory`,institutionCall((c,p,r)=>institution.page(c,p,collectionId(r),pageInput(r))));
+ app.get(`${ip}/collections/:collectionId/export`,institutionCall((c,p,r)=>institution.exportPage(c,p,collectionId(r),pageInput(r))));
+ app.get(`${ip}/collections/:collectionId/inventory/:inventoryId/history`,institutionCall((c,p,r)=>institution.history(c,p,collectionId(r),(r.params as {inventoryId:string}).inventoryId)));
+
  app.post(`${prefix}/artworks/:id/processing-authorization`,{bodyLimit:4096,schema:{body:object({datasetDigest:{...str,pattern:'^[a-f0-9]{64}$'},requestId:id,processingConsent:{type:'boolean',const:true}})}},call(true,async(c,s,req)=>authorizeProcessingInput(c,s,(req.params as {id:string}).id,req.body as {datasetDigest:string;requestId:string;processingConsent:true},settings.origin)));
  if(store){const integrity=new Integrities(store,{migrationDirectory:fileURLToPath(new URL('../../../database/migrations/',import.meta.url))});app.get(`${prefix}/integrity`,call(false,async(c,s)=>integrity.inspect(c,s)));}
 
@@ -128,7 +154,18 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
  app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));
  for(const action of ['unpublish','republish'] as const)app.post(`${prefix}/studio/publications/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>publications[action](c,s,(req.params as {id:string}).id)));
+ if(federationConfig){
+  const federation=new Federation(pool,federationConfig),rates=new Map<string,{count:number;until:number}>();
+  const rate=(req:FastifyRequest)=>{const now=Date.now();for(const [key,value] of rates)if(value.until<=now)rates.delete(key);const prior=rates.get(req.ip);if(prior&&prior.count>=60||!prior&&rates.size>=4096)throw new ApiError(429,'RATE_LIMITED');rates.set(req.ip,{count:(prior?.count??0)+1,until:prior?.until??now+60000});};
+  const admin=(s:Session)=>{if(s.role!=='admin')throw new ApiError(403,'FORBIDDEN');};
+  app.get('/api/v1/federation/discovery',async(req,reply)=>{rate(req);reply.header('cache-control','no-store');return transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return federation.discovery(c,async(c,ids)=>(await publications.discoveryMetadata(c,ids)).map(item=>({...item,url:new URL(`/p/${item.publicationId}`,federationConfig.origin).href})));});});
+  app.get('/api/v1/federation/directory',async(req,reply)=>{rate(req);reply.header('cache-control','no-store');return transaction(pool,c=>federation.directory(c));});
+  app.post(`${prefix}/federation/listings/:id`,{schema:{body:object({enabled:{type:'boolean'}})}},call(true,async(c,s,req)=>{admin(s);const id=(req.params as {id:string}).id;await publications.list(c,s,(await c.query('SELECT exhibition_id FROM studio_publications WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.exhibition_id??id);return federation.listing(c,id,(req.body as {enabled:boolean}).enabled);}));
+  app.post(`${prefix}/federation/peers`,{schema:{body:object({origin:str,publicKey:str,state:{enum:['trusted','blocked']}})}},call(true,async(c,s,req)=>{admin(s);const b=req.body as {origin:string;publicKey:string;state:'trusted'|'blocked'};return federation.peer(c,b.origin,b.publicKey,b.state);}));
+  app.post(`${prefix}/federation/sync`,{schema:{body:object({origin:str})}},call(true,async(_c,s,req)=>{admin(s);return federation.sync((req.body as {origin:string}).origin);}));
+ }
  app.get('/api/v1/publications/:id',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');return publications.anonymous((req.params as {id:string}).id);});
+ app.get('/api/v1/publications/:id/xr-export/:assetId',async(req,reply)=>{reply.header('cache-control','no-store');const p=req.params as {id:string;assetId:string};return publications.xrExport(p.id,p.assetId);});
  app.get('/api/v1/publications/:id/assets/:assetId',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;assetId:string};const result=await publications.anonymous(p.id,p.assetId) as {bytes:Buffer;mime:string;revisionSha256:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
  const cms=new Cms(store),cp=`${prefix}/cms`;
  app.get(`${prefix}/studio/artworks/:id`,call(false,async(c,s,req)=>cms.studioArtwork(c,s,cmsId(req))));
