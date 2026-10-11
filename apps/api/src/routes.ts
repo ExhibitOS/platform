@@ -1,3 +1,4 @@
+import { OperationalMetrics } from './operational-metrics.ts';
 import { Privacy } from './privacy.ts';
 import { Preservation } from './preservation.ts';
 import { Assistance } from './assistance.ts';
@@ -62,6 +63,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ const operationalMetrics=new OperationalMetrics(store);
+ app.get(`${prefix}/operations/metrics`,call(false,async(c,s,_req,reply)=>{reply.header('cache-control','no-store');return operationalMetrics.observe(c,s);}));
 
  const privacy=new Privacy(pool,store),privacyPrefix=`${prefix}/privacy`;
  app.get(`${privacyPrefix}/policy`,call(false,async(c,s)=>privacy.policy(c,s)));
