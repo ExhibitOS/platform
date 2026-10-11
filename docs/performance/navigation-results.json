@@ -1,9 +1,12 @@
 {
-  "source": "8aacb5093d8de80de6142d1e76e4f92958166bc5",
-  "browser": "153.0.8010.12",
+  "source": "680171048d74a1dd750cd172ab13bc8a2c0a481c",
+  "browser": "154.0.8037.93",
   "headed": false,
-  "filter": "^(?!browser pointer lock)",
-  "dirtySource": "M apps/web/src/GeometryPreview.tsx\n M apps/web/src/style.css\n M apps/web/src/viewer/navigation-mesh.ts\n M apps/web/src/viewer/navigation.test.ts\n M apps/web/src/viewer/navigation.ts\n M package.json\n?? apps/web/src/WalkingControls.tsx\n?? apps/web/src/viewer/navigation-camera.ts\n?? apps/web/src/viewer/navigation-input.test.ts\n?? apps/web/src/viewer/navigation-input.ts\n?? docs/performance/navigation-native-capture.json\n?? docs/performance/navigation-results.json\n?? scripts/navigation-browser.mjs\n?? scripts/navigation-fixture.mjs\n?? scripts/test-navigation.mjs",
+  "channel": "chrome",
+  "captureInputProvider": "Playwright CDP",
+  "nativeCaptureQualification": "Strict native acquisition check unless explicitly excluded by named filter; excluded checks are not passes.",
+  "filter": null,
+  "dirtySource": "",
   "fixture": {
     "start": [
       0,
@@ -64,6 +67,8 @@
     "actual room wall and rotated artwork collision prevent penetration at maximum speed",
     "real door cutout permits adjacent-room crossing; solid outer boundary retains grounded in-bounds camera",
     "lowering eye height cannot pass the raised narrow window",
+    "injected pointer-lock refusal keeps visible fallback and focused keyboard look usable",
+    "browser pointer lock is opt-in, changes actual yaw, and loss pauses without automatic resume",
     "window-blur and hidden lifecycle handler injections clear movement and require explicit resume",
     "stationary mode and quality replacement stop walking and dispose physics/input resources",
     "missing approved artwork bytes retain physical collision bounds and the keyboard/list alternative",
@@ -74,12 +79,14 @@
     {
       "key": "KeyW",
       "requestedMs": 1500,
-      "elapsedMs": 2049.6929170000003,
+      "elapsedMs": 2044.7122500000005,
       "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -9.132035927450488e-08,
-          1.6610000120839106,
-          3.0000003914138293
+          0,
+          1.6609999940395357,
+          3
         ],
         "yaw": 0,
         "velocity": [
@@ -88,7 +95,7 @@
           0
         ],
         "grounded": true,
-        "steps": 34,
+        "steps": 7,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -104,10 +111,12 @@
         }
       },
       "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -4.596898251563175e-05,
-          1.6609714715289885,
-          1.9712293518600532
+          0.00004722563950210201,
+          1.6600000427118504,
+          1.9946747404173948
         ],
         "yaw": 0,
         "velocity": [
@@ -116,7 +125,7 @@
           0
         ],
         "grounded": true,
-        "steps": 157,
+        "steps": 131,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -135,12 +144,14 @@
     {
       "key": "KeyW",
       "requestedMs": 1500,
-      "elapsedMs": 2065.6292090000006,
+      "elapsedMs": 2021.206083000001,
       "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -9.132035927450488e-08,
-          1.6599999969024213,
-          3.0000003914138293
+          0,
+          1.6609999940395357,
+          3
         ],
         "yaw": 0,
         "velocity": [
@@ -149,7 +160,7 @@
           0
         ],
         "grounded": true,
-        "steps": 169,
+        "steps": 139,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -165,10 +176,12 @@
         }
       },
       "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          2.603465344108713e-05,
-          1.6599999838056976,
-          1.1370648310511111
+          -0.00004319793081108969,
+          1.6608787721619012,
+          1.1769841999630444
         ],
         "yaw": 0,
         "velocity": [
@@ -177,7 +190,7 @@
           0
         ],
         "grounded": true,
-        "steps": 293,
+        "steps": 260,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -196,12 +209,14 @@
     {
       "key": "KeyW",
       "requestedMs": 1500,
-      "elapsedMs": 2035.7413749999996,
+      "elapsedMs": 2011.6709159999991,
       "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -9.132035927450488e-08,
-          1.6610000120839106,
-          3.0000003914138293
+          0,
+          1.6609999940395357,
+          3
         ],
         "yaw": 0,
         "velocity": [
@@ -210,7 +225,7 @@
           0
         ],
         "grounded": true,
-        "steps": 306,
+        "steps": 268,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -226,10 +241,12 @@
         }
       },
       "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -0.0001885534559127322,
-          1.6610000151689166,
-          0.7619471476240864
+          -0.00015204181567796127,
+          1.6609999821069652,
+          0.8111534731579013
         ],
         "yaw": 0,
         "velocity": [
@@ -238,7 +255,7 @@
           0
         ],
         "grounded": true,
-        "steps": 428,
+        "steps": 389,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -257,12 +274,14 @@
     {
       "key": "KeyA",
       "requestedMs": 4000,
-      "elapsedMs": 4533.920124999997,
+      "elapsedMs": 4517.730834000002,
       "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -9.132035927450488e-08,
-          1.6610000120839106,
-          3.0000003914138293
+          0,
+          1.6609999940395357,
+          3
         ],
         "yaw": 0,
         "velocity": [
@@ -271,7 +290,7 @@
           0
         ],
         "grounded": true,
-        "steps": 2349,
+        "steps": 2295,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -287,10 +306,12 @@
         }
       },
       "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -3.729571954021953,
-          1.661000025832742,
-          2.99973698865185
+          -3.729341388330795,
+          1.6610012649255952,
+          2.998982147981156
         ],
         "yaw": 0,
         "velocity": [
@@ -299,7 +320,7 @@
           0
         ],
         "grounded": true,
-        "steps": 2621,
+        "steps": 2566,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -318,19 +339,21 @@
     {
       "rotatedArtworkTrajectory": [
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0080674103224503,
-            1.6612452798420565,
-            2.967549923330486
+            -1.9783094435771034,
+            1.6611399570377545,
+            2.9798575334423916
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -0.39
+            -0.30333333333333334
           ],
           "grounded": true,
-          "steps": 2755,
+          "steps": 2693,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -344,22 +367,24 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 2.2604575381932905
+          "clearance": 2.272854254482113
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0080677855629574,
-            1.6599999786834234,
-            2.8895498295202255
+            -1.978309652434774,
+            1.6598401820650326,
+            2.934357501304312
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -0.7366666666666667
+            -0.5633333333333334
           ],
           "grounded": true,
-          "steps": 2763,
+          "steps": 2699,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -373,22 +398,24 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 2.1824579602787053
+          "clearance": 2.2273563346358847
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.008068375753041,
-            1.6609999488121832,
-            2.765327970951736
+            -1.978308147815385,
+            1.6617278061588296,
+            2.8484133386226134
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -1.0833333333333335
+            -0.8666666666666667
           ],
           "grounded": true,
-          "steps": 2771,
+          "steps": 2706,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -402,13 +429,46 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 2.0582370040123465
+          "clearance": 2.141416425959672
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0080804083523844,
-            1.6615774509394543,
-            2.61537481610471
+            -1.9783055250772517,
+            1.661117328693159,
+            2.727080384007259
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.1700000000000004
+          ],
+          "grounded": true,
+          "steps": 2713,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 2.0200900985685415
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.9783061974326674,
+            1.6613344689379448,
+            2.5949141641320423
           ],
           "yaw": 0,
           "velocity": [
@@ -417,7 +477,7 @@
             -1.430000000000001
           ],
           "grounded": true,
-          "steps": 2779,
+          "steps": 2719,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -431,13 +491,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.9082851427628857
+          "clearance": 1.8879320263646542
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.008080074550385,
-            1.660999977159314,
-            2.432875204354465
+            -1.9782733062706885,
+            1.6604583601714114,
+            2.4123663359494643
           ],
           "yaw": 0,
           "velocity": [
@@ -446,7 +508,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2786,
+          "steps": 2726,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -460,13 +522,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.725787338581501
+          "clearance": 1.705397958932351
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.008097890641139,
-            1.661346701219678,
-            2.2462434205114246
+            -1.9782734222923057,
+            1.6610000121421182,
+            2.2523668200881914
           ],
           "yaw": 0,
           "velocity": [
@@ -475,7 +539,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2793,
+          "steps": 2732,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -489,13 +553,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.5391579419751287
+          "clearance": 1.5454127707525906
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0080978484773198,
-            1.6612290220349097,
-            2.0659869457482696
+            -1.9782748699835828,
+            1.660999983678572,
+            2.092365771269961
           ],
           "yaw": 0,
           "velocity": [
@@ -504,7 +570,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2800,
+          "steps": 2738,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -518,13 +584,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.3589042927260386
+          "clearance": 1.3854293381046716
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.008020334561576,
-            1.6614820107482375,
-            1.8936901441662908
+            -1.9780623798419716,
+            1.660000004003756,
+            1.9059140958996252
           ],
           "yaw": 0,
           "velocity": [
@@ -533,7 +601,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2808,
+          "steps": 2745,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -547,13 +615,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.1866104681262495
+          "clearance": 1.1990080220698185
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.008020538033648,
-            1.6599768796716818,
-            1.707023920014441
+            -1.978120680624115,
+            1.6610723037286663,
+            1.7459650707604126
           ],
           "yaw": 0,
           "velocity": [
@@ -562,7 +632,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2815,
+          "steps": 2751,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -576,13 +646,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.9999493054910885
+          "clearance": 1.0390886634126508
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0080188956020777,
-            1.6611155980047771,
-            1.5203759460597635
+            -1.978120680624115,
+            1.6609935271684082,
+            1.5859654394151406
           ],
           "yaw": 0,
           "velocity": [
@@ -591,7 +663,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2822,
+          "steps": 2757,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -605,13 +677,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.8133086973715794
+          "clearance": 0.8791309605284727
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0079857127684875,
-            1.6611855585491286,
-            1.3336651301830411
+            -1.9780490661567702,
+            1.6611803660619773,
+            1.399233126750751
           ],
           "yaw": 0,
           "velocity": [
@@ -620,7 +694,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2829,
+          "steps": 2764,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -634,13 +708,325 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.6266092373286821
+          "clearance": 0.69247434733761
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0079853082170196,
-            1.659978789348621,
-            1.1203309646695256
+            -1.9780494421379817,
+            1.6609837693962037,
+            1.239233346393867
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2770,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.5325791099825391
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.9780497799721122,
+            1.6614309425334215,
+            1.0525669732304053
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2777,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.3461568379308025
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.9683643559320405,
+            1.6600377435882694,
+            0.966196014807629
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2784,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610134957314544
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.9442532307794824,
+            1.6600129996353064,
+            0.9621181493274165
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2790,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26103352305710364
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.8946074134065345,
+            1.6600386480571034,
+            0.9460347598067713
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2797,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26114014681087877
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.8263557551755145,
+            1.659978007796177,
+            0.90267260331877
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2803,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2615307143471259
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.747706700894101,
+            1.6611620714905586,
+            0.8226035568512273
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2809,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26006685592338374
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.6593819305627182,
+            1.6608302473326477,
+            0.7356482786706877
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2816,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26103523311002663
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.5663514433755115,
+            1.6599786939089756,
+            0.6419473174608541
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2823,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2605611363820177
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.4860657638265327,
+            1.6609998538709407,
+            0.5618310495918379
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2830,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26068092852973157
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.3991176628834143,
+            1.6609619988315318,
+            0.47539634580591184
           ],
           "yaw": 0,
           "velocity": [
@@ -651,6 +1037,192 @@
           "grounded": true,
           "steps": 2837,
           "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610439551410241
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.325192039213194,
+            1.6599794182632979,
+            0.4015683461619304
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2843,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2611129857519844
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.2319296145206824,
+            1.661623945190364,
+            0.30814566134342414
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2850,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2609996647301397
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.138506003967537,
+            1.6614960679069883,
+            0.21486659671047192
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2857,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2611018741305011
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.0655084600067273,
+            1.6601582773690426,
+            0.1296529858080433
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2863,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2617512660266102
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.0313936012270535,
+            1.6610000136823475,
+            -0.029597645189078037
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2870,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26316928125936645
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -1.0313934549222044,
+            1.6609619054177858,
+            -0.2162640407042815
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 2877,
+          "paused": false,
           "blocked": false,
           "recovered": false,
           "walking": true,
@@ -663,13 +1235,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.41330133191473606
+          "clearance": 0.3393409226971037
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0092756522167043,
-            1.6612113167196514,
-            0.9679391513815485
+            -1.031393794558456,
+            1.6614267089570023,
+            -0.38909089149108667
           ],
           "yaw": 0,
           "velocity": [
@@ -678,9 +1252,9 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2845,
+          "steps": 2884,
           "paused": false,
-          "blocked": true,
+          "blocked": false,
           "recovered": false,
           "walking": true,
           "pitch": -5.551115123125783e-17,
@@ -692,158 +1266,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26099724723756634
+          "clearance": 0.46003682403835255
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0173566028056236,
-            1.6599738364769439,
-            0.9674143075714223
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2853,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2608855303644963
-        },
-        {
-          "eyePosition": [
-            -2.0333132458431216,
-            1.6609598434791553,
-            0.9659829846238122
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2860,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2610108447070664
-        },
-        {
-          "eyePosition": [
-            -2.0662349423905404,
-            1.6600133309132945,
-            0.9595263488478363
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2867,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2609649511558787
-        },
-        {
-          "eyePosition": [
-            -2.1325276604434045,
-            1.661550098813983,
-            0.9323209430910051
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2875,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.26131398643189685
-        },
-        {
-          "eyePosition": [
-            -2.219671011767307,
-            1.6615195946818277,
-            0.8566456376462579
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2882,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2610708015043157
-        },
-        {
-          "eyePosition": [
-            -2.3129152449359687,
-            1.6613543968290616,
-            0.763428301451901
+            -1.0313893117134274,
+            1.6614694210400887,
+            -0.5491010244297101
           ],
           "yaw": 0,
           "velocity": [
@@ -854,7 +1285,7 @@
           "grounded": true,
           "steps": 2890,
           "paused": false,
-          "blocked": true,
+          "blocked": false,
           "recovered": false,
           "walking": true,
           "pitch": -5.551115123125783e-17,
@@ -866,13 +1297,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26108982053723995
+          "clearance": 0.5731842439479329
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.406133882566312,
-            1.6599525908771613,
-            0.6700934133438263
+            -1.0313884368544688,
+            1.6619015709546476,
+            -0.7357669170307233
           ],
           "yaw": 0,
           "velocity": [
@@ -883,7 +1316,7 @@
           "grounded": true,
           "steps": 2897,
           "paused": false,
-          "blocked": true,
+          "blocked": false,
           "recovered": false,
           "walking": true,
           "pitch": -5.551115123125783e-17,
@@ -895,13 +1328,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26100761903612
+          "clearance": 0.7051775810410512
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.5128261082386167,
-            1.6600576770818736,
-            0.5633903982994948
+            -1.0313889575186366,
+            1.6599497090026818,
+            -0.9224336422341182
           ],
           "yaw": 0,
           "velocity": [
@@ -910,152 +1345,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2905,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2609999897979951
-        },
-        {
-          "eyePosition": [
-            -2.618119165166238,
-            1.6599999882294798,
-            0.4581332885606084
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2913,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2610254082989142
-        },
-        {
-          "eyePosition": [
-            -2.711470547928432,
-            1.65997322912002,
-            0.36479335640946964
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2920,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2610335051036399
-        },
-        {
-          "eyePosition": [
-            -2.8179001080384047,
-            1.6600574979423401,
-            0.2583314691616092
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2928,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2610106463652232
-        },
-        {
-          "eyePosition": [
-            -2.8939210137864144,
-            1.6608843363877315,
-            0.18088150480220655
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2935,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.2600339906269715
-        },
-        {
-          "eyePosition": [
-            -2.9674672991070743,
-            1.6611697975470963,
-            -0.001974269846281018
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2944,
+          "steps": 2904,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1069,13 +1359,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26036800309037766
+          "clearance": 0.837170520089094
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.9674544793057542,
-            1.6609492910368646,
-            -0.1886321456225719
+            -1.0313766991512985,
+            1.661735833837007,
+            -1.0824459097640826
           ],
           "yaw": 0,
           "velocity": [
@@ -1084,7 +1376,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2951,
+          "steps": 2910,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1098,13 +1390,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.3215011823899639
+          "clearance": 0.9503249475072388
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.9674596629224474,
-            1.6610857123317475,
-            -0.4286283646764364
+            -1.0313766539050278,
+            1.659939435466946,
+            -1.2691129218148305
           ],
           "yaw": 0,
           "velocity": [
@@ -1113,7 +1407,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 2960,
+          "steps": 2917,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1127,219 +1421,18 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.4871833114485228
-        },
-        {
-          "eyePosition": [
-            -2.9674582161491045,
-            1.6613108196337054,
-            -0.6419613138826694
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2968,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.6380314634595339
-        },
-        {
-          "eyePosition": [
-            -2.967456065501814,
-            1.6609999759978893,
-            -0.9619440772624817
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2980,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.8642919245709264
-        },
-        {
-          "eyePosition": [
-            -2.967456647741738,
-            1.6611541287432703,
-            -1.2819441744180526
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 2992,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.0905665749557831
-        },
-        {
-          "eyePosition": [
-            -2.967457724205204,
-            1.6599841598811838,
-            -1.6019020081551876
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 3004,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.3168116900596858
-        },
-        {
-          "eyePosition": [
-            -2.9674490849580337,
-            1.6599841381697262,
-            -1.9034284177290406
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 3016,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.5385523033182347
-        },
-        {
-          "eyePosition": [
-            -2.9674475311124837,
-            1.6612645706203113,
-            -2.223436768265268
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 3028,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.7986693290234848
-        },
-        {
-          "eyePosition": [
-            -2.9674545768365235,
-            1.661000021865526,
-            -2.5278846762197222
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 3040,
-          "paused": false,
-          "blocked": true,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 2.0618439565794926
+          "clearance": 1.0823184895460984
         }
       ]
     },
     {
       "doorCrossing": {
+        "floorSurfaceId": "20aa6d61-f7a8-43bc-b3f0-a75eb06be439",
+        "roomId": "cdd29221-6c0a-42c8-932e-385f31203f86",
         "eyePosition": [
-          0.00031742157440950436,
-          1.6599925600588323,
-          -4.698383542741743
+          -0.0002768046071817132,
+          1.6610000109488612,
+          -5.8922101788339205
         ],
         "yaw": 0,
         "velocity": [
@@ -1348,7 +1441,7 @@
           -1.6
         ],
         "grounded": true,
-        "steps": 3403,
+        "steps": 3312,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -1364,10 +1457,12 @@
         }
       },
       "boundary": {
+        "floorSurfaceId": "20aa6d61-f7a8-43bc-b3f0-a75eb06be439",
+        "roomId": "cdd29221-6c0a-42c8-932e-385f31203f86",
         "eyePosition": [
-          -9.220307820623219e-05,
-          1.660943172232088,
-          -11.729616479061455
+          0.000310526535545641,
+          1.6608995928488286,
+          -11.729440652881749
         ],
         "yaw": 0,
         "velocity": [
@@ -1376,7 +1471,7 @@
           0
         ],
         "grounded": true,
-        "steps": 3762,
+        "steps": 3609,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -1395,12 +1490,14 @@
     {
       "key": "KeyW",
       "requestedMs": 6500,
-      "elapsedMs": 7146.674707999991,
+      "elapsedMs": 7019.914833000003,
       "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          2.129081314532188,
-          1.210000292539131,
-          3.000027864775465
+          1.9822122165351175,
+          1.209986037017312,
+          2.9999912228342227
         ],
         "yaw": 0,
         "velocity": [
@@ -1409,7 +1506,7 @@
           0
         ],
         "grounded": true,
-        "steps": 3890,
+        "steps": 3728,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -1425,10 +1522,12 @@
         }
       },
       "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          2.128608817894769,
-          1.2098982634694369,
-          -3.729666449596671
+          1.9814723794031073,
+          1.2108931955000446,
+          -3.729667317187551
         ],
         "yaw": 0,
         "velocity": [
@@ -1437,7 +1536,7 @@
           0
         ],
         "grounded": true,
-        "steps": 4319,
+        "steps": 4149,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -1454,21 +1553,283 @@
       }
     },
     {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 662.1218749999971,
+      "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4150,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.17988000000001048,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4190,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.17988000000001048,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 659.6600419999886,
+      "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.17988000000001048,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4192,
+        "paused": true,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.17988000000001048,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.36,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4231,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.36,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 659.7771249999932,
+      "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": 0,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4234,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": 0,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.17999999999999997,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4274,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.17999999999999997,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
+      "key": "ArrowRight",
+      "requestedMs": 150,
+      "elapsedMs": 669.8260829999927,
+      "from": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.17999999999999997,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4277,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.17999999999999997,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      },
+      "to": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+        "eyePosition": [
+          0,
+          1.6609999940395357,
+          3
+        ],
+        "yaw": -0.359879999999993,
+        "velocity": [
+          0,
+          0,
+          0
+        ],
+        "grounded": true,
+        "steps": 4317,
+        "paused": false,
+        "blocked": false,
+        "recovered": false,
+        "walking": true,
+        "pitch": -5.551115123125783e-17,
+        "targetYaw": -0.359879999999993,
+        "targetPitch": -5.551115123125783e-17,
+        "lookTransition": "immediate",
+        "settings": {
+          "speed": 1.6,
+          "eyeHeight": 1.65,
+          "reducedMotion": true
+        }
+      }
+    },
+    {
       "rotatedArtworkTrajectory": [
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0328241585007873,
-            1.6600000101446641,
-            2.979778215040068
+            -2.0121520975850764,
+            1.660000019603409,
+            2.9864162603130255
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -0.30333333333333334
+            -0.26
           ],
           "grounded": true,
-          "steps": 131,
+          "steps": 123,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1482,22 +1843,24 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 2.272908460900945
+          "clearance": 2.2793418732413824
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0328249219256485,
-            1.660839014321333,
-            2.924167762727092
+            -2.0121527445699865,
+            1.659988543439191,
+            2.93586112379261
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -0.6066666666666667
+            -0.5633333333333334
           ],
           "grounded": true,
-          "steps": 138,
+          "steps": 130,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1511,22 +1874,24 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 2.2173039645860344
+          "clearance": 2.228787475037933
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0328251815779925,
-            1.6609860678275583,
-            2.833167216957162
+            -2.0121530809399992,
+            1.6599872827194633,
+            2.8536529895586584
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -0.91
+            -0.8666666666666667
           ],
           "grounded": true,
-          "steps": 145,
+          "steps": 137,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1540,22 +1905,24 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 2.1263138218745516
+          "clearance": 2.1465806115897488
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0328207152539495,
-            1.6598341597549153,
-            2.706778451085637
+            -2.0121536511382487,
+            1.6599999914309012,
+            2.751820125683925
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -1.2133333333333338
+            -1.126666666666667
           ],
           "grounded": true,
-          "steps": 152,
+          "steps": 143,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1569,22 +1936,24 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.9999409958163252
+          "clearance": 2.0447494644580892
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0328257462874024,
-            1.66100002864399,
-            2.5450010553305846
+            -2.0121539532776165,
+            1.660999963422306,
+            2.6001538569776033
           ],
           "yaw": 0,
           "velocity": [
             0,
             0,
-            -1.516666666666668
+            -1.430000000000001
           ],
           "grounded": true,
-          "steps": 159,
+          "steps": 150,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1598,42 +1967,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.8381873932085278
+          "clearance": 1.8930860914763865
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0328708833683766,
-            1.6599791472966319,
-            2.3590114835953218
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 166,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.652231715230536
-        },
-        {
-          "eyePosition": [
-            -2.032876695999165,
-            1.6609754160002341,
-            2.1723451756244403
+            -2.012157048133796,
+            1.6599796419744381,
+            2.4177256962952827
           ],
           "yaw": 0,
           "velocity": [
@@ -1642,7 +1984,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 173,
+          "steps": 157,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1656,13 +1998,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.4656071880537282
+          "clearance": 1.7106621134949804
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.032908748317092,
-            1.6611048009202352,
-            1.9591525897687179
+            -2.012157255927038,
+            1.6614368109279314,
+            2.284433259695551
           ],
           "yaw": 0,
           "velocity": [
@@ -1671,7 +2015,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 181,
+          "steps": 163,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1685,13 +2029,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.2524782203711087
+          "clearance": 1.5773733288848555
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0329258891987694,
-            1.6611173465338072,
-            1.7725063033705455
+            -2.012157357795556,
+            1.6599761343807915,
+            2.0977663631288026
           ],
           "yaw": 0,
           "velocity": [
@@ -1700,7 +2046,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 188,
+          "steps": 170,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1714,13 +2060,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 1.0659081836862971
+          "clearance": 1.3907127216633839
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.032926208933887,
-            1.6609790440255312,
-            1.5858400494163734
+            -2.0125056260542324,
+            1.6610768617959695,
+            1.9382377668020938
           ],
           "yaw": 0,
           "velocity": [
@@ -1729,7 +2077,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 195,
+          "steps": 176,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1743,13 +2091,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.8793499257568793
+          "clearance": 1.231194499023495
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.032925797372613,
-            1.660987299210625,
-            1.3991735495930415
+            -2.0125344609975544,
+            1.6611898701651955,
+            1.7605816694644902
           ],
           "yaw": 0,
           "velocity": [
@@ -1758,7 +2108,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 202,
+          "steps": 183,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -1772,13 +2122,108 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.6928495652486406
+          "clearance": 1.0535494544371058
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.032926213077147,
-            1.660999915371882,
-            1.222844512418459
+            -2.0125419309340247,
+            1.6610666008330883,
+            1.5899211476294015
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 190,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.8829034520430031
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -2.012495456703282,
+            1.6611673599821517,
+            1.4298655978141044
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 196,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.7228668227627342
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -2.012482039624964,
+            1.6599999337471092,
+            1.2589475922954891
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 203,
+          "paused": false,
+          "blocked": false,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.5519819581458926
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -2.0124715712810834,
+            1.6599780413801783,
+            1.0989330225361202
           ],
           "yaw": 0,
           "velocity": [
@@ -1801,13 +2246,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.5167877155310885
+          "clearance": 0.3920246720556665
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.032925617930644,
-            1.6609490515387153,
-            1.0361782007222873
+            -2.0151662620065727,
+            1.6599999841549435,
+            0.9676698621565167
           ],
           "yaw": 0,
           "velocity": [
@@ -1818,7 +2265,7 @@
           "grounded": true,
           "steps": 216,
           "paused": false,
-          "blocked": false,
+          "blocked": true,
           "recovered": false,
           "walking": true,
           "pitch": -5.551115123125783e-17,
@@ -1830,13 +2277,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.3307145226194061
+          "clearance": 0.2610040893699077
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.0506132185023063,
-            1.6600282361035499,
-            0.9631253318349708
+            -2.0284483700107776,
+            1.6609427511269461,
+            0.9665661391422775
           ],
           "yaw": 0,
           "velocity": [
@@ -1859,13 +2308,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.2609735545285796
+          "clearance": 0.26101430647968277
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.104807512884193,
-            1.660999232676055,
-            0.9463330908167054
+            -2.0478243096314364,
+            1.6615299813259627,
+            0.9637124322267043
           ],
           "yaw": 0,
           "velocity": [
@@ -1874,7 +2325,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 231,
+          "steps": 229,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -1888,13 +2339,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.2611777976326366
+          "clearance": 0.2610241842003654
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.179379883737468,
-            1.6599749473228587,
-            0.8971168818372179
+            -2.091106438967585,
+            1.6599710331509743,
+            0.95171515193356
           ],
           "yaw": 0,
           "velocity": [
@@ -1903,7 +2356,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 238,
+          "steps": 236,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -1917,13 +2370,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26130629735799615
+          "clearance": 0.26102421010485255
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.281461386525237,
-            1.6599360486601074,
-            0.7947660349729349
+            -2.1651057302534573,
+            1.661673823028501,
+            0.9100109398510101
           ],
           "yaw": 0,
           "velocity": [
@@ -1932,7 +2387,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 246,
+          "steps": 243,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -1946,13 +2401,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26100770784027005
+          "clearance": 0.2615912838109497
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.3721756912331813,
-            1.6613473048440357,
-            0.7040616805153777
+            -2.242396790492534,
+            1.660872044266249,
+            0.8339640259887817
           ],
           "yaw": 0,
           "velocity": [
@@ -1961,7 +2418,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 253,
+          "steps": 249,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -1975,13 +2432,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.2610147437297933
+          "clearance": 0.26110203233742735
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.473955022686326,
-            1.6599483894736624,
-            0.6023329338478733
+            -2.320230775471031,
+            1.6610880572214557,
+            0.7561016123886946
           ],
           "yaw": 0,
           "velocity": [
@@ -1990,7 +2449,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 261,
+          "steps": 255,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -2004,13 +2463,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26105051257474443
+          "clearance": 0.2610819302663212
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.593929852874183,
-            1.6614742595869176,
-            0.482339185704558
+            -2.411699354606866,
+            1.6599848013418852,
+            0.6645223017927053
           ],
           "yaw": 0,
           "velocity": [
@@ -2019,7 +2480,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 270,
+          "steps": 262,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -2033,13 +2494,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26103713556015373
+          "clearance": 0.2610036312999555
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.711603915834033,
-            1.6609679914129958,
-            0.3646216569888283
+            -2.4916655849248164,
+            1.6615235060024462,
+            0.5845729293446782
           ],
           "yaw": 0,
           "velocity": [
@@ -2048,7 +2511,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 279,
+          "steps": 268,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -2062,13 +2525,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.2610064006294217
+          "clearance": 0.2610155516140945
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.871689733633005,
-            1.6608770119003895,
-            0.20452681094881786
+            -2.5832052090719335,
+            1.661373434709127,
+            0.49303127957096127
           ],
           "yaw": 0,
           "velocity": [
@@ -2077,7 +2542,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 291,
+          "steps": 275,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -2091,13 +2556,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26100001669896133
+          "clearance": 0.2610141192797897
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.9655809831369453,
-            1.6609996007594747,
-            0.03769203815151645
+            -2.6715751895263784,
+            1.6599999825928864,
+            0.40436893553992537
           ],
           "yaw": 0,
           "velocity": [
@@ -2106,7 +2573,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 301,
+          "steps": 282,
           "paused": false,
           "blocked": true,
           "recovered": false,
@@ -2120,13 +2587,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.26120796851151085
+          "clearance": 0.2608073870122103
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.968077797723801,
-            1.6599843014103828,
-            -0.281783299711452
+            -2.747683808165788,
+            1.6615971866638903,
+            0.3285981392632964
           ],
           "yaw": 0,
           "velocity": [
@@ -2135,7 +2604,100 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 313,
+          "steps": 288,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.26104626349576887
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -2.840986730489134,
+            1.6609895840673163,
+            0.23524887991657284
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 295,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.2610134982723187
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -2.9290514010518782,
+            1.6609532608061601,
+            0.13840659932752875
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 302,
+          "paused": false,
+          "blocked": true,
+          "recovered": false,
+          "walking": true,
+          "pitch": -5.551115123125783e-17,
+          "targetYaw": 0,
+          "targetPitch": -5.551115123125783e-17,
+          "lookTransition": "immediate",
+          "settings": {
+            "speed": 1.6,
+            "eyeHeight": 1.65,
+            "reducedMotion": true
+          },
+          "clearance": 0.261564143231784
+        },
+        {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+          "eyePosition": [
+            -2.9674254451027187,
+            1.661258065127946,
+            -0.0046253125969526465
+          ],
+          "yaw": 0,
+          "velocity": [
+            0,
+            0,
+            -1.6
+          ],
+          "grounded": true,
+          "steps": 308,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -2149,13 +2711,15 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.3837852575377275
+          "clearance": 0.26035975168931164
         },
         {
+          "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+          "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
           "eyePosition": [
-            -2.9680827773635263,
-            1.6609672676844058,
-            -0.6017654223413329
+            -2.9674236003527357,
+            1.6599843296142682,
+            -0.19134167356828424
           ],
           "yaw": 0,
           "velocity": [
@@ -2164,7 +2728,7 @@
             -1.6
           ],
           "grounded": true,
-          "steps": 325,
+          "steps": 315,
           "paused": false,
           "blocked": false,
           "recovered": false,
@@ -2178,161 +2742,18 @@
             "eyeHeight": 1.65,
             "reducedMotion": true
           },
-          "clearance": 0.6100503074447996
-        },
-        {
-          "eyePosition": [
-            -2.9680833658544037,
-            1.6616013073783835,
-            -0.9217654598922591
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 337,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 0.8363249201028993
-        },
-        {
-          "eyePosition": [
-            -2.9680856716181045,
-            1.659984252283117,
-            -1.241732942131267
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 349,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.0625777269744368
-        },
-        {
-          "eyePosition": [
-            -2.9680856175080015,
-            1.6600000260935632,
-            -1.561743710380898
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 361,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.2888594729948468
-        },
-        {
-          "eyePosition": [
-            -2.968090352950863,
-            1.6599999636076392,
-            -1.8734596857846837
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 373,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.5157763784744225
-        },
-        {
-          "eyePosition": [
-            -2.968110382716414,
-            1.6599999569137582,
-            -2.1858620515138965
-          ],
-          "yaw": 0,
-          "velocity": [
-            0,
-            0,
-            -1.6
-          ],
-          "grounded": true,
-          "steps": 385,
-          "paused": false,
-          "blocked": false,
-          "recovered": false,
-          "walking": true,
-          "pitch": -5.551115123125783e-17,
-          "targetYaw": 0,
-          "targetPitch": -5.551115123125783e-17,
-          "lookTransition": "immediate",
-          "settings": {
-            "speed": 1.6,
-            "eyeHeight": 1.65,
-            "reducedMotion": true
-          },
-          "clearance": 1.7674713187614197
+          "clearance": 0.3230734937823185
         }
       ]
     },
     {
       "touchBefore": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -2.0457598282064282e-08,
-          1.6609971962301062,
-          2.9999999621672107
+          0,
+          1.6609999940395357,
+          3
         ],
         "yaw": 0,
         "velocity": [
@@ -2341,7 +2762,7 @@
           0
         ],
         "grounded": true,
-        "steps": 4,
+        "steps": 1,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -2357,10 +2778,12 @@
         }
       },
       "touchBoth": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -0.07686745133054274,
-          1.6617896256051028,
-          1.9777117995218365
+          -0.07677058689932892,
+          1.6616292284582743,
+          2.0614089650916867
         ],
         "yaw": 0.18,
         "velocity": [
@@ -2369,7 +2792,7 @@
           -1.278996800624558
         ],
         "grounded": true,
-        "steps": 68,
+        "steps": 63,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -2385,10 +2808,12 @@
         }
       },
       "touchReleased": {
+        "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+        "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
         "eyePosition": [
-          -0.12147789842302359,
-          1.6599677571924405,
-          1.7325615754799717
+          -0.1158367723610354,
+          1.6599999506855385,
+          1.8466360018937849
         ],
         "yaw": 0.18,
         "velocity": [
@@ -2397,7 +2822,7 @@
           0
         ],
         "grounded": true,
-        "steps": 100,
+        "steps": 94,
         "paused": false,
         "blocked": false,
         "recovered": false,
@@ -2415,24 +2840,26 @@
     }
   ],
   "screenshots": [
-    "/var/folders/x7/dfgr2r697vj8kb6bg3207nx40000gn/T/exhibitos-navigation-RobdrF/narrow-walking.png"
+    "/var/folders/x7/dfgr2r697vj8kb6bg3207nx40000gn/T/exhibitos-navigation-BBfYZz/narrow-walking.png"
   ],
   "limits": [
-    "Headless Chromium emulated input; physical mobile, GPU and RSS unverified.",
+    "Keyboard/touch checks use emulated input; physical mobile, GPU and RSS unverified. Native capture provider is recorded separately.",
     "Window blur and hidden lifecycle handler injections are labeled separately from actual canvas focus and pointer-lock transitions."
   ],
   "entrance": {
-    "ms": 897.5640000000003,
+    "ms": 2545.6057920000003,
     "requests": [
-      "http://127.0.0.1:58320/p/04daad99-53da-4481-9384-035d63b11b41",
-      "http://127.0.0.1:58320/assets/index-CTO3VC8h.js",
-      "http://127.0.0.1:58320/assets/index-BUObxlc9.css",
-      "http://127.0.0.1:58320/api/v1/publications/04daad99-53da-4481-9384-035d63b11b41",
-      "http://127.0.0.1:58320/assets/three.module-4gI5Z-_B.js",
-      "http://127.0.0.1:58320/assets/OrbitControls-Dh36RsEH.js",
-      "http://127.0.0.1:58320/api/v1/publications/04daad99-53da-4481-9384-035d63b11b41/assets/658dacf3-6c1f-4cbc-9bb7-883008cb5bab",
-      "http://127.0.0.1:58320/api/v1/publications/04daad99-53da-4481-9384-035d63b11b41/assets/a9065fb9-c11e-4cc4-8447-567449a2a96f",
-      "http://127.0.0.1:58320/assets/GLTFLoader-QPJIvrGm.js"
+      "http://127.0.0.1:50587/p/5218034a-1242-49c3-9b5c-40f431981417",
+      "http://127.0.0.1:50587/assets/index-CKmFie5v.js",
+      "http://127.0.0.1:50587/assets/three.module-DWrHJbR3.js",
+      "http://127.0.0.1:50587/assets/index-csVTw39F.css",
+      "http://127.0.0.1:50587/api/v1/publications/5218034a-1242-49c3-9b5c-40f431981417",
+      "http://127.0.0.1:50587/assets/Viewer-CBiBLFzi.js",
+      "http://127.0.0.1:50587/assets/Viewer-OEGtpA8j.css",
+      "http://127.0.0.1:50587/assets/OrbitControls-Dy1n2Myr.js",
+      "http://127.0.0.1:50587/api/v1/publications/5218034a-1242-49c3-9b5c-40f431981417/assets/f5075236-ccf8-4464-8a3e-9e114e6cf9ff",
+      "http://127.0.0.1:50587/api/v1/publications/5218034a-1242-49c3-9b5c-40f431981417/assets/beb08abf-e870-417c-b7e3-7ab4a7d31eab",
+      "http://127.0.0.1:50587/assets/GLTFLoader-Dq1Ym6R0.js"
     ],
     "physicsRequested": false
   },
@@ -2458,6 +2885,427 @@
       "crossRoomEdges": 36
     }
   },
+  "captureStatus": "걷기 중입니다. Esc 또는 일시 정지로 멈출 수 있습니다.",
+  "captureDebug": {
+    "request": "{\"isConnected\":true,\"ownerMatches\":true,\"activation\":true,\"focus\":true,\"active\":true}",
+    "connected": true,
+    "activation": true,
+    "focus": true,
+    "active": "CANVAS",
+    "locked": true,
+    "state": "{\"floorSurfaceId\":\"a40d2283-37fc-48c3-a5c3-acc676f90949\",\"roomId\":\"9960df81-4ed6-4a53-b4de-b0389c85522b\",\"eyePosition\":[0,1.6609999940395357,3],\"yaw\":0,\"velocity\":[0,0,0],\"grounded\":true,\"steps\":4327,\"paused\":false,\"blocked\":false,\"recovered\":false,\"walking\":true,\"pitch\":-5.551115123125783e-17,\"targetYaw\":0,\"targetPitch\":-5.551115123125783e-17,\"lookTransition\":\"immediate\",\"settings\":{\"speed\":1.6,\"eyeHeight\":1.65,\"reducedMotion\":true}}"
+  },
+  "nativeYawEvidence": {
+    "before": {
+      "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+      "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+      "eyePosition": [
+        0,
+        1.6609999940395357,
+        3
+      ],
+      "yaw": 0,
+      "velocity": [
+        0,
+        0,
+        0
+      ],
+      "grounded": true,
+      "steps": 4327,
+      "paused": false,
+      "blocked": false,
+      "recovered": false,
+      "walking": true,
+      "pitch": -5.551115123125783e-17,
+      "targetYaw": 0,
+      "targetPitch": -5.551115123125783e-17,
+      "lookTransition": "immediate",
+      "settings": {
+        "speed": 1.6,
+        "eyeHeight": 1.65,
+        "reducedMotion": true
+      }
+    },
+    "after": {
+      "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+      "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
+      "eyePosition": [
+        0,
+        1.6609999940395357,
+        3
+      ],
+      "yaw": -0.77,
+      "velocity": [
+        0,
+        0,
+        0
+      ],
+      "grounded": true,
+      "steps": 4329,
+      "paused": false,
+      "blocked": false,
+      "recovered": false,
+      "walking": true,
+      "pitch": 0.39799999999999996,
+      "targetYaw": -0.77,
+      "targetPitch": 0.39799999999999996,
+      "lookTransition": "immediate",
+      "settings": {
+        "speed": 1.6,
+        "eyeHeight": 1.65,
+        "reducedMotion": true
+      }
+    },
+    "inputProvider": "Playwright CDP"
+  },
+  "nativeEventWitness": [
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 1206.6000000238419
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 2553.2000000476837
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 3156.7000000476837
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 3257.800000011921
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 5390
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 5450
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 7622.900000035763
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 7684.800000011921
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 10484.800000011921
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 10636
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 10684.200000047684
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 42017.700000047684
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 42067.60000002384
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 42116.80000001192
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 42888
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 42933.80000001192
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 43202.40000003576
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 43250.10000002384
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 47936.5
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 47983.60000002384
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 54353.30000001192
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 54398.5
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 65454
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 65516
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 74531.90000003576
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 74580.20000004768
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 75317.70000004768
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 76017.60000002384
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 76048.10000002384
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 76782.40000003576
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 77516.90000003576
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 77547.5
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 77581
+    },
+    {
+      "type": "click",
+      "trusted": true,
+      "movementX": 0,
+      "movementY": 0,
+      "activation": true,
+      "locked": false,
+      "at": 77614.30000001192
+    },
+    {
+      "type": "pointerlockchange",
+      "trusted": true,
+      "activation": true,
+      "locked": true,
+      "at": 77630.30000001192
+    },
+    {
+      "type": "mousemove",
+      "trusted": true,
+      "movementX": 185,
+      "movementY": -199,
+      "activation": true,
+      "locked": true,
+      "at": 77777.80000001192
+    },
+    {
+      "type": "mousemove",
+      "trusted": true,
+      "movementX": 200,
+      "movementY": 0,
+      "activation": true,
+      "locked": true,
+      "at": 77794.80000001192
+    },
+    {
+      "type": "keydown",
+      "trusted": true,
+      "code": "Escape",
+      "activation": true,
+      "locked": true,
+      "at": 77801.30000001192
+    },
+    {
+      "type": "pointerlockchange",
+      "trusted": true,
+      "activation": true,
+      "locked": false,
+      "at": 77813.70000004768
+    }
+  ],
   "touchEvents": [
     {
       "type": "pointerdown",
@@ -2481,10 +3329,12 @@
     }
   ],
   "touchReleased": {
+    "floorSurfaceId": "a40d2283-37fc-48c3-a5c3-acc676f90949",
+    "roomId": "9960df81-4ed6-4a53-b4de-b0389c85522b",
     "eyePosition": [
-      -0.12147789842302359,
-      1.6599677571924405,
-      1.7325615754799717
+      -0.1158367723610354,
+      1.6599999506855385,
+      1.8466360018937849
     ],
     "yaw": 0.18,
     "velocity": [
@@ -2493,7 +3343,7 @@
       0
     ],
     "grounded": true,
-    "steps": 100,
+    "steps": 94,
     "paused": false,
     "blocked": false,
     "recovered": false,
@@ -2507,10 +3357,5 @@
       "eyeHeight": 1.65,
       "reducedMotion": true
     }
-  },
-  "qualification": "12 non-native browser groups passed; native acquisition explicitly excluded and UNQUALIFIED. Not task acceptance.",
-  "runtimeSourceNotes": [
-    "Run uses working source at recorded HEAD plus dirtySource; final candidate requires independent fresh checkout checks.",
-    "Later capture fallback status persistence change has separate targeted injected-refusal proof; it does not alter walking/collision."
-  ]
+  }
 }
