@@ -95,7 +95,7 @@ try {
     assert.equal(
       (await pool.query("SELECT count(*)::int AS n FROM schema_migrations"))
         .rows[0].n,
-      10,
+      14,
     );
   });
   const tenant = randomUUID(),
@@ -573,8 +573,8 @@ try {
     await new Promise(resolve => process.stdin.once("data", resolve));
     process.stdin.pause();
   }
-  console.log(JSON.stringify({ checks, result, scope: "Actual isolated PostgreSQL10migrations, approved synthetic WAV + GLB/PNG immutable publication and production Chromium" }, null, 2));
-  } else console.log(JSON.stringify({checks,curationResult,scope:"Actual isolated PostgreSQL10 migrations, production selected browser qualification and retained-blob DB restore; synthetic only"},null,2));
+  console.log(JSON.stringify({ checks, result, scope: "Actual isolated PostgreSQL14migrations, approved synthetic WAV + GLB/PNG immutable publication and production Chromium" }, null, 2));
+  } else console.log(JSON.stringify({checks,curationResult,scope:"Actual isolated PostgreSQL14 migrations, production selected browser qualification and retained-blob DB restore; synthetic only"},null,2));
 } finally {
   await app?.close(); await pool?.end(); if (started) run("rm", "-f", name);
 }

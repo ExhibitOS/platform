@@ -75,7 +75,7 @@ try {
     assert((await (await api("GET", "/studio")).text()).includes("<html")); assert((await (await api("GET", "/THIRD_PARTY_NOTICES.txt")).text()).includes("three.js authors"));
     const login = await api("POST", "/api/v1/auth/login", { subject: "synthetic-local-admin", password: adminPassword, tenantId }); cookie = login.headers.get("set-cookie").split(";")[0]; csrf = (await (await api("GET", "/api/v1/auth/session")).json()).csrfToken;
     authority = (await (await api("GET", "/api/v1/freeze/authority")).json()).authority;
-    const count = run([...compose, "exec", "--no-TTY", "database", "psql", "-U", "exhibitos", "-d", "exhibitos", "-At", "-c", "SELECT count(*) FROM schema_migrations"]); assert.equal(count, "10");
+    const count = run([...compose, "exec", "--no-TTY", "database", "psql", "-U", "exhibitos", "-d", "exhibitos", "-At", "-c", "SELECT count(*) FROM schema_migrations"]); assert.equal(count, "14");
   });
   await test("actual proxy auth rejects invalid CSRF Origin wrong Host and unauthenticated tenant metadata", async () => {
     await api("POST", `/api/v1/tenants/${tenantId}/cms/artists`, { name: "denied", bio: "synthetic" }, 403, { "x-csrf-token": "invalid" }); await api("POST", `/api/v1/tenants/${tenantId}/cms/artists`, { name: "denied", bio: "synthetic" }, 403, { origin: "http://attacker.invalid" }); assert.equal((await http(13200, "/api/v1/auth/session", { host: "attacker.invalid", cookie })).status, 403);
