@@ -346,11 +346,14 @@ export async function runGeometryBrowser() {
       const artificial=await candidate();assert.equal(artificial.lights.find(l=>l.type==='area').unit,'lumen');assert.equal(artificial.lights.find(l=>l.type==='area').dimensions.width,2);assert.equal(artificial.lights.find(l=>l.type==='directional').unit,'lux');assert.equal(template.openings.filter(o=>o.type==='window').length,1);
       await page.getByLabel("건축 유형",{exact:true}).selectOption('curve');await page.getByRole('button',{name:'건축 추가',exact:true}).click();await saved();
       assert.equal((await candidate()).surfaces.length,template.surfaces.length+4);
-      await page.getByLabel('자연광 hour',{exact:true}).fill('8');await saved();await render();
-      const solar=await page.locator('.geometry-preview canvas').getAttribute('data-daylight');assert.equal(JSON.parse(solar).hour,8);
-      const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Template JSON 저장',exact:true}).click();const download=await pending;const exported=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(exported.extensions['org.exhibitos.studio/template'].license,'CC0-1.0');
+      const daylightNamespace='org.exhibitos.studio/daylight',editedDaylight={...template.extensions[daylightNamespace],date:'2024-02-29',hour:8,latitude:-33.9,northDegrees:127.5};
+      await page.getByLabel('날짜',{exact:true}).fill(editedDaylight.date);await saved();
+      for(const key of ['hour','latitude','northDegrees']){await page.getByLabel(`자연광 ${key}`,{exact:true}).fill(String(editedDaylight[key]));await saved();}
+      assert.deepEqual((await candidate()).extensions[daylightNamespace],editedDaylight);await render();
+      const solar=JSON.parse(await page.locator('.geometry-preview canvas').getAttribute('data-daylight'));for(const key of Object.keys(editedDaylight))assert.deepEqual(solar[key],editedDaylight[key]);
+      const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Template JSON 저장',exact:true}).click();const download=await pending;const exported=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(exported.extensions['org.exhibitos.studio/template'].license,'CC0-1.0');assert.deepEqual(exported.extensions[daylightNamespace],editedDaylight);
       await page.getByLabel('Template JSON 가져오기',{exact:true}).setInputFiles({name:'template.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(exported))});await saved();
-      const imported=await candidate();assert.equal(imported.surfaces.length,exported.surfaces.length);assert.notEqual(imported.rooms[0].id,exported.rooms[0].id);assert.equal(imported.extensions['org.exhibitos.studio/daylight'].hour,8);
+      const imported=await candidate();assert.equal(imported.surfaces.length,exported.surfaces.length);assert.notEqual(imported.rooms[0].id,exported.rooms[0].id);assert.deepEqual(imported.extensions[daylightNamespace],editedDaylight);const windowGeometry=e=>e.openings.filter(o=>o.type==='window').map(o=>({dimensions:o.dimensions,offset:o.offset}));assert.deepEqual(windowGeometry(imported),windowGeometry(exported));
       await page.evaluate(()=>{const original=File.prototype.text;window.__templateReads=[];window.__originalTemplateText=original;File.prototype.text=function(){return new Promise(resolve=>{window.__templateReads.push(()=>original.call(this).then(resolve));});};});
       await page.getByLabel('Template JSON 가져오기',{exact:true}).setInputFiles({name:'deferred.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(exported))});
       await expect.poll(()=>page.evaluate(()=>window.__templateReads.length)).toBe(1);
