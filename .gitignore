@@ -74,3 +74,6 @@ Thumbs.db
 # Browser test reports
 playwright-report/
 test-results/
+
+# Regenerated pinned public Basis assets through npm run notices.
+/apps/web/public/basis/

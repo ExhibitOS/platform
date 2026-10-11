@@ -238,3 +238,5 @@ export * from "./realtime.js";
 export * from "./opening.js";
 
 export * from "./artifact-affine.js";
+
+export * from "./bounded-ktx2.js";

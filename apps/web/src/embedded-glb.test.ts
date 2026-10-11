@@ -1,5 +1,5 @@
 import {describe,it,expect,vi} from 'vitest';
-import {LoadingManager} from 'three';
+import {LoadingManager,Texture} from 'three';
 import {embeddedPNGManager} from './embedded-glb.js';
 function fixture(document: unknown,bin?: Uint8Array) {
  const text=new TextEncoder().encode(JSON.stringify(document)),n=Math.ceil(text.length/4)*4,b=bin??new Uint8Array(0),result=new ArrayBuffer(20+n+(bin?8+b.length:0)),view=new DataView(result),bytes=new Uint8Array(result);
@@ -18,4 +18,15 @@ it('scoped decoder ownership closes successful and late bitmaps, and rejects cac
  try{const m=new LoadingManager(),scope=embeddedPNGManager(m,imageFixture()),loader=m.getHandler('exhibitos-embedded-png-0')!;await new Promise((resolve,reject)=>loader.load('exhibitos-embedded-png-0',resolve,undefined,reject));scope.assertLoaded();expect(decode.mock.calls[0]?.[1]).toEqual({imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});scope.dispose();scope.dispose();expect(close).toHaveBeenCalledTimes(1);
  const lateManager=new LoadingManager(),late=embeddedPNGManager(lateManager,imageFixture());const ended=new Promise((resolve,reject)=>lateManager.getHandler('exhibitos-embedded-png-0')!.load('exhibitos-embedded-png-0',()=>reject(Error('LATE_SUCCESS')),undefined,resolve));late.dispose();await ended;expect(close).toHaveBeenCalledTimes(2);expect(()=>late.assertLoaded()).toThrow();
  }finally{vi.unstubAllGlobals();}
+});
+
+function basisFixture(){
+ const png=new Uint8Array(36),pv=new DataView(png.buffer);png.set([137,80,78,71,13,10,26,10]);pv.setUint32(8,13);png.set(new TextEncoder().encode('IHDR'),12);pv.setUint32(16,8);pv.setUint32(20,8);
+ const ktx=new Uint8Array(224),v=new DataView(ktx.buffer);ktx.set([171,75,84,88,32,50,48,187,13,10,26,10]);for(const [at,n] of [[16,1],[20,8],[24,8],[36,1],[40,1],[48,104],[52,44]])v.setUint32(at!,n!,true);v.setBigUint64(80,160n,true);v.setBigUint64(88,64n,true);v.setBigUint64(96,64n,true);ktx.set(Uint8Array.from('2c0000000000000002002800a601020003030000100000000000000000007f000000000000000000ffffffff'.match(/../g)!,x=>parseInt(x,16)),104);
+ const bin=new Uint8Array(260);bin.set(png);bin.set(ktx,36);return fixture({asset:{version:'2.0'},extensionsUsed:['KHR_texture_basisu'],buffers:[{byteLength:260}],bufferViews:[{buffer:0,byteLength:36},{buffer:0,byteOffset:36,byteLength:224}],images:[{bufferView:0,mimeType:'image/png'},{bufferView:1,mimeType:'image/ktx2'}],textures:[{source:0,extensions:{KHR_texture_basisu:{source:1}}}]},bin);
+}
+it('compressed decoder receives only owned bytes, refuses incomplete/failing textures and disposes late results; unsupported GPU chooses PNG',async()=>{
+ const m=new LoadingManager(),parse=vi.fn((_bytes:ArrayBuffer,onLoad:(t:Texture)=>void)=>onLoad(new Texture())),scope=embeddedPNGManager(m,basisFixture(),{parse});expect(()=>scope.assertLoaded()).toThrow();await new Promise((resolve,reject)=>scope.ktx2Loader!.load('exhibitos-embedded-ktx2-1',resolve,undefined,reject));scope.assertLoaded();expect(parse.mock.calls[0]![0].byteLength).toBe(224);scope.dispose();expect(()=>scope.assertLoaded()).toThrow();
+ let deliver:((t:Texture)=>void)|undefined;const late=embeddedPNGManager(new LoadingManager(),basisFixture(),{parse:(_b,cb)=>{deliver=cb;}}),failed=vi.fn();late.ktx2Loader!.load('exhibitos-embedded-ktx2-1',()=>{throw Error('LATE_SUCCESS');},undefined,failed);late.dispose();const texture=new Texture(),closed=vi.spyOn(texture,'dispose');deliver!(texture);expect(closed).toHaveBeenCalledOnce();expect(failed).toHaveBeenCalledOnce();
+ const close=vi.fn();vi.stubGlobal('createImageBitmap',async()=>({width:8,height:8,close}));try{const fallbackManager=new LoadingManager(),fallback=embeddedPNGManager(fallbackManager,basisFixture());expect(fallback.ktx2Loader).toBeUndefined();await new Promise((resolve,reject)=>fallbackManager.getHandler('exhibitos-embedded-png-0')!.load('exhibitos-embedded-png-0',resolve,undefined,reject));fallback.assertLoaded();fallback.dispose();expect(close).toHaveBeenCalledOnce();}finally{vi.unstubAllGlobals();}
 });
