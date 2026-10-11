@@ -1,3 +1,5 @@
+import { ViewerAnalytics } from './viewer/analytics';
+import { request, RequestError, type Session } from './cms-client';
 import {ViewerXr,type XrState} from './viewer/xr';
 import {XrControls} from './viewer/XrControls';
 import type {GeometryXrBridge,GeometryXrArtwork} from './GeometryPreview';
@@ -42,6 +44,49 @@ export function Viewer({
   guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
+  const analytics = useRef<ViewerAnalytics | null>(null);
+  const [analyticsConsent, setAnalyticsConsent] = useState(false);
+  const analyticsConsentRef = useRef(false);
+  useEffect(() => {
+    let sessionPromise: Promise<Session | null> | undefined;
+    const runtime = new ViewerAnalytics({
+      publicationId: publication.publication.id,
+      local: !!publication.local,
+      post: async payload => {
+        sessionPromise ??= request<Session>('/api/v1/auth/session', null).catch(error => {
+          if (error instanceof RequestError && error.status === 401) return null;
+          throw error;
+        });
+        const session = await sessionPromise;
+        // Recheck consent after resolving credentials; withdrawal cancels queued sends.
+        if (!analyticsConsentRef.current || analytics.current !== runtime) return;
+        await request('/api/v1/publications/' + publication.publication.id + '/analytics', session, 'POST', payload);
+      },
+    });
+    analytics.current = runtime;
+    runtime.visible(document.visibilityState === 'visible');
+    runtime.setConsent(analyticsConsentRef.current);
+    const visibility = () => {
+      if (document.visibilityState !== 'visible') runtime.flush();
+      runtime.visible(document.visibilityState === 'visible');
+    };
+    const clearSession = () => { sessionPromise = undefined; };
+    const storage = (event: StorageEvent) => { if (event.key === 'exhibitos-auth-change') clearSession(); };
+    window.addEventListener('exhibitos-auth-changed', clearSession);
+    window.addEventListener('storage', storage);
+    const timer = setInterval(() => runtime.flush(), 60000);
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      runtime.flush();
+      runtime.setConsent(false);
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('exhibitos-auth-changed', clearSession);
+      window.removeEventListener('storage', storage);
+      if (analytics.current === runtime) analytics.current = null;
+    };
+  }, [publication]);
+  useEffect(() => { if (!suspendNavigation) analytics.current?.artwork(null); }, [suspendNavigation]);
   const xr=useRef<ViewerXr|null>(null),xrBridge=useRef<GeometryXrBridge|null>(null);
   const xrSelection=useRef('');
   const xrExportCheck=useRef<(()=>Promise<boolean>)|null>(null);
@@ -103,7 +148,7 @@ export function Viewer({
     return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visibility);runtime.dispose();presenceScene.current?.clear();presence.current=null;};
   },[publication]);
   useEffect(()=>{if(suspendNavigation){presence.current?.leave();presenceScene.current?.clear();}},[suspendNavigation]);
-  const capturePresencePose=(position:[number,number,number],yaw:number)=>{const room=publication.exhibition.rooms.find(r=>{const p=position.map((v,i)=>v-r.transform.position[i]!),[x,y,z,w]=r.transform.rotation,tx=2*(-y*p[2]!+z*p[1]!),ty=2*(-z*p[0]!+x*p[2]!),tz=2*(-x*p[1]!+y*p[0]!),a=p[0]!+w*tx-y*tz+z*ty,b=p[1]!+w*ty-z*tx+x*tz,c=p[2]!+w*tz-x*ty+y*tx;return Math.abs(a)<=r.dimensions.width/2&&Math.abs(c)<=r.dimensions.depth/2&&b>=0&&b<=r.dimensions.height;});presencePose.current=room?{roomId:room.id,position:[...position],yaw}:null;};
+  const capturePresencePose=(position:[number,number,number],yaw:number)=>{const room=publication.exhibition.rooms.find(r=>{const p=position.map((v,i)=>v-r.transform.position[i]!),[x,y,z,w]=r.transform.rotation,tx=2*(-y*p[2]!+z*p[1]!),ty=2*(-z*p[0]!+x*p[2]!),tz=2*(-x*p[1]!+y*p[0]!),a=p[0]!+w*tx-y*tz+z*ty,b=p[1]!+w*ty-z*tx+x*tz,c=p[2]!+w*tz-x*ty+y*tx;return Math.abs(a)<=r.dimensions.width/2&&Math.abs(c)<=r.dimensions.depth/2&&b>=0&&b<=r.dimensions.height;});presencePose.current=room?{roomId:room.id,position:[...position],yaw}:null;if(room)analytics.current?.room(room.id);};
   const opening=useRef<OpeningSession|null>(null),openingAudio=useRef<HTMLDivElement|null>(null);
   const [openingState,setOpeningState]=useState<OpeningState|null>(null),[openingView,setOpeningView]=useState<{viewpointId:string;sequence:number}|undefined>(undefined);
   const openingSequence=useRef(0);
@@ -135,6 +180,16 @@ export function Viewer({
   );
   return (
     <section aria-label="전시 Viewer">
+      {!publication.local && <fieldset>
+        <legend>관람 연구 통계</legend>
+        <label><input type="checkbox" checked={analyticsConsent} onChange={event => {
+          analyticsConsentRef.current = event.target.checked;
+          setAnalyticsConsent(event.target.checked);
+          analytics.current?.setConsent(event.target.checked);
+        }} />이 관람의 집계에 동의합니다</label>
+        <p>방문·관람 세션·방 입장·화면에 보인 전시 및 작품 시간·완료 횟수만 집계합니다. 이동 경로나 개인 식별자는 저장하지 않습니다. 로그인한 경우 계정의 통계 동의도 필요합니다. 동의를 끄면 전송을 중단합니다.</p>
+        <button disabled={!analyticsConsent} onClick={() => { analytics.current?.flush(); analytics.current?.complete(); }}>관람 완료 기록</button>
+      </fieldset>}
       <p>내보내기 허락이 바뀌면 이 페이지의 AR 링크를 닫습니다. 이미 기기에 열린 파일이나 내려받은 사본은 회수할 수 없습니다.</p>
       <label>
         Viewer 품질
@@ -161,7 +216,12 @@ export function Viewer({
         publicSource={source}
         viewerBudget={budget}
         suspendNavigation={suspendNavigation}
-        onArtworkSelect={onArtworkSelect}
+        onArtworkSelect={id => {
+          const placement = publication.exhibition.placements.find(value => value.id === id);
+          const artwork = publication.exhibition.artworks.find(value => value.revisionId === placement?.artworkRevisionId);
+          analytics.current?.artwork(artwork?.id ?? null);
+          onArtworkSelect?.(id);
+        }}
         proximityDetail={proximityDetail}
         onDetailEntryReady={onDetailEntryReady}
         guideRequest={guideRequest}

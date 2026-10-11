@@ -1,3 +1,6 @@
+import { PrivacyPanel } from './PrivacyPanel';
+import { AssistancePanel } from './AssistancePanel';
+import { PreservationPanel } from './PreservationPanel';
 import { notifyAuthChange } from "./auth-change";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -615,6 +618,7 @@ export function Cms() {
           </button>
         </div>
       )}
+      {session && !expired && <PrivacyPanel session={session} />}
       {!session ? (
         <form
           className="cms-card cms-login"
@@ -1418,6 +1422,8 @@ export function Cms() {
                           />
                         )}
                       </fieldset>
+                      <AssistancePanel artwork={artwork} session={session} onApplied={(value)=>{setArtwork(value);if(value.metadata)setMetadata(value.metadata);setNotice("검토한 제안이 새 revision에 적용됐습니다. 작품을 다시 승인하세요.");}} />
+                      <PreservationPanel key={artwork.id+":"+artwork.revision} artwork={artwork} session={session} />
                       <fieldset>
                         <legend>변경 이력 비교</legend>
                         <label>

@@ -34,7 +34,7 @@ try {
     await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname, "006_studio.sql");
     const existing = (await pool.query("SELECT name,sha256 FROM schema_migrations ORDER BY name")).rows;
     await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname);
-    await test("additive publication migration preserves all earlier migration checksums", async () => { assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'007' ORDER BY name")).rows, existing); assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 12); });
+    await test("additive publication migration preserves all earlier migration checksums", async () => { assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'007' ORDER BY name")).rows, existing); assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 14); });
     const tenant = randomUUID(), pass = "Synthetic-publication-password123", origin = "http://127.0.0.1:3000", headers = { host: "127.0.0.1:3000", origin };
     await bootstrap(pool, tenant, "synthetic.publication.admin", pass);
     const blobs = new FileBlobStore(await mkdtemp(`${tmpdir()}/exhibitos-publication-blobs-`));
@@ -155,6 +155,20 @@ try {
         const r = await expected(anonymous(url, { "if-none-match": pub.revisionSha256 }), 404, "PUBLICATION_UNAVAILABLE");
         assert.equal(r.headers["cache-control"], "no-store");
     } };
+    await test("original privacy consent and six anonymous aggregates preserve authorization and exclude identity fields", async () => {
+        await json(request(admin,"PUT","/privacy/policy",{analyticsEnabled:true,analyticsDays:30,rawDays:7}));
+        await json(request(actors.viewer,"PUT","/privacy/consent",{analytics:false}));
+        const metric=(body,actor)=>app.inject({method:"POST",url:`/api/v1/publications/${pub.publicationId}/analytics`,headers:{...headers,...(actor?{cookie:actor.cookie,"x-csrf-token":actor.csrfToken}:{})},payload:body});
+        assert.equal((await json(metric({consent:false,metric:"visit"}))).recorded,false);
+        assert.equal((await json(metric({consent:true,metric:"visit"},actors.viewer))).recorded,false);
+        await json(request(actors.viewer,"PUT","/privacy/consent",{analytics:true}));
+        for(const body of [{metric:"visit"},{metric:"session"},{metric:"exhibition-dwell",durationSeconds:12},{metric:"artwork-dwell",resourceId:projection.exhibition.artworks[0].id,durationSeconds:8},{metric:"room-visit",resourceId:projection.exhibition.rooms[0].id},{metric:"completed"}])assert.equal((await json(metric({consent:true,...body},actors.viewer))).recorded,true);
+        await expected(metric({consent:true,metric:"visit",sessionId:"forbidden"}),400,"INVALID_INPUT");
+        await expected(metric({consent:true,metric:"room-visit",resourceId:randomUUID()}),400,"INVALID_RESOURCE");
+        await expected(request(actors.viewer,"GET",`/privacy/publications/${pub.publicationId}/summary`),403,"FORBIDDEN");
+        const summary=await json(request(admin,"GET",`/privacy/publications/${pub.publicationId}/summary`));assert.equal(summary.metrics.length,6);assert.equal(summary.completionRate,1);assert.equal(summary.identityTracking,false);assert.equal(summary.uniquePeopleMeasured,false);
+        const columns=(await pool.query("SELECT column_name FROM information_schema.columns WHERE table_name='privacy_aggregates'")).rows.map(x=>x.column_name);for(const forbidden of ['user_id','session_id','ip','source_text'])assert(!columns.includes(forbidden));
+    });
     await test("published source cannot mutate, receipts recover exact retries, and publication/asset/event history is immutable", async () => {
         assert.deepEqual(await json(request(actors.artist, "POST", `${path}/publications`, publishInput, { "if-match": saved.etag }), 201), pub);
         await expected(request(actors.artist, "POST", `${path}/publications`, publishInput, { "if-match": '"studio-r1-' + "0".repeat(64) + '"' }), 409, "REQUEST_CONFLICT");

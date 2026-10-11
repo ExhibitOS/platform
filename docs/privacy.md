@@ -1,0 +1,39 @@
+# Consent, aggregates and deletion lifecycle
+
+Original T11-02 implementation is connected to authenticated API, CMS controls, the consent-gated Viewer and an explicitly invoked operator worker. External AI transfer is absent and no new paid resource was introduced; text assistance/review belongs to the separate assistance module. Component qualification does not complete predecessor or phase gates.
+
+## Analytics and consent
+
+Analytics is for exhibition research/operation. A tenant admin explicitly enables it and sets aggregate TTL in days. Default is disabled. Visitors explicitly opt in; anonymous clients must send consent for each event, and signed-in visitors must also have their own current analytics consent enabled. Opt-out returns recorded:false before reading publication metadata or writing a counter. The Viewer defaults off in each in-memory viewing session. Withdrawal stops queued sends and drops unsent dwell time; local offline viewing never transmits events. This server does not invent a visitor/session identifier.
+
+All original metrics are daily aggregates: visits, sessions, exhibition dwell, artwork dwell average, room visits and completed sessions/completion rate. These are event counts, not distinct-human counts. Only publication/resource IDs, count and summed bounded duration are stored. No IP, account/session identifier, trajectory, original text or arbitrary fields are accepted into aggregates. Fresh published availability/current rights are rechecked, and artwork/room IDs must belong to that publication. Summary is tenant-admin only. Expiry deletes aggregate rows in bounded operator batches; because individual contributions are never linked to identities, account deletion cannot subtract one person's anonymous past contribution.
+
+## Retention and holds
+
+The admin policy sets raw/temporary expiry or null for retained storage. Registering a blob verifies exact bytes/SHA, ownership and acknowledgement of the expiry notice. Raw/temporary keys use the tenant/purpose/owner namespace; master/web registration requires an existing owner-controlled asset. Masters and web assets do not automatically expire. Before a deletion request exists, an owner can archive a registered raw object as retained master without changing its bytes. Registration does not upload or manufacture Capture data.
+
+Reference, legal and backup holds are durable and controlled by tenant admins. A hold has an explicit expiry or is indefinite until released. Backup operators must register holds covering retained backup copies; this module cannot discover offline/external archives or delete them. Removing live bytes does not erase an independent backup, and old restores can reintroduce data: operators must reconcile retained deletion receipts/holds before making a restored service available. There is no claim of automatic global backup erasure.
+
+The bounded operator worker uses existing auth82003 then maintenance82002 exclusive fences. It reuses the whole-service inventory's typed references, including import jobs, derivative assets, publications/audio and freezes. Any reference/hold or uncertain inventory refuses blob erasure. Only expiry-notified raw/temporary records are automatically queued; explicit owner requests can request other registered objects, but still cannot erase referenced assets. A committed removing intent precedes BlobStore.remove. Recovery can complete a missing object only when that intent was already durable; source hash/size and current references/holds are rechecked. An erased state means live blob bytes were actually removed, not just hidden in SQL. No worker deletion was executed against user data during implementation.
+
+Account deletion is requested by the account itself, affects its global login, and requires explicit acknowledgement of independent backup retention. Active legal/reference/backup holds and the last active admin block erasure. An eligible worker deletes real credentials, sessions, memberships, issued institution tokens and consent records. If no content refers to the account, it also physically deletes the user row. If immutable attribution/history or registered objects still refer to it, the worker replaces the actual login subject with a random non-identifying value and disables the retained opaque UUID row. It neither rewrites the immutable records nor deletes artwork, copyright/provenance or registered objects to bypass their separate lifetimes. Raw expiry jobs can still remove eligible bytes after identity erasure.
+
+That latter result is explicitly `state: erased`, `code: ACCOUNT_IDENTITY_ERASED_DATA_RETAINED`, `identityErased: true`, `retainedData: true`, `backupErasure: false`. Here erased means the login identity was erased; it never means all content or backups disappeared. The CMS UI explains “Account login identity erased; artwork/history/registered data remain under their retention and rights rules. Independent backups are not erased.” Explain this before consent, and export required data before deletion because the erased account can no longer sign in. Tenant admins cannot request another user's account deletion. Content deletion and raw retention remain their existing separately authorized lifecycle.
+
+Account export returns the authenticated user's subject, own current-tenant artist/artwork metadata, asset rights/hash inventory, registered objects and consent. It never returns credential hashes, sessions, other users' data or unrestricted model bytes. Each tenant exports separately; binary downloads still use existing fresh authorization. This bounded metadata export is not a full portable account/media archive and must not be described as one.
+
+## Root route/worker contract
+
+Use existing host/origin, cookie/CSRF, safe errors and Auth.request fences. Session is server-resolved, never from HTTP body. All metadata-changing methods and cursor-like operations use a mutating transaction. Bearer institution tokens do not grant these account controls.
+
+- Admin policy GET/PUT: policy(client, session, optional body {analyticsEnabled,analyticsDays,rawDays}).
+- Own consent GET/PUT: consent(client, session, optional body {analytics}).
+- Public publication event POST: record(client, publicationId, {consent,metric,resourceId?,durationSeconds?}, optional current session), in the existing policy transaction plus bounded rate limiter. Do not bypass optional-session opt-out by dropping a present cookie.
+- Admin summary GET: summary(client, session, publicationId).
+- Own account export GET: exportAccount(client, session); own deletion POST: requestDelete with {requestId,kind:'account',objectId:null,acknowledgeBackupRetention:true}. Explain global login scope before consent.
+- Own registered object POST: registerObject with {objectKey,sha256,bytes,purpose,noticeAcknowledged:true}; archiveObject(client, session, objectId) is an explicit retain action.
+- Own object deletion POST: requestDelete with {requestId,kind:'object',objectId,acknowledgeBackupRetention:true}; own receipt GET: status(client, session, requestId returned as id).
+- Admin hold POST: hold with {userId:null or actual ID,objectId:null or actual ID,kind,expiresAt:null or canonical future timestamp}; releaseHold(client, session, holdId).
+- Operator-only work() runs outside Auth.request, with an owned configured BlobStore. Do not expose it as an unauthenticated API or run it during backup. Execute only admitted synthetic storage tests until production lifecycle is reviewed.
+
+Actual isolated HTTP/PostgreSQL qualification covers opt-out, current rights, export scope, holds, actual synthetic blob removal, noticed temporary expiry, last-admin refusal and content-owner login identity erasure with preserved artwork and denied old session. The raw registration path is a public storage lifecycle, not private Capture integration. These checks never erase real user data or prove predecessor/phase completion.

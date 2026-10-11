@@ -1,3 +1,6 @@
+import { Privacy } from './privacy.ts';
+import { Preservation } from './preservation.ts';
+import { Assistance } from './assistance.ts';
 import { Federation, type FederationConfig } from './federation.ts';
 import { transaction } from '@exhibitos/storage';
 import { Institution, type InstitutionPrincipal } from './institution.ts';
@@ -59,6 +62,27 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+
+ const privacy=new Privacy(pool,store),privacyPrefix=`${prefix}/privacy`;
+ app.get(`${privacyPrefix}/policy`,call(false,async(c,s)=>privacy.policy(c,s)));
+ app.put(`${privacyPrefix}/policy`,call(true,async(c,s,req)=>privacy.policy(c,s,req.body)));
+ app.get(`${privacyPrefix}/consent`,call(false,async(c,s)=>privacy.consent(c,s)));
+ app.put(`${privacyPrefix}/consent`,call(true,async(c,s,req)=>privacy.consent(c,s,req.body)));
+ app.get(`${privacyPrefix}/export`,call(false,async(c,s)=>privacy.exportAccount(c,s)));
+ app.post(`${privacyPrefix}/objects`,call(true,async(c,s,req)=>privacy.registerObject(c,s,req.body)));
+ const privacyId=(req:FastifyRequest)=>{const value=(req.params as {id:string}).id;uuid(value);return value;};
+ app.post(`${privacyPrefix}/objects/:id/archive`,{schema:{body:object({})}},call(true,async(c,s,req)=>privacy.archiveObject(c,s,privacyId(req))));
+ app.post(`${privacyPrefix}/deletions`,call(true,async(c,s,req)=>privacy.requestDelete(c,s,req.body)));
+ app.get(`${privacyPrefix}/deletions/:id`,call(false,async(c,s,req)=>privacy.status(c,s,privacyId(req))));
+ app.post(`${privacyPrefix}/holds`,call(true,async(c,s,req)=>privacy.hold(c,s,req.body)));
+ app.post(`${privacyPrefix}/holds/:id/release`,{schema:{body:object({})}},call(true,async(c,s,req)=>privacy.releaseHold(c,s,privacyId(req))));
+ app.get(`${privacyPrefix}/publications/:id/summary`,call(false,async(c,s,req)=>privacy.summary(c,s,privacyId(req))));
+ const analyticsRates=new Map<string,{count:number;until:number}>();
+ app.post('/api/v1/publications/:id/analytics',async(req,reply)=>{
+  guarded(req,true);reply.header('cache-control','no-store');const now=Date.now();for(const[k,v]of analyticsRates)if(v.until<=now)analyticsRates.delete(k);const rate=analyticsRates.get(req.ip);if(rate&&rate.count>=60||!rate&&analyticsRates.size>=4096)throw new ApiError(429,'RATE_LIMITED');analyticsRates.set(req.ip,{count:(rate?.count??0)+1,until:rate?.until??now+60000});
+  const id=privacyId(req),sessionToken=token(req);if(sessionToken!==undefined||req.headers.cookie?.includes(settings.cookieName+'='))return auth.request(sessionToken,undefined,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,true,(c,s)=>privacy.record(c,id,req.body,s));
+  return transaction(pool,c=>privacy.record(c,id,req.body));
+ });
  const institution=new Institution(pool),ip=`${prefix}/institution`;
  const institutionCall=(work:(c:PoolClient,p:InstitutionPrincipal,req:FastifyRequest)=>Promise<unknown>)=>async(req:FastifyRequest,reply:FastifyReply)=>{
   guarded(req,req.method!=='GET');reply.header('cache-control','no-store');
@@ -172,6 +196,16 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};
  const fields={medium:{...str,minLength:1,maxLength:512},creationYear:{type:'integer',minimum:1,maximum:9999},title:{...str,minLength:1,maxLength:512},description:{...str,maxLength:16384},dimensions:object({width:{type:'number',exclusiveMinimum:0,maximum:1000000},height:{type:'number',exclusiveMinimum:0,maximum:1000000},depth:{type:'number',exclusiveMinimum:0,maximum:1000000},unit:{const:'m'}},['width','height','unit']),rights:{type:'object'},provenance:object({source:{enum:['human-authored','ai-assisted','ai-generated','synthetic']},sourceUnits:{enum:['m','cm','mm']},scaleApplied:{type:'boolean'},notes:{...str,maxLength:4096}})};
  const cmsId=(req:FastifyRequest)=>{const p=req.params as {id:string};uuid(p.id);return p.id;};
+ const preservation=new Preservation(store);
+ app.get(`${cp}/artworks/:id/preservation`,call(false,async(c,s,req)=>preservation.inventory(c,s,cmsId(req))));
+ const assistance=new Assistance(cms),assistancePrefix=`${cp}/artworks/:id/assistance`;
+ const assistanceId=(req:FastifyRequest)=>{const value=(req.params as {requestId?:string;proposalId?:string}).requestId??(req.params as {proposalId:string}).proposalId;uuid(value);return value;};
+ app.get(assistancePrefix,call(false,async(c,s,req)=>assistance.list(c,s,cmsId(req))));
+ app.post(assistancePrefix,call(true,async(c,s,req,reply)=>{reply.code(201);return assistance.request(c,s,cmsId(req),req.body);}));
+ app.post(`${assistancePrefix}/requests/:requestId/proposals`,call(true,async(c,s,req,reply)=>{reply.code(201);return assistance.propose(c,s,cmsId(req),assistanceId(req),req.body);}));
+ app.post(`${assistancePrefix}/proposals/:proposalId/review`,call(true,async(c,s,req)=>assistance.review(c,s,cmsId(req),assistanceId(req),req.body)));
+ app.post(`${assistancePrefix}/proposals/:proposalId/apply`,{schema:{body:object({})}},call(true,async(c,s,req)=>assistance.apply(c,s,cmsId(req),assistanceId(req))));
+
  app.post(`${cp}/artists`,{schema:{body:object({...artistBody,userId:{anyOf:[id,{type:'null'}]}},['name','bio'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return cms.createArtist(c,s,req.body as {name:string;bio:string;userId?:string|null});}));
  app.get(`${cp}/artists`,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100},archived:{enum:['true','false']}},[])}},call(false,async(c,s,req)=>cms.list(c,s,'artists',req.query as Record<string,string>)));
  app.get(`${cp}/artists/:id`,call(false,async(c,s,req)=>cms.artistView(await cms.artist(c,s,cmsId(req),true))));
