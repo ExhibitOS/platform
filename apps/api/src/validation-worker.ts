@@ -1,3 +1,5 @@
+import {verifyBasisPayload} from './basis-payload.ts';
+import {embeddedBasisPairs} from '@exhibitos/studio-contract';
 import { deflateSync, inflateSync } from "node:zlib";
 import { validateBytes } from "gltf-validator";
 const LIMIT = 32 * 1024 * 1024,
@@ -134,10 +136,10 @@ function closed(value: unknown, required: string[], optional: string[] = []) {
   const object = value as Record<string, unknown>;
   return required.every(k => Object.hasOwn(object, k)) && Object.keys(object).every(k => required.includes(k) || optional.includes(k));
 }
-function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number) {
+async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number) {
   const texturePixels = 2 * 1024 * 1024, textureBytes = 8 * 1024 * 1024;
   if (binHeader + 8 > data.length || binHeader % 4 || data.readUInt32LE(binHeader + 4) !== 0x004e4942 || data.readUInt32LE(binHeader) % 4 || binHeader + 8 + data.readUInt32LE(binHeader) !== data.length || !Array.isArray(doc.buffers) || doc.buffers.length !== 1 || !closed(doc.buffers[0], ["byteLength"]) || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength < 1 || doc.buffers[0].byteLength > data.length - binHeader - 8 || data.length - binHeader - 8 - doc.buffers[0].byteLength > 3) fail();
-  if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 8 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !Array.isArray(doc.samplers) || doc.samplers.length < 1 || doc.samplers.length > 8 || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined || doc.extensionsUsed !== undefined || doc.extensionsRequired !== undefined) fail();
+  if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 16 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !Array.isArray(doc.samplers) || doc.samplers.length < 1 || doc.samplers.length > 8 || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined) fail();
   const bin = data.subarray(binHeader + 8, binHeader + 8 + doc.buffers[0].byteLength);
   const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0;
   const view = (index: unknown) => {
@@ -145,12 +147,14 @@ function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, bi
     if (!v || v.buffer !== 0 || !integer(v.byteOffset ?? 0) || !integer(v.byteLength) || v.byteLength < 1 || (v.byteOffset ?? 0) + v.byteLength > bin.length) fail();
     return bin.subarray(v.byteOffset ?? 0, (v.byteOffset ?? 0) + v.byteLength);
   };
+  const basis=embeddedBasisPairs(doc,(i)=>view(doc.images[i].bufferView));
   let compressed = 0, pixels = 0;
   // Sum all image declarations before any expansion or third-party validator.
   const imageBytes: Buffer[] = [];
   for (const image of doc.images) {
-    if (!closed(image, ["bufferView", "mimeType"], ["name"]) || image.mimeType !== "image/png") fail();
+    if (!closed(image, ["bufferView", "mimeType"], ["name"]) || !["image/png","image/ktx2"].includes(image.mimeType)) fail();
     const bytes = view(image.bufferView), v = doc.bufferViews[image.bufferView];
+    if(image.mimeType==="image/ktx2"){if(!basis.has(doc.images.indexOf(image))||!closed(v,["buffer","byteLength"],["byteOffset","name"]))fail();compressed+=bytes.length;if(compressed>textureBytes)fail();await verifyBasisPayload(bytes);continue;}
     if (!closed(v, ["buffer", "byteLength"], ["byteOffset", "name"]) || bytes.length < 33 || bytes.length > textureBytes || !bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.readUInt32BE(8) !== 13 || bytes.toString("ascii",12,16) !== "IHDR") fail();
     compressed += bytes.length; const w = bytes.readUInt32BE(16), h = bytes.readUInt32BE(20);
     pixels += w * h;
@@ -161,7 +165,7 @@ function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, bi
   for (const sampler of doc.samplers) {
     if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || sampler.magFilter !== 9729 || sampler.minFilter !== 9729 || sampler.wrapS !== 33071 || sampler.wrapT !== 33071) fail();
   }
-  for (const t of doc.textures) if (!closed(t,["source","sampler"],["name"]) || !integer(t.source) || t.source >= doc.images.length || !integer(t.sampler) || t.sampler >= doc.samplers.length) fail();
+  for (const t of doc.textures) if (!closed(t,["source","sampler"],["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !integer(t.sampler) || t.sampler >= doc.samplers.length) fail();
   if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();
   const usedTextures = new Set<number>();
   for (const m of doc.materials) {
@@ -174,6 +178,7 @@ function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, bi
   }
   if (usedTextures.size !== doc.textures.length) fail();
   const usedImages = new Set(doc.textures.map((t: {source: number}) => t.source));
+  for(const index of basis.keys())usedImages.add(index);
   if (usedImages.size !== doc.images.length) fail();
   for (const mesh of doc.meshes ?? []) for (const primitive of mesh.primitives ?? []) {
     const material = doc.materials[primitive.material];
@@ -220,12 +225,13 @@ async function glb(data: Buffer) {
       }
     }
   };
-  // Legacy empty extension declarations were previously allowed.
-  if (document.extensionsUsed?.length || document.extensionsRequired?.length) fail();
-  const scanned = {...document}; delete scanned.extensionsUsed; delete scanned.extensionsRequired;
+  const scanned = structuredClone(document); delete scanned.extensionsUsed; delete scanned.extensionsRequired;
+  // The embedded profile independently validates each optional texture-local basis declaration.
+  for(const texture of scanned.textures??[])delete texture.extensions;
+  if(document.images===undefined&&document.textures===undefined&&((document.extensionsUsed?.length??0)||(document.extensionsRequired?.length??0)))fail();
   scan(scanned);
   if (document.images !== undefined || document.textures !== undefined)
-    embeddedPngProfile(document, data, 20 + jsonSize);
+    await embeddedPngProfile(document, data, 20 + jsonSize);
   const report = await validateBytes(data, {
     maxIssues: 64,
     externalResourceFunction: () =>

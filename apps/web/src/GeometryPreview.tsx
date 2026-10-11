@@ -1,3 +1,4 @@
+import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
@@ -985,10 +986,12 @@ export function GeometryPreview({
             const { GLTFLoader } =
               await import("three/addons/loaders/GLTFLoader.js");
             const manager = new three.LoadingManager();
-            const protectedBytes = embeddedPNGManager(manager, bytes!);
+            const basis=await basisLoader(renderer,bytes!);if(basis)resources.push(basis);
+            if(disposed||signal.aborted){basis?.dispose();throw new DOMException('Aborted','AbortError');}
+            const protectedBytes = embeddedPNGManager(manager, bytes!,basis);
             resources.push(protectedBytes);
             const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
-            let gltf;try{gltf=await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
+            let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
                 resources.push(node.geometry);

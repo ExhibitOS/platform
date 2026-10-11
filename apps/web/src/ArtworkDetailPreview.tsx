@@ -1,3 +1,4 @@
+import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -37,6 +38,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
       try {
         three = await import("three");
         if (disposed) return;
+        renderer = new three.WebGLRenderer({ antialias: true });resources.add(renderer);
         const inventory = selectAssetVariant(artwork, 0, DEVICE_BUDGETS.desktop);
         const asset = publication.assets.find(a => a.assetId === inventory.id);
         if (!asset) throw Error("DETAIL_UNAVAILABLE");
@@ -55,9 +57,12 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         } else {
           const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
           const manager = new three.LoadingManager();
-          const protectedBytes = embeddedPNGManager(manager, bytes);
+          const basis=await basisLoader(renderer!,bytes);if(basis)resources.add(basis);
+          if(disposed||abort.signal.aborted){release();return;}
+          const protectedBytes = embeddedPNGManager(manager, bytes,basis);
           resources.add(protectedBytes);
-          object = (await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "")).scene;collect(object);protectedBytes.assertLoaded();
+          const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);
+          object = (await loader.parseAsync(protectedBytes.bytes, "")).scene;collect(object);protectedBytes.assertLoaded();
           let triangles = 0, estimatedBytes = 0;
           const measured = new Set<unknown>();
           object.traverse(node => {
@@ -89,7 +94,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         }
         scene.add(new three.HemisphereLight(0xffffff, 0x333344, 3));
         const light = new three.DirectionalLight(0xffffff, 3); light.position.set(3, 4, 5); scene.add(light);
-        renderer = new three.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+        renderer!.setPixelRatio(Math.min(devicePixelRatio, 1.5));
         renderer.domElement.setAttribute("aria-label", "작품 상세 3D 미리보기");
         target!.append(renderer.domElement);
         const camera = new three.PerspectiveCamera(45, 1, modelExtent/100, modelExtent*100);

@@ -24,7 +24,7 @@ async function safeStatic(root, path) {
   return file;
 }
 export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
-  const root = await realpath(webRoot), allowed = new Set(["index.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
+  const root = await realpath(webRoot), allowed = new Set(["basis/basis_transcoder.js", "basis/basis_transcoder.wasm", "basis/exhibitos-basis-worker.js","index.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
   for (const name of await readdir(join(root, "assets"))) if (/^[-\w.]+\.(?:js|css)$/.test(name)) allowed.add(`assets/${name}`);
   const expectedHost = new URL(origin).host;
   const server = createServer(async (req, reply) => {
@@ -52,7 +52,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
     if (!allowed.has(path)) { deny(404); return; }
     let file;
     try {
-      file = await safeStatic(root, path); reply.writeHead(200, { "content-type": mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": (await file.stat()).size });
+      file = await safeStatic(root, path); reply.writeHead(200, { ...(path === "basis/exhibitos-basis-worker.js" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'"} : {}), "content-type": path.endsWith(".wasm")?"application/wasm":mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": (await file.stat()).size });
       if (req.method === "HEAD") { reply.end(); await file.close(); }
       else { const stream = file.createReadStream(); stream.once("error", () => reply.destroy()); reply.once("close", () => { if (!reply.writableFinished) stream.destroy(); }); stream.pipe(reply); }
     } catch { await file?.close().catch(() => {}); if (!reply.headersSent) deny(404); else reply.destroy(); }

@@ -1,3 +1,4 @@
+import './write-basis-assets.mjs';
 import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -23,7 +24,11 @@ const packages = [
 const ltcNotice=await readFile(new URL("../vendor/notices/ltc-LICENSE.txt",import.meta.url),"utf8");
 const ltcProvenance=JSON.parse(await readFile(new URL("../vendor/notices/ltc-provenance.json",import.meta.url),"utf8"));
 if(createHash("sha256").update(ltcNotice).digest("hex")!==ltcProvenance.sha256)throw Error("LTC_LICENSE_INTEGRITY");
+const basisNotice=await readFile(new URL("../vendor/notices/basis-LICENSE.txt",import.meta.url),"utf8");
+const basisPins=JSON.parse(await readFile(new URL("../vendor/notices/basis-provenance.json",import.meta.url),"utf8"));
+if(createHash("sha256").update(basisNotice).digest("hex")!==basisPins.licenseSha256)throw Error("BASIS_LICENSE_INTEGRITY");
 const notices = [
+  "Basis Universal transcoder bundled by Three.js (https://github.com/BinomialLLC/basis_universal), Apache-2.0. Original license follows.\n"+basisNotice+"\n",
   "LTC BRDF data bundled through Three.js RectAreaLightTexturesLib. Original source: https://github.com/selfshadow/ltc_code/\n"+ltcNotice+"\n",
   "Third-party implementations included in the ExhibitOS web bundle.\nTheir original licenses apply independently of the project AGPL license.\n",
 ];

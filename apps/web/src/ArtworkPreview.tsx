@@ -1,3 +1,4 @@
+import {basisLoader} from './basis-loader.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import { useEffect, useRef, useState } from "react";
 
@@ -47,11 +48,15 @@ export function ArtworkPreview({
         import("three/addons/loaders/GLTFLoader.js"),
       ]);
       if (disposed || !host.current) return;
+      const renderer = new three.WebGLRenderer({ antialias:true,alpha:false });
+      cleanup=()=>{renderer.dispose();renderer.forceContextLoss();};
+      const basis=await basisLoader(renderer,bytes);
+      if(disposed){basis?.dispose();cleanup();return;}
       const manager = new three.LoadingManager();
-      const protectedBytes = embeddedPNGManager(manager, bytes);
-      cleanup=protectedBytes.dispose;
-      const model = await new GLTFLoader(manager).parseAsync(protectedBytes.bytes, "");
-      const releaseModel = () => {protectedBytes.dispose();
+      const protectedBytes = embeddedPNGManager(manager, bytes,basis);
+      cleanup=()=>{protectedBytes.dispose();basis?.dispose();renderer.dispose();renderer.forceContextLoss();};
+      const model = await (()=>{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);return loader.parseAsync(protectedBytes.bytes, "");})();
+      const releaseModel = () => {protectedBytes.dispose();basis?.dispose();
         model.scene.traverse((node) => {
           if (node instanceof three.Mesh) {
             node.geometry.dispose();
@@ -61,17 +66,10 @@ export function ArtworkPreview({
               {for(const value of Object.values(material))if(value instanceof three.Texture)value.dispose();material.dispose();}
           }
         });};
-      cleanup=releaseModel;protectedBytes.assertLoaded();
+      cleanup=()=>{releaseModel();renderer.dispose();renderer.forceContextLoss();};protectedBytes.assertLoaded();
       if (disposed || !host.current) {
-        releaseModel();
+        cleanup();
         return;
-      }
-      let renderer: InstanceType<typeof three.WebGLRenderer>;
-      try {
-        renderer = new three.WebGLRenderer({ antialias: true, alpha: false });
-      } catch (error) {
-        releaseModel();
-        throw error;
       }
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       const scene = new three.Scene();
