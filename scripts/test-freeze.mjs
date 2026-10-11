@@ -32,7 +32,7 @@ try {
   await test("freeze migration adds one schema while preserving every prior checksum", async () => {
     assert.equal(previousMigrations.length, 9);
     assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'010' ORDER BY name")).rows, previousMigrations);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 10);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 14);
   });
   const { privateKey } = generateKeyPairSync("ed25519"), keyFile = `${directory}/synthetic-signing-key.json`;
   const trustedKey = createPublicKey(privateKey);

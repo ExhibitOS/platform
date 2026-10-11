@@ -178,3 +178,25 @@ test('queued unlock after explicit pause does not pause a renewed session, while
   expect(pause).toHaveBeenCalledTimes(2);
   input.dispose();
 });
+
+test('Escape explicitly releases owned native capture and clears movement without browser auto-release', async () => {
+  const { doc, canvas, input, pause } = fixture();
+  canvas.requestPointerLock.mockImplementation(() => undefined);
+  const pending = input.capture();
+  doc.pointerLockElement = canvas;
+  doc.dispatchEvent(new Event('pointerlockchange'));
+  await pending;
+  input.press('forward', 1);
+  window.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: 10, movementY: 5 }));
+  // Synthetic key delivery does not perform the browser's native Escape release.
+  window.dispatchEvent(Object.assign(new Event('keydown'), { code: 'Escape' }));
+  expect(doc.exitPointerLock).toHaveBeenCalledOnce();
+  expect(doc.pointerLockElement).toBeNull();
+  expect(pause).toHaveBeenCalledOnce();
+  expect(input.sample(.01)).toEqual({ forward: 0, right: 0, yawDelta: 0, pitchDelta: 0 });
+  doc.dispatchEvent(new Event('pointerlockchange'));
+  expect(pause).toHaveBeenCalledOnce();
+  input.enable();
+  expect(input.sample(.01).forward).toBe(0);
+  input.dispose();
+});
