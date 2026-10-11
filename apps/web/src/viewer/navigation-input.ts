@@ -53,6 +53,7 @@ export function createWalkingInput(
       return;
     if (event.code === "Escape") {
       stop();
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
       return;
     }
     if (codes.has(event.code)) {
