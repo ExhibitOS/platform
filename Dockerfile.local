@@ -23,7 +23,17 @@ COPY --from=build /opt/exhibitos/contracts ./contracts
 COPY --from=build /opt/exhibitos/package.json ./package.json
 COPY --from=build /opt/exhibitos/LICENSE ./LICENSE
 COPY --from=build /opt/exhibitos/scripts/local-runtime.mjs ./scripts/local-runtime.mjs
-RUN mkdir -p /data/blobs /data/config && chmod 0700 /data/blobs /data/config && chown -R node:node /data
+# Runtime security fixes preserve the pinned Node/build toolchain. The final
+# service starts Node directly and does not ship the base image's npm client.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade perl-base libpcre2-8-0 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge '5.36.0-7+deb12u4' \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u2' \
+    && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx \
+    && test "$(node --version)" = v24.21.0 \
+    && ! command -v npm && ! command -v npx \
+    && mkdir -p /data/blobs /data/config && chmod 0700 /data/blobs /data/config && chown -R node:node /data
 USER node
 ENV NODE_ENV=production
 EXPOSE 8080
