@@ -1,0 +1,112 @@
+name: External reference runtime HTTPS smoke
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Temporary anonymous HTTPS trycloudflare origin
+        required: true
+        type: string
+      publication_id:
+        description: Seeded public publication UUID
+        required: true
+        type: string
+      tenant_id:
+        description: Synthetic tenant UUID for private refusal
+        required: true
+        type: string
+      private_draft_id:
+        description: Distinct synthetic private draft exhibition UUID
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  external-http:
+    if: github.repository == 'ExhibitOS/platform' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Observe actual reference runtime anonymously from outside its network
+        shell: bash
+        env:
+          SMOKE_BASE_URL: ${{ inputs.base_url }}
+          SMOKE_PUBLICATION: ${{ inputs.publication_id }}
+          SMOKE_TENANT: ${{ inputs.tenant_id }}
+          SMOKE_PRIVATE_DRAFT: ${{ inputs.private_draft_id }}
+        run: |
+          python3 - <<'PYTHON'
+          import hashlib, ipaddress, json, os, re, signal, socket, time, urllib.request, urllib.error
+          started = time.monotonic()
+          def deadline(_signal, _frame):
+              raise TimeoutError('SMOKE_DEADLINE')
+          signal.signal(signal.SIGALRM, deadline)
+          signal.alarm(90)
+          base = os.environ['SMOKE_BASE_URL']
+          assert re.fullmatch(r'https://[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com', base), 'ORIGIN_REJECTED'
+          host = base.removeprefix('https://')
+          uuid_pattern = r'[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+          publication, tenant, private = [os.environ[n] for n in ['SMOKE_PUBLICATION', 'SMOKE_TENANT', 'SMOKE_PRIVATE_DRAFT']]
+          assert all(re.fullmatch(uuid_pattern, value) for value in [publication, tenant, private]), 'UUID_REJECTED'
+          assert publication != private, 'DISTINCT_PRIVATE_DRAFT_REQUIRED'
+          addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+          assert addresses and all(ipaddress.ip_address(a[4][0]).is_global for a in addresses), 'NONPUBLIC_DESTINATION_REJECTED'
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+          def get(path):
+              assert time.monotonic() - started < 90, 'SMOKE_DEADLINE'
+              assert path.startswith('/') and not path.startswith('//') and '?' not in path and '#' not in path
+              request = urllib.request.Request(base + path, headers={'Connection': 'close', 'Cache-Control': 'no-cache'}, method='GET')
+              try:
+                  response = opener.open(request, timeout=10)
+              except urllib.error.HTTPError as error:
+                  response = error
+              with response:
+                  body = response.read(1024**2 + 1)
+                  assert len(body) <= 1024**2, 'RESPONSE_LIMIT'
+                  return response.status, body, {k.lower(): v for k, v in response.headers.items()}
+          status, html, _ = get('/p/' + publication)
+          assert status == 200 and b'<html' in html.lower(), 'PUBLIC_HTML_FAILED'
+          status, body, headers = get('/api/v1/publications/' + publication)
+          assert status == 200 and headers.get('cache-control') == 'no-store', 'PUBLIC_API_FAILED'
+          value = json.loads(body)
+          assert set(value) == {'publication', 'exhibition', 'assets'}, 'PUBLIC_PROJECTION_FAILED'
+          pub, exhibition = value['publication'], value['exhibition']
+          assert pub['id'] == publication and pub['status'] == 'published'
+          assert re.fullmatch(r'[0-9a-f]{64}', pub['revisionSha256'])
+          assert exhibition['kind'] == 'exhibition-revision' and exhibition['schemaVersion'] == '1.0.0-draft.1'
+          assert exhibition['artworks'] and all(a['rights']['permissions']['display'] is True for a in exhibition['artworks'])
+          assert tenant.encode() not in body and private.encode() not in body and b'Synthetic authoring-only note' not in body, 'PRIVATE_BINDING_LEAK'
+          assets = value['assets']
+          assert len(assets) == 2 and len({a['assetId'] for a in assets}) == 2, 'PUBLIC_ASSET_INVENTORY_FAILED'
+          verified = []
+          for asset in assets:
+              assert re.fullmatch(uuid_pattern, asset['assetId'])
+              expected_path = '/api/v1/publications/' + publication + '/assets/' + asset['assetId']
+              assert asset['url'] == expected_path, 'ASSET_ORIGIN_REJECTED'
+              declared = [a for artwork in exhibition['artworks'] for a in artwork['assets'] if a['path'].startswith('assets/' + asset['assetId'] + '/')]
+              assert len(declared) == 1
+              descriptor = declared[0]
+              assert type(descriptor['bytes']) is int and 0 < descriptor['bytes'] <= 1024**2
+              assert re.fullmatch(r'[0-9a-f]{64}', descriptor['sha256'])
+              status, asset_body, asset_headers = get(expected_path)
+              actual = hashlib.sha256(asset_body).hexdigest()
+              assert status == 200 and len(asset_body) == descriptor['bytes'] and actual == descriptor['sha256'], 'PUBLIC_ASSET_CHANGED'
+              assert asset_headers.get('cache-control') == 'no-store'
+              assert asset_headers.get('x-exhibitos-publication-revision') == pub['revisionSha256']
+              verified.append({'assetId': asset['assetId'], 'bytes': len(asset_body), 'sha256': actual})
+          private_path = '/api/v1/tenants/' + tenant + '/studio/exhibitions/' + private
+          status, refusal, _ = get(private_path)
+          assert status == 401 and json.loads(refusal)['code'] == 'AUTH_REQUIRED', 'PRIVATE_DRAFT_NOT_REFUSED'
+          print(json.dumps({'status': 'PASS', 'scope': 'Original T08-04 external anonymous HTTPS HTTP smoke against live synthetic OCI runtime',
+              'referenceSourceCommit': '0e20a272729a4dbd19f4f5c34a135a3a6a1a4f91',
+              'referenceRuntimeArchiveSha256': 'ea7c368553efa4ea75acef098f0c1d43f4e56dbd4ce2e5c6312113b012504fca',
+              'provenanceBinding': 'Matches operator local runtime receipt; HTTP alone does not authenticate OCI source identity',
+              'publicURL': base + '/p/' + publication, 'publicationId': publication,
+              'revisionSha256': pub['revisionSha256'], 'publicResponseSha256': hashlib.sha256(body).hexdigest(),
+              'assets': verified, 'privateDraftStatus': status, 'privateDraftCode': 'AUTH_REQUIRED',
+              'anonymous': True, 'browserRendered': False, 'physicalDeviceQualified': False,
+              'productionSigned': False, 'artifactUploaded': False, 'seconds': round(time.monotonic() - started, 3)}))
+          signal.alarm(0)
+          PYTHON
