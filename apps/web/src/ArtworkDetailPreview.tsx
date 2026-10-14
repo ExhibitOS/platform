@@ -46,7 +46,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
           revisionSha256: publication.publication.revisionSha256, asset, inventory, signal: abort.signal, ...publication.local });
         let object: THREE.Object3D;let modelExtent=Math.max(artwork.dimensions.width,artwork.dimensions.height),metric:ReturnType<typeof centerMetricModel>["measured"]|undefined;
         if (inventory.mime === "image/png") {
-          const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+          const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }), { imageOrientation: "flipY" });
           resources.add({ dispose: () => bitmap.close() });
           if (bitmap.width > 2048 || bitmap.height > 2048) throw Error("DETAIL_TEXTURE_BUDGET");
           const texture = new three.Texture(bitmap); texture.needsUpdate = true; texture.colorSpace = three.SRGBColorSpace;
