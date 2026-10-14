@@ -955,6 +955,7 @@ export function GeometryPreview({
           if (artwork.artworkType === "image") {
             let bitmap = await createImageBitmap(
               new Blob([bytes!], { type: "image/png" }),
+              { imageOrientation: "flipY" },
             );
             resources.push({ dispose: () => bitmap.close() });
             const declared = lodVariantsFor(artwork).find(
@@ -975,6 +976,8 @@ export function GeometryPreview({
                 viewerBudget.maxTextureSize /
                 Math.max(bitmap.width, bitmap.height);
               const resized = await createImageBitmap(bitmap, {
+                // The initial bitmap is already oriented for GPU upload; do not flip it again.
+                imageOrientation: "none",
                 resizeWidth: Math.max(1, Math.round(bitmap.width * factor)),
                 resizeHeight: Math.max(1, Math.round(bitmap.height * factor)),
               });
