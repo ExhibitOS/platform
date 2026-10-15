@@ -1,5 +1,7 @@
 # ExhibitOS / Open Exhibition
 
+> 1차 제품 방향(2026-10-15): iPhone 촬영·원본 전달 → Mac Swift·RealityKit 최종 Processing → Mac Studio/CMS 전시 공개. Mac Manager, macOS/iOS Safari·Chrome을 검증 대상으로 하며 실제 지원 결과는 [support matrix](docs/performance/support-matrix.md)를 따릅니다. Windows/Linux native·범용 배포·XR/Federation은 후속 보류입니다.
+
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
 현재 웹 시작 화면과 HTTP API의 개발 기반을 실행할 수 있습니다. Artist CMS에서 작가·작품 metadata와 제한된 GLB/PNG 업로드·검토·미리보기를 실행할 수 있습니다. Studio는 계정 없는 오프라인 draft, 공간·작품 배치·조명 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. 공개 Viewer는 입구 우선 GLB/PNG·경량/상세 품질·취소/재시도를 지원합니다. 보행은 물리·키보드·터치 회귀 검사와 macOS Chrome의 실제 마우스 회전·Esc 정지 검증을 통과했습니다. 오디오는 명시적 소리 켜기, 재질별 발소리·공간 소리·작가 음성·PCM WAV 녹음/승인과 작품 상세 보기를 지원하며 실제 로컬 통합 검사를 통과했습니다. 실물 오디오 기기 검증과 배포판은 후속 작업입니다. 저장 metadata 및 제한된 인증 API를 개발 환경에서 검사할 수 있습니다.
