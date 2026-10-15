@@ -163,32 +163,47 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   }
   for (const bytes of imageBytes) png(bytes, texturePixels, 2048);
   for (const sampler of doc.samplers) {
-    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || sampler.magFilter !== 9729 || sampler.minFilter !== 9729 || sampler.wrapS !== 33071 || sampler.wrapT !== 33071) fail();
+    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || sampler.magFilter !== 9729 || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
   }
   for (const t of doc.textures) if (!closed(t,["source","sampler"],["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !integer(t.sampler) || t.sampler >= doc.samplers.length) fail();
   if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();
-  const usedTextures = new Set<number>();
+  const usedTextures = new Set<number>(), colourImages=new Set<number>(), linearImages=new Set<number>();
   for (const m of doc.materials) {
-    if (!closed(m,[],["name","pbrMetallicRoughness","doubleSided","alphaMode","alphaCutoff"]) || m.pbrMetallicRoughness !== undefined && !closed(m.pbrMetallicRoughness,[],["baseColorTexture","baseColorFactor","metallicFactor","roughnessFactor"])) fail();
-    const t = m.pbrMetallicRoughness?.baseColorTexture;
-    if (t !== undefined) {
-      if (!closed(t,["index"],["texCoord"]) || !integer(t.index) || t.index >= doc.textures.length || (t.texCoord ?? 0) !== 0) fail();
+    if (!closed(m,[],["name","pbrMetallicRoughness","doubleSided","alphaMode","alphaCutoff","normalTexture","occlusionTexture"]) || m.pbrMetallicRoughness !== undefined && !closed(m.pbrMetallicRoughness,[],["baseColorTexture","baseColorFactor","metallicFactor","roughnessFactor"])) fail();
+    for (const [t,parameter] of [[m.pbrMetallicRoughness?.baseColorTexture,null],[m.normalTexture,"scale"],[m.occlusionTexture,"strength"]] as const) {
+      if (t === undefined) continue;
+      if (!closed(t,["index"],["texCoord",...(parameter ? [parameter] : [])]) || !integer(t.index) || t.index >= doc.textures.length || Object.hasOwn(t,"texCoord") && t.texCoord !== 0 || parameter && Object.hasOwn(t,parameter) && t[parameter] !== 1) fail();
       usedTextures.add(t.index);
+      const texture=doc.textures[t.index],source=texture.source;
+      if(parameter && (doc.images[source].mimeType!=="image/png" || texture.extensions!==undefined))fail();
+      (parameter?linearImages:colourImages).add(source);
     }
   }
+  if([...linearImages].some(i=>colourImages.has(i)))fail();
   if (usedTextures.size !== doc.textures.length) fail();
   const usedImages = new Set(doc.textures.map((t: {source: number}) => t.source));
   for(const index of basis.keys())usedImages.add(index);
   if (usedImages.size !== doc.images.length) fail();
   for (const mesh of doc.meshes ?? []) for (const primitive of mesh.primitives ?? []) {
     const material = doc.materials[primitive.material];
-    if (!material?.pbrMetallicRoughness?.baseColorTexture) continue;
+    if (!material?.pbrMetallicRoughness?.baseColorTexture && !material?.normalTexture && !material?.occlusionTexture) continue;
     const a = doc.accessors?.[primitive.attributes?.TEXCOORD_0], position = doc.accessors?.[primitive.attributes?.POSITION];
     if (!a || a.type !== "VEC2" || a.componentType !== 5126 || a.normalized !== undefined || a.sparse !== undefined || !integer(a.count) || a.count < 1 || a.count > 131072 || a.count !== position?.count || !integer(a.byteOffset ?? 0)) fail();
     const bytes = view(a.bufferView), v = doc.bufferViews[a.bufferView], stride = v.byteStride ?? 8;
     if (!integer(stride) || stride < 8 || stride > 252 || stride % 4 || (a.byteOffset ?? 0) + (a.count - 1) * stride + 8 > bytes.length) fail();
     for (let i = 0; i < a.count; i++) for (let j = 0; j < 2; j++) {
       const x = bytes.readFloatLE((a.byteOffset ?? 0) + i * stride + j * 4); if (!Number.isFinite(x) || x < 0 || x > 1) fail();
+    }
+    // glTF can derive a tangent frame when absent. An authored frame must retain its exact handedness.
+    if (primitive.attributes?.TANGENT !== undefined) {
+      const t=doc.accessors?.[primitive.attributes.TANGENT];
+      if (!integer(primitive.attributes.TANGENT) || !t || t.type!=="VEC4" || t.componentType!==5126 || t.normalized!==undefined || t.sparse!==undefined || t.count!==position.count || !integer(t.byteOffset??0)) fail();
+      const tangent=view(t.bufferView), layout=doc.bufferViews[t.bufferView], step=layout.byteStride??16;
+      if (!integer(step) || step<16 || step>252 || step%4 || (t.byteOffset??0)+(t.count-1)*step+16>tangent.length) fail();
+      for(let i=0;i<t.count;i++)for(let j=0;j<4;j++) {
+        const value=tangent.readFloatLE((t.byteOffset??0)+i*step+j*4);
+        if(!Number.isFinite(value) || j===3 && value!==1 && value!==-1)fail();
+      }
     }
   }
 }

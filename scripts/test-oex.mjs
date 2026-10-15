@@ -4,8 +4,9 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, writeFile, mkdir, symlink, unlink, lstat, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { isAbsolute } from "node:path";
 import { Pool } from "pg";
-import { fixtureURL, validateExhibition, validateOex, revisionHash, packageMediaAssetManifest } from "@exhibitos/spec";
+import { fixtureURL, validateExhibition, validateOex, readOex, revisionHash, packageMediaAssetManifest } from "@exhibitos/spec";
 import { migrate, FileBlobStore, sha256 } from "../packages/storage/dist/index.js";
 import { bootstrap } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
@@ -404,6 +405,45 @@ try {
     }
     const audioRow = (await pool.query("SELECT object_key,sha256 FROM studio_audio WHERE tenant_id=$1 AND id=$2", [tenant, audio.id])).rows[0];
     assert.equal(audioRow.sha256, sha256(wave)); assert.equal(sha256(await blobs.get(audioRow.object_key)), sha256(wave));
+  });
+  // Optional redistributable artifact only; no Capture source dependency or private path in this tree.
+  if (process.env.EXHIBITOS_OEX_IMPORT_FIXTURE) await test("optional synthetic native OEX preserves full artwork lineage/assets through authenticated CMS/Studio saved draft", async () => {
+    const path = process.env.EXHIBITOS_OEX_IMPORT_FIXTURE;
+    assert(isAbsolute(path), "OEX fixture must be an absolute local artifact path");
+    const inputStat = await lstat(path); assert(inputStat.isFile() && inputStat.size > 0 && inputStat.size <= 67108864, "OEX fixture exceeds existing archive bounds");
+    const bytes = await readFile(path), inputHash = sha256(bytes), source = await readOex(bytes);
+    assert.equal((await validateOex(bytes)).valid, true); assert(source.exhibition.artworks.length > 0);
+    // Opt-in test data must be explicitly synthetic/CC0; never feed real artwork to this test.
+    for (const artwork of source.exhibition.artworks) { assert.equal(artwork.provenance.authorship, "synthetic"); assert.equal(artwork.rights.licenseId, "CC0-1.0"); }
+    const publicationsBefore = (await originalCounts(destination)).studio_publications, { job } = await submit(destinationActor, bytes);
+    await worker.run(job.id);
+    const status = await json(request(destinationActor, "GET", `/oex/imports/${job.id}`));
+    const safeErrorCode = typeof status.errorCode === "string" && /^[A-Z0-9_]{1,64}$/.test(status.errorCode) ? status.errorCode : "NO_SAFE_ERROR_CODE";
+    assert.equal(status.state, "complete", `Optional synthetic OEX must complete through the real importer (${safeErrorCode})`);
+    const result = status.result, target = result.draft.candidate, mapId = id => result.idMap[id.toLowerCase()] ?? id;
+    const saved = await json(request(destinationActor, "GET", `/studio/exhibitions/${result.exhibitionId}`)); assert.deepEqual(saved.draft, result.draft);
+    assert.equal(target.artworks.length, source.exhibition.artworks.length); assert.equal(target.placements.length, source.exhibition.placements.length);
+    for (const original of source.exhibition.artworks) {
+      const aliases = result.assetAliases.filter(a => a.sourceArtworkRevisionId.toLowerCase() === original.revisionId.toLowerCase());
+      const assetId = id => aliases.find(a => a.sourceAssetId.toLowerCase() === id.toLowerCase())?.destinationAssetId ?? mapId(id);
+      const expectedArtwork = structuredClone(original); expectedArtwork.id = mapId(original.id); expectedArtwork.revisionId = mapId(original.revisionId); expectedArtwork.revision = 1;
+      expectedArtwork.primaryAssetId = assetId(original.primaryAssetId);
+      expectedArtwork.assets = original.assets.map(a => { const alias = aliases.find(x => x.sourceAssetId.toLowerCase() === a.id.toLowerCase()); assert(alias); return { ...a, id: alias.destinationAssetId, path: alias.destinationArtifactPath }; });
+      expectedArtwork.provenance.events = original.provenance.events.map(e => ({ ...e, id: mapId(e.id), ...(e.sourceAssetIds ? { sourceAssetIds: e.sourceAssetIds.map(assetId) } : {}) }));
+      if (expectedArtwork.provenance.scaleConversion) expectedArtwork.provenance.scaleConversion.appliedToAssetIds = original.provenance.scaleConversion.appliedToAssetIds.map(assetId);
+      const lod = expectedArtwork.extensions?.["org.exhibitos.viewer/lod"]; if (lod) for (const variant of lod.variants) variant.assetId = assetId(variant.assetId);
+      expectedArtwork.extensions = { ...expectedArtwork.extensions, "org.exhibitos.studio/cms": { tenantId: destination, artworkId: expectedArtwork.id, revision: 1 } };
+      assert.deepEqual(target.artworks.find(a => a.id === expectedArtwork.id), expectedArtwork);
+      const studio = await json(request(destinationActor, "GET", `/studio/artworks/${expectedArtwork.id}`)); assert.deepEqual(studio.artwork, expectedArtwork);
+      const privateResponse = await expected(request(null, "GET", `/studio/artworks/${expectedArtwork.id}`, undefined, {}, destination), 401); assert(!privateResponse.body.includes(original.metadata.title));
+      for (const asset of original.assets) {
+        const row = (await pool.query("SELECT object_key,sha256,bytes,mime FROM assets WHERE tenant_id=$1 AND artwork_id=$2 AND id=$3", [destination, expectedArtwork.id, assetId(asset.id)])).rows[0]; assert(row);
+        const expectedBytes = source.files.get("assets/" + asset.path); assert(expectedBytes); assert.equal(row.sha256, asset.sha256); assert.equal(Number(row.bytes), asset.bytes); assert.equal(row.mime, asset.mime);
+        const stored = await blobs.get(row.object_key); assert.deepEqual(Buffer.from(stored), Buffer.from(expectedBytes)); assert.equal(sha256(stored), asset.sha256);
+      }
+    }
+    assert.equal((await originalCounts(destination)).studio_publications, publicationsBefore);
+    assert.equal(sha256(await readFile(path)), inputHash, "Optional source artifact must remain unchanged");
   });
   await app.close();
   const { createServer } = await import("node:net"), reserve = createServer();
