@@ -134,6 +134,39 @@ try {
       assert.equal(await page.evaluate(async path => {try {await fetch(path); return true;} catch {return false;}}, privatePath), false);
     } finally { await browser.close(); }
   });
+  await test("actual idle database disconnect reports unavailable and recovers without restarting the platform", async () => {
+    const platform = run([...compose, "ps", "--all", "--quiet", "platform"]);
+    const restarts = () => Number(run(["inspect", "--format", "{{.RestartCount}}", platform]));
+    const before = restarts();
+    // Warm and return a real database connection to the pool before disconnecting it.
+    assert.equal((await (await api("GET", "/api/v1/readiness")).json()).ready, true);
+    try {
+      run([...compose, "stop", "database"]);
+      const response = await fetch(`${origin}/api/v1/readiness`, { signal: AbortSignal.timeout(6000) });
+      assert.equal(response.status, 503, "A dropped idle client must not terminate the API before readiness responds");
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      const unavailable = await response.json();
+      assert.equal(unavailable.ready, false);
+      assert.equal(unavailable.services.find(service => service.name === "database")?.status, "unavailable");
+      for (const secret of [postgresPassword, adminPassword]) assert.equal(JSON.stringify(unavailable).includes(secret), false);
+      assert.equal(restarts(), before, "An uncaught Pool error must not restart the platform");
+    } finally {
+      // Restore this owned synthetic database even if the readiness assertion fails.
+      run([...compose, "start", "--wait", "--wait-timeout", "240", "database"]);
+    }
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const response = await fetch(`${origin}/api/v1/readiness`, { signal: AbortSignal.timeout(6000) });
+        if (response.status === 200 && (await response.json()).ready) break;
+      } catch { /* The original worker exit policy remains in force; never treat transport failure as ready. */ }
+      if (attempt >= 60) throw Error("Actual database reconnection readiness deadline exceeded");
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    assert.equal(restarts(), before, "Database restoration must recover the existing platform process");
+    assert.equal((await (await api("GET", `/api/v1/tenants/${tenantId}/cms/artworks/${artifact.id}`)).json()).metadata.title, artifact.metadata.title);
+    assert.equal(sha256(Buffer.from(await (await api("GET", `/api/v1/tenants/${tenantId}/assets/${asset.id}/bytes`)).arrayBuffer())), sha256(asset.bytes));
+    assert.deepEqual((await (await api("GET", "/api/v1/freeze/authority")).json()).authority, authority);
+  });
   await test("actual stop and restart preserve CMS metadata object hashes signing authority account and session", async () => {
     run([...compose, "stop"]); await assert.rejects(fetch(`${origin}/api/v1/readiness`)); run([...compose, "start", "--wait", "--wait-timeout", "240"]);
     assert.equal((await (await api("GET", "/api/v1/readiness")).json()).ready, true); assert.equal((await (await api("GET", `/api/v1/tenants/${tenantId}/cms/artworks/${artifact.id}`)).json()).metadata.title, artifact.metadata.title);
