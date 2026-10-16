@@ -76,7 +76,11 @@ export async function startLocalRuntime(environment = process.env) {
   if (environment.AUTH_ORIGIN !== undefined && environment.AUTH_ORIGIN !== origin) throw Error("LOCAL_ORIGIN_INVALID");
   const webRoot = new URL("../apps/web/dist/", import.meta.url).pathname, migrationDirectory = new URL("../database/migrations/", import.meta.url).pathname;
   const blobRoot = resolve(environment.BLOB_ROOT ?? "/data/blobs"), configRoot = resolve(environment.CONFIG_ROOT ?? "/data/config");
-  const pool = new Pool({ connectionString: environment.DATABASE_URL, connectionTimeoutMillis: 5000, statement_timeout: 30000 }); let app, proxy, stage = "MIGRATIONS";
+  const pool = new Pool({ connectionString: environment.DATABASE_URL, connectionTimeoutMillis: 5000, statement_timeout: 30000 });
+  // pg-pool already removes the failed idle client. Handle its separate error event
+  // so readiness can report unavailable without an uncaught process exception.
+  pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
+  let app, proxy, stage = "MIGRATIONS";
   try {
     await migrate(pool, migrationDirectory);
     stage = "BOOTSTRAP";

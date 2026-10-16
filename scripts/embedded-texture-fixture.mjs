@@ -19,3 +19,27 @@ export function publicTexturedLODPair({png=publicTexturePNG()}={}){
  * KTX2 SHA256 c37aab1890379d9951d3bceb9d0fdb33d41a09742e59ca9c13ce36d5a30bf657. No private artifact or code. */
 export function publicBasisKtx(){return Buffer.from('q0tUWCAyMLsNChoKAAAAAAEAAAAIAAAACAAAAAAAAAAAAAAAAQAAAAEAAAAAAAAAaAAAACwAAACUAAAAZAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAEAAAAAAAAAAQAAAAAAAAAAsAAAAAAAAAAIAKACmAQIAAwMAABAAAAAAAAAAAAB/AAAAAAAAAAAA/////ycAAABLVFh3cml0ZXIAdG9rdHggdjQuNC4yIC8gbGlia3R4IHY0LjQuMgAAMwAAAEtUWHdyaXRlclNjUGFyYW1zAC0tZW5jb2RlIHVhc3RjIC0tdWFzdGNfcXVhbGl0eSAyAAAAAAAAAAAAAFP/tgEAAABJkABAgH+AfwBT/7YBAAAASZAAQIB/gH8AU/+2AQAAAEmQAECAf4B/AFP/tgEAAABJkABAgH+AfwA=','base64');}
 export function withPublicBasis(bytes,ktx=publicBasisKtx()){const n=bytes.readUInt32LE(12),doc=JSON.parse(bytes.toString('utf8',20,20+n)),bin=bytes.subarray(28+n,28+n+doc.buffers[0].byteLength),offset=Math.ceil(bin.length/4)*4,pad=Buffer.alloc(offset-bin.length);doc.extensionsUsed=['KHR_texture_basisu'];doc.images.push({bufferView:doc.bufferViews.length,mimeType:'image/ktx2'});doc.textures[0].extensions={KHR_texture_basisu:{source:doc.images.length-1}};doc.bufferViews.push({buffer:0,byteOffset:offset,byteLength:ktx.length});doc.buffers[0].byteLength=offset+ktx.length;return assembleTextureGLB(doc,Buffer.concat([bin,pad,ktx]));}
+
+/** Independently authored standard PBR maps; every image is local, bounded and opaque. */
+export function publicPBRTexturedGLB({tangents=true}={}) {
+ const source=publicTexturedGLB({images:3}),length=source.readUInt32LE(12),doc=JSON.parse(source.subarray(20,20+length)),original=source.subarray(28+length);
+ doc.materials=[{pbrMetallicRoughness:{baseColorTexture:{index:0},metallicFactor:0,roughnessFactor:1},normalTexture:{index:1,texCoord:0,scale:1},occlusionTexture:{index:2,texCoord:0,strength:1},doubleSided:true}];
+ let bin=original;
+ if(tangents) {
+  const at=Math.ceil(original.length/4)*4,frame=Buffer.alloc(64);for(let i=0;i<4;i++){frame.writeFloatLE(1,i*16);frame.writeFloatLE(1,i*16+12);}
+  bin=Buffer.concat([original,Buffer.alloc(at-original.length),frame]);const vi=doc.bufferViews.length,ai=doc.accessors.length;doc.bufferViews.push({buffer:0,byteOffset:at,byteLength:frame.length,target:34962});doc.accessors.push({bufferView:vi,componentType:5126,count:4,type:'VEC4'});doc.meshes[0].primitives[0].attributes.TANGENT=ai;
+ }
+ doc.buffers[0].byteLength=bin.length;return assembleTextureGLB(doc,bin);
+}
+
+/** Corresponding public LOD vertices, retaining all standard PBR maps and optional tangent bytes. */
+export function publicPBRTexturedLODPair({tangents=true,wrap=10497}={}) {
+ const pair=publicTexturedLODPair();
+ const enhance=source=>{
+  const n=source.readUInt32LE(12),doc=JSON.parse(source.subarray(20,20+n)),original=source.subarray(28+n,28+n+doc.buffers[0].byteLength),image=doc.bufferViews[doc.images[0].bufferView],png=original.subarray(image.byteOffset,image.byteOffset+image.byteLength),parts=[original];let at=original.length;
+  for(let i=0;i<2;i++){doc.images.push({bufferView:doc.bufferViews.length,mimeType:'image/png'});doc.bufferViews.push({buffer:0,byteOffset:at,byteLength:png.length});parts.push(png);at+=png.length;doc.textures.push({source:i+1,sampler:0});}
+  doc.materials=[{doubleSided:false,pbrMetallicRoughness:{baseColorTexture:{index:0},metallicFactor:0,roughnessFactor:.9},normalTexture:{index:1,scale:1},occlusionTexture:{index:2,strength:1}}];doc.samplers[0].wrapS=wrap;doc.samplers[0].wrapT=wrap;
+  if(tangents){const pad=Buffer.alloc((4-at%4)%4);parts.push(pad);at+=pad.length;const count=doc.accessors[0].count,frame=Buffer.alloc(count*16);for(let i=0;i<count;i++){frame.writeFloatLE(1,i*16);frame.writeFloatLE(1,i*16+12);}doc.meshes[0].primitives[0].attributes.TANGENT=doc.accessors.length;doc.accessors.push({bufferView:doc.bufferViews.length,componentType:5126,count,type:'VEC4'});doc.bufferViews.push({buffer:0,byteOffset:at,byteLength:frame.length,target:34962});parts.push(frame);at+=frame.length;}
+  doc.buffers[0].byteLength=at;return assembleTextureGLB(doc,Buffer.concat(parts));
+ };return{full:enhance(pair.full),coarse:enhance(pair.coarse)};
+}
