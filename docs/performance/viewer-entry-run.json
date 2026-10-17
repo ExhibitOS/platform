@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-17",
+  "baseRevision": "61e2baee90216355b6a585311212de505d7685d0",
+  "scope": "First entry and static failure retry only; not full Viewer novice UX completion",
+  "implementation": [
+    "One explicit 관람 시작 uses existing lazy3D entry, placed below title",
+    "Technical publication identity and status recheck retained in details",
+    "Static failed load can retry via same validated source loader; stale generation/timers guarded"
+  ],
+  "sourceHashes": {
+    "apps/web/src/PublicPublication.tsx": "254fe2bda0e38ca92724999c4c51416b396085364c9c6e587579444bf488916e",
+    "apps/web/src/static-publication.tsx": "741d73cbcb31603cc2e6babfac7adc29cb1bac574ac2da5f24c769fe4c82b39f",
+    "apps/web/src/publication-novice.css": "c5a8da13ac9e48d95e79538ab118d79addf6d5e7aa2d49bc99eae68ef2f9f027"
+  },
+  "validation": {
+    "staticBuild": "PASS Vite257modules",
+    "actualChromium": "PASS existing static-publication-browser production fixture",
+    "firstEntryMediaRequests": 0,
+    "staticAloneApiRequests": 0,
+    "externalRequests": 0,
+    "pageErrors": 0,
+    "static3DRender": true,
+    "audioDecode": true,
+    "dynamicFailureKeepsStatic": true,
+    "restoredIndexActualRetryButton": "PASS",
+    "rightsExpiryRemovesViewer": "PASS",
+    "independentSourceReview": "No concrete blocker; source-only review, preserved public rights/access checks",
+    "syntaxAndWhitespace": "PASS"
+  },
+  "artifactDirectory": "/Volumes/ExhibitSSD/ExhibitOS-Backups/viewer-entry-review-20261017-346abc14-dba2-4964-abdf-b9f048488fef",
+  "testPurposePreserved": "Existing scripts use new button label; rights recheck opens actual details or retries error; rights/asset/expiry/focus/zero-eager-media assertions retained",
+  "limits": [
+    "Synthetic local Chromium only; no new Safari/iOS/VoiceOver/novice-user proof",
+    "Viewer controls/technical settings/accessibility novice organization and artwork detail still pending",
+    "This does not redeploy Pages or approve artwork quality"
+  ]
+}

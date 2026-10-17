@@ -9,6 +9,7 @@ import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
+import "./publication-novice.css";
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
@@ -129,27 +130,21 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
         <a className="brand" href="/">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <span>{initial?.local?.kind === "static" ? "고정 공개 전시" : initial ? "고정 전시·오프라인" : "공개 revision preview"}</span>
+        <span>전시 관람</span>
       </header>
       <p role="status" data-testid="public-state">
-        {loading
-          ? "공개 revision을 확인합니다."
-          : error || (initial?.local?.kind === "static" ? "공개 시점의 전시 파일을 확인했습니다. 현재 권리 변경은 게시자가 새 배포로 반영합니다." : initial ? "서명과 유효한 오프라인 표시 기한을 확인했습니다." : "서버가 현재 공개 상태와 전시 권리를 확인했습니다.")}
+        {loading ? "전시를 준비하고 있어요." : error || "관람을 시작하거나 작품 목록을 살펴보세요."}
       </p>
-      <button disabled={loading} onClick={() => void load()}>
-        {initial?.local?.kind === "static" ? "전시 파일 다시 확인" : initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}
-      </button>
+      {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
-          <p className="eyebrow">IMMUTABLE PUBLICATION</p>
+          <p className="eyebrow">EXHIBITION</p>
           <h1>{value.exhibition.title}</h1>
-          <p>공개일 {value.publication.publishedAt}</p>
-          {presentationFor(value.exhibition).credits && (
-            <p>{presentationFor(value.exhibition).credits}</p>
-          )}
-          <p className="cms-note">
-            Revision SHA-256 <code>{value.publication.revisionSha256}</code>
-          </p>
+          {presentationFor(value.exhibition).credits && <p>{presentationFor(value.exhibition).credits}</p>}
+          <div className="publication-entry-actions">
+            {mode === "text" && <button className="publication-enter" ref={entryButton} onClick={() => { modeChanged.current = true; setMode("3d"); }}>관람 시작</button>}
+            <a href="#publication-artworks" onClick={() => document.getElementById("publication-artworks")?.focus()}>작품 목록 보기</a>
+          </div>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 시작 안내</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           <section aria-label="관람 방식과 접근성 설정">
@@ -158,12 +153,12 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <label><input type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} />움직임 줄이기</label>
             <label><input type="checkbox" checked={highContrast} onChange={e => setHighContrast(e.target.checked)} />높은 대비</label>
             <p>처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.</p>
-            {mode === "text" ? <button ref={entryButton} onClick={() => { modeChanged.current = true; setMode("3d"); }}>3D 관람 시작</button> : <>
+            {mode === "3d" && <>
               <button onClick={() => { stopVoice(); setSelectedId(null); setOverview(null); modeChanged.current = true; setMode("text"); }}>글·목록 관람으로 돌아가기</button>
               <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
             </>}
           </section>
-          {mode === "3d" && <Suspense fallback={<p role="status">3D 관람 도구를 불러옵니다. 작품 목록은 계속 사용할 수 있습니다.</p>}>
+          {mode === "3d" && <Suspense fallback={<p role="status">전시를 준비하고 있어요. 기다리는 동안 작품 목록을 볼 수 있어요.</p>}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
               suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
@@ -209,11 +204,15 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
               })}
             </ul>
           </section>
-          <p className="cms-note">
-            3D 관람 시작을 선택하면 공개 승인 snapshot의 공간과 전시용 derivative를 불러옵니다. 걷기 시작을 선택하면 지원되는 공간에서 보행할 수 있습니다.
-            이동이 어려우면 정지 관람과 작품 목록을 이용하세요. 이미 전달된
-            작품 bytes는 복제될 수 있습니다.
-          </p>
+          <p className="cms-note">공간 이동이 어렵다면 작품 목록에서 작품을 선택해 감상할 수 있어요. 소리 없이도 설명을 읽을 수 있어요.</p>
+          <details className="publication-record">
+            <summary>전시 공개 정보</summary>
+            <p>공개일 {value.publication.publishedAt}</p>
+            <p>{initial?.local?.kind === "static" ? "공개 시점의 전시 파일입니다. 권리 변경은 게시자가 새 배포로 반영합니다." : initial ? "서명과 유효한 오프라인 표시 기한을 확인했습니다." : "서버가 현재 공개 상태와 전시 권리를 확인했습니다."}</p>
+            <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
+            <button disabled={loading} onClick={() => void load()}>{initial?.local?.kind === "static" ? "전시 파일 다시 확인" : initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}</button>
+            <p>이미 전달된 작품 파일은 복제될 수 있습니다.</p>
+          </details>
         </article>
       )}
       <footer>
@@ -235,7 +234,7 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
     <header><h2 id="exhibition-overview-title">{mode === "opening" ? "전시 시작 안내" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
     <h3>{publication.exhibition.title}</h3>
-    {mode === "opening" ? <>{textMode && <p>현재 글·목록 관람입니다. 목록에서 작품 설명과 대본을 읽거나 목록 순서 안내를 이용하세요. 공간을 보고 싶으면 안내를 닫고 3D 관람 시작을 선택하세요.</p>}<p>3D 관람에서 걷기 시작 후 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 안내를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
+    {mode === "opening" ? <>{textMode && <p>현재 글·목록 관람입니다. 목록에서 작품 설명과 대본을 읽거나 목록 순서 안내를 이용하세요. 공간을 보고 싶으면 안내를 닫고 관람 시작을 선택하세요.</p>}<p>3D 관람에서 걷기 시작 후 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 안내를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
       <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
       <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
       <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>

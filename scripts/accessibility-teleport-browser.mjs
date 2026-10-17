@@ -28,7 +28,7 @@ export async function runTeleportBrowser({ origin, publicationId, projection }) 
     await page.goto(`${origin}/p/${publicationId}`);
     await expect(page.getByRole("heading",{name:projection.exhibition.title,exact:true})).toBeVisible();
     await expect(page.locator("canvas")).toHaveCount(0);
-    await button("3D 관람 시작").click();
+    await button("관람 시작").click();
     await expect(canvas()).toBeVisible({timeout:30000});
     await expect.poll(async()=>canvas().evaluate(c=>JSON.parse(c.dataset.viewerState??"null")?.loadedAssets??0),{timeout:30000}).toBe(projection.exhibition.artworks.length);
     await expect.poll(async()=>canvas().evaluate(c=>JSON.parse(c.dataset.viewerState??"null")?.scheduler?.active??-1)).toBe(0);

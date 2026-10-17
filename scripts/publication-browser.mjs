@@ -153,11 +153,19 @@ export async function runPublicationBrowser({
       anon.request.get(`${origin}/api/v1/publications/${id}`, {
         headers: { "cache-control": "no-cache" },
       });
+    const recheckPublic = async () => {
+      const retry = publicPage.getByRole("button", { name: "다시 시도", exact: true });
+      if (await retry.count()) { await retry.click(); return; }
+      const details = publicPage.locator("details.publication-record");
+      if (!(await details.evaluate(element => element.open))) await details.locator("summary").click();
+      await publicPage.getByRole("button", { name: "공개 상태 다시 확인", exact: true }).click();
+    };
     const visiblePublic = async () => {
       await expect(publicPage.getByTestId("public-state")).toContainText(
-        "서버가 현재 공개 상태",
+        "관람을 시작하거나 작품 목록",
       );
-      const start3D = publicPage.getByRole("button", { name: "3D 관람 시작", exact: true });
+      await expect(publicPage.locator(".publication-record")).toContainText("서버가 현재 공개 상태");
+      const start3D = publicPage.getByRole("button", { name: "관람 시작", exact: true });
       if (await start3D.count()) await start3D.click();
       await expect(
         publicPage.getByTestId("geometry-render-state"),
@@ -335,7 +343,7 @@ export async function runPublicationBrowser({
           requests.push(new URL(request.url()).pathname),
         );
         await publicPage.goto(`${origin}${publicUrl}`);
-        await publicPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+        await publicPage.getByRole("button", { name: "관람 시작", exact: true }).click();
         await visiblePublic();
         await publicPage
           .getByRole("button", { name: "시작 camera 보기", exact: true })
@@ -461,9 +469,7 @@ export async function runPublicationBrowser({
             (await anon.request.get(`${origin}${asset.url}`)).status(),
             404,
           );
-        await publicPage
-          .getByRole("button", { name: "공개 상태 다시 확인", exact: true })
-          .click();
+        await recheckPublic();
         await expect(publicPage.getByTestId("public-state")).toContainText(
           "공개 전시를 확인할 수 없습니다",
         );
@@ -480,9 +486,7 @@ export async function runPublicationBrowser({
         await expect(page.getByTestId("publication-status")).toContainText(
           "다시 공개했습니다",
         );
-        await publicPage
-          .getByRole("button", { name: "공개 상태 다시 확인", exact: true })
-          .click();
+        await recheckPublic();
         await visiblePublic();
         assert.equal(
           (await (await publicApi(publicationId)).json()).publication
@@ -517,9 +521,7 @@ export async function runPublicationBrowser({
           assert.equal(denied.status(), 404);
           assert.equal(denied.headers()["cache-control"], "no-store");
         }
-        await publicPage
-          .getByRole("button", { name: "공개 상태 다시 확인", exact: true })
-          .click();
+        await recheckPublic();
         await expect(publicPage.getByTestId("public-state")).toContainText(
           "공개 전시를 확인할 수 없습니다",
         );

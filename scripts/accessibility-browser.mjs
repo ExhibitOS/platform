@@ -176,7 +176,7 @@ export async function runAccessibilityBrowser({origin,publicationId,projection,f
       assert.ok(report.entranceP95Ms<=5000,`Text entrance p95 ${report.entranceP95Ms}ms exceeds5000ms target`);
     });
     await check('explicit keyboard3D entry honors reduced motion and text return releases canvas without autoplay',async()=>{
-      const start=button('3D 관람 시작');await activate(start);
+      const start=button('관람 시작');await activate(start);
       await expect(page.getByRole('region',{name:'전시 Viewer',exact:true}).locator('canvas')).toHaveCount(1,{timeout:30000});
       await expect(page.locator('.geometry-preview')).toHaveAttribute('data-reduced-motion','true');
       await activate(button('글·목록 관람으로 돌아가기'));await textReady(page);

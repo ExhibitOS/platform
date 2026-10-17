@@ -118,7 +118,7 @@ export async function runViewerBrowser({
         return route.fulfill({ response, body });
       });
       await testPage.goto(`${origin}/p/${publicationId}`);
-    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+    await testPage.getByRole("button", { name: "관람 시작", exact: true }).click();
       await expect
         .poll(async () => (await state(testPage)).failed, { timeout: 60000 })
         .toBe(4);
@@ -166,7 +166,7 @@ export async function runViewerBrowser({
       await route.fulfill({ response, json: body });
     });
     await testPage.goto(`${origin}/p/${publicationId}`);
-    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+    await testPage.getByRole("button", { name: "관람 시작", exact: true }).click();
     await expect
       .poll(async () => (await state(testPage)).loadedAssets, {
         timeout: 60000,
@@ -195,7 +195,7 @@ export async function runViewerBrowser({
     );
     await testPage.unroute(metadataPath);
     await testPage.goto(`${origin}/p/${publicationId}`);
-    await testPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+    await testPage.getByRole("button", { name: "관람 시작", exact: true }).click();
     await expect.poll(async () => (await state(testPage)).loadedAssets).toBe(4);
     await testPage.route(pattern, async (route) => {
       await new Promise((r) => setTimeout(r, 1500));
@@ -267,7 +267,7 @@ export async function runViewerBrowser({
           window.viewerEntranceMeasurement=measurement;
           document.addEventListener("click",event=>{
             const button=event.target instanceof Element?event.target.closest("button"):null;
-            if(button?.textContent?.trim()==="3D 관람 시작")measurement.optInMs=performance.now();
+            if(button?.textContent?.trim()==="관람 시작")measurement.optInMs=performance.now();
           },true);
           let finishing=false;
           const observer=new MutationObserver(()=>{
@@ -332,7 +332,7 @@ export async function runViewerBrowser({
           assert.equal(publicationAssetRequests.length,0,"Default twenty-artwork text entrance must not request published artwork assets before3D opt-in");
           const textEntranceFinishedRequests=structuredClone(finished);
           const textEntranceAssetRequests=[...publicationAssetRequests];
-          await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+          await page.getByRole("button", { name: "관람 시작", exact: true }).click();
           await expect
             .poll(async () => (await state(page)).loadedAssets, {
               timeout: 60000,
