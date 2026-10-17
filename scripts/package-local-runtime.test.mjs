@@ -43,3 +43,25 @@ else if (args[0] === "image") console.log(JSON.stringify({Os:"linux",Architectur
   assert.equal(invoked.some(args => args[0] === "save"), false);
   await assert.rejects(access(join(parent, "output", "bundle", "manifest.json")));
 });
+
+test("packaging binds the existing maintenance helper as a verified archive without adding a service", { skip: process.platform === "win32" }, async () => {
+  const parent = await fixture(), engine = join(parent, "docker"), calls = join(parent, "calls.jsonl");
+  await writeFile(engine, `#!${process.execPath}
+import { appendFileSync, writeFileSync } from "node:fs";
+const args=process.argv.slice(2);appendFileSync(${JSON.stringify(calls)},JSON.stringify(args)+"\\n");
+if(args[0]==="image" && args[3]==="{{.Id}}")console.log("sha256:"+(args.at(-1).startsWith("exhibitos-maintenance:")?"b":"a").repeat(64));
+else if(args[0]==="image")console.log(JSON.stringify({Os:"linux",Architecture:"arm64"}));
+else if(args[0]==="save")writeFileSync(args[2],args[3]);
+`, { mode:0o700 });
+  const {directory,manifest}=await packageLocalRuntime(join(parent,"output"),{engine,targetPlatform:"linux/arm64"});
+  assert.deepEqual(manifest.services,["platform","database"]);
+  const helper=manifest.images.find(image=>image.archive?.path==="maintenance-image.tar");
+  assert.equal(helper.reference,"sha256:"+"b".repeat(64));
+  const archive=await readFile(join(directory,helper.archive.path));
+  const {createHash}=await import("node:crypto");
+  assert.equal(helper.archive.bytes,archive.length);assert.equal(helper.archive.sha256,createHash("sha256").update(archive).digest("hex"));
+  const composed=JSON.parse(await readFile(join(directory,"compose.yaml"),"utf8"));assert.deepEqual(Object.keys(composed.services),["database","platform"]);
+  const invoked=(await readFile(calls,"utf8")).trim().split("\n").map(line=>JSON.parse(line));
+  assert.equal(invoked.filter(args=>args[0]==="build").length,2);
+  assert(invoked.some(args=>args[0]==="build"&&args.includes(join(process.cwd(),"Dockerfile.maintenance"))));
+});

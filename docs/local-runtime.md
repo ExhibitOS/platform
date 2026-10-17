@@ -15,7 +15,7 @@ node scripts/package-local-runtime.mjs /absolute/new-private-output-directory
 ```
 
 The destination must not exist. The result contains `bundle/manifest.json`,
-`bundle/compose.yaml`, and a real `bundle/platform-image.tar`. The manifest binds
+`bundle/compose.yaml`, a real `bundle/platform-image.tar`, and the existing backup/restore helper in `bundle/maintenance-image.tar`. The helper is built from the same source and requested architecture using `Dockerfile.maintenance`; it is not a running Compose service. The existing manifest `images` entries bind
 the exact Compose bytes and image archive SHA-256/size to the immutable image ID
 returned by the selected engine. Docker29's containerd image store returns the
 OCI index digest; this is not the lower-level image configuration digest. The
