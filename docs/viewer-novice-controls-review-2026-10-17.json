@@ -1,0 +1,95 @@
+{
+  "scope": "Existing T04 Viewer control and artwork detail presentation; no new navigation engine, account, permissions, support target or release gate. Public entry/retry remains separately implemented.",
+  "baseline": "b013d28",
+  "status": "implemented; local type/lint/unit and relevant Chromium React/static checks passed; complete Viewer novice/support qualification still pending",
+  "principles": [
+    "Default scene, artwork selection and sound controls first.",
+    "Optional controls remain mounted behind progressive disclosure; active work or failure keeps relevant recovery visible.",
+    "Artist description and clear exhibition return precede technical provenance/coordinate details."
+  ],
+  "preserved": [
+    "Public rights, revision and expiry checks",
+    "Anonymous/static independence",
+    "Default automatic quality budget",
+    "Audio opt-in, mute, transcripts and active stop control",
+    "Existing runtime hooks, scene state and detail camera/focus restoration",
+    "Credit line, rights, creation year, translations and original provenance"
+  ],
+  "verification": {
+    "webTypecheck": "PASS Node24.21.0 tsc --noEmit -p apps/web/tsconfig.json; session3755 exit0",
+    "scopedESLint": "PASS 0 warnings; session64268 exit0",
+    "existingViewerUnit": {
+      "files": 9,
+      "tests": 72,
+      "seconds": 1.14,
+      "session": 64014,
+      "exit": 0
+    },
+    "diffCheck": "PASS",
+    "browser": {
+      "metric": {
+        "result": "PASS",
+        "session": 30931,
+        "exit": 0,
+        "browser": "153.0.8010.12",
+        "scope": "Actual React PublicPublication/Viewer/Geometry/ArtworkDetail controls and lifecycle; synthetic replay endpoints (optional exact real-HTTP public snapshot), not a live server or physical proof",
+        "keyboard": "Four optional settings initially collapsed; sound enable visible; Enter opens/closes display disclosure",
+        "rights": "Authoritative unavailable fixture removes detail and scene",
+        "externalRequests": 0,
+        "pageErrors": []
+      },
+      "staticBuild": {
+        "result": "PASS",
+        "session": 14661,
+        "exit": 0,
+        "seconds": 0.439,
+        "warning": "Existing large-chunk warning; no budget policy changed"
+      },
+      "staticBrowser": {
+        "result": "PASS",
+        "session": 24264,
+        "exit": 0,
+        "synthetic": true,
+        "staticAloneApiRequests": 0,
+        "firstEntryMediaRequests": 0,
+        "optionalDynamicFailureKeepsStatic": true,
+        "audioDecode": true,
+        "indexTamperRejected": true,
+        "knownRightsExpiryClosesViewer": true,
+        "pageErrors": []
+      }
+    },
+    "physicalIOS": "NOT_RUN",
+    "nativeSafari": "NOT_RUN",
+    "VoiceOver": "NOT_RUN",
+    "noviceUserObservation": "NOT_RUN",
+    "independentSourceReview": "Root reviewed state/hooks/rights/always-mounted controls and active recovery visibility; no concrete blocker"
+  },
+  "sourceSHA256": {
+    "apps/web/src/Viewer.tsx": "ec01d56d33017524c3b63968f1049ecb882113b2cf14c42c8b70f540cb9ddf2a",
+    "apps/web/src/viewer/AudioControls.tsx": "65f9cc2afc05bebffc41e4248e1b67bd3871c589c34e90d6a03407fd68a59c5a",
+    "apps/web/src/ArtworkDetail.tsx": "093644d0ef30350d27c410bd1218f2a5512ee6c9997af4bfc3c5f2934d98b0b7",
+    "apps/web/src/publication-novice.css": "b0e7e8276a15c06e828316cb61a6e97e105e15564720e220b727d699a6ca76e7",
+    "apps/web/src/artwork-detail.css": "241650e941fcb3718799b423d20a743abea76dda86cdf7ced68842c2a22f588f",
+    "apps/web/src/GeometryPreview.tsx": "ce2c0bda27f6033a322761f92179d7fe54b919f959844f8a005a01e3737bcf36",
+    "apps/web/src/WalkingControls.tsx": "b99b888e5f2e5a2ec52fed931808f2d99662c9e9c79b885f990db701a87c0290",
+    "apps/web/src/PublicPublication.tsx": "254fe2bda0e38ca92724999c4c51416b396085364c9c6e587579444bf488916e",
+    "scripts/test-metric-previews.mjs": "6edaf2da8c000c9602204984666a9740941eab12f9c8489c6131e3968bacd7f0",
+    "scripts/static-publication-browser.mjs": "f691dbc7728b92eb25276906178cb0da40b7203ad94ed9cc24419f7b559242b4"
+  },
+  "sharedFilesNotEdited": [
+    "GeometryPreview.tsx",
+    "WalkingControls.tsx",
+    "PublicPublication.tsx",
+    "style.css",
+    "Studio/placement editors"
+  ],
+  "testPolicy": "Existing assertions retained; action labels and explicit opening of collapsed settings updated. No runtime checks removed.",
+  "remaining": [
+    "Shared GeometryPreview/WalkingControls default technical controls and help remain separate root-owned work; this vertical is not full Viewer novice completion.",
+    "Native Safari/macOS and physical iOS browser input/VoiceOver/novice-user observation were not performed.",
+    "DB-backed optional social/script browser cases changed only labels/disclosure-open steps; not rerun in this vertical because actual DB engine path is separately unavailable.",
+    "Scoped Git integration pending."
+  ],
+  "evidenceDirectory": "/Volumes/ExhibitSSD/ExhibitOS/.local/verification/viewer-novice-20261017-c9246237-967f-484f-88e8-634194f04b9b"
+}

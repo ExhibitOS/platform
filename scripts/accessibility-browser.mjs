@@ -90,7 +90,7 @@ export async function runAccessibilityBrowser({origin,publicationId,projection,f
         await expect(dialog.getByRole('region',{name:'작가 음성 및 대본',exact:true})).toBeVisible();
         const experience=projection.exhibition.extensions?.['org.exhibitos.viewer/experience'];
         for(const voice of experience?.voices??[])if(voice.placementId.toLowerCase()===placement.id.toLowerCase())await expect(dialog.getByText(voice.transcript,{exact:false})).toBeVisible();
-        await activate(dialog.getByRole('button',{name:'상세 보기 닫기',exact:true}));
+        await activate(dialog.getByRole('button',{name:'전시로 돌아가기',exact:true}));
         await expect(dialog).toHaveCount(0);await expect(opener).toBeFocused();
       }
       await activate(button('전시 크레딧'));await expect(page.getByRole('dialog')).toBeVisible();

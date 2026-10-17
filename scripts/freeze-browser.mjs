@@ -115,6 +115,7 @@ export async function runFreezeBrowser({ origin, tenantId, subject, password, bu
       await button("소리 켜기").click();
       const audio = () => page.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState));
       await expect.poll(async () => (await audio()).loaded).toBeGreaterThan(0); assert((await audio()).decodedBytes > 0);
+      await page.locator("details.viewer-audio-settings > summary").click();
       await page.getByRole("button", { name: /^공간 소리 재생 / }).click(); await expect.poll(async () => (await audio()).active).toBeGreaterThan(0);
       assert.deepEqual(assetRequests, []);
     });

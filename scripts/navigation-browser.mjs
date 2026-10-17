@@ -513,6 +513,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
         await page.evaluate(
           () => (window.oldWalkCanvas = document.querySelector("canvas")),
         );
+        await page.locator("details.viewer-display-settings > summary").click();
         await page
           .getByLabel("Viewer 품질", { exact: true })
           .selectOption("compact");

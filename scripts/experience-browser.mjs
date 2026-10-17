@@ -40,7 +40,7 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
     await writeFile(`${dir}/failure.json`, JSON.stringify(diagnostic, null, 2) + "\n");
     console.error(JSON.stringify({ experienceFailure: diagnostic, reportPath }, null, 2));
   };
-  const load = async () => { await page.goto(`${origin}/p/${publicationId}`); await expect(page.getByRole("heading", { name: projection.exhibition.title, exact: true })).toBeVisible(); await button("관람 시작").click(); await expect(page.getByTestId("audio-state")).toBeVisible(); };
+  const load = async () => { await page.goto(`${origin}/p/${publicationId}`); await expect(page.getByRole("heading", { name: projection.exhibition.title, exact: true })).toBeVisible(); await button("관람 시작").click(); await expect(page.getByTestId("audio-state")).toBeVisible(); await expect(page.locator("details.viewer-display-settings")).not.toHaveAttribute("open"); await expect(page.locator("details.viewer-social-settings")).not.toHaveAttribute("open"); await page.locator("details.viewer-audio-settings > summary").click(); };
   const pause = async () => { await page.keyboard.press("Escape"); await expect.poll(async () => (await nav())?.paused).toBe(true); };
   try {
     await load();

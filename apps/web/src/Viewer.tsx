@@ -13,7 +13,7 @@ import { spatialProgramFor, spatialScopeFor, experienceFor } from "@exhibitos/st
 import { ScriptSession, type ScriptScene, type ScriptState } from "./viewer/scripting";
 import { ScriptEdges } from "./viewer/scripting-events";
 import { ScriptControls } from "./viewer/ScriptControls";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { GuideRequest } from "./GuidedRoutes";
 import { GeometryPreview } from "./GeometryPreview";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
@@ -180,32 +180,7 @@ export function Viewer({
   );
   return (
     <section aria-label="전시 Viewer">
-      {!publication.local && <fieldset>
-        <legend>관람 연구 통계</legend>
-        <label><input type="checkbox" checked={analyticsConsent} onChange={event => {
-          analyticsConsentRef.current = event.target.checked;
-          setAnalyticsConsent(event.target.checked);
-          analytics.current?.setConsent(event.target.checked);
-        }} />이 관람의 집계에 동의합니다</label>
-        <p>방문·관람 세션·방 입장·화면에 보인 전시 및 작품 시간·완료 횟수만 집계합니다. 이동 경로나 개인 식별자는 저장하지 않습니다. 로그인한 경우 계정의 통계 동의도 필요합니다. 동의를 끄면 전송을 중단합니다.</p>
-        <button disabled={!analyticsConsent} onClick={() => { analytics.current?.flush(); analytics.current?.complete(); }}>관람 완료 기록</button>
-      </fieldset>}
-      <p>내보내기 허락이 바뀌면 이 페이지의 AR 링크를 닫습니다. 이미 기기에 열린 파일이나 내려받은 사본은 회수할 수 없습니다.</p>
-      <label>
-        Viewer 품질
-        <select
-          aria-label="Viewer 품질"
-          value={profile}
-          onChange={(e) => setProfile(e.target.value as typeof profile)}
-        >
-          <option value="auto">기기 예산 자동 선택</option>
-          <option value="compact">절약 · 낮은 해상도</option>
-          <option value="desktop">균형 · 높은 해상도</option>
-        </select>
-      </label>
-      <label>AR 작품 선택 · 로딩이 완료된 승인 작품만<select aria-label="실제 크기 AR 작품 선택" value={xrSelected} onChange={e=>{void xr.current?.stop();xrSelection.current=e.target.value;setXrSelected(e.target.value);}}><option value="">작품을 직접 선택하세요</option>{xrArtworks.map(a=><option key={a.revisionId} value={a.revisionId}>{a.label}</option>)}</select></label>
-      {publication.local&&<p>오프라인 저장본의 현재 내보내기 허락을 확인할 수 없어 USDZ 내보내기는 사용할 수 없습니다.</p>}
-      <XrControls runtime={xr.current} state={xrState} reducedMotion={reducedMotion??presenceReduced.current} disabled={suspendNavigation}/>
+      <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       <GeometryPreview
         onXrReady={xrReady}
         onXrArtworks={xrLoaded}
@@ -237,15 +212,60 @@ export function Viewer({
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
+      <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
+      <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
+        <p>기기에 맞는 설정을 자동으로 사용해요. 화면이 느리거나 선명도를 바꾸고 싶을 때 조정하세요.</p>
+      <label>
+        Viewer 품질
+        <select
+          aria-label="Viewer 품질"
+          value={profile}
+          onChange={(e) => setProfile(e.target.value as typeof profile)}
+        >
+          <option value="auto">기기 예산 자동 선택</option>
+          <option value="compact">절약 · 낮은 해상도</option>
+          <option value="desktop">균형 · 높은 해상도</option>
+        </select>
+      </label>
+      </ViewerDisclosure>
+      <ViewerDisclosure title="함께 관람 설정" className="viewer-social-settings" active={(presenceState?.status !== undefined && presenceState.status !== 'solo') || (openingState?.status !== undefined && openingState.status !== 'solo')}>
+        <p>직접 선택할 때만 연결해요. 연결하지 않아도 작품 관람은 계속할 수 있어요.</p>
       <OpeningControls session={opening.current} state={openingState} offline={!!publication.local} viewpoints={presentationFor(publication.exhibition).viewpoints} audioReady={node=>{openingAudio.current=node;}}/>
       <RealtimeControls state={presenceState} offline={!!publication.local} join={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.join();}} retry={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.retry();}} leave={()=>{presence.current?.leave();presenceScene.current?.clear();}}/>
-      <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
-      {scriptProgram.rules.length>0&&<ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>}
-      <p className="cms-note">
-        입구에 가까운 작품부터 불러옵니다. 다음 묶음과 상세 품질은 직접 요청할
-        수 있습니다. 기기 품질은 texture·3D geometry·화면 해상도 예산을 함께
-        조정합니다. 목록 보기는 그래픽 없이 사용할 수 있습니다.
-      </p>
+      </ViewerDisclosure>
+      {scriptProgram.rules.length>0&&<ViewerDisclosure title="전시의 추가 연출" className="viewer-script-settings" active={scriptState?.enabled === true}>
+
+      <ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>
+      </ViewerDisclosure>}
+      <ViewerDisclosure title="추가 관람 도구" className="viewer-xr-settings" active={xrState?.phase === 'requesting' || xrState?.phase === 'active' || xrState?.phase === 'error' || xrState?.exporting === true || !!xrState?.quickLookURL}>
+        <p>일반 관람에는 필요하지 않아요. 아래 도구의 실제 지원 여부와 제한을 확인해 주세요.</p>
+      <p>내보내기 허락이 바뀌면 이 페이지의 AR 링크를 닫습니다. 이미 기기에 열린 파일이나 내려받은 사본은 회수할 수 없습니다.</p>
+      <label>AR 작품 선택 · 로딩이 완료된 승인 작품만<select aria-label="실제 크기 AR 작품 선택" value={xrSelected} onChange={e=>{void xr.current?.stop();xrSelection.current=e.target.value;setXrSelected(e.target.value);}}><option value="">작품을 직접 선택하세요</option>{xrArtworks.map(a=><option key={a.revisionId} value={a.revisionId}>{a.label}</option>)}</select></label>
+      {publication.local&&<p>오프라인 저장본의 현재 내보내기 허락을 확인할 수 없어 USDZ 내보내기는 사용할 수 없습니다.</p>}
+      <XrControls runtime={xr.current} state={xrState} reducedMotion={reducedMotion??presenceReduced.current} disabled={suspendNavigation}/>
+      </ViewerDisclosure>
+      {!publication.local&&<ViewerDisclosure title="관람 통계 선택" className="viewer-analytics-settings" active={analyticsConsent}>
+      <fieldset>
+        <legend>관람 연구 통계</legend>
+        <label><input type="checkbox" checked={analyticsConsent} onChange={event => {
+          analyticsConsentRef.current = event.target.checked;
+          setAnalyticsConsent(event.target.checked);
+          analytics.current?.setConsent(event.target.checked);
+        }} />이 관람의 집계에 동의합니다</label>
+        <p>방문·관람 세션·방 입장·화면에 보인 전시 및 작품 시간·완료 횟수만 집계합니다. 이동 경로나 개인 식별자는 저장하지 않습니다. 로그인한 경우 계정의 통계 동의도 필요합니다. 동의를 끄면 전송을 중단합니다.</p>
+        <button disabled={!analyticsConsent} onClick={() => { analytics.current?.flush(); analytics.current?.complete(); }}>관람 완료 기록</button>
+      </fieldset>
+      </ViewerDisclosure>}
+      <p className="cms-note">가까운 작품부터 불러와요. 나머지 작품을 불러오는 중에도 감상을 계속할 수 있어요. 소리 없이도 작품 설명을 읽을 수 있어요.</p>
     </section>
   );
+}
+
+/** Keep optional runtimes mounted; active work and recovery actions stay visible. */
+function ViewerDisclosure({ title, className, active = false, children }: { title: string; className: string; active?: boolean; children: ReactNode }) {
+  const [expanded, setExpanded] = useState(false);
+  return <details className={`viewer-options ${className}`} open={expanded || active} onToggle={event => {
+    if (active && !event.currentTarget.open) { event.currentTarget.open = true; return; }
+    setExpanded(event.currentTarget.open);
+  }}><summary>{title}{active && <span className="viewer-options-active"> · 사용 중 또는 확인 필요</span>}</summary>{children}</details>;
 }

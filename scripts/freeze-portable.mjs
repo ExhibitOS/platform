@@ -53,7 +53,7 @@ export async function runPortableFreeze({ bundle, shortBundle }) {
       await expect(page.getByRole("button", { name: "고정 전시 열기", exact: true })).toHaveCount(1);
       await page.getByRole("button", { name: "고정 전시 열기", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Synthetic OEX preservation exhibition", exact: true })).toBeVisible();
-      await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+      await page.getByRole("button", { name: "관람 시작", exact: true }).click();
       await expect(page.getByTestId("audio-state")).toBeVisible();
       for (const title of ["Original OEX sculpture", "Original OEX image"]) {
         await page.getByRole("button", { name: `${title} 상세 보기`, exact: true }).click(); await expect(page.getByRole("dialog").locator("canvas")).toHaveCount(1, { timeout: 30000 }); await page.keyboard.press("Escape");
@@ -78,9 +78,10 @@ export async function runPortableFreeze({ bundle, shortBundle }) {
       await expect(expiryPage.getByRole("button", { name: "고정 전시 열기", exact: true })).toBeVisible();
       await expiryPage.getByRole("button", { name: "고정 전시 열기", exact: true }).click();
       await expect(expiryPage.getByRole("button", { name: "오프라인 관람 닫기", exact: true })).toBeVisible();
-      await expiryPage.getByRole("button", { name: "3D 관람 시작", exact: true }).click(); await expect(expiryPage.getByTestId("audio-state")).toBeVisible();
+      await expiryPage.getByRole("button", { name: "관람 시작", exact: true }).click(); await expect(expiryPage.getByTestId("audio-state")).toBeVisible();
       await expiryPage.getByRole("button", { name: "소리 켜기", exact: true }).click();
       await expect.poll(() => expiryPage.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState).loaded)).toBeGreaterThan(0);
+      await expiryPage.locator("details.viewer-audio-settings > summary").click();
       await expiryPage.getByRole("button", { name: /^공간 소리 재생 / }).click();
       await expect.poll(() => expiryPage.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState).active)).toBeGreaterThan(0);
       const remaining = Date.parse(expiring.authorization.grant.expiresAt) - Date.now(); assert(remaining > 0 && remaining < 15000);
