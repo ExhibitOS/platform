@@ -25,7 +25,7 @@ export interface PublicAsset {
   mime: string;
 }
 /** Only constructed by verified offline preparation; never accepted from HTTP JSON. */
-export interface LocalPublicationSource {kind?: "static"; fetcher: typeof fetch; check(): Promise<void>}
+export interface LocalPublicationSource {kind?: "static"; dynamic?: boolean; fetcher: typeof fetch; check(): Promise<void>}
 export interface PublicPublication {
   local?: LocalPublicationSource;
   publication: {
