@@ -33,4 +33,12 @@ The public base OES schema has no surface PBR fields. Platform stores optional a
 
 The local Three.js preview shows room and surface transforms, rectangular wall cutouts and PBR appearance. Keyboard camera controls provide discrete movement with no continuous animation. The selected-face camera views the outward side of a surface so opposite room walls do not obscure its openings. Preview is qualified to 32 rooms, 256 surfaces, 128 openings, 8192 generated rectangular panels and numeric bounds within 10 km. Larger valid documents remain editable as JSON and preserved, with an explicit unavailable-preview message.
 
-This is a geometry inspection view. It does not implement the later artwork-placement editor, Viewer, curved walls, staircases, wall thickness, collision physics or imported mesh rooms. Render material behavior depends on lighting and browser WebGL availability.
+This is an authoring inspection view, separate from the public Viewer. Artwork placement shares the same document and commands as described in [Studio placement](studio-placement.md). It does not certify collision safety, architectural suitability or arbitrary imported mesh-room editing. Render material behavior depends on lighting and browser WebGL availability.
+
+## Plan and 3D direct editing
+
+The editor shows a top-down plan and 3D preview together. Choose **이동** or **회전**, then select a room, surface, opening or artwork. The shared selection also appears in the existing element list and numeric fields. Narrow windows can switch between **평면도** and **3D**. Blank-plan or middle-button dragging pans the plan; zoom and **전체 보기** change only the view.
+
+Plan movement preserves the existing parent-local height and tilt. Openings move along their existing wall and retain their vertical offset. A uniquely aligned artwork stays on that wall; ambiguous alignment requires the existing numeric controls. The 3D handles use the same validated transform commands; room dimensions are not transform scale. Room/surface dimension handles are not provided by this change. Existing dimension fields remain the way to change those sizes.
+
+Dragging changes a temporary preview. Pointer release commits one validated command and one undo entry; Esc, pointer cancellation, window blur or draft replacement cancel the temporary change. Selection and view changes do not save an edit. Numeric/keyboard editing, local CAS autosave, server revision checks and immutable public snapshots keep their existing behavior. **편집할 때 공간을 투명하게 보기** changes only the authoring view, not saved materials or the public Viewer.

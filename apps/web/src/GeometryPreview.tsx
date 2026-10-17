@@ -1,3 +1,6 @@
+import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
+import {selectionKey} from './geometry/direct-edit';
+import {installPreviewEditing} from './geometry/preview-editing';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
@@ -40,10 +43,7 @@ export interface DetailEntryActions {
   prepare: () => void;
   commit: (pointer: boolean) => void;
 }
-export interface GeometrySelection {
-  kind: "room" | "surface" | "opening";
-  id: string;
-}
+export type GeometrySelection=EditorSelection;
 
 // Partition centered XY rectangles instead of triangulating holes that touch a
 // wall edge. A floor-level door is an actual empty region in the rendered wall.
@@ -103,6 +103,7 @@ function panels(
 export function GeometryPreview({
   document,
   selection,
+  editing,
   appearance,
   session,
   publicSource,
@@ -129,6 +130,7 @@ export function GeometryPreview({
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
   document: Document;
+  editing?:EditorBridge;
   viewerBudget?: DeviceBudget;
   suspendNavigation?: boolean;
   onNavigationState?: (state: NavigationState) => void;
@@ -157,6 +159,12 @@ export function GeometryPreview({
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
+  const [transparentSpace,setTransparentSpace]=useState(false);
+  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
+  const selectionRef=useRef(selection);selectionRef.current=selection;
+  const editingRef=useRef(editing);editingRef.current=editing;
+  const editingSync=useRef<(()=>void)|null>(null);
+  useEffect(()=>{editingSync.current?.();},[editing,selection]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
   const [xrRunning,setXrRunning]=useState(false);
@@ -314,6 +322,7 @@ export function GeometryPreview({
       if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100) as [number,number,number]);sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20, 30, 25);
       renderer.domElement.dataset.daylight=JSON.stringify(daylight?{...daylight,direction:daylightDirection(daylight),effectiveIntensity:sun.intensity}:null);
       scene.add(sun);
+      const editTargets=new Map<string,InstanceType<typeof three.Object3D>>();
       const rooms = new Map<string, InstanceType<typeof three.Group>>(),
         surfaces = new Map<string, InstanceType<typeof three.Group>>();
       const pose = (
@@ -327,6 +336,7 @@ export function GeometryPreview({
       for (const room of document.rooms) {
         const group = new three.Group();
         pose(group, room.transform);
+        group.userData.editorSelection={kind:"room",id:room.id};editTargets.set(selectionKey(group.userData.editorSelection),group);
         rooms.set(room.id.toLowerCase(), group);
         model.add(group);
         const box = new three.BoxGeometry(
@@ -337,9 +347,7 @@ export function GeometryPreview({
           edges = new three.EdgesGeometry(box);
         const material = new three.LineBasicMaterial({
           color:
-            selection?.kind === "room" && selection.id === room.id
-              ? "#765723"
-              : "#829180",
+            "#829180",
         });
         const outline = new three.LineSegments(edges, material);
         outline.position.y = room.dimensions.height / 2;
@@ -349,6 +357,7 @@ export function GeometryPreview({
       document.surfaces.forEach((surface, index) => {
         const group = new three.Group();
         pose(group, surface.transform);
+        group.userData.editorSelection={kind:"surface",id:surface.id};editTargets.set(selectionKey(group.userData.editorSelection),group);
         surfaces.set(surface.id.toLowerCase(), group);
         rooms.get(surface.roomId.toLowerCase())?.add(group);
         const looks = appearance(surface.id),
@@ -360,6 +369,7 @@ export function GeometryPreview({
             roughness: looks.roughness,
             metalness: looks.metalness,
             side: three.DoubleSide,
+            transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace,
           });
         owned.push(material);
         for (const rectangle of rectangles[index]!) {
@@ -372,16 +382,7 @@ export function GeometryPreview({
           group.add(mesh);
           owned.push(geometry);
         }
-        if (selection?.kind === "surface" && selection.id === surface.id) {
-          const shape = new three.PlaneGeometry(
-              surface.dimensions.width,
-              surface.dimensions.height,
-            ),
-            edges = new three.EdgesGeometry(shape),
-            line = new three.LineBasicMaterial({ color: "#765723" });
-          group.add(new three.LineSegments(edges, line));
-          owned.push(shape, edges, line);
-        }
+
       });
       for (const opening of document.openings) {
         const geometry = new three.PlaneGeometry(
@@ -390,12 +391,10 @@ export function GeometryPreview({
           ),
           edges = new three.EdgesGeometry(geometry);
         const material = new three.LineBasicMaterial({
-            color:
-              selection?.kind === "opening" && selection.id === opening.id
-                ? "#d45222"
-                : "#203d2c",
+            color:"#203d2c",
           }),
           line = new three.LineSegments(edges, material);
+        line.userData.editorSelection={kind:"opening",id:opening.id};editTargets.set(selectionKey(line.userData.editorSelection),line);
         line.position.set(opening.offset[0], opening.offset[1], 0.002);
         surfaces.get(opening.surfaceId.toLowerCase())?.add(line);
         owned.push(geometry, edges, material);
@@ -410,6 +409,7 @@ export function GeometryPreview({
         if (!artwork) continue;
         const group = new three.Group();
         group.userData.placementId = placement.id;
+        group.userData.editorSelection={kind:"placement",id:placement.id};editTargets.set(selectionKey(group.userData.editorSelection),group);
         pose(group, placement.transform);
         rooms.get(placement.roomId.toLowerCase())?.add(group);
         placements.set(placement.id.toLowerCase(), group);
@@ -584,7 +584,8 @@ export function GeometryPreview({
           );
           camera.fov = savedCamera.fov;
           camera.updateProjectionMatrix();
-        } else if (kind === "front" && selection) {
+        } else if (kind === "front" && selectionRef.current) {
+          const selection=selectionRef.current;
           const surfaceId =
             selection.kind === "surface"
               ? selection.id
@@ -695,6 +696,7 @@ export function GeometryPreview({
           ? "start"
           : "isometric",
       );
+      if(editingRef.current&&editorCamera.current?.documentId===document.id){const saved=editorCamera.current;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);controls.update();render();}
       setMessage(
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
@@ -703,8 +705,12 @@ export function GeometryPreview({
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
       const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
+      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,render}):null;
+      editingSync.current=()=>editor?.sync();
       release = () => {
+        if(editingRef.current)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
+        editor?.dispose();editingSync.current=null;
         walkingRelease();
         orbitEnabled.current = null;
         renderer.domElement.removeEventListener("click",pick);
@@ -1381,15 +1387,16 @@ export function GeometryPreview({
     };
   }, [
     document,
-    selection,
     appearance,
     session,
     publicSource,
     viewerBudget,
     restart,
+    transparentSpace,
   ]);
   return (
     <figure data-reduced-motion={walkSettings.reducedMotion} className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
+      {editing&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       <div className="geometry-stage">
         <div ref={host} />
         {viewerBudget && walkingMode && (

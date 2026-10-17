@@ -1,0 +1,96 @@
+{
+  "scope": "T03-02/T03-03 existing Studio direct-edit artwork vertical; registered full Studio UX remains incomplete",
+  "base_head": "03aed4f42eec3c95de10369a923d8f77f99f5822",
+  "source_sha256": {
+    "apps/web/src/GeometryEditor.tsx": "292207e567dec4a45833bdeba7481cd7cfb7938a4ef3c84b34df5b9630c1a404",
+    "apps/web/src/GeometryPreview.tsx": "bb0391144e0ac689a98acfa6f03347669a7ddfb9fd5c4fcac7e688929eda821f",
+    "apps/web/src/PlacementEditor.tsx": "2e6bf4b622bc009aa7eac04c9a42b0aadeb168b49acd54dc8802b1c0800bc644",
+    "apps/web/src/StudioFloorPlan.tsx": "1b714569f1ca62410f31539e47adfc3795fe11491a3bdfb64130e59edd28d957",
+    "apps/web/src/geometry/direct-edit.ts": "613759c853ae0ab863368d3ebab3c0405bc269ab89e0137e6427d0a981accad4",
+    "apps/web/src/geometry/preview-editing.ts": "384fcb09fe7c55fb68cf75a977420bb7ee4a74b1abc6eefa4fabe4cb5b0a67b2",
+    "apps/web/src/geometry/direct-edit.test.ts": "a1848c222d1af17c16af7480856080bfee4d088aacd99cc8f836d9a25d359445",
+    "apps/web/src/style.css": "690c8439f243eb3c73aa009ad26930e91ef7f13feb7c18b1c2c277c0e30bca58",
+    "scripts/studio-direct-browser.mjs": "ac559ba68c235b32acdf5d77676788e7fb90d65c633fa7a2cd5421e8bdfc4191",
+    "scripts/geometry-browser.mjs": "bde53c9341c0c8752f87405e7259afe01bc99ef2c0f627e7fa56972c525fe4e4",
+    "docs/studio-geometry.md": "2b7bbff467bbb43cf6bd553c0a1780c603ffab2e5bc690614a16306bded67a34",
+    "docs/studio-placement.md": "6069b2e0ae898d020cf1953cb9d91572b52e217fd74b7da258a5a4b95459ebce"
+  },
+  "proof_root": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55",
+  "implementation": [
+    "one shared selection, validated OES commands, undo and CAS save path for plan/3D/numeric controls",
+    "temporary drag preview; one pointer release gives one command; Esc/pointercancel/window blur/context switch cancel",
+    "plan world XZ movement preserves parent-local height/tilt/scale, existing unique wall alignment and bounds",
+    "3D local translation/rotation; no normal-Z or rotation handle for wall-constrained placement; opening local XY movement only",
+    "opaque surfaces default; optional editor-only transparency preserves saved materials; nearest hit selection prevents through-wall picking",
+    "numeric and keyboard paths remain; plan pan/zoom and narrow view switching do not edit document"
+  ],
+  "verification": {
+    "typecheck": "pass exit 0",
+    "selected_eslint": "pass exit 0",
+    "pure_geometry_placement_tests": {
+      "files": 3,
+      "tests": 16,
+      "result": "pass exit 0"
+    },
+    "production_build": "pass exit 0; existing chunk-size/dynamic-import warnings retained",
+    "actual_chromium_direct": {
+      "result": "pass exit 0",
+      "checks": [
+        "plan artwork selection shares numeric fields and selection with 3D",
+        "real plan mouse drag in rotated room preserves height and tilt; one undo restores exact transform",
+        "real horizontal rotation preserves position and tilt data and undo restores once",
+        "plan escape cancels temporary drag without saving",
+        "plan cancel cancels temporary drag without saving",
+        "plan blur cancels temporary drag without saving",
+        "save and reopen keep both views and numeric state synchronized",
+        "real 3D translation handle updates same draft and undo restores once",
+        "3D Escape restores transform and finishes camera drag before pointer release",
+        "real 3D rotation handle shares one undo history",
+        "3D cancel restores saved transform",
+        "3D blur restores saved transform",
+        "changing draft with a held pointer cancels temporary edit and late pointerup cannot modify either draft"
+      ],
+      "page_errors": [],
+      "fixture": "synthetic artwork metadata and metric bounds, not real model bytes",
+      "viewports": [
+        "1600x1100",
+        "390x844"
+      ],
+      "screenshots_visually_reviewed": true
+    },
+    "existing_geometry_browser": {
+      "result": "pass 6 workflows before final ray-pick/label/wall-handle adjustments",
+      "log": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/studio-direct-legacy.log",
+      "reuse_limit": "Existing material/opening/lighting/offline assertions remain unchanged; no claim that this earlier run validates later ray selection. Final source ray selection is covered by the pure nearest-hit regression and final direct browser covers drag lifecycle."
+    },
+    "diff_check": "pass; owned files only"
+  },
+  "resolved_regressions": [
+    {
+      "finding": "Automatic authoring transparency changed material inspection pixels",
+      "resolution": "Restored opaque default; explicit preview-only transparency option; preserved legacy red-wall threshold."
+    },
+    {
+      "finding": "Advanced-lighting browser test could no longer reach hidden controls",
+      "resolution": "Open the actual details summary before the same existing lighting assertions; no assertion weakened."
+    },
+    {
+      "finding": "3D pointercancel harness sent default pointerId 0 for a mouse pointer 1 and produced a Three OrbitControls error",
+      "resolution": "Use the observed mouse pointer identity in the actual DOM cancellation event; final 13 flows and page-error-free assertion pass."
+    },
+    {
+      "finding": "Click picking prioritized any artwork over nearer opaque wall",
+      "resolution": "Choose the closest eligible hit; smaller-target preference only at coincident hit distances, with pure regression."
+    }
+  ],
+  "not_completed": [
+    "Full registered Studio novice/import/public-preparation UX is not completed by this artwork vertical.",
+    "Room/surface dimension resize handles and complete object-by-object space/opening direct-edit GUI qualification remain.",
+    "Existing wall-alignment rules have pure regression; actual wall-aligned/rotated wall drag needs browser qualification.",
+    "Safari and physical iOS/touch/VoiceOver/new-user usability have not been run.",
+    "Actual approved CMS GLB/PNG drag and permission/published-revision UI regression has not been newly run in this slice.",
+    "Long plan labels and dense-scene touch targets need remaining GUI review; full names remain available in the shared list and accessible name.",
+    "No public Viewer handle/UI claim from this Studio browser; editor-only installation guard is source-reviewed."
+  ],
+  "preservation": "No user artwork/original/model/key/backup, server authorization, OES storage format or task IDs were modified."
+}

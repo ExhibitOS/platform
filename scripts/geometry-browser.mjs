@@ -341,6 +341,7 @@ export async function runGeometryBrowser() {
       await qualifyDraftEditors();
       await page.getByRole("button",{name:"두 방 template 복제",exact:true}).click();await saved();
       const template=await candidate();assert.equal(template.rooms.length,2);
+      await page.getByText('숫자로 정밀 조정·작품 가져오기·조명',{exact:true}).click();
       await page.getByRole('button',{name:'area 조명 추가',exact:true}).click();await page.getByLabel('Area 폭(m)',{exact:true}).fill('2');await page.getByRole('button',{name:'조명 속성 적용',exact:true}).click();await saved();
       await page.getByRole('button',{name:'directional 조명 추가',exact:true}).click();await saved();
       const artificial=await candidate();assert.equal(artificial.lights.find(l=>l.type==='area').unit,'lumen');assert.equal(artificial.lights.find(l=>l.type==='area').dimensions.width,2);assert.equal(artificial.lights.find(l=>l.type==='directional').unit,'lux');assert.equal(template.openings.filter(o=>o.type==='window').length,1);

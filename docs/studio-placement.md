@@ -2,6 +2,12 @@
 
 Open `/studio`, create or reopen a local draft and create a room. The placement controls use the same full validated public OES document, command undo/redo, local CAS autosave and optional authenticated remote revisions as the geometry editor. Field edits require explicit apply. Invalid references, transforms, wall alignment or cameras retain the prior candidate and history.
 
+## Direct artwork positioning
+
+The plan, 3D preview, element list and numeric placement fields share one selected artwork and one document. Drag in the plan to change horizontal position while retaining height, tilt and scale. Use the existing 3D movement/rotation handles or numeric position/rotation fields for height and orientation. One completed drag is one geometry undo operation; canceling retains the saved placement. Reopening a local draft reads the same OES placement in both views.
+
+Artwork on a uniquely identifiable aligned wall keeps that wall and its existing bounds/opening checks. The editor does not guess an attachment when coincident walls are ambiguous. Artwork scaling is not a new handle or mesh-editing feature; existing numeric capabilities and contracts remain authoritative. The [geometry guide](studio-geometry.md#plan-and-3d-direct-editing) explains cancellation and view controls.
+
 ## Approved artwork and physical scale
 
 Confirm the current server account in Studio. Enter the artwork ID of a reviewed, currently approved CMS GLB or PNG and import its metadata. The protected `GET /api/v1/tenants/{tenantId}/studio/artworks/{artworkId}` endpoint returns a full public Artwork snapshot with a deterministic revision UUID and a same-origin qualified-preview URL. It verifies current session, tenant, resource access, approval and display rights before projecting metadata. It excludes private authoring notes, original storage keys and original URLs. Artists use their own artwork; administrators operate within their tenant. Curator access retains the current assigned-exhibition policy and does not grant discovery of arbitrary private artwork.

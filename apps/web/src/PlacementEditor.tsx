@@ -39,11 +39,15 @@ function VectorFields({
 }
 export function PlacementEditor({
   document,
+  selectedId,
+  onSelectPlacement,
   execute,
   session,
   disabled,
 }: {
   document: Exhibition;
+  selectedId:string;
+  onSelectPlacement:(id:string)=>void;
   execute: (command: GeometryCommand) => void;
   session: Session | null;
   disabled: boolean;
@@ -53,10 +57,10 @@ export function PlacementEditor({
     [loading, setLoading] = useState(false);
   const [artwork, setArtwork] = useState(""),
     [room, setRoom] = useState(document.rooms[0]?.id ?? ""),
-    [selected, setSelected] = useState(""),
     [wall, setWall] = useState(""),
     [offset, setOffset] = useState<Vector>([0, 0, 0]),
     [snap, setSnap] = useState("0.1");
+  const selected=selectedId,setSelected=onSelectPlacement;
   const placement = document.placements.find((p) => p.id === selected);
   const [position, setPosition] = useState<Vector>([0, 0, 0]),
     [rotation, setRotation] = useState<[number, number, number, number]>([

@@ -1,6 +1,6 @@
 import { AdvancedArchitectureEditor } from "./AdvancedArchitectureEditor";
 import { materialFor } from "@exhibitos/studio-contract";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Draft } from "./drafts/store";
 import {
   applyGeometryCommand,
@@ -16,6 +16,8 @@ import type { GeometryCommand, GeometryState } from "./geometry/model";
 import { PlacementEditor } from "./PlacementEditor";
 import type { Session } from "./cms-client";
 import { GeometryPreview } from "./GeometryPreview";
+import {StudioFloorPlan} from "./StudioFloorPlan";
+import {localPose,selectedItem,type EditorBridge,type EditMode} from "./geometry/direct-edit";
 import type { GeometrySelection, SurfaceAppearance } from "./GeometryPreview";
 
 type Document = Draft["candidate"];
@@ -113,6 +115,7 @@ export function GeometryEditor({
     ),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const [preview,setPreview]=useState<GeometryCommand|null>(null),[editMode,setEditMode]=useState<EditMode>("translate"),[view,setView]=useState("both");
   const [name, setName] = useState(""),
     [dimensions, setDimensions] = useState(["12", "4", "8"]),
     [pose, setPose] = useState<Pose>(identity),
@@ -132,6 +135,7 @@ export function GeometryEditor({
       JSON.stringify(candidate) !== JSON.stringify(stateRef.current.present)
     ) {
       const next = createGeometryState(candidate);
+      setPreview(null);
       stateRef.current = next;
       setState(next);
       setError("");
@@ -147,7 +151,7 @@ export function GeometryEditor({
         ? document.rooms.find((item) => item.id === selection.id)
         : selection.kind === "surface"
           ? document.surfaces.find((item) => item.id === selection.id)
-          : document.openings.find((item) => item.id === selection.id);
+          : selection.kind==="opening" ? document.openings.find((item) => item.id === selection.id) : document.placements.find((item)=>item.id===selection.id);
     if (!selected) {
       setSelection(
         document.rooms[0] ? { kind: "room", id: document.rooms[0].id } : null,
@@ -197,7 +201,9 @@ export function GeometryEditor({
       setOffset(opening.offset.map(String));
     }
   }, [selection, document]);
+  useEffect(()=>{setPreview(null);},[document]);
   const change = (next: GeometryState) => {
+    setPreview(null);
     stateRef.current = next;
     setState(next);
     onChange(next.present);
@@ -257,6 +263,11 @@ export function GeometryEditor({
     selection?.kind === "opening"
       ? document.openings.find((item) => item.id === selection.id)
       : undefined;
+  const previewDocument=useMemo(()=>preview ? applyGeometryCommand(state,preview).present:document,[state,preview,document]);
+  const editor:EditorBridge={document,selection,mode:editMode,disabled,preview,
+   select:setSelection,previewChange:command=>{if(command)applyGeometryCommand(stateRef.current,command);setPreview(command);},
+   commit:command=>{setPreview(null);if(!selection)return;try{const next=applyGeometryCommand(stateRef.current,command);if(JSON.stringify(selectedItem(stateRef.current.present,selection))!==JSON.stringify(selectedItem(next.present,selection)))execute(command);}catch(error){setError(error instanceof Error?error.message:'변경 내용을 확인해 주세요.');}},error:setError};
+  const selectedPose=selection&&selectedItem(previewDocument,selection) ? localPose(previewDocument,selection):null;
   return (
     <section className="geometry-editor" aria-label="공간 편집기">
       <h2>공간 · 표면 · 개구부 편집</h2>
@@ -270,6 +281,19 @@ export function GeometryEditor({
       <p data-testid="geometry-status" className="cms-note">
         {notice}
       </p>
+      <section className="studio-direct" aria-label="공간과 작품 직접 편집">
+       <div className="cms-actions" aria-label="편집 도구">
+        <button aria-pressed={editMode==="translate"} onClick={()=>setEditMode("translate")}>이동</button>
+        <button aria-pressed={editMode==="rotate"} disabled={selection?.kind==="opening"} onClick={()=>setEditMode("rotate")}>회전</button>
+        <span>보기</span>{[["both","함께 보기"],["plan","평면도"],["3d","3D"]].map(([value,label])=><button key={value} aria-pressed={view===value} onClick={()=>setView(value!)}>{label}</button>)}
+       </div>
+       <p className="cms-note">선택한 대상을 두 화면에서 함께 확인해요. 드래그 한 번은 실행 취소 한 번으로 되돌릴 수 있어요. 수치 편집도 계속 사용할 수 있어요.</p>
+       {selectedPose&&<output aria-live="polite" className="studio-selected-pose">선택 위치 · 가로 X {selectedPose.position[0].toFixed(2)} · 높이 Y {selectedPose.position[1].toFixed(2)} · 깊이 Z {selectedPose.position[2].toFixed(2)} m</output>}
+       <div className="studio-direct-views" data-view={view}>
+        <StudioFloorPlan document={previewDocument} editor={editor}/>
+        <GeometryPreview document={document} session={session} selection={selection} appearance={appearance} editing={editor}/>
+       </div>
+      </section>
       <fieldset disabled={disabled}>
         <legend>선택과 명령</legend>
         <label>
@@ -279,7 +303,7 @@ export function GeometryEditor({
             value={selection ? `${selection.kind}:${selection.id}` : ""}
             onChange={(event) => {
               const [kind, id] = event.target.value.split(":");
-              if (!id || !["room", "surface", "opening"].includes(kind ?? ""))
+              if (!id || !["room", "surface", "opening", "placement"].includes(kind ?? ""))
                 return;
               setSelection({ kind: kind as GeometrySelection["kind"], id });
               setError("");
@@ -295,6 +319,7 @@ export function GeometryEditor({
                 표면 {index + 1} · {item.type} · {item.id.slice(0, 8)}
               </option>
             ))}
+            {document.placements.map(item=><option key={item.id} value={`placement:${item.id}`}>작품 · {document.artworks.find(a=>a.revisionId===item.artworkRevisionId)?.metadata.title ?? item.id.slice(0,8)}</option>)}
             {document.openings.map((item, index) => (
               <option key={item.id} value={`opening:${item.id}`}>
                 개구부 {index + 1} · {item.type} · {item.id.slice(0, 8)}
@@ -346,7 +371,7 @@ export function GeometryEditor({
           덮어쓰지 않습니다.
         </p>
       </fieldset>
-      {selection && (
+      {selection && selection.kind!=="placement" && (
         <fieldset disabled={disabled}>
           <legend>
             {selection.kind === "room"
@@ -730,18 +755,16 @@ export function GeometryEditor({
         </fieldset>
       )}
       <AdvancedArchitectureEditor document={document} disabled={disabled} onChange={candidate=>execute({type:"replace-architecture",candidate})}/>
+      <details open={selection?.kind==="placement"}><summary>숫자로 정밀 조정·작품 가져오기·조명</summary>
       <PlacementEditor
-        document={document}
+        document={previewDocument}
+        selectedId={selection?.kind==="placement" ? selection.id:""}
+        onSelectPlacement={id=>setSelection(id ? {kind:"placement",id}:null)}
         execute={execute}
         session={session}
-        disabled={disabled}
+        disabled={disabled||preview!==null}
       />
-      <GeometryPreview
-        document={document}
-        session={session}
-        selection={selection}
-        appearance={appearance}
-      />
+      </details>
     </section>
   );
 }

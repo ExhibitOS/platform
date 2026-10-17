@@ -109,3 +109,27 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .publication-shell[data-reduced-motion="true"] *, .publication-shell[data-reduced-motion="true"] *::before, .publication-shell[data-reduced-motion="true"] *::after { scroll-behavior: auto; animation: none; transition: none; }
 @media (prefers-reduced-motion: reduce) { .publication-shell { scroll-behavior: auto; } }
 @media (max-width: 600px) { .publication-shell header { flex-wrap: wrap; } .publication-shell h1 { font-size: 36px; } .publication-shell ul { padding-left: 22px; } }
+
+/* Studio-only direct editing: one document, two views, existing numeric fallback. */
+.studio-direct { background: #fffefa; border: 1px solid #ccd1c7; border-radius: 12px; padding: 16px; }
+.studio-direct .cms-actions button[aria-pressed=true] { background: #005f59; color: white; }
+.studio-selected-pose { display: block; line-height: 1.7; font-size: 14px; font-variant-numeric: tabular-nums; }
+.studio-direct-views { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.studio-direct-views[data-view=plan] { grid-template-columns: 1fr; }
+.studio-direct-views[data-view=plan] > .geometry-preview { display: none; }
+.studio-direct-views[data-view="3d"] { grid-template-columns: 1fr; }
+.studio-direct-views[data-view="3d"] > .studio-floorplan { display: none; }
+.studio-floorplan { min-width: 0; }
+.studio-floorplan header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.studio-floorplan svg { display: block; width: 100%; height: 360px; background: #f3f2ec; border: 1px solid #9ea99d; touch-action: none; }
+.studio-floorplan g { cursor: grab; }
+.studio-floorplan polygon { fill: #e0e4da; stroke: #546258; stroke-width: 1; }
+.studio-floorplan polyline { fill: none; stroke: #546258; stroke-width: 5; }
+.studio-floorplan .floorplan-opening polyline { stroke: #fffefa; stroke-width: 7; }
+.studio-floorplan .floorplan-placement polygon { fill: #d5e8e3; stroke: #005f59; stroke-width: 2; }
+.studio-floorplan .selected :is(polygon,polyline) { stroke: #007f75; stroke-width: 4; }
+.studio-floorplan text { fill: #172a21; pointer-events: none; }
+.studio-floorplan circle { fill: #005f59; }
+.studio-floorplan g:focus-visible { outline: none; stroke: #765723; }
+.studio-floorplan g:focus-visible :is(polygon,polyline) { stroke: #765723; stroke-width: 5; }
+@media (max-width:1000px) { .studio-direct-views { grid-template-columns:1fr; } }
