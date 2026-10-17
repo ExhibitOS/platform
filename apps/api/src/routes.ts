@@ -159,6 +159,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
  for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
  const publications=new Publications(pool,store);
+ app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
  const readPublic=(id:string,assetId?:string)=>publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId);
  const authorizeHost=openingHostAuthority(pool);
  const opening=registerOpening(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id) as import('./realtime.ts').RealtimePublication,authorizeHost});
