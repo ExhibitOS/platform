@@ -24,6 +24,7 @@
 !scripts/service-backup.mjs
 **/node_modules/**
 **/dist/**
+**/dist-static/**
 **/.env
 **/.env.*
 **/.npmrc
