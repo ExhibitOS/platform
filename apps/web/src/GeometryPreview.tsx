@@ -1372,10 +1372,12 @@ export function GeometryPreview({
         } catch {
           unavailable++;
         }
-        if (!disposed)
+        if (!disposed) {
+          if (publicSource) setPublicMessage(unavailable ? `작품 ${rendered}개를 볼 수 있어요. ${unavailable}개는 불러오지 못했어요. 다시 시도할 수 있어요.` : `공간과 작품 ${rendered}개를 볼 수 있어요.`);
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
           );
+        }
       }
     };
     void build().catch((error) => {

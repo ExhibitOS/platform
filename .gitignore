@@ -77,3 +77,6 @@ test-results/
 
 # Regenerated pinned public Basis assets through npm run notices.
 /apps/web/public/basis/
+
+# Generated static Viewer/Studio runtime; evidence packages are preserved separately.
+/apps/web/dist-static/

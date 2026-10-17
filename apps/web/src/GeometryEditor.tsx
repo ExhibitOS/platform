@@ -2,6 +2,7 @@ import { AdvancedArchitectureEditor } from "./AdvancedArchitectureEditor";
 import { materialFor } from "@exhibitos/studio-contract";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Draft } from "./drafts/store";
+import type { ComponentProps } from "react";
 import {
   applyGeometryCommand,
   createGeometryState,
@@ -102,7 +103,11 @@ export function GeometryEditor({
   onChange,
   disabled,
   session,
+  staticSource,
+  localOnly = false,
 }: {
+  staticSource?: ComponentProps<typeof GeometryPreview>["publicSource"];
+  localOnly?: boolean;
   candidate: Document;
   onChange: (document: Document) => void;
   disabled: boolean;
@@ -278,7 +283,7 @@ export function GeometryEditor({
     <section className="geometry-editor" aria-label="공간 편집기">
       <div className="cms-actions"><h2>공간과 작품 배치</h2><button disabled={preview!==null} onClick={()=>setAudience(value=>!value)}>{audience?"편집으로 돌아가기":"관객 모습으로 확인"}</button></div>
       {audience&&<p role="status">현재 편집 내용을 도구 없이 확인해요. 인터넷 공개나 품질 승인을 수행하지 않아요. 실제 공개 관람과 이동·소리는 공개 준비 후 따로 확인하세요.</p>}
-      <div hidden={audience}><PlacementEditor document={previewDocument} selectedId={selection?.kind==="placement"?selection.id:""} onSelectPlacement={id=>setSelection(id?{kind:"placement",id}:null)} execute={execute} session={session} disabled={disabled||preview!==null}/></div>
+      <div hidden={audience}><PlacementEditor localOnly={localOnly} document={previewDocument} selectedId={selection?.kind==="placement"?selection.id:""} onSelectPlacement={id=>setSelection(id?{kind:"placement",id}:null)} execute={execute} session={session} disabled={disabled||preview!==null}/></div>
       <p className="cms-note">
         직사각형 방과 평면 벽·바닥·천장, 분할 곡선벽과 계단·경사로를 편집합니다. 문은 실제 사각 개구부이며 외부 출입문 또는 다른 방의 문과
         연결합니다. 충돌·보행 가능성을 보장하지 않습니다.
@@ -304,7 +309,7 @@ export function GeometryEditor({
        </div>
        <div className="studio-direct-views" data-view={audience?"3d":view}>
         <StudioFloorPlan document={previewDocument} editor={editor}/>
-        <GeometryPreview document={document} session={session} selection={audience?null:selection} appearance={appearance} editing={audience?undefined:editor}/>
+        <GeometryPreview publicSource={staticSource} document={document} session={session} selection={audience?null:selection} appearance={appearance} editing={audience?undefined:editor}/>
        </div>
       </section>
       <div hidden={audience}>

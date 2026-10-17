@@ -1,0 +1,245 @@
+{
+  "scope": "existing static Viewer and local Studio CC0 sample demo; no new task, runtime, server, dependency, format or support environment",
+  "baseCommit": "50fcd8c2eaead96e99d91c3fd9856ebd44d7c9e7",
+  "initialBaseCommit": "b701aaccfaa2206fe761a535ddbecac2a003d266",
+  "evidenceDirectory": "/Volumes/ExhibitSSD/ExhibitOS-Backups/static-studio-demo-20261018-ed2f3adf-272b-4352-b8ad-b49f46cd8343",
+  "sample": {
+    "fixture": "@exhibitos/spec/oex/v1/examples/synthetic-media.oex",
+    "revisionSha256": "4a561248e1f166dfb3ca2ea4cfb692127e1e533440ce0c8a7aba1df069b58f00",
+    "license": "CC0-1.0",
+    "originalImmutable": true
+  },
+  "implementation": "candidate implemented; local Chromium validation complete; no publication",
+  "checks": {
+    "node": "24.21.0",
+    "webTypecheck": "PASS Node24; final handle69979 exit0",
+    "focusedLint": "PASS final handle69979 exit0",
+    "staticExporter": "12 PASS (10 existing, 2 focused)",
+    "staticBuild": {
+      "result": "PASS",
+      "toolChunk": "1a37be",
+      "reportedMilliseconds": 465,
+      "warning": "existing large chunks warning; no budget change"
+    },
+    "existingStaticViewer": {
+      "result": "PASS",
+      "handle": 63416,
+      "evidence": "viewer/browser-evidence.json",
+      "staticAloneApiRequests": 0,
+      "optionalDynamicTestApiRequests": 3,
+      "webSockets": 0,
+      "externalRequests": 0,
+      "firstEntryMediaRequests": 0,
+      "rightsExpiryAndTamperPreserved": true,
+      "reuse": "Not rerun after view-only floor-plan numbers; original 63416 code and requested runtime byte identity confirmed",
+      "unchangedSources": [
+        {
+          "path": "apps/web/src/PublicPublication.tsx",
+          "bytes": 16218,
+          "sha256": "254fe2bda0e38ca92724999c4c51416b396085364c9c6e587579444bf488916e"
+        },
+        {
+          "path": "apps/web/src/Viewer.tsx",
+          "bytes": 24158,
+          "sha256": "ec01d56d33017524c3b63968f1049ecb882113b2cf14c42c8b70f540cb9ddf2a"
+        },
+        {
+          "path": "apps/web/src/ArtworkDetail.tsx",
+          "bytes": 7450,
+          "sha256": "093644d0ef30350d27c410bd1218f2a5512ee6c9997af4bfc3c5f2934d98b0b7"
+        },
+        {
+          "path": "apps/web/src/viewer/AudioControls.tsx",
+          "bytes": 1737,
+          "sha256": "65f9cc2afc05bebffc41e4248e1b67bd3871c589c34e90d6a03407fd68a59c5a"
+        },
+        {
+          "path": "apps/web/src/GeometryPreview.tsx",
+          "bytes": 73012,
+          "sha256": "f63ac5135c9da63a622df551fff1c0fbaadfb531a6c7d3ff38f2180769bdd0bc"
+        },
+        {
+          "path": "apps/web/src/static-publication.tsx",
+          "bytes": 1751,
+          "sha256": "741d73cbcb31603cc2e6babfac7adc29cb1bac574ac2da5f24c769fe4c82b39f"
+        },
+        {
+          "path": "apps/web/src/static-publication-source.ts",
+          "bytes": 3946,
+          "sha256": "b5ad7bc3dbe8770e117dcbe08a987489809eee4330f08326e39464b71b699f7f"
+        },
+        {
+          "path": "apps/web/src/WalkingControls.tsx",
+          "bytes": 4786,
+          "sha256": "b9b37e0897673385e0d4134c3f9597a6da28a3c897c81b63462dba0943b040db"
+        }
+      ],
+      "unchangedRequestedRuntime": [
+        {
+          "path": "static.html",
+          "bytes": 727,
+          "sha256": "2dbfecec9c255c6ce5d4adbd110c2d21c1afa8672db1d13fb6ebff1e3ae646d9"
+        },
+        {
+          "path": "assets/GLTFLoader-DxHTIB6p.js",
+          "bytes": 45233,
+          "sha256": "d69bd1c613259fc2149ed8b90860cb3fbc78efb807ed854e55f1fd9b79926418"
+        },
+        {
+          "path": "assets/GeometryPreview-BFIxa5er.js",
+          "bytes": 85100,
+          "sha256": "4fd105a23636854bcfe901486e953596f4955cf40561330735d1c54d12d644b3"
+        },
+        {
+          "path": "assets/OrbitControls-BsHeOnSd.js",
+          "bytes": 19864,
+          "sha256": "d76591ca13244f89aa7023641feaae833f4ce57d099e774d393557776703b55b"
+        },
+        {
+          "path": "assets/Viewer-Cx7nekaH.js",
+          "bytes": 99899,
+          "sha256": "a344e51b1e3ef8573af21bdb4b715bd4d8f608db1f87227b055210495a202587"
+        },
+        {
+          "path": "assets/Viewer-OEGtpA8j.css",
+          "bytes": 4167,
+          "sha256": "2821d95b63776bc64373bf70a9ba6642e2a065419bbafaf5f86ecbb2f01b6c65"
+        },
+        {
+          "path": "assets/loading-C2XoOKwD.js",
+          "bytes": 19082,
+          "sha256": "d5d96ca02073f0a543c900a22d43d1da38ce7e417f7fefeb776b5a7554c22dfb"
+        },
+        {
+          "path": "assets/static-BRMd9bmz.css",
+          "bytes": 2971,
+          "sha256": "384d35cd62d0453f1ece23f1e17dd57e44c2c17b2a24a46dbffe84ed44125489"
+        },
+        {
+          "path": "assets/static-D-UPBzq0.js",
+          "bytes": 31471,
+          "sha256": "67729d88c65b3cfe041df3f400addb7132388102bc5e4e564eba31e2799f3035"
+        },
+        {
+          "path": "assets/style-D202HJNE.css",
+          "bytes": 10602,
+          "sha256": "ac9b0f2a55416b7975e2a4a029690a71465a82b323a3cd9e94ba87633705b534"
+        },
+        {
+          "path": "assets/style-EedrFTEW.js",
+          "bytes": 538318,
+          "sha256": "418c79a98220fd12cdde46bc7192f969a96301f79e2fb5058a7ff808828c7fab"
+        },
+        {
+          "path": "assets/three.module-CxAd3SS5.js",
+          "bytes": 738464,
+          "sha256": "e7ff0533105bfb3156ce280e609638e06d5b0166653b2aa8fd6d5532c8ed10fb"
+        }
+      ]
+    },
+    "staticStudio": {
+      "result": "6 actual Chromium flows PASS",
+      "handle": 70078,
+      "evidence": "demo-v2/report.json",
+      "apiRequests": 0,
+      "webSockets": 0,
+      "externalRequests": 0,
+      "staticGetRequests": "allowed; not a zero-network claim",
+      "productionIdbCanaryUnchanged": true,
+      "entirePackageBytesShaUnchanged": true,
+      "viewerLazyStudioChunkRequests": 0,
+      "actualMouseDragAndUndoAndCancel": true,
+      "numericSaveReload": true,
+      "audienceReturnAndOriginalViewer": true,
+      "separateVisitorSeed": true,
+      "numberLabelsFullTitleAriaAndSelectionList": "PASS; view-only array-order numbers; data/command/undo unchanged"
+    },
+    "visualReview": {
+      "read": [
+        "demo-v2/demo-editor.png",
+        "demo-v2/demo-editor-390.png"
+      ],
+      "overflow390": false,
+      "numberLabelOverlap": "RESOLVED in actual PNG; three short numbers remain distinct",
+      "fullTitle": "ARIA and SVG title preserved; matching numbered selection list",
+      "previousDefectAndScreenshots": "verification-v1.json and demo/"
+    },
+    "gitDiffCheck": "PASS",
+    "productionOrdinaryStudioRegression": "PENDING separate current-source main build and existing direct-edit mouse regression; demo checks do not qualify API/CMS"
+  },
+  "limits": {
+    "actualSafari": "NOT_RUN",
+    "actualIos": "NOT_RUN",
+    "voiceOver": "NOT_RUN",
+    "noviceUser": "NOT_RUN",
+    "cloudflarePagesPublication": "NOT_RUN",
+    "websiteDemoLink": "remains pending",
+    "serverAndLogin": "not mounted in demo; production default retained",
+    "data": "browser local edit copies; storage eviction/shared-device limits retained; JSON backups contain metadata, not artwork bytes"
+  },
+  "ownedSource": [
+    {
+      "path": "apps/web/src/Studio.tsx",
+      "bytes": 41901,
+      "sha256": "b10af347fb9692edcb0035cb4e2d2385cce3879250b10ed1787a641c9662804e"
+    },
+    {
+      "path": "apps/web/src/GeometryEditor.tsx",
+      "bytes": 31372,
+      "sha256": "d9f26b9905340469c415b5bfb5bc3aa5bab500103c80fe21caea95ffa80e56ca"
+    },
+    {
+      "path": "apps/web/src/PlacementEditor.tsx",
+      "bytes": 27581,
+      "sha256": "bc0e3c73bdeffcf25fe70203a58206534578610aadba26a2747cda3ed2e595bf"
+    },
+    {
+      "path": "apps/web/src/GeometryPreview.tsx",
+      "bytes": 73012,
+      "sha256": "f63ac5135c9da63a622df551fff1c0fbaadfb531a6c7d3ff38f2180769bdd0bc"
+    },
+    {
+      "path": "apps/web/src/static-studio.tsx",
+      "bytes": 1248,
+      "sha256": "3ebe144793d6a0de67cdb08004ad9f00f5f618974de8d44d51a0ec5fa85057ba"
+    },
+    {
+      "path": "apps/web/static-studio.html",
+      "bytes": 346,
+      "sha256": "5c30303332bada159f88c77ee864acd70a1d679db7184ccc7c2706da2234edd3"
+    },
+    {
+      "path": "apps/web/vite.static.config.ts",
+      "bytes": 217,
+      "sha256": "2d26cc303f8ee0da3919f62f4e48b096dbb2b6331d56e34bacc3a34c29ab6e79"
+    },
+    {
+      "path": "scripts/export-static-publication.mjs",
+      "bytes": 11144,
+      "sha256": "199756dda22f1e03add8ef9cbc7d160c0052ffdd3742c65df03f2f4a45511998"
+    },
+    {
+      "path": "scripts/export-static-publication.test.mjs",
+      "bytes": 9341,
+      "sha256": "637c8a3d4b55b1966f6c0899b2411c4e40f5c60c8bbe471525100041c4c6cb88"
+    },
+    {
+      "path": "scripts/static-studio-browser.mjs",
+      "bytes": 11052,
+      "sha256": "cfc92cf8d48d67b62d3e13ce3624bf8087c1090165cb82234ecb331837a5d413"
+    },
+    {
+      "path": "apps/web/src/StudioFloorPlan.tsx",
+      "bytes": 10038,
+      "sha256": "c6c2b3b45bf23925de3074c672165a5a3748be15b68a73a79448985124b282e2"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 1187,
+      "sha256": "6f84acbb80b62819567430a091969f798490158107e80eab94ace9ccac4b647a"
+    }
+  ],
+  "sourceAndArtifactInventories": "verification.json in evidenceDirectory",
+  "publicationStatus": "NOT_RUN; website demo links remain pending",
+  "integrationStatus": "Parent final source review: no concrete blocker. Local static validation complete; production ordinary Studio regression and remote integration remain pending."
+}

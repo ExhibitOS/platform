@@ -15,6 +15,7 @@ import { validateDraft } from "./drafts/validator";
 import { prepareStudioShell } from "./studio-shell";
 import { failureMessage, request } from "./cms-client";
 import type { Session } from "./cms-client";
+import type { PublicPublication as PublicSnapshot } from "./publication-client";
 
 interface Remote {
   revision: number;
@@ -72,8 +73,14 @@ function message(error: unknown) {
   return failureMessage(error);
 }
 
-export function Studio() {
-  const store = useRef(new DraftStore()).current;
+export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
+  const store = useRef(new DraftStore(demo ? "exhibitos-studio-demo-v1" : undefined)).current;
+  const demoSource = useMemo(() => demo?.local ? ({ publicationId: demo.publication.id, revisionSha256: demo.publication.revisionSha256, assets: demo.assets, fetcher: demo.local.fetcher, check: demo.local.check }) : undefined, [demo]);
+  function newLocalDraft() {
+    const draft = newDraft();
+    if (demo) { draft.exhibitionId = demo.exhibition.id; draft.candidate = structuredClone(demo.exhibition); }
+    return draft;
+  }
   const [published, setPublished] = useState(false);
   const [rows, setRows] = useState<LocalDraft[]>([]),
     [record, setRecord] = useState<LocalDraft | null>(null),
@@ -124,8 +131,12 @@ export function Studio() {
     let live = true;
     void store
       .list()
-      .then((value) => {
-        if (live) setRows(value);
+      .then(async (value) => {
+        if (!live) return;
+        if (demo && value.length === 0) value = [await store.save(newLocalDraft())];
+        if (!live) return;
+        setRows(value);
+        if (demo && value[0]) select(value[0]);
       })
       .catch((error) => {
         if (live) setNotice(message(error));
@@ -136,6 +147,7 @@ export function Studio() {
     };
   }, [store]);
   useEffect(() => {
+    if (demo) { setShell("샘플 편집은 이 브라우저에만 저장돼요. 공개 원본은 바뀌지 않아요. 다시 열 때 정적 파일 연결이 필요해요."); return; }
     let cleanup = () => {},
       live = true;
     void prepareStudioShell(
@@ -276,7 +288,7 @@ export function Studio() {
   }
   async function create() {
     if (dirty && !(await saveLocal())) return;
-    const draft = newDraft();
+    const draft = newLocalDraft();
     const initial: LocalDraft = {
       id: draft.id,
       format: 2,
@@ -476,11 +488,11 @@ export function Studio() {
         <a className="brand" href="/" aria-label="ExhibitOS 홈">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리</a>
+        {demo ? <a href="/">전시 관람으로 돌아가기</a> : <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리</a>}
       </header>
       <div className="cms-heading">
         <div>
-          <p className="eyebrow">STUDIO</p>
+          <p className="eyebrow">{demo ? "STUDIO · 샘플 체험" : "STUDIO"}</p>
           <h1>
             나만의 전시를
             <br />
@@ -507,7 +519,8 @@ export function Studio() {
         전시를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
         있습니다. 파일 백업을 별도로 보관하세요. 이 기기에서 만든 전시는 자동으로 인터넷에 공개되지 않아요.
       </p>
-      <details><summary>전시 패키지·보존·이전</summary>
+      {demo && <p role="note">CC0 샘플을 내 편집 사본으로 체험해요. 저장·관객 모습 확인은 인터넷 공개나 작품 품질 승인이 아니에요. 파일 백업에는 작품 원본이 포함되지 않아요.</p>}
+      {!demo && <details><summary>전시 패키지·보존·이전</summary>
       <FreezePanel session={session} record={record} dirty={dirty} disabled={busy || saving} />
       <OexPanel
         session={session}
@@ -540,13 +553,13 @@ export function Studio() {
           }
         }}
       />
-      </details>
+      </details>}
       <div className="cms-grid">
         <section className="cms-card">
           <div className="cms-actions">
             <h2>로컬 draft</h2>
             <button disabled={busy || saving} onClick={() => void run(create)}>
-              새 로컬 전시
+              {demo ? "샘플의 새 편집 사본" : "새 로컬 전시"}
             </button>
           </div>
           <ul className="cms-list">
@@ -726,6 +739,8 @@ export function Studio() {
               <GeometryEditor
                 key={`geometry:${record.id}`}
                 candidate={candidate}
+                staticSource={demoSource}
+                localOnly={!!demo}
                 session={session}
                 disabled={busy || published}
                 onChange={(value) => {
@@ -734,7 +749,7 @@ export function Studio() {
                 }}
               />
             )}
-            <details hidden={!candidate}><summary>추가 연출·상호작용·추천 전시 설정</summary>
+            {!demo && <details hidden={!candidate}><summary>추가 연출·상호작용·추천 전시 설정</summary>
             {candidate && (
               <StudioExperienceEditor
                 key={`experience:${record.id}`}
@@ -750,14 +765,14 @@ export function Studio() {
             )}
             {candidate && <ScriptingEditor key={`scripting:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
             {candidate && <CurationEditor key={`curation:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
-            </details>
+            </details>}
             {published && (
               <p className="cms-note">
                 이 서버 revision에는 공개 이력이 있습니다. 기존 snapshot을
                 유지하고 수정하려면 아래에서 새 draft를 만드세요.
               </p>
             )}
-            <fieldset>
+            {!demo && <><fieldset>
               <legend>선택적 서버 저장</legend>
               <p className="cms-note">
                 계정 확인과 서버 저장은 명시적으로 실행합니다. 로그인·온라인
@@ -899,6 +914,7 @@ export function Studio() {
                 })
               }
             />
+            </>}
             <fieldset>
               <legend>로컬 이력과 복구</legend>
               <p className="cms-note">

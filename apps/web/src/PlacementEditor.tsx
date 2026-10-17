@@ -44,7 +44,9 @@ export function PlacementEditor({
   execute,
   session,
   disabled,
+  localOnly = false,
 }: {
+  localOnly?: boolean;
   document: Exhibition;
   selectedId:string;
   onSelectPlacement:(id:string)=>void;
@@ -172,7 +174,8 @@ export function PlacementEditor({
       <p className="cms-note">작품을 가져온 뒤 공간을 고르고 배치하세요. 이미 가져온 작품은 계정 연결 없이도 배치할 수 있어요.</p>
       <fieldset disabled={disabled || loading}>
         <legend>작품 선택·배치</legend>
-        {!session&&<p>등록한 작품을 가져오려면 작품 관리에서 로그인한 뒤 현재 서버 계정을 확인해 주세요. 로컬 편집은 계속할 수 있어요.</p>}
+        {localOnly && <p>이 샘플의 작품을 선택해 배치해 보세요. 아래 변경은 내 브라우저의 편집 사본에만 저장돼요.</p>}
+        {!localOnly && <>{!session&&<p>등록한 작품을 가져오려면 작품 관리에서 로그인한 뒤 현재 서버 계정을 확인해 주세요. 로컬 편집은 계속할 수 있어요.</p>}
         <label>작품 이름으로 찾기<input aria-label="작품 이름으로 찾기" maxLength={100} value={query} onChange={event=>{listAttempt.current++;setLibraryBusy(false);setQuery(event.target.value);setCursor(null);setLibrary([]);setArtworkId("");}}/></label>
         <button disabled={!session||libraryBusy||!navigator.onLine} onClick={()=>void readLibrary()}>등록한 작품 찾기</button>
         {libraryBusy&&<p role="status">작품 목록을 불러오고 있어요.</p>}
@@ -190,7 +193,7 @@ export function PlacementEditor({
           승인된 CMS 작품 가져오기
         </button>
         <p role="alert">{importError}</p>
-        {loading&&<p role="status">작품의 승인·사용 권한을 확인하고 있어요.</p>}
+        {loading&&<p role="status">작품의 승인·사용 권한을 확인하고 있어요.</p>}</>}
         <label>
           배치할 작품
           <select
@@ -242,9 +245,9 @@ export function PlacementEditor({
             onChange={(e) => setSelected(e.target.value)}
           >
             <option value="">배치 선택</option>
-            {document.placements.map((p) => (
+            {document.placements.map((p,index) => (
               <option key={p.id} value={p.id}>
-                {
+                {index+1}. {
                   document.artworks.find(
                     (a) => a.revisionId === p.artworkRevisionId,
                   )?.metadata.title
