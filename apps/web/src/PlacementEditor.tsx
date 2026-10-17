@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Exhibition } from "@exhibitos/spec";
 import type { GeometryCommand } from "./geometry/model";
 import { newPlacement, newLight, kelvinColor, placementDimensions } from "./placement/model";
 import { request, failureMessage } from "./cms-client";
-import type { Session } from "./cms-client";
+import type { Session, ArtworkSummary, Page } from "./cms-client";
 import { presentationFor } from "@exhibitos/studio-contract";
 
 type Vector = [number, number, number];
@@ -52,6 +52,25 @@ export function PlacementEditor({
   session: Session | null;
   disabled: boolean;
 }) {
+  const [library,setLibrary]=useState<ArtworkSummary[]>([]),[query,setQuery]=useState(""),[cursor,setCursor]=useState<string|null>(null),[libraryBusy,setLibraryBusy]=useState(false),[libraryError,setLibraryError]=useState("");
+  const scope=`${document.id}:${session?.tenantId??""}:${session?.userId??""}:${session?.csrfToken??""}`;
+  const scopeRef=useRef(scope);scopeRef.current=scope;
+  const writable=useRef(!disabled);writable.current=!disabled;
+  const listAttempt=useRef(0),importAttempt=useRef(0);
+  useEffect(()=>{listAttempt.current++;importAttempt.current++;setLibrary([]);setCursor(null);setArtworkId("");setLibraryError("");setImportError("");setLibraryBusy(false);setLoading(false);},[scope]);
+  useEffect(()=>()=>{listAttempt.current++;importAttempt.current++;},[]);
+  async function readLibrary(more=false){
+    if(!session)return;
+    const attempt=++listAttempt.current,expected=scope;
+    setLibraryBusy(true);setLibraryError("");
+    try{
+      const page=await request<Page<ArtworkSummary>>(`/api/v1/tenants/${session.tenantId}/cms/artworks?limit=20&archived=false&q=${encodeURIComponent(query)}${more&&cursor?`&cursor=${encodeURIComponent(cursor)}`:""}`,session);
+      if(scopeRef.current!==expected||attempt!==listAttempt.current)return;
+      setLibrary(previous=>more?[...previous,...page.items.filter(item=>!previous.some(p=>p.id===item.id))]:page.items);setCursor(page.nextCursor);
+      if(!more)setArtworkId("");
+    }catch(error){if(scopeRef.current===expected&&attempt===listAttempt.current)setLibraryError(failureMessage(error));}
+    finally{if(scopeRef.current===expected&&attempt===listAttempt.current)setLibraryBusy(false);}
+  }
   const [artworkId, setArtworkId] = useState(""),
     [importError, setImportError] = useState(""),
     [loading, setLoading] = useState(false);
@@ -130,6 +149,7 @@ export function PlacementEditor({
   });
   async function importArtwork() {
     if (!session) return;
+    const attempt=++importAttempt.current,expected=scope;
     setLoading(true);
     setImportError("");
     try {
@@ -137,32 +157,32 @@ export function PlacementEditor({
         `/api/v1/tenants/${session.tenantId}/studio/artworks/${encodeURIComponent(artworkId)}`,
         session,
       );
+      if(scopeRef.current!==expected||attempt!==importAttempt.current||!writable.current)return;
       execute({ type: "add-artwork", artwork: result.artwork });
       setArtwork(result.artwork.revisionId);
     } catch (e) {
-      setImportError(failureMessage(e));
+      if(scopeRef.current===expected&&attempt===importAttempt.current)setImportError(failureMessage(e));
     } finally {
-      setLoading(false);
+      if(scopeRef.current===expected&&attempt===importAttempt.current)setLoading(false);
     }
   }
   return (
     <section className="placement-editor" aria-label="작품·조명·관람 편집">
-      <h3>작품·조명·관람 편집</h3>
-      <p className="cms-note">
-        실제 치수와 meter 좌표를 사용합니다. 승인된 CMS metadata를 가져오려면
-        아래에서 서버 계정을 확인하세요. 오프라인에서도 저장된 metadata를 편집할
-        수 있습니다.
-      </p>
+      <h3>작품 가져오기·배치</h3>
+      <p className="cms-note">작품을 가져온 뒤 공간을 고르고 배치하세요. 이미 가져온 작품은 계정 연결 없이도 배치할 수 있어요.</p>
       <fieldset disabled={disabled || loading}>
         <legend>작품 선택·배치</legend>
-        <label>
-          CMS 작품 ID
-          <input
-            aria-label="CMS 작품 ID"
-            value={artworkId}
-            onChange={(e) => setArtworkId(e.target.value)}
-          />
-        </label>
+        {!session&&<p>등록한 작품을 가져오려면 작품 관리에서 로그인한 뒤 현재 서버 계정을 확인해 주세요. 로컬 편집은 계속할 수 있어요.</p>}
+        <label>작품 이름으로 찾기<input aria-label="작품 이름으로 찾기" maxLength={100} value={query} onChange={event=>{listAttempt.current++;setLibraryBusy(false);setQuery(event.target.value);setCursor(null);setLibrary([]);setArtworkId("");}}/></label>
+        <button disabled={!session||libraryBusy||!navigator.onLine} onClick={()=>void readLibrary()}>등록한 작품 찾기</button>
+        {libraryBusy&&<p role="status">작품 목록을 불러오고 있어요.</p>}
+        <p role="alert">{libraryError}</p>
+        <label>가져올 작품<select aria-label="가져올 작품" value={artworkId} onChange={event=>setArtworkId(event.target.value)}>
+          <option value="">작품 선택</option>
+          {library.map(item=><option key={item.id} value={item.id} disabled={item.approvedRevision===null}>{item.title}{item.approvedRevision===null?" · 검토·승인 필요":""}</option>)}
+        </select></label>
+        {cursor&&<button disabled={libraryBusy||!session} onClick={()=>void readLibrary(true)}>작품 더 보기</button>}
+        <details><summary>작품 식별자로 직접 찾기</summary><label>CMS 작품 ID<input aria-label="CMS 작품 ID" value={artworkId} onChange={event=>setArtworkId(event.target.value)}/></label></details>
         <button
           disabled={!session || !artworkId || !navigator.onLine}
           onClick={() => void importArtwork()}
@@ -170,6 +190,7 @@ export function PlacementEditor({
           승인된 CMS 작품 가져오기
         </button>
         <p role="alert">{importError}</p>
+        {loading&&<p role="status">작품의 승인·사용 권한을 확인하고 있어요.</p>}
         <label>
           배치할 작품
           <select
@@ -187,7 +208,7 @@ export function PlacementEditor({
           </select>
         </label>
         <label>
-          배치·camera 소유 방
+          배치할 공간
           <select
             aria-label="배치·camera 소유 방"
             value={room}
@@ -234,7 +255,7 @@ export function PlacementEditor({
           </select>
         </label>
         {placement && (
-          <>
+          <details open><summary>선택 작품 위치·회전·벽 정렬을 숫자로 조정</summary>
             <VectorFields
               label="작품 위치 (m)"
               value={position}
@@ -336,7 +357,7 @@ export function PlacementEditor({
             >
               벽 내부 정렬·snap 적용
             </button>
-          </>
+          </details>
         )}
         <ul className="placement-credits">
           {document.placements.map((p) => {
@@ -353,6 +374,7 @@ export function PlacementEditor({
           })}
         </ul>
       </fieldset>
+      <details><summary>조명·시작 위치·동선·크레딧 상세 설정</summary>
       <fieldset disabled={disabled}>
         <legend>기본 조명·spotlight</legend><p role="alert">{lightingError}</p>
         <button
@@ -710,6 +732,7 @@ export function PlacementEditor({
           ))}
         </ul>
       </fieldset>
+      </details>
     </section>
   );
 }

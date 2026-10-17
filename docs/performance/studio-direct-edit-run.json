@@ -174,5 +174,95 @@
       ],
       "preservation": "No user artwork/original/model/key/backup, server authorization, OES storage format or task IDs were modified."
     }
+  },
+  "novice_flow_increment": {
+    "base_head": "b013d28ccb4e132254d59a366a2e8fbaa0d23697",
+    "status": "implemented; related final shared-source local/actual-CMS file flows verified; full registered Studio UX and separate public/server publication integration are not declared complete",
+    "implementation": [
+      "Reuse existing permission-filtered CMS title search/list/pagination; unapproved rows cannot be chosen from list, direct identifier remains under details; original single-artwork endpoint rechecks approval and display rights.",
+      "Discard stale account/draft/superseded-query responses; refuse pending import application after editor becomes read-only.",
+      "Import and placement are visible by default; numeric fields remain; lighting/viewpoints/routes/credits, raw JSON, identifiers and preservation packages are expandable without separate data or logic.",
+      "Read-only local audience appearance uses the existing renderer with explicit editing lifecycle cleanup. Return restores editor camera, selection and command history; no second concurrent renderer, publication or Viewer completion claim.",
+      "Three existing experience/scripting/curation components remain mounted in one default-closed details section. Existing optional server-save group now appears directly before public preparation; auth, strong ETag and explicit publishing remain unchanged."
+    ],
+    "verification": {
+      "typecheck": "PASS terminal0 after final owned presentation changes",
+      "selected_eslint": "PASS terminal0 after final owned presentation changes",
+      "production_build_89525": "PASS before last professional-panel/server-save presentation refinement; not yet final source",
+      "actual_chromium_full21": "PASS exit0/pageerrors0 before last presentation refinement; previous renderer source and same existing21 behavioral checks",
+      "actual_local_audience_64458": "PASS exit0/pageerrors0 before last presentation refinement: oldcanvas detached, canvascount1, tools hidden, document/selection/undo unchanged, exact rawGL editing-camera pixels restored. Synthetic artwork metadata bounds; no actual CMS bytes.",
+      "final_shared_source": "PASS focused actual Chromium1 workflow exit0/pageerrors0 on build93553: professional panels default-closed and toggle without document changes; server save before public preparation; local public-preparation button disabled without session; canvas1 and oldrenderer released; editor tools hidden; document/selection/undo and exact rawGL camera image restored;390px screenshots visually reviewed",
+      "real_approved_cms_glb_png": {
+        "result": "PASS exit0 final test-cms60159 on production93553, actual isolated PostgreSQL/API/worker plus production Chromium;27 groups = API10 + CMS8 + Studio9",
+        "placement": [
+          "production Studio imports real approved CMS GLB/PNG snapshots, actual physical placement and wall snap persist",
+          "novice artwork selection and read-only audience check preserve exact document, selection, undo and single renderer",
+          "spot target, brightness/color, start camera, viewpoints, route and title/credits render and save with shared undo",
+          "loaded nonunit placement scale survives manual position/rotation edits and actual rendered dimensions",
+          "wall overflow and invalid start camera fail without replacing candidate or consuming undo; missing artwork JSON rejects save",
+          "reload resolves exact approved derivatives; offline reload retains metadata, lights, camera and route without claiming rendered bytes; mobile keyboard works",
+          "revoked display rights deny bridge and derivative; local snapshot remains exact metadata with bounds-only preview",
+          "exact approved revision precondition prevents later reviewed bytes from rendering under an older Studio snapshot",
+          "webglcontextlost event handler preserves metadata and usable numeric commands"
+        ],
+        "cms": [
+          "built CMS: actual login cookie, distinct artist identity, metadata escaped as text",
+          "actual upload disconnect resumes same idempotent job, worker validates and UI approves revision",
+          "GLB display derivative renders actual WebGL; original/export remain denied independently",
+          "real stale revision conflict retains unsaved input and allows explicit history comparison/reload",
+          "PNG upload/worker/approved watermarked image, physical dimensions and complete rights edit",
+          "reversible artwork archive/restore, filter and narrow viewport keyboard accessibility",
+          "logout revokes actual session and clears workspace UI",
+          "different actual login account never receives previous private profile drafts/history"
+        ],
+        "proof": "cms-final-report.json",
+        "limits": "Actual redistributable synthetic GLB/PNG files, not actual user artwork quality or a new formal Safari/iOS support qualification. Public/server publication flow is a separate existing runner."
+      },
+      "safari_ios_voiceover_novice_observation": "NOT_RUN",
+      "production_build_93553": "PASS exit0 final shared source, existing bundle warnings retained",
+      "legacy_output_count_note": "The preserved final runner prints the older hardcoded Chromium16 scope label. Its actual arrays contain CMS8 + Studio9 =17 browser groups, plus API10 =27. Raw logs are unedited; the array counts and final valid/checks fields are authoritative."
+    },
+    "proof_root": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/novice-flow-4fc9b0e5-8611-461d-b3b3-ea883a68efda",
+    "scope_clarification": "Earlier unimplemented room-height/3D/surface/opening size handles describe implementation boundaries, not automatically mandatory release blockers. T03 acceptance and the user request condition direct manipulation on preserving existing meaning and validation; existing numeric/keyboard paths remain. Core novice flow and its actual authorization/file/save/preview/public-preparation checks remain separate requirements.",
+    "owned_source_sha256": {
+      "apps/web/src/Studio.tsx": "e2a4f791014cf58ad0dea506627c11cdf3100417aeb270ba5cb5115e40f2dfb9",
+      "apps/web/src/GeometryEditor.tsx": "1e20557c62619feaa1e2539b83e03a5dceda91d9476c14de4f110a0e15cbbcf0",
+      "apps/web/src/PlacementEditor.tsx": "2f9278be2f05997430b52b7a65f44248f090449c6a2d515d01c78f938b8ae7e7",
+      "apps/web/src/PublicationPanel.tsx": "f51657007e0bb83c6d96f460b7a14239162f9fec4643924fced28c40fd85cb22",
+      "scripts/studio-direct-browser.mjs": "8eaa20c0d743ab92d23bd7dea76c3645a65ac53eb4e8bd31138fc7dcbf61bb3b",
+      "scripts/geometry-browser.mjs": "d5a57c87e8a922cdf8f2c50ccb104c8ca8fa195962e191e9468bb1281174ccda",
+      "scripts/placement-browser.mjs": "74205e7ea26ebf9f675396fc09a9602d4af91a7862d13dc804a12eee9389f963",
+      "scripts/publication-browser.mjs": "487dea5cf552eaaf5dd9e910b81399d8bfb85213041b9b0dca2043c6c1425ae6",
+      "docs/studio-placement.md": "7f3e1f524c8b3bdfd8e143b41e896802f6878aefba48081492da9b83a919d0bc",
+      "scripts/cms-browser.mjs": "132258b210d4a429f81411c1986131b713cd627787c24594bc01416063433b74"
+    },
+    "shared_renderer": "Root commit3e139ec preserves required editingEnabled captured cleanup/effect dependency together with the final shared visitor controls; no uncommitted shared renderer dependency remains.",
+    "final_shared_renderer_sha256": "0c366e156a96bea02143dabc4cbbaba33f80c318e054d8182f8292824729608e",
+    "visual_review": "390px direct controls/text fit; read-only appearance has no edit handles and clear return. Existing local authoring diagnostic copy still contains technical terms; this increment does not declare the complete registered Studio UX done.",
+    "test_maintenance": [
+      {
+        "failure": "Original localStorage.length0 assertion rejected current pre-existing auth-change UUID notifier",
+        "correction": "Preserve HttpOnly cookie assertion; require exactly one exhibitos-auth-change strict UUIDv4, no other local keys, and sessionStorage0. No credentials/account metadata allowed."
+      },
+      {
+        "failure": "Original unscoped status locator matched pre-existing privacy status as well as CMS action status",
+        "correction": "Same13 expected success/failure messages and actions, scoped to existing direct main CMS status only."
+      },
+      {
+        "failure": "Legacy placement HTTP fixture omitted /offline and /freeze-runtime.json now required by exact public SW build hashes",
+        "correction": "Serve the actual existing public build bytes and appropriate public-shell cache header. SW hash/auth/offline conditions remain unchanged."
+      },
+      {
+        "failure": "Visible-only role locator could not locate closed-details controls to open their ancestor",
+        "correction": "Find hidden button node only, then click each actual summary before normal click/fill. No forced clicks, skipped assertions or product bypass."
+      }
+    ],
+    "remaining": [
+      "Separate actual server-save/public-preparation/publication integration in existing publication runner",
+      "Existing registered novice-copy review still covers basic room/template action wording, CMS prerequisite guidance, raw geometry validation codes and local authoring diagnostic jargon; this increment does not make all potential dimension handles mandatory.",
+      "Full registered Studio novice-flow acceptance and first-time-user observation, including remaining technical authoring copy",
+      "Safari/physical iOS/VoiceOver qualification not newly performed"
+    ],
+    "shared_renderer_commit": "3e139ec"
   }
 }

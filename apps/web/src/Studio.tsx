@@ -476,15 +476,15 @@ export function Studio() {
         <a className="brand" href="/" aria-label="ExhibitOS 홈">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>Artist CMS</a>
+        <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리</a>
       </header>
       <div className="cms-heading">
         <div>
-          <p className="eyebrow">STUDIO · LOCAL DRAFTS</p>
+          <p className="eyebrow">STUDIO</p>
           <h1>
-            전시의 초안을
+            나만의 전시를
             <br />
-            안전하게 이어서.
+            만들어 보세요.
           </h1>
         </div>
         <span className="phase">
@@ -504,10 +504,10 @@ export function Studio() {
       </p>
       <p className="cms-note">
         이 브라우저의 IndexedDB에 저장합니다. 공유 기기의 다른 사용자가 로컬
-        draft를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
-        있습니다. 파일 백업을 별도로 보관하세요. 현재 단계는 versioned 문서
-        저장, 공간·작품 배치 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. OEX 파일 흐름은 아래에서 현재 계정과 서버 저장본을 대상으로 실행합니다.
+        전시를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
+        있습니다. 파일 백업을 별도로 보관하세요. 이 기기에서 만든 전시는 자동으로 인터넷에 공개되지 않아요.
       </p>
+      <details><summary>전시 패키지·보존·이전</summary>
       <FreezePanel session={session} record={record} dirty={dirty} disabled={busy || saving} />
       <OexPanel
         session={session}
@@ -540,6 +540,7 @@ export function Studio() {
           }
         }}
       />
+      </details>
       <div className="cms-grid">
         <section className="cms-card">
           <div className="cms-actions">
@@ -618,21 +619,23 @@ export function Studio() {
         {record ? (
           <section className="cms-card">
             <div className="cms-actions">
-              <h2>전시 draft</h2>
+              <h2>전시 편집</h2>
               <span data-testid="local-state">
                 {saving
                   ? "저장 중…"
                   : dirty
                     ? "미저장 입력 있음"
-                    : `로컬 version ${record.version}`}
+                     : `이 기기에 저장됨 · 로컬 version ${record.version}`}
               </span>
             </div>
-            <p className="cms-note">
+            <details><summary>문서 식별자·형식 상세</summary><p className="cms-note">
               draft ID <code data-testid="draft-id">{record.id}</code>
               <br />
               전시 ID <code>{record.draft.exhibitionId}</code> · OES{" "}
               {record.draft.schemaVersion} · meter / right-handed Y-up
             </p>
+            </details>
+            <p>작품 가져오기 → 공간·작품 배치 → 저장 → 관객 모습 확인 → 공개 준비. 원하는 단계로 돌아가 수정할 수 있어요.</p>
             <label>
               전시 제목
               <input
@@ -648,6 +651,7 @@ export function Studio() {
                 }}
               />
             </label>
+            <details><summary>전시 문서 직접 편집 · 고급</summary>
             <label>
               전시 문서 JSON
               <textarea
@@ -669,6 +673,7 @@ export function Studio() {
               저장합니다. 유효하지 않은 입력이나 quota 오류는 완료된 저장본을
               덮어쓰지 않습니다.
             </p>
+            </details>
             <div className="cms-actions">
               <button
                 disabled={busy || saving || !dirty}
@@ -694,7 +699,7 @@ export function Studio() {
               </button>
             </div>
             {candidate && (
-              <section aria-label="문서 구조 요약" className="studio-summary">
+              <details><summary>공간 구조·기술 정보</summary><section aria-label="문서 구조 요약" className="studio-summary">
                 <h3>문서 구조</h3>
                 <p>
                   공간 {candidate.rooms.length} · 표면{" "}
@@ -715,7 +720,7 @@ export function Studio() {
                   방·벽·문·재질을 편집하고 3D 미리보기를 확인할 수 있습니다.
                   작품·조명·camera·동선을 편집할 수 있습니다.
                 </p>
-              </section>
+              </section></details>
             )}
             {candidate && (
               <GeometryEditor
@@ -729,6 +734,7 @@ export function Studio() {
                 }}
               />
             )}
+            <details hidden={!candidate}><summary>추가 연출·상호작용·추천 전시 설정</summary>
             {candidate && (
               <StudioExperienceEditor
                 key={`experience:${record.id}`}
@@ -744,12 +750,136 @@ export function Studio() {
             )}
             {candidate && <ScriptingEditor key={`scripting:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
             {candidate && <CurationEditor key={`curation:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
+            </details>
             {published && (
               <p className="cms-note">
                 이 서버 revision에는 공개 이력이 있습니다. 기존 snapshot을
                 유지하고 수정하려면 아래에서 새 draft를 만드세요.
               </p>
             )}
+            <fieldset>
+              <legend>선택적 서버 저장</legend>
+              <p className="cms-note">
+                계정 확인과 서버 저장은 명시적으로 실행합니다. 로그인·온라인
+                전환·계정 변경만으로 로컬 draft를 서버에 보내지 않습니다.
+              </p>
+              <div className="cms-actions">
+                <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리에서 로그인</a>
+                <button
+                  disabled={busy || !online}
+                  onClick={() =>
+                    void run(async () => {
+                      const value = await request<Session>(
+                        "/api/v1/auth/session",
+                        null,
+                      );
+                      if (
+                        value.userId !== session?.userId ||
+                        value.tenantId !== session?.tenantId
+                      ) {
+                        setRemote(null);
+                        setRemoteConflict(false);
+                        attempt.current = null;
+                      }
+                      setSession(value);
+                      notifyAuthChange();
+                      setNotice(
+                        "현재 서버 계정을 확인했습니다. draft 내용은 보내지 않았습니다.",
+                      );
+                    })
+                  }
+                >
+                  현재 서버 계정 확인
+                </button>
+              </div>
+              <p>
+                {session
+                  ? `기관 ${session.tenantId} · 사용자 ${session.userId} · 역할 ${session.role}`
+                  : "서버 계정 미확인. 로컬 작업은 계속할 수 있습니다."}
+              </p>
+              {record.remote && (
+                <p className="cms-note">
+                  이 draft 연결: 기관 {record.remote.tenantId} · 사용자{" "}
+                  {record.remote.userId} · 서버 revision{" "}
+                  {record.remote.revision}
+                </p>
+              )}
+              {!sameActor && (
+                <p className="cms-status">
+                  현재 계정과 이 draft의 서버 연결이 다릅니다. 이전 연결로
+                  저장하지 않습니다. 새 로컬 사본을 만들면 현재 계정에 별도
+                  전시를 저장할 수 있습니다.
+                </p>
+              )}
+              <div className="cms-actions">
+                <button
+                  disabled={
+                    busy ||
+                    saving ||
+                    !session ||
+                    !online ||
+                    !sameActor ||
+                    !candidate ||
+                    remoteConflict ||
+                    published
+                  }
+                  onClick={() => void run(() => push())}
+                >
+                  {record.remote
+                    ? "기록된 ETag로 서버 저장"
+                    : "현재 계정에 새 서버 전시 저장"}
+                </button>
+                <button
+                  disabled={busy || saving || !session || !online || !sameActor}
+                  onClick={() => void run(compareRemote)}
+                >
+                  서버 내용 비교
+                </button>
+              </div>
+              {remote && (
+                <>
+                  <div className="cms-comparison">
+                    <div>
+                      <h3>서버 revision {remote.revision}</h3>
+                      <pre>{json(remote.draft.candidate)}</pre>
+                    </div>
+                    <div>
+                      <h3>현재 로컬 입력</h3>
+                      <pre>{text}</pre>
+                    </div>
+                  </div>
+                  <p className="cms-note">
+                    비교한 ETag {remote.etag}. 이후 서버가 바뀌면 다시 412로
+                    거부합니다. 적용은 아래 명시적 동작으로만 실행합니다.
+                  </p>
+                  <div className="cms-actions">
+                    <button
+                      disabled={busy || saving || dirty || !sameActor}
+                      onClick={() => void run(adoptRemote)}
+                    >
+                      비교한 서버 내용을 로컬에 적용
+                    </button>
+                    <button
+                      disabled={busy || saving || !candidate || !sameActor}
+                      onClick={() =>
+                        void run(async () => {
+                          attempt.current = null;
+                          await push(remote);
+                        })
+                      }
+                    >
+                      현재 로컬 입력을 비교한 서버에 적용
+                    </button>
+                    <button
+                      disabled={busy || saving || !candidate}
+                      onClick={() => void run(forkInput)}
+                    >
+                      충돌 입력의 새 로컬 사본
+                    </button>
+                  </div>
+                </>
+              )}
+            </fieldset>
             <PublicationPanel
               record={record}
               session={session}
@@ -866,129 +996,7 @@ export function Studio() {
                 </p>
               </section>
             )}
-            <fieldset>
-              <legend>선택적 서버 저장</legend>
-              <p className="cms-note">
-                계정 확인과 서버 저장은 명시적으로 실행합니다. 로그인·온라인
-                전환·계정 변경만으로 로컬 draft를 서버에 보내지 않습니다.
-              </p>
-              <div className="cms-actions">
-                <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>CMS에서 로그인</a>
-                <button
-                  disabled={busy || !online}
-                  onClick={() =>
-                    void run(async () => {
-                      const value = await request<Session>(
-                        "/api/v1/auth/session",
-                        null,
-                      );
-                      if (
-                        value.userId !== session?.userId ||
-                        value.tenantId !== session?.tenantId
-                      ) {
-                        setRemote(null);
-                        setRemoteConflict(false);
-                        attempt.current = null;
-                      }
-                      setSession(value);
-                      notifyAuthChange();
-                      setNotice(
-                        "현재 서버 계정을 확인했습니다. draft 내용은 보내지 않았습니다.",
-                      );
-                    })
-                  }
-                >
-                  현재 서버 계정 확인
-                </button>
-              </div>
-              <p>
-                {session
-                  ? `기관 ${session.tenantId} · 사용자 ${session.userId} · 역할 ${session.role}`
-                  : "서버 계정 미확인. 로컬 작업은 계속할 수 있습니다."}
-              </p>
-              {record.remote && (
-                <p className="cms-note">
-                  이 draft 연결: 기관 {record.remote.tenantId} · 사용자{" "}
-                  {record.remote.userId} · 서버 revision{" "}
-                  {record.remote.revision}
-                </p>
-              )}
-              {!sameActor && (
-                <p className="cms-status">
-                  현재 계정과 이 draft의 서버 연결이 다릅니다. 이전 연결로
-                  저장하지 않습니다. 새 로컬 사본을 만들면 현재 계정에 별도
-                  전시를 저장할 수 있습니다.
-                </p>
-              )}
-              <div className="cms-actions">
-                <button
-                  disabled={
-                    busy ||
-                    saving ||
-                    !session ||
-                    !online ||
-                    !sameActor ||
-                    !candidate ||
-                    remoteConflict ||
-                    published
-                  }
-                  onClick={() => void run(() => push())}
-                >
-                  {record.remote
-                    ? "기록된 ETag로 서버 저장"
-                    : "현재 계정에 새 서버 전시 저장"}
-                </button>
-                <button
-                  disabled={busy || saving || !session || !online || !sameActor}
-                  onClick={() => void run(compareRemote)}
-                >
-                  서버 내용 비교
-                </button>
-              </div>
-              {remote && (
-                <>
-                  <div className="cms-comparison">
-                    <div>
-                      <h3>서버 revision {remote.revision}</h3>
-                      <pre>{json(remote.draft.candidate)}</pre>
-                    </div>
-                    <div>
-                      <h3>현재 로컬 입력</h3>
-                      <pre>{text}</pre>
-                    </div>
-                  </div>
-                  <p className="cms-note">
-                    비교한 ETag {remote.etag}. 이후 서버가 바뀌면 다시 412로
-                    거부합니다. 적용은 아래 명시적 동작으로만 실행합니다.
-                  </p>
-                  <div className="cms-actions">
-                    <button
-                      disabled={busy || saving || dirty || !sameActor}
-                      onClick={() => void run(adoptRemote)}
-                    >
-                      비교한 서버 내용을 로컬에 적용
-                    </button>
-                    <button
-                      disabled={busy || saving || !candidate || !sameActor}
-                      onClick={() =>
-                        void run(async () => {
-                          attempt.current = null;
-                          await push(remote);
-                        })
-                      }
-                    >
-                      현재 로컬 입력을 비교한 서버에 적용
-                    </button>
-                    <button
-                      disabled={busy || saving || !candidate}
-                      onClick={() => void run(forkInput)}
-                    >
-                      충돌 입력의 새 로컬 사본
-                    </button>
-                  </div>
-                </>
-              )}
-            </fieldset>
+
           </section>
         ) : (
           <section className="cms-card">

@@ -74,11 +74,10 @@ export function PublicationPanel({
   }
   return (
     <fieldset disabled={disabled || busy} className="publication-panel">
-      <legend>공개 preview·READY·Publication</legend>
+      <legend>공개 준비</legend>
       <p className="cms-note">
-        먼저 현재 계정에 서버 draft를 저장하세요. READY는 저장된 revision의
-        geometry·작품 승인·전시 권리·접근성을 검사합니다. 공개 URL은 승인된
-        immutable snapshot만 제공합니다.
+        먼저 현재 계정에 전시를 저장하세요. 공개 준비 검사는 공간·작품 승인·전시 권리·접근성을 확인해요.
+        검사 통과만으로 인터넷에 공개되지는 않아요. 공개 작업은 별도 버튼으로 실행합니다.
       </p>
       {!connected && (
         <p>
@@ -112,10 +111,10 @@ export function PublicationPanel({
             })
           }
         >
-          서버 revision READY 검사
+          공개 준비 확인
         </button>
         <button disabled={!connected} onClick={() => void work(refresh)}>
-          Publication 상태 다시 읽기
+          공개 상태 다시 확인
         </button>
       </div>
       {report && (

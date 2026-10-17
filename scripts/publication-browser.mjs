@@ -100,14 +100,11 @@ export async function runPublicationBrowser({
       );
       return response.json();
     };
-    const click = (name) =>
-      page.getByRole("button", { name, exact: true }).click();
-    const candidate = async () =>
-      JSON.parse(
-        await page.getByLabel("전시 문서 JSON", { exact: true }).inputValue(),
-      );
+    const click = async (name) => {const button=page.getByRole("button",{name,exact:true,includeHidden:true});await expose(button);await button.click();};
+    const expose = async locator => {for(const details of await locator.locator("xpath=ancestor::details").all()){if(!await details.evaluate(element=>element.open))await details.locator(":scope > summary").click();}};
+    const candidate = async () => {const input=page.getByLabel("전시 문서 JSON",{exact:true});await expose(input);return JSON.parse(await input.inputValue());};
     const stored = async () => {
-      const id = await page.getByTestId("draft-id").innerText();
+      const id = await page.getByTestId("draft-id").textContent();
       return page.evaluate(
         (id) =>
           new Promise((resolve, reject) => {
@@ -202,8 +199,9 @@ export async function runPublicationBrowser({
         const customized=await candidate();assert.equal(customized.surfaces.length,24);assert.equal(customized.openings.filter(o=>o.type==='window').length,1);
         assert.deepEqual(customized.surfaces.slice(0,12),templateBefore.surfaces);
         assert(customized.surfaces.slice(12).every(surface=>surface.roomId===templateBefore.rooms[1].id));
-        const templateLocalId=await page.getByTestId('draft-id').innerText();await page.reload();await page.getByTestId(`draft-${templateLocalId}`).click();await saved();await click('현재 서버 계정 확인');
+        const templateLocalId=await page.getByTestId('draft-id').textContent();await page.reload();await page.getByTestId(`draft-${templateLocalId}`).click();await saved();await click('현재 서버 계정 확인');
         for (const id of artworkIds) {
+          await expose(page.getByLabel("CMS 작품 ID",{exact:true}));
           await page.getByLabel("CMS 작품 ID", { exact: true }).fill(id);
           await click("승인된 CMS 작품 가져오기");
           await expect(
@@ -237,10 +235,10 @@ export async function runPublicationBrowser({
           .fill(JSON.stringify(doc, null, 2));
         await saved();
         original = await candidate();
-        localId = await page.getByTestId("draft-id").innerText();
+        localId = await page.getByTestId("draft-id").textContent();
         draftId = (await stored()).draft.exhibitionId;
         const unlicensed=structuredClone(original);unlicensed.extensions['org.exhibitos.studio/template'].license='private';
-        await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(unlicensed));await remoteSave();await click('서버 revision READY 검사');
+        await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(unlicensed));await remoteSave();await click('공개 준비 확인');
         await expect(page.getByTestId('ready-state')).toHaveText('BLOCKED');await expect(page.getByRole('region',{name:'READY 검사 결과'})).toContainText('TEMPLATE_REDISTRIBUTION_DENIED');
         const deniedPublish=await context.request.post(`${origin}/api/v1/tenants/${tenantId}/studio/exhibitions/${draftId}/publications`,{headers:{origin,'x-csrf-token':session.csrfToken,'if-match':(await stored()).remote.etag},data:{requestId:crypto.randomUUID()}});assert.equal(deniedPublish.status(),422);assert.equal((await deniedPublish.json()).code,'PUBLICATION_NOT_READY');
         const bad = structuredClone(original);
@@ -249,7 +247,7 @@ export async function runPublicationBrowser({
           .getByLabel("전시 문서 JSON", { exact: true })
           .fill(JSON.stringify(bad, null, 2));
         await remoteSave();
-        await click("서버 revision READY 검사");
+        await click("공개 준비 확인");
         await expect(page.getByTestId("ready-state")).toHaveText("BLOCKED");
         await expect(
           page.getByRole("region", { name: "READY 검사 결과" }),
@@ -267,7 +265,7 @@ export async function runPublicationBrowser({
           .getByLabel("전시 문서 JSON", { exact: true })
           .fill(JSON.stringify(original, null, 2));
         await remoteSave();
-        await click("서버 revision READY 검사");
+        await click("공개 준비 확인");
         await expect(page.getByTestId("ready-state")).toHaveText("READY");
         await expect(
           page.getByRole("button", {
@@ -445,7 +443,7 @@ export async function runPublicationBrowser({
         assert.equal(current.publication.revisionSha256, firstPublicHash);
         assert.equal(current.exhibition.title, original.title);
         await page.getByTestId(`draft-${localId}`).click();
-        await click("Publication 상태 다시 읽기");
+        await click("공개 상태 다시 확인");
         await expect(
           page.getByLabel("전시 문서 JSON", { exact: true }),
         ).toBeDisabled();

@@ -115,6 +115,7 @@ export function GeometryEditor({
     ),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const [audience,setAudience]=useState(false);
   const [preview,setPreview]=useState<GeometryCommand|null>(null),[editMode,setEditMode]=useState<EditMode>("translate"),[view,setView]=useState("both");
   useEffect(()=>{if(editMode==='dimensions'&&selection?.kind!=='room')setEditMode('translate');},[selection,editMode]);
   const [name, setName] = useState(""),
@@ -275,7 +276,9 @@ export function GeometryEditor({
   const shownDimensions=preview&&previewRoom ? [previewRoom.dimensions.width,previewRoom.dimensions.height,previewRoom.dimensions.depth].map(String):dimensions;
   return (
     <section className="geometry-editor" aria-label="공간 편집기">
-      <h2>공간 · 표면 · 개구부 편집</h2>
+      <div className="cms-actions"><h2>공간과 작품 배치</h2><button disabled={preview!==null} onClick={()=>setAudience(value=>!value)}>{audience?"편집으로 돌아가기":"관객 모습으로 확인"}</button></div>
+      {audience&&<p role="status">현재 편집 내용을 도구 없이 확인해요. 인터넷 공개나 품질 승인을 수행하지 않아요. 실제 공개 관람과 이동·소리는 공개 준비 후 따로 확인하세요.</p>}
+      <div hidden={audience}><PlacementEditor document={previewDocument} selectedId={selection?.kind==="placement"?selection.id:""} onSelectPlacement={id=>setSelection(id?{kind:"placement",id}:null)} execute={execute} session={session} disabled={disabled||preview!==null}/></div>
       <p className="cms-note">
         직사각형 방과 평면 벽·바닥·천장, 분할 곡선벽과 계단·경사로를 편집합니다. 문은 실제 사각 개구부이며 외부 출입문 또는 다른 방의 문과
         연결합니다. 충돌·보행 가능성을 보장하지 않습니다.
@@ -287,7 +290,7 @@ export function GeometryEditor({
         {notice}
       </p>
       <section className="studio-direct" aria-label="공간과 작품 직접 편집">
-       <div className="cms-actions" aria-label="편집 도구">
+       <div hidden={audience}><div className="cms-actions" aria-label="편집 도구">
         <button aria-pressed={editMode==="translate"} onClick={()=>setEditMode("translate")}>이동</button>
         <button aria-pressed={editMode==="rotate"} disabled={!rotationAllowed} onClick={()=>setEditMode("rotate")}>회전</button>
         <button aria-pressed={editMode==="dimensions"} disabled={selection?.kind!=="room"} onClick={()=>setEditMode("dimensions")}>방 크기</button>
@@ -298,11 +301,13 @@ export function GeometryEditor({
        {previewRoom&&<output className="studio-selected-pose">방 기준 크기 · 가로 {previewRoom.dimensions.width.toFixed(2)} · 높이 {previewRoom.dimensions.height.toFixed(2)} · 깊이 {previewRoom.dimensions.depth.toFixed(2)} m</output>}
        {!rotationAllowed&&selection?.kind==='placement'&&<p className="cms-note">벽에 맞춘 작품은 벽을 따라 위치를 조절해요. 정확한 벽과 치수는 숫자 편집에서 확인할 수 있어요.</p>}
        {editMode==='dimensions'&&<p className="cms-note">평면도의 가로·깊이 손잡이를 움직이세요. 방의 기준 크기만 바뀌며 벽·작품은 자동 이동하지 않아요. 높이는 숫자로 조절할 수 있어요.</p>}
-       <div className="studio-direct-views" data-view={view}>
+       </div>
+       <div className="studio-direct-views" data-view={audience?"3d":view}>
         <StudioFloorPlan document={previewDocument} editor={editor}/>
-        <GeometryPreview document={document} session={session} selection={selection} appearance={appearance} editing={editor}/>
+        <GeometryPreview document={document} session={session} selection={audience?null:selection} appearance={appearance} editing={audience?undefined:editor}/>
        </div>
       </section>
+      <div hidden={audience}>
       <fieldset disabled={disabled||preview!==null}>
         <legend>선택과 명령</legend>
         <label>
@@ -764,16 +769,7 @@ export function GeometryEditor({
         </fieldset>
       )}
       <AdvancedArchitectureEditor document={document} disabled={disabled} onChange={candidate=>execute({type:"replace-architecture",candidate})}/>
-      <details open={selection?.kind==="placement"}><summary>숫자로 정밀 조정·작품 가져오기·조명</summary>
-      <PlacementEditor
-        document={previewDocument}
-        selectedId={selection?.kind==="placement" ? selection.id:""}
-        onSelectPlacement={id=>setSelection(id ? {kind:"placement",id}:null)}
-        execute={execute}
-        session={session}
-        disabled={disabled||preview!==null}
-      />
-      </details>
+      </div>
     </section>
   );
 }
