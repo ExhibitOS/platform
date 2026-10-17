@@ -165,7 +165,38 @@
       "previousDefectAndScreenshots": "verification-v1.json and demo/"
     },
     "gitDiffCheck": "PASS",
-    "productionOrdinaryStudioRegression": "PENDING separate current-source main build and existing direct-edit mouse regression; demo checks do not qualify API/CMS"
+    "productionOrdinaryStudioRegression": {
+      "result": "PASS ordinary production Studio UI regressions",
+      "sourceCommit": "4a3dab09397423b46dd5824fe0fc1ef844e8f572",
+      "sourceSnapshot": "production-studio-regression/source-snapshot.json",
+      "mainBuild": {
+        "handle": 51670,
+        "exit": 0,
+        "reportedMilliseconds": 648,
+        "config": "existing apps/web/vite.config.ts with offline-shell",
+        "artifacts": "production-studio-regression/main-after",
+        "warnings": "existing large/ineffective dynamic import warnings; no budget relaxed"
+      },
+      "directMouse": {
+        "handle": 80214,
+        "exit": 0,
+        "checks": 21,
+        "script": "unchanged scripts/studio-direct-browser.mjs",
+        "evidence": "production-studio-regression/direct21/report.json"
+      },
+      "noviceFocused": {
+        "handle": 91465,
+        "exit": 0,
+        "checks": 1,
+        "mode": "EXHIBITOS_STUDIO_NOVICE_ONLY=1; unchanged script",
+        "evidence": "production-studio-regression/novice1/report.json"
+      },
+      "scope": "Actual Chromium ordinary Studio local synthetic metadata/metric bounds: selection, numeric, rotated room/wall transforms, 2D/3D handles, one-undo, cancellation/late pointer, save/reopen, audience/camera/selection/undo and default optional server/publication panel presence. Not API/CMS DB, actual user artwork quality, Safari/iOS or VoiceOver qualification.",
+      "visualRead": [
+        "production-studio-regression/novice1/studio-novice-direct-narrow.png"
+      ],
+      "preservedPriorMain": "production-studio-regression/main-before"
+    }
   },
   "limits": {
     "actualSafari": "NOT_RUN",
@@ -175,7 +206,8 @@
     "cloudflarePagesPublication": "NOT_RUN",
     "websiteDemoLink": "remains pending",
     "serverAndLogin": "not mounted in demo; production default retained",
-    "data": "browser local edit copies; storage eviction/shared-device limits retained; JSON backups contain metadata, not artwork bytes"
+    "data": "browser local edit copies; storage eviction/shared-device limits retained; JSON backups contain metadata, not artwork bytes",
+    "apiCmsDb": "NOT_RUN for this increment; UI/metadata regression does not replace real backend/database evidence."
   },
   "ownedSource": [
     {
@@ -241,5 +273,6 @@
   ],
   "sourceAndArtifactInventories": "verification.json in evidenceDirectory",
   "publicationStatus": "NOT_RUN; website demo links remain pending",
-  "integrationStatus": "Parent final source review: no concrete blocker. Local static validation complete; production ordinary Studio regression and remote integration remain pending."
+  "integrationStatus": "Source14 files preserved in scoped commit4a3dab0; parent source review no concrete blocker; static and ordinary Studio local checks PASS. Remote integration/publication pending.",
+  "sourceCommit": "4a3dab09397423b46dd5824fe0fc1ef844e8f572"
 }
