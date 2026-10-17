@@ -476,7 +476,7 @@ export function Studio() {
         <a className="brand" href="/" aria-label="ExhibitOS 홈">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <a href="/cms">Artist CMS</a>
+        <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>Artist CMS</a>
       </header>
       <div className="cms-heading">
         <div>
