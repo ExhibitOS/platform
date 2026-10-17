@@ -133,3 +133,14 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .studio-floorplan g:focus-visible { outline: none; stroke: #765723; }
 .studio-floorplan g:focus-visible :is(polygon,polyline) { stroke: #765723; stroke-width: 5; }
 @media (max-width:1000px) { .studio-direct-views { grid-template-columns:1fr; } }
+
+.studio-floorplan .floorplan-dimension-handle circle:not([fill="transparent"]){fill:#fff;stroke:#005b54;stroke-width:2;}
+.studio-floorplan .floorplan-dimension-handle:focus{outline:none;}
+.studio-floorplan .floorplan-dimension-handle:focus-visible circle:not([fill="transparent"]){stroke:#101c16;stroke-width:4;}
+.studio-floorplan .floorplan-dimension-handle text{fill:#005b54;pointer-events:none;font-weight:650;}
+
+.studio-floorplan svg { user-select:none; -webkit-user-select:none; }
+.studio-floorplan circle[fill="transparent"] { fill:transparent; stroke:none; }
+
+/* SVG native auto outlines can scale with the plan's viewBox. Keep explicit keyboard strokes. */
+.studio-floorplan g:focus { outline:none; }

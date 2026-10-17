@@ -3,7 +3,7 @@ import {Quaternion,Vector3} from 'three';
 import {newDraft} from '../drafts/example';
 import {newPlacement,syntheticArtwork} from '../placement/model';
 import {createGeometryState,applyGeometryCommand,undoGeometry} from './model';
-import {closestEditorSelection,planarCommand,worldMatrix,alignedWall,localPose} from './direct-edit';
+import {roomDimensionCommand,planarRoomDimensionCommand,closestEditorSelection,planarCommand,worldMatrix,alignedWall,localPose} from './direct-edit';
 function fixture(){let state=createGeometryState(newDraft().candidate);state=applyGeometryCommand(state,{type:'white-cube',roomId:state.present.rooms[0]!.id});const artwork=syntheticArtwork();state=applyGeometryCommand(state,{type:'add-artwork',artwork});return applyGeometryCommand(state,{type:'add-placement',placement:newPlacement(artwork,state.present.rooms[0]!.id)});}
 describe('shared direct editing uses existing reversible commands',()=>{
  it('moves in world plan coordinates in a rotated room without resetting local height, tilt or scale; one commit is one undo',()=>{
@@ -36,4 +36,19 @@ it('selects the visible nearest surface before an artwork behind it, using tie p
  expect(closestEditorSelection([{distance:5,selection:art},{distance:2,selection:wall}])).toEqual(wall);
  expect(closestEditorSelection([{distance:2,selection:wall},{distance:2.000001,selection:art}])).toEqual(art);
  expect(closestEditorSelection([{distance:2,selection:wall},{distance:2,selection:opening}])).toEqual(opening);expect(closestEditorSelection([])).toBeUndefined();
+});
+
+it('resizes authored room dimensions in rotated plan space without scale or child relocation and remains one reversible command',()=>{
+ const doc=fixture().present,room=doc.rooms[0]!;room.transform.rotation=new Quaternion().setFromAxisAngle(new Vector3(0,1,0),Math.PI/2).toArray();
+ const before=structuredClone(doc),state=createGeometryState(doc),s={kind:'room' as const,id:room.id};
+ const next=applyGeometryCommand(state,planarRoomDimensionCommand(doc,s,'width',0,-.5));
+ expect(next.present.rooms[0]!.dimensions).toEqual({...room.dimensions,width:room.dimensions.width+1});
+ expect(next.present.rooms[0]!.transform).toEqual(room.transform);expect(next.present.surfaces).toEqual(doc.surfaces);expect(next.present.placements).toEqual(doc.placements);expect(next.past).toHaveLength(1);expect(undoGeometry(next).present).toEqual(before);expect(doc).toEqual(before);
+});
+it('room dimension handles preserve existing negative-size and referenced-object bounds validation',()=>{
+ const doc=fixture().present,state=createGeometryState(doc),s={kind:'room' as const,id:doc.rooms[0]!.id},before=JSON.stringify(state);
+ expect(()=>applyGeometryCommand(state,roomDimensionCommand(doc,s,'width',-100))).toThrow();
+ expect(()=>applyGeometryCommand(state,roomDimensionCommand(doc,s,'width',-1))).toThrow();
+ expect(()=>roomDimensionCommand(doc,{kind:'placement',id:doc.placements[0]!.id},'width',1)).toThrow();
+ expect(JSON.stringify(state)).toBe(before);
 });

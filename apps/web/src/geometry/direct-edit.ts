@@ -4,10 +4,10 @@ import {artifactBounds,artifactCorners,IDENTITY_ARTIFACT_POSE} from '@exhibitos/
 import {alignPlacement} from '../placement/model';
 import type {GeometryCommand} from './model';
 export interface EditorSelection {kind:'room'|'surface'|'opening'|'placement';id:string}
-export type EditMode='translate'|'rotate';
+export type EditMode='translate'|'rotate'|'dimensions';
 export type Pose=Exhibition['rooms'][number]['transform'];
 export interface EditorBridge {
- document:Exhibition;selection:EditorSelection|null;mode:EditMode;disabled:boolean;preview:GeometryCommand|null;
+ document:Exhibition;selection:EditorSelection|null;mode:EditMode;view:string;disabled:boolean;preview:GeometryCommand|null;
  select:(selection:EditorSelection)=>void;previewChange:(command:GeometryCommand|null)=>void;commit:(command:GeometryCommand)=>void;error:(message:string)=>void;
 }
 export const selectionKey=(s:EditorSelection)=>s.kind+':'+s.id;
@@ -74,4 +74,16 @@ export function planarCommand(doc:Exhibition,s:EditorSelection,dx:number,dz:numb
 /** Respect opaque front surfaces. Prefer a smaller target only at the same hit distance. */
 export function closestEditorSelection(hits:{distance:number;selection:EditorSelection}[]):EditorSelection|undefined {
  if(!hits.length)return undefined;const sorted=[...hits].sort((a,b)=>a.distance-b.distance),near=sorted.filter(h=>h.distance-sorted[0]!.distance<1e-5);return (near.find(h=>h.selection.kind==='opening')??near.find(h=>h.selection.kind==='placement')??near[0])?.selection;
+}
+
+export type RoomDimensionAxis='width'|'depth';
+/** Change authored dimensions only. This deliberately does not rescale or relocate children. */
+export function roomDimensionCommand(doc:Exhibition,s:EditorSelection,axis:RoomDimensionAxis,delta:number):GeometryCommand {
+ if(s.kind!=='room'||!Number.isFinite(delta))throw Error('방을 선택한 뒤 크기를 조절해 주세요.');
+ const room=doc.rooms.find(r=>r.id===s.id);if(!room)throw Error('방을 다시 선택해 주세요.');
+ const {id,...value}=room;return {type:'set-room',id,room:{...value,dimensions:{...room.dimensions,[axis]:room.dimensions[axis]+delta}}};
+}
+export function planarRoomDimensionCommand(doc:Exhibition,s:EditorSelection,axis:RoomDimensionAxis,dx:number,dz:number):GeometryCommand {
+ if(s.kind!=='room')throw Error('방을 선택한 뒤 크기를 조절해 주세요.');
+ const delta=localHorizontalDelta(worldMatrix(doc,s),dx,dz);return roomDimensionCommand(doc,s,axis,2*(axis==='width'?delta.x:delta.z));
 }

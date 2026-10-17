@@ -17,7 +17,7 @@ import { PlacementEditor } from "./PlacementEditor";
 import type { Session } from "./cms-client";
 import { GeometryPreview } from "./GeometryPreview";
 import {StudioFloorPlan} from "./StudioFloorPlan";
-import {localPose,selectedItem,type EditorBridge,type EditMode} from "./geometry/direct-edit";
+import {alignedWall,localPose,selectedItem,type EditorBridge,type EditMode} from "./geometry/direct-edit";
 import type { GeometrySelection, SurfaceAppearance } from "./GeometryPreview";
 
 type Document = Draft["candidate"];
@@ -116,6 +116,7 @@ export function GeometryEditor({
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const [preview,setPreview]=useState<GeometryCommand|null>(null),[editMode,setEditMode]=useState<EditMode>("translate"),[view,setView]=useState("both");
+  useEffect(()=>{if(editMode==='dimensions'&&selection?.kind!=='room')setEditMode('translate');},[selection,editMode]);
   const [name, setName] = useState(""),
     [dimensions, setDimensions] = useState(["12", "4", "8"]),
     [pose, setPose] = useState<Pose>(identity),
@@ -264,10 +265,14 @@ export function GeometryEditor({
       ? document.openings.find((item) => item.id === selection.id)
       : undefined;
   const previewDocument=useMemo(()=>preview ? applyGeometryCommand(state,preview).present:document,[state,preview,document]);
-  const editor:EditorBridge={document,selection,mode:editMode,disabled,preview,
+  const editor:EditorBridge={document,selection,mode:editMode,view,disabled,preview,
    select:setSelection,previewChange:command=>{if(command)applyGeometryCommand(stateRef.current,command);setPreview(command);},
    commit:command=>{setPreview(null);if(!selection)return;try{const next=applyGeometryCommand(stateRef.current,command);if(JSON.stringify(selectedItem(stateRef.current.present,selection))!==JSON.stringify(selectedItem(next.present,selection)))execute(command);}catch(error){setError(error instanceof Error?error.message:'변경 내용을 확인해 주세요.');}},error:setError};
   const selectedPose=selection&&selectedItem(previewDocument,selection) ? localPose(previewDocument,selection):null;
+  const rotationAllowed=useMemo(()=>{if(selection?.kind==='opening')return false;try{return !selection||!alignedWall(document,selection);}catch{return false;}},[document,selection]);
+  useEffect(()=>{if(editMode==='rotate'&&!rotationAllowed)setEditMode('translate');},[editMode,rotationAllowed]);
+  const previewRoom=selection?.kind==='room'?previewDocument.rooms.find(r=>r.id===selection.id):undefined;
+  const shownDimensions=preview&&previewRoom ? [previewRoom.dimensions.width,previewRoom.dimensions.height,previewRoom.dimensions.depth].map(String):dimensions;
   return (
     <section className="geometry-editor" aria-label="공간 편집기">
       <h2>공간 · 표면 · 개구부 편집</h2>
@@ -284,17 +289,21 @@ export function GeometryEditor({
       <section className="studio-direct" aria-label="공간과 작품 직접 편집">
        <div className="cms-actions" aria-label="편집 도구">
         <button aria-pressed={editMode==="translate"} onClick={()=>setEditMode("translate")}>이동</button>
-        <button aria-pressed={editMode==="rotate"} disabled={selection?.kind==="opening"} onClick={()=>setEditMode("rotate")}>회전</button>
+        <button aria-pressed={editMode==="rotate"} disabled={!rotationAllowed} onClick={()=>setEditMode("rotate")}>회전</button>
+        <button aria-pressed={editMode==="dimensions"} disabled={selection?.kind!=="room"} onClick={()=>setEditMode("dimensions")}>방 크기</button>
         <span>보기</span>{[["both","함께 보기"],["plan","평면도"],["3d","3D"]].map(([value,label])=><button key={value} aria-pressed={view===value} onClick={()=>setView(value!)}>{label}</button>)}
        </div>
        <p className="cms-note">선택한 대상을 두 화면에서 함께 확인해요. 드래그 한 번은 실행 취소 한 번으로 되돌릴 수 있어요. 수치 편집도 계속 사용할 수 있어요.</p>
        {selectedPose&&<output aria-live="polite" className="studio-selected-pose">선택 위치 · 가로 X {selectedPose.position[0].toFixed(2)} · 높이 Y {selectedPose.position[1].toFixed(2)} · 깊이 Z {selectedPose.position[2].toFixed(2)} m</output>}
+       {previewRoom&&<output className="studio-selected-pose">방 기준 크기 · 가로 {previewRoom.dimensions.width.toFixed(2)} · 높이 {previewRoom.dimensions.height.toFixed(2)} · 깊이 {previewRoom.dimensions.depth.toFixed(2)} m</output>}
+       {!rotationAllowed&&selection?.kind==='placement'&&<p className="cms-note">벽에 맞춘 작품은 벽을 따라 위치를 조절해요. 정확한 벽과 치수는 숫자 편집에서 확인할 수 있어요.</p>}
+       {editMode==='dimensions'&&<p className="cms-note">평면도의 가로·깊이 손잡이를 움직이세요. 방의 기준 크기만 바뀌며 벽·작품은 자동 이동하지 않아요. 높이는 숫자로 조절할 수 있어요.</p>}
        <div className="studio-direct-views" data-view={view}>
         <StudioFloorPlan document={previewDocument} editor={editor}/>
         <GeometryPreview document={document} session={session} selection={selection} appearance={appearance} editing={editor}/>
        </div>
       </section>
-      <fieldset disabled={disabled}>
+      <fieldset disabled={disabled||preview!==null}>
         <legend>선택과 명령</legend>
         <label>
           공간 요소 선택
@@ -372,7 +381,7 @@ export function GeometryEditor({
         </p>
       </fieldset>
       {selection && selection.kind!=="placement" && (
-        <fieldset disabled={disabled}>
+        <fieldset disabled={disabled||preview!==null}>
           <legend>
             {selection.kind === "room"
               ? "방"
@@ -469,7 +478,7 @@ export function GeometryEditor({
                     aria-label={`${label} (m)`}
                     type="number"
                     step="0.1"
-                    value={dimensions[index] ?? ""}
+                    value={shownDimensions[index] ?? ""}
                     onChange={(e) =>
                       setDimensions((values) =>
                         values.map((value, i) =>

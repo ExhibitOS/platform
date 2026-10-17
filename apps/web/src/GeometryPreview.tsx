@@ -351,6 +351,7 @@ export function GeometryPreview({
         });
         const outline = new three.LineSegments(edges, material);
         outline.position.y = room.dimensions.height / 2;
+        outline.userData.dimensionReference={...room.dimensions};group.userData.dimensionOutline=outline;
         group.add(outline);
         owned.push(box, edges, material);
       }
