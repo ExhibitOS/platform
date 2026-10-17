@@ -44,7 +44,6 @@ export function Viewer({
   guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
-  const realtimeOffline = !!publication.local && !(publication.local.kind === "static" && publication.local.dynamic === true);
   const analytics = useRef<ViewerAnalytics | null>(null);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const analyticsConsentRef = useRef(false);
@@ -140,7 +139,7 @@ export function Viewer({
   const [presenceState,setPresenceState]=useState<RealtimeState|null>(null);
   const presenceReduced=useRef(reducedMotion??matchMedia("(prefers-reduced-motion: reduce)").matches);if(reducedMotion!==undefined)presenceReduced.current=reducedMotion;
   const presenceSuspended=useRef(suspendNavigation);presenceSuspended.current=suspendNavigation;
-  useEffect(()=>{if(realtimeOffline)return;
+  useEffect(()=>{if(publication.local)return;
     const runtime=new ExhibitionPresence({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,roomIds:new Set(publication.exhibition.rooms.map(r=>r.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:state=>{setPresenceState(state);if(state.status!=='joined')presenceScene.current?.clear();}});
     presence.current=runtime;setPresenceState(runtime.snapshot());
     const leave=()=>{runtime.leave();presenceScene.current?.clear();},visibility=()=>{if(document.visibilityState!=='visible')leave();};
@@ -153,7 +152,7 @@ export function Viewer({
   const opening=useRef<OpeningSession|null>(null),openingAudio=useRef<HTMLDivElement|null>(null);
   const [openingState,setOpeningState]=useState<OpeningState|null>(null),[openingView,setOpeningView]=useState<{viewpointId:string;sequence:number}|undefined>(undefined);
   const openingSequence=useRef(0);
-  useEffect(()=>{if(realtimeOffline)return;const runtime=new OpeningSession({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,viewpointIds:new Set(presentationFor(publication.exhibition).viewpoints.map(v=>v.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:setOpeningState,attachAudio:element=>openingAudio.current?.append(element),viewpoint:id=>{if(!presenceSuspended.current&&document.visibilityState==='visible')setOpeningView({viewpointId:id,sequence:++openingSequence.current});}});opening.current=runtime;setOpeningState(runtime.snapshot());const hidden=()=>{if(document.visibilityState!=='visible')runtime.leave();};document.addEventListener('visibilitychange',hidden);const timer=setInterval(()=>runtime.measureVoice(),1000);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);runtime.dispose();opening.current=null;};},[publication]);
+  useEffect(()=>{if(publication.local)return;const runtime=new OpeningSession({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,viewpointIds:new Set(presentationFor(publication.exhibition).viewpoints.map(v=>v.id)),origin:location.origin,check:async(signal)=>{if(!audio.current)throw Error('VIEWER_UNAVAILABLE');await audio.current.checkScriptAvailability(signal);},changed:setOpeningState,attachAudio:element=>openingAudio.current?.append(element),viewpoint:id=>{if(!presenceSuspended.current&&document.visibilityState==='visible')setOpeningView({viewpointId:id,sequence:++openingSequence.current});}});opening.current=runtime;setOpeningState(runtime.snapshot());const hidden=()=>{if(document.visibilityState!=='visible')runtime.leave();};document.addEventListener('visibilitychange',hidden);const timer=setInterval(()=>runtime.measureVoice(),1000);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hidden);runtime.dispose();opening.current=null;};},[publication]);
   useEffect(()=>{if(suspendNavigation){opening.current?.leave();setOpeningView(undefined);}},[suspendNavigation]);
   const [profile, setProfile] = useState<"auto" | "compact" | "desktop">(
     "auto",
@@ -227,8 +226,8 @@ export function Viewer({
         onDetailEntryReady={onDetailEntryReady}
         guideRequest={guideRequest}
         openingViewpoint={openingView}
-        onPresencePose={realtimeOffline?undefined:capturePresencePose}
-        onPresenceSceneReady={realtimeOffline?undefined:scene=>{presenceScene.current=scene;}}
+        onPresencePose={publication.local?undefined:capturePresencePose}
+        onPresenceSceneReady={publication.local?undefined:scene=>{presenceScene.current=scene;}}
         onScriptSceneReady={scriptProgram.rules.length?scene=>{if(!scene)script.current?.stop();scriptScene.current=scene;}:undefined}
         onScriptPose={scriptProgram.rules.length?(position,forward)=>{scriptPose.current={position,forward};}:undefined}
         onScriptClick={scriptProgram.rules.length?id=>script.current?.event({type:'artwork_click',placementId:id},performance.now(),Date.now()):undefined}
@@ -238,8 +237,8 @@ export function Viewer({
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
-      <OpeningControls session={opening.current} state={openingState} offline={realtimeOffline} viewpoints={presentationFor(publication.exhibition).viewpoints} audioReady={node=>{openingAudio.current=node;}}/>
-      <RealtimeControls state={presenceState} offline={realtimeOffline} join={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.join();}} retry={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.retry();}} leave={()=>{presence.current?.leave();presenceScene.current?.clear();}}/>
+      <OpeningControls session={opening.current} state={openingState} offline={!!publication.local} viewpoints={presentationFor(publication.exhibition).viewpoints} audioReady={node=>{openingAudio.current=node;}}/>
+      <RealtimeControls state={presenceState} offline={!!publication.local} join={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.join();}} retry={()=>{if(!suspendNavigation&&document.visibilityState==='visible')presence.current?.retry();}} leave={()=>{presence.current?.leave();presenceScene.current?.clear();}}/>
       <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
       {scriptProgram.rules.length>0&&<ScriptControls program={scriptProgram} state={scriptState} start={startScript} stop={()=>script.current?.stop()} consent={scriptConsent} setConsent={value=>{consent.current=value;setScriptConsent(value);if(!value)audio.current?.stopScriptAudio();}} transcripts={[...publication.exhibition.audioZones.map(z=>z.transcript),...experienceFor(publication.exhibition).voices.map(v=>v.transcript)]} event={event=>script.current?.event(event,performance.now(),Date.now())}/>}
       <p className="cms-note">
