@@ -101,5 +101,33 @@
       "apps/web/src/WalkingControls.tsx": "b9b37e0897673385e0d4134c3f9597a6da28a3c897c81b63462dba0943b040db"
     },
     "remaining": "Navigation settings interaction follow-up, macOS Safari/iOS/VoiceOver/novice-user observation and whole GUI acceptance not inferred"
+  },
+  "navigation_followup": {
+    "date": "2026-10-18",
+    "runtimeSource": "b701aaccfaa2206fe761a535ddbecac2a003d266; unchanged compiled production build",
+    "testChanges": [
+      "Migration fixture14→15 matches existing015_hosted_objects; earlier migration checksum assertion unchanged",
+      "Actual view-disclosure summary clicks before original enabled/disabled checks; no force-click or assertion removal"
+    ],
+    "actualScope": "Isolated synthetic PostgreSQL and bundled Chromium; physical mobile/native OS input not inferred",
+    "fullRun": {
+      "exit": 1,
+      "navigationChecksPassed": 8,
+      "remainingFailure": "Actual opt-in pointer lock acquisition returned WrongDocumentError despite connected element/user activation/focus; unchanged acquisition assertion remains failed"
+    },
+    "followupRun": {
+      "exit": 0,
+      "seconds": 37.572,
+      "filter": "qualified artwork entrance|window-blur|stationary mode|missing approved|invalid spawn|narrow real",
+      "browserChecks": 6,
+      "uniqueAdditionalChecks": 5,
+      "initializationRepeatedAsPrerequisite": true
+    },
+    "combinedUniqueNavigationChecks": "13/14; full suite not passed",
+    "limits": [
+      "Strict pointer lock acquisition and physical/native input remain incomplete; do not replace with injected fallback evidence",
+      "Touch and window lifecycle cases use explicitly labeled emulated/injected input",
+      "Other supported Safari/iOS/accessibility/user checks remain separate"
+    ]
   }
 }
