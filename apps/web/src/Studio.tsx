@@ -1,3 +1,4 @@
+import { localLoginContext, localLoginHref } from "./local-login-context";
 import { notifyAuthChange } from "./auth-change";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DraftError, DraftStore } from "./drafts/store";
@@ -872,7 +873,7 @@ export function Studio() {
                 전환·계정 변경만으로 로컬 draft를 서버에 보내지 않습니다.
               </p>
               <div className="cms-actions">
-                <a href="/cms">CMS에서 로그인</a>
+                <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>CMS에서 로그인</a>
                 <button
                   disabled={busy || !online}
                   onClick={() =>
