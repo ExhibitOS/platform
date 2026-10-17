@@ -159,6 +159,7 @@ export function GeometryPreview({
   selection: GeometrySelection | null;
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
+  const editingEnabled=!!editing;
   const [transparentSpace,setTransparentSpace]=useState(false);
   const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
@@ -223,6 +224,8 @@ export function GeometryPreview({
     ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
   const [restart, setRestart] = useState(0);
+  const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
+  const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
@@ -257,6 +260,7 @@ export function GeometryPreview({
     setWalkLoading(false);
     setReady(false);
     setMessage("공간 미리보기를 준비합니다.");
+    setPublicMessage("전시를 준비하고 있어요.");
     const build = async () => {
       if (
         document.rooms.length > 32 ||
@@ -663,6 +667,7 @@ export function GeometryPreview({
         walkingActions.current?.pause();
         demand.current?.("cancel");
         setReady(false);
+        setPublicMessage("3D 화면 연결이 중단됐어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.");
         setMessage(
           viewerBudget
             ? "3D 그래픽 연결이 중단되었습니다. 작품 목록을 계속 사용할 수 있습니다. 3D 다시 시작으로 재시도할 수 있습니다."
@@ -702,6 +707,7 @@ export function GeometryPreview({
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
       setReady(true);
+      setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
       const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
@@ -709,7 +715,7 @@ export function GeometryPreview({
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,render}):null;
       editingSync.current=()=>editor?.sync();
       release = () => {
-        if(editingRef.current)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
+        if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         editor?.dispose();editingSync.current=null;
         walkingRelease();
@@ -1213,6 +1219,9 @@ export function GeometryPreview({
             geometry: renderer.info.memory.geometries,
             textures: renderer.info.memory.textures,
           });
+          setPublicMessage(failed.size > 0
+            ? `작품 ${failed.size}개를 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요.`
+            : `작품 ${active.size}개를 불러왔어요. 작품 목록에서도 감상할 수 있어요.`);
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
@@ -1370,6 +1379,9 @@ export function GeometryPreview({
       }
     };
     void build().catch((error) => {
+      if (!disposed) setPublicMessage(error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
+        ? "이 전시의 공간이 표시 한도를 넘었어요. 작품 목록에서 감상해 주세요."
+        : "3D 화면을 표시하지 못했어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.");
       if (!disposed)
         setMessage(
           error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
@@ -1394,6 +1406,7 @@ export function GeometryPreview({
     viewerBudget,
     restart,
     transparentSpace,
+    editingEnabled,
   ]);
   return (
     <figure data-reduced-motion={walkSettings.reducedMotion} className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
@@ -1408,7 +1421,10 @@ export function GeometryPreview({
           />
         )}
       </div>
-      <figcaption data-testid="geometry-render-state">{message}</figcaption>
+      <figcaption role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
+      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p></details>}
+      <ViewControls className={publicSource ? "viewer-options" : undefined}>
+      {publicSource && <summary>시점 조정</summary>}
       <div className="cms-actions">
         <button
           disabled={
@@ -1416,7 +1432,7 @@ export function GeometryPreview({
           }
           onClick={() => action.current?.("start")}
         >
-          시작 camera 보기
+          {publicSource ? "입구 시점 보기" : "시작 camera 보기"}
         </button>
         {presentationFor(document).viewpoints.map((v) => (
           <button
@@ -1458,6 +1474,7 @@ export function GeometryPreview({
           시점 오른쪽 회전
         </button>
       </div>
+      </ViewControls>
       {viewerBudget && (
         <WalkingControls
           available={ready && !xrRunning && !walkLoading && !suspendNavigation}
@@ -1475,38 +1492,35 @@ export function GeometryPreview({
         />
       )}
       {viewerBudget && presentationFor(document).viewpoints.length>0 && (
+        <details className="viewer-options"><summary>다른 관람 위치</summary>
         <section aria-label="검증된 viewpoint 순간 이동">
           <p>직접 선택한 위치의 바닥·몸 여유 공간을 검사하고 움직임 없이 이동합니다. 안전하지 않은 위치는 거부하며 정지 상태를 유지합니다.</p>
           {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
-        </section>
+        </section></details>
       )}
       {viewerBudget && (
         <div className="cms-actions">
           <button disabled={!ready} onClick={() => demand.current?.("next")}>
             다음 작품 불러오기
           </button>
+          <details className="viewer-options"><summary>작품 불러오기 설정</summary>
           <button disabled={!ready} onClick={() => demand.current?.("coarse")}>
             불러온 작품 입구 품질
           </button>
           <button disabled={!ready} onClick={() => demand.current?.("full")}>
             불러온 작품 상세 품질
           </button>
-          <button disabled={!ready} onClick={() => demand.current?.("retry")}>
-            실패한 작품 다시 시도
-          </button>
           <button disabled={!ready} onClick={() => demand.current?.("cancel")}>
             작품 불러오기 취소
+          </button>
+          </details>
+          <button disabled={!ready} onClick={() => demand.current?.("retry")}>
+            실패한 작품 다시 시도
           </button>
           <button onClick={() => setRestart((n) => n + 1)}>3D 다시 시작</button>
         </div>
       )}
-      <p className="cms-note">
-        {publicSource
-          ? "사각형 표면과 실제 사각 개구부의 전시 보기입니다. 걷기는 벽·작품 충돌과 제한된 단차·경사를 지원합니다. 안전한 시작 위치나 지원되는 바닥이 없으면 정지 관람을 이용하세요."
-          : "사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 분할 곡선벽·계단·경사로를 동일한 평면으로 렌더링합니다. 실제 보행 가능성은 공개 Viewer에서 검사하세요."}
-        저장된 조명은 시각적 근사이며 물리적 조도 측정을 지원하지
-        않습니다. 마우스 없이 위 버튼으로 시점을 바꿀 수 있습니다.
-      </p>
+      {publicSource ? <details className="viewer-options"><summary>이동 도움말과 화면 표현</summary><p>걷기를 시작하지 않아도 작품을 선택하거나 목록에서 감상할 수 있어요. 표시된 시점으로 이동할 때는 이동 가능한 공간을 확인합니다. 소리는 직접 켤 때만 재생돼요.</p><p>저장된 조명은 화면에서 비슷하게 표현하며 실제 밝기 측정값은 아닙니다. 마우스 없이 위 버튼으로도 시점을 바꿀 수 있어요.</p></details> : <p className="cms-note">사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 분할 곡선벽·계단·경사로를 동일한 평면으로 렌더링합니다. 실제 보행 가능성은 공개 Viewer에서 검사하세요. 저장된 조명은 시각적 근사이며 물리적 조도 측정을 지원하지 않습니다. 마우스 없이 위 버튼으로 시점을 바꿀 수 있습니다.</p>}
     </figure>
   );
 }

@@ -203,7 +203,7 @@ export async function runExperienceBrowser({ origin, publicationId, projection, 
         await expect.poll(async () => JSON.parse(await input.inputValue()).extensions["org.exhibitos.viewer/experience"]?.voices[0]?.transcript).toBe("Original browser authored transcript");
         await author.waitForTimeout(1000);
         await author.getByRole("button", { name: "기록된 ETag로 서버 저장", exact: true }).click();
-        await author.getByRole("button", { name: "서버 revision READY 검사", exact: true }).click();
+        await author.getByRole("button", { name: "공개 준비 확인", exact: true }).click();
         await expect(author.getByRole("button", { name: "READY revision 공개", exact: true })).toBeEnabled();
         await author.getByRole("button", { name: "READY revision 공개", exact: true }).click();
         const publicLink = author.getByRole("link", { name: "익명 공개 preview 열기", exact: true }); await expect(publicLink).toBeVisible();

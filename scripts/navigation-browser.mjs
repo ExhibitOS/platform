@@ -167,6 +167,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     const entranceAt = performance.now();
     await page.goto(`${origin}/p/${publicationId}`);
     await page.getByRole("button", { name: "관람 시작", exact: true }).click();
+    await page.locator(".walking-controls details > summary").click();
     await expect
       .poll(async () => (await assets(page)).loadedPlacements)
       .toBe(2);
@@ -539,6 +540,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
         );
         await page.reload();
         await page.getByRole("button", { name: "관람 시작", exact: true }).click();
+    await page.locator(".walking-controls details > summary").click();
         await expect.poll(async () => (await assets(page)).failed).toBe(2);
         await start(page);
         await page.getByLabel("보행 속도", { exact: true }).selectOption("1.6");
@@ -576,6 +578,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
         });
         await page.reload();
         await page.getByRole("button", { name: "관람 시작", exact: true }).click();
+    await page.locator(".walking-controls details > summary").click();
         await expect
           .poll(async () => (await assets(page)).loadedPlacements)
           .toBe(2);

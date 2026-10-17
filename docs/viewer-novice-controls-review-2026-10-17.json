@@ -91,5 +91,15 @@
     "DB-backed optional social/script browser cases changed only labels/disclosure-open steps; not rerun in this vertical because actual DB engine path is separately unavailable.",
     "Scoped Git integration pending."
   ],
-  "evidenceDirectory": "/Volumes/ExhibitSSD/ExhibitOS/.local/verification/viewer-novice-20261017-c9246237-967f-484f-88e8-634194f04b9b"
+  "evidenceDirectory": "/Volumes/ExhibitSSD/ExhibitOS/.local/verification/viewer-novice-20261017-c9246237-967f-484f-88e8-634194f04b9b",
+  "shared_scene_increment": {
+    "implementation": "Public-only measured asset/status messages; technical diagnostics/camera/LOD behind real details; next/retry/restart visible. Walking precision/help folded; basic actions and reduced-motion visible. Studio shared editing lifecycle retained.",
+    "validation": "Web type/lint PASS; same-source actual Chromium metric texturedLOD/keyboard/details/return/rights PASS30977;staticbuild13441/browser64544 PASS;Studio21+preview+actualCMS27 scope recorded independently",
+    "receipt": "/Volumes/ExhibitSSD/ExhibitOS/.local/verification/viewer-final-20261017-89b76603-61fe-490f-9044-a6cb3426dacd/final-verification.json",
+    "sourceSHA256": {
+      "apps/web/src/GeometryPreview.tsx": "0c366e156a96bea02143dabc4cbbaba33f80c318e054d8182f8292824729608e",
+      "apps/web/src/WalkingControls.tsx": "b9b37e0897673385e0d4134c3f9597a6da28a3c897c81b63462dba0943b040db"
+    },
+    "remaining": "Navigation settings interaction follow-up, macOS Safari/iOS/VoiceOver/novice-user observation and whole GUI acceptance not inferred"
+  }
 }
