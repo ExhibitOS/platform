@@ -8,7 +8,7 @@ import {validateExhibition} from '@exhibitos/spec';
 import {validatePresenceClientMessage,type PresenceClientMessage,type PresenceVisitor,type PresenceErrorCode} from '@exhibitos/studio-contract';
 import {createPresenceGeometry,type PresencePose} from './realtime-geometry.ts';
 export interface RealtimePublication {exhibition:Exhibition;publication:{id:string;revisionSha256:string;status:string}}
-export interface RealtimeSettings {origin:string;publication(id:string):Promise<RealtimePublication>;maxBufferedBytes?:number;openingUpgrade?:(request:import('node:http').IncomingMessage,socket:Duplex,head:Buffer)=>boolean}
+export interface RealtimeSettings {origin:string;clientOrigin?:string;publication(id:string):Promise<RealtimePublication>;maxBufferedBytes?:number;openingUpgrade?:(request:import('node:http').IncomingMessage,socket:Duplex,head:Buffer)=>boolean}
 interface Visitor {state:PresenceVisitor;socket?:WebSocket;tokenHash:string;expires:number;reservedUntil:number;lastPose:number;poseSeq:number;credit:number}
 interface Room {id:string;revision:string;visitors:Map<string,Visitor>;geometry:ReturnType<typeof createPresenceGeometry>;sequence:number;checkedAt:number;checking?:Promise<boolean>;closed:boolean}
 interface Context {socket:WebSocket;publicationId:string;room?:Room;visitor?:Visitor;alive:boolean;busy:boolean;queue:Array<{bytes:Buffer;isBinary:boolean}>;joined:boolean;joinTimer:ReturnType<typeof setTimeout>;tokens:number;tokenAt:number;poseTokens:number;poseAt:number;pongAt:number}
@@ -93,7 +93,7 @@ export function registerRealtime(app:FastifyInstance,settings:RealtimeSettings){
   const match=/^\/api\/v1\/publications\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\/presence$/.exec(request.url??'');
   if(!match&&settings.openingUpgrade?.(request,socket,head))return;
   if(stopping||contexts.size>=200){reject(503);return;}
-  if(!match||request.headers.origin!==settings.origin||request.headers.host!==origin.host||request.headers['sec-websocket-protocol']){reject(403);return;}
+  if(!match||(request.headers.origin!==settings.origin&&(!settings.clientOrigin||request.headers.origin!==settings.clientOrigin))||request.headers.host!==origin.host||request.headers['sec-websocket-protocol']){reject(403);return;}
   const ip=request.socket.remoteAddress??'';const now=Date.now();for(const [key,b]of ipBudgets)if(now-b.at>60000)ipBudgets.delete(key);
   let b=ipBudgets.get(ip);if(!b){if(ipBudgets.size>=256){reject(503);return;}b={tokens:60,at:now};ipBudgets.set(ip,b);}b.tokens=Math.min(60,b.tokens+(now-b.at)/1000);b.at=now;if(b.tokens<1){reject(429);return;}b.tokens--;
   socket.on('error',()=>{});wss.handleUpgrade(request,socket,head,ws=>accept(ws,match[1]!));

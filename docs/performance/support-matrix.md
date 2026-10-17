@@ -4,7 +4,7 @@
 
 Viewer 구현 대상은 Safari·Chrome, 공식 검증 대상은 macOS/iOS다. 아래 과거 tested는 각 기록의 한정된 결과이며 두 OS/브라우저 조합 전체의 검증 완료 선언이 아니다. Windows/Linux Chrome은 호환 후보이며 해당 OS의 Manager·Processing 구현은 1차에 요구하지 않는다. Android와 다른 브라우저 확대는 후속이다.
 
-iPhone은 촬영·선택적 `.reduced` 확인·원본 전달, Mac Swift·RealityKit은 최종 재구성·GLB/LOD/OES와 검토를 맡는다. Mac Manager와 Mac Studio/CMS를 1차 제품으로 검증한다. 서버는 선택한 Ubuntu OCI/compose 단일 profile이며 Linux 사용자 앱 지원과 구분한다. iPhone 최종 Processing·Node 재구성·범용 cloud·AR/XR/Federation·기관 고급 연동은 후속 보류다.
+iPhone은 촬영·선택적 `.reduced` 확인·원본 전달, Mac Swift·RealityKit은 최종 재구성·GLB/LOD/OES와 검토를 맡는다. Mac Manager와 Mac Studio/CMS를 1차 제품으로 검증한다. 공개 배포는 Cloudflare Pages 정적 전시와 선택적 Render Node/Realtime·Render Postgres 두 제공자다. 정적 단독은 Cloudflare만 필요하다. Ubuntu 직접 배포·Railway는 1차에서 보류하며 기존 코드·자료는 보존한다. 무료 Render DB는 생성 30일 후 만료하고 영구 무료·자동 연장을 보장하지 않는다. iPhone 최종 Processing·Node 재구성·범용 cloud·AR/XR/Federation·기관 고급 연동은 후속 보류다.
 
 ## 기록된 실제 검사 범위
 

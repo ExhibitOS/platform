@@ -187,3 +187,7 @@ node scripts/package-local-runtime.mjs C:\ExhibitOS\new-runtime --platform linux
 Windows Git checkout은 해시로 고정한 LTC 원문 라이선스의 바이트를 `.gitattributes`로 보존합니다. `core.autocrlf=true` 환경도 검사합니다. 이전 checkout의 변환된 파일은 설정 변경만으로 자동 복구되지 않으므로 수정본을 새 폴더에 clone하세요. 라이선스 해시 검사는 계속 적용되며, 실패한 묶음 폴더는 덮어쓰지 않습니다. 재시도에는 Manager에서 만든 새 검사 공간을 사용하세요.
 
 복원된 원본 문맥에서 새 Runtime을 실행하고 데이터 보존을 검사하는 개발 도구는 [Runtime 검사 안내](docs/runtime-packaging.md)를 참고하세요. 이 검사는 Manager 전체 업데이트·복구 완료를 뜻하지 않습니다.
+
+### First public deployment
+
+Cloudflare Pages serves the approved static exhibition; optional Render API/Realtime and Render Postgres provide dynamic services. Static-only viewing needs no Render account. See [deployment flow, free limits and current verification boundaries](docs/pages-render.md). Ubuntu/Railway deployment and Windows/Linux native applications remain deferred first-release scope.

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Pool } from 'pg';
 
-export interface LifecycleConfig { migrationDirectory: string; webRoot: string; blobRoot: string }
+export interface LifecycleConfig { migrationDirectory: string; webRoot: string; blobRoot: string; storageCheck?: () => Promise<void> }
 export interface Readiness {
   schemaVersion: '1.0.0-draft.1'; protocolVersion: '1'; platformVersion: '0.1.0'; ready: boolean;
   services: {name: string; status: 'ready' | 'unavailable'}[];
@@ -43,7 +43,7 @@ export async function readiness(pool: Pool, config: LifecycleConfig): Promise<Re
       if (!info.isFile() || info.isSymbolicLink() || info.size === 0) throw new Error('missing web build');
       await access(index, constants.R_OK);
     }),
-    probe(() => directory(config.blobRoot, constants.R_OK | constants.W_OK | constants.X_OK)),
+    probe(() => config.storageCheck ? config.storageCheck() : directory(config.blobRoot, constants.R_OK | constants.W_OK | constants.X_OK)),
   ]);
   const ready = [database, web, storage].every(state => state === 'ready');
   return {schemaVersion: '1.0.0-draft.1', protocolVersion: '1', platformVersion: '0.1.0', ready,

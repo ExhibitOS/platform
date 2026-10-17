@@ -9,7 +9,7 @@ import {pipeline} from 'node:stream/promises';
 import {Transform,Writable} from 'node:stream';
 import {Pool} from 'pg';
 import {S3Client} from '@aws-sdk/client-s3';
-import {FileBlobStore,S3BlobStore,collectServiceInventory} from '../packages/storage/dist/index.js';
+import {FileBlobStore,S3BlobStore,PostgresBlobStore,collectServiceInventory} from '../packages/storage/dist/index.js';
 
 const fail=code=>{throw Error(code);};
 const inside=(parent,path)=>{const rel=relative(resolve(parent),resolve(path));return rel===''||rel!== '..'&&!rel.startsWith('../')&&!rel.startsWith('..\\')&&!rel.startsWith('/');};
@@ -94,8 +94,9 @@ function parse(argv){
  for(let i=0;i<args.length;i++){const key=args[i];if(!['--key-file','--destination','--source','--quiesced','--fresh-destination','--manifest-file','--manifest-sha256','--snapshot-system-identifier'].includes(key)||Object.hasOwn(flags,key))fail('BACKUP_USAGE');if(['--quiesced','--fresh-destination'].includes(key))flags[key]=true;else{const value=args[++i];if(!value||value.startsWith('--'))fail('BACKUP_USAGE');flags[key]=value;}}
  if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&(flags['--manifest-file']||flags['--manifest-sha256']))fail('BACKUP_USAGE');if(!['check-source-inventory','check-source-configuration','check-restored-inventory'].includes(command)&&!flags['--key-file'])fail('BACKUP_KEY_REQUIRED');if(command!=='check-restored-inventory'&&flags['--snapshot-system-identifier'])fail('BACKUP_USAGE');return {command,flags};
 }
-async function storeFor(environment){
+async function storeFor(environment,allowUninitialized=false){
  const backend=environment.BACKUP_BLOB_BACKEND||'filesystem';
+ if(backend==='postgres'){if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');const pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});return {store:new PostgresBlobStore(pool,{allowUninitialized}),dispose(){return pool.end();}};}
  if(backend==='filesystem'){if(!environment.BLOB_ROOT)fail('BACKUP_BLOB_ROOT_REQUIRED');if(await realpath(resolve(environment.BLOB_ROOT))!==resolve(environment.BLOB_ROOT))fail('BACKUP_BLOB_ROOT_PATH');return {store:new FileBlobStore(environment.BLOB_ROOT),dispose(){}};}
  if(backend!=='s3'||!environment.S3_BUCKET||!environment.AWS_ACCESS_KEY_ID||!environment.AWS_SECRET_ACCESS_KEY)fail('BACKUP_S3_CONFIG');
  const client=new S3Client({region:environment.AWS_REGION||'us-east-1',...(environment.S3_ENDPOINT?{endpoint:environment.S3_ENDPOINT}:{}),forcePathStyle:environment.S3_FORCE_PATH_STYLE==='1',credentials:{accessKeyId:environment.AWS_ACCESS_KEY_ID,secretAccessKey:environment.AWS_SECRET_ACCESS_KEY,...(environment.AWS_SESSION_TOKEN?{sessionToken:environment.AWS_SESSION_TOKEN}:{})}});
@@ -137,9 +138,9 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
   if(Object.keys(flags).sort().join(',')!==required||!flags['--quiesced'])fail('BACKUP_USAGE');
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
-  const blobs=await storeFor(environment),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
+  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
   try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
-  finally{await pool.end();blobs.dispose();}
+  finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
  let destination=flags['--destination'],source=flags['--source'];if(!destination||command!=='create'&&!source||command==='create'&&source)fail('BACKUP_USAGE');
@@ -151,7 +152,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
  if(!flags['--quiesced']||command==='restore'&&!flags['--fresh-destination'])fail('BACKUP_OPERATOR_ACK_REQUIRED');
  if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
- const blobs=await storeFor(environment),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
+ const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
   const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=c=>collectServiceInventory(c,blobs.store,{migrationDirectory});
   if(command==='create'){
@@ -161,7 +162,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
   }
   const existing=await pool.query("SELECT count(*)::integer AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");if(existing.rows[0].count!==0||(await blobs.store.listAll()).length!==0)fail('BACKUP_DESTINATION_NOT_EMPTY');
   await backup.restoreServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,restore:adapter.restore});return {operation:'restored-and-verified'};
- }finally{process.removeListener('SIGINT',interrupted);process.removeListener('SIGTERM',interrupted);await pool.end();blobs.dispose();key.fill(0);}
+ }finally{process.removeListener('SIGINT',interrupted);process.removeListener('SIGTERM',interrupted);await pool.end();await blobs.dispose();key.fill(0);}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  try{const result=await main();console.log(JSON.stringify(result));}catch{console.error('Service backup failed. Source and prior backups are retained; review private configuration, quiescence and fresh destination before retrying.');process.exitCode=1;}
