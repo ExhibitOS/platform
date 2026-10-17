@@ -22,17 +22,17 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource) {
  const settings=config(input), auth=new Auth(pool);
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
   return cookies.length===1 ? cookies[0]!.slice(settings.cookieName.length+1) : undefined;
  };
- const cookie=(value:string,clear=false)=>`${settings.cookieName}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear?0:28800}${settings.secure?'; Secure':''}`;
+ const cookie=(value:string,clear=false)=>`${settings.cookieName}=${value}; Path=/; HttpOnly; SameSite=${settings.clientOrigin && settings.clientOrigin !== settings.origin ? 'None' : 'Strict'}; Max-Age=${clear?0:28800}${settings.secure?'; Secure':''}`;
  const guarded=(req:FastifyRequest,mutate:boolean)=>{
   if(req.headers.host!==settings.host) throw new ApiError(403,'ORIGIN_REJECTED');
-  if(req.headers.origin!==undefined && req.headers.origin!==settings.origin) throw new ApiError(403,'ORIGIN_REJECTED');
-  if(mutate && req.headers.origin!==settings.origin) throw new ApiError(403,'ORIGIN_REJECTED');
+  if(req.headers.origin!==undefined && req.headers.origin!==settings.origin && (!settings.clientOrigin || req.headers.origin!==settings.clientOrigin)) throw new ApiError(403,'ORIGIN_REJECTED');
+  if(mutate && req.headers.origin!==settings.origin && (!settings.clientOrigin || req.headers.origin!==settings.clientOrigin)) throw new ApiError(403,'ORIGIN_REJECTED');
   if(mutate && req.method!=='POST' && req.method!=='PUT' && req.method!=='PATCH') throw new ApiError(400,'INVALID_INPUT');
  };
  app.setErrorHandler((error,request,reply)=>{
@@ -159,9 +159,10 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
  for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
  const publications=new Publications(pool,store);
+ const readPublic=(id:string,assetId?:string)=>publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId);
  const authorizeHost=openingHostAuthority(pool);
- const opening=registerOpening(app,{origin:settings.origin,publication:async id=>await publications.anonymous(id) as import('./realtime.ts').RealtimePublication,authorizeHost});
- registerRealtime(app,{origin:settings.origin,publication:async id=>await publications.anonymous(id) as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
+ const opening=registerOpening(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id) as import('./realtime.ts').RealtimePublication,authorizeHost});
+ registerRealtime(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id) as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
  app.post(`${prefix}/studio/publications/:id/opening-host`,{schema:{body:object({revisionSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}})}},async(req,reply)=>{
   guarded(req,true);reply.header('cache-control','no-store');
   const params=req.params as {id:string;tenantId:string};uuid(params.id);uuid(params.tenantId);
@@ -172,7 +173,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
    if(!await authorizeHost(subject,params.id))throw new ApiError(403,'FORBIDDEN');
    return subject;
   });
-  const current=await publications.anonymous(params.id) as import('./realtime.ts').RealtimePublication;
+  const current=await readPublic(params.id) as import('./realtime.ts').RealtimePublication;
   if(current.publication.revisionSha256!==(req.body as {revisionSha256:string}).revisionSha256)throw new ApiError(409,'REVISION_CONFLICT');
   // issueHost and socket admission each recheck live session/owner authority.
   return opening.issueHost(params.id,subject);
@@ -191,9 +192,9 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   app.post(`${prefix}/federation/peers`,{schema:{body:object({origin:str,publicKey:str,state:{enum:['trusted','blocked']}})}},call(true,async(c,s,req)=>{admin(s);const b=req.body as {origin:string;publicKey:string;state:'trusted'|'blocked'};return federation.peer(c,b.origin,b.publicKey,b.state);}));
   app.post(`${prefix}/federation/sync`,{schema:{body:object({origin:str})}},call(true,async(_c,s,req)=>{admin(s);return federation.sync((req.body as {origin:string}).origin);}));
  }
- app.get('/api/v1/publications/:id',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');return publications.anonymous((req.params as {id:string}).id);});
+ app.get('/api/v1/publications/:id',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');return readPublic((req.params as {id:string}).id);});
  app.get('/api/v1/publications/:id/xr-export/:assetId',async(req,reply)=>{reply.header('cache-control','no-store');const p=req.params as {id:string;assetId:string};return publications.xrExport(p.id,p.assetId);});
- app.get('/api/v1/publications/:id/assets/:assetId',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;assetId:string};const result=await publications.anonymous(p.id,p.assetId) as {bytes:Buffer;mime:string;revisionSha256:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
+ app.get('/api/v1/publications/:id/assets/:assetId',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;assetId:string};const result=await readPublic(p.id,p.assetId) as {bytes:Buffer;mime:string;revisionSha256:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
  const cms=new Cms(store),cp=`${prefix}/cms`;
  app.get(`${prefix}/studio/artworks/:id`,call(false,async(c,s,req)=>cms.studioArtwork(c,s,cmsId(req))));
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};

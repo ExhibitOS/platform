@@ -40,3 +40,7 @@ in operations; product builds must not depend on those records.
 ## First-release scope decision, 2026-10-15
 
 The user replaced the previous broad first-release and iPhone-final processing direction. First release: iPhone Capture originals/optional reduced check → Mac Swift RealityKit final Processing → Mac Studio/CMS publication; Mac Manager lifecycle/recovery. Viewer implementation targets Safari/Chrome, officially qualified on macOS/iOS only after actual tests. Windows/Linux Chrome remain compatibility candidates; native apps, Android Capture, iPhone final/Node reconstruction, general multi-cloud deployment, XR/Federation and advanced institutional integration are deferred. Reuse existing Node contract/output/backup tools. Preserve all prior source/results/raw data/keys/backups. Do not reinstate deferred scope as a first-release gate without another user request.
+
+## First-release deployment decision, 2026-10-17
+
+Cloudflare Pages static exhibitions with optional Render Node/Realtime and Render Postgres replace Ubuntu/Railway as the first required public deployment. Static only requires Cloudflare alone. No third hosting/storage provider or paid upgrade is implied. Preserve existing implementations and recovery requirements; report real provider deployment separately from local/mocked validation. See docs/pages-render.md.

@@ -6,7 +6,7 @@ export const digest = (value: string) => createHash('sha256').update(value).dige
 export const roles = ['admin','artist','curator','viewer'] as const;
 export type Role = typeof roles[number];
 export class ApiError extends Error { readonly status:number; readonly code:string; constructor(status:number,code:string) {super(code);this.status=status;this.code=code;} }
-export interface AuthConfig { mode: 'local'|'network'; origin: string; bindHost: string; }
+export interface AuthConfig { mode: 'local'|'network'; origin: string; bindHost: string; clientOrigin?: string; }
 export function config(input: AuthConfig) {
  const origin = new URL(input.origin);
  if (origin.origin !== input.origin || origin.username || origin.password) throw Error('AUTH_ORIGIN must be an exact origin');
@@ -15,6 +15,7 @@ export function config(input: AuthConfig) {
  if (input.mode === 'network' && origin.protocol !== 'https:') throw Error('network auth requires HTTPS');
  if (input.mode === 'local' && (!['127.0.0.1','::1'].includes(input.bindHost) || !['127.0.0.1','[::1]'].includes(origin.hostname))) throw Error('local auth requires loopback bind/origin');
  if (!['http:','https:'].includes(origin.protocol)) throw Error('invalid auth protocol');
+ if (input.clientOrigin !== undefined) { const client = new URL(input.clientOrigin); if (input.mode !== 'network' || client.origin !== input.clientOrigin || client.protocol !== 'https:' || client.username || client.password) throw Error('network client requires an exact HTTPS origin'); }
  return { ...input, host: origin.host, secure: origin.protocol === 'https:', cookieName: origin.protocol === 'https:' ? '__Host-exhibitos_session' : 'exhibitos_local_session' };
 }
 export const kdf = (password: string, salt: Buffer) => new Promise<Buffer>((resolve,reject) => {

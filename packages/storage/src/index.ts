@@ -319,3 +319,5 @@ export * from "./encrypted-files.js";
 export * from "./service-backup.js";
 
 export * from "./encrypted-streams.js";
+
+export { PostgresBlobStore } from "./postgres-blobs.js";

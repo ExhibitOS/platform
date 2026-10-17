@@ -129,15 +129,15 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
         <a className="brand" href="/">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <span>{initial ? "고정 전시·오프라인" : "공개 revision preview"}</span>
+        <span>{initial?.local?.kind === "static" ? "고정 공개 전시" : initial ? "고정 전시·오프라인" : "공개 revision preview"}</span>
       </header>
       <p role="status" data-testid="public-state">
         {loading
           ? "공개 revision을 확인합니다."
-          : error || (initial ? "서명과 유효한 오프라인 표시 기한을 확인했습니다." : "서버가 현재 공개 상태와 전시 권리를 확인했습니다.")}
+          : error || (initial?.local?.kind === "static" ? "공개 시점의 전시 파일을 확인했습니다. 현재 권리 변경은 게시자가 새 배포로 반영합니다." : initial ? "서명과 유효한 오프라인 표시 기한을 확인했습니다." : "서버가 현재 공개 상태와 전시 권리를 확인했습니다.")}
       </p>
       <button disabled={loading} onClick={() => void load()}>
-        {initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}
+        {initial?.local?.kind === "static" ? "전시 파일 다시 확인" : initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}
       </button>
       {value && (
         <article>

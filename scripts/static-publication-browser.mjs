@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,writeFile,lstat} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve,extname} from 'node:path';
+import {createServer} from 'node:http';
+import {randomUUID} from 'node:crypto';
+import {chromium,expect} from '@playwright/test';
+import {fixtureURL,readOex,revisionHash} from '@exhibitos/spec';
+import {exportStaticPublication} from './export-static-publication.mjs';
+const runtime=process.argv[2];if(!runtime)throw Error('Usage: static-publication-browser.mjs DIST_STATIC');
+const directory=await mkdtemp(join(tmpdir(),'exhibitos-static-browser-')),output=join(directory,'site');
+const decoded=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),id=randomUUID();
+for(const item of [...decoded.exhibition.artworks,...decoded.exhibition.mediaAssets])item.rights.expiresAt=new Date(Date.now()+300000).toISOString();
+const value={publication:{id,revisionSha256:revisionHash(decoded.exhibition),publishedAt:new Date().toISOString(),status:'published'},exhibition:decoded.exhibition,assets:decoded.manifest.assets.map(a=>({assetId:a.id,url:`/api/v1/publications/${id}/assets/${a.id}`,mime:a.mime}))};
+const result=await exportStaticPublication({origin:'http://127.0.0.1:3000',publicationId:id,runtimeRoot:runtime,output,fetcher:async input=>{const path=new URL(input).pathname;if(path===`/api/v1/publications/${id}`)return Response.json(value);const a=decoded.manifest.assets.find(a=>path.endsWith('/assets/'+a.id));return a?new Response(decoded.files.get(a.path),{headers:{'content-type':a.mime,'x-exhibitos-publication-revision':value.publication.revisionSha256}}):new Response(null,{status:404});}});
+const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm'};
+let dynamicAvailable=false;const server=createServer(async(req,res)=>{try{const pathname=new URL(req.url,'http://localhost').pathname;if(dynamicAvailable&&pathname.startsWith('/api/')){res.setHeader('content-type','application/json');if(pathname==='/api/v1/health'){res.end(JSON.stringify({status:'ok',service:'exhibitos-api'}));return;}if(pathname===`/api/v1/publications/${id}`){res.end(JSON.stringify(value));return;}}const path=resolve(output,'.'+(pathname==='/'?'/index.html':pathname));if(!path.startsWith(output+'/'))throw Error();const stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink())throw Error();res.setHeader('content-type',mime[extname(path)]??'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${server.address().port}`,browser=await chromium.launch(),page=await browser.newPage(),requests=[],errors=[],dynamicSockets=[];
+page.on('request',r=>requests.push(r.url()));page.on('websocket',socket=>dynamicSockets.push(socket.url()));page.on('pageerror',e=>errors.push(e.message));
+try{
+ await page.clock.install({time:new Date()});await page.goto(origin);await expect(page.getByRole('heading',{name:decoded.exhibition.title,exact:true})).toBeVisible();
+ const dataBefore=requests.filter(x=>/data\/.*\.bin$/.test(x)).length;assert.equal(dataBefore,0,'text-first entry must not eagerly fetch media');
+ await page.getByRole('button',{name:'3D 관람 시작',exact:true}).click();await expect(page.locator('canvas').first()).toBeVisible({timeout:30000});
+ await expect.poll(()=>requests.filter(x=>/data\/.*\.bin$/.test(x)).length).toBeGreaterThan(0);
+ await page.getByRole('button',{name:'소리 켜기',exact:true}).click();await expect.poll(async()=>JSON.parse(await page.getByTestId('audio-state').getAttribute('data-audio-state')).loaded).toBeGreaterThan(0);
+ await page.screenshot({path:join(directory,'static-viewer.png'),fullPage:true});
+ assert(requests.every(x=>new URL(x).origin===origin));assert(!requests.some(x=>new URL(x).pathname.startsWith('/api/')));assert.deepEqual(errors,[]);
+ const staticAloneApiRequests=requests.filter(x=>new URL(x).pathname.startsWith('/api/')).length;
+ const originalHTML=await readFile(join(output,'index.html'),'utf8');
+ await writeFile(join(output,'index.html'),originalHTML.replace('</head>','<meta name="exhibitos-dynamic" content="same-origin"></head>'));
+ await page.reload();await expect(page.getByRole('heading',{name:decoded.exhibition.title,exact:true})).toBeVisible();await page.getByRole('button',{name:'3D 관람 시작',exact:true}).click();await expect(page.locator('canvas').first()).toBeVisible();
+ await expect(page.getByTestId('static-dynamic-state')).toHaveAttribute('data-state','unavailable');await expect(page.locator('canvas').first()).toBeVisible();
+ await expect(page.getByRole('button',{name:'함께 관람 시작',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'오프닝 참여',exact:true})).toBeDisabled();assert.equal(dynamicSockets.length,0);
+ dynamicAvailable=true;await page.getByRole('button',{name:'연결 다시 확인',exact:true}).click();await expect(page.getByTestId('static-dynamic-state')).toHaveAttribute('data-state','connected');await expect(page.locator('canvas').first()).toBeVisible();assert(requests.some(url=>new URL(url).pathname==='/api/v1/health'));assert(requests.some(url=>new URL(url).pathname===`/api/v1/publications/${id}`));assert.equal(dynamicSockets.length,0);
+ await writeFile(join(output,'index.html'),originalHTML);
+ const originalIndex=await readFile(join(output,'static-publication-index.json'));await writeFile(join(output,'static-publication-index.json'),'{}');await page.reload();await expect(page.getByRole('alert')).toContainText('전시 파일을 확인할 수 없어요');await writeFile(join(output,'static-publication-index.json'),originalIndex);await page.reload();await expect(page.getByRole('heading',{name:decoded.exhibition.title,exact:true})).toBeVisible();await page.getByRole('button',{name:'3D 관람 시작',exact:true}).click();await expect(page.locator('canvas').first()).toBeVisible();await page.clock.fastForward(360000);await expect(page.getByRole('alert')).toContainText('표시 기한');await expect(page.locator('canvas')).toHaveCount(0);
+ const report={result,synthetic:true,browser:'Chromium',apiRequests:requests.filter(x=>new URL(x).pathname.startsWith("/api/")).length,staticAloneApiRequests,optionalDynamicFailureKeepsStatic:true,connectionRetryChecksSamePublication:true,deferredPresenceOpeningRemainDisabled:true,dynamicSockets,externalRequests:0,pageErrors:errors,requests,firstEntryMediaRequests:dataBefore,static3DRender:true,audioDecode:true,indexTamperRejected:true,knownRightsExpiryClosesViewer:true,artifactDirectory:directory};
+ await writeFile(join(directory,'browser-evidence.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

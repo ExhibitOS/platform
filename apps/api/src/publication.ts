@@ -121,6 +121,12 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     snapshot.revision = 1;
     return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})) };
 }
+/** Optional read-only approved Pages projection for the selected hosted profile.
+ * This never supplies private roles or opening host authority. */
+export interface PublicationSource {
+    anonymous(id: string): Promise<unknown>;
+    asset(id: string, assetId: string): Promise<{bytes: Buffer;mime: string;revisionSha256: string}>;
+}
 export class Publications {
     readonly studio = new Studio();
     readonly cms: Cms;

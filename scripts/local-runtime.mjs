@@ -57,6 +57,33 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
       else { const stream = file.createReadStream(); stream.once("error", () => reply.destroy()); reply.once("close", () => { if (!reply.writableFinished) stream.destroy(); }); stream.pipe(reply); }
     } catch { await file?.close().catch(() => {}); if (!reply.headersSent) deny(404); else reply.destroy(); }
   });
+  // Preserve the existing publication protocol behind the same bounded proxy.
+  // Both public Host and configured client Origin remain checked by the API.
+  const upgraded = new Set();
+  server.on("upgrade", (req, socket, head) => {
+    const reject = code => { socket.end(`HTTP/1.1 ${code} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); };
+    if (req.headers.host !== expectedHost || !/^\/api\/v1\/publications\/[a-f0-9-]{36}\/(?:presence|opening)$/.test(req.url ?? "") || req.headers.upgrade?.toLowerCase() !== "websocket") { reject(403); return; }
+    const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !hop.has(name)));
+    delete headers["sec-websocket-extensions"];headers.connection="Upgrade";headers.upgrade="websocket";
+    const upstream=httpRequest({hostname:"127.0.0.1",port:apiPort,path:req.url,headers});
+    socket.on("error",()=>upstream.destroy());
+    upstream.on("error",()=>{if(!socket.destroyed)reject(502);});
+    upstream.on("response",response=>{response.resume();reject(response.statusCode===403?403:502);});
+    upstream.on("upgrade",(response,remote,remoteHead)=>{
+      if(response.statusCode!==101){remote.destroy();reject(502);return;}
+      const accepted=response.headers["sec-websocket-accept"];
+      if(typeof accepted!=="string"||!/^[a-zA-Z0-9+/]{27}=$/.test(accepted)){remote.destroy();reject(502);return;}
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accepted}\r\n\r\n`);
+      upgraded.add(socket);upgraded.add(remote);
+      for(const item of [socket,remote])item.on("close",()=>{upgraded.delete(item);socket.destroy();remote.destroy();});
+      remote.on("error",()=>socket.destroy());
+      if(head.length)remote.write(head);if(remoteHead.length)socket.write(remoteHead);
+      socket.pipe(remote);remote.pipe(socket);
+    });
+    upstream.end();
+  });
+  server.closeUpgradedConnections=()=>{for(const socket of upgraded)socket.destroy();};
+  server.on("close",()=>server.closeUpgradedConnections());
   server.headersTimeout = 15000; server.requestTimeout = 120000; server.keepAliveTimeout = 5000; return server;
 }
 async function signingKey(directory) {
@@ -95,7 +122,7 @@ export async function startLocalRuntime(environment = process.env) {
     const importer = new Imports(pool, blobs); let stopping = false, timer, running, failures = 0, closed;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     running = tick();
-    const close = () => closed ??= (async () => { stopping = true; clearTimeout(timer); proxy.closeAllConnections(); await new Promise(resolve => proxy.close(resolve)); await running; await app.close(); await pool.end(); })();
+    const close = () => closed ??= (async () => { stopping = true; clearTimeout(timer); proxy.closeUpgradedConnections(); proxy.closeAllConnections(); await new Promise(resolve => proxy.close(resolve)); await running; await app.close(); await pool.end(); })();
     return { app, proxy, pool, origin, close };
   } catch { proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }
