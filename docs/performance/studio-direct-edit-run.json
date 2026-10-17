@@ -177,7 +177,7 @@
   },
   "novice_flow_increment": {
     "base_head": "b013d28ccb4e132254d59a366a2e8fbaa0d23697",
-    "status": "implemented; related final shared-source local/actual-CMS file flows verified; full registered Studio UX and separate public/server publication integration are not declared complete",
+    "status": "implemented; related local preview, actual CMS file creation/editing and actual server-save/publication integration verified; full registered novice copy/accessibility/platform qualification remains separate",
     "implementation": [
       "Reuse existing permission-filtered CMS title search/list/pagination; unapproved rows cannot be chosen from list, direct identifier remains under details; original single-artwork endpoint rechecks approval and display rights.",
       "Discard stale account/draft/superseded-query responses; refuse pending import application after editor becomes read-only.",
@@ -220,7 +220,33 @@
       },
       "safari_ios_voiceover_novice_observation": "NOT_RUN",
       "production_build_93553": "PASS exit0 final shared source, existing bundle warnings retained",
-      "legacy_output_count_note": "The preserved final runner prints the older hardcoded Chromium16 scope label. Its actual arrays contain CMS8 + Studio9 =17 browser groups, plus API10 =27. Raw logs are unedited; the array counts and final valid/checks fields are authoritative."
+      "legacy_output_count_note": "The preserved final runner prints the older hardcoded Chromium16 scope label. Its actual arrays contain CMS8 + Studio9 =17 browser groups, plus API10 =27. Raw logs are unedited; the array counts and final valid/checks fields are authoritative.",
+      "actual_server_publication": {
+        "result": "PASS exit0 existing test-publication36775 on unchanged production93553, actual isolated PostgreSQL/API and production Chromium;17 groups including6 browser groups and actual pg_dump/restore",
+        "checks": [
+          "additive publication migration preserves all earlier migration checksums",
+          "READY enforces saved exact CMS approvals and private authoring authorization with repair guidance",
+          "READY blocks unsupported audio and unapproved arbitrary artwork without creating public rows",
+          "publication needs server role/ownership, CSRF and exact saved ETag, then creates a remapped immutable anonymous projection",
+          "original privacy consent and six anonymous aggregates preserve authorization and exclude identity fields",
+          "published source cannot mutate, receipts recover exact retries, and publication/asset/event history is immutable",
+          "unpublish invalidates every anonymous metadata/asset request, restore rechecks grants and appends audit history",
+          "current asset rights narrowing/expiry and archive fail closed without reading a mutable private draft",
+          "derivative integrity and expiry during storage reads fail closed; maintenance retains public bytes",
+          "current metadata rights revocation invalidates every public URL and records explicit rights audit",
+          "production Studio READY shows safe failure codes and actionable remediation, then corrected approved GLB/PNG snapshots become READY",
+          "explicit READY publication produces immutable anonymous URL and private drafts remain inaccessible",
+          "anonymous production preview renders real hash-qualified GLB/PNG derivatives with no authoring/CMS requests and list alternative",
+          "published edits fork a separate local and remote draft while anonymous immutable revision remains unchanged",
+          "unpublish clears anonymous preview and invalidates cached metadata/assets without ETag or service-worker bypass; explicit republish restores same immutable URL",
+          "current artwork rights revocation fails anonymous metadata and every derivative closed, clearing a previously loaded browser projection",
+          "PostgreSQL backup restores immutable publication snapshots, assets, states, receipts and audits"
+        ],
+        "publicDerivativePixels": 14303,
+        "proof": "publication-final-report.json",
+        "limits": "Qualified synthetic GLB/PNG on isolated local public URLs. No external Pages/Render deployment, real user artwork quality, native Manager recovery, Safari/iOS or human novice observation claim."
+      },
+      "publication_script_sha256": "b4ac9da6231026b5bc5f033e4bffc1fdf7046badaeba51cb11c2568622b9e167"
     },
     "proof_root": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/novice-flow-4fc9b0e5-8611-461d-b3b3-ea883a68efda",
     "scope_clarification": "Earlier unimplemented room-height/3D/surface/opening size handles describe implementation boundaries, not automatically mandatory release blockers. T03 acceptance and the user request condition direct manipulation on preserving existing meaning and validation; existing numeric/keyboard paths remain. Core novice flow and its actual authorization/file/save/preview/public-preparation checks remain separate requirements.",
@@ -232,7 +258,7 @@
       "scripts/studio-direct-browser.mjs": "8eaa20c0d743ab92d23bd7dea76c3645a65ac53eb4e8bd31138fc7dcbf61bb3b",
       "scripts/geometry-browser.mjs": "d5a57c87e8a922cdf8f2c50ccb104c8ca8fa195962e191e9468bb1281174ccda",
       "scripts/placement-browser.mjs": "74205e7ea26ebf9f675396fc09a9602d4af91a7862d13dc804a12eee9389f963",
-      "scripts/publication-browser.mjs": "487dea5cf552eaaf5dd9e910b81399d8bfb85213041b9b0dca2043c6c1425ae6",
+      "scripts/publication-browser.mjs": "78a0c1263e32a3f73b3877b980eb6d1f5bc315bd74f77f1ec729f92d096324e2",
       "docs/studio-placement.md": "7f3e1f524c8b3bdfd8e143b41e896802f6878aefba48081492da9b83a919d0bc",
       "scripts/cms-browser.mjs": "132258b210d4a429f81411c1986131b713cd627787c24594bc01416063433b74"
     },
@@ -255,14 +281,18 @@
       {
         "failure": "Visible-only role locator could not locate closed-details controls to open their ancestor",
         "correction": "Find hidden button node only, then click each actual summary before normal click/fill. No forced clicks, skipped assertions or product bypass."
+      },
+      {
+        "adaptation": "Root-shared public view controls now use a default-closed position disclosure and the visible label 입구 시점 보기",
+        "preserved": "Find the exact existing button with includeHidden, click its actual ancestor summary, then normal click. Keep all pixels, auth/CMS request exclusion, current-rights/expiry-race, immutable-revision and backup/restore assertions."
       }
     ],
     "remaining": [
-      "Separate actual server-save/public-preparation/publication integration in existing publication runner",
       "Existing registered novice-copy review still covers basic room/template action wording, CMS prerequisite guidance, raw geometry validation codes and local authoring diagnostic jargon; this increment does not make all potential dimension handles mandatory.",
       "Full registered Studio novice-flow acceptance and first-time-user observation, including remaining technical authoring copy",
       "Safari/physical iOS/VoiceOver qualification not newly performed"
     ],
-    "shared_renderer_commit": "3e139ec"
+    "shared_renderer_commit": "3e139ec",
+    "implementation_commit": "8e343ba"
   }
 }

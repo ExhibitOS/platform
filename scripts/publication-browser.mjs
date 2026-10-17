@@ -343,9 +343,9 @@ export async function runPublicationBrowser({
         await publicPage.goto(`${origin}${publicUrl}`);
         await publicPage.getByRole("button", { name: "관람 시작", exact: true }).click();
         await visiblePublic();
-        await publicPage
-          .getByRole("button", { name: "시작 camera 보기", exact: true })
-          .click();
+        const entranceView=publicPage.getByRole("button",{name:"입구 시점 보기",exact:true,includeHidden:true});
+        await expose(entranceView);
+        await entranceView.click();
         const colorful = await publicPage
           .locator(".geometry-preview canvas")
           .evaluate((canvas) => {
