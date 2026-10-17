@@ -225,6 +225,22 @@ export class Publications {
         const row = await this.studio.access(c, s, id), report = await this.prepare(c, s, row.metadata.candidate, id);
         return { status: report.issues.length ? "BLOCKED" : "READY", etag: etag(row.revision, row.metadata), issues: report.issues };
     }
+    /** Existing Studio roles/ownership, projected metadata only; export rechecks public rights/revision. */
+    async catalog(c: PoolClient, s: Session) {
+        if (!["admin", "curator", "artist"].includes(s.role)) throw new ApiError(403, "FORBIDDEN");
+        const result = await c.query(
+            "SELECT p.id,p.exhibition_id,p.revision_sha256,p.published_at,p.snapshot->>'title' AS title FROM studio_publications p JOIN publication_states state ON state.publication_id=p.id JOIN exhibitions e ON e.tenant_id=p.tenant_id AND e.id=p.exhibition_id WHERE p.tenant_id=$1 AND state.status='published' AND e.studio_managed AND e.deleted_at IS NULL AND ($2::boolean OR e.studio_owner_user_id=$3) ORDER BY p.published_at DESC,p.id LIMIT 100",
+            [s.tenantId, s.role === "admin", s.userId],
+        );
+        return { items: result.rows.map(row => ({
+            publicationId: row.id as string,
+            exhibitionId: row.exhibition_id as string,
+            title: typeof row.title === "string" ? row.title.slice(0, 256) : "",
+            revisionSha256: row.revision_sha256 as string,
+            publishedAt: (row.published_at as Date).toISOString(),
+            status: "published" as const,
+        })) };
+    }
     async list(c: PoolClient, s: Session, id: string) { await this.studio.access(c, s, id); return { items: (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 ORDER BY p.published_at DESC LIMIT 100", [s.tenantId, id])).rows.map(r => this.summary(r)) }; }
     private async owned(c: PoolClient, s: Session, id: string): Promise<PublicationRow> { uuid(id); const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF s", [s.tenantId, id])).rows[0]; if (!row)
         throw new ApiError(403, "FORBIDDEN"); await this.studio.access(c, s, row.exhibition_id); return row; }
