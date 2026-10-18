@@ -447,3 +447,22 @@ native OS/provider verification are still pending. Earlier missing restore-load
 notes describe the preceding source; current Manager wiring consumes the
 immutable per-job original configuration for this isolated check only. Whole
 service/runtime/Pages restoration remains incomplete.
+
+
+## Actual isolated restore verification — 2026-10-18
+
+The matching fixed image has now completed an actual encrypted archive → fresh
+PostgreSQL18 restore → normal server/helper exit → Manager LifecycleService
+completed journal roundtrip. The original source was stopped before restore;
+archive and original backup-job bytes were unchanged. Reopening the lifecycle
+retained history without fabricating an installation record. The first actual
+run exposed Docker's canonical `CAP_` inspect spelling; Manager now recognizes
+that spelling while enforcing the exact same five capabilities.
+
+This is a retained synthetic TLS/SQL fixture with zero frozen rows, not an actual
+Render account or native Keychain/chooser flow. Original runtime/Pages binding,
+activation, whole migration/update/rollback and mandatory GUI/distribution checks
+remain incomplete. Earlier “actual PG pending” statements are historical source
+stages superseded only within this isolated scope. Receipts and source/artifact
+hashes are in `remote-backup-adapter-verification-2026-10-18.json` under
+`isolatedRestoreActualLifecycle20261018`; no key/private configuration is included.
