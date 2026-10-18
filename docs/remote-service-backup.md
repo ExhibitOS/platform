@@ -382,3 +382,19 @@ active Render deployment/commit and trusted runtime/Pages byte binding, new
 image dump/encryption/fresh restore, real Render/native/OS checks and the
 existing migration/update/rollback acceptance. The DB archive, original
 configuration, runtime master and derived/static artifacts stay distinct.
+
+The existing runtime/archive constraints remain: Render startup needs the original
+tenant/admin/signing settings and logical AUTH_ORIGIN/RENDER_EXTERNAL_URL; it
+loads its own `apps/web/dist`. Choosing this maintenance image's web files does
+not prove that they equal the active Render deployment. Private worker inputs
+still omit BACKUP_CONFIGURATION_FILES, FREEZE_RUNTIME_ROOT and
+BACKUP_DEPLOYMENT_FILES. The storage core's existing configuration/runtime/
+deployment roles may only be reused after original artifact/version binding
+and `loadFreezeRuntime` descriptor/file hashes are verified. Preserved frozen
+runtime blobs do not establish the current server or Pages restoration.
+Original Pages content/index hashes must bind the separately retained static
+package. Missing original key/artifact/permission is a block, never permission
+to generate a substitute key or local installation receipt. SQL archives can
+contain account hashes and session/CSRF data: DB+objects are not described as
+secret-free because provider tokens are excluded. No actual provider/Keychain
+values were read for this source qualification.

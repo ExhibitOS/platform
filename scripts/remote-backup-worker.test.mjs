@@ -96,3 +96,12 @@ test('native public authority reaches core private options separately from datab
  const result=await runRemoteBackup(input,{withQuiescedSource:work=>work({url,expectedAuthority:authority})},{readManifest,main:async(args,env,options)=>{if(args[0]==='verify')return {operation:'verified',files:1};observed={env:{...env},options};return {operation:'created',backupId};}});
  assert.deepEqual(observed.options,{freezeAuthority:authority});assert(!JSON.stringify(observed.env).includes('synthetic-public-only'));assert(!JSON.stringify(result).includes('synthetic-public-only'));
 });
+
+
+test('real main private-option admission accepts public authority and still rejects unknown capability fields before I/O',async()=>{
+ const {main}=await import('./service-backup.mjs');
+ // Empty argv deliberately stops at usage, after the real private-option gate,
+ // with no path/database operation. This must not use an injected fake main.
+ await assert.rejects(main([],{}, {freezeAuthority:{origin:'https://synthetic.onrender.com',keyId:'a'.repeat(64),publicKey:'synthetic-public-only'}}),/^Error: BACKUP_USAGE$/);
+ await assert.rejects(main([],{}, {freezeAuthority:{},quiesced:true}),/^Error: BACKUP_RESOURCE_BUDGET$/);
+});

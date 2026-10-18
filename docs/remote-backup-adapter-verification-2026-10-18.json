@@ -243,6 +243,26 @@
       "Actual dump/encrypt/authenticated fresh restore with frozen source authority on new image",
       "Actual Render active deploy observation/runtime/Pages provenance",
       "Native saved configuration recovery-load, Keychain/picker/cancel/relaunch, full T08 update/rollback and GUI acceptance"
-    ]
+    ],
+    "imageFailureAndCorrection": {
+      "observedAt": "2026-10-18T03:54:41.390113+00:00",
+      "producerSession": 18628,
+      "producerExit": 0,
+      "producerSeconds": 100.73392904200591,
+      "prepareSeconds": 2.7082796250469983,
+      "runtime": "/Volumes/ExhibitSSD/ExhibitOS-Backups/manager-runtime-authority-8b2592c-77c62238-11c1-4f05-b681-ee586c979d3b",
+      "roundtripSession": 53999,
+      "roundtripExit": 1,
+      "receipt": "/Volumes/ExhibitSSD/ExhibitOS-Backups/exhibitos-authority-roundtrip-4d8ff890-7895-4c5f-8814-828c284c4bee/receipt.json",
+      "image": "sha256:4356067a3cf92094fadd3aba336e4316bec48820e27b25b4936b1c0eb6b901d0",
+      "scriptHashesMatched": 3,
+      "failedStage": "fixed-entry-backup",
+      "actualCause": "main privateOptions allowlist still admitted only jobBudgetBytes; freezeAuthority from worker rejected before backup. Injected-main units did not cover this real gate.",
+      "correction": "Exact private allowlist admits jobBudgetBytes and freezeAuthority only; new non-injected main usage-path regression verifies admission/no I/O and unknown-field rejection.",
+      "nodeAfterCorrection": 17,
+      "sourceStopConfirmed": true,
+      "candidatesPreserved": true,
+      "newCorrectedImageRoundtrip": "NOT_YET_RUN"
+    }
   }
 }

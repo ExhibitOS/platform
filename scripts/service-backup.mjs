@@ -162,7 +162,7 @@ export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
  if(!Number.isSafeInteger(cap)||cap<1024*1024)fail('BACKUP_RESOURCE_BUDGET');return cap;
 }
 export async function main(argv=process.argv.slice(2),environment=process.env,privateOptions={}){
- if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>k!=='jobBudgetBytes'))fail('BACKUP_RESOURCE_BUDGET');
+ if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>!['jobBudgetBytes','freezeAuthority'].includes(k)))fail('BACKUP_RESOURCE_BUDGET');
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
  if(command==='check-source-configuration'){
   if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
