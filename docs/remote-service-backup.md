@@ -1,0 +1,203 @@
+# Hosted service backup connection — implementation boundary
+
+This T10-05 increment provides a **private adapter**, not a complete Manager
+remote recovery feature. Real Render permissions, quiescence, dump, encrypted
+backup, independent restoration, migration, update and rollback are unqualified.
+No remote resources have been read or changed by this increment.
+
+## Implemented
+
+`scripts/remote-backup-worker.mjs` accepts only an operation and canonical local
+paths. Input never accepts `quiesced`, a database URL, a binary, a PG environment,
+a profile role or a target-isolation assertion. The standalone command refuses
+with `REMOTE_BACKUP_EXECUTOR_REQUIRED`; native integration must supply a fixed,
+trusted executor through the imported function.
+
+A source executor must implement `withQuiescedSource(callback)` and invoke the
+callback only while its source fence is held. The callback receives the selected
+Render external connection in memory. The worker requires the Render external
+host shape and certificate/hostname verification (`sslmode=verify-full`), and
+constructs a small fixed environment. It does not inherit user PG overrides,
+select an arbitrary executable or invoke the existing container adapter that
+rewrites `PGHOST` to loopback.
+
+The worker calls existing `service-backup.main(argv, environment)` to create,
+then authenticate the encrypted archive in a separate fresh workspace. It checks
+the authenticated manifest's backup ID and returns only the backup ID, file
+count and authenticated manifest SHA. No transport credentials, provider tokens,
+admin passwords or signing keys are added to archive configuration. The existing
+physical source identity, exported snapshot, lock, inventory and authenticated
+encryption remain unchanged.
+
+Restoration requires `withIsolatedDestination(callback)`. A remote target retains
+verified TLS. The existing local non-TLS policy is accepted only for a callback
+connection explicitly bound by the native executor to its owned isolated local
+profile, a canonical UUID, verified isolation and the exact observed port, with
+literal `127.0.0.1` or `::1`. These are private executor facts, not serialized user
+authorization. Missing logical isolation is refused. The native guard must remain
+held through the existing fresh/empty-target, original-identity refusal and
+complete inventory verification. Callback fields are **not** a cryptographic
+certificate or a new backup/public-file format.
+
+## Required native connection; not yet implemented
+
+1. The Manager coordinator must bind its existing selected hosted-work record,
+   provider token, runtime/image pin, local path selection and operation lock.
+   `hosted.rs` already demonstrates `env_clear()` plus bounded stdin/outputs.
+   The future fixed recovery runner can reuse its bundled Node and vendored
+   deployment adapter without returning a connection secret to the renderer.
+2. The deployment private recovery bridge must observe the selected service
+   suspended, its owner/free-plan/DB binding, nonexpired DB, explicitly confirmed
+   narrow external CIDR, TLS and operator confirmation that other writers have
+   stopped. It performs GET only. No routine may infer global quiescence merely
+   from suspension. Stop/status/retry/resume coordination remains to be connected.
+3. Its in-process `consume` callback should launch the **native-verified pinned**
+   maintenance image using a fixed Docker command and script. Transfer the URL
+   only on the child's private stdin, not Docker arguments, general env files,
+   logs or a public result. Inside that immutable image, a fixed script imports
+   `readRemoteBackupInput`/`runRemoteBackup`, supplies the already-authorized
+   callback executor, and invokes the existing core. `Dockerfile.maintenance`
+   currently copies only `service-backup.mjs`, so the new module is not packaged
+   yet. The image must be rebuilt/verified before this route can run.
+4. Reuse lifecycle `maintenance::input_path`,
+   `restoration::{directory,private_bytes,fresh_root}`, `LifecycleService::lock`,
+   `begin_maintenance` and the bounded `run_observed_stream`/owned-helper
+   cancellation pattern. The currently named
+   `run_maintenance_helper_with_input` is Windows-only; it must not be claimed
+   as an available macOS entry. A narrowly shared implementation may reuse its
+   existing private-input semantics on macOS after review.
+5. Reuse fixed image inspection/never-pull, fresh candidate ownership labels,
+   `restoration_network::choose` and `verify_observed`. Do not modify the running
+   installation. Existing local restoration does not publish the database port;
+   its stored HTTP port is not a DB port. A smallest candidate connection can use
+   a helper in the verified candidate DB's network namespace, where a literal
+   loopback and observed PostgreSQL port belong to that isolated candidate. Such
+   a command must be bound to the exact native-owned container ID and labels,
+   not accepted as a user-selected network argument. This has not been run.
+6. `LifecycleService::restore_backup` is not a drop-in consumer for a hosted
+   service archive: its authentication phase requires local Manager installation
+   files and image-layout records. Reuse the lower guards and existing core
+   restore instead of fabricating those files. Preserve source role/ACL semantics;
+   do not silently add `--no-owner` or `--no-acl`. Prepare required candidate roles
+   before restore using the existing operator-owned candidate path. Keep the
+   source and failed candidate inactive/preserved on failure.
+7. After actual restore/inventory equality, connect existing migration checks,
+   runtime readiness/auth and explicit activation. A Render deploy rollback does
+   not restore its DB. Actual interruption/update/restore/rollback evidence is
+   still required; this module's mocked tests do not replace it.
+
+## Verification scope
+
+Node24 focused unit tests: eight private-worker cases and six deployment-bridge
+cases pass. Worker tests inject an existing-core stand-in; deployment tests use
+synthetic HTTP responses. They establish guard routing, fixed environment,
+secret-free error/results and no automatic remote mutation. They do **not** run
+SQL, pg_dump, TLS handshakes, encryption, native execution or a real restore.
+Existing core tests/evidence retain their original source/environment scope.
+
+## External conditions
+
+Render's default created source here has `ipAllowList: []` (internal only).
+Automatic allow-all access and third-party public-IP services are not introduced.
+If an approved narrow CIDR cannot be derived reliably with the two providers,
+the user must add that range in the official Render screen. Actual function,
+namespace and snapshot permissions must be read from the selected account before
+claiming compatibility; non-superuser status alone does not prove that
+`pg_control_system()` is unavailable. The physical identity guard is preserved.
+
+Free Render Postgres expires after 30 days, with access stopped at expiry and a
+14-day upgrade grace period before deletion. It has no managed backup/PITR, but
+Render documents local external `pg_dump`. One active free DB per workspace
+prevents promising a second simultaneous free remote clone. No recurring free
+renewal, paid upgrade or source deletion is automated. No actual expiry date was
+queried in this increment. Static Pages viewing remains independent.
+
+Official sources, checked 2026-10-18:
+[Free limits](https://render.com/docs/free),
+[logical backup/export](https://render.com/docs/postgresql-backups),
+[external connections](https://render.com/docs/postgresql-creating-connecting),
+[empty IP list](https://render.com/docs/blueprint-spec),
+[connection-info API](https://api-docs.render.com/reference/retrieve-postgres-connection-info),
+[rollback semantics](https://render.com/docs/rollbacks).
+
+## Persistent data and signing identity audit (source only)
+
+A full database archive is sensitive even with provider configuration excluded.
+The schema stores account password hashes/salts and institution/session token
+hashes; `auth_sessions.csrf_token` is stored as an actual application CSRF token.
+These remain part of the authenticated service inventory, not silently removed
+to make a “secret-free database” claim. This increment did not inspect any row
+values. Arbitrary authored JSON/blob contents also cannot be certified free of
+user-supplied secrets from a schema review alone.
+
+No dedicated schema column in migrations001–015 stores Cloudflare/Render API
+tokens, the transport DB password or the freeze private signing key. Current
+hosted code keeps provider tokens and its workspace/project-specific runtime
+configuration in macOS Keychain (`org.exhibitos.manager.hosted`), and sends
+runtime secrets to Render service env. DB connection credentials come from the
+private connection-info API; they are not the application's auth password hash.
+A normal database-only pg_dump does not export cluster role-password records.
+This distinction does not establish absence of secrets from arbitrary row data.
+
+`render-runtime.mjs` requires DATABASE_URL, ADMIN_PASSWORD, TENANT_ID,
+FREEZE_SIGNING_KEY_BASE64 and origin/client-origin configuration. It derives the
+freeze runtime from the installed `apps/web/dist`, so the hosted runtime does
+not require FREEZE_RUNTIME_ROOT. Existing freeze runtime/OEX bytes, signatures,
+public-key authority and immutable snapshots are stored in hosted_objects plus
+the DB inventory. The source private signing key itself is used in process;
+freeze rows carry public verification authority/signatures, not that private key.
+
+`Freezes.validSignature` requires the original authority public key, key ID
+**and origin**. Recovery must read the existing workspace/project Keychain entry
+without creating/replacing it, or recover the existing Render env secret under
+the authenticated native provider boundary and match its derived public key to
+the preserved authority. The existing `runtime_configuration` creator must not
+be called as a fallback when the recovery key is missing: it can create a new
+key. A new random key or localhost origin cannot be presented as restored old
+signing authority. Existing public static Pages bytes remain independently
+viewable; restoring DB bytes alone is not signing/runtime recovery.
+
+For an isolated drill, verify stored signatures with their preserved public keys
+and use the original logical authority while keeping actual sockets private.
+Before reactivating the same Render service, preserve its confirmed original
+origin/key and update only the explicitly selected restored DB binding. If both
+Keychain and existing Render env signing key are unavailable, report signing
+recovery blocked; do not include the private key in the archive contrary to the
+hosted secret policy, automatically rotate it, or claim full recovery. Provider
+reconnection/key access and any necessary recovery decision remain user-return
+conditions. No secret values were read for this audit.
+
+## Exact next runner wiring
+
+The following is a connection plan, not existing working code:
+
+- A native `hosted_recovery` operation should load the existing safe hosted-work
+  target and hold the current path/profile/operation guards. It must not call
+  `restore_backup` with a fake local-installation manifest.
+- A fixed Manager Node recovery runner can import its already-vendored deployment
+  `withRenderRecoveryConnection`. That function's callback is the source
+  capability; it runs only after the actual selected Render metadata and operator
+  acknowledgement checks. The callback launches the fixed maintenance image's
+  worker with credentials on its **private child stdin**. This private input is
+  distinct from the public operation/path-only request.
+- The immutable helper script must construct the callback executor itself. It
+  cannot accept an executor role, `isolationVerified` or a `quiesced` boolean from
+  renderer JSON as authority. For a local target, UUID/port literals in that fixed
+  script come from the native guard's observed owned candidate, not an arbitrary
+  caller-selected profile. Native must check the exact container/image/labels
+  and retain the same guard until child completion. Only its private connection
+  bytes cross stdin; no password/key appears in the fixed script arguments.
+- For the local drill, the helper may join that exact verified candidate DB
+  container's network namespace and use its observed loopback port. This avoids
+  publishing a DB port or confusing the existing profile's HTTP port with a DB
+  endpoint. That network argument must be generated from the observed immutable
+  container ID, never from input. It is not yet implemented or qualified.
+- The native process can reuse the `cancellation.rs::run_observed_stream` bounded
+  stdin mechanism and existing maintenance checkpoint/owned-helper cancellation
+  semantics through a narrowly shared macOS wrapper. `hosted.rs`'s short API
+  process timeout is not a suitable implicit backup deadline: preserve existing
+  service-backup limits and its cancel/uncertain-result semantics in the new
+  explicit operation rather than claiming it is already connected.
+- Authentication/readiness/restore activation remain separate from archive
+  creation. No successful callback or mocked unit authorizes a live service
+  restart, DB switch, migration, provider rollback or deletion.

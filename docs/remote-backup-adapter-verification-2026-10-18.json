@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-18",
+  "task": "T10-05",
+  "baseCommit": "df997f30d5826d7541d913add6fb0184795027d3",
+  "status": "PRIVATE_ADAPTER_IMPLEMENTED_NATIVE_AND_REMOTE_FLOW_NOT_CONNECTED",
+  "verification": {
+    "node": "24.21.0",
+    "focusedWorkerUnits": {
+      "tests": 8,
+      "passed": 8,
+      "toolChunk": "e1717f",
+      "exit": 0,
+      "milliseconds": 92.391292
+    },
+    "diffCheck": "PASS",
+    "sourceCoreChanged": false,
+    "sourceCoreMocked": true,
+    "actualPrivateFilesystemFixture": "bounded manifest read only; no real key/backup",
+    "actualRenderApi": "NOT_RUN",
+    "actualSqlDumpEncryptionRestore": "NOT_RUN",
+    "actualNativeExecutor": "NOT_RUN",
+    "actualMigrationUpdateRollback": "NOT_RUN",
+    "runtimePackaging": "NOT_IMPLEMENTED; new module not yet copied into maintenance image"
+  },
+  "remaining": [
+    "Native held source/target authority and private child stdin runner",
+    "Real Render narrow IP/role/snapshot capability and writer quiescence",
+    "Source signing key/origin preservation without archive inclusion",
+    "Real encrypted backup and isolated restore plus migration/update/rollback"
+  ],
+  "sources": [
+    {
+      "path": "scripts/remote-backup-worker.mjs",
+      "bytes": 7362,
+      "sha256": "7f6bcd62c796c2ae79f4a17d160bccf58fdb11c8e071caac476e41af01709ff9"
+    },
+    {
+      "path": "scripts/remote-backup-worker.test.mjs",
+      "bytes": 7647,
+      "sha256": "1f489b4646812ae960445ce293e39cbc0da9fc59493a9652dd0445eae6e936e6"
+    },
+    {
+      "path": "docs/remote-service-backup.md",
+      "bytes": 13373,
+      "sha256": "0f9b3fafb993c16707a0d5feb81c523931d018b85edca2afd2e9c7db3a7ef664"
+    }
+  ]
+}
