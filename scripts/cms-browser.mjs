@@ -91,7 +91,12 @@ export async function runCmsBrowser({
             (c) => c.httpOnly && c.name === "exhibitos_local_session",
           ),
         );
-        assert.equal(await page.evaluate(() => localStorage.length), 0);
+        // Account-change notification carries an opaque nonce, never credentials or private account metadata.
+        const browserStorage=await page.evaluate(()=>({local:Object.entries(localStorage),session:Object.entries(sessionStorage)}));
+        assert.equal(browserStorage.local.length,1);
+        assert.equal(browserStorage.local[0][0],"exhibitos-auth-change");
+        assert.match(browserStorage.local[0][1],/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+        assert.deepEqual(browserStorage.session,[]);
         await page.getByRole("button", { name: "작가", exact: true }).click();
         await page
           .getByLabel("작가 이름", { exact: true })
@@ -104,7 +109,7 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "작가 저장", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "작가 identity를 저장했습니다",
         );
         const rows = (
@@ -169,7 +174,7 @@ export async function runCmsBrowser({
         assert(!Object.hasOwn(artwork.metadata, "medium"));
         assert(!Object.hasOwn(artwork.metadata, "creationYear"));
       }
-      await expect(page.getByRole("status")).toContainText(
+      await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
         "작품 메타데이터를 저장했습니다",
       );
       return artwork.id;
@@ -192,7 +197,7 @@ export async function runCmsBrowser({
         const invalid = page.waitForResponse(r => r.request().method()==="POST" && r.url().endsWith("/imports"));
         await page.getByRole("button", {name:"파일 업로드·검사 요청",exact:true}).click();
         assert.equal((await invalid).status(),400);
-        await expect(page.getByRole("status")).toContainText("입력 형식을 확인");
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText("입력 형식을 확인");
         assert.equal((await pool.query("SELECT count(*) FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2",[tenantId,sculpture])).rows[0].count,"0");
         await page.getByLabel("권리자", {exact:true}).fill("ExhibitOS synthetic fixture authors");
         let initInterrupted = false;
@@ -216,18 +221,18 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "파일 업로드·검사 요청", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "연결 또는 처리에 실패",
         );
         await page.getByLabel("파일의 미터 scale", {exact:true}).fill("2");
         await page.getByRole("button", {name:"파일 업로드·검사 요청",exact:true}).click();
-        await expect(page.getByRole("status")).toContainText("파일 또는 권리 입력이 바뀌었습니다");
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText("파일 또는 권리 입력이 바뀌었습니다");
         await page.getByRole("button", {name:"이전 업로드 요청 찾기",exact:true}).click();
-        await expect(page.getByRole("status")).toContainText("이전 요청의 파일·권리·scale과 동일한 검사 요청을 찾았습니다");
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText("이전 요청의 파일·권리·scale과 동일한 검사 요청을 찾았습니다");
         await page.unroute("**/imports");
         await page.getByLabel("파일의 미터 scale", {exact:true}).fill("1");
         await page.getByRole("button", {name:"파일 업로드 재시도",exact:true}).click();
-        await expect(page.getByRole("status")).toContainText("연결 또는 처리에 실패");
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText("연결 또는 처리에 실패");
         const before = (
           await pool.query(
             "SELECT id FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2",
@@ -245,7 +250,7 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "파일 업로드 재시도", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "연결 또는 처리에 실패",
         );
         await expect(page.getByTestId("import-state")).toContainText(
@@ -278,7 +283,7 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "현재 revision 검토 승인", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "검토 승인했습니다",
         );
       },
@@ -331,7 +336,7 @@ export async function runCmsBrowser({
           .getByRole("button", { name: "원본 접근 확인", exact: true })
           .click();
         assert.equal((await denied).status(), 403);
-        await expect(page.getByRole("status")).toContainText("서버가 권한");
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText("서버가 권한");
         const exported = page.waitForResponse((r) =>
           r.url().endsWith("/export-check"),
         );
@@ -365,7 +370,7 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "작품 메타데이터 저장", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "입력은 보존되었습니다",
         );
         await expect(page.getByLabel("작품 설명", { exact: true })).toHaveValue(
@@ -428,7 +433,7 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "현재 revision 검토 승인", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "검토 승인했습니다",
         );
         await page
@@ -450,7 +455,7 @@ export async function runCmsBrowser({
         await page
           .getByRole("button", { name: "작품 메타데이터 저장", exact: true })
           .click();
-        await expect(page.getByRole("status")).toContainText(
+        await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "작품 메타데이터를 저장했습니다",
         );
         await expect(

@@ -1,0 +1,298 @@
+{
+  "scope": "T03-02/T03-03 existing Studio direct editing, incremental room plan dimension handles and actual rotated wall/opening constraints; full registered Studio UX remains incomplete",
+  "base_head": "fd17828a18c87b084e7a470b55c38bf0ef952d80",
+  "source_sha256": {
+    "apps/web/src/GeometryEditor.tsx": "7b80bffec74b930ce0747d6f2cc11fd7ed0f87a70fa11644773efd8d19c4e2b6",
+    "apps/web/src/GeometryPreview.tsx": "2994b8aa2cc9718635e607dccb7c05a7133b98f5bd7f72aefcaed7b656982160",
+    "apps/web/src/StudioFloorPlan.tsx": "7a14901a00aae14fe99058bec2a3ed7873d996939188e87376fd1460e934be26",
+    "apps/web/src/geometry/direct-edit.ts": "0beb75a7d70d514a8d4287f5c46e18c632af6e6d1c607bc74e03a9acac6b9596",
+    "apps/web/src/geometry/direct-edit.test.ts": "f09848b9b62c4008e71e60ef5958169c87753a7d3f803aecc7a9ad3baf67b5e7",
+    "apps/web/src/geometry/preview-editing.ts": "d4e254cf0fe62b5bb1ce4c8f9b24c7a4dc51b823f61acf65694e48abf85dc69d",
+    "apps/web/src/style.css": "cfed809b58509cf84c31c61391215ccf35829a03d206cf95b64b8f7d70672a06",
+    "scripts/studio-direct-browser.mjs": "07868f00826fd3f06c2f519e2e1b5a3d072e109ba08a2cd4999865600c39f985",
+    "docs/studio-geometry.md": "b09dc817c8ba3cd0bd57ffbda7aea8328f062308e46ab299a84f77813e8e72d7"
+  },
+  "proof_root": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/room-dimensions-ee89ac79-c075-4eca-bbb4-f14b4e7bc09a",
+  "implementation": [
+    "Room-only plan width/depth handles map world delta through room rotation to existing set-room dimensions, keeping authored center, height, transform scale and all child poses unchanged.",
+    "Dimension preview updates the existing numeric fields and only the 3D room outline; no scaling of room children or geometry engine is introduced.",
+    "Each released drag commits one existing command/undo entry; keyboard uses existing0.1m step. Esc, mode/view/draft changes cancel temporary state.",
+    "Both plan and 3D view switches cancel held gestures before late pointerup. No camera-remount workaround.",
+    "Uniquely wall-aligned artwork hides unsupported rotation and normal translation handles and explains its wall constraint.",
+    "Plan labels remain full in accessible names/list while short visual labels stay within the view. Large hit circles stay transparent.",
+    "Studio-only SVG pointer focus suppresses scaled native auto outline; custom keyboard focus-visible strokes remain. No Viewer selectors changed."
+  ],
+  "verification": {
+    "typecheck": "pass exit0",
+    "selected_eslint": "pass exit0 final owned sources and final focused/full runner",
+    "pure_geometry_placement_tests": {
+      "files": 3,
+      "tests": 18,
+      "result": "pass exit0; latest value/view types also checked"
+    },
+    "production_build": "pass exit0 final source; existing bundle warnings retained",
+    "earlier_full_chromium": {
+      "result": "19 behavior workflows pass/pageerrors0 before final view-cancel and SVG focus correction",
+      "evidence": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/room-dimensions-ee89ac79-c075-4eca-bbb4-f14b4e7bc09a/full19-before-focus-fix",
+      "visual_status": "NOT accepted as final visual proof: native SVG focus outline was visible. Source/purpose reuse limited accordingly."
+    },
+    "final_focused_chromium": {
+      "result": "8 selected workflows pass exit0/pageerrors0",
+      "checks": [
+        "room dimension drag changes authored width only, previews numeric and 3D outline before commit and is one undo",
+        "room dimension handle supports keyboard and Escape cancellation without changing transform scale",
+        "room view switching cancels a held dimension drag before late pointerup",
+        "view switching cancels a held 3D handle before late pointerup",
+        "room dimensions save and reopen in the same document and numeric controls",
+        "opaque front wall wins real 3D click over artwork behind it",
+        "wall-aligned artwork drag in rotated room preserves original wall, height and orientation; invalid extent is rejected",
+        "opening drag uses its rotated wall coordinates and keeps its height; outside-wall movement and undo preserve data"
+      ],
+      "fixture": "Actual production Chromium mouse/key manipulation using synthetic CC0 metadata/metric bounds, not genuine user model bytes",
+      "additional_assertions": [
+        "Large dimension hit circles compute transparent fill",
+        "Canvas drag leaves no window text selection",
+        "Focused opening computes outlineStyle none while explicit keyboard focus strokes remain"
+      ],
+      "screenshots_visually_reviewed": [
+        "studio-room-dimension-handles.png",
+        "studio-room-dimensions-wall-opening.png",
+        "studio-direct-narrow.png"
+      ],
+      "limits": "Focused run preserves all default21 assertions and covers changed space/view/focus behavior; latest full21 run not claimed. Earlier pointercancel/blur cases use DOM event injection, not physical OS focus changes."
+    },
+    "diff_check": "pass; owned files only"
+  },
+  "resolved_regressions": [
+    "SVG auto focus produced an oversized blue outline around a narrow opening despite valid data. The final Studio-scoped g:focus rule removes it; the same fixture capture and computed outlineStyle confirm the correction. Native keyboard indication remains via explicit focus-visible strokes.",
+    "Previous circle color rule could override transparent dimension hit areas. Scoped attribute rule and actual computed-fill assertion preserve invisible touch area.",
+    "Existing mode/view changes could leave an active gesture until later pointerup. Shared existing view/mode values now cancel both adapters; actual plan and3D view-switch cases pass."
+  ],
+  "not_completed": [
+    "Room height still uses existing numeric editing; 3D room/surface/opening size handles are not implemented by this increment.",
+    "Full novice import/workspace/light/camera/audience preview/public-preparation flow and technical-copy simplification remain beyond this completed unit.",
+    "Actual approved CMS GLB/PNG drag and permission/public-revision GUI regressions are not newly run by this local metadata fixture.",
+    "Safari, physical iOS/touch, VoiceOver and novice-user observation remain unverified.",
+    "Dense multi-object label/hit selection still needs the remaining GUI review; accessible full names and the existing numeric/list path remain.",
+    "Public Viewer has no editing prop/Studio class/handle installation by source guard; no new public Viewer GUI qualification is claimed here."
+  ],
+  "preservation": "No source photos, user models, keys, backups, auth/revision rules, OES format or task IDs modified. No automatic wall/artwork repositioning or physical safety claim.",
+  "history": {
+    "61e2bae_initial_artwork_vertical": {
+      "scope": "T03-02/T03-03 existing Studio direct-edit artwork vertical; registered full Studio UX remains incomplete",
+      "base_head": "03aed4f42eec3c95de10369a923d8f77f99f5822",
+      "source_sha256": {
+        "apps/web/src/GeometryEditor.tsx": "292207e567dec4a45833bdeba7481cd7cfb7938a4ef3c84b34df5b9630c1a404",
+        "apps/web/src/GeometryPreview.tsx": "bb0391144e0ac689a98acfa6f03347669a7ddfb9fd5c4fcac7e688929eda821f",
+        "apps/web/src/PlacementEditor.tsx": "2e6bf4b622bc009aa7eac04c9a42b0aadeb168b49acd54dc8802b1c0800bc644",
+        "apps/web/src/StudioFloorPlan.tsx": "1b714569f1ca62410f31539e47adfc3795fe11491a3bdfb64130e59edd28d957",
+        "apps/web/src/geometry/direct-edit.ts": "613759c853ae0ab863368d3ebab3c0405bc269ab89e0137e6427d0a981accad4",
+        "apps/web/src/geometry/preview-editing.ts": "384fcb09fe7c55fb68cf75a977420bb7ee4a74b1abc6eefa4fabe4cb5b0a67b2",
+        "apps/web/src/geometry/direct-edit.test.ts": "a1848c222d1af17c16af7480856080bfee4d088aacd99cc8f836d9a25d359445",
+        "apps/web/src/style.css": "690c8439f243eb3c73aa009ad26930e91ef7f13feb7c18b1c2c277c0e30bca58",
+        "scripts/studio-direct-browser.mjs": "ac559ba68c235b32acdf5d77676788e7fb90d65c633fa7a2cd5421e8bdfc4191",
+        "scripts/geometry-browser.mjs": "bde53c9341c0c8752f87405e7259afe01bc99ef2c0f627e7fa56972c525fe4e4",
+        "docs/studio-geometry.md": "2b7bbff467bbb43cf6bd553c0a1780c603ffab2e5bc690614a16306bded67a34",
+        "docs/studio-placement.md": "6069b2e0ae898d020cf1953cb9d91572b52e217fd74b7da258a5a4b95459ebce"
+      },
+      "proof_root": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55",
+      "implementation": [
+        "one shared selection, validated OES commands, undo and CAS save path for plan/3D/numeric controls",
+        "temporary drag preview; one pointer release gives one command; Esc/pointercancel/window blur/context switch cancel",
+        "plan world XZ movement preserves parent-local height/tilt/scale, existing unique wall alignment and bounds",
+        "3D local translation/rotation; no normal-Z or rotation handle for wall-constrained placement; opening local XY movement only",
+        "opaque surfaces default; optional editor-only transparency preserves saved materials; nearest hit selection prevents through-wall picking",
+        "numeric and keyboard paths remain; plan pan/zoom and narrow view switching do not edit document"
+      ],
+      "verification": {
+        "typecheck": "pass exit 0",
+        "selected_eslint": "pass exit 0",
+        "pure_geometry_placement_tests": {
+          "files": 3,
+          "tests": 16,
+          "result": "pass exit 0"
+        },
+        "production_build": "pass exit 0; existing chunk-size/dynamic-import warnings retained",
+        "actual_chromium_direct": {
+          "result": "pass exit 0",
+          "checks": [
+            "plan artwork selection shares numeric fields and selection with 3D",
+            "real plan mouse drag in rotated room preserves height and tilt; one undo restores exact transform",
+            "real horizontal rotation preserves position and tilt data and undo restores once",
+            "plan escape cancels temporary drag without saving",
+            "plan cancel cancels temporary drag without saving",
+            "plan blur cancels temporary drag without saving",
+            "save and reopen keep both views and numeric state synchronized",
+            "real 3D translation handle updates same draft and undo restores once",
+            "3D Escape restores transform and finishes camera drag before pointer release",
+            "real 3D rotation handle shares one undo history",
+            "3D cancel restores saved transform",
+            "3D blur restores saved transform",
+            "changing draft with a held pointer cancels temporary edit and late pointerup cannot modify either draft"
+          ],
+          "page_errors": [],
+          "fixture": "synthetic artwork metadata and metric bounds, not real model bytes",
+          "viewports": [
+            "1600x1100",
+            "390x844"
+          ],
+          "screenshots_visually_reviewed": true
+        },
+        "existing_geometry_browser": {
+          "result": "pass 6 workflows before final ray-pick/label/wall-handle adjustments",
+          "log": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/studio-direct-legacy.log",
+          "reuse_limit": "Existing material/opening/lighting/offline assertions remain unchanged; no claim that this earlier run validates later ray selection. Final source ray selection is covered by the pure nearest-hit regression and final direct browser covers drag lifecycle."
+        },
+        "diff_check": "pass; owned files only"
+      },
+      "resolved_regressions": [
+        {
+          "finding": "Automatic authoring transparency changed material inspection pixels",
+          "resolution": "Restored opaque default; explicit preview-only transparency option; preserved legacy red-wall threshold."
+        },
+        {
+          "finding": "Advanced-lighting browser test could no longer reach hidden controls",
+          "resolution": "Open the actual details summary before the same existing lighting assertions; no assertion weakened."
+        },
+        {
+          "finding": "3D pointercancel harness sent default pointerId 0 for a mouse pointer 1 and produced a Three OrbitControls error",
+          "resolution": "Use the observed mouse pointer identity in the actual DOM cancellation event; final 13 flows and page-error-free assertion pass."
+        },
+        {
+          "finding": "Click picking prioritized any artwork over nearer opaque wall",
+          "resolution": "Choose the closest eligible hit; smaller-target preference only at coincident hit distances, with pure regression."
+        }
+      ],
+      "not_completed": [
+        "Full registered Studio novice/import/public-preparation UX is not completed by this artwork vertical.",
+        "Room/surface dimension resize handles and complete object-by-object space/opening direct-edit GUI qualification remain.",
+        "Existing wall-alignment rules have pure regression; actual wall-aligned/rotated wall drag needs browser qualification.",
+        "Safari and physical iOS/touch/VoiceOver/new-user usability have not been run.",
+        "Actual approved CMS GLB/PNG drag and permission/published-revision UI regression has not been newly run in this slice.",
+        "Long plan labels and dense-scene touch targets need remaining GUI review; full names remain available in the shared list and accessible name.",
+        "No public Viewer handle/UI claim from this Studio browser; editor-only installation guard is source-reviewed."
+      ],
+      "preservation": "No user artwork/original/model/key/backup, server authorization, OES storage format or task IDs were modified."
+    }
+  },
+  "novice_flow_increment": {
+    "base_head": "b013d28ccb4e132254d59a366a2e8fbaa0d23697",
+    "status": "implemented; related local preview, actual CMS file creation/editing and actual server-save/publication integration verified; full registered novice copy/accessibility/platform qualification remains separate",
+    "implementation": [
+      "Reuse existing permission-filtered CMS title search/list/pagination; unapproved rows cannot be chosen from list, direct identifier remains under details; original single-artwork endpoint rechecks approval and display rights.",
+      "Discard stale account/draft/superseded-query responses; refuse pending import application after editor becomes read-only.",
+      "Import and placement are visible by default; numeric fields remain; lighting/viewpoints/routes/credits, raw JSON, identifiers and preservation packages are expandable without separate data or logic.",
+      "Read-only local audience appearance uses the existing renderer with explicit editing lifecycle cleanup. Return restores editor camera, selection and command history; no second concurrent renderer, publication or Viewer completion claim.",
+      "Three existing experience/scripting/curation components remain mounted in one default-closed details section. Existing optional server-save group now appears directly before public preparation; auth, strong ETag and explicit publishing remain unchanged."
+    ],
+    "verification": {
+      "typecheck": "PASS terminal0 after final owned presentation changes",
+      "selected_eslint": "PASS terminal0 after final owned presentation changes",
+      "production_build_89525": "PASS before last professional-panel/server-save presentation refinement; not yet final source",
+      "actual_chromium_full21": "PASS exit0/pageerrors0 before last presentation refinement; previous renderer source and same existing21 behavioral checks",
+      "actual_local_audience_64458": "PASS exit0/pageerrors0 before last presentation refinement: oldcanvas detached, canvascount1, tools hidden, document/selection/undo unchanged, exact rawGL editing-camera pixels restored. Synthetic artwork metadata bounds; no actual CMS bytes.",
+      "final_shared_source": "PASS focused actual Chromium1 workflow exit0/pageerrors0 on build93553: professional panels default-closed and toggle without document changes; server save before public preparation; local public-preparation button disabled without session; canvas1 and oldrenderer released; editor tools hidden; document/selection/undo and exact rawGL camera image restored;390px screenshots visually reviewed",
+      "real_approved_cms_glb_png": {
+        "result": "PASS exit0 final test-cms60159 on production93553, actual isolated PostgreSQL/API/worker plus production Chromium;27 groups = API10 + CMS8 + Studio9",
+        "placement": [
+          "production Studio imports real approved CMS GLB/PNG snapshots, actual physical placement and wall snap persist",
+          "novice artwork selection and read-only audience check preserve exact document, selection, undo and single renderer",
+          "spot target, brightness/color, start camera, viewpoints, route and title/credits render and save with shared undo",
+          "loaded nonunit placement scale survives manual position/rotation edits and actual rendered dimensions",
+          "wall overflow and invalid start camera fail without replacing candidate or consuming undo; missing artwork JSON rejects save",
+          "reload resolves exact approved derivatives; offline reload retains metadata, lights, camera and route without claiming rendered bytes; mobile keyboard works",
+          "revoked display rights deny bridge and derivative; local snapshot remains exact metadata with bounds-only preview",
+          "exact approved revision precondition prevents later reviewed bytes from rendering under an older Studio snapshot",
+          "webglcontextlost event handler preserves metadata and usable numeric commands"
+        ],
+        "cms": [
+          "built CMS: actual login cookie, distinct artist identity, metadata escaped as text",
+          "actual upload disconnect resumes same idempotent job, worker validates and UI approves revision",
+          "GLB display derivative renders actual WebGL; original/export remain denied independently",
+          "real stale revision conflict retains unsaved input and allows explicit history comparison/reload",
+          "PNG upload/worker/approved watermarked image, physical dimensions and complete rights edit",
+          "reversible artwork archive/restore, filter and narrow viewport keyboard accessibility",
+          "logout revokes actual session and clears workspace UI",
+          "different actual login account never receives previous private profile drafts/history"
+        ],
+        "proof": "cms-final-report.json",
+        "limits": "Actual redistributable synthetic GLB/PNG files, not actual user artwork quality or a new formal Safari/iOS support qualification. Public/server publication flow is a separate existing runner."
+      },
+      "safari_ios_voiceover_novice_observation": "NOT_RUN",
+      "production_build_93553": "PASS exit0 final shared source, existing bundle warnings retained",
+      "legacy_output_count_note": "The preserved final runner prints the older hardcoded Chromium16 scope label. Its actual arrays contain CMS8 + Studio9 =17 browser groups, plus API10 =27. Raw logs are unedited; the array counts and final valid/checks fields are authoritative.",
+      "actual_server_publication": {
+        "result": "PASS exit0 existing test-publication36775 on unchanged production93553, actual isolated PostgreSQL/API and production Chromium;17 groups including6 browser groups and actual pg_dump/restore",
+        "checks": [
+          "additive publication migration preserves all earlier migration checksums",
+          "READY enforces saved exact CMS approvals and private authoring authorization with repair guidance",
+          "READY blocks unsupported audio and unapproved arbitrary artwork without creating public rows",
+          "publication needs server role/ownership, CSRF and exact saved ETag, then creates a remapped immutable anonymous projection",
+          "original privacy consent and six anonymous aggregates preserve authorization and exclude identity fields",
+          "published source cannot mutate, receipts recover exact retries, and publication/asset/event history is immutable",
+          "unpublish invalidates every anonymous metadata/asset request, restore rechecks grants and appends audit history",
+          "current asset rights narrowing/expiry and archive fail closed without reading a mutable private draft",
+          "derivative integrity and expiry during storage reads fail closed; maintenance retains public bytes",
+          "current metadata rights revocation invalidates every public URL and records explicit rights audit",
+          "production Studio READY shows safe failure codes and actionable remediation, then corrected approved GLB/PNG snapshots become READY",
+          "explicit READY publication produces immutable anonymous URL and private drafts remain inaccessible",
+          "anonymous production preview renders real hash-qualified GLB/PNG derivatives with no authoring/CMS requests and list alternative",
+          "published edits fork a separate local and remote draft while anonymous immutable revision remains unchanged",
+          "unpublish clears anonymous preview and invalidates cached metadata/assets without ETag or service-worker bypass; explicit republish restores same immutable URL",
+          "current artwork rights revocation fails anonymous metadata and every derivative closed, clearing a previously loaded browser projection",
+          "PostgreSQL backup restores immutable publication snapshots, assets, states, receipts and audits"
+        ],
+        "publicDerivativePixels": 14303,
+        "proof": "publication-final-report.json",
+        "limits": "Qualified synthetic GLB/PNG on isolated local public URLs. No external Pages/Render deployment, real user artwork quality, native Manager recovery, Safari/iOS or human novice observation claim."
+      },
+      "publication_script_sha256": "b4ac9da6231026b5bc5f033e4bffc1fdf7046badaeba51cb11c2568622b9e167"
+    },
+    "proof_root": "/Volumes/ExhibitSSD/ExhibitOS-Backups/studio-direct-edit-review-94fc8a8a-33f2-4531-aa28-c2d7f83bfb55/novice-flow-4fc9b0e5-8611-461d-b3b3-ea883a68efda",
+    "scope_clarification": "Earlier unimplemented room-height/3D/surface/opening size handles describe implementation boundaries, not automatically mandatory release blockers. T03 acceptance and the user request condition direct manipulation on preserving existing meaning and validation; existing numeric/keyboard paths remain. Core novice flow and its actual authorization/file/save/preview/public-preparation checks remain separate requirements.",
+    "owned_source_sha256": {
+      "apps/web/src/Studio.tsx": "e2a4f791014cf58ad0dea506627c11cdf3100417aeb270ba5cb5115e40f2dfb9",
+      "apps/web/src/GeometryEditor.tsx": "1e20557c62619feaa1e2539b83e03a5dceda91d9476c14de4f110a0e15cbbcf0",
+      "apps/web/src/PlacementEditor.tsx": "2f9278be2f05997430b52b7a65f44248f090449c6a2d515d01c78f938b8ae7e7",
+      "apps/web/src/PublicationPanel.tsx": "f51657007e0bb83c6d96f460b7a14239162f9fec4643924fced28c40fd85cb22",
+      "scripts/studio-direct-browser.mjs": "8eaa20c0d743ab92d23bd7dea76c3645a65ac53eb4e8bd31138fc7dcbf61bb3b",
+      "scripts/geometry-browser.mjs": "d5a57c87e8a922cdf8f2c50ccb104c8ca8fa195962e191e9468bb1281174ccda",
+      "scripts/placement-browser.mjs": "74205e7ea26ebf9f675396fc09a9602d4af91a7862d13dc804a12eee9389f963",
+      "scripts/publication-browser.mjs": "78a0c1263e32a3f73b3877b980eb6d1f5bc315bd74f77f1ec729f92d096324e2",
+      "docs/studio-placement.md": "7f3e1f524c8b3bdfd8e143b41e896802f6878aefba48081492da9b83a919d0bc",
+      "scripts/cms-browser.mjs": "132258b210d4a429f81411c1986131b713cd627787c24594bc01416063433b74"
+    },
+    "shared_renderer": "Root commit3e139ec preserves required editingEnabled captured cleanup/effect dependency together with the final shared visitor controls; no uncommitted shared renderer dependency remains.",
+    "final_shared_renderer_sha256": "0c366e156a96bea02143dabc4cbbaba33f80c318e054d8182f8292824729608e",
+    "visual_review": "390px direct controls/text fit; read-only appearance has no edit handles and clear return. Existing local authoring diagnostic copy still contains technical terms; this increment does not declare the complete registered Studio UX done.",
+    "test_maintenance": [
+      {
+        "failure": "Original localStorage.length0 assertion rejected current pre-existing auth-change UUID notifier",
+        "correction": "Preserve HttpOnly cookie assertion; require exactly one exhibitos-auth-change strict UUIDv4, no other local keys, and sessionStorage0. No credentials/account metadata allowed."
+      },
+      {
+        "failure": "Original unscoped status locator matched pre-existing privacy status as well as CMS action status",
+        "correction": "Same13 expected success/failure messages and actions, scoped to existing direct main CMS status only."
+      },
+      {
+        "failure": "Legacy placement HTTP fixture omitted /offline and /freeze-runtime.json now required by exact public SW build hashes",
+        "correction": "Serve the actual existing public build bytes and appropriate public-shell cache header. SW hash/auth/offline conditions remain unchanged."
+      },
+      {
+        "failure": "Visible-only role locator could not locate closed-details controls to open their ancestor",
+        "correction": "Find hidden button node only, then click each actual summary before normal click/fill. No forced clicks, skipped assertions or product bypass."
+      },
+      {
+        "adaptation": "Root-shared public view controls now use a default-closed position disclosure and the visible label 입구 시점 보기",
+        "preserved": "Find the exact existing button with includeHidden, click its actual ancestor summary, then normal click. Keep all pixels, auth/CMS request exclusion, current-rights/expiry-race, immutable-revision and backup/restore assertions."
+      }
+    ],
+    "remaining": [
+      "Existing registered novice-copy review still covers basic room/template action wording, CMS prerequisite guidance, raw geometry validation codes and local authoring diagnostic jargon; this increment does not make all potential dimension handles mandatory.",
+      "Full registered Studio novice-flow acceptance and first-time-user observation, including remaining technical authoring copy",
+      "Safari/physical iOS/VoiceOver qualification not newly performed"
+    ],
+    "shared_renderer_commit": "3e139ec",
+    "implementation_commit": "8e343ba"
+  }
+}

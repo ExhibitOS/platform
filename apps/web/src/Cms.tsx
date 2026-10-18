@@ -1,3 +1,4 @@
+import { localLoginContext } from "./local-login-context";
 import { PrivacyPanel } from './PrivacyPanel';
 import { AssistancePanel } from './AssistancePanel';
 import { PreservationPanel } from './PreservationPanel';
@@ -147,6 +148,7 @@ function RightsFields({
 }
 
 export function Cms() {
+  const [loginContext] = useState(() => typeof window === "undefined" ? null : localLoginContext(window.location));
   const [session, setSession] = useState<Session | null>(null),
     [sessionReady, setSessionReady] = useState(false);
   const [notice, setNotice] = useState(""),
@@ -625,11 +627,13 @@ export function Cms() {
           onSubmit={(event) => void login(event)}
         >
           <h2>CMS 로그인</h2>
+          {loginContext && <p className="cms-note">Manager에서 선택한 내 컴퓨터의 계정입니다. 설정한 비밀번호로 로그인하세요. 계정 정보는 변경할 수 있습니다.</p>}
           <label>
             기관 ID
             <input
               aria-label="기관 ID"
               name="tenantId"
+              defaultValue={loginContext?.tenantId}
               required
               autoComplete="organization"
               placeholder="기관 UUID"
@@ -640,6 +644,7 @@ export function Cms() {
             <input
               aria-label="계정"
               name="subject"
+              defaultValue={loginContext?.subject}
               required
               minLength={3}
               maxLength={128}

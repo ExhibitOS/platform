@@ -16,3 +16,5 @@
 .publication-skip-links a { padding: 8px; }
 .publication-shell [tabindex="-1"]:focus { outline: 3px solid currentColor; outline-offset: 4px; }
 .publication-guide { border: 2px solid currentColor; padding: 12px; margin: 12px 0; }
+
+.artwork-detail button{min-height:44px}.artwork-detail-record{margin-top:1.5rem;border-top:1px solid currentColor}.artwork-detail-record>summary,.artwork-annotation-position>summary{min-height:44px;padding:.75rem 0;box-sizing:border-box;cursor:pointer}.artwork-detail summary:focus-visible{outline:2px solid currentColor;outline-offset:4px}.artwork-annotation-position{font-size:.9em}.artwork-detail .detail-text{line-height:1.7}.artwork-detail header button{flex-shrink:0}

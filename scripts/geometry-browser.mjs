@@ -64,12 +64,10 @@ export async function runGeometryBrowser() {
       checks.push(title);
       console.log(`PASS ${title}`);
     };
-    const candidate = async () =>
-      JSON.parse(
-        await page.getByLabel("전시 문서 JSON", { exact: true }).inputValue(),
-      );
+    const expose = async locator => {for(const details of await locator.locator("xpath=ancestor::details").all()){if(!await details.evaluate(element=>element.open))await details.locator(":scope > summary").click();}};
+    const candidate = async () => {const input=page.getByLabel("전시 문서 JSON",{exact:true});await expose(input);return JSON.parse(await input.inputValue());};
     const record = async () => {
-      const id = await page.getByTestId("draft-id").innerText();
+      const id = await page.getByTestId("draft-id").textContent();
       return page.evaluate(
         (id) =>
           new Promise((resolve, reject) => {
@@ -97,7 +95,7 @@ export async function runGeometryBrowser() {
         "로컬 version",
       );
     };
-    const qualifyDraftEditors=async()=>{await expect(page.locator('.geometry-editor')).toHaveCount(1);switchWitnesses.push({draftId:await page.getByTestId('draft-id').innerText(),geometryEditors:await page.locator('.geometry-editor').count()});};
+    const qualifyDraftEditors=async()=>{await expect(page.locator('.geometry-editor')).toHaveCount(1);switchWitnesses.push({draftId:await page.getByTestId('draft-id').textContent(),geometryEditors:await page.locator('.geometry-editor').count()});};
     const select = async (kind, id) => {
       await page
         .getByLabel("공간 요소 선택", { exact: true })
@@ -140,7 +138,7 @@ export async function runGeometryBrowser() {
           .getByLabel("전시 문서 JSON", { exact: true })
           .fill(JSON.stringify(initial, null, 2));
         await saved();
-        localId = await page.getByTestId("draft-id").innerText();
+        localId = await page.getByTestId("draft-id").textContent();
         roomId = initial.rooms[0].id;
         await page
           .getByLabel("방 이름", { exact: true })
@@ -341,6 +339,7 @@ export async function runGeometryBrowser() {
       await qualifyDraftEditors();
       await page.getByRole("button",{name:"두 방 template 복제",exact:true}).click();await saved();
       const template=await candidate();assert.equal(template.rooms.length,2);
+      await page.getByText('조명·시작 위치·동선·크레딧 상세 설정',{exact:true}).click();
       await page.getByRole('button',{name:'area 조명 추가',exact:true}).click();await page.getByLabel('Area 폭(m)',{exact:true}).fill('2');await page.getByRole('button',{name:'조명 속성 적용',exact:true}).click();await saved();
       await page.getByRole('button',{name:'directional 조명 추가',exact:true}).click();await saved();
       const artificial=await candidate();assert.equal(artificial.lights.find(l=>l.type==='area').unit,'lumen');assert.equal(artificial.lights.find(l=>l.type==='area').dimensions.width,2);assert.equal(artificial.lights.find(l=>l.type==='directional').unit,'lux');assert.equal(template.openings.filter(o=>o.type==='window').length,1);
@@ -363,7 +362,7 @@ export async function runGeometryBrowser() {
       await page.getByRole('button',{name:'새 로컬 전시',exact:true}).click();await saved();await qualifyDraftEditors();const fresh=await candidate();await page.evaluate(()=>window.__templateReads.shift()());await page.waitForTimeout(100);assert.deepEqual(await candidate(),fresh);
       await page.evaluate(()=>{File.prototype.text=window.__originalTemplateText;delete window.__originalTemplateText;delete window.__templateReads;});
       await page.getByRole('button',{name:'두 방 template 복제',exact:true}).click();await saved();
-      localId=await page.getByTestId('draft-id').innerText();
+      localId=await page.getByTestId('draft-id').textContent();
       const currentTemplate=await candidate();const privateTemplate=structuredClone(currentTemplate);privateTemplate.extensions['org.exhibitos.studio/template'].license='private';await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(privateTemplate));await saved();
       await page.getByRole('button',{name:'Template JSON 저장',exact:true}).click();await expect(page.getByRole('region',{name:'고급 건축과 template'}).getByRole('alert')).toContainText('license');
       await page.getByLabel('전시 문서 JSON',{exact:true}).fill(JSON.stringify(currentTemplate));await saved();

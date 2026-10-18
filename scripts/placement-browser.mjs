@@ -37,9 +37,10 @@ export async function runPlacementBrowser({
       blobs,
       auth: { mode: "local", origin, bindHost: "127.0.0.1" },
     });
-    for (const path of ["/studio", "/cms"])
+    for (const path of ["/studio", "/offline", "/cms"])
       app.get(path, async (_req, reply) =>
         reply
+          .header("cache-control",["/studio","/offline"].includes(path)?"public,max-age=0,must-revalidate":"no-store")
           .type("text/html")
           .send(await readFile(new URL("index.html", dist))),
       );
@@ -49,6 +50,7 @@ export async function runPlacementBrowser({
         .type("application/javascript")
         .send(await readFile(new URL("studio-sw.js", dist))),
     );
+    app.get("/freeze-runtime.json",async(_req,reply)=>reply.header("cache-control","public,max-age=0,must-revalidate").type("application/json").send(await readFile(new URL("freeze-runtime.json",dist))));
     app.get("/THIRD_PARTY_NOTICES.txt", async (_req, reply) =>
       reply
         .type("text/plain")
@@ -177,12 +179,10 @@ export async function runPlacementBrowser({
       });
       artworkIds.push(a.id);
     }
-    const candidate = async () =>
-      JSON.parse(
-        await page.getByLabel("전시 문서 JSON", { exact: true }).inputValue(),
-      );
+    const expose = async locator => {for(const details of await locator.locator("xpath=ancestor::details").all()){if(!await details.evaluate(element=>element.open))await details.locator(":scope > summary").click();}};
+    const candidate = async () => {const input=page.getByLabel("전시 문서 JSON",{exact:true});await expose(input);return JSON.parse(await input.inputValue());};
     const stored = async () => {
-      const id = await page.getByTestId("draft-id").innerText();
+      const id = await page.getByTestId("draft-id").textContent();
       return page.evaluate(
         (id) =>
           new Promise((resolve, reject) => {
@@ -216,8 +216,7 @@ export async function runPlacementBrowser({
       );
       await expect(page.locator(".geometry-preview canvas")).toBeVisible();
     };
-    const click = (name) =>
-      page.getByRole("button", { name, exact: true }).click();
+    const click = async (name) => {const button=page.getByRole("button",{name,exact:true,includeHidden:true});await expose(button);await button.click();};
     const pixels = () =>
       page.locator(".geometry-preview canvas").evaluate((canvas) => {
         const gl = canvas.getContext("webgl2"),
@@ -258,7 +257,11 @@ export async function runPlacementBrowser({
         await click("현재 서버 계정 확인");
         await click("선택 방 white-cube 생성");
         for (const id of artworkIds) {
-          await page.getByLabel("CMS 작품 ID", { exact: true }).fill(id);
+          const title=`Placement ${artworkIds.indexOf(id)===0?'sculpture':'image'}`;
+          await page.getByLabel("작품 이름으로 찾기",{exact:true}).fill(title);
+          await click("등록한 작품 찾기");
+          await expect(page.getByLabel("가져올 작품",{exact:true}).locator(`option[value="${id}"]`)).toBeEnabled();
+          await page.getByLabel("가져올 작품",{exact:true}).selectOption({label:title});
           await click("승인된 CMS 작품 가져오기");
           await expect(
             page.getByLabel("배치할 작품", { exact: true }).locator("option"),
@@ -293,10 +296,26 @@ export async function runPlacementBrowser({
         await page.getByLabel("작품 위치 (m) Z", { exact: true }).fill("-2");
         await click("작품 수동 위치·회전 적용");
         await saved();
-        localId = await page.getByTestId("draft-id").innerText();
+        localId = await page.getByTestId("draft-id").textContent();
         await render();
       },
     );
+    await check("novice artwork selection and read-only audience check preserve exact document, selection, undo and single renderer",async()=>{
+      const before=await candidate(),selection=await page.getByLabel("작품 배치 선택",{exact:true}).inputValue();
+      const oldCanvas=await page.locator(".geometry-preview canvas").elementHandle();
+      await click("관객 모습으로 확인");
+      await render();
+      assert.equal(await page.locator(".geometry-preview canvas").count(),1);
+      await expect.poll(()=>oldCanvas.evaluate(canvas=>canvas.isConnected)).toBe(false);
+      await expect(page.getByRole("button",{name:"이동",exact:true})).toBeHidden();
+      await expect(page.getByLabel("편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요")).toHaveCount(0);
+      await expect(page.getByRole("button",{name:"실제 크기로 작품 배치",exact:true})).toBeHidden();
+      const audienceDir=await mkdtemp(`${tmpdir()}/exhibitos-studio-audience-`);screenshots.push(`${audienceDir}/studio-audience-confirmation.png`);await page.screenshot({path:screenshots.at(-1),fullPage:true});
+      await click("편집으로 돌아가기");await render();
+      assert.deepEqual(await candidate(),before);await expect(page.getByLabel("작품 배치 선택",{exact:true})).toHaveValue(selection);
+      await expect(page.getByRole("button",{name:"이동",exact:true})).toBeVisible();
+      await click("공간 편집 undo");await saved();await click("공간 편집 redo");await saved();assert.deepEqual(await candidate(),before);
+    });
     await check(
       "spot target, brightness/color, start camera, viewpoints, route and title/credits render and save with shared undo",
       async () => {
@@ -315,6 +334,7 @@ export async function runPlacementBrowser({
           .getByLabel("전시 credits", { exact: true })
           .fill("Synthetic exhibition credits");
         await click("credits 적용");
+        await expose(page.getByLabel("편집 전시 제목",{exact:true}));
         await page
           .getByLabel("편집 전시 제목", { exact: true })
           .fill("Synthetic placement exhibition");
@@ -439,6 +459,7 @@ export async function runPlacementBrowser({
           "PLACEMENT_OUTSIDE_WALL",
         );
         assert.deepEqual(await candidate(), before);
+        await expose(page.getByLabel("camera FOV",{exact:true}));
         await page.getByLabel("camera FOV", { exact: true }).fill("0");
         await click("시작 camera 적용");
         await expect(page.getByTestId("geometry-error")).not.toHaveText("");
@@ -465,6 +486,7 @@ export async function runPlacementBrowser({
         assert.deepEqual(await candidate(), before);
         await click("현재 서버 계정 확인");
         await render();
+        await expose(page.getByLabel("편집 전시 제목",{exact:true}));
         await page
           .getByLabel("편집 전시 제목", { exact: true })
           .fill("Temporary after reload");
@@ -617,6 +639,7 @@ export async function runPlacementBrowser({
           "3D 그래픽 연결이 중단",
         );
         assert.deepEqual(await candidate(), before);
+        await expose(page.getByLabel("편집 전시 제목",{exact:true}));
         await page
           .getByLabel("편집 전시 제목", { exact: true })
           .fill("Numeric editing after WebGL loss");

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
-import { exportStaticPublication,safeStaticPath,assertStaticBudget } from "./export-static-publication.mjs";
+import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget } from "./export-static-publication.mjs";
 const sha=b=>createHash("sha256").update(b).digest("hex");
 export async function staticFixture(){
  const decoded=await readOex(await readFile(fixtureURL("oex/v1/examples/synthetic-media.oex"))),id=randomUUID(),exhibition=decoded.exhibition;
@@ -26,3 +26,25 @@ test("Pages per-file and file-count bounds report exact filename without reducti
 test("paths and local API origin reject traversal, credentials and remote endpoints",async t=>{for(const path of ["../x","a/../x","a\\b","a//b","/x",".env","con.txt","a/x."])assert.equal(safeStaticPath(path),false,path);const {options}=await setup(t);for(const origin of ["https://example.com","http://user:pass@127.0.0.1","http://127.0.0.1/path"])await assert.rejects(exportStaticPublication({...options,origin}),/STATIC_LOCAL_ORIGIN/);});
 
 test("known display rights expiry is retained and enforced before static export",async t=>{const {fixture,options}=await setup(t);fixture.raw.exhibition.artworks[0].rights.expiresAt="2026-01-01T00:00:00.000Z";fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);await assert.rejects(exportStaticPublication(options),/STATIC_DISPLAY_RIGHTS/);await assert.rejects(lstat(options.output),{code:"ENOENT"});});
+
+test("explicit demo exports only the fixed CC0 sample and separate Studio entry",async t=>{
+ const {runtime,options,fixture,directory}=await setup(t);
+ await writeFile(join(runtime,"static.html"),'<html><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"><div id="root"></div></html>');
+ await writeFile(join(runtime,"static-studio.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256">');
+ const result=await exportStaticStudioDemo({runtimeRoot:runtime,output:options.output});
+ assert.equal(result.revisionSha256,revisionHash(fixture.decoded.exhibition));
+ assert.match(await readFile(join(result.output,"index.html"),"utf8"),/href="\/studio.html"/);
+ assert.match(await readFile(join(result.output,"studio.html"),"utf8"),new RegExp(result.indexSha256));
+ const ordinary=await exportStaticPublication({...options,output:join(directory,"ordinary")});
+ await assert.rejects(lstat(join(ordinary.output,"studio.html")),{code:"ENOENT"});
+ assert(!((await readFile(join(ordinary.output,"index.html"),"utf8")).includes("/studio.html")));
+ fixture.raw.exhibition.title="Unapproved CC0 sample";fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ await assert.rejects(exportStaticPublication({...options,studioDemo:true,output:join(directory,"modified")}),/STATIC_DEMO_SAMPLE/);
+});
+test("demo requires its fixed entry and still refuses extra HTML",async t=>{
+ const {runtime,options,directory}=await setup(t);
+ await writeFile(join(runtime,"static.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await assert.rejects(exportStaticStudioDemo({runtimeRoot:runtime,output:options.output}),/STATIC_RUNTIME_ENTRY: static-studio.html/);
+ await writeFile(join(runtime,"other.html"),"must not export");
+ await assert.rejects(exportStaticStudioDemo({runtimeRoot:runtime,output:join(directory,"extra")}),/STATIC_RUNTIME_UNLISTED: other.html/);
+});

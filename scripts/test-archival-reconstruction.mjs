@@ -54,7 +54,7 @@ try{
   await expect(page.getByRole('button',{name:'로컬 서명 패키지 준비',exact:true})).toBeEnabled();await page.getByRole('button',{name:'로컬 서명 패키지 준비',exact:true}).click();
   await page.getByRole('button',{name:'고정 전시 열기',exact:true}).click();
   await expect(page.getByRole('heading',{name:old.exhibition.title,exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'3D 관람 시작',exact:true}).click();
+  await page.getByRole('button',{name:'관람 시작',exact:true}).click();
   for(const artwork of old.exhibition.artworks){const title=artwork.metadata.title,buttons=page.getByRole('button',{name:`${title} 상세 보기`,exact:true});assert.equal(await buttons.count(),old.exhibition.placements.filter(p=>p.artworkRevisionId===artwork.revisionId).length);for(let i=0;i<await buttons.count();i++){await buttons.nth(i).click();await expect(page.getByRole('dialog').locator('canvas')).toHaveCount(1,{timeout:30000});await page.keyboard.press('Escape');}}
   assert.deepEqual(pageErrors,[]);assert(requests.every(url=>new URL(url).origin===origin));assert(!requests.some(url=>new URL(url).pathname.startsWith('/api/')));
  });

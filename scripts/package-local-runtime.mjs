@@ -43,9 +43,22 @@ export async function packageLocalRuntime(destination, { engine = process.env.CO
     if (`${actual.Os}/${actual.Architecture}` !== targetPlatform) throw Error("LOCAL_IMAGE_PLATFORM_MISMATCH");
   }
   const archive = join(directory, "platform-image.tar"); await engineRun(engine, ["save", "--output", archive, image]); await chmod(archive, 0o600);
+  // Ship the existing, version-matched operator helper for backup/restore.
+  // It is an archive-only image declaration, never a running Compose service.
+  const maintenanceTag = `exhibitos-maintenance:${bundleId}`;
+  await engineRun(engine, ["build", ...(targetPlatform ? ["--platform", targetPlatform] : []), ...(preferredEngine === "podman" ? ["--format", "docker"] : []), "--file", join(source, "Dockerfile.maintenance"), "--tag", maintenanceTag, source]);
+  const maintenanceNativeId = await engineRun(engine, ["image", "inspect", "--format", "{{.Id}}", maintenanceTag], { capture: true });
+  const maintenanceImage = /^[a-f0-9]{64}$/.test(maintenanceNativeId) ? `sha256:${maintenanceNativeId}` : maintenanceNativeId;
+  if (!/^sha256:[a-f0-9]{64}$/.test(maintenanceImage)) throw Error("LOCAL_MAINTENANCE_IMAGE_ID_INVALID");
+  if (targetPlatform) {
+    const actual = JSON.parse(await engineRun(engine, ["image", "inspect", "--format", "{{json .}}", maintenanceImage], { capture: true }));
+    if (`${actual.Os}/${actual.Architecture}` !== targetPlatform) throw Error("LOCAL_IMAGE_PLATFORM_MISMATCH");
+  }
+  const maintenanceArchive = join(directory, "maintenance-image.tar");
+  await engineRun(engine, ["save", "--output", maintenanceArchive, maintenanceImage]); await chmod(maintenanceArchive, 0o600);
   const postgres = JSON.parse(await readFile(join(source, "database/images.json"), "utf8")).postgres;
   const compose = localCompose({ projectName, bundleId, image, postgres }); await writeFile(join(directory, "compose.yaml"), compose, { flag: "wx", mode: 0o600 });
-  const manifest = { schemaVersion: "1.0.0-draft.1", bundleId, preferredEngine, version: "0.1.0", protocolVersion: "1", composeSha256: createHash("sha256").update(compose).digest("hex"), projectName, services: ["platform", "database"], images: [{ reference: image, archive: { path: "platform-image.tar", sha256: await fileHash(archive), bytes: (await stat(archive)).size } }, { reference: postgres }], ports: [port], openUrl: `http://127.0.0.1:${port}`, readinessUrl: `http://127.0.0.1:${port}/api/v1/readiness`, minimumFreeBytes: 3 * 1024 * 1024 * 1024 };
+  const manifest = { schemaVersion: "1.0.0-draft.1", bundleId, preferredEngine, version: "0.1.0", protocolVersion: "1", composeSha256: createHash("sha256").update(compose).digest("hex"), projectName, services: ["platform", "database"], images: [{ reference: image, archive: { path: "platform-image.tar", sha256: await fileHash(archive), bytes: (await stat(archive)).size } }, { reference: postgres }, { reference: maintenanceImage, archive: { path: "maintenance-image.tar", sha256: await fileHash(maintenanceArchive), bytes: (await stat(maintenanceArchive)).size } }], ports: [port], openUrl: `http://127.0.0.1:${port}`, readinessUrl: `http://127.0.0.1:${port}/api/v1/readiness`, minimumFreeBytes: 3 * 1024 * 1024 * 1024 };
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", { flag: "wx", mode: 0o600 }); return { directory, manifest };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

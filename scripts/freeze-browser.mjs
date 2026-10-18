@@ -102,7 +102,7 @@ export async function runFreezeBrowser({ origin, tenantId, subject, password, bu
       const title = "Synthetic OEX preservation exhibition";
       await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
       await button("Original OEX sculpture 상세 보기").click(); await expect(page.getByRole("dialog")).toContainText("Original synthetic artist voice transcript");
-      await page.keyboard.press("Escape"); await button("3D 관람 시작").click();
+      await page.keyboard.press("Escape"); await button("관람 시작").click();
       await expect(page.getByTestId("audio-state")).toBeVisible();
       for (const title of ["Original OEX sculpture", "Original OEX image"]) {
         await button(`${title} 상세 보기`).click(); await expect(page.getByRole("dialog").locator("canvas")).toHaveCount(1, { timeout: 30000 }); await page.keyboard.press("Escape");
@@ -115,6 +115,7 @@ export async function runFreezeBrowser({ origin, tenantId, subject, password, bu
       await button("소리 켜기").click();
       const audio = () => page.getByTestId("audio-state").evaluate(value => JSON.parse(value.dataset.audioState));
       await expect.poll(async () => (await audio()).loaded).toBeGreaterThan(0); assert((await audio()).decodedBytes > 0);
+      await page.locator("details.viewer-audio-settings > summary").click();
       await page.getByRole("button", { name: /^공간 소리 재생 / }).click(); await expect.poll(async () => (await audio()).active).toBeGreaterThan(0);
       assert.deepEqual(assetRequests, []);
     });

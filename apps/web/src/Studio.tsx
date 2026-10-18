@@ -1,3 +1,4 @@
+import { localLoginContext, localLoginHref } from "./local-login-context";
 import { notifyAuthChange } from "./auth-change";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DraftError, DraftStore } from "./drafts/store";
@@ -14,6 +15,7 @@ import { validateDraft } from "./drafts/validator";
 import { prepareStudioShell } from "./studio-shell";
 import { failureMessage, request } from "./cms-client";
 import type { Session } from "./cms-client";
+import type { PublicPublication as PublicSnapshot } from "./publication-client";
 
 interface Remote {
   revision: number;
@@ -71,8 +73,14 @@ function message(error: unknown) {
   return failureMessage(error);
 }
 
-export function Studio() {
-  const store = useRef(new DraftStore()).current;
+export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
+  const store = useRef(new DraftStore(demo ? "exhibitos-studio-demo-v1" : undefined)).current;
+  const demoSource = useMemo(() => demo?.local ? ({ publicationId: demo.publication.id, revisionSha256: demo.publication.revisionSha256, assets: demo.assets, fetcher: demo.local.fetcher, check: demo.local.check }) : undefined, [demo]);
+  function newLocalDraft() {
+    const draft = newDraft();
+    if (demo) { draft.exhibitionId = demo.exhibition.id; draft.candidate = structuredClone(demo.exhibition); }
+    return draft;
+  }
   const [published, setPublished] = useState(false);
   const [rows, setRows] = useState<LocalDraft[]>([]),
     [record, setRecord] = useState<LocalDraft | null>(null),
@@ -123,8 +131,12 @@ export function Studio() {
     let live = true;
     void store
       .list()
-      .then((value) => {
-        if (live) setRows(value);
+      .then(async (value) => {
+        if (!live) return;
+        if (demo && value.length === 0) value = [await store.save(newLocalDraft())];
+        if (!live) return;
+        setRows(value);
+        if (demo && value[0]) select(value[0]);
       })
       .catch((error) => {
         if (live) setNotice(message(error));
@@ -135,6 +147,7 @@ export function Studio() {
     };
   }, [store]);
   useEffect(() => {
+    if (demo) { setShell("샘플 편집은 이 브라우저에만 저장돼요. 공개 원본은 바뀌지 않아요. 다시 열 때 정적 파일 연결이 필요해요."); return; }
     let cleanup = () => {},
       live = true;
     void prepareStudioShell(
@@ -275,7 +288,7 @@ export function Studio() {
   }
   async function create() {
     if (dirty && !(await saveLocal())) return;
-    const draft = newDraft();
+    const draft = newLocalDraft();
     const initial: LocalDraft = {
       id: draft.id,
       format: 2,
@@ -475,15 +488,15 @@ export function Studio() {
         <a className="brand" href="/" aria-label="ExhibitOS 홈">
           ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
-        <a href="/cms">Artist CMS</a>
+        {demo ? <a href="/">전시 관람으로 돌아가기</a> : <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리</a>}
       </header>
       <div className="cms-heading">
         <div>
-          <p className="eyebrow">STUDIO · LOCAL DRAFTS</p>
+          <p className="eyebrow">{demo ? "STUDIO · 샘플 체험" : "STUDIO"}</p>
           <h1>
-            전시의 초안을
+            나만의 전시를
             <br />
-            안전하게 이어서.
+            만들어 보세요.
           </h1>
         </div>
         <span className="phase">
@@ -503,10 +516,11 @@ export function Studio() {
       </p>
       <p className="cms-note">
         이 브라우저의 IndexedDB에 저장합니다. 공유 기기의 다른 사용자가 로컬
-        draft를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
-        있습니다. 파일 백업을 별도로 보관하세요. 현재 단계는 versioned 문서
-        저장, 공간·작품 배치 편집과 검증된 서버 revision의 명시적 공개·철회를 지원합니다. OEX 파일 흐름은 아래에서 현재 계정과 서버 저장본을 대상으로 실행합니다.
+        전시를 볼 수 있으며 브라우저 데이터 삭제·기기 장애로 사라질 수
+        있습니다. 파일 백업을 별도로 보관하세요. 이 기기에서 만든 전시는 자동으로 인터넷에 공개되지 않아요.
       </p>
+      {demo && <p role="note">CC0 샘플을 내 편집 사본으로 체험해요. 저장·관객 모습 확인은 인터넷 공개나 작품 품질 승인이 아니에요. 파일 백업에는 작품 원본이 포함되지 않아요.</p>}
+      {!demo && <details><summary>전시 패키지·보존·이전</summary>
       <FreezePanel session={session} record={record} dirty={dirty} disabled={busy || saving} />
       <OexPanel
         session={session}
@@ -539,12 +553,13 @@ export function Studio() {
           }
         }}
       />
+      </details>}
       <div className="cms-grid">
         <section className="cms-card">
           <div className="cms-actions">
             <h2>로컬 draft</h2>
             <button disabled={busy || saving} onClick={() => void run(create)}>
-              새 로컬 전시
+              {demo ? "샘플의 새 편집 사본" : "새 로컬 전시"}
             </button>
           </div>
           <ul className="cms-list">
@@ -617,21 +632,23 @@ export function Studio() {
         {record ? (
           <section className="cms-card">
             <div className="cms-actions">
-              <h2>전시 draft</h2>
+              <h2>전시 편집</h2>
               <span data-testid="local-state">
                 {saving
                   ? "저장 중…"
                   : dirty
                     ? "미저장 입력 있음"
-                    : `로컬 version ${record.version}`}
+                     : `이 기기에 저장됨 · 로컬 version ${record.version}`}
               </span>
             </div>
-            <p className="cms-note">
+            <details><summary>문서 식별자·형식 상세</summary><p className="cms-note">
               draft ID <code data-testid="draft-id">{record.id}</code>
               <br />
               전시 ID <code>{record.draft.exhibitionId}</code> · OES{" "}
               {record.draft.schemaVersion} · meter / right-handed Y-up
             </p>
+            </details>
+            <p>작품 가져오기 → 공간·작품 배치 → 저장 → 관객 모습 확인 → 공개 준비. 원하는 단계로 돌아가 수정할 수 있어요.</p>
             <label>
               전시 제목
               <input
@@ -647,6 +664,7 @@ export function Studio() {
                 }}
               />
             </label>
+            <details><summary>전시 문서 직접 편집 · 고급</summary>
             <label>
               전시 문서 JSON
               <textarea
@@ -668,6 +686,7 @@ export function Studio() {
               저장합니다. 유효하지 않은 입력이나 quota 오류는 완료된 저장본을
               덮어쓰지 않습니다.
             </p>
+            </details>
             <div className="cms-actions">
               <button
                 disabled={busy || saving || !dirty}
@@ -693,7 +712,7 @@ export function Studio() {
               </button>
             </div>
             {candidate && (
-              <section aria-label="문서 구조 요약" className="studio-summary">
+              <details><summary>공간 구조·기술 정보</summary><section aria-label="문서 구조 요약" className="studio-summary">
                 <h3>문서 구조</h3>
                 <p>
                   공간 {candidate.rooms.length} · 표면{" "}
@@ -714,12 +733,14 @@ export function Studio() {
                   방·벽·문·재질을 편집하고 3D 미리보기를 확인할 수 있습니다.
                   작품·조명·camera·동선을 편집할 수 있습니다.
                 </p>
-              </section>
+              </section></details>
             )}
             {candidate && (
               <GeometryEditor
                 key={`geometry:${record.id}`}
                 candidate={candidate}
+                staticSource={demoSource}
+                localOnly={!!demo}
                 session={session}
                 disabled={busy || published}
                 onChange={(value) => {
@@ -728,6 +749,7 @@ export function Studio() {
                 }}
               />
             )}
+            {!demo && <details hidden={!candidate}><summary>추가 연출·상호작용·추천 전시 설정</summary>
             {candidate && (
               <StudioExperienceEditor
                 key={`experience:${record.id}`}
@@ -743,136 +765,21 @@ export function Studio() {
             )}
             {candidate && <ScriptingEditor key={`scripting:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
             {candidate && <CurationEditor key={`curation:${record.id}`} candidate={candidate} disabled={busy || saving || published} onChange={value => { setText(json(value)); setPaused(false); }} />}
+            </details>}
             {published && (
               <p className="cms-note">
                 이 서버 revision에는 공개 이력이 있습니다. 기존 snapshot을
                 유지하고 수정하려면 아래에서 새 draft를 만드세요.
               </p>
             )}
-            <PublicationPanel
-              record={record}
-              session={session}
-              disabled={busy || saving}
-              dirty={dirty}
-              onPublished={setPublished}
-              onFork={() =>
-                void run(async () => {
-                  if (dirty && !(await saveLocal())) return;
-                  const next = await store.fork(recordRef.current!);
-                  select(next);
-                  await refresh();
-                  setPublished(false);
-                  setNotice(
-                    "공개 snapshot을 유지하고 새로운 로컬 draft를 만들었습니다. 새 계정 서버 전시로 저장할 수 있습니다.",
-                  );
-                })
-              }
-            />
-            <fieldset>
-              <legend>로컬 이력과 복구</legend>
-              <p className="cms-note">
-                최근 50개 이력 표시; 이전 이력은 원문 백업에 보존합니다.
-              </p>
-              <label>
-                이전 로컬 저장본
-                <select
-                  aria-label="이전 로컬 저장본"
-                  value={previous?.version ?? ""}
-                  onChange={(e) =>
-                    setPrevious(
-                      history.find(
-                        (row) => row.version === Number(e.target.value),
-                      ) ?? null,
-                    )
-                  }
-                >
-                  <option value="">비교할 version 선택</option>
-                  {history.map((row) => (
-                    <option key={row.version} value={row.version}>
-                      version {row.version} · {row.updatedAt}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {previous && (
-                <>
-                  <div className="cms-comparison">
-                    <div>
-                      <h3>선택한 저장본</h3>
-                      <pre>{json(previous.draft.candidate)}</pre>
-                    </div>
-                    <div>
-                      <h3>현재 입력</h3>
-                      <pre>{text}</pre>
-                    </div>
-                  </div>
-                  <div className="cms-actions">
-                    <button
-                      disabled={busy || saving || dirty}
-                      onClick={() =>
-                        void run(async () => {
-                          const value = await store.recover(
-                            record.id,
-                            previous.version,
-                            record.version,
-                          );
-                          select(value);
-                          await refresh();
-                          setNotice(
-                            "선택한 이력을 새로운 version으로 복구했습니다. 기존 이력은 유지됩니다.",
-                          );
-                        })
-                      }
-                    >
-                      선택한 저장본 복구
-                    </button>
-                    <button
-                      disabled={busy || saving}
-                      onClick={() =>
-                        void run(async () => {
-                          if (dirty && !(await saveLocal())) return;
-                          const value = await store.fork(previous);
-                          select(value);
-                          await refresh();
-                          setNotice(
-                            "선택한 이력을 별도 로컬 사본으로 만들었습니다.",
-                          );
-                        })
-                      }
-                    >
-                      선택한 이력의 새 사본
-                    </button>
-                  </div>
-                </>
-              )}
-            </fieldset>
-            {localOther && (
-              <section className="cms-card">
-                <h3>다른 탭과 충돌</h3>
-                <div className="cms-comparison">
-                  <div>
-                    <h4>최신 저장본 · version {localOther.version}</h4>
-                    <pre>{json(localOther.draft.candidate)}</pre>
-                  </div>
-                  <div>
-                    <h4>현재 입력 (보존됨)</h4>
-                    <pre>{text}</pre>
-                  </div>
-                </div>
-                <p>
-                  현재 입력을 새 사본으로 저장하거나 파일로 백업할 수 있습니다.
-                  최신 저장본은 자동으로 바꾸지 않습니다.
-                </p>
-              </section>
-            )}
-            <fieldset>
+            {!demo && <><fieldset>
               <legend>선택적 서버 저장</legend>
               <p className="cms-note">
                 계정 확인과 서버 저장은 명시적으로 실행합니다. 로그인·온라인
                 전환·계정 변경만으로 로컬 draft를 서버에 보내지 않습니다.
               </p>
               <div className="cms-actions">
-                <a href="/cms">CMS에서 로그인</a>
+                <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리에서 로그인</a>
                 <button
                   disabled={busy || !online}
                   onClick={() =>
@@ -988,6 +895,124 @@ export function Studio() {
                 </>
               )}
             </fieldset>
+            <PublicationPanel
+              record={record}
+              session={session}
+              disabled={busy || saving}
+              dirty={dirty}
+              onPublished={setPublished}
+              onFork={() =>
+                void run(async () => {
+                  if (dirty && !(await saveLocal())) return;
+                  const next = await store.fork(recordRef.current!);
+                  select(next);
+                  await refresh();
+                  setPublished(false);
+                  setNotice(
+                    "공개 snapshot을 유지하고 새로운 로컬 draft를 만들었습니다. 새 계정 서버 전시로 저장할 수 있습니다.",
+                  );
+                })
+              }
+            />
+            </>}
+            <fieldset>
+              <legend>로컬 이력과 복구</legend>
+              <p className="cms-note">
+                최근 50개 이력 표시; 이전 이력은 원문 백업에 보존합니다.
+              </p>
+              <label>
+                이전 로컬 저장본
+                <select
+                  aria-label="이전 로컬 저장본"
+                  value={previous?.version ?? ""}
+                  onChange={(e) =>
+                    setPrevious(
+                      history.find(
+                        (row) => row.version === Number(e.target.value),
+                      ) ?? null,
+                    )
+                  }
+                >
+                  <option value="">비교할 version 선택</option>
+                  {history.map((row) => (
+                    <option key={row.version} value={row.version}>
+                      version {row.version} · {row.updatedAt}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {previous && (
+                <>
+                  <div className="cms-comparison">
+                    <div>
+                      <h3>선택한 저장본</h3>
+                      <pre>{json(previous.draft.candidate)}</pre>
+                    </div>
+                    <div>
+                      <h3>현재 입력</h3>
+                      <pre>{text}</pre>
+                    </div>
+                  </div>
+                  <div className="cms-actions">
+                    <button
+                      disabled={busy || saving || dirty}
+                      onClick={() =>
+                        void run(async () => {
+                          const value = await store.recover(
+                            record.id,
+                            previous.version,
+                            record.version,
+                          );
+                          select(value);
+                          await refresh();
+                          setNotice(
+                            "선택한 이력을 새로운 version으로 복구했습니다. 기존 이력은 유지됩니다.",
+                          );
+                        })
+                      }
+                    >
+                      선택한 저장본 복구
+                    </button>
+                    <button
+                      disabled={busy || saving}
+                      onClick={() =>
+                        void run(async () => {
+                          if (dirty && !(await saveLocal())) return;
+                          const value = await store.fork(previous);
+                          select(value);
+                          await refresh();
+                          setNotice(
+                            "선택한 이력을 별도 로컬 사본으로 만들었습니다.",
+                          );
+                        })
+                      }
+                    >
+                      선택한 이력의 새 사본
+                    </button>
+                  </div>
+                </>
+              )}
+            </fieldset>
+            {localOther && (
+              <section className="cms-card">
+                <h3>다른 탭과 충돌</h3>
+                <div className="cms-comparison">
+                  <div>
+                    <h4>최신 저장본 · version {localOther.version}</h4>
+                    <pre>{json(localOther.draft.candidate)}</pre>
+                  </div>
+                  <div>
+                    <h4>현재 입력 (보존됨)</h4>
+                    <pre>{text}</pre>
+                  </div>
+                </div>
+                <p>
+                  현재 입력을 새 사본으로 저장하거나 파일로 백업할 수 있습니다.
+                  최신 저장본은 자동으로 바꾸지 않습니다.
+                </p>
+              </section>
+            )}
+
           </section>
         ) : (
           <section className="cms-card">

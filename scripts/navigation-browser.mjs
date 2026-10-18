@@ -166,7 +166,9 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     page.on("pageerror", (e) => errors.push(e.message));
     const entranceAt = performance.now();
     await page.goto(`${origin}/p/${publicationId}`);
-    await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+    await page.getByRole("button", { name: "관람 시작", exact: true }).click();
+    await page.locator(".walking-controls details > summary").click();
+    await page.getByText("시점 조정", { exact: true }).click();
     await expect
       .poll(async () => (await assets(page)).loadedPlacements)
       .toBe(2);
@@ -513,6 +515,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
         await page.evaluate(
           () => (window.oldWalkCanvas = document.querySelector("canvas")),
         );
+        await page.locator("details.viewer-display-settings > summary").click();
         await page
           .getByLabel("Viewer 품질", { exact: true })
           .selectOption("compact");
@@ -537,7 +540,9 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
           (route) => route.fulfill({ status: 404, body: "" }),
         );
         await page.reload();
-        await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+        await page.getByRole("button", { name: "관람 시작", exact: true }).click();
+    await page.locator(".walking-controls details > summary").click();
+    await page.getByText("시점 조정", { exact: true }).click();
         await expect.poll(async () => (await assets(page)).failed).toBe(2);
         await start(page);
         await page.getByLabel("보행 속도", { exact: true }).selectOption("1.6");
@@ -574,7 +579,9 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
           await route.fulfill({ response: r, json: body });
         });
         await page.reload();
-        await page.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+        await page.getByRole("button", { name: "관람 시작", exact: true }).click();
+    await page.locator(".walking-controls details > summary").click();
+    await page.getByText("시점 조정", { exact: true }).click();
         await expect
           .poll(async () => (await assets(page)).loadedPlacements)
           .toBe(2);
@@ -601,7 +608,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     const mobile = await context.newPage();
     mobile.setDefaultTimeout(30000);
     await mobile.goto(`${origin}/p/${publicationId}`);
-    await mobile.getByRole("button", { name: "3D 관람 시작", exact: true }).click();
+    await mobile.getByRole("button", { name: "관람 시작", exact: true }).click();
     await expect
       .poll(async () => (await assets(mobile)).loadedPlacements)
       .toBe(2);

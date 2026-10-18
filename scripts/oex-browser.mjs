@@ -68,7 +68,7 @@ export async function runOexBrowser({ origin, tenantId, subject, password, other
       await openImported().click();
       await expect(page.getByRole("status", { name: "OEX 처리 상태" })).toContainText("가져온 전시");
       await expect(page.getByLabel("전시 제목", { exact: true })).toHaveValue("Unsaved synthetic OEX title");
-      await button("서버 revision READY 검사").click();
+      await button("공개 준비 확인").click();
       await expect(page.getByTestId("ready-state")).toHaveText("READY");
       assert.equal(await publicationCount(), before);
       await button("READY revision 공개").click();

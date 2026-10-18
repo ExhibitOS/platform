@@ -35,12 +35,7 @@ export function WalkingControls({
 }) {
   return (
     <section className="walking-controls" aria-label="걷기 조작">
-      <p id="walking-instructions">
-        걷기 시작 후 화면에 초점을 두고 W/A/S/D 또는 ↑/↓로 이동하고 ←/→로 시점을
-        돌립니다. 마우스 시점은 직접 선택합니다. Esc·다른 항목 선택·화면 전환은
-        일시 정지합니다. 터치는 화면 왼쪽 이동 버튼과 오른쪽 드래그를 함께
-        사용합니다.
-      </p>
+      <p>‘걷기 시작’을 선택한 뒤 천천히 둘러보세요. 이동이 어려우면 작품 목록으로 감상할 수 있어요.</p>
       <div className="cms-actions">
         <button
           disabled={!available || (walking && !paused)}
@@ -57,13 +52,19 @@ export function WalkingControls({
         <button disabled={!available} onClick={() => actions?.stationary()}>
           정지 관람으로 전환
         </button>
-        <button disabled={!available} onClick={() => actions?.capture()}>
-          마우스 시점 잡기
-        </button>
         <button disabled={!available} onClick={() => actions?.reset()}>
           안전한 시작 위치로
         </button>
       </div>
+      <label><input type="checkbox" checked={settings.reducedMotion} onChange={event => onSettings({ ...settings, reducedMotion:event.target.checked })}/>움직임 효과 줄이기</label>
+      <details className="viewer-options"><summary>이동 방법·설정</summary>
+      <p id="walking-instructions">
+        걷기 시작 후 화면에 초점을 두고 W/A/S/D 또는 ↑/↓로 이동하고 ←/→로 시점을
+        돌립니다. 마우스 시점은 직접 선택합니다. Esc·다른 항목 선택·화면 전환은
+        일시 정지합니다. 터치는 화면 왼쪽 이동 버튼과 오른쪽 드래그를 함께
+        사용합니다.
+      </p>
+        <button disabled={!available} onClick={() => actions?.capture()}>마우스 시점 잡기</button>
       <div className="walking-settings">
         <label>
           보행 속도
@@ -97,17 +98,7 @@ export function WalkingControls({
           />
           <output>{settings.eyeHeight.toFixed(2)} m</output>
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={settings.reducedMotion}
-            onChange={(event) =>
-              onSettings({ ...settings, reducedMotion: event.target.checked })
-            }
-          />
-          움직임 효과 줄이기
-        </label>
-      </div>
+      </div></details>
       <p role="status" aria-label="보행 상태" aria-live="polite">
         {message}
       </p>
