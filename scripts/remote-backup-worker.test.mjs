@@ -118,3 +118,17 @@ test('authority custody accepts only fixed sibling public file and no arbitrary 
   await assert.rejects(runRemoteBackup({...request,publicAuthorityFile},null,dependencies),/REMOTE_BACKUP_REQUEST/);
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+
+test('historical inventory catalog accepts only an exact known immutable prefix without changing current snapshots',async()=>{
+ const fs=await import('node:fs/promises'),{createHash}=await import('node:crypto');
+ const {inventorySnapshotOptions}=await import('./service-backup.mjs');
+ const root=await fs.realpath(await fs.mkdtemp('/private/tmp/exhibitos-historical-catalog-'));
+ const names=['001_first.sql','002_second.sql','003_current.sql'],catalog=names.map((name,i)=>({name,sha256:createHash('sha256').update('SQL '+i).digest('hex')}));
+ try{
+  for(let i=0;i<names.length;i++)await fs.writeFile(root+'/'+names[i],'SQL '+i,{mode:0o600});
+  assert.deepEqual(await inventorySnapshotOptions(root),{migrationDirectory:root});
+  for(const length of [1,2,3])assert.deepEqual(await inventorySnapshotOptions(root,catalog.slice(0,length)),{migrationCatalog:catalog.slice(0,length)});
+  for(const invalid of [null,{},[],[catalog[1]],catalog.slice().reverse(),[catalog[0],catalog[0]],[...catalog,{name:'004_unknown.sql',sha256:'a'.repeat(64)}],[{...catalog[0],sha256:'b'.repeat(64)}],[{...catalog[0],privateKey:'forbidden'}]])await assert.rejects(inventorySnapshotOptions(root,invalid),/^Error: BACKUP_MIGRATION_CATALOG$/);
+  await fs.writeFile(root+'/'+names[0],'changed helper SQL');await assert.rejects(inventorySnapshotOptions(root,catalog.slice(0,1)),/^Error: BACKUP_MIGRATION_CATALOG$/);
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});

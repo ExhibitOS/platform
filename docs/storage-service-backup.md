@@ -414,3 +414,15 @@ Docker 연결, source-unavailable 데이터 복원은 후속 구현과 실제 �
 열린 descriptor와 전후 비교는 협조하는 작성자를 대상으로 한 관찰이며 같은 사용자의
 적대적 동시 변경에 대한 불변 snapshot을 보장하지 않습니다. 새 방식으로 용량이
 줄었다는 전체 서비스 결과는 실제 이미지 크기와 복원 실행 전까지 주장하지 않습니다.
+
+## Restoring a backup from an earlier known schema
+
+Exact restoration and source/restored inventory observations use the migration
+catalog retained in the authenticated backup (or the exact SHA-bound manifest).
+The maintenance tool accepts that catalog only when every name and SHA matches a
+nonempty consecutive prefix of its own packaged SQL files. Unknown, skipped,
+reordered or changed entries are refused. The database schema, rows, objects and
+references must still match the complete original inventory. A newer tool does
+not apply later migrations during exact restoration. New backup creation continues
+to validate the current packaged catalog, and explicit migrated-target verification
+continues to check its separately approved target.

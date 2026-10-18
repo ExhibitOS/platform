@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {constants} from 'node:fs';
-import {open,lstat,realpath,statfs} from 'node:fs/promises';
+import {open,lstat,realpath,statfs,readdir,readFile} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {randomBytes,createHash,createPublicKey,verify} from 'node:crypto';
@@ -152,6 +152,23 @@ export async function deploymentFiles(environment,keyPath,destination){
  }
  return files;
 }
+/** Authenticated exact restoration may use an older known catalog. This is not
+ * a migration target: require an exact nonempty prefix of this helper's files. */
+export async function inventorySnapshotOptions(migrationDirectory,authenticatedMigrations){
+ if(authenticatedMigrations===undefined)return {migrationDirectory};
+ if(!Array.isArray(authenticatedMigrations)||authenticatedMigrations.length<1||authenticatedMigrations.length>10000)fail('BACKUP_MIGRATION_CATALOG');
+ const names=(await readdir(migrationDirectory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort();
+ if(authenticatedMigrations.length>names.length)fail('BACKUP_MIGRATION_CATALOG');
+ const migrationCatalog=[];
+ for(let i=0;i<authenticatedMigrations.length;i++){
+  const entry=authenticatedMigrations[i];
+  if(!entry||typeof entry!=='object'||Array.isArray(entry)||Object.keys(entry).sort().join(',')!=='name,sha256'||typeof entry.name!=='string'||entry.name.length>1024||!/^\d[a-zA-Z0-9_.-]*\.sql$/.test(entry.name)||entry.name!==names[i]||typeof entry.sha256!=='string'||!/^[a-f0-9]{64}$/.test(entry.sha256))fail('BACKUP_MIGRATION_CATALOG');
+  const bytes=await readFile(resolve(migrationDirectory,entry.name));
+  if(createHash('sha256').update(bytes).digest('hex')!==entry.sha256)fail('BACKUP_MIGRATION_CATALOG');
+  migrationCatalog.push({name:entry.name,sha256:entry.sha256});
+ }
+ return {migrationCatalog};
+}
 /** Private native job budget only. Existing CLI/environment contracts are unchanged. */
 export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
  if(!Number.isSafeInteger(jobBudgetBytes)||jobBudgetBytes<4*1024*1024||!Number.isSafeInteger(maxDumpBytes)||maxDumpBytes<1024*1024||maxDumpBytes>32*1024**3||!Array.isArray(inventory?.objects))fail('BACKUP_RESOURCE_BUDGET');
@@ -181,7 +198,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(new URL('../database/migrations/',import.meta.url).pathname,authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
   finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
@@ -196,9 +213,9 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
-  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async c=>{
+  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async(c,authenticatedMigrations)=>{
    if(privateOptions.freezeAuthority!==undefined)await verifyBackupFreezeAuthority(c,privateOptions.freezeAuthority);
-   const inventory=await collectServiceInventory(c,blobs.store,{migrationDirectory});
+   const inventory=await collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(migrationDirectory,authenticatedMigrations));
    if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
    return inventory;
   };

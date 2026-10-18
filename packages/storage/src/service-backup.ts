@@ -6,12 +6,14 @@ import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from './blobs.js';
-import {inventoryCanonical,type ServiceInventory} from './service-inventory.js';
+import {inventoryCanonical,type ServiceInventory,type MigrationCatalogEntry} from './service-inventory.js';
 import {encryptBackupFile,decryptBackupFile,hashBackupFile,type EncryptedFile} from './encrypted-files.js';
 export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration'|'deployment';path:string;key?:string;name?:string}
 export interface BackupManifest {schemaVersion:'1.0.0-draft.1'|'1.0.0-draft.2';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
 export interface BackupReceipt {id:string;status:'complete';manifestSha256:string;objectCount:number}
-type Snapshot=(client:PoolClient)=>Promise<ServiceInventory>;
+type Snapshot=(client:PoolClient,authenticatedMigrations?:readonly MigrationCatalogEntry[])=>Promise<ServiceInventory>;
+// Never expose the live comparison target to a collector callback.
+const retainedMigrations=(inventory:ServiceInventory):readonly MigrationCatalogEntry[]=>Object.freeze(inventory.migrations.map(m=>Object.freeze({name:m.name,sha256:m.sha256})));
 const sha=(data:Uint8Array|string)=>createHash('sha256').update(data).digest('hex');
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const objectKey=(v:unknown):v is string=>typeof v==='string'&&v.length<=1024&&/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+$/.test(v)&&!v.split('/').some(p=>p==='.'||p==='..');
@@ -100,7 +102,7 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   await options.restore(verified.files.find(f=>f.role==='database')!.plainPath);
   for(const f of verified.files.filter(f=>f.role==='object')){await options.store.put(f.key!,await readFile(f.plainPath));}
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');transaction=true;
-  const inventory=await options.snapshot(c);validateInventory(inventory);if(comparable(inventory)!==comparable(verified.manifest.inventory))throw Error('RESTORE_INVENTORY_MISMATCH');
+  const inventory=await options.snapshot(c,retainedMigrations(verified.manifest.inventory));validateInventory(inventory);if(comparable(inventory)!==comparable(verified.manifest.inventory))throw Error('RESTORE_INVENTORY_MISMATCH');
   await c.query('COMMIT');transaction=false;
   // Reconstitute named configuration/runtime only after DB/object equality passes.
   // These are staged files in the new private candidate, never the running source.
@@ -144,7 +146,7 @@ async function observeInventory(options:InventoryObservationOptions,candidateSys
    if(candidateSystemIdentifier===undefined){
     if(inventoryCanonical(current)!==inventoryCanonical(manifest.sourceIdentity))throw Error('SOURCE_DATABASE_MISMATCH');
    }else if(current.systemIdentifier!==candidateSystemIdentifier||current.database!==manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
-   const actual=await options.snapshot(c);validateInventory(actual);
+   const actual=await options.snapshot(c,retainedMigrations(manifest.inventory));validateInventory(actual);
    if(comparable(actual)!==expected)throw Error('SOURCE_INVENTORY_MISMATCH');
    await c.query('ROLLBACK');transaction=false;
   }
