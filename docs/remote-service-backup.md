@@ -275,3 +275,12 @@ runtime, provider service, DB, image, key or user backup is deleted. Local TLS a
 real cryptography do not establish actual Render account/role/IP/expiry behavior,
 Manager restart/cancel correctness, original signing-origin recovery or complete
 migration/update/rollback. Heavy execution awaits the coordinator's slot.
+
+### Encrypted and authenticated manifest hashes
+
+The original complete receipt's `manifestSha256` is the encrypted `manifest.gcm`
+SHA. The worker's `authenticatedManifestSha256` is the decrypted, authenticated
+`manifest.json` SHA; these are intentionally different. The fixed entry compares
+complete.json with the actual ciphertext copy/readback SHA and retains the
+plaintext authenticated SHA in its safe result. Regression fixtures now use two
+different hashes and reject ciphertext mutation before publishing complete.json.

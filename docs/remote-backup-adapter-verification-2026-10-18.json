@@ -38,6 +38,15 @@
       "twoNodeFiles": "after existing build, before unchanged actual suite",
       "sourceCommandAndAllowlistCheck": "PASS; product tests not rerun",
       "toolChunk": "reading consistency only; Node command assertion exit0"
+    },
+    "entryHashFollowup": {
+      "tests": 4,
+      "passed": 4,
+      "toolChunk": "3f0ba0",
+      "milliseconds": 165.453333,
+      "purpose": "distinct ciphertext complete-receipt hash vs authenticated plaintext manifest hash; ciphertext mutation rejected before complete marker",
+      "workerNinePriorSourceUnchanged": true,
+      "dockerAndRemote": "NOT_RUN"
     }
   },
   "remaining": [
@@ -71,18 +80,18 @@
     },
     {
       "path": "scripts/remote-backup-entry.mjs",
-      "bytes": 7602,
-      "sha256": "410fb264451473288607c8f0f55921f9303d5f0e27be8f16dbb393f14ee920c7"
+      "bytes": 7912,
+      "sha256": "1d4026d47f3872af3b4c9f8e21f3c4821651a75e773ef83b89b26291c6a2f68d"
     },
     {
       "path": "scripts/remote-backup-entry.test.mjs",
-      "bytes": 5079,
-      "sha256": "57a592aae487489e1e363792a624115e39296b2ffdefc674f6bdc9dbbea25a2e"
+      "bytes": 5405,
+      "sha256": "18b404e1dc1284d446607a3afa4ff995d61aa15e943ba3cc21d0774437886311"
     },
     {
       "path": "docs/remote-service-backup.md",
-      "bytes": 18650,
-      "sha256": "87cbcdcbcc6b01b50ca2f6c1cb9ce9dc20f5010db50212f7ac0fc3d7f16ae8d3"
+      "bytes": 19178,
+      "sha256": "2c189e2392bc904687cfacf297808142b9294c80f1117e49f77c4025219bfebc"
     },
     {
       "path": "package.json",

@@ -20,7 +20,7 @@ async function copyCipher(source,target){
   if(BigInt(offset)!==before.size||!same(before,await input.stat({bigint:true}))||!same(before,await regular(source)))fail();
   await output.sync();const expected=hash.digest('hex'),actual=createHash('sha256');let position=0;
   while(position<offset){const r=await output.read(buffer,0,Math.min(buffer.length,offset-position),position);if(!r.bytesRead)fail();actual.update(buffer.subarray(0,r.bytesRead));position+=r.bytesRead;}
-  const held=await output.stat({bigint:true}),named=await regular(target);if(actual.digest('hex')!==expected||held.dev!==named.dev||held.ino!==named.ino||held.size!==before.size)fail();
+  const held=await output.stat({bigint:true}),named=await regular(target);if(actual.digest('hex')!==expected||held.dev!==named.dev||held.ino!==named.ino||held.size!==before.size)fail();return expected;
  }finally{await input.close();await output?.close();}
 }
 export async function readPrivateEntryInput(stream){const chunks=[];let n=0;for await(const part of stream){const b=Buffer.from(part);n+=b.length;if(n>32768)fail();chunks.push(b);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail();}finally{for(const b of chunks)b.fill(0);}}
@@ -48,11 +48,16 @@ export async function createRemoteBackupEntry(input,dependencies={}){
   const allowed=['complete.json','writing.json','manifest.gcm','files'];const top=(await readdir(archive)).sort();if(top.join(',')!==allowed.sort().join(','))fail();
   const archivedFiles=await readdir(join(archive,'files'));if(archivedFiles.length!==result.files||archivedFiles.some(n=>!/^\d{8}\.gcm$/.test(n)))fail();
   const completePath=join(archive,'complete.json'),completeStat=await regular(completePath);if(completeStat.size>4096n)fail();const c=await open(completePath,constants.O_RDONLY|constants.O_NOFOLLOW);let complete;try{if(!same(completeStat,await c.stat({bigint:true})))fail();const bytes=Buffer.alloc(4097),r=await c.read(bytes,0,bytes.length,0);if(BigInt(r.bytesRead)!==completeStat.size||r.bytesRead>4096||!same(completeStat,await c.stat({bigint:true})))fail();complete=JSON.parse(bytes.subarray(0,r.bytesRead).toString());}finally{await c.close();}
-  if(complete.id!==result.backupId||complete.status!=='complete'||complete.manifestSha256!==result.authenticatedManifestSha256)fail();
+  if(complete.id!==result.backupId||complete.status!=='complete'||typeof complete.manifestSha256!=='string'||!/^[a-f0-9]{64}$/.test(complete.manifestSha256))fail();
   const target=join(paths.output,'archive');await mkdir(target,{mode:0o700});await mkdir(join(target,'files'),{mode:0o700});
   // Only encrypted bytes and the existing non-secret markers cross the host
   // bind. Publish complete.json last; failure keeps the partial archive.
-  for(const name of ['writing.json','manifest.gcm',...archivedFiles.sort().map(n=>'files/'+n),'complete.json'])await copyCipher(join(archive,name),join(target,name));
+  for(const name of ['writing.json','manifest.gcm',...archivedFiles.sort().map(n=>'files/'+n),'complete.json']){
+   const cipherHash=await copyCipher(join(archive,name),join(target,name));
+   // complete.json authenticates encrypted manifest bytes. The public receipt's
+   // authenticatedManifestSha256 refers to decrypted, authenticated JSON instead.
+   if(name==='manifest.gcm'&&cipherHash!==complete.manifestSha256)fail();
+  }
   return result;
  }catch{throw Error('REMOTE_BACKUP_ENTRY_FAILED');}
  finally{
