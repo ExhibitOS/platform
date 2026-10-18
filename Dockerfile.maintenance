@@ -35,6 +35,10 @@ COPY --from=build /opt/exhibitos/scripts/service-backup.mjs ./scripts/service-ba
 COPY --from=build /opt/exhibitos/scripts/remote-backup-worker.mjs ./scripts/remote-backup-worker.mjs
 COPY --from=build /opt/exhibitos/scripts/remote-backup-entry.mjs ./scripts/remote-backup-entry.mjs
 COPY --from=build /opt/exhibitos/scripts/remote-restore-entry.mjs ./scripts/remote-restore-entry.mjs
+# Source snapshots can be private on the build host. Product code must remain
+# readable by the host UID used for read-only archive/key mounts; never change
+# those mounted data permissions or require a privileged verifier.
+RUN chmod -R a+rX /opt/exhibitos
 # Trusted operator must set a UID that can read mounted private files; default matches runtime node UID.
 USER 1000:1000
 ENTRYPOINT ["node", "scripts/service-backup.mjs"]
