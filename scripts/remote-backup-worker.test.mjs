@@ -59,3 +59,13 @@ test('post-verification manifest read is bounded and refuses symlink/permission 
   }finally{await fs.rm(root,{recursive:true,force:true});}
  }
 });
+
+// The production collector provides this inventory inside the same repeatable
+// read transaction used by the existing dump, not a separate SQL estimate.
+test('same-snapshot object bytes lower the native dump cap without changing defaults or inventing available space',async()=>{
+ const {remoteDumpBudget}=await import('./service-backup.mjs');const MiB=1024*1024;
+ assert.equal(remoteDumpBudget({objects:[{bytes:5*MiB},{bytes:3*MiB}]},64*MiB,32*MiB),8*MiB);
+ assert.equal(remoteDumpBudget({objects:[]},128*MiB,16*MiB),16*MiB);
+ for(const [inventory,budget,cap]of [[{objects:[{bytes:16*MiB}]},64*MiB,32*MiB],[{objects:[{bytes:-1}]},64*MiB,32*MiB],[{objects:[{bytes:Number.MAX_SAFE_INTEGER},{bytes:1}]},Number.MAX_SAFE_INTEGER,32*MiB],[{objects:[]},Number.MAX_SAFE_INTEGER+1,32*MiB]])assert.throws(()=>remoteDumpBudget(inventory,budget,cap),/BACKUP_RESOURCE_BUDGET/);
+ let observed;await runRemoteBackup(input,{withQuiescedSource:w=>w({url,maxDumpBytes:16*MiB,jobBudgetBytes:64*MiB})},{readManifest,main:async(args,env,options)=>{if(args[0]==='verify')return {operation:'verified',files:1};observed={env,options};return {operation:'created',backupId};}});assert.deepEqual(observed.options,{jobBudgetBytes:64*MiB});assert.equal(observed.env.BACKUP_MAX_DUMP_BYTES,String(16*MiB));
+});

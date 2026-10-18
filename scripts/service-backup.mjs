@@ -120,7 +120,17 @@ export async function deploymentFiles(environment,keyPath,destination){
  }
  return files;
 }
-export async function main(argv=process.argv.slice(2),environment=process.env){
+/** Private native job budget only. Existing CLI/environment contracts are unchanged. */
+export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
+ if(!Number.isSafeInteger(jobBudgetBytes)||jobBudgetBytes<4*1024*1024||!Number.isSafeInteger(maxDumpBytes)||maxDumpBytes<1024*1024||maxDumpBytes>32*1024**3||!Array.isArray(inventory?.objects))fail('BACKUP_RESOURCE_BUDGET');
+ let objects=0;for(const item of inventory.objects){if(!Number.isSafeInteger(item.bytes)||item.bytes<1||!Number.isSafeInteger(objects+item.bytes))fail('BACKUP_RESOURCE_BUDGET');objects+=item.bytes;}
+ // Native has already removed its floor and metadata reserve once. Four
+ // copies conservatively cover scratch/encrypted/authenticated/output peaks.
+ const cap=Math.min(maxDumpBytes,Math.floor(jobBudgetBytes/4)-objects);
+ if(!Number.isSafeInteger(cap)||cap<1024*1024)fail('BACKUP_RESOURCE_BUDGET');return cap;
+}
+export async function main(argv=process.argv.slice(2),environment=process.env,privateOptions={}){
+ if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>k!=='jobBudgetBytes'))fail('BACKUP_RESOURCE_BUDGET');
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
  if(command==='check-source-configuration'){
   if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
@@ -154,7 +164,11 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
-  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=c=>collectServiceInventory(c,blobs.store,{migrationDirectory});
+  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async c=>{
+   const inventory=await collectServiceInventory(c,blobs.store,{migrationDirectory});
+   if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
+   return inventory;
+  };
   if(command==='create'){
    const runtime=environment.FREEZE_RUNTIME_ROOT?await import('../apps/api/dist/freeze.js').then(m=>m.loadFreezeRuntime(environment.FREEZE_RUNTIME_ROOT)):undefined;
    const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});

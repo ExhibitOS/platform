@@ -2,47 +2,80 @@
   "date": "2026-10-18",
   "task": "T10-05",
   "baseCommit": "df997f30d5826d7541d913add6fb0184795027d3",
-  "status": "PRIVATE_ADAPTER_IMPLEMENTED_NATIVE_AND_REMOTE_FLOW_NOT_CONNECTED",
+  "status": "FIXED_ENTRY_AND_PRIVATE_RUNNER_SOURCE_SYNTHETIC_PASS_ACTUAL_REMOTE_NOT_RUN",
   "verification": {
     "node": "24.21.0",
     "focusedWorkerUnits": {
-      "tests": 8,
-      "passed": 8,
-      "toolChunk": "e1717f",
+      "tests": 9,
+      "passed": 9,
+      "entryTests": 4,
+      "entryPassed": 4,
+      "toolChunk": "52ebc1",
       "exit": 0,
-      "milliseconds": 92.391292
+      "milliseconds": 297.6075
     },
     "diffCheck": "PASS",
     "sourceCoreChanged": false,
     "sourceCoreMocked": true,
-    "actualPrivateFilesystemFixture": "bounded manifest read only; no real key/backup",
+    "actualPrivateFilesystemFixture": "synthetic encrypted-byte markers/copy/readback and bounded manifest; no real SQL encryption",
     "actualRenderApi": "NOT_RUN",
     "actualSqlDumpEncryptionRestore": "NOT_RUN",
     "actualNativeExecutor": "NOT_RUN",
     "actualMigrationUpdateRollback": "NOT_RUN",
-    "runtimePackaging": "NOT_IMPLEMENTED; new module not yet copied into maintenance image"
+    "runtimePackaging": "Dockerfile COPY configured; immutable image rebuild and actual execution NOT_RUN",
+    "serviceBackupAdapterChanged": "private optional budget only; storage core identity/snapshot/encryption/inventory/restore unchanged",
+    "managerRunnerUnits": {
+      "tests": 6,
+      "passed": 6,
+      "toolChunk": "21ef17",
+      "milliseconds": 124.712416,
+      "actualChildSpawn": false
+    },
+    "budget": "native already subtracts floor+metadata once; same snapshot B; Dcap=min(nativecap,floor(jobBudgetBytes/4)-B); fixed TMPDIR=/work"
   },
   "remaining": [
-    "Native held source/target authority and private child stdin runner",
-    "Real Render narrow IP/role/snapshot capability and writer quiescence",
-    "Source signing key/origin preservation without archive inclusion",
-    "Real encrypted backup and isolated restore plus migration/update/rollback"
+    "Native held source/target authority and restart/cancel runtime qualification",
+    "Actual Render narrow IP/role/snapshot capability and writer quiescence",
+    "Actual disk/volume placement and space qualification under real hosted input",
+    "Source signing key/origin and active runtime/Pages preservation without private key archive inclusion",
+    "Immutable maintenance image build/inspection",
+    "Real encrypted backup and independent restore plus migration/update/rollback"
   ],
   "sources": [
     {
+      "path": "Dockerfile.maintenance",
+      "bytes": 2033,
+      "sha256": "085ce8304f3dcf645a299d8db46f1b974a23b49dd0d66050e94a1a03b27817df"
+    },
+    {
+      "path": "scripts/service-backup.mjs",
+      "bytes": 20138,
+      "sha256": "0e654f3033555b05bf619bfde570ebbf9d60fce3e4925a28f6d8c1eae9aac10b"
+    },
+    {
       "path": "scripts/remote-backup-worker.mjs",
-      "bytes": 7362,
-      "sha256": "7f6bcd62c796c2ae79f4a17d160bccf58fdb11c8e071caac476e41af01709ff9"
+      "bytes": 7831,
+      "sha256": "185e007b72b25ef0dd86bc81bcb965238030fce89b5d3189872fa9c10e084f56"
     },
     {
       "path": "scripts/remote-backup-worker.test.mjs",
-      "bytes": 7647,
-      "sha256": "1f489b4646812ae960445ce293e39cbc0da9fc59493a9652dd0445eae6e936e6"
+      "bytes": 8930,
+      "sha256": "d0df40dbc8f330dd3cdad2a88c42baabbdce9fd805514f0a13f80c247135b07b"
+    },
+    {
+      "path": "scripts/remote-backup-entry.mjs",
+      "bytes": 7602,
+      "sha256": "410fb264451473288607c8f0f55921f9303d5f0e27be8f16dbb393f14ee920c7"
+    },
+    {
+      "path": "scripts/remote-backup-entry.test.mjs",
+      "bytes": 5079,
+      "sha256": "57a592aae487489e1e363792a624115e39296b2ffdefc674f6bdc9dbbea25a2e"
     },
     {
       "path": "docs/remote-service-backup.md",
-      "bytes": 13373,
-      "sha256": "0f9b3fafb993c16707a0d5feb81c523931d018b85edca2afd2e9c7db3a7ef664"
+      "bytes": 16529,
+      "sha256": "274f04aeb0673e0c4b2bdc089e6b02990266acf1803f2de5148625de5a34dc79"
     }
   ]
 }

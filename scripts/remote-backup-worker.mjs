@@ -19,7 +19,8 @@ export async function readRemoteBackupInput(stream){const chunks=[];let length=0
 function databaseEnvironment(connection,{source}){
  if(!connection||typeof connection.url!=='string'||connection.url.length>16384)fail('REMOTE_BACKUP_CONNECTION');let u;try{u=new URL(connection.url);}catch{fail('REMOTE_BACKUP_CONNECTION');}
  if(!['postgres:','postgresql:'].includes(u.protocol)||!u.hostname||!u.username||!u.password||u.hash||u.pathname.length<2||u.searchParams.size!==1)fail('REMOTE_BACKUP_TLS');
- const mode=u.searchParams.get('sslmode');
+ const mode=u.searchParams.get('sslmode'),maxDumpBytes=connection.maxDumpBytes??32*1024*1024*1024;
+ if(!Number.isSafeInteger(maxDumpBytes)||maxDumpBytes<1024*1024||maxDumpBytes>32*1024*1024*1024)fail('REMOTE_BACKUP_RESOURCE_LIMIT');
  // This role is supplied only by the pinned native executor callback, never by
  // the stdin request. Its native candidate guard must remain held throughout
  // core restore, including physical identity/empty-target/inventory validation.
@@ -32,7 +33,7 @@ function databaseEnvironment(connection,{source}){
  if(!source&&!local&&connection.role!=='verified-remote-restore-target')fail('REMOTE_BACKUP_TARGET_REQUIRED');
  // Remote TLS always verifies the original hostname. Loopback plaintext is
  // solely the pre-existing local candidate policy under its native authority.
- return {DATABASE_URL:u.href,BACKUP_BLOB_BACKEND:'postgres',PATH:'/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin',...(mode==='verify-full'?{PGSSLROOTCERT:'system'}:{}),BACKUP_PG_TIMEOUT_MS:'3600000',BACKUP_MAX_DUMP_BYTES:String(32*1024*1024*1024)};
+ return {DATABASE_URL:u.href,BACKUP_BLOB_BACKEND:'postgres',PATH:'/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin',...(mode==='verify-full'?{PGSSLROOTCERT:'system'}:{}),BACKUP_PG_TIMEOUT_MS:'3600000',BACKUP_MAX_DUMP_BYTES:String(maxDumpBytes)};
 }
 async function readVerifiedManifest(path){
  const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
@@ -57,8 +58,9 @@ async function run(input,executor,dependencies={}){
  const result=await executor[method](async connection=>{
   if(invoked)fail('REMOTE_BACKUP_EXECUTOR_REUSED');invoked=true;
   const environment=databaseEnvironment(connection,{source:input.operation==='create'});
+  if(connection.jobBudgetBytes!==undefined&&(!Number.isSafeInteger(connection.jobBudgetBytes)||connection.jobBudgetBytes<4*1024*1024))fail('REMOTE_BACKUP_RESOURCE_LIMIT');
   try{
-   const made=await main([input.operation,...base,...(input.operation==='restore'?['--source',input.source,'--fresh-destination']:[]),'--quiesced'],environment);
+   const made=await main([input.operation,...base,...(input.operation==='restore'?['--source',input.source,'--fresh-destination']:[]),'--quiesced'],environment,input.operation==='create'&&connection.jobBudgetBytes!==undefined?{jobBudgetBytes:connection.jobBudgetBytes}:{});
    if(input.operation!=='create')return made;
    const verified=await main(['verify','--key-file',input.keyFile,'--source',input.destination,'--destination',input.verificationDestination],{});
    const bytes=await (dependencies.readManifest??readVerifiedManifest)(join(input.verificationDestination,'manifest.json'));

@@ -56,9 +56,9 @@ certificate or a new backup/public-file format.
    only on the child's private stdin, not Docker arguments, general env files,
    logs or a public result. Inside that immutable image, a fixed script imports
    `readRemoteBackupInput`/`runRemoteBackup`, supplies the already-authorized
-   callback executor, and invokes the existing core. `Dockerfile.maintenance`
-   currently copies only `service-backup.mjs`, so the new module is not packaged
-   yet. The image must be rebuilt/verified before this route can run.
+   callback executor, and invokes the existing core. `Dockerfile.maintenance` now includes fixed COPY entries for the worker and
+   entry. An immutable image has not been rebuilt/verified, so the route is not
+   deployment-qualified.
 4. Reuse lifecycle `maintenance::input_path`,
    `restoration::{directory,private_bytes,fresh_root}`, `LifecycleService::lock`,
    `begin_maintenance` and the bounded `run_observed_stream`/owned-helper
@@ -88,8 +88,8 @@ certificate or a new backup/public-file format.
 
 ## Verification scope
 
-Node24 focused unit tests: eight private-worker cases and six deployment-bridge
-cases pass. Worker tests inject an existing-core stand-in; deployment tests use
+Node24 focused unit tests: eight private-worker cases, four fixed-image entry
+cases, six deployment-bridge cases and six Manager runner cases pass. Worker tests inject an existing-core stand-in; deployment tests use
 synthetic HTTP responses. They establish guard routing, fixed environment,
 secret-free error/results and no automatic remote mutation. They do **not** run
 SQL, pg_dump, TLS handshakes, encryption, native execution or a real restore.
@@ -169,7 +169,7 @@ conditions. No secret values were read for this audit.
 
 ## Exact next runner wiring
 
-The following is a connection plan, not existing working code:
+The native job/UI integration below is a connection plan. The fixed Manager Node runner and maintenance image entry now have source and synthetic checks, but no immutable image has been built or executed for this increment:
 
 - A native `hosted_recovery` operation should load the existing safe hosted-work
   target and hold the current path/profile/operation guards. It must not call
@@ -201,3 +201,46 @@ The following is a connection plan, not existing working code:
 - Authentication/readiness/restore activation remain separate from archive
   creation. No successful callback or mocked unit authorizes a live service
   restart, DB switch, migration, provider rollback or deletion.
+
+## Fixed image entry and runner source increment
+
+The fixed `remote-backup-entry.mjs` takes only private connection/key/budget
+bytes from the native-owned runner. It creates the ephemeral key in a dedicated
+`/run/exhibitos` tmpfs and invokes the existing core within native-owned private
+`/work` volume storage. Work is not an unbounded RAM filesystem: a large dump,
+archive and authenticated plaintext could exceed memory. The entry uses no
+caller paths/scripts/role/quiesced flags. After core creation and authentication,
+it transfers only existing ciphertext/markers to fresh `/output/archive`,
+streams/readbacks hashes in bounded chunks and publishes `complete.json` last.
+It never copies plaintext manifest, dump, configuration or key onto that bind.
+Failure preserves the partial archive/work; it removes only its own ephemeral
+key inode. Native must still enforce the exact image/job/volume/mount/endpoint
+binding and host-private output permissions.
+
+The private `maxDumpBytes` is native-budget derived, at least1MiB and no more
+than the pre-existing32GiB dump cap; it can only lower that cap. Native removes
+its6GiB floor and64MiB metadata allowance **once**, then provides private
+`jobBudgetBytes`. The existing create snapshot wrapper sums the exact validated
+`inventory.objects[].bytes` (B) in the same repeatable-read transaction and sets
+`Dcap = min(nativeMaxDumpBytes, floor(jobBudgetBytes / 4) - B)`. Unsafe totals or
+less than1MiB for the dump fail before dump/object writes. No separate live SQL
+estimate or compressed-dump ratio is treated as object-space proof. Normal CLI
+arguments/defaults, inventory/identity/snapshot/crypto and archive format remain
+unchanged; this budget uses only a private third options argument to `main`.
+
+The fixed helper sets `TMPDIR=/work` so the existing core scratch uses its owned
+volume, rather than the256MiB `/tmp` tmpfs. Core removes scratch after create,
+before authentication: create peaks around2(D+B), verify around2(D+B), and host
+ciphertext copy around3(D+B). Four copies are a conservative bound, not a claim
+that four plaintext copies coexist. Metadata reserve covers the existing bounded
+manifest and per-file encryption overhead. Unrelated disk consumption, actual
+Docker volume placement/free-space and real hosted data still need native/remote
+qualification; synthetic arithmetic is not an actual space-availability proof.
+
+Current archive adapter scope is DB plus all objects, including previously
+frozen runtime objects. It does not automatically capture the active Render
+source/build, original Pages package or signing key. Runtime/release identity
+must be matched to trusted pinned artifacts before using the existing optional
+runtime/deployment roles or preserved release flow. Do not label the current
+maintenance image's runtime as the old deployed server's runtime without that
+matching evidence. The end-to-end recovery/update/rollback objective remains.
