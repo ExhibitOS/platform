@@ -353,5 +353,13 @@
     ],
     "evidenceDirectory": "studio-title-repair-7b42c56a-c2f1-400c-856d-94c64cf6dbd5",
     "receiptSHA256": "99c384879d63a19d8ac4f0b52b587c00bfac10be5bdb963ad6c6f21db7a8299f"
+  },
+  "viewerOnlyProducer20261018": {
+    "source": "1b7e0003e872e32c21156d2b4e4d4a77013ae7ef",
+    "change": "EXHIBITOS_STATIC_TARGET=viewer selects only existing static.html entry for Manager publication producer. Default two-entry Viewer/Studio demo unchanged; invalid explicit target rejects. Strict package allowlist still rejects static-studio.html.",
+    "checks": "Exact clean committed source Viewer-only build + prepare + all7676 declared file SHA checks PASS; Viewer19files. Wrapper3 + original exporter12 PASS. Prior stale exact pass10 expectation failure retained and corrected to existing10+registeredStudio2.",
+    "manifestSHA256": "ffefde0647d1e4bad686821c90402042fcdd8a2c88ef51a33683fb2b2806503b",
+    "integration": "Packaged into Manager d5afbfd development app; resource SHA/inventory and strict ad-hoc signature PASS, app not launched.",
+    "limits": "No new public deployment, Safari/iOS/VoiceOver/human GUI or whole recovery acceptance."
   }
 }
