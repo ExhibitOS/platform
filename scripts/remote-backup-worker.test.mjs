@@ -78,3 +78,21 @@ test('pinned Node CA export preserves PEM, source metadata, notices and closed i
  const docker=await readFile(new URL('../Dockerfile.maintenance',import.meta.url),'utf8'),ignore=await readFile(new URL('../.dockerignore',import.meta.url),'utf8');assert(docker.includes('RUN node scripts/write-maintenance-ca.mjs /opt/exhibitos/licenses'));assert(docker.includes('COPY --from=build /opt/exhibitos/licenses/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt'));for(const name of ['mozilla-ca-NOTICE.txt','mozilla-ca-MPL-2.0.txt','maintenance-ca.json'])assert(docker.includes(name));assert(ignore.split('\n').includes('!scripts/write-maintenance-ca.mjs'));assert((await readFile(new URL('../vendor/notices/mozilla-ca-MPL-2.0.txt',import.meta.url),'utf8')).startsWith('Mozilla Public License Version 2.0'));
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('public original freeze authority verifies every signed row on the supplied snapshot client without private key transport',async()=>{
+ const {verifyBackupFreezeAuthority}=await import('./service-backup.mjs');const {generateKeyPairSync,createHash,sign}=await import('node:crypto');const {freezeCanonical}=await import('@exhibitos/studio-contract');
+ const pair=generateKeyPairSync('ed25519'),publicBytes=pair.publicKey.export({format:'der',type:'spki'}),authority={origin:'https://synthetic.onrender.com',keyId:createHash('sha256').update(publicBytes).digest('hex'),publicKey:publicBytes.toString('base64')};
+ const makeRow=n=>{const manifest={authority,kind:'synthetic-signed-fixture',index:n};const bytes=Buffer.from(freezeCanonical(manifest));return {tenant_id:'10000000-0000-4000-8000-000000000001',id:'20000000-0000-4000-8000-'+String(n).padStart(12,'0'),manifest,manifest_sha256:createHash('sha256').update(bytes).digest('hex'),signature:sign(null,bytes,pair.privateKey).toString('base64')};};
+ const rows=Array.from({length:65},(_,i)=>makeRow(i+1)),calls=[];
+ await verifyBackupFreezeAuthority({query:async(sql,args)=>{calls.push({sql,args});return {rows:calls.length===1?rows.slice(0,64):rows.slice(64)};}},authority);
+ assert.equal(calls.length,2);assert.deepEqual(calls[0].args,[null,null]);assert.deepEqual(calls[1].args,[rows[63].tenant_id,rows[63].id]);assert(calls.every(c=>c.sql.includes('FROM public.exhibition_freezes')&&c.sql.includes('ORDER BY tenant_id,id LIMIT 64')));assert(!JSON.stringify(calls).includes('BEGIN'));assert(!JSON.stringify(authority).includes('PRIVATE'));
+ for(const mode of ['authority','hash','signature','changed']){const row=structuredClone(rows[0]);if(mode==='authority')row.manifest.authority.origin='https://foreign.onrender.com';if(mode==='hash')row.manifest_sha256='0'.repeat(64);if(mode==='signature')row.signature=Buffer.alloc(64).toString('base64');if(mode==='changed')row.manifest.index=99;await assert.rejects(verifyBackupFreezeAuthority({query:async()=>({rows:[row]})},authority),/BACKUP_FREEZE_(AUTHORITY_MISMATCH|INTEGRITY)/);}
+ for(const value of [{...authority,keyId:'0'.repeat(64)},{...authority,publicKey:'bad'},{...authority,origin:authority.origin+'/'},{...authority,privateKey:'forbidden'}])await assert.rejects(verifyBackupFreezeAuthority({query:async()=>{throw Error('invalid authority must not reach SQL');}},value),/^Error: BACKUP_FREEZE_AUTHORITY_MISMATCH$/);
+ await verifyBackupFreezeAuthority({query:async()=>({rows:[]})},authority);
+});
+
+test('native public authority reaches core private options separately from database environment and receipt',async()=>{
+ const authority={origin:'https://synthetic.onrender.com',keyId:'a'.repeat(64),publicKey:'synthetic-public-only'};let observed;
+ const result=await runRemoteBackup(input,{withQuiescedSource:work=>work({url,expectedAuthority:authority})},{readManifest,main:async(args,env,options)=>{if(args[0]==='verify')return {operation:'verified',files:1};observed={env:{...env},options};return {operation:'created',backupId};}});
+ assert.deepEqual(observed.options,{freezeAuthority:authority});assert(!JSON.stringify(observed.env).includes('synthetic-public-only'));assert(!JSON.stringify(result).includes('synthetic-public-only'));
+});

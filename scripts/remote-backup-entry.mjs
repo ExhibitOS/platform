@@ -27,7 +27,8 @@ export async function readPrivateEntryInput(stream){const chunks=[];let n=0;for 
 export async function createRemoteBackupEntry(input,dependencies={}){
  let key,keyFile,createdKey;
  try{
-  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).sort().join(',')!=='databaseURL,jobBudgetBytes,keyBase64,maxDumpBytes'||typeof input.databaseURL!=='string'||typeof input.keyBase64!=='string')fail();
+  if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).sort().join(',')!=='databaseURL,expectedAuthority,jobBudgetBytes,keyBase64,maxDumpBytes'||typeof input.databaseURL!=='string'||typeof input.keyBase64!=='string')fail();
+  if(!input.expectedAuthority||typeof input.expectedAuthority!=='object'||Array.isArray(input.expectedAuthority)||Object.keys(input.expectedAuthority).sort().join(',')!=='keyId,origin,publicKey')fail();
   if(!Number.isSafeInteger(input.maxDumpBytes)||input.maxDumpBytes<1024*1024||input.maxDumpBytes>32*1024*1024*1024)fail();
   if(!Number.isSafeInteger(input.jobBudgetBytes)||input.jobBudgetBytes<4*1024*1024)fail();
   key=Buffer.from(input.keyBase64,'base64');if(key.length!==32||key.toString('base64')!==input.keyBase64)fail();
@@ -42,7 +43,7 @@ export async function createRemoteBackupEntry(input,dependencies={}){
   const archive=join(paths.work,'archive'),authenticated=join(paths.work,'authenticated');
   // This callback exists only in this fixed image entry launched by the native
   // provider fence. No stdin quiesced/role flag is converted into authority.
-  const result=await (dependencies.run??runRemoteBackup)({operation:'create',keyFile,destination:archive,verificationDestination:authenticated},{withQuiescedSource:callback=>callback({url:input.databaseURL,maxDumpBytes:input.maxDumpBytes,jobBudgetBytes:input.jobBudgetBytes})});
+  const result=await (dependencies.run??runRemoteBackup)({operation:'create',keyFile,destination:archive,verificationDestination:authenticated},{withQuiescedSource:callback=>callback({url:input.databaseURL,maxDumpBytes:input.maxDumpBytes,jobBudgetBytes:input.jobBudgetBytes,expectedAuthority:input.expectedAuthority})});
   if(result?.operation!=='created-and-verified'||!Number.isSafeInteger(result.files)||result.files<1||result.files>100000||typeof result.authenticatedManifestSha256!=='string'||!/^[a-f0-9]{64}$/.test(result.authenticatedManifestSha256))fail();
   for(const directory of [archive,join(archive,'files')]){const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink()||await realpath(directory)!==directory||(stat.mode&0o077)!==0)fail();}
   const allowed=['complete.json','writing.json','manifest.gcm','files'];const top=(await readdir(archive)).sort();if(top.join(',')!==allowed.sort().join(','))fail();

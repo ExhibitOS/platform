@@ -349,43 +349,36 @@ Actual Render API/permissions/IP/expiry, exact Manager native launch/cancel/UI,
 signing-key/origin recovery, current runtime/Pages recovery, operational
 migration/update/rollback and full T08 qualification remain unverified.
 
-### Remaining configuration / authority / runtime source gaps
+### Current configuration / authority / runtime boundary
 
-- `manager/src-tauri/src/hosted.rs::runtime_configuration` derives the existing
-  `render-runtime-<SHA(workspace + NUL + project)>` Keychain reference and creates
-  a new tenant/password/Ed25519 key if missing. Recovery must use a **load-only**
-  path; that creator and `public_runtime` (which persists current selected static
-  pins) cannot silently substitute recovery configuration. The hosted recovery
-  source currently selects workspace/service/postgres only.
-- `deployment/src/pages-render.mjs::withRenderRecoveryConnection` privately
-  observes Render env-vars to match DATABASE_URL and service suspension. It does
-  not yet bind the original tenant/admin/client/static pins, signing authority,
-  active deploy ID/commit or runtime bytes. Those values must remain in the
-  native-held/provider callback boundary; provider token/DB password/signing key
-  must never enter renderer output, logs or the archive.
-- `scripts/render-runtime.mjs::startRenderRuntime` requires the original signing
-  key, tenant and admin password and chooses AUTH_ORIGIN/RENDER_EXTERNAL_URL. It
-  loads the current image's `apps/web/dist` directly. Existing Keychain values
-  (or still-available selected-service env under explicit private recovery) must
-  be retained, not rotated. Derived Ed25519 public key/keyId and original logical
-  origin must match restored freeze authorities: `Freezes.validSignature` in
-  `apps/api/src/freeze.ts` deliberately rejects any authority change.
-- Current private worker intentionally omits BACKUP_CONFIGURATION_FILES,
-  FREEZE_RUNTIME_ROOT and BACKUP_DEPLOYMENT_FILES. Core already supports these
-  roles and `loadFreezeRuntime` checks every descriptor/file hash, but selecting
-  this maintenance image's web files does not prove they equal the active Render
-  deployment. Bind an actual observed deploy/version to preserved trusted
-  artifacts and compare the existing runtime digest before reusing those roles.
-  Original static Pages package/version must be preserved separately through
-  its existing content/index hashes; frozen runtime blobs in Postgres do not
-  establish current server or Pages restoration.
-- Minimal safe next sequence: retain the same source/job fence; load-only
-  original protected configuration and compare authority without exporting its
-  key; record actual deployment/runtime/static bindings; then connect existing
-  fresh isolated restore and validation before any activation/update/rollback.
-  Missing original key/artifact or external permission remains a specific block,
-  not permission to fabricate a local installation receipt or create a new key.
-  SQL archives can contain account hashes and session/CSRF data; DB+objects are
-  not described as secret-free merely because transport/provider keys are kept
-  out of backup configuration. No actual API or Keychain values were read for
-  this source audit.
+Manager `0ea2369` added the load-only original runtime configuration path;
+`f9933cb` retains an immutable per-job source-bound original configuration copy
+in the existing Keychain and uses Add-only archive keys. Deployment `10bfe39`
+compares original tenant/admin/client/static pins, public Ed25519 authority and
+origin with provider environment before and after the helper. No creator or
+current publication export is a recovery fallback. These are source/local checks;
+actual Keychain, native launch and Render execution remain unverified.
+
+The current source sends only `{origin,keyId,publicKey}` into the fixed helper,
+not the signing key. `service-backup.mjs` verifies every row of
+`public.exhibition_freezes` using the existing `freezeCanonical`, manifest SHA
+and Ed25519 signature, inside the same snapshot callback/PoolClient used for
+inventory and `pg_export_snapshot`. Tuple pagination reads64 rows at a time.
+Normal local calls without this private option retain their existing behavior.
+The private fixed entry now requires this public authority: runner and image
+must be packaged together, and an older image cannot prove the new check.
+
+Sixteen worker/entry tests and seven Manager runner tests passed. A real local
+PostgreSQL18 check used a separate owned synthetic database:65 signed rows,
+two pages and snapshot export passed; wrong origin and second-page signature
+tamper were refused, inserted rows rolled back, source database DML was absent
+and the owned server stopped normally. This used a read-only source overlay
+on the previous qualified image, so it does not qualify a newly built image or
+whole backup/restore. Exact source/proof references are in
+[adapter evidence](remote-backup-adapter-verification-2026-10-18.json).
+
+Still incomplete: restore-loading the protected backup-time configuration,
+active Render deployment/commit and trusted runtime/Pages byte binding, new
+image dump/encryption/fresh restore, real Render/native/OS checks and the
+existing migration/update/rollback acceptance. The DB archive, original
+configuration, runtime master and derived/static artifacts stay distinct.

@@ -60,7 +60,7 @@ async function run(input,executor,dependencies={}){
   const environment=databaseEnvironment(connection,{source:input.operation==='create'});
   if(connection.jobBudgetBytes!==undefined&&(!Number.isSafeInteger(connection.jobBudgetBytes)||connection.jobBudgetBytes<4*1024*1024))fail('REMOTE_BACKUP_RESOURCE_LIMIT');
   try{
-   const made=await main([input.operation,...base,...(input.operation==='restore'?['--source',input.source,'--fresh-destination']:[]),'--quiesced'],environment,input.operation==='create'&&connection.jobBudgetBytes!==undefined?{jobBudgetBytes:connection.jobBudgetBytes}:{});
+   const made=await main([input.operation,...base,...(input.operation==='restore'?['--source',input.source,'--fresh-destination']:[]),'--quiesced'],environment,{...(input.operation==='create'&&connection.jobBudgetBytes!==undefined?{jobBudgetBytes:connection.jobBudgetBytes}:{}),...(connection.expectedAuthority!==undefined?{freezeAuthority:connection.expectedAuthority}:{})});
    if(input.operation!=='create')return made;
    const verified=await main(['verify','--key-file',input.keyFile,'--source',input.destination,'--destination',input.verificationDestination],{});
    const bytes=await (dependencies.readManifest??readVerifiedManifest)(join(input.verificationDestination,'manifest.json'));

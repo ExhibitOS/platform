@@ -3,7 +3,8 @@ import {constants} from 'node:fs';
 import {open,lstat,realpath,statfs} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHash,createPublicKey,verify} from 'node:crypto';
+import {freezeCanonical} from '@exhibitos/studio-contract';
 import {spawn} from 'node:child_process';
 import {pipeline} from 'node:stream/promises';
 import {Transform,Writable} from 'node:stream';
@@ -32,6 +33,37 @@ async function privateConfigurationFile(path){
   if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type)||await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
   return bytes;
  }finally{await file.close();}
+}
+/** Existing freeze signatures checked on the very same transaction used by
+ * inventory/pg_export_snapshot. Only public authority enters this check. */
+export async function verifyBackupFreezeAuthority(client,authority){
+ let publicKey;
+ try{
+  if(!authority||typeof authority!=='object'||Array.isArray(authority)||Object.keys(authority).sort().join(',')!=='keyId,origin,publicKey'||typeof authority.origin!=='string'||typeof authority.publicKey!=='string'||typeof authority.keyId!=='string')throw Error();
+  const origin=new URL(authority.origin);if(origin.origin!==authority.origin||origin.protocol!=='https:'||origin.username||origin.password)throw Error();
+  const bytes=Buffer.from(authority.publicKey,'base64');
+  if(bytes.length!==44||bytes.toString('base64')!==authority.publicKey||createHash('sha256').update(bytes).digest('hex')!==authority.keyId)throw Error();
+  publicKey=createPublicKey({key:bytes,format:'der',type:'spki'});if(publicKey.asymmetricKeyType!=='ed25519')throw Error();
+ }catch{fail('BACKUP_FREEZE_AUTHORITY_MISMATCH');}
+ // The existing backup transaction/maintenance lock is owned by the caller;
+ // never open another connection or acquire the authentication lock here.
+ let after=null;
+ for(;;){
+  const {rows}=await client.query('SELECT tenant_id,id,manifest,manifest_sha256,signature FROM public.exhibition_freezes WHERE ($1::uuid IS NULL OR (tenant_id,id)>($1::uuid,$2::uuid)) ORDER BY tenant_id,id LIMIT 64',after??[null,null]);
+  if(rows.length>64)fail('BACKUP_FREEZE_INTEGRITY');
+  for(const row of rows){
+   const actual=row.manifest?.authority;
+   if(!actual||actual.origin!==authority.origin||actual.keyId!==authority.keyId||actual.publicKey!==authority.publicKey)fail('BACKUP_FREEZE_AUTHORITY_MISMATCH');
+   try{
+    const bytes=Buffer.from(freezeCanonical(row.manifest)),signature=Buffer.from(row.signature,'base64');
+    if(signature.length!==64||signature.toString('base64')!==row.signature||createHash('sha256').update(bytes).digest('hex')!==row.manifest_sha256||!verify(null,bytes,publicKey,signature))throw Error();
+   }catch{fail('BACKUP_FREEZE_INTEGRITY');}
+  }
+  if(rows.length<64)return;
+  const last=rows.at(-1),next=[last.tenant_id,last.id];
+  if(after&&next[0]===after[0]&&next[1]===after[1])fail('BACKUP_FREEZE_INTEGRITY');
+  after=next;
+ }
 }
 export async function initializeBackupKey(path){
  const target=resolve(path),parent=dirname(target),stat=await lstat(parent);
@@ -165,6 +197,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
   const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async c=>{
+   if(privateOptions.freezeAuthority!==undefined)await verifyBackupFreezeAuthority(c,privateOptions.freezeAuthority);
    const inventory=await collectServiceInventory(c,blobs.store,{migrationDirectory});
    if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
    return inventory;

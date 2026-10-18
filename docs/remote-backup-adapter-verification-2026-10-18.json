@@ -190,5 +190,59 @@
       "bytes": 16726,
       "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
     }
-  ]
+  ],
+  "publicAuthoritySnapshotFollowup": {
+    "observedAt": "2026-10-18T03:43:01.053925+00:00",
+    "status": "SOURCE_AND_ACTUAL_SQL_PUBLIC_AUTHORITY_PASS_NEW_IMAGE_AND_WHOLE_RECOVERY_PENDING",
+    "scope": "Existing T08/T10 recovery origin/signature preservation, not a new authentication system or public archive field.",
+    "implementation": [
+      "Native-derived public Ed25519 authority only in helper private stdin; original signing key remains outside helper/argv/env/receipt/archive.",
+      "Expected authority passed through existing executor private capability/options into existing snapshot(c), before inventory and pg_export_snapshot; same PoolClient/REPEATABLE READ/maintenance lock.",
+      "Fixed public.exhibition_freezes tuple pagination64, matching original origin/SPKI/hash identity and canonical manifest hash/signature. Source rows never changed by verifier.",
+      "Normal local CLI without private authority retains previous behavior; new fixed entry requires expectedAuthority and must be packaged with its matching runner."
+    ],
+    "checks": {
+      "nodeWorkerAndEntry": 16,
+      "nodeManagerRunner": 7,
+      "actualSqlSession": 26252,
+      "actualSqlExit": 0,
+      "actualSqlReceipt": "/Volumes/ExhibitSSD/ExhibitOS-Backups/freeze-authority-sql-c000a772-69d1-42b9-8e50-9ba278ee0d36/receipt.json",
+      "priorTemporaryTableProof": {
+        "session": 56898,
+        "exit": 0,
+        "receipt": "/Volumes/ExhibitSSD/ExhibitOS-Backups/freeze-authority-sql-df30aecc-bde2-43a7-a450-bc95be9c813b/receipt.json",
+        "scope": "Prior unqualified table source only; final public-qualified source proven separately at26252"
+      },
+      "actualKeychainOrRender": false,
+      "independentReadReview": "No concrete blocker; read-only review of original diff, subsequent public schema qualification and corresponding actual SQL checked by root"
+    },
+    "sources": [
+      {
+        "path": "scripts/service-backup.mjs",
+        "sha256": "96e7546ba889e9a3e2fed843b5dfafd50aafb995ffdc610f73f6013981eb053d"
+      },
+      {
+        "path": "scripts/remote-backup-worker.mjs",
+        "sha256": "5ee8bfedd649488b43c034013eb8e55d891642b5f0ed5c74df9332af8e0082fc"
+      },
+      {
+        "path": "scripts/remote-backup-entry.mjs",
+        "sha256": "7159e3d8dcdf006de70b1f3f50a8dd721e9ef00cfe0468b2403a93066b82d185"
+      },
+      {
+        "path": "scripts/remote-backup-worker.test.mjs",
+        "sha256": "90f7f895258a9a080a7864244890aa03dc94aa68a735a407755a54e9154b19bf"
+      },
+      {
+        "path": "scripts/remote-backup-entry.test.mjs",
+        "sha256": "ad458f6816af7fc3802e2ebfaf0b9702a3be4c4723e90ad13ab06a78a7e675ef"
+      }
+    ],
+    "notVerified": [
+      "New immutable image must include matching five-field entry and runner, prior image proof is not new-source qualification",
+      "Actual dump/encrypt/authenticated fresh restore with frozen source authority on new image",
+      "Actual Render active deploy observation/runtime/Pages provenance",
+      "Native saved configuration recovery-load, Keychain/picker/cancel/relaunch, full T08 update/rollback and GUI acceptance"
+    ]
+  }
 }
