@@ -244,3 +244,34 @@ must be matched to trusted pinned artifacts before using the existing optional
 runtime/deployment roles or preserved release flow. Do not label the current
 maintenance image's runtime as the old deployed server's runtime without that
 matching evidence. The end-to-end recovery/update/rollback objective remains.
+
+## Existing command integration and next local qualification (not executed)
+
+`test:service-backup` now runs the two focused Node regression files after the
+existing build and before the unchanged actual service-backup suite. Vitest's
+existing apps/packages TypeScript include does not discover these scripts. The
+closed Docker context allowlist includes exactly the worker and fixed entry in
+addition to the pre-existing service-backup script; tests and arbitrary scripts
+are not added to the maintenance build context.
+
+Next local qualification is a plan, not evidence: build a unique immutable
+maintenance image from this source and inspect architecture and script hashes;
+reuse the synthetic PostgresBlobStore corpus/migration and owner-labelled isolated
+PostgreSQL18 backends; use a private fixture CA and a TLS server whose certificate
+SAN matches a closed-network Render-shaped alias. Test-only read-only trust mounts
+and Node extra-CA startup configuration permit the **same** production image's
+verify-full/hostname validation without contacting Render or weakening production
+TLS/URL guards. Those extra test mounts do not qualify the exact native launch.
+No existing TLS fixture was found, so fixture CA/server setup remains to be written
+and reviewed before execution. The production Docker command is unchanged.
+
+Run fixed-entry create/authenticate/output copy with private synthetic stdin,
+confirm ciphertext-only output and no key/plaintext host export, stop the source,
+then reuse existing service-backup CLI fresh-target restore and compare complete
+schema/table/object hashes and distinct physical identity. Existing wrong-key,
+corruption and occupied-target conditions remain. Only unique fixture-owned
+resources may be cleaned according to existing owner-label guards. No original
+runtime, provider service, DB, image, key or user backup is deleted. Local TLS and
+real cryptography do not establish actual Render account/role/IP/expiry behavior,
+Manager restart/cancel correctness, original signing-origin recovery or complete
+migration/update/rollback. Heavy execution awaits the coordinator's slot.

@@ -22,6 +22,8 @@
 !scripts/serve-offline.mjs
 !scripts/local-runtime.mjs
 !scripts/service-backup.mjs
+!scripts/remote-backup-worker.mjs
+!scripts/remote-backup-entry.mjs
 **/node_modules/**
 **/dist/**
 **/dist-static/**

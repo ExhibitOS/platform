@@ -31,7 +31,14 @@
       "milliseconds": 124.712416,
       "actualChildSpawn": false
     },
-    "budget": "native already subtracts floor+metadata once; same snapshot B; Dcap=min(nativecap,floor(jobBudgetBytes/4)-B); fixed TMPDIR=/work"
+    "budget": "native already subtracts floor+metadata once; same snapshot B; Dcap=min(nativecap,floor(jobBudgetBytes/4)-B); fixed TMPDIR=/work",
+    "existingCommandIntegration": {
+      "command": "test:service-backup",
+      "newGate": false,
+      "twoNodeFiles": "after existing build, before unchanged actual suite",
+      "sourceCommandAndAllowlistCheck": "PASS; product tests not rerun",
+      "toolChunk": "reading consistency only; Node command assertion exit0"
+    }
   },
   "remaining": [
     "Native held source/target authority and restart/cancel runtime qualification",
@@ -74,8 +81,18 @@
     },
     {
       "path": "docs/remote-service-backup.md",
-      "bytes": 16529,
-      "sha256": "274f04aeb0673e0c4b2bdc089e6b02990266acf1803f2de5148625de5a34dc79"
+      "bytes": 18650,
+      "sha256": "87cbcdcbcc6b01b50ca2f6c1cb9ce9dc20f5010db50212f7ac0fc3d7f16ae8d3"
+    },
+    {
+      "path": "package.json",
+      "bytes": 4106,
+      "sha256": "c03b33795643d53de8502dc095aaeba976c48645aa5735e8267d66c67a9e162a"
+    },
+    {
+      "path": ".dockerignore",
+      "bytes": 686,
+      "sha256": "44db72daa269034826dabda1035e2e2676a6185ca740463cfbe19df070951122"
     }
   ]
 }
