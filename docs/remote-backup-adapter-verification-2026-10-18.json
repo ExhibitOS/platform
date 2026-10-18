@@ -309,5 +309,50 @@
       "Original protected settings and signing key restore-load/activation",
       "Existing full T08 migration/update/rollback and native/Store/release/GUI acceptance"
     ]
+  },
+  "sourceIntegration20261018": {
+    "observedAt": "2026-10-18T04:40:51.546324+00:00",
+    "sourceBeforeLintCorrections": "5903ad4f384e9ea9df35c3900dc01cf50382a0df",
+    "status": "EXISTING_LOCAL_CHECK_PASS_AFTER_LINT_CORRECTION_NOT_REMOTE_DEPLOYMENT",
+    "command": "npm run check",
+    "initialExit": 1,
+    "correctedExit": 0,
+    "results": {
+      "typecheck": true,
+      "lint": true,
+      "vitestFiles": 71,
+      "vitestTests": 441,
+      "build": true,
+      "embeddedPngProfile": 16,
+      "contracts": 10,
+      "packaging": 7,
+      "remoteWorkerEntryTargeted": 17
+    },
+    "corrections": [
+      "Equivalent bounded character-code test retains ASCII control-character path rejection.",
+      "Intentional raw-cause omission remains at sanitized adapter boundary; scoped lint explanation prevents credential-bearing exception propagation. Existing rejection test strengthened."
+    ],
+    "independentReview": "Read-only two-file diff review found no concrete regression; no agent test/mutation.",
+    "logs": [
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/platform-recovery-integration-b4193905-7d20-45e1-85a9-444cbd125344/exhibitos-platform-recovery-integration-20261018.log",
+        "sha256": "5557ba11160a433731ea8746700e0083a176fa78900f90dcd517598e4155bf70"
+      },
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/platform-recovery-integration-b4193905-7d20-45e1-85a9-444cbd125344/exhibitos-platform-recovery-lint-fix-20261018.log",
+        "sha256": "b8556e56ccd57ef3a2c229527960caddbe22cd8b0f98d812b445cfaacb1b24df"
+      },
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/platform-recovery-integration-b4193905-7d20-45e1-85a9-444cbd125344/exhibitos-platform-recovery-integration-corrected-20261018.log",
+        "sha256": "3dba2cb6d04fd975a255b0b6f080dc38c20c5db6ffc767c1dd7822dd7889ce43"
+      }
+    ],
+    "artifactScope": "Previously qualified maintenance image and development app retain their exact original source hashes. Current worker source differs by the documented behavior-equivalent lint correction; no new image or native app execution claimed.",
+    "notVerified": [
+      "Actual Render deployment/recovery",
+      "Native Manager Keychain and chooser flow",
+      "Original runtime/Pages/configuration restore binding",
+      "Whole recovery and GUI acceptance"
+    ]
   }
 }

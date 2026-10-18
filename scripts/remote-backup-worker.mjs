@@ -12,7 +12,7 @@ function request(input){
  if(!input||typeof input!=='object'||Array.isArray(input)||!['create','verify','restore'].includes(input.operation))fail('REMOTE_BACKUP_REQUEST');
  const keys=['operation','keyFile','destination',...(input.operation==='create'?['verificationDestination']:['source'])].sort();
  if(Object.keys(input).sort().join(',')!==keys.join(','))fail('REMOTE_BACKUP_REQUEST');
- for(const name of keys.filter(k=>k!=='operation'))if(typeof input[name]!=='string'||input[name].length>4096||!isAbsolute(input[name])||resolve(input[name])!==input[name]||/[\x00-\x1f\x7f]/.test(input[name]))fail('REMOTE_BACKUP_PATH');
+ for(const name of keys.filter(k=>k!=='operation'))if(typeof input[name]!=='string'||input[name].length>4096||!isAbsolute(input[name])||resolve(input[name])!==input[name]||Array.from(input[name]).some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))fail('REMOTE_BACKUP_PATH');
  return input;
 }
 export async function readRemoteBackupInput(stream){const chunks=[];let length=0;for await(const chunk of stream){const b=Buffer.from(chunk);length+=b.length;if(length>16384)fail('REMOTE_BACKUP_INPUT_LIMIT');chunks.push(b);}try{return request(JSON.parse(Buffer.concat(chunks).toString('utf8')));}catch{fail('REMOTE_BACKUP_REQUEST');}finally{for(const b of chunks)b.fill(0);}}
@@ -76,7 +76,13 @@ async function run(input,executor,dependencies={}){
  return input.operation==='create'?{operation:'created-and-verified',backupId:result.backupId,files:result.files,authenticatedManifestSha256:result.authenticatedManifestSha256}:{operation:'restored-and-verified'};
 }
 export async function runRemoteBackup(input,executor,dependencies={}){
- try{return await run(input,executor,dependencies);}catch(error){const code=typeof error?.message==='string'&&/^REMOTE_BACKUP_[A-Z_]{1,64}$/.test(error.message)?error.message:'REMOTE_BACKUP_EXECUTION_FAILED';throw Error(code);}
+ try{return await run(input,executor,dependencies);}catch(error){
+  const code=typeof error?.message==='string'&&/^REMOTE_BACKUP_[A-Z_]{1,64}$/.test(error.message)?error.message:'REMOTE_BACKUP_EXECUTION_FAILED';
+  // The original cause can contain database credentials and user paths. This
+  // public adapter boundary intentionally retains only the closed error code.
+  // eslint-disable-next-line preserve-caught-error
+  throw Error(code);
+ }
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  // Actual native executor/quiescence/target selection is intentionally not wired

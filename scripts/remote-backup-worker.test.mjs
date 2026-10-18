@@ -25,11 +25,11 @@ test('restore delegates unchanged fresh/empty/original identity enforcement to c
 });
 test('bounded stdin rejects noncanonical paths and unknown fields',async()=>{
  assert.deepEqual(await readRemoteBackupInput(Readable.from([JSON.stringify(input)])),input);
- for(const value of [{...input,destination:'/tmp/../tmp/destination'},{...input,operation:'update'},null])await assert.rejects(readRemoteBackupInput(Readable.from([JSON.stringify(value)])),/REMOTE_BACKUP_(PATH|REQUEST)/);
+ for(const value of [{...input,destination:'/tmp/../tmp/destination'},{...input,operation:'update'},...['\u0000','\u001f','\u007f'].map(control=>({...input,destination:'/tmp/a'+control+'b'})),null])await assert.rejects(readRemoteBackupInput(Readable.from([JSON.stringify(value)])),/REMOTE_BACKUP_(PATH|REQUEST)/);
  await assert.rejects(readRemoteBackupInput(Readable.from(['x'.repeat(16385)])),/REMOTE_BACKUP_INPUT_LIMIT/);
 });
 
-test('core failures never expose paths, connection strings or passwords',async()=>{await assert.rejects(runRemoteBackup(input,{withQuiescedSource:w=>w({url})},{main:async()=>{throw Error(url+' /private/user-data');}}),/^Error: REMOTE_BACKUP_EXECUTION_FAILED$/);});
+test('core failures never expose paths, connection strings or passwords',async()=>{await assert.rejects(runRemoteBackup(input,{withQuiescedSource:w=>w({url})},{main:async()=>{throw Error(url+' /private/user-data');}}),error=>{assert.match(String(error),/^Error: REMOTE_BACKUP_EXECUTION_FAILED$/);assert.equal(error.cause,undefined);assert(!JSON.stringify(error).includes('private-test-password'));return true;});});
 
 test('only native-pinned loopback restore permits the existing local TLS policy',async()=>{
  const {verificationDestination,...common}=input;void verificationDestination;const r={...common,operation:'restore',source:'/private/tmp/existing-archive'};
