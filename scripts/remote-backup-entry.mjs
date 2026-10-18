@@ -6,7 +6,7 @@ import {open,mkdir,readdir,lstat,realpath,chmod,unlink} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
-import {runRemoteBackup} from './remote-backup-worker.mjs';
+import {runRemoteBackup,validatePublicAuthority} from './remote-backup-worker.mjs';
 const fail=()=>{throw Error('REMOTE_BACKUP_ENTRY_FAILED');};
 const same=(a,b)=>['dev','ino','size','mode','nlink','mtimeNs','ctimeNs'].every(k=>a[k]===b[k]);
 async function regular(path){const s=await lstat(path,{bigint:true});if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1n||s.size<1n||s.size>32n*1024n**3n+36n)fail();return s;}
@@ -25,10 +25,10 @@ async function copyCipher(source,target){
 }
 export async function readPrivateEntryInput(stream){const chunks=[];let n=0;for await(const part of stream){const b=Buffer.from(part);n+=b.length;if(n>32768)fail();chunks.push(b);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{fail();}finally{for(const b of chunks)b.fill(0);}}
 export async function createRemoteBackupEntry(input,dependencies={}){
- let key,keyFile,createdKey;
+ let key,keyFile,createdKey,authorityFile,createdAuthority;
  try{
   if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).sort().join(',')!=='databaseURL,expectedAuthority,jobBudgetBytes,keyBase64,maxDumpBytes'||typeof input.databaseURL!=='string'||typeof input.keyBase64!=='string')fail();
-  if(!input.expectedAuthority||typeof input.expectedAuthority!=='object'||Array.isArray(input.expectedAuthority)||Object.keys(input.expectedAuthority).sort().join(',')!=='keyId,origin,publicKey')fail();
+  validatePublicAuthority(input.expectedAuthority);
   if(!Number.isSafeInteger(input.maxDumpBytes)||input.maxDumpBytes<1024*1024||input.maxDumpBytes>32*1024*1024*1024)fail();
   if(!Number.isSafeInteger(input.jobBudgetBytes)||input.jobBudgetBytes<4*1024*1024)fail();
   key=Buffer.from(input.keyBase64,'base64');if(key.length!==32||key.toString('base64')!==input.keyBase64)fail();
@@ -40,10 +40,12 @@ export async function createRemoteBackupEntry(input,dependencies={}){
   await chmod(paths.work,0o700);await chmod(paths.keyRoot,0o700);
   keyFile=join(paths.keyRoot,'backup.key');const f=await open(keyFile,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
   try{await f.writeFile(key);await f.sync();createdKey=await f.stat({bigint:true});}finally{await f.close();}
+  authorityFile=join(paths.keyRoot,'hosted-public-authority.json');const authorityHandle=await open(authorityFile,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+  try{await authorityHandle.writeFile(JSON.stringify(input.expectedAuthority));await authorityHandle.sync();createdAuthority=await authorityHandle.stat({bigint:true});}finally{await authorityHandle.close();}
   const archive=join(paths.work,'archive'),authenticated=join(paths.work,'authenticated');
   // This callback exists only in this fixed image entry launched by the native
   // provider fence. No stdin quiesced/role flag is converted into authority.
-  const result=await (dependencies.run??runRemoteBackup)({operation:'create',keyFile,destination:archive,verificationDestination:authenticated},{withQuiescedSource:callback=>callback({url:input.databaseURL,maxDumpBytes:input.maxDumpBytes,jobBudgetBytes:input.jobBudgetBytes,expectedAuthority:input.expectedAuthority})});
+  const result=await (dependencies.run??runRemoteBackup)({operation:'create',keyFile,destination:archive,verificationDestination:authenticated},{withQuiescedSource:callback=>callback({url:input.databaseURL,maxDumpBytes:input.maxDumpBytes,jobBudgetBytes:input.jobBudgetBytes,expectedAuthority:input.expectedAuthority,publicAuthorityFile:authorityFile})});
   if(result?.operation!=='created-and-verified'||!Number.isSafeInteger(result.files)||result.files<1||result.files>100000||typeof result.authenticatedManifestSha256!=='string'||!/^[a-f0-9]{64}$/.test(result.authenticatedManifestSha256))fail();
   for(const directory of [archive,join(archive,'files')]){const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink()||await realpath(directory)!==directory||(stat.mode&0o077)!==0)fail();}
   const allowed=['complete.json','writing.json','manifest.gcm','files'];const top=(await readdir(archive)).sort();if(top.join(',')!==allowed.sort().join(','))fail();
@@ -63,6 +65,8 @@ export async function createRemoteBackupEntry(input,dependencies={}){
  }catch{throw Error('REMOTE_BACKUP_ENTRY_FAILED');}
  finally{
   key?.fill(0);
+  if(createdAuthority&&authorityFile){try{const current=await lstat(authorityFile,{bigint:true});if(current.dev===createdAuthority.dev&&current.ino===createdAuthority.ino&&!current.isSymbolicLink())await unlink(authorityFile);}catch{/* Never remove a replacement. */}}
+
   if(createdKey&&keyFile){try{const current=await lstat(keyFile,{bigint:true});if(current.dev===createdKey.dev&&current.ino===createdKey.ino&&!current.isSymbolicLink())await unlink(keyFile);}catch{/* Never unlink a replacement or an existing key. */}}
  }
 }

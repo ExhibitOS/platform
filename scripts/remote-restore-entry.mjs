@@ -5,10 +5,10 @@ import {constants} from 'node:fs';
 import {open,mkdir,readdir,lstat,realpath,chmod,chown,unlink,statfs} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {createHash,createPublicKey,randomBytes} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
-import {runRemoteBackup} from './remote-backup-worker.mjs';
+import {runRemoteBackup,validatePublicAuthority} from './remote-backup-worker.mjs';
 const fail=()=>{throw Error('REMOTE_RESTORE_ENTRY_FAILED');};
 const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const sha=b=>createHash('sha256').update(b).digest('hex');
@@ -26,8 +26,8 @@ async function copyCipher(source,target,max,signal){
  }finally{await input.close();await output?.close();}
 }
 function validate(input){
- if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).sort().join(',')!=='authenticatedManifestSha256,backupId,expectedAuthority,jobBudgetBytes,jobId,keyBase64'||!uuid(input.jobId)||!uuid(input.backupId)||typeof input.authenticatedManifestSha256!=='string'||!/^[a-f0-9]{64}$/.test(input.authenticatedManifestSha256)||!Number.isSafeInteger(input.jobBudgetBytes)||input.jobBudgetBytes<4*1024*1024||input.jobBudgetBytes>32*1024**3||typeof input.keyBase64!=='string')fail();
- const a=input.expectedAuthority;if(!a||typeof a!=='object'||Array.isArray(a)||Object.keys(a).sort().join(',')!=='keyId,origin,publicKey'||typeof a.origin!=='string'||typeof a.publicKey!=='string')fail();const origin=new URL(a.origin),bytes=Buffer.from(a.publicKey,'base64');if(origin.origin!==a.origin||origin.protocol!=='https:'||origin.username||origin.password||bytes.length!==44||bytes.toString('base64')!==a.publicKey||sha(bytes)!==a.keyId||createPublicKey({key:bytes,format:'der',type:'spki'}).asymmetricKeyType!=='ed25519')fail();
+ if(!input||typeof input!=='object'||Array.isArray(input)||!['authenticatedManifestSha256,backupId,expectedAuthority,jobBudgetBytes,jobId,keyBase64','authenticatedManifestSha256,backupId,jobBudgetBytes,jobId,keyBase64'].includes(Object.keys(input).sort().join(','))||!uuid(input.jobId)||!uuid(input.backupId)||typeof input.authenticatedManifestSha256!=='string'||!/^[a-f0-9]{64}$/.test(input.authenticatedManifestSha256)||!Number.isSafeInteger(input.jobBudgetBytes)||input.jobBudgetBytes<4*1024*1024||input.jobBudgetBytes>32*1024**3||typeof input.keyBase64!=='string')fail();
+ if(Object.hasOwn(input,'expectedAuthority'))validatePublicAuthority(input.expectedAuthority);
 }
 export async function readPrivateRestoreInput(stream){const parts=[];let length=0;try{for await(const part of stream){const b=Buffer.from(part);parts.push(b);length+=b.length;if(length>32768)fail();}return JSON.parse(Buffer.concat(parts).toString('utf8'));}catch{fail();}finally{for(const b of parts)b.fill(0);}}
 async function privateWrite(path,bytes){const f=await open(path,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);try{await f.writeFile(bytes);await f.sync();return await f.stat({bigint:true});}finally{await f.close();}}
@@ -74,8 +74,17 @@ export async function createRemoteRestoreEntry(input,dependencies={}){
   for(const name of ['writing.json','manifest.gcm',...files.map(n=>'files/'+n),'complete.json']){copied+=await copyCipher(join(paths.source,name),join(archive,name),input.jobBudgetBytes,signal);if(copied*3>input.jobBudgetBytes)fail();}
   signal.throwIfAborted();const authenticated=join(paths.work,'authenticated'),verified=await run({operation:'verify',source:archive,destination:authenticated,keyFile:keyPath});
   const manifestBytes=await readBounded(join(authenticated,'manifest.json'),16*1024*1024),manifest=JSON.parse(manifestBytes.toString());if(verified?.operation!=='verified'||!Number.isSafeInteger(verified.files)||verified.files!==files.length||manifest.id!==input.backupId||sha(manifestBytes)!==input.authenticatedManifestSha256)fail();
+  // Only authenticated configuration bytes can supply the preserved issuer.
+  // Never infer trust from rows inside the candidate database.
+  const records=Array.isArray(manifest.files)?manifest.files.filter(f=>f.role==='configuration'&&f.name==='hosted-public-authority.json'):[];
+  if(records.length>1)fail();let authority=input.expectedAuthority;
+  if(records.length){const record=records[0];if(typeof record.path!=='string'||!/^files\/[0-9]{8}\.gcm$/.test(record.path)||!Number.isSafeInteger(record.bytes)||record.bytes<1||record.bytes>4096||typeof record.sha256!=='string')fail();
+   const bytes=await readBounded(join(authenticated,record.path.slice(6)+'.plain'),4096);if(bytes.length!==record.bytes||sha(bytes)!==record.sha256)fail();const archived=validatePublicAuthority(JSON.parse(bytes.toString('utf8')));
+   if(authority&&['origin','keyId','publicKey'].some(k=>authority[k]!==archived[k]))fail();authority=archived;
+  }
+  if(!authority)fail();
   signal.throwIfAborted();await checkBudget();signal.throwIfAborted();server=await start({work:paths.work,keyRoot:paths.keyRoot,signal});signal.throwIfAborted();
-  const result=await run({operation:'restore',source:archive,destination:join(paths.work,'restored'),keyFile:keyPath},{withIsolatedDestination:async callback=>{signal.throwIfAborted();return callback({url:server.url,role:'native-isolated-loopback',localProfile:{id:input.jobId,isolationVerified:true,port:55432},expectedAuthority:input.expectedAuthority});}});
+  const result=await run({operation:'restore',source:archive,destination:join(paths.work,'restored'),keyFile:keyPath},{withIsolatedDestination:async callback=>{signal.throwIfAborted();return callback({url:server.url,role:'native-isolated-loopback',localProfile:{id:input.jobId,isolationVerified:true,port:55432},expectedAuthority:authority});}});
   signal.throwIfAborted();await checkBudget();signal.throwIfAborted();const restored=await readBounded(join(paths.work,'restored','manifest.json'),16*1024*1024);if(result?.operation!=='restored-and-verified'||sha(restored)!==input.authenticatedManifestSha256)fail();
   await stopServer();server=undefined;signal.throwIfAborted();return {operation:'restored-and-verified',backupId:input.backupId,authenticatedManifestSha256:input.authenticatedManifestSha256,files:verified.files};
  }catch{fail();}finally{clearTimeout(timer);clearInterval(monitor);process.removeListener('SIGTERM',interrupt);process.removeListener('SIGINT',interrupt);dependencies.signal?.removeEventListener('abort',interrupt);try{await stopServer();}catch{fail();}finally{key?.fill(0);await removeOwned(keyPath,keyStat);}}

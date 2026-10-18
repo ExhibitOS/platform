@@ -2,12 +2,17 @@
 // Private operator adapter. No raw connection URL, environment, executable or
 // quiesced flag is accepted from stdin. A pinned native executor supplies the
 // source/isolated destination capability; the standalone CLI fails closed.
-import {isAbsolute,resolve,join} from 'node:path';
+import {isAbsolute,resolve,join,dirname} from 'node:path';
 import {open,lstat,realpath} from 'node:fs/promises';
 import {constants} from 'node:fs';
-import {createHash} from 'node:crypto';
+import {createHash,createPublicKey} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 const fail=code=>{throw Error(code);};
+export function validatePublicAuthority(a){
+ try{if(!a||typeof a!=='object'||Array.isArray(a)||Object.keys(a).sort().join(',')!=='keyId,origin,publicKey'||typeof a.origin!=='string'||typeof a.publicKey!=='string'||typeof a.keyId!=='string')throw Error();
+ const u=new URL(a.origin),bytes=Buffer.from(a.publicKey,'base64');if(u.origin!==a.origin||u.protocol!=='https:'||u.username||u.password||bytes.length!==44||bytes.toString('base64')!==a.publicKey||createHash('sha256').update(bytes).digest('hex')!==a.keyId||createPublicKey({key:bytes,format:'der',type:'spki'}).asymmetricKeyType!=='ed25519')throw Error();return a;
+ }catch{fail('REMOTE_BACKUP_AUTHORITY_INVALID');}
+}
 function request(input){
  if(!input||typeof input!=='object'||Array.isArray(input)||!['create','verify','restore'].includes(input.operation))fail('REMOTE_BACKUP_REQUEST');
  const keys=['operation','keyFile','destination',...(input.operation==='create'?['verificationDestination']:['source'])].sort();
@@ -35,11 +40,11 @@ function databaseEnvironment(connection,{source}){
  // solely the pre-existing local candidate policy under its native authority.
  return {DATABASE_URL:u.href,BACKUP_BLOB_BACKEND:'postgres',PATH:'/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin',...(mode==='verify-full'?{PGSSLROOTCERT:'system',SSL_CERT_FILE:'/etc/ssl/certs/ca-certificates.crt'}:{}),BACKUP_PG_TIMEOUT_MS:'3600000',BACKUP_MAX_DUMP_BYTES:String(maxDumpBytes)};
 }
-async function readVerifiedManifest(path){
+async function readVerifiedManifest(path,max=16*1024*1024){
  const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
  try{
   const before=await file.stat();
-  if(!before.isFile()||before.nlink!==1||(before.mode&0o7777)!==0o600||before.size<1||before.size>16*1024*1024||await realpath(path)!==path)fail('REMOTE_BACKUP_RESULT');
+  if(!before.isFile()||before.nlink!==1||(before.mode&0o7777)!==0o600||before.size<1||before.size>max||await realpath(path)!==path)fail('REMOTE_BACKUP_RESULT');
   const bytes=Buffer.alloc(before.size);let offset=0;
   while(offset<bytes.length){const {bytesRead}=await file.read(bytes,offset,Math.min(65536,bytes.length-offset),offset);if(!bytesRead)fail('REMOTE_BACKUP_RESULT');offset+=bytesRead;}
   const extra=Buffer.alloc(1);if((await file.read(extra,0,1,offset)).bytesRead)fail('REMOTE_BACKUP_RESULT');
@@ -58,6 +63,13 @@ async function run(input,executor,dependencies={}){
  const result=await executor[method](async connection=>{
   if(invoked)fail('REMOTE_BACKUP_EXECUTOR_REUSED');invoked=true;
   const environment=databaseEnvironment(connection,{source:input.operation==='create'});
+  if(connection.publicAuthorityFile!==undefined){
+   if(input.operation!=='create'||connection.publicAuthorityFile!==join(dirname(input.keyFile),'hosted-public-authority.json'))fail('REMOTE_BACKUP_CONFIGURATION_INVALID');
+   const authority=validatePublicAuthority(JSON.parse((await readVerifiedManifest(connection.publicAuthorityFile,4096)).toString('utf8'))),expected=validatePublicAuthority(connection.expectedAuthority);
+   if(['origin','keyId','publicKey'].some(k=>authority[k]!==expected[k]))fail('REMOTE_BACKUP_CONFIGURATION_INVALID');
+   environment.BACKUP_CONFIGURATION_FILES=JSON.stringify({'hosted-public-authority.json':connection.publicAuthorityFile});
+  }
+
   if(connection.jobBudgetBytes!==undefined&&(!Number.isSafeInteger(connection.jobBudgetBytes)||connection.jobBudgetBytes<4*1024*1024))fail('REMOTE_BACKUP_RESOURCE_LIMIT');
   try{
    const made=await main([input.operation,...base,...(input.operation==='restore'?['--source',input.source,'--fresh-destination']:[]),'--quiesced'],environment,{...(input.operation==='create'&&connection.jobBudgetBytes!==undefined?{jobBudgetBytes:connection.jobBudgetBytes}:{}),...(connection.expectedAuthority!==undefined?{freezeAuthority:connection.expectedAuthority}:{})});

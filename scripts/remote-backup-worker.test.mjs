@@ -105,3 +105,16 @@ test('real main private-option admission accepts public authority and still reje
  await assert.rejects(main([],{}, {freezeAuthority:{origin:'https://synthetic.onrender.com',keyId:'a'.repeat(64),publicKey:'synthetic-public-only'}}),/^Error: BACKUP_USAGE$/);
  await assert.rejects(main([],{}, {freezeAuthority:{},quiesced:true}),/^Error: BACKUP_RESOURCE_BUDGET$/);
 });
+
+test('authority custody accepts only fixed sibling public file and no arbitrary configuration map or private content',async()=>{
+ const fs=await import('node:fs/promises');const {generateKeyPairSync,createHash}=await import('node:crypto');const root=await fs.realpath(await fs.mkdtemp('/private/tmp/exhibitos-authority-worker-'));const bytes=generateKeyPairSync('ed25519').publicKey.export({format:'der',type:'spki'}),authority={origin:'https://synthetic.onrender.com',keyId:createHash('sha256').update(bytes).digest('hex'),publicKey:bytes.toString('base64')};
+ try{const keyFile=root+'/backup.key',publicAuthorityFile=root+'/hosted-public-authority.json',request={...input,keyFile};await fs.writeFile(publicAuthorityFile,JSON.stringify(authority),{mode:0o600});let calls=0;
+  const dependencies={readManifest,main:async(args,env)=>{calls++;if(args[0]==='verify')return {operation:'verified',files:2};assert.deepEqual(JSON.parse(env.BACKUP_CONFIGURATION_FILES),{'hosted-public-authority.json':publicAuthorityFile});return {operation:'created',backupId};}};
+  await runRemoteBackup(request,{withQuiescedSource:w=>w({url,expectedAuthority:authority,publicAuthorityFile})},dependencies);assert.equal(calls,2);
+  for(const mode of ['path','private','mismatch','symlink','public-mode']){calls=0;await fs.rm(publicAuthorityFile);await fs.writeFile(publicAuthorityFile,JSON.stringify(mode==='private'?{...authority,privateKey:'forbidden'}:mode==='mismatch'?{...authority,origin:'https://other.onrender.com'}:authority),{mode:0o600});let file=publicAuthorityFile;
+   if(mode==='path')file=root+'/arbitrary.json';if(mode==='public-mode')await fs.chmod(file,0o644);if(mode==='symlink'){await fs.rename(file,root+'/original.json');await fs.symlink(root+'/original.json',file);}
+   await assert.rejects(runRemoteBackup(request,{withQuiescedSource:w=>w({url,expectedAuthority:authority,publicAuthorityFile:file})},dependencies),/REMOTE_BACKUP_/);assert.equal(calls,0);
+  }
+  await assert.rejects(runRemoteBackup({...request,publicAuthorityFile},null,dependencies),/REMOTE_BACKUP_REQUEST/);
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});
