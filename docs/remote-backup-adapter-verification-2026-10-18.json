@@ -528,5 +528,13 @@
     "goal": "active",
     "taskCountsChanged": false,
     "userAwayUntil": "복귀"
+  },
+  "maintenanceCodeReadability20261018": {
+    "source": "486e5e675dbdf1f422213691eeb19dad6a54db27",
+    "failure": "Actual host-UID501 archive verifier failed before main: EACCES opening /opt/exhibitos/scripts/service-backup.mjs in prior helperdbf17bf. Private build snapshot permissions had propagated into product image.",
+    "fix": "Dockerfile.maintenance a+rX only on image product code/dependencies/licenses. No mounted source/key mode changes or privileged verification.",
+    "checks": "Existing packaging7 PASS; exact fixed-source existing producer/prepare PASS; Manager09e8026 actual fresh controller cipher authentication/wrong-key rejection PASS on helper8c58a1c; originals preserved. Independent COPY/scope read review found no blocker.",
+    "helperImage": "sha256:8c58a1ced3abb66f4f559600206dcd5bece40a5e34c75133adf9b9c2441361b5",
+    "limits": "No DB/SQL/service restoration on this new image, native user GUI, Render, official signature or publication acceptance. Prior SQL evidence remains bound to its original image."
   }
 }
