@@ -309,5 +309,49 @@
     },
     "runtime_change": "Only ESLint configuration and test expectation literals changed after packaged runtime source; no production renderer/API/runtime bytes changed by this followup.",
     "limitations": "Not full e2e/native pointer lock/Safari/iOS/accessibility or physical artwork quality approval. No public redeployment."
+  },
+  "title_repair_regression_20261018": {
+    "baseCommit": "ec3950c",
+    "productFiles": [
+      "apps/web/src/Studio.tsx"
+    ],
+    "regressionFile": "scripts/static-studio-browser.mjs",
+    "problem": "Clearing the title invalidated the document and disabled the title field, preventing replacement.",
+    "change": "Keep title entry bound to the same parseable JSON while temporary title is invalid; show associated required-title feedback. Schema, storage validation, publication and published read-only checks remain unchanged.",
+    "actualBefore": {
+      "handle": 37962,
+      "exit": 1,
+      "failure": "After title.fill(empty), expected enabled, actual disabled"
+    },
+    "actualAfter": {
+      "handle": 49148,
+      "exit": 0,
+      "existingFlows": 6,
+      "newRegression": 1,
+      "apiRequests": 0,
+      "webSockets": 0,
+      "externalRequests": 0,
+      "verified": [
+        "clear then re-enter title",
+        "empty title retains unsaved state",
+        "advanced section toggle retains empty title",
+        "replacement saved and reopened",
+        "all other document data unchanged"
+      ]
+    },
+    "checks": {
+      "staticBuild": "98398 exit0",
+      "webTypecheck": "43960 exit0",
+      "focusedLint": "exit0",
+      "diffCheck": "PASS"
+    },
+    "retainedLimits": [
+      "Full-invalid candidate still hides geometry editor; restoring title recovers document data, not a new guarantee of transient editor undo history.",
+      "Actual published revision flow not rerun: guard is unchanged.",
+      "Safari/iOS/VoiceOver/novice human usability not run.",
+      "No new public deployment or native runtime repackaging."
+    ],
+    "evidenceDirectory": "studio-title-repair-7b42c56a-c2f1-400c-856d-94c64cf6dbd5",
+    "receiptSHA256": "99c384879d63a19d8ac4f0b52b587c00bfac10be5bdb963ad6c6f21db7a8299f"
   }
 }
