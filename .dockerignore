@@ -24,6 +24,7 @@
 !scripts/service-backup.mjs
 !scripts/remote-backup-worker.mjs
 !scripts/remote-backup-entry.mjs
+!scripts/remote-restore-entry.mjs
 !scripts/write-maintenance-ca.mjs
 **/node_modules/**
 **/dist/**

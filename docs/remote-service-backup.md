@@ -419,3 +419,31 @@ function source; exact references and function digest are recorded in
 not a real user frozen corpus, original signing-key recovery or actual Render/
 native qualification. Those and the existing full migration/update/rollback,
 runtime/Pages binding and GUI acceptance remain incomplete.
+
+
+## 2026-10-18 isolated database restore check increment
+
+The fixed `remote-restore-entry.mjs` authenticates a private custody copy of the
+retained encrypted archive and matches its original backup ID and plaintext
+manifest digest before starting a fresh local PostgreSQL18 candidate. It reuses
+the existing restore core's empty/independent target, inventory and original
+public freeze-authority checks. It does not activate a local installation,
+replace Render, or establish original runtime/Pages provenance.
+
+The restore-only helper has no network or host ports, a read-only source/root,
+and an owned work volume. After dropping all capabilities it permits exactly
+CHOWN/SETUID/SETGID to create private directories and run PG as the existing
+non-root image account, DAC_READ_SEARCH to read the private read-only source, and
+KILL to stop owned children inside its private PID namespace. The existing
+backup helper's policy is unchanged. Candidate credentials are temporary; the
+original signing private key and provider tokens do not enter this helper.
+
+Normal server shutdown is required for success. Forced or abnormal shutdown
+fails the check while preserving the candidate and original. Local source
+checks passed (441 existing Vitest tests, PNG16/contracts10/packaging7, and27
+worker/entry tests including10 restore-entry cases). These tests exercise real
+crypto/custody with injected SQL/process startup; a rebuilt image, actual PG and
+native OS/provider verification are still pending. Earlier missing restore-load
+notes describe the preceding source; current Manager wiring consumes the
+immutable per-job original configuration for this isolated check only. Whole
+service/runtime/Pages restoration remains incomplete.

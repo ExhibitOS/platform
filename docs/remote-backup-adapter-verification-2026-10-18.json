@@ -354,5 +354,59 @@
       "Original runtime/Pages/configuration restore binding",
       "Whole recovery and GUI acceptance"
     ]
+  },
+  "isolatedRestoreEntrySource20261018": {
+    "observedAt": "2026-10-18T05:39:48.801572+00:00",
+    "status": "SOURCE_LOCAL_CHECKS_PASS_ACTUAL_IMAGE_PENDING",
+    "baseCommit": "d461e19",
+    "entry": "scripts/remote-restore-entry.mjs",
+    "input": "Closed jobId/keyBase64/expectedAuthority/backupId/authenticatedManifestSha256/jobBudgetBytes; no provider token or private signing key.",
+    "behavior": [
+      "Custody-copy closed encrypted files with same-FD/readback checks; authenticate and pin original backupID/plain manifest SHA before starting SQL.",
+      "Start fresh unprivileged PG18 under pinned image existing postgres OS account, network-none helper only; reuse existing core fresh-empty physical identity/inventory/original public authority checks.",
+      "Retain original/candidate and require normal owned PG shutdown for success; forced/abnormal shutdown fails proof.",
+      "Remove only owned ephemeral backup key and candidate init password; candidate password lives under root-owned work parent so actual unlink permissions suffice."
+    ],
+    "restoreOnlyLaunch": "Drop ALL; add exactly CHOWN/SETUID/SETGID/DAC_READ_SEARCH/KILL within private PID namespace, no host ports/network, readonly root/source, owned work volume and exact bounded tmpfs. Existing backup launch unchanged.",
+    "reviewCorrections": [
+      "Fixed PostgreSQL OS account instead of assuming UID1000 exists.",
+      "Root-owned password parent avoids swallowed unlink denial.",
+      "Forced stop cannot return successful restoration receipt."
+    ],
+    "verification": {
+      "fullNpmCheck": {
+        "session": 30242,
+        "exit": 0,
+        "vitest": 441,
+        "files": 71,
+        "embeddedPNG": 16,
+        "contracts": 10,
+        "packaging": 7,
+        "typecheckLintBuild": true
+      },
+      "workerBackupEntryRestoreEntry": {
+        "passed": 27,
+        "includesRestoreEntry": 10,
+        "scope": "Real local crypto/custody; server/SQL injected. Actual CLI malformed input rejection checked."
+      }
+    },
+    "logs": [
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/isolated-restore-platform-source-5da96b84-2068-4a1e-9dec-a44f39a15ffa/exhibitos-isolated-restore-platform-check-20261018.log",
+        "sha256": "4f9f802d14bb8b3ca297d275fe4df467d4ae028663ca832748a965de7463a0c7"
+      },
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/isolated-restore-platform-source-5da96b84-2068-4a1e-9dec-a44f39a15ffa/exhibitos-isolated-restore-platform-entry-tests-20261018.log",
+        "sha256": "7243356f285d3521bdd6300e1f04e23d6f9cec0433973aeecaa936c72767eeb1"
+      }
+    ],
+    "actualImageExecuted": false,
+    "actualNativeKeychainOrProvider": false,
+    "wholeRecoveryComplete": false,
+    "remaining": [
+      "Build and execute matching maintenance image with real isolated PG restoration and exact native helper guard",
+      "Native OS Keychain/cancellation/relaunch and actual Render recovery",
+      "Original runtime/Pages binding and full service activation/migration/update/rollback acceptance"
+    ]
   }
 }
