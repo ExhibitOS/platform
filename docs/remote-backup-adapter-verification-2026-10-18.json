@@ -262,7 +262,52 @@
       "nodeAfterCorrection": 17,
       "sourceStopConfirmed": true,
       "candidatesPreserved": true,
-      "newCorrectedImageRoundtrip": "NOT_YET_RUN"
+      "newCorrectedImageRoundtrip": "PASS at correctedAuthorityImageQualification; prior failed image retained"
     }
+  },
+  "correctedAuthorityImageQualification": {
+    "observedAt": "2026-10-18T03:58:50.113068+00:00",
+    "status": "MATCHED_AUTHORITY_IMAGE_SQL_CRYPTO_FRESH_RESTORE_PASS",
+    "sourceCommit": "2e7cefde59550f098210700dcb6ea09b94379a0f",
+    "image": "sha256:0e88e0c290e0f2d8bee2aa33450de7944e61902f7a453037ed2b3d24438cf08c",
+    "producer": {
+      "session": 95915,
+      "exit": 0,
+      "seconds": 84.60361833299976,
+      "prepareSeconds": 1.6512308330275118,
+      "prepared": "/Volumes/ExhibitSSD/ExhibitOS-Backups/manager-runtime-authority-corrected-2e7cefd-9e0eaa31-6034-441f-815a-6bc22593ace5/prepared"
+    },
+    "roundtrip": {
+      "session": 50345,
+      "exit": 0,
+      "receipt": "/Volumes/ExhibitSSD/ExhibitOS-Backups/exhibitos-authority-roundtrip-54c5b7a7-c72d-494f-b12a-617ba1205d96/receipt.json",
+      "receiptSha256": "3d8dbaed524f301bb1a89c9fb1dc3089463d2ce04c10021538797b57e185d384",
+      "matchedImageScripts": 3,
+      "backup": {
+        "operation": "created-and-verified",
+        "backupId": "2b2694f6-e8fc-4afc-bf6d-3eda121a9d98",
+        "files": 2,
+        "authenticatedManifestSha256": "8ee53e046d3906336e5d965fc72eb7d2167754f214d7d472cdaa90282dc7a21b"
+      },
+      "inventorySha256": "bf5805187b5171e1e6fc9bd7730e854ac68acb724f27b55716a08fe17d3b247b",
+      "sourceStoppedBeforeRestore": true,
+      "independentPhysicalDatabase": true,
+      "wrongKeyAndOccupiedTargetRejected": true,
+      "sourceStopConfirmed": true,
+      "resourceDeletion": false
+    },
+    "signatureEvidenceReuse": {
+      "actual65RowReceipt": "/Volumes/ExhibitSSD/ExhibitOS-Backups/freeze-authority-sql-c000a772-69d1-42b9-8e50-9ba278ee0d36/receipt.json",
+      "sameVerifierFunctionBytes": true,
+      "functionSha256": "37d73a8ab80809c1345774e0989a78ae3d5a8f9561602784cbc77c3e441911bf",
+      "fullDumpFixtureFreezeRows": 0,
+      "scope": "65-row real SQL signature/pagination negatives on same verifier function, plus exact new image source hashes and real complete SQL/crypto fresh restore. Not a single real user frozen exhibition corpus run."
+    },
+    "notVerified": [
+      "Actual Render provider account/narrowIP/writer suspension/deploy/runtime/Pages artifact binding",
+      "Actual native command/OS Keychain/chooser/cancellation/relaunch",
+      "Original protected settings and signing key restore-load/activation",
+      "Existing full T08 migration/update/rollback and native/Store/release/GUI acceptance"
+    ]
   }
 }

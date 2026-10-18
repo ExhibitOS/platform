@@ -398,3 +398,24 @@ to generate a substitute key or local installation receipt. SQL archives can
 contain account hashes and session/CSRF data: DB+objects are not described as
 secret-free because provider tokens are excluded. No actual provider/Keychain
 values were read for this source qualification.
+
+### Corrected matched-image qualification
+
+After the first real-image attempt exposed the missing private-options
+allowlist entry, source `2e7cefd` admitted the exact public authority option and
+a non-injected `main` regression was added. Related worker/entry17 and Manager
+runner7 passed. New immutable image
+`sha256:0e88e0c290e0f2d8bee2aa33450de7944e61902f7a453037ed2b3d24438cf08c`
+matched all three script SHA values. Its actual isolated TLS PostgreSQL
+dump/encrypt/authenticated verification and independent empty-database restore
+passed after source shutdown; schema/tables/objects/issues matched and wrong
+keys/occupied targets were refused. Owned resources and prior failed candidates
+were retained; the source ended stopped.
+
+The full dump fixture contains no frozen exhibitions. The separate65-row real
+SQL authority/signature/pagination-negative proof reuses byte-identical verifier
+function source; exact references and function digest are recorded in
+[adapter evidence](remote-backup-adapter-verification-2026-10-18.json). This is
+not a real user frozen corpus, original signing-key recovery or actual Render/
+native qualification. Those and the existing full migration/update/rollback,
+runtime/Pages binding and GUI acceptance remain incomplete.
