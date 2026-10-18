@@ -33,7 +33,7 @@ function databaseEnvironment(connection,{source}){
  if(!source&&!local&&connection.role!=='verified-remote-restore-target')fail('REMOTE_BACKUP_TARGET_REQUIRED');
  // Remote TLS always verifies the original hostname. Loopback plaintext is
  // solely the pre-existing local candidate policy under its native authority.
- return {DATABASE_URL:u.href,BACKUP_BLOB_BACKEND:'postgres',PATH:'/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin',...(mode==='verify-full'?{PGSSLROOTCERT:'system'}:{}),BACKUP_PG_TIMEOUT_MS:'3600000',BACKUP_MAX_DUMP_BYTES:String(maxDumpBytes)};
+ return {DATABASE_URL:u.href,BACKUP_BLOB_BACKEND:'postgres',PATH:'/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin',...(mode==='verify-full'?{PGSSLROOTCERT:'system',SSL_CERT_FILE:'/etc/ssl/certs/ca-certificates.crt'}:{}),BACKUP_PG_TIMEOUT_MS:'3600000',BACKUP_MAX_DUMP_BYTES:String(maxDumpBytes)};
 }
 async function readVerifiedManifest(path){
  const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);

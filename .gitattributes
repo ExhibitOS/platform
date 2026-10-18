@@ -15,3 +15,6 @@
 
 # Hash-bound third-party license bytes must survive Windows autocrlf checkout.
 /vendor/notices/ltc-LICENSE.txt -text
+
+# Preserve official MPL2 bytes; its original line38 includes a trailing space.
+/vendor/notices/mozilla-ca-MPL-2.0.txt -text whitespace=-blank-at-eol

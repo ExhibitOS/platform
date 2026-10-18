@@ -19,10 +19,10 @@
     "sourceCoreMocked": true,
     "actualPrivateFilesystemFixture": "synthetic encrypted-byte markers/copy/readback and bounded manifest; no real SQL encryption",
     "actualRenderApi": "NOT_RUN",
-    "actualSqlDumpEncryptionRestore": "NOT_RUN",
+    "actualSqlDumpEncryptionRestore": "NOT_RUN; earlier image stopped at fixture/system CA before SQL",
     "actualNativeExecutor": "NOT_RUN",
     "actualMigrationUpdateRollback": "NOT_RUN",
-    "runtimePackaging": "Dockerfile COPY configured; immutable image rebuild and actual execution NOT_RUN",
+    "runtimePackaging": "Old immutable image built/inspected but has no system CA; corrected pinned-Node CA packaging source tested only, actual image NOT_BUILT",
     "serviceBackupAdapterChanged": "private optional budget only; storage core identity/snapshot/encryption/inventory/restore unchanged",
     "managerRunnerUnits": {
       "tests": 6,
@@ -47,6 +47,25 @@
       "purpose": "distinct ciphertext complete-receipt hash vs authenticated plaintext manifest hash; ciphertext mutation rejected before complete marker",
       "workerNinePriorSourceUnchanged": true,
       "dockerAndRemote": "NOT_RUN"
+    },
+    "caPackagingFollowup": {
+      "workerTests": 10,
+      "passed": 10,
+      "toolChunk": "2fc0eb",
+      "milliseconds": 246.81325,
+      "entryFourPriorSourceUnchanged": true,
+      "localNodeBundle": {
+        "version": "v24.21.0",
+        "count": 121,
+        "bytes": 181305,
+        "sha256": "1f20173c6c5bd4e836fbd5d025ec4eb7464e1521439cde2fea0aca3122c7a1a9"
+      },
+      "priorActualImage": "sha256:c21c33eed4f83d8bc7eaae13c68d72c417fe35e36c1e01bee1f9270d166f708e",
+      "priorActualOutcome": "build/arch/three script SHA PASS; TLS fixture failed before SQL because system CA file absent",
+      "correctedImageActual": "NOT_BUILT_OR_RUN",
+      "remoteTLSGuard": "verify-full, original hostname and system trust retained; fixed SSL_CERT_FILE passed explicitly",
+      "licenseTextSource": "https://www.mozilla.org/media/MPL/2.0/index.815ca599c9df.txt",
+      "certificateNetworkDownload": false
     }
   },
   "remaining": [
@@ -60,8 +79,8 @@
   "sources": [
     {
       "path": "Dockerfile.maintenance",
-      "bytes": 2033,
-      "sha256": "085ce8304f3dcf645a299d8db46f1b974a23b49dd0d66050e94a1a03b27817df"
+      "bytes": 2589,
+      "sha256": "f00a5716567c8fd98b75a52bd8c6dc3849ef13a3a485887a3ce95f868ab16525"
     },
     {
       "path": "scripts/service-backup.mjs",
@@ -70,13 +89,13 @@
     },
     {
       "path": "scripts/remote-backup-worker.mjs",
-      "bytes": 7831,
-      "sha256": "185e007b72b25ef0dd86bc81bcb965238030fce89b5d3189872fa9c10e084f56"
+      "bytes": 7882,
+      "sha256": "a543ca36e9bbc2ac819a22d599331e1b0ac5e00d64f33802142fe87d5e83ccfe"
     },
     {
       "path": "scripts/remote-backup-worker.test.mjs",
-      "bytes": 8930,
-      "sha256": "d0df40dbc8f330dd3cdad2a88c42baabbdce9fd805514f0a13f80c247135b07b"
+      "bytes": 10736,
+      "sha256": "541d7c74bd56066a49e18a3ad8eecb1d992ca1e17e1f6efd3414defd14f26720"
     },
     {
       "path": "scripts/remote-backup-entry.mjs",
@@ -90,8 +109,8 @@
     },
     {
       "path": "docs/remote-service-backup.md",
-      "bytes": 19178,
-      "sha256": "2c189e2392bc904687cfacf297808142b9294c80f1117e49f77c4025219bfebc"
+      "bytes": 20756,
+      "sha256": "064b2175c253a63aaa01277cbf5733f08f4afb5b8e35b251dec69d41261f86bb"
     },
     {
       "path": "package.json",
@@ -100,8 +119,23 @@
     },
     {
       "path": ".dockerignore",
-      "bytes": 686,
-      "sha256": "44db72daa269034826dabda1035e2e2676a6185ca740463cfbe19df070951122"
+      "bytes": 720,
+      "sha256": "6776e7b1b848b41676c7ce286a87970b961b5b0445bc572b007d2ece43db379d"
+    },
+    {
+      "path": "scripts/write-maintenance-ca.mjs",
+      "bytes": 1431,
+      "sha256": "e767a489ffac97ad7f26703998c8661da71f4c97bc045503cecd786e45f24c6a"
+    },
+    {
+      "path": "vendor/notices/mozilla-ca-NOTICE.txt",
+      "bytes": 1148,
+      "sha256": "16a4f8cc6ef8d35c16ef452ed46d5e10eb174fe76f79baa3682f49f3fa110133"
+    },
+    {
+      "path": "vendor/notices/mozilla-ca-MPL-2.0.txt",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
     }
   ]
 }

@@ -1,0 +1,20 @@
+Mozilla CA certificate trust data, as bundled by Node.js 24.21.0
+
+This image exports the immutable node:tls.rootCertificates array from the
+pinned Node.js binary to PEM without changing certificate contents. No CA
+network download, operating-system user trust input, or added custom root is
+used by the production build. Count and PEM SHA256 are in maintenance-ca.json.
+
+Node.js documents this bundled array as Mozilla certificate authorities, fixed
+at the Node.js release. The corresponding pinned source is available at:
+https://github.com/nodejs/node/blob/v24.21.0/src/node_root_certs.h
+https://nodejs.org/docs/latest-v24.x/api/tls.html#tlsrootcertificates
+
+The upstream Mozilla NSS certdata source carries the Mozilla Public License,
+v. 2.0 notice. A complete copy is provided in mozilla-ca-MPL-2.0.txt:
+https://github.com/nss-dev/nss/blob/master/lib/ckfw/builtins/certdata.txt
+https://www.mozilla.org/MPL/2.0/
+
+Node's unchanged distribution license remains in Node-LICENSE. This notice
+preserves the upstream source/licensing references for the separately exported
+trust data; it does not relicense ExhibitOS or certify provider TLS behavior.

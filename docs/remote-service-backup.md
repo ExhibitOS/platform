@@ -284,3 +284,28 @@ SHA. The worker's `authenticatedManifestSha256` is the decrypted, authenticated
 complete.json with the actual ciphertext copy/readback SHA and retains the
 plaintext authenticated SHA in its safe result. Regression fixtures now use two
 different hashes and reject ciphertext mutation before publishing complete.json.
+
+### Fixed image trust bundle correction
+
+Actual local qualification built and inspected immutable image
+`sha256:c21c33eed4f83d8bc7eaae13c68d72c417fe35e36c1e01bee1f9270d166f708e`
+from source0c8612f, but then failed because its expected system CA file did not
+exist. It did **not** reach SQL backup/verification/restore. The earlier fixture
+CN length failure and both failed receipts/images/certificates remain preserved.
+
+The source now exports pinned Node24.21.0 `tls.rootCertificates` during build,
+validates each CA, and copies the PEM into the final image at
+`/etc/ssl/certs/ca-certificates.crt`. The generated maintenance-ca.json records
+Node version, count and PEM SHA. No CA network download, user trust input, apt
+installation or custom production root is added. The image's fixed SSL_CERT_FILE
+also appears explicitly in the worker's closed verify-full child environment;
+PGSSLROOTCERT=system and hostname verification remain required. Node's original
+license is retained with a separate Mozilla provenance notice and complete MPL2
+text. The notice cites the verified upstream sources; this is not a claim that
+Node's main license alone covers every CA source-license requirement.
+
+Local Node24.21.0 export check observed121 certificates,181305 PEM bytes and SHA
+`1f20173c6c5bd4e836fbd5d025ec4eb7464e1521439cde2fea0aca3122c7a1a9`.
+The actual corrected image must still be built and its exported bundle/count/SHA
+checked; the local binary check alone does not establish image or Render TLS
+success. Existing certificates should be reused in the next local continuation.
