@@ -466,3 +466,12 @@ remain incomplete. Earlier “actual PG pending” statements are historical sou
 stages superseded only within this isolated scope. Receipts and source/artifact
 hashes are in `remote-backup-adapter-verification-2026-10-18.json` under
 `isolatedRestoreActualLifecycle20261018`; no key/private configuration is included.
+
+
+## Preserved public authority in new native backups
+
+The fixed native entry writes only the validated original `{origin,keyId,publicKey}` into the existing encrypted configuration role (`hosted-public-authority.json`). Existing archive schemas and receipts are retained. Original signing private keys, administrator passwords and provider tokens do not enter this record or the helper.
+
+The restore entry authenticates archive ID, manifest and files before reading this bounded record or starting PostgreSQL. An independently supplied original authority must match; legacy archives without this record still require their original expected authority. No authority is inferred from database rows. Manager allows this path only for exact missing configuration; denied, locked or malformed Keychain state remains an error.
+
+Recorded actual SQL stages used synthetic data with zero frozen rows. A host-only fixture cleanup error happened after completion; the full driver exit was not a pass. Corrected cleanup/readback and SQL-stage evidence are recorded separately. This is not real Render, native GUI, portable Job import or whole installation/service recovery qualification.
