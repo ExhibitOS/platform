@@ -274,5 +274,40 @@
   "sourceAndArtifactInventories": "verification.json in evidenceDirectory",
   "publicationStatus": "NOT_RUN; website demo links remain pending",
   "integrationStatus": "Source14 files preserved in scoped commit4a3dab0; parent source review no concrete blocker; static and ordinary Studio local checks PASS. Remote integration/publication pending.",
-  "sourceCommit": "4a3dab09397423b46dd5824fe0fc1ef844e8f572"
+  "sourceCommit": "4a3dab09397423b46dd5824fe0fc1ef844e8f572",
+  "final_existing_check_followup": {
+    "runtime_source": "f0cd0f6f272b802bfe88dd48c7b8e9f153c7a012",
+    "status": "PASS_EXISTING_CHECK_COMPONENTS_AFTER_TWO_FIXTURE_CONFIGURATION_CORRECTIONS",
+    "initial_attempt": {
+      "session": 41709,
+      "exit": 1,
+      "seconds": 24.8616545,
+      "typecheck": "PASS",
+      "failure": "ESLint scanned17 generated dist-static asset paths;4958 errors5warnings from generated files only."
+    },
+    "corrections": [
+      "Exclude generated dist-static from ESLint just as generated dist; all original source and rules remain checked.",
+      "Update exactly two StudioLoginContext expected CMS anchor texts from Artist CMS to actual 작품 관리; original tenant/subject URL,prefill,password-type,no-secret-query assertions unchanged."
+    ],
+    "continuation": {
+      "session": 80200,
+      "exit": 1,
+      "lint": "PASS",
+      "units": "439PASS,2 stale label expectations failed; failures retained."
+    },
+    "final_completion": {
+      "session": 34617,
+      "exit": 0,
+      "seconds": 17.303384583,
+      "changed_test_lint": "PASS",
+      "corrected_unit_cases": 2,
+      "other_unit_cases_reused": 439,
+      "build": "PASS",
+      "embedded_png_cases": 16,
+      "contract_cases": 10,
+      "packaging_cases": 7
+    },
+    "runtime_change": "Only ESLint configuration and test expectation literals changed after packaged runtime source; no production renderer/API/runtime bytes changed by this followup.",
+    "limitations": "Not full e2e/native pointer lock/Safari/iOS/accessibility or physical artwork quality approval. No public redeployment."
+  }
 }
