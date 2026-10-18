@@ -2,7 +2,7 @@
   "date": "2026-10-18",
   "task": "T10-05",
   "baseCommit": "df997f30d5826d7541d913add6fb0184795027d3",
-  "status": "FIXED_ENTRY_AND_PRIVATE_RUNNER_SOURCE_SYNTHETIC_PASS_ACTUAL_REMOTE_NOT_RUN",
+  "status": "LOCAL_TLS_SQL_CRYPTO_RESTORE_PASS_REAL_RENDER_NATIVE_AND_FULL_RECOVERY_PENDING",
   "verification": {
     "node": "24.21.0",
     "focusedWorkerUnits": {
@@ -19,10 +19,10 @@
     "sourceCoreMocked": true,
     "actualPrivateFilesystemFixture": "synthetic encrypted-byte markers/copy/readback and bounded manifest; no real SQL encryption",
     "actualRenderApi": "NOT_RUN",
-    "actualSqlDumpEncryptionRestore": "NOT_RUN; earlier image stopped at fixture/system CA before SQL",
+    "actualSqlDumpEncryptionRestore": "PASS local synthetic TLS PG18/same-DB objects only; real cryptography/dump/verify/independent restore, not Render",
     "actualNativeExecutor": "NOT_RUN",
     "actualMigrationUpdateRollback": "NOT_RUN",
-    "runtimePackaging": "Old immutable image built/inspected but has no system CA; corrected pinned-Node CA packaging source tested only, actual image NOT_BUILT",
+    "runtimePackaging": "Actual corrected image built; script source hashes and fixed Node CA export passed; exact native bundled-runtime/job execution remains pending",
     "serviceBackupAdapterChanged": "private optional budget only; storage core identity/snapshot/encryption/inventory/restore unchanged",
     "managerRunnerUnits": {
       "tests": 6,
@@ -66,15 +66,68 @@
       "remoteTLSGuard": "verify-full, original hostname and system trust retained; fixed SSL_CERT_FILE passed explicitly",
       "licenseTextSource": "https://www.mozilla.org/media/MPL/2.0/index.815ca599c9df.txt",
       "certificateNetworkDownload": false
-    }
+    },
+    "actualLocalTLSQualification": {
+      "coordinatorRun": "17277",
+      "sourceCommit": "302bb52",
+      "immutableImage": "sha256:e14e5267fe2a1a705caee87000abfaa1e4035b8f3fb5d3c2cf6ebbf9d1d69dee",
+      "architecture": "arm64",
+      "caBundle": {
+        "nodeVersion": "v24.21.0",
+        "certificateCount": 121,
+        "pemSha256": "1f20173c6c5bd4e836fbd5d025ec4eb7464e1521439cde2fea0aca3122c7a1a9",
+        "source": "https://github.com/nodejs/node/blob/v24.21.0/src/node_root_certs.h",
+        "notice": "mozilla-ca-NOTICE.txt",
+        "license": "mozilla-ca-MPL-2.0.txt"
+      },
+      "receiptRelativePath": ".local/verification/exhibitos-hosted-tls-461270fa-d8ce-4c22-b327-ff3c04cd0bf3/receipt-explicit-network.json",
+      "receiptSha256": "7a82893658c21f7037fd0cdf33a5ac15ba20b67776fccd98d4f07bc56fbc4e44",
+      "backup": {
+        "operation": "created-and-verified",
+        "backupId": "3f3e5b87-59c8-45bd-aa60-222f9d5dc8bc",
+        "files": 2,
+        "authenticatedManifestSha256": "410f7aa42cb5daf4b2257ea68370006087f8317f3d418e38e71e20281b4183d9"
+      },
+      "sourceStoppedBeforeRestore": true,
+      "inventorySha256": "bf5805187b5171e1e6fc9bd7730e854ac68acb724f27b55716a08fe17d3b247b",
+      "wrongKeyAndOccupiedTargetRejected": true,
+      "subnetAdmission": {
+        "candidate": "10.0.0.0/24",
+        "comparison": "Docker actual IPv4 IPAM plus host non-default private routes; all disjoint",
+        "observedNetworkCount": 57,
+        "comparedIPv4NetworkCount": 62,
+        "comparisonSetSha256": "b74f613655f3b790e19c18ed76225f324fbe019c9a2fe356420bd3abf73a614c",
+        "internalOnly": true,
+        "noHostPorts": true,
+        "existingNetworkChanges": false,
+        "created": false
+      },
+      "coordinatorPostRunObservation": {
+        "fiveOwnedContainers": "Exited0",
+        "expectedHostCiphertextMarkerFiles": 5,
+        "hostFileMode": "0600",
+        "requeriedByThisAgent": false
+      },
+      "actualRender": false,
+      "actualNativeCommand": false,
+      "originalAuthorityRecovery": false,
+      "currentRuntimeAndPagesRecovery": false,
+      "operationalMigrationUpdateRollback": false,
+      "wholeT08Qualification": false,
+      "privateOriginalsCopiedIntoRepository": false
+    },
+    "priorActualFailures": [
+      "Certificate CN77bytes exceeds observed64 bound; full SAN retained with shorter CN",
+      "First image has no system CA bundle; corrected pinned Node bundle now image-qualified",
+      "Actual Docker default address pool exhausted; admitted explicit internal10.0.0.0/24 fixture used, no existing networks removed"
+    ]
   },
   "remaining": [
-    "Native held source/target authority and restart/cancel runtime qualification",
-    "Actual Render narrow IP/role/snapshot capability and writer quiescence",
-    "Actual disk/volume placement and space qualification under real hosted input",
-    "Source signing key/origin and active runtime/Pages preservation without private key archive inclusion",
-    "Immutable maintenance image build/inspection",
-    "Real encrypted backup and independent restore plus migration/update/rollback"
+    "Actual Render free account/role/function/snapshot/narrow IP/expiration and writer quiescence",
+    "Exact Manager native job/UI/restart/cancel/export and bundled image qualification",
+    "Load-only original Keychain/provider protected configuration; authority/origin match; no key rotation/archive inclusion",
+    "Observed active runtime deployment/artifact and original Pages version binding",
+    "Hosted independent restore activation and operational migration/update/rollback; not fake local installation metadata"
   ],
   "sources": [
     {
@@ -109,8 +162,8 @@
     },
     {
       "path": "docs/remote-service-backup.md",
-      "bytes": 20756,
-      "sha256": "064b2175c253a63aaa01277cbf5733f08f4afb5b8e35b251dec69d41261f86bb"
+      "bytes": 26222,
+      "sha256": "e15661ff34cedbae249f04f06d37fff13930c4d5707a8869471b4ef8bd743b19"
     },
     {
       "path": "package.json",

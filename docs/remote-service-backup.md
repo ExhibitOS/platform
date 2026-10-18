@@ -309,3 +309,83 @@ Local Node24.21.0 export check observed121 certificates,181305 PEM bytes and SHA
 The actual corrected image must still be built and its exported bundle/count/SHA
 checked; the local binary check alone does not establish image or Render TLS
 success. Existing certificates should be reused in the next local continuation.
+
+### Actual closed local TLS / SQL / encrypted archive qualification
+
+The coordinator's run17277 completed with `LOCAL_TLS_SQL_CRYPTO_RESTORE_PASS`:
+source302bb52, immutable arm64 image
+`sha256:e14e5267fe2a1a705caee87000abfaa1e4035b8f3fb5d3c2cf6ebbf9d1d69dee`.
+The corrected image's three helper-script hashes and121-root CA bundle were
+checked against the fixed source/export metadata. This used synthetic local
+PostgreSQL18 plus same-DB objects, not a Render account or production database.
+The fixed entry created and authenticated the real encrypted dump/object archive
+(2 payload files), the source was stopped before restore, and an independent
+fresh target matched the entire schema/table/object inventory. Wrong-key verify
+and occupied-target restore were rejected. The authenticated plaintext manifest
+SHA is `410f7aa42cb5daf4b2257ea68370006087f8317f3d418e38e71e20281b4183d9`;
+normalized inventory SHA is
+`bf5805187b5171e1e6fc9bd7730e854ac68acb724f27b55716a08fe17d3b247b`.
+
+Prior failures remain evidence, not successful steps:77-byte certificate CN
+exceeded the observed OpenSSL64-byte bound (fixed by a22-byte CN and unchanged
+full-host SAN); the first immutable image lacked its expected system CA file
+(fixed by the pinned Node export); then default Docker address pools were fully
+subnetted. The latter was diagnosed from the actual daemon error before using
+internal-only10.0.0.0/24. The coordinator compared that candidate against57
+observed Docker networks and62 Docker/host private route ranges; all were
+disjoint at admission (set SHA
+`b74f613655f3b790e19c18ed76225f324fbe019c9a2fe356420bd3abf73a614c`).
+No host ports, existing network deletion, engine configuration changes or
+automatic cleanup were used. This one observed fixture subnet is **not** a
+portable product default or a guarantee against later route changes.
+
+Coordinator observation after terminal success: all five owned test containers
+were Exited0; the host output contained only the five expected ciphertext/marker
+files at0600. Resources, original failure receipts, certificates and synthetic
+private keys remain in the private verification directory. None of those
+operational originals/keys/archives are copied into the public repository.
+Only this projected summary and the original receipt SHA reference are stored.
+Actual Render API/permissions/IP/expiry, exact Manager native launch/cancel/UI,
+signing-key/origin recovery, current runtime/Pages recovery, operational
+migration/update/rollback and full T08 qualification remain unverified.
+
+### Remaining configuration / authority / runtime source gaps
+
+- `manager/src-tauri/src/hosted.rs::runtime_configuration` derives the existing
+  `render-runtime-<SHA(workspace + NUL + project)>` Keychain reference and creates
+  a new tenant/password/Ed25519 key if missing. Recovery must use a **load-only**
+  path; that creator and `public_runtime` (which persists current selected static
+  pins) cannot silently substitute recovery configuration. The hosted recovery
+  source currently selects workspace/service/postgres only.
+- `deployment/src/pages-render.mjs::withRenderRecoveryConnection` privately
+  observes Render env-vars to match DATABASE_URL and service suspension. It does
+  not yet bind the original tenant/admin/client/static pins, signing authority,
+  active deploy ID/commit or runtime bytes. Those values must remain in the
+  native-held/provider callback boundary; provider token/DB password/signing key
+  must never enter renderer output, logs or the archive.
+- `scripts/render-runtime.mjs::startRenderRuntime` requires the original signing
+  key, tenant and admin password and chooses AUTH_ORIGIN/RENDER_EXTERNAL_URL. It
+  loads the current image's `apps/web/dist` directly. Existing Keychain values
+  (or still-available selected-service env under explicit private recovery) must
+  be retained, not rotated. Derived Ed25519 public key/keyId and original logical
+  origin must match restored freeze authorities: `Freezes.validSignature` in
+  `apps/api/src/freeze.ts` deliberately rejects any authority change.
+- Current private worker intentionally omits BACKUP_CONFIGURATION_FILES,
+  FREEZE_RUNTIME_ROOT and BACKUP_DEPLOYMENT_FILES. Core already supports these
+  roles and `loadFreezeRuntime` checks every descriptor/file hash, but selecting
+  this maintenance image's web files does not prove they equal the active Render
+  deployment. Bind an actual observed deploy/version to preserved trusted
+  artifacts and compare the existing runtime digest before reusing those roles.
+  Original static Pages package/version must be preserved separately through
+  its existing content/index hashes; frozen runtime blobs in Postgres do not
+  establish current server or Pages restoration.
+- Minimal safe next sequence: retain the same source/job fence; load-only
+  original protected configuration and compare authority without exporting its
+  key; record actual deployment/runtime/static bindings; then connect existing
+  fresh isolated restore and validation before any activation/update/rollback.
+  Missing original key/artifact or external permission remains a specific block,
+  not permission to fabricate a local installation receipt or create a new key.
+  SQL archives can contain account hashes and session/CSRF data; DB+objects are
+  not described as secret-free merely because transport/provider keys are kept
+  out of backup configuration. No actual API or Keychain values were read for
+  this source audit.
