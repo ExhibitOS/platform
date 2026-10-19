@@ -1,3 +1,4 @@
+import { ViewerMark } from "./branding/ViewerMark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
@@ -128,7 +129,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
       </nav>
       <header>
         <a className="brand" href="/">
-          ExhibitOS<span>OPEN EXHIBITION</span>
+          <ViewerMark />ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
         <span>전시 관람</span>
       </header>

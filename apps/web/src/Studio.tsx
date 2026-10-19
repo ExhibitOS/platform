@@ -1,3 +1,4 @@
+import { StudioMark } from "./branding/StudioMark";
 import { localLoginContext, localLoginHref } from "./local-login-context";
 import { notifyAuthChange } from "./auth-change";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -498,7 +499,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
     <main className="cms-shell studio-shell">
       <header>
         <a className="brand" href="/" aria-label="ExhibitOS 홈">
-          ExhibitOS<span>OPEN EXHIBITION</span>
+          <StudioMark />ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
         {demo ? <a href="/">전시 관람으로 돌아가기</a> : <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리</a>}
       </header>

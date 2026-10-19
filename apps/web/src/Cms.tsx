@@ -1,3 +1,4 @@
+import { StudioMark } from "./branding/StudioMark";
 import { localLoginContext } from "./local-login-context";
 import { PrivacyPanel } from './PrivacyPanel';
 import { AssistancePanel } from './AssistancePanel';
@@ -581,7 +582,7 @@ export function Cms() {
     <main className="cms-shell">
       <header>
         <a className="brand" href="/" aria-label="ExhibitOS 홈">
-          ExhibitOS<span>OPEN EXHIBITION</span>
+          <StudioMark />ExhibitOS<span>OPEN EXHIBITION</span>
         </a>
         <span className="phase">Artist CMS · 비공개 개발</span>
       </header>
