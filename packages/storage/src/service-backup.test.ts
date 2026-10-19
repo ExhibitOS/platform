@@ -61,3 +61,17 @@ test.each(['wrong-hash','wrong-size','oversized','public-mode','symlink','hardli
  const deployment=new Map([[name,file]]);if(kind==='too-many')for(let n=0;n<32;n++)deployment.set(`image-${n}.tar`,file);
  await expect(createServiceBackup({...f.options,deployment})).rejects.toThrow('BACKUP_FAILED');await expect(access(join(f.options.destination,'complete.json'))).rejects.toThrow();expect(createHash('sha256').update(await readFile(f.file.path)).digest('hex')).toBe(f.file.sha256);
 });
+
+test('exact historical restore supplies only authenticated immutable migration expectations to its snapshot',async()=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);
+ let snapshots=0;
+ await restoreServiceBackup({pool:f.makePool('789'),store:f.store,source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'historical-restore'),restore:async()=>{},snapshot:async(_client,catalog)=>{
+  snapshots++;expect(catalog).toEqual(f.inventory.migrations);
+  expect(Object.isFrozen(catalog)).toBe(true);expect(Object.isFrozen(catalog![0])).toBe(true);
+  expect(()=>{catalog![0]!.sha256=hash('changed expectation');}).toThrow();
+  return structuredClone(f.inventory);
+ }});
+ expect(snapshots).toBe(1);
+ await expect(restoreServiceBackup({pool:f.makePool('789'),store:f.store,source:f.options.destination,encryptionKey:randomBytes(32),destination:join(f.root,'wrong-key-history'),restore:async()=>{throw Error('must not restore');},snapshot:async()=>{snapshots++;return f.inventory;}})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ expect(snapshots).toBe(1);
+});

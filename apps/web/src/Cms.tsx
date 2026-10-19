@@ -179,6 +179,8 @@ export function Cms() {
     [scale, setScale] = useState("1"),
     [assetId, setAssetId] = useState(""),
     [preview, setPreview] = useState(false);
+  const [pollNotice, setPollNotice] = useState(""),
+    [pollRefresh, setPollRefresh] = useState(0);
   const prefix = session ? `/api/v1/tenants/${session.tenantId}/cms` : "";
   const uploadIntent = useRef<{
     signature: string;
@@ -296,33 +298,43 @@ export function Cms() {
     };
   }, [session, archived]);
   useEffect(() => {
+    setPollNotice("");
     if (
       !session ||
       !job ||
       !["uploading", "queued", "processing"].includes(job.state)
     )
       return;
-    let active = true;
-    const timer = setTimeout(() => {
-      void request<Job>(
-        `/api/v1/tenants/${session.tenantId}/imports/${job.id}`,
-        session,
-      )
-        .then((value) => {
-          if (active) {
-            setJob(value);
-            if (value.assetId) setAssetId(value.assetId);
-          }
-        })
-        .catch((error) => {
-          if (active) setNotice(failureMessage(error));
-        });
-    }, 1500);
+    let active = true, failures = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const value = await request<Job>(
+          `/api/v1/tenants/${session.tenantId}/imports/${job.id}`,
+          session,
+        );
+        if (active) {
+          setPollNotice("");
+          setJob(value);
+          if (value.assetId) setAssetId(value.assetId);
+        }
+      } catch (error) {
+        if (!active) return;
+        failures++;
+        const retry = failures < 3 &&
+          (!(error instanceof RequestError) || error.status >= 500);
+        setPollNotice(retry
+          ? "파일 검사 상태를 확인하지 못했어요. 파일을 다시 올리지 않고 잠시 뒤 다시 확인해요."
+          : "파일 검사 상태를 확인하지 못했어요. 연결과 로그인 상태를 확인한 뒤 ‘파일 검사 다시 확인’을 눌러 주세요.");
+        if (retry) timer = setTimeout(() => void poll(), 1500);
+      }
+    };
+    timer = setTimeout(() => void poll(), 1500);
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [session, job]);
+  }, [session, job, pollRefresh]);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget,
@@ -516,7 +528,7 @@ export function Cms() {
       );
       setJob(value);
       setNotice(
-        "비공개 검사 대기 중입니다. 운영자가 import worker를 실행해야 합니다. 파일 검사 승인 후 작품 revision을 별도로 승인하세요.",
+        "파일을 비공개로 검사하고 있어요. 기본 로컬 서버는 검사를 자동으로 진행해요. 외부 서버에서는 운영 설정에 따라 대기할 수 있어요. 파일 검사 완료 후 작품 정보와 권리를 별도로 검토·승인하세요.",
       );
     });
   }
@@ -1264,6 +1276,7 @@ export function Cms() {
                                 파일 검사: {job.state} · 진행 {job.progress}% ·
                                 시도 {job.attempts}
                               </p>
+                              {pollNotice && <p role="status" data-testid="import-poll-status">{pollNotice}</p>}
                               {job.errorCode && (
                                 <p>검사 오류: {job.errorCode}</p>
                               )}
@@ -1274,12 +1287,17 @@ export function Cms() {
                                 {["uploading", "queued", "processing"].includes(
                                   job.state,
                                 ) && (
+                                  <>
+                                  <button disabled={busy} onClick={() => setPollRefresh(value => value + 1)}>
+                                    파일 검사 다시 확인
+                                  </button>
                                   <button
                                     disabled={busy}
                                     onClick={() => void jobAction("cancel")}
                                   >
                                     검사 취소
                                   </button>
+                                  </>
                                 )}
                                 {job.state === "uploading" && (
                                   <button

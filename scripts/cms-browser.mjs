@@ -7,7 +7,7 @@ import { fixtureURL } from "@exhibitos/spec";
 import { buildApp } from "../apps/api/dist/app.js";
 
 // Production web bytes and real PostgreSQL/API/storage/worker. Only the owned
-// synthetic PUT connection is aborted to exercise retry; responses are not mocked.
+// synthetic upload/status connections are aborted to exercise retry; successful responses use the actual API.
 export async function runCmsBrowser({
   pool,
   blobs,
@@ -269,10 +269,34 @@ export async function runCmsBrowser({
           )
         ).rows;
         assert.deepEqual(after, before);
+        const statusURL = `**/imports/${before[0].id}`;
+        let pollFailures = 0, failuresLeft = 1;
+        await page.route(statusURL, async route => {
+          if (route.request().method() === "GET" && failuresLeft > 0) {
+            failuresLeft--; pollFailures++;
+            await route.abort("connectionreset");
+          } else await route.continue();
+        });
+        const recoveredPoll = page.waitForResponse(response =>
+          response.request().method() === "GET" &&
+          response.url().endsWith(`/imports/${before[0].id}`) && response.status() === 200);
+        await expect(page.getByTestId("import-poll-status")).toContainText("잠시 뒤 다시 확인");
+        await recoveredPoll;
+        await expect(page.getByTestId("import-poll-status")).toHaveCount(0);
+        assert.equal(pollFailures, 1);
+        // Exhaust only status retries; the original queued job and bytes remain.
+        failuresLeft = 3;
+        await expect(page.getByTestId("import-poll-status")).toContainText("파일 검사 다시 확인", { timeout: 15000 });
+        assert.equal(pollFailures, 4);
+        assert.deepEqual((await pool.query(
+          "SELECT id FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2",
+          [tenantId, sculpture],
+        )).rows, before);
         await work();
-        await expect(page.getByTestId("import-state")).toContainText(
-          "approved",
-        );
+        await page.getByRole("button", { name: "파일 검사 다시 확인", exact: true }).click();
+        await expect(page.getByTestId("import-state")).toContainText("approved");
+        await expect(page.getByTestId("import-poll-status")).toHaveCount(0);
+        await page.unroute(statusURL);
         await page
           .getByRole("button", { name: "검사된 파일 목록 읽기", exact: true })
           .click();

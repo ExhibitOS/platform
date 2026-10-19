@@ -129,5 +129,76 @@
       "Touch and window lifecycle cases use explicitly labeled emulated/injected input",
       "Other supported Safari/iOS/accessibility/user checks remain separate"
     ]
+  },
+  "strictChromeAcquisitionFollowup20261018": {
+    "observedAt": "2026-10-18T06:46:22.003796+00:00",
+    "status": "STRICT_CURRENT_CHROME_POINTER_LOCK_ACTUAL_ACQUISITION_YAW_ESCAPE_PASS",
+    "session": 42008,
+    "exit": 0,
+    "source": "35f74ac2a3054af5c7cfaa03b7aae33ad587f3bc",
+    "dirtySource": "",
+    "browser": "154.0.8037.93",
+    "channel": "chrome",
+    "headed": false,
+    "inputProvider": "Playwright CDP",
+    "checks": [
+      "qualified artwork entrance is usable before physics is requested; explicit walking initializes safe first-person controller",
+      "browser pointer lock is opt-in, changes actual yaw, and loss pauses without automatic resume"
+    ],
+    "databaseFixtureSetupChecks": 2,
+    "filter": "qualified artwork entrance|browser pointer lock",
+    "captureOnly": true,
+    "actualPointerLockChangeObserved": true,
+    "yawBefore": 0,
+    "yawAfter": -1.504,
+    "escapeUnlockPauseAndWNoResumeAssertions": true,
+    "sourceAndProductionAssetSha256": {
+      "apps/web/src/GeometryPreview.tsx": "f63ac5135c9da63a622df551fff1c0fbaadfb531a6c7d3ff38f2180769bdd0bc",
+      "apps/web/src/viewer/navigation-input.ts": "cc96831831169c4f8d5fdf4bbe07abb5ccb16c3f25d3ba3227f1e313ce8fb487",
+      "apps/web/src/viewer/navigation-camera.ts": "9cae3b3eef8ee53e7be3c209c81c2bdc4fb15efbdab183f1953776dc25fa4679",
+      "scripts/test-navigation.mjs": "d8b8533fdcfeede815467d62fd9d790a1677f6859d419795c81f573bb3f2e5b2",
+      "scripts/navigation-browser.mjs": "bc17ba052a2b1e3ddb5b4bec956b6ab3202bcaa54275e1776619ab53c58d8364",
+      "apps/web/dist/index.html": "cdae49e495a2a5cd49be45324f9562c07e18be2a5448c67eabe6a675031e1a36",
+      "apps/web/dist/assets/navigation-camera-D3O5Bhea.js": "2fa2ba022ffd367b4dc9963ca91d6420c052d9107a8061fb8138bb838c933b70",
+      "apps/web/dist/assets/RectAreaLightUniformsLib-0aEh53Zn.js": "5448fa02f2e061731d9732ce220b12cc15d2c159a6397b1bd19fa261ca6e22ca",
+      "apps/web/dist/assets/USDZExporter-jM_Gy99J.js": "c14742b1b6e9dd25f55d36b398a10341d42aa37302a992d0751a50018c306305",
+      "apps/web/dist/assets/index-D9jQGWlo.js": "6fc08fae9563743163aef444bcc974315e1187c22e8d87c89ce660c45a5bf993",
+      "apps/web/dist/assets/Viewer-OEGtpA8j.css": "2821d95b63776bc64373bf70a9ba6642e2a065419bbafaf5f86ecbb2f01b6c65",
+      "apps/web/dist/assets/basis_transcoder-VXdx5NbI.wasm": "6cf17dc889352c42e9acf8897107978d127005fe3386c36a0e3845e27967630a",
+      "apps/web/dist/assets/basis_transcoder-o4Hde_L7.js": "8478b5b6d6b74e7d3082b89f6417321d8d1dc0307f2b30d4484bb11b441696a1",
+      "apps/web/dist/assets/index-DHECKnZ2.css": "9b153ee5d7be18d8b2c10d712795a42449c2e48245030ad2ef34aa91b537a7ae",
+      "apps/web/dist/assets/GLTFLoader-CGJwPpL6.js": "0acfd2431569a9289da5fe074bbbcef0e74fe2e51be6398fa3b8f84b1a2a4159",
+      "apps/web/dist/assets/Viewer-ESs5xmoD.js": "e2e9fb4c8576db8151ee5ae65aa45938a4051a9e42532ef4c43da35f4b7118ad",
+      "apps/web/dist/assets/OrbitControls-DKcdvqQQ.js": "1791827474be0f79756c4f043d6880ead54cf1f459af5babeb52da5ae4c0795d",
+      "apps/web/dist/assets/KTX2Loader-Ggmvt7tw.js": "daa5de7079aecfd933b86c40c8769398b7e71c3d754a1784732c83a667b2620d"
+    },
+    "rawEvidence": [
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/viewer-chrome-capture-89cadce8-219e-4beb-87f8-680a6d292286/navigation-run.json",
+        "sha256": "07ebcb9bec1e3b3ba12d403a870e1c8546b4f1f477e393fc9e18aa34f5116cfd"
+      },
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/viewer-chrome-capture-89cadce8-219e-4beb-87f8-680a6d292286/execution.log",
+        "sha256": "fa87231a6c2798342c7b79eea8d6a9d95cab38749d77d7339a43230abddb254f"
+      },
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/viewer-chrome-capture-89cadce8-219e-4beb-87f8-680a6d292286/owned-normal-stop-wrapper.py",
+        "sha256": "4a8b502afd6e4d1ccaf06a706ca6e654c0e2052dd6d76f13870a8b4f7a95b89a"
+      },
+      {
+        "path": "/Volumes/ExhibitSSD/ExhibitOS-Backups/viewer-chrome-capture-89cadce8-219e-4beb-87f8-680a6d292286/container-preview.log",
+        "sha256": "2220fed7b3afbd45ea8f34690a7f6220569f8cd44418b6ff26fdb1f465c97ba8"
+      }
+    ],
+    "fixtureCleanup": "Existing test command and assertions unchanged; Docker executable wrapper converts only exact owned fixture rm -f cleanup into observed normal stop, preserving container/volume. Test finally closes API/pool/browser.",
+    "ownedFixture": "exhibitos-navigation-test-78f9f1ae-98be-4808-b09e-4c995f19ed1d",
+    "fixtureTerminalObserved": "exited",
+    "interpretation": "Previous bundled Chromium153 WrongDocumentError is retained. Current installed Chrome154 passes strict actual lock without source fix/injection/relaxed assertions; channel difference is evidence, not proof of browser root cause. Earlier13 cases are not rerun or promoted.",
+    "notVerified": [
+      "Human physical mouse/keyboard input",
+      "Safari and iOS actual acquisition/interaction",
+      "Whole Viewer accessibility/novice acceptance"
+    ],
+    "taskCountsChanged": false
   }
 }

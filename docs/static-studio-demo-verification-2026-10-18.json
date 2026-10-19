@@ -309,5 +309,57 @@
     },
     "runtime_change": "Only ESLint configuration and test expectation literals changed after packaged runtime source; no production renderer/API/runtime bytes changed by this followup.",
     "limitations": "Not full e2e/native pointer lock/Safari/iOS/accessibility or physical artwork quality approval. No public redeployment."
+  },
+  "title_repair_regression_20261018": {
+    "baseCommit": "ec3950c",
+    "productFiles": [
+      "apps/web/src/Studio.tsx"
+    ],
+    "regressionFile": "scripts/static-studio-browser.mjs",
+    "problem": "Clearing the title invalidated the document and disabled the title field, preventing replacement.",
+    "change": "Keep title entry bound to the same parseable JSON while temporary title is invalid; show associated required-title feedback. Schema, storage validation, publication and published read-only checks remain unchanged.",
+    "actualBefore": {
+      "handle": 37962,
+      "exit": 1,
+      "failure": "After title.fill(empty), expected enabled, actual disabled"
+    },
+    "actualAfter": {
+      "handle": 49148,
+      "exit": 0,
+      "existingFlows": 6,
+      "newRegression": 1,
+      "apiRequests": 0,
+      "webSockets": 0,
+      "externalRequests": 0,
+      "verified": [
+        "clear then re-enter title",
+        "empty title retains unsaved state",
+        "advanced section toggle retains empty title",
+        "replacement saved and reopened",
+        "all other document data unchanged"
+      ]
+    },
+    "checks": {
+      "staticBuild": "98398 exit0",
+      "webTypecheck": "43960 exit0",
+      "focusedLint": "exit0",
+      "diffCheck": "PASS"
+    },
+    "retainedLimits": [
+      "Full-invalid candidate still hides geometry editor; restoring title recovers document data, not a new guarantee of transient editor undo history.",
+      "Actual published revision flow not rerun: guard is unchanged.",
+      "Safari/iOS/VoiceOver/novice human usability not run.",
+      "No new public deployment or native runtime repackaging."
+    ],
+    "evidenceDirectory": "studio-title-repair-7b42c56a-c2f1-400c-856d-94c64cf6dbd5",
+    "receiptSHA256": "99c384879d63a19d8ac4f0b52b587c00bfac10be5bdb963ad6c6f21db7a8299f"
+  },
+  "viewerOnlyProducer20261018": {
+    "source": "1b7e0003e872e32c21156d2b4e4d4a77013ae7ef",
+    "change": "EXHIBITOS_STATIC_TARGET=viewer selects only existing static.html entry for Manager publication producer. Default two-entry Viewer/Studio demo unchanged; invalid explicit target rejects. Strict package allowlist still rejects static-studio.html.",
+    "checks": "Exact clean committed source Viewer-only build + prepare + all7676 declared file SHA checks PASS; Viewer19files. Wrapper3 + original exporter12 PASS. Prior stale exact pass10 expectation failure retained and corrected to existing10+registeredStudio2.",
+    "manifestSHA256": "ffefde0647d1e4bad686821c90402042fcdd8a2c88ef51a33683fb2b2806503b",
+    "integration": "Packaged into Manager d5afbfd development app; resource SHA/inventory and strict ad-hoc signature PASS, app not launched.",
+    "limits": "No new public deployment, Safari/iOS/VoiceOver/human GUI or whole recovery acceptance."
   }
 }

@@ -17,7 +17,7 @@ function fixture(){
  return {inventory,actual,client,queries,released:()=>released,options:{pool,manifestBytes,expectedManifestSha256:sha(manifestBytes),snapshotSystemIdentifier:'789',targetSchemaSha256:schema(actual),targetMigrations:structuredClone(actual.migrations),snapshot:async()=>structuredClone(actual)}};
 }
 test('additive catalog/log change preserves original data with two native-history snapshots and bounded proof',async()=>{
- const f=fixture(),result=await verifyMigratedInventory(f.options);
+ const f=fixture(),result=await verifyMigratedInventory({...f.options,snapshot:async(...args)=>{expect(args).toHaveLength(1);return structuredClone(f.actual);}});
  expect(result.originalDataPreserved).toBe(true);expect(result.operation).toBe('migrated-inventory-preserved');expect(result.currentInventoryVerified).toBe(false);expect(result.preflightVerified).toBe(false);expect(result.updateExecuted).toBe(false);expect(result.configurationVerified).toBe(false);
  expect(JSON.stringify(result)).not.toContain('synthetic/objects');expect(f.queries.filter(q=>q==='BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')).toHaveLength(2);expect(f.queries.filter(q=>q.startsWith('CLOSE'))).toHaveLength(2);expect(f.released()).toBe(false);
  // The old exact-restoration contract still refuses a changed schema.

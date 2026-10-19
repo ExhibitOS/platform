@@ -81,3 +81,15 @@ test('restored manifest binding precedes connection and unlock failure refuses s
  const query=f.client.query;f.client.query=async sql=>sql.includes('pg_advisory_unlock')?{rows:[{unlocked:false}]}:query(sql);
  await expect(verifyRestoredInventory(f.options)).rejects.toThrow('SOURCE_INVENTORY_CLEANUP_FAILED');expect(f.released()).toBe(true);
 });
+
+test('exact source and restored observations pass immutable expected migrations only after manifest hash binding',async()=>{
+ for(const restored of [false,true]){
+  const f=restored?candidateFixture():fixture();let snapshots=0;
+  const options={...f.options,snapshot:async(_client:unknown,catalog?:readonly {name:string;sha256:string}[])=>{
+   snapshots++;expect(catalog).toEqual(f.inventory.migrations);expect(Object.isFrozen(catalog)).toBe(true);expect(Object.isFrozen(catalog![0])).toBe(true);return structuredClone(f.inventory);
+  }};
+  const check=restored?verifyRestoredInventory:verifySourceInventory;
+  await check({...options,snapshotSystemIdentifier:'789'});expect(snapshots).toBe(2);
+  await expect(check({...options,snapshotSystemIdentifier:'789',expectedManifestSha256:hash('foreign')})).rejects.toThrow('SOURCE_MANIFEST_MISMATCH');expect(snapshots).toBe(2);
+ }
+});

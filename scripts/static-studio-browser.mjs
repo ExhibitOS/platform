@@ -45,6 +45,19 @@ try{
   await expect(page.getByRole('button',{name:'등록한 작품 찾기',exact:true})).toHaveCount(0);
   assert.equal(await page.evaluate(async()=>navigator.serviceWorker?(await navigator.serviceWorker.getRegistrations()).length:0),0);
  });
+ await check('Title can be cleared, repaired and saved without the advanced document overwriting it',async()=>{
+  const title=page.getByLabel('전시 제목',{exact:true}),before=await candidate();
+  await title.fill('');await expect(title).toBeEnabled();await expect(title).toHaveValue('');
+  await expect(title).toHaveAttribute('aria-invalid','true');
+  await expect(page.getByText('전시 제목을 입력하세요. 마지막 저장본은 유지돼요.',{exact:true})).toBeVisible();
+  const advanced=page.getByText('전시 문서 직접 편집 · 고급',{exact:true});
+  await advanced.click();assert.equal((await candidate()).title,'');await advanced.click();await expect(title).toHaveValue('');
+  await page.waitForTimeout(850);await expect(page.getByTestId('local-state')).toContainText('미저장');
+  await title.fill('제목을 다시 입력한 전시');await settle();await expect(title).not.toHaveAttribute('aria-invalid','true');
+  await page.reload();await expect(page.getByLabel('전시 제목',{exact:true})).toHaveValue('제목을 다시 입력한 전시');
+  const saved=await candidate();assert.deepEqual({...saved,title:before.title},before);
+  await page.getByLabel('전시 제목',{exact:true}).fill(before.title);await settle();
+ });
  async function drag(dx,dy,escape=false){await item().scrollIntoViewIfNeeded();const r=await item().boundingBox();await page.mouse.move(r.x+r.width/2,r.y+r.height/2);await page.mouse.down();await page.mouse.move(r.x+r.width/2+dx,r.y+r.height/2+dy,{steps:8});if(escape)await page.keyboard.press('Escape');await page.mouse.up();await settle();}
  await check('Actual plan drag preserves height and one undo; cancel preserves source',async()=>{
   await item().click();await expect(page.getByLabel('공간 요소 선택',{exact:true})).toHaveValue('placement:'+placement.id);

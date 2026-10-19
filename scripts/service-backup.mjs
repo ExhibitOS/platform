@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {constants} from 'node:fs';
-import {open,lstat,realpath,statfs} from 'node:fs/promises';
+import {open,lstat,realpath,statfs,readdir,readFile} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHash,createPublicKey,verify} from 'node:crypto';
+import {freezeCanonical} from '@exhibitos/studio-contract';
 import {spawn} from 'node:child_process';
 import {pipeline} from 'node:stream/promises';
 import {Transform,Writable} from 'node:stream';
@@ -32,6 +33,37 @@ async function privateConfigurationFile(path){
   if(!configurationFilesystemSupported(process.platform,(await statfs(target,{bigint:true})).type)||await realpath(target)!==target||!current.isFile()||['dev','ino','size','mode','uid','gid','nlink','mtimeNs','ctimeNs'].some(k=>before[k]!==after[k]||before[k]!==current[k])||BigInt(bytes.length)!==before.size){bytes.fill(0);fail('BACKUP_FILE_CHANGED');}
   return bytes;
  }finally{await file.close();}
+}
+/** Existing freeze signatures checked on the very same transaction used by
+ * inventory/pg_export_snapshot. Only public authority enters this check. */
+export async function verifyBackupFreezeAuthority(client,authority){
+ let publicKey;
+ try{
+  if(!authority||typeof authority!=='object'||Array.isArray(authority)||Object.keys(authority).sort().join(',')!=='keyId,origin,publicKey'||typeof authority.origin!=='string'||typeof authority.publicKey!=='string'||typeof authority.keyId!=='string')throw Error();
+  const origin=new URL(authority.origin);if(origin.origin!==authority.origin||origin.protocol!=='https:'||origin.username||origin.password)throw Error();
+  const bytes=Buffer.from(authority.publicKey,'base64');
+  if(bytes.length!==44||bytes.toString('base64')!==authority.publicKey||createHash('sha256').update(bytes).digest('hex')!==authority.keyId)throw Error();
+  publicKey=createPublicKey({key:bytes,format:'der',type:'spki'});if(publicKey.asymmetricKeyType!=='ed25519')throw Error();
+ }catch{fail('BACKUP_FREEZE_AUTHORITY_MISMATCH');}
+ // The existing backup transaction/maintenance lock is owned by the caller;
+ // never open another connection or acquire the authentication lock here.
+ let after=null;
+ for(;;){
+  const {rows}=await client.query('SELECT tenant_id,id,manifest,manifest_sha256,signature FROM public.exhibition_freezes WHERE ($1::uuid IS NULL OR (tenant_id,id)>($1::uuid,$2::uuid)) ORDER BY tenant_id,id LIMIT 64',after??[null,null]);
+  if(rows.length>64)fail('BACKUP_FREEZE_INTEGRITY');
+  for(const row of rows){
+   const actual=row.manifest?.authority;
+   if(!actual||actual.origin!==authority.origin||actual.keyId!==authority.keyId||actual.publicKey!==authority.publicKey)fail('BACKUP_FREEZE_AUTHORITY_MISMATCH');
+   try{
+    const bytes=Buffer.from(freezeCanonical(row.manifest)),signature=Buffer.from(row.signature,'base64');
+    if(signature.length!==64||signature.toString('base64')!==row.signature||createHash('sha256').update(bytes).digest('hex')!==row.manifest_sha256||!verify(null,bytes,publicKey,signature))throw Error();
+   }catch{fail('BACKUP_FREEZE_INTEGRITY');}
+  }
+  if(rows.length<64)return;
+  const last=rows.at(-1),next=[last.tenant_id,last.id];
+  if(after&&next[0]===after[0]&&next[1]===after[1])fail('BACKUP_FREEZE_INTEGRITY');
+  after=next;
+ }
 }
 export async function initializeBackupKey(path){
  const target=resolve(path),parent=dirname(target),stat=await lstat(parent);
@@ -120,7 +152,34 @@ export async function deploymentFiles(environment,keyPath,destination){
  }
  return files;
 }
-export async function main(argv=process.argv.slice(2),environment=process.env){
+/** Authenticated exact restoration may use an older known catalog. This is not
+ * a migration target: require an exact nonempty prefix of this helper's files. */
+export async function inventorySnapshotOptions(migrationDirectory,authenticatedMigrations){
+ if(authenticatedMigrations===undefined)return {migrationDirectory};
+ if(!Array.isArray(authenticatedMigrations)||authenticatedMigrations.length<1||authenticatedMigrations.length>10000)fail('BACKUP_MIGRATION_CATALOG');
+ const names=(await readdir(migrationDirectory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort();
+ if(authenticatedMigrations.length>names.length)fail('BACKUP_MIGRATION_CATALOG');
+ const migrationCatalog=[];
+ for(let i=0;i<authenticatedMigrations.length;i++){
+  const entry=authenticatedMigrations[i];
+  if(!entry||typeof entry!=='object'||Array.isArray(entry)||Object.keys(entry).sort().join(',')!=='name,sha256'||typeof entry.name!=='string'||entry.name.length>1024||!/^\d[a-zA-Z0-9_.-]*\.sql$/.test(entry.name)||entry.name!==names[i]||typeof entry.sha256!=='string'||!/^[a-f0-9]{64}$/.test(entry.sha256))fail('BACKUP_MIGRATION_CATALOG');
+  const bytes=await readFile(resolve(migrationDirectory,entry.name));
+  if(createHash('sha256').update(bytes).digest('hex')!==entry.sha256)fail('BACKUP_MIGRATION_CATALOG');
+  migrationCatalog.push({name:entry.name,sha256:entry.sha256});
+ }
+ return {migrationCatalog};
+}
+/** Private native job budget only. Existing CLI/environment contracts are unchanged. */
+export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
+ if(!Number.isSafeInteger(jobBudgetBytes)||jobBudgetBytes<4*1024*1024||!Number.isSafeInteger(maxDumpBytes)||maxDumpBytes<1024*1024||maxDumpBytes>32*1024**3||!Array.isArray(inventory?.objects))fail('BACKUP_RESOURCE_BUDGET');
+ let objects=0;for(const item of inventory.objects){if(!Number.isSafeInteger(item.bytes)||item.bytes<1||!Number.isSafeInteger(objects+item.bytes))fail('BACKUP_RESOURCE_BUDGET');objects+=item.bytes;}
+ // Native has already removed its floor and metadata reserve once. Four
+ // copies conservatively cover scratch/encrypted/authenticated/output peaks.
+ const cap=Math.min(maxDumpBytes,Math.floor(jobBudgetBytes/4)-objects);
+ if(!Number.isSafeInteger(cap)||cap<1024*1024)fail('BACKUP_RESOURCE_BUDGET');return cap;
+}
+export async function main(argv=process.argv.slice(2),environment=process.env,privateOptions={}){
+ if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>!['jobBudgetBytes','freezeAuthority'].includes(k)))fail('BACKUP_RESOURCE_BUDGET');
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
  if(command==='check-source-configuration'){
   if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
@@ -139,7 +198,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:c=>collectServiceInventory(c,blobs.store,{migrationDirectory:new URL('../database/migrations/',import.meta.url).pathname})};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(new URL('../database/migrations/',import.meta.url).pathname,authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
   finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
@@ -154,7 +213,12 @@ export async function main(argv=process.argv.slice(2),environment=process.env){
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
-  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=c=>collectServiceInventory(c,blobs.store,{migrationDirectory});
+  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async(c,authenticatedMigrations)=>{
+   if(privateOptions.freezeAuthority!==undefined)await verifyBackupFreezeAuthority(c,privateOptions.freezeAuthority);
+   const inventory=await collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(migrationDirectory,authenticatedMigrations));
+   if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
+   return inventory;
+  };
   if(command==='create'){
    const runtime=environment.FREEZE_RUNTIME_ROOT?await import('../apps/api/dist/freeze.js').then(m=>m.loadFreezeRuntime(environment.FREEZE_RUNTIME_ROOT)):undefined;
    const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});

@@ -112,6 +112,18 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
   const sessionScope = `${session?.tenantId}:${session?.userId}:${session?.csrfToken}`;
   const sessionGeneration = useRef({scope:sessionScope,value:0});
   if (sessionGeneration.current.scope !== sessionScope) sessionGeneration.current = {scope:sessionScope,value:sessionGeneration.current.value+1};
+  // Keep the title editable while its temporary value is invalid. The same JSON
+  // remains the source of truth; saving and the other editors still require a
+  // completely valid candidate below.
+  const titleDocument = useMemo(() => {
+    try {
+      const value = JSON.parse(text);
+      return value && typeof value === "object" && !Array.isArray(value) &&
+        typeof value.title === "string" ? value : null;
+    } catch {
+      return null;
+    }
+  }, [text]);
   const candidate = useMemo(() => {
     try {
       if (!record) return null;
@@ -653,17 +665,20 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
               전시 제목
               <input
                 aria-label="전시 제목"
-                disabled={busy || published || !candidate}
+                disabled={busy || published || !titleDocument}
                 maxLength={512}
-                value={candidate?.title ?? ""}
+                aria-invalid={titleDocument?.title === "" || undefined}
+                aria-describedby={titleDocument?.title === "" ? "studio-title-error" : undefined}
+                value={titleDocument?.title ?? ""}
                 onChange={(e) => {
-                  if (candidate) {
-                    setText(json({ ...candidate, title: e.target.value }));
+                  if (titleDocument) {
+                    setText(json({ ...titleDocument, title: e.target.value }));
                     setPaused(false);
                   }
                 }}
               />
             </label>
+            {titleDocument?.title === "" && <p id="studio-title-error" role="status">전시 제목을 입력하세요. 마지막 저장본은 유지돼요.</p>}
             <details><summary>전시 문서 직접 편집 · 고급</summary>
             <label>
               전시 문서 JSON
