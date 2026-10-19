@@ -305,7 +305,7 @@ export async function runCmsBrowser({
         ).not.toHaveValue("");
         assert.equal(await page.getByLabel("작품 파일", {exact:true}).evaluate(input => input.files.length),0);
         await page
-          .getByRole("button", { name: "현재 revision 검토 승인", exact: true })
+          .getByRole("button", { name: "현재 작품 검토 승인", exact: true })
           .click();
         await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "검토 승인했습니다",
@@ -455,7 +455,7 @@ export async function runCmsBrowser({
           .getByRole("button", { name: "검사된 파일 목록 읽기", exact: true })
           .click();
         await page
-          .getByRole("button", { name: "현재 revision 검토 승인", exact: true })
+          .getByRole("button", { name: "현재 작품 검토 승인", exact: true })
           .click();
         await expect(page.locator("main.cms-shell > p.cms-status[role=status]")).toContainText(
           "검토 승인했습니다",
