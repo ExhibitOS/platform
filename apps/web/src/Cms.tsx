@@ -934,7 +934,7 @@ export function Cms() {
                       >
                         {item.title}
                         <small>
-                          revision {item.revision} ·{" "}
+                          작품 버전 {item.revision} ·{" "}
                           {item.approvedRevision === item.revision
                             ? "검토 승인"
                             : "검토 필요"}
@@ -1219,7 +1219,7 @@ export function Cms() {
                         )}
                       </div>
                       <p>
-                        현재 revision {artwork.revision} · 승인된 revision{" "}
+                        현재 작품 버전 {artwork.revision} · 승인된 작품 버전{" "}
                         {artwork.approvedRevision ?? "없음"}
                       </p>
                       {canEdit && !artwork.archived && (
@@ -1393,12 +1393,12 @@ export function Cms() {
                                   await openArtwork(artwork.id);
                                   await loadArtworks();
                                   setNotice(
-                                    "현재 revision의 치수·권리·출처와 파일을 검토 승인했습니다. 공개 배포는 별도 단계입니다.",
+                                    "현재 작품 버전의 치수·권리·출처와 파일을 검토 승인했습니다. 공개 배포는 별도 단계입니다.",
                                   );
                                 })
                               }
                             >
-                              현재 revision 검토 승인
+                              현재 작품 검토 승인
                             </button>
                           )}
                           <button
