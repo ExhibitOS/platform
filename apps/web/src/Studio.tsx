@@ -575,6 +575,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
               {demo ? "샘플의 새 편집 사본" : "새 로컬 전시"}
             </button>
           </div>
+          {!demo && !record && <p className="cms-note">먼저 ‘새 로컬 전시’를 누르거나 아래 저장된 전시를 여세요. 전시 편집 화면이 열리면 ‘선택적 서버 저장’에서 현재 서버 계정을 확인할 수 있어요. 로컬 편집은 로그인 없이 시작할 수 있어요.</p>}
           <ul className="cms-list">
             {rows.map((row) => (
               <li key={row.id}>
@@ -654,6 +655,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
                      : `이 기기에 저장됨 · 로컬 version ${record.version}`}
               </span>
             </div>
+            {!demo && !session && <p className="cms-note">등록한 작품을 가져오거나 서버에 저장하려면 <a href="#studio-confirm-server-account">현재 서버 계정 확인으로 이동</a>하세요. 로컬 편집은 계속할 수 있어요.</p>}
             <details><summary>문서 식별자·형식 상세</summary><p className="cms-note">
               draft ID <code data-testid="draft-id">{record.id}</code>
               <br />
@@ -797,6 +799,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
               <div className="cms-actions">
                 <a href={localLoginHref(typeof window === "undefined" ? null : localLoginContext(window.location))}>작품 관리에서 로그인</a>
                 <button
+                  id="studio-confirm-server-account"
                   disabled={busy || !online}
                   onClick={() =>
                     void run(async () => {
