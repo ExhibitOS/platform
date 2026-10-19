@@ -37,6 +37,9 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .cms-shell input:focus-visible, .cms-shell textarea:focus-visible, .cms-shell select:focus-visible { outline: 3px solid #765723; outline-offset: 2px; }
 .cms-shell code, .cms-note { overflow-wrap: anywhere; }
 .cms-note { font-size: 13px; color: #4c5a50; line-height: 1.75; }
+.cms-account-settings { margin: 18px 0; }
+.cms-account-settings > summary { box-sizing: border-box; min-height: 44px; padding: 12px 0; cursor: pointer; font-weight: 650; }
+.cms-account-settings > summary:focus-visible { outline: 3px solid #765723; outline-offset: 2px; }
 .cms-actions, .cms-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 18px 0; }
 .cms-tabs button[aria-pressed=true] { background: #203d2c; color: #fff; }
 .cms-tabs button[aria-pressed=false] { color: #203d2c; background: #dde3d5; }

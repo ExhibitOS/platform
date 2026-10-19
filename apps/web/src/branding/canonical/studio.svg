@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" color="#07382F" role="img" aria-labelledby="title-studio">
+  <title id="title-studio">ExhibitOS studio</title>
+  <!-- Original editable vector. Common open-bottom gallery frame, no font/SF Symbol/bitmap. -->
+  <g id="mark" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <path id="gallery-frame" d="M26 102V30H102V102" stroke-width="12" stroke-linecap="butt"/>
+    <g id="role-symbol"><path d="M43 64V94H72" stroke-width="5"/><path d="M54 86L58 75L79 54Q81 52 83 54L86 57Q88 59 86 61L65 82Z M77 57L83 63 M58 76L64 82" stroke-width="4.5"/></g>
+  </g>
+</svg>
