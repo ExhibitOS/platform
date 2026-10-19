@@ -1,10 +1,14 @@
-import { afterEach, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtemp, mkdir, writeFile, rm, symlink, statfs, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import { readiness } from './lifecycle.ts';
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {...actual, statfs: vi.fn(actual.statfs)};
+});
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, {recursive: true, force: true}))); });
 async function fixture() {
@@ -41,4 +45,18 @@ it('rejects a missing build and symlink storage roots', async () => {
   await rm(config.blobRoot, {recursive: true}); await symlink(config.webRoot, config.blobRoot);
   const result = await readiness(pool, config);
   expect(result.services.filter(service => ['web', 'storage'].includes(service.name)).every(service => service.status === 'unavailable')).toBe(true);
+});
+
+it('rejects zero available local blocks and recovers without creating storage objects', async () => {
+  const {config, pool} = await fixture();
+  const capacity = await statfs(config.blobRoot, {bigint: true});
+  vi.mocked(statfs).mockResolvedValueOnce({...capacity, bavail: 0n});
+  const full = await readiness(pool, config);
+  expect(full.ready).toBe(false);
+  expect(full.services.find(service => service.name === 'storage')?.status).toBe('unavailable');
+  expect(await readdir(config.blobRoot)).toEqual([]);
+  const recovered = await readiness(pool, config);
+  expect(recovered.ready).toBe(true);
+  expect(recovered.services.find(service => service.name === 'storage')?.status).toBe('ready');
+  expect(await readdir(config.blobRoot)).toEqual([]);
 });
