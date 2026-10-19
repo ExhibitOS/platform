@@ -633,7 +633,12 @@ export function Cms() {
           </button>
         </div>
       )}
-      {session && !expired && <PrivacyPanel session={session} />}
+      {session && !expired && (
+        <details className="cms-account-settings">
+          <summary>개인정보·계정 설정</summary>
+          <PrivacyPanel session={session} />
+        </details>
+      )}
       {!session ? (
         <form
           className="cms-card cms-login"
