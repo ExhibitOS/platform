@@ -7,9 +7,11 @@ import {createServer} from 'node:net';
 import {tmpdir} from 'node:os';
 import {once} from 'node:events';
 import {WebSocket} from 'ws';
+import {Pool} from 'pg';
+import {readiness} from '../apps/api/dist/lifecycle.js';
 import {PostgresBlobStore,createServiceBackup,verifyServiceBackup,restoreServiceBackup,collectServiceInventory,sha256} from '../packages/storage/dist/index.js';
 import {IsolatedBackends} from './service-backup-adapters.mjs';
-import {startRenderRuntime} from './render-runtime.mjs';
+import {startRenderRuntime,checkHostedStorage} from './render-runtime.mjs';
 const root=await mkdtemp(tmpdir()+'/exhibitos-hosted-runtime-'),backends=new IsolatedBackends(JSON.parse(await readFile(new URL('../database/images.json',import.meta.url))));
 const checks=[],secret=randomBytes(32),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname;
 const test=async(name,fn)=>{await fn();checks.push(name);console.log('PASS '+name);};
@@ -25,6 +27,28 @@ try {
  await test('existing login/session and CSRF/foreign-origin rejection remain enforced',async()=>{const r=await http('/api/v1/auth/login',{method:'POST',payload:{subject:env.ADMIN_SUBJECT,password:env.ADMIN_PASSWORD,tenantId:env.TENANT_ID}});assert.equal(r.status,200);cookie=r.headers['set-cookie'][0].split(';')[0];assert.match(r.headers['set-cookie'][0],/HttpOnly/);assert.match(r.headers['set-cookie'][0],/Secure/);assert.match(r.headers['set-cookie'][0],/SameSite=None/);assert.equal((await http('/api/v1/auth/session',{cookie})).status,200);assert.equal((await http('/api/v1/auth/logout',{method:'POST',cookie,from:'https://attacker.invalid'})).status,403);assert.equal((await http('/api/v1/auth/logout',{method:'POST',cookie})).status,403);authority=(await http('/api/v1/freeze/authority',{cookie})).body.authority;});
  const sourceStore=new PostgresBlobStore(source.pool),name=env.TENANT_ID+'/objects/preserved',bytes=randomBytes(128*1024);
  await test('actual PostgreSQL immutable objects survive contention and reject replacement',async()=>{await Promise.all([sourceStore.put(name,bytes),sourceStore.put(name,bytes)]);await assert.rejects(sourceStore.put(name,Buffer.from('conflicting')));assert.equal(sha256(await sourceStore.get(name)),sha256(bytes));});
+ // Function-level readiness regression on the existing synthetic DB, not a new
+ // HTTP/provider/disk-full qualification. Both probes must preserve every object.
+ await test('read-only durable storage is unavailable and writable probe rolls back without changing objects',async()=>{
+  const inventory=async()=>(await source.pool.query('SELECT object_key,bytes,sha256 FROM hosted_objects ORDER BY object_key')).rows;
+  const original=await inventory();
+  const readonlyPool=new Pool({...source.database,options:'-c default_transaction_read_only=on',max:1,connectionTimeoutMillis:2000});
+  const config=pool=>({migrationDirectory,webRoot:new URL('../apps/web/dist/',import.meta.url).pathname,blobRoot:'',storageCheck:()=>checkHostedStorage(pool)});
+  try{
+   assert.equal((await readonlyPool.query('SHOW transaction_read_only')).rows[0].transaction_read_only,'on');
+   await readonlyPool.query('SELECT object_key FROM hosted_objects LIMIT 1');
+   await assert.rejects(checkHostedStorage(readonlyPool),{code:'25006'});
+   const unavailable=await readiness(readonlyPool,config(readonlyPool));
+   assert.equal(unavailable.ready,false);
+   assert.equal(unavailable.services.find(service=>service.name==='storage').status,'unavailable');
+   await checkHostedStorage(source.pool);
+   const recovered=await readiness(source.pool,config(source.pool));
+   assert.equal(recovered.ready,true);
+   assert.equal(recovered.services.find(service=>service.name==='storage').status,'ready');
+   assert.deepEqual(await inventory(),original);
+   assert.equal(sha256(await sourceStore.get(name)),sha256(bytes));
+  }finally{await readonlyPool.end();}
+ });
  await test('active WebSocket is closed and same durable key/data/session survive runtime restart',async()=>{const ws=new WebSocket(`ws://127.0.0.1:${port}/api/v1/publications/${randomUUID()}/presence`,{headers:{host:new URL(origin).host,origin:clientOrigin}});await once(ws,'open');const closed=once(ws,'close');await runtime.close();runtime=null;await closed;runtime=await startRenderRuntime(env);assert.deepEqual((await http('/api/v1/freeze/authority',{cookie})).body.authority,authority);assert.equal(sha256(await new PostgresBlobStore(runtime.pool).get(name)),sha256(bytes));await runtime.close();runtime=null;});
  const snapshot=store=>client=>collectServiceInventory(client,store,{migrationDirectory});
  let before;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Pool } from "pg";
-import { createPrivateKey } from "node:crypto";
+import { createHash, createPrivateKey, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { migrate, PostgresBlobStore } from "../packages/storage/dist/index.js";
@@ -9,6 +9,31 @@ import { buildApp } from "../apps/api/dist/app.js";
 import { Imports } from "../apps/api/dist/imports.js";
 import { createLocalProxy } from "./local-runtime.mjs";
 import { createPagesPublicationSource } from "./pages-publication-source.mjs";
+
+/** Check the same durable object table used by uploads. A SELECT alone also
+ * succeeds on a read-only connection. The probe never commits an object and
+ * does not promise that a larger upload will fit the remaining database quota. */
+export async function checkHostedStorage(pool) {
+  const client = await pool.connect();
+  let destroy = false, failed = false, failure;
+  try {
+    await client.query({text:"BEGIN",query_timeout:2000});
+    await client.query({text:"SET LOCAL statement_timeout = '2000ms'",query_timeout:2000});
+    const name = `readiness/${randomUUID()}`;
+    const bytes = Buffer.from("ExhibitOS storage readiness");
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    await client.query({text:"INSERT INTO hosted_objects(object_key,bytes,sha256) VALUES($1,$2,$3)",values:[name,bytes,hash],query_timeout:2000});
+    const result = await client.query({text:"SELECT bytes,sha256 FROM hosted_objects WHERE object_key=$1",values:[name],query_timeout:2000});
+    const row = result.rows[0];
+    if (result.rowCount !== 1 || !Buffer.isBuffer(row?.bytes) || !row.bytes.equals(bytes) || row.sha256 !== hash) throw Error("HOSTED_STORAGE_PROBE_FAILED");
+  } catch (error) { failed = true; failure = error; }
+  finally {
+    try { await client.query({text:"ROLLBACK",query_timeout:2000}); }
+    catch { destroy = true; if (!failed) { failed = true; failure = Error("HOSTED_STORAGE_PROBE_FAILED"); } }
+    finally { client.release(destroy); }
+  }
+  if (failed) throw failure;
+}
 
 /** Render runs behind its TLS terminator; only the outer proxy binds publicly.
  * All private object bytes are in Postgres. The signing key is required from
@@ -37,7 +62,7 @@ export async function startRenderRuntime(environment = process.env) {
     await migrate(pool,migrationDirectory);
     if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool,environment.TENANT_ID,environment.ADMIN_SUBJECT??"exhibitos-owner",environment.ADMIN_PASSWORD);
     const blobs = new PostgresBlobStore(pool);
-    app=buildApp({pool,blobs,auth,publicationSource,freeze:{runtimeRoot:webRoot,signingKey,origin},oexWorker:true,lifecycle:{migrationDirectory,webRoot,blobRoot:"",storageCheck:async()=>{await pool.query({text:"SELECT object_key FROM hosted_objects LIMIT 1",query_timeout:2000});}}});
+    app=buildApp({pool,blobs,auth,publicationSource,freeze:{runtimeRoot:webRoot,signingKey,origin},oexWorker:true,lifecycle:{migrationDirectory,webRoot,blobRoot:"",storageCheck:()=>checkHostedStorage(pool)}});
     await app.listen({host:"127.0.0.1",port:3000});
     proxy=await createLocalProxy({webRoot,origin,apiPort:3000});
     await new Promise((resolve,reject)=>{proxy.once("error",reject);proxy.listen(port,"0.0.0.0",resolve);});
