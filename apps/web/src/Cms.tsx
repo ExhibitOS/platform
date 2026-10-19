@@ -324,8 +324,8 @@ export function Cms() {
         const retry = failures < 3 &&
           (!(error instanceof RequestError) || error.status >= 500);
         setPollNotice(retry
-          ? "파일 검사 상태를 확인하지 못했어요. 기존 파일과 요청은 유지하며 잠시 뒤 다시 확인해요."
-          : "파일 검사 상태를 확인하지 못했어요. 기존 파일과 요청은 유지돼요. 연결과 로그인 상태를 확인한 뒤 ‘파일 검사 다시 확인’을 눌러 주세요.");
+          ? "파일 검사 상태를 확인하지 못했어요. 파일을 다시 올리지 않고 잠시 뒤 다시 확인해요."
+          : "파일 검사 상태를 확인하지 못했어요. 연결과 로그인 상태를 확인한 뒤 ‘파일 검사 다시 확인’을 눌러 주세요.");
         if (retry) timer = setTimeout(() => void poll(), 1500);
       }
     };
