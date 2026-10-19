@@ -351,7 +351,7 @@ export function Cms() {
       notifyAuthChange();
       setExpired(false);
       clearWorkspace();
-      setNotice("로그인되었습니다. 로그인 계정과 작가 identity는 별개입니다.");
+      setNotice("로그인되었습니다. 로그인 계정과 작가 정보는 별개입니다.");
     });
   }
   async function openArtwork(id: string) {
@@ -633,10 +633,16 @@ export function Cms() {
           </button>
         </div>
       )}
-      {session && !expired && (
+      {session && (
         <details className="cms-account-settings">
           <summary>개인정보·계정 설정</summary>
-          <PrivacyPanel session={session} />
+          <p className="cms-note">
+            로그인 사용자: <code>{session.userId}</code> · 역할 {session.role} ·
+            기관 <code>{session.tenantId}</code>
+            <br />
+            작가 identity에는 별도의 이름·소개·ID가 있습니다.
+          </p>
+          {!expired && <PrivacyPanel session={session} />}
         </details>
       )}
       {!session ? (
@@ -689,12 +695,6 @@ export function Cms() {
         </form>
       ) : (
         <>
-          <p className="cms-note">
-            로그인 사용자: <code>{session.userId}</code> · 역할 {session.role} ·
-            기관 <code>{session.tenantId}</code>
-            <br />
-            작가 identity에는 별도의 이름·소개·ID가 있습니다.
-          </p>
           <nav className="cms-tabs" aria-label="CMS 메뉴">
             <button
               aria-pressed={tab === "artworks"}
