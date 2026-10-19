@@ -118,8 +118,30 @@ export function GeometryEditor({
   const [selection, setSelection] = useState<GeometrySelection | null>(
       candidate.rooms[0] ? { kind: "room", id: candidate.rooms[0].id } : null,
     ),
-    [error, setError] = useState(""),
+    [error, setErrorMessage] = useState(""),
     [notice, setNotice] = useState("");
+  const [errorDetails, setErrorDetails] = useState("");
+  const setError = (message: string) => {
+    setErrorMessage(message);
+    setErrorDetails("");
+  };
+  const reportError = (problem: unknown) => {
+    if (problem instanceof GeometryError) {
+      const messages: Record<string, string> = {
+        ROOM_HAS_SURFACES: "이 방에는 이미 벽이나 바닥이 있어요. 기존 공간 요소를 편집하거나 빈 방을 선택해 주세요.",
+        INVALID_GEOMETRY: "이 변경은 공간의 치수나 연결 규칙에 맞지 않아 적용하지 않았어요. 입력한 크기·위치와 연결된 공간 요소를 확인해 주세요.",
+        ELEMENT_NOT_FOUND: "선택한 공간 요소를 찾을 수 없어 변경하지 않았어요. 목록에서 대상을 다시 선택해 주세요.",
+        DOCUMENT_ID_CHANGED: "현재 전시와 다른 편집본이라 공간을 바꾸지 않았어요. 현재 작업의 편집 사본을 선택해 주세요.",
+        DOOR_CONNECTED: "다른 문과 연결돼 있어 삭제하지 않았어요. 문 연결을 먼저 해제해 주세요.",
+        DOOR_CONNECTION_INVALID: "이 두 문은 연결할 수 없어 변경하지 않았어요. 서로 다른 방의 아직 연결되지 않은 문을 선택해 주세요.",
+        NOT_A_DOOR: "선택한 대상은 문이 아니어서 연결을 변경하지 않았어요. 목록에서 문을 선택해 주세요.",
+      };
+      setError(messages[problem.code] ?? "공간 규칙을 확인하지 못해 변경을 적용하지 않았어요. 오류 상세 정보를 확인한 뒤 다시 시도해 주세요.");
+      setErrorDetails(`${problem.code}: ${JSON.stringify(problem.issues)}`);
+      return;
+    }
+    setError(problem instanceof Error ? problem.message : "편집을 적용하지 못했어요. 입력을 확인한 뒤 다시 시도해 주세요.");
+  };
   const [audience,setAudience]=useState(false);
   const [preview,setPreview]=useState<GeometryCommand|null>(null),[editMode,setEditMode]=useState<EditMode>("translate"),[view,setView]=useState("both");
   useEffect(()=>{if(editMode==='dimensions'&&selection?.kind!=='room')setEditMode('translate');},[selection,editMode]);
@@ -223,13 +245,7 @@ export function GeometryEditor({
     try {
       change(applyGeometryCommand(stateRef.current, command));
     } catch (problem) {
-      setError(
-        problem instanceof GeometryError
-          ? `${problem.code}: ${JSON.stringify(problem.issues)}`
-          : problem instanceof Error
-            ? problem.message
-            : "편집을 적용할 수 없습니다.",
-      );
+      reportError(problem);
     }
   };
   const work = (action: () => void) => {
@@ -237,9 +253,7 @@ export function GeometryEditor({
     try {
       action();
     } catch (problem) {
-      setError(
-        problem instanceof Error ? problem.message : "입력을 확인하세요.",
-      );
+      reportError(problem);
     }
   };
   const appearance = useCallback(
@@ -273,7 +287,7 @@ export function GeometryEditor({
   const previewDocument=useMemo(()=>preview ? applyGeometryCommand(state,preview).present:document,[state,preview,document]);
   const editor:EditorBridge={document,selection,mode:editMode,view,disabled,preview,
    select:setSelection,previewChange:command=>{if(command)applyGeometryCommand(stateRef.current,command);setPreview(command);},
-   commit:command=>{setPreview(null);if(!selection)return;try{const next=applyGeometryCommand(stateRef.current,command);if(JSON.stringify(selectedItem(stateRef.current.present,selection))!==JSON.stringify(selectedItem(next.present,selection)))execute(command);}catch(error){setError(error instanceof Error?error.message:'변경 내용을 확인해 주세요.');}},error:setError};
+   commit:command=>{setPreview(null);if(!selection)return;try{const next=applyGeometryCommand(stateRef.current,command);if(JSON.stringify(selectedItem(stateRef.current.present,selection))!==JSON.stringify(selectedItem(next.present,selection)))execute(command);}catch(error){reportError(error);}},error:setError};
   const selectedPose=selection&&selectedItem(previewDocument,selection) ? localPose(previewDocument,selection):null;
   const rotationAllowed=useMemo(()=>{if(selection?.kind==='opening')return false;try{return !selection||!alignedWall(document,selection);}catch{return false;}},[document,selection]);
   useEffect(()=>{if(editMode==='rotate'&&!rotationAllowed)setEditMode('translate');},[editMode,rotationAllowed]);
@@ -291,6 +305,10 @@ export function GeometryEditor({
       <p role="alert" data-testid="geometry-error">
         {error}
       </p>
+      {errorDetails && <details className="geometry-error-details">
+        <summary>오류 상세 정보</summary>
+        <pre>{errorDetails}</pre>
+      </details>}
       <p data-testid="geometry-status" className="cms-note">
         {notice}
       </p>

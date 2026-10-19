@@ -7,6 +7,9 @@ import "./artwork-detail.css";
 import { TimedTranscript } from "./TimedTranscript";
 import type { VoicePlayback } from "./viewer/audio";
 
+// UUID references are case-insensitive in the accepted public document.
+const sameId = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
+
 export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null }: {
   publication: PublicPublication; placementId: string; onClose(): void;
   renderPreview?: boolean; voicePlayback?: VoicePlayback | null;
@@ -16,13 +19,13 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   close.current = onClose; stop.current = onVoiceStop;
   const voiceGeneration = useRef(0);
   const [voiceStatus, setVoiceStatus] = useState("");
-  const placement = publication.exhibition.placements.find(p => p.id === placementId);
-  const artwork = publication.exhibition.artworks.find(a => a.revisionId === placement?.artworkRevisionId);
+  const placement = publication.exhibition.placements.find(p => sameId(p.id, placementId));
+  const artwork = publication.exhibition.artworks.find(a => sameId(a.revisionId, placement?.artworkRevisionId));
   const experience = useMemo(() => experienceFor(publication.exhibition), [publication]);
   const curation = useMemo(() => curationFor(publication.exhibition), [publication]);
-  const annotations = useMemo(() => publication.exhibition.annotations.filter(a => a.placementId === placementId), [publication, placementId]);
+  const annotations = useMemo(() => publication.exhibition.annotations.filter(a => sameId(a.placementId, placementId)), [publication, placementId]);
   const anchors = useMemo(() => annotations.flatMap(a => {
-    const point = experience.annotations.find(p => p.annotationId === a.id);
+    const point = experience.annotations.find(p => sameId(p.annotationId, a.id));
     return point ? [{ id: a.id, text: a.text, position: point.position }] : [];
   }), [annotations, experience]);
   useEffect(() => {
@@ -33,7 +36,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   if (!artwork) return <dialog ref={dialog} className="artwork-detail" aria-label="작품 상세 보기 오류" onCancel={e => { e.preventDefault(); close.current(); }}>
     <p>선택한 작품을 이 전시에서 확인할 수 없어요. 전시로 돌아가 다른 작품을 선택해 주세요.</p><button autoFocus onClick={onClose}>전시로 돌아가기</button>
   </dialog>;
-  const description = publication.exhibition.accessibility.artworkDescriptions.find(a => a.placementId === placementId)?.text ?? artwork.metadata.description;
+  const description = publication.exhibition.accessibility.artworkDescriptions.find(a => sameId(a.placementId, placementId))?.text ?? artwork.metadata.description;
   const created = artwork.provenance.events.find(event => event.type === "created");
   const creationYear = creationYearFor(artwork) ?? created?.at.slice(0, 4);
   return <dialog ref={dialog} className="artwork-detail" aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
@@ -49,22 +52,22 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
       <dt>라이선스</dt><dd>{artwork.rights.licenseId ?? artwork.rights.licenseText}</dd>
     </dl>
 
-    {experience.translations.filter(t => t.placementId === placementId).map(t => <section key={t.locale} aria-label={`번역 ${t.locale}`} lang={t.locale}>
+    {experience.translations.filter(t => sameId(t.placementId, placementId)).map(t => <section key={t.locale} aria-label={`번역 ${t.locale}`} lang={t.locale}>
       <h3>번역 ({t.locale}) · {t.title}</h3><p className="detail-text">{t.description}</p><p>작가 원문과 구분된 번역문입니다.</p>
     </section>)}
     <section aria-label="작가 음성 및 대본"><h3>작가 음성 · 원문 대본</h3>
       {!renderPreview && <p>글·목록 관람에서는 음성을 요청하지 않습니다. 아래 대본으로 같은 설명을 읽을 수 있습니다.</p>}
-      {experience.voices.filter(v => v.placementId === placementId).map(v => <div key={`${v.assetId}-${v.locale}`}>
+      {experience.voices.filter(v => sameId(v.placementId, placementId)).map(v => <div key={`${v.assetId}-${v.locale}`}>
         {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작가 음성 듣기 ({v.locale})</button>
         <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button></>}
         <p lang={v.locale} className="detail-text">원문 대본 ({v.locale}): {v.transcript}</p>
-        {curation.transcripts.filter(t=>t.placementId===placementId&&t.locale===v.locale).map(t=><TimedTranscript key={t.locale} transcript={t} assetId={v.assetId} playback={voicePlayback} />)}
+        {curation.transcripts.filter(t=>sameId(t.placementId,placementId)&&t.locale===v.locale).map(t=><TimedTranscript key={t.locale} transcript={t} assetId={v.assetId} playback={voicePlayback} />)}
       </div>)}
-      {!experience.voices.some(v => v.placementId === placementId) && <p>등록된 작가 음성이 없습니다. 위 설명을 읽어주세요.</p>}
+      {!experience.voices.some(v => sameId(v.placementId, placementId)) && <p>등록된 작가 음성이 없습니다. 위 설명을 읽어주세요.</p>}
       <p role="status">{voiceStatus}</p>
     </section>
     <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>{renderPreview ? "금색 점을 설명하는 글이에요. 정확한 위치 정보는 아래에서 확인할 수 있어요." : "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다."}</p>
-      <ol>{annotations.map(a => { const anchor = anchors.find(p => p.id === a.id); return <li key={a.id}>{a.text} {anchor ? <details className="artwork-annotation-position"><summary>작품 안의 위치</summary><span>작품 중심에서 ({anchor.position.join(", ")}) m</span></details> : <span> · 좌표 미등록</span>}{curation.annotationTranslations.filter(t=>t.annotationId===a.id).map(t=><p key={t.locale} lang={t.locale}>별도 주석 번역 ({t.locale}): {t.text}</p>)}</li>; })}</ol>
+      <ol>{annotations.map(a => { const anchor = anchors.find(p => sameId(p.id, a.id)); return <li key={a.id}>{a.text} {anchor ? <details className="artwork-annotation-position"><summary>작품 안의 위치</summary><span>작품 중심에서 ({anchor.position.join(", ")}) m</span></details> : <span> · 좌표 미등록</span>}{curation.annotationTranslations.filter(t=>sameId(t.annotationId,a.id)).map(t=><p key={t.locale} lang={t.locale}>별도 주석 번역 ({t.locale}): {t.text}</p>)}</li>; })}</ol>
     </section>
     <details className="artwork-detail-record"><summary>작품의 제작·전시 이력</summary>
     <section aria-label="공개 provenance"><h3>공개 제작·전시 이력</h3><ul>{artwork.provenance.events.map(event => <li key={event.id}>{event.at} · {event.type} · {event.description}</li>)}</ul>

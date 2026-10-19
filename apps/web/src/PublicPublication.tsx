@@ -176,7 +176,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
               <button disabled={guidedIndex === 0} onClick={() => setGuidedIndex(index => Math.max(0, (index ?? 0) - 1))}>이전 작품</button>
               <button disabled={guidedIndex === value.exhibition.placements.length - 1} onClick={() => setGuidedIndex(index => Math.min(value.exhibition.placements.length - 1, (index ?? 0) + 1))}>다음 작품</button>
               <button onClick={() => { setGuidedIndex(null); document.getElementById("publication-artworks")?.focus(); }}>전체 목록 보기</button>
-              <p role="status">{value.exhibition.artworks.find(a => a.revisionId === value.exhibition.placements[guidedIndex]?.artworkRevisionId)?.metadata.title}</p>
+              <p role="status">{value.exhibition.artworks.find(a => a.revisionId.toLowerCase() === value.exhibition.placements[guidedIndex]?.artworkRevisionId.toLowerCase())?.metadata.title}</p>
             </div>}
             <ul>
               {value.exhibition.placements.map((p, index) => {
