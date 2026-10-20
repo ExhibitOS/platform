@@ -2,9 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,randomUUID} from 'node:crypto';
-import {mkdtemp,mkdir,realpath,readFile,writeFile,readdir,lstat,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,mkdir,realpath,readFile,writeFile,readdir,lstat,rm,symlink,chmod,link,rename,chown} from 'node:fs/promises';
 import {join} from 'node:path';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {Readable} from 'node:stream';
 import {createRemoteRestoreEntry,readPrivateRestoreInput,postgresAccount,stopOwnedPostgres} from './remote-restore-entry.mjs';
 import {runRemoteBackup} from './remote-backup-worker.mjs';
@@ -48,5 +48,46 @@ test('legacy authority absence, disagreement and private fields in archived auth
  for(const mode of ['legacy-missing','mismatch','private-field','malformed']){const f=await fixture(mode==='legacy-missing'?undefined:mode==='private-field'?{...authority,privateKey:'forbidden'}:mode==='malformed'?{...authority,keyId:'0'.repeat(64)}:authority);try{
   if(mode==='mismatch')f.input.expectedAuthority={...authority,origin:'https://different.onrender.com'};else delete f.input.expectedAuthority;
   await assert.rejects(createRemoteRestoreEntry(f.input,f.dependencies),/^Error: REMOTE_RESTORE_ENTRY_FAILED$/);assert.deepEqual(f.counts(),{starts:0,stops:0,restores:0});assert.deepEqual(await sourceHashes(f.paths.source),f.before);assert.deepEqual(await readdir(f.paths.keyRoot),[]);
+ }finally{await f.close();}}
+});
+
+async function finder(f,bytes=6148){const path=join(f.paths.source,'.DS_Store');await writeFile(path,Buffer.alloc(bytes,0x53),{flag:'wx',mode:0o644});await chmod(path,0o644);return path;}
+test('optional bounded Finder metadata stays outside authenticated hosted restoration and receipts',async()=>{
+ for(const [bytes,provided]of [[0,false],[6148,true],[1048576,false]]){const f=await fixture(authority);try{
+  if(!provided)delete f.input.expectedAuthority;const path=await finder(f,bytes),before=await readFile(path);
+  const result=await createRemoteRestoreEntry(f.input,f.dependencies);assert.equal(result.files,2);assert.deepEqual(f.counts(),{starts:1,stops:1,restores:1});
+  assert.deepEqual(await readFile(path),before);assert.equal((await lstat(path)).mode&0o7777,0o644);assert.deepEqual(await sourceHashes(f.paths.source),f.before);
+  for(const dir of ['archive','authenticated','restored'])assert(!(await readdir(join(f.paths.work,dir))).includes('.DS_Store'));
+  assert(!JSON.stringify(result).includes('DS_Store'));assert.deepEqual(await readdir(f.paths.keyRoot),[]);
+ }finally{await f.close();}}
+});
+test('Finder exception rejects unsafe metadata and keeps closed source inventory',async()=>{
+ for(const kind of ['unknown','nested','symlink','hardlink','directory','fifo','oversized','executable','writable','special','public-directory']){const f=await fixture(authority);try{
+  let path;if(kind==='symlink'){path=join(f.paths.source,'.DS_Store');await symlink(join(f.paths.source,'manifest.gcm'),path);}
+  else if(kind==='hardlink'){path=join(f.paths.source,'.DS_Store');await link(join(f.paths.source,'manifest.gcm'),path);}
+  else if(kind==='directory')await mkdir(join(f.paths.source,'.DS_Store'));
+  else if(kind==='fifo'){const r=spawnSync('/usr/bin/mkfifo',[join(f.paths.source,'.DS_Store')]);assert.equal(r.status,0);}
+  else {path=await finder(f,kind==='oversized'?1048577:16);if(kind==='unknown')await writeFile(join(f.paths.source,'unknown'),'foreign');if(kind==='nested')await writeFile(join(f.paths.source,'files/.DS_Store'),'nested');if(kind==='executable')await chmod(path,0o744);if(kind==='writable')await chmod(path,0o664);if(kind==='special')await chmod(path,0o1644);if(kind==='public-directory')await chmod(f.paths.source,0o755);}
+  await assert.rejects(createRemoteRestoreEntry(f.input,f.dependencies),/^Error: REMOTE_RESTORE_ENTRY_FAILED$/);assert.deepEqual(f.counts(),{starts:0,stops:0,restores:0});assert.deepEqual(await readdir(f.paths.keyRoot),[]);
+ }finally{await f.close();}}
+});
+test('Finder metadata ownership follows the private source directory rather than root helper UID',{skip:process.getuid?.()!==0},async()=>{
+ for(const foreign of [false,true]){const f=await fixture(authority);try{const path=await finder(f);await chown(f.paths.source,12345,12345);await chown(join(f.paths.source,'files'),12345,12345);await chown(path,foreign?12346:12345,12345);
+  if(foreign){await assert.rejects(createRemoteRestoreEntry(f.input,f.dependencies),/^Error: REMOTE_RESTORE_ENTRY_FAILED$/);assert.equal(f.counts().starts,0);}else assert.equal((await createRemoteRestoreEntry(f.input,f.dependencies)).files,2);
+ }finally{await f.close();}}
+});
+test('Finder changes during verification or restoration cannot qualify success',async()=>{
+ for(const phase of ['verify','restore'])for(const kind of ['add','remove','replace','mutate','mode','unknown','nested']){const f=await fixture(authority);try{
+  const path=join(f.paths.source,'.DS_Store');if(kind!=='add')await finder(f);const run=f.dependencies.run;
+  f.dependencies.run=async(...args)=>{const result=await run(...args);if(args[0].operation===phase){
+   if(kind==='add')await finder(f);if(kind==='remove')await rm(path);if(kind==='replace'){await rename(path,join(f.root,'old-finder'));await finder(f);}if(kind==='mutate')await writeFile(path,'changed');if(kind==='mode')await chmod(path,0o600);if(kind==='unknown')await writeFile(join(f.paths.source,'unknown'),'new');if(kind==='nested')await writeFile(join(f.paths.source,'files/.DS_Store'),'new');
+  }return result;};
+  await assert.rejects(createRemoteRestoreEntry(f.input,f.dependencies),/^Error: REMOTE_RESTORE_ENTRY_FAILED$/);assert.deepEqual(f.counts(),phase==='verify'?{starts:0,stops:0,restores:0}:{starts:1,stops:1,restores:1});assert.deepEqual(await readdir(f.paths.keyRoot),[]);
+ }finally{await f.close();}}
+});
+test('Finder metadata cannot bypass crypto, backup identity, or authenticated authority admission',async()=>{
+ for(const kind of ['key','corruption','identity','sha','missing-authority','mismatch','private-authority']){const f=await fixture(kind==='missing-authority'?undefined:kind==='private-authority'?{...authority,privateKey:'forbidden'}:authority);try{
+  await finder(f);if(kind==='key')f.input.keyBase64=Buffer.alloc(32,42).toString('base64');if(kind==='corruption'){const path=join(f.paths.source,'files/00000000.gcm'),bytes=await readFile(path);bytes[bytes.length-1]^=1;await writeFile(path,bytes);}if(kind==='identity')f.input.backupId=randomUUID();if(kind==='sha')f.input.authenticatedManifestSha256='0'.repeat(64);if(kind==='missing-authority'||kind==='private-authority')delete f.input.expectedAuthority;if(kind==='mismatch')f.input.expectedAuthority={...authority,origin:'https://different.onrender.com'};
+  await assert.rejects(createRemoteRestoreEntry(f.input,f.dependencies),/^Error: REMOTE_RESTORE_ENTRY_FAILED$/);assert.deepEqual(f.counts(),{starts:0,stops:0,restores:0});assert.deepEqual(await readdir(f.paths.keyRoot),[]);
  }finally{await f.close();}}
 });
