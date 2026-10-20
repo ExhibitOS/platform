@@ -17,6 +17,31 @@ const pathsDefault={source:'/source',work:'/work',keyRoot:'/run/exhibitos'};
 const pgBin='/usr/lib/postgresql/18/bin/';
 async function directory(path){const s=await lstat(path);if(!s.isDirectory()||s.isSymbolicLink()||await realpath(path)!==path)fail();return s;}
 async function regular(path,max){const s=await lstat(path,{bigint:true});if(!s.isFile()||s.isSymbolicLink()||s.nlink!==1n||s.size<1n||s.size>BigInt(max))fail();return s;}
+// Source owner is established by the calling adapter. This entry runs as root
+// for its isolated PostgreSQL child, so metadata must match the mounted archive
+// directory owner, not the helper process UID. It is never authenticated data.
+const sourcePin=s=>['dev','ino','size','mode','uid','nlink','mtimeNs','ctimeNs'].map(k=>s[k]).join(':');
+async function sourceInventory(source){
+ const root=await lstat(source,{bigint:true});
+ if(!root.isDirectory()||root.isSymbolicLink()||(root.mode&0o077n)!==0n||await realpath(source)!==source)fail();
+ const names=(await readdir(source)).sort();
+ if(names.filter(n=>n!=='.DS_Store').join(',')!=='complete.json,files,manifest.gcm,writing.json')fail();
+ const fileRoot=join(source,'files'),fileStat=await lstat(fileRoot,{bigint:true});
+ if(!fileStat.isDirectory()||fileStat.isSymbolicLink()||(fileStat.mode&0o077n)!==0n||fileStat.uid!==root.uid||await realpath(fileRoot)!==fileRoot)fail();
+ const files=(await readdir(fileRoot)).sort();
+ if(files.length<1||files.length>100000||files.some(n=>!/^\d{8}\.gcm$/.test(n)))fail();
+ let metadata=null;
+ if(names.includes('.DS_Store')){
+  const path=join(source,'.DS_Store'),held=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+  try{const stat=await held.stat({bigint:true}),named=await lstat(path,{bigint:true});
+   if(!stat.isFile()||named.isSymbolicLink()||stat.nlink!==1n||stat.size>1048576n||(stat.mode&0o7133n)!==0n||stat.uid!==root.uid||sourcePin(stat)!==sourcePin(named))fail();
+   metadata=sourcePin(stat);
+  }finally{await held.close();}
+ }
+ if(sourcePin(root)!==sourcePin(await lstat(source,{bigint:true}))||sourcePin(fileStat)!==sourcePin(await lstat(fileRoot,{bigint:true})))fail();
+ return {files,pin:JSON.stringify([sourcePin(root),sourcePin(fileStat),names,files,metadata])};
+}
+async function preserveSource(source,before){if((await sourceInventory(source)).pin!==before.pin)fail();}
 async function readBounded(path,max){const before=await regular(path,max),f=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);try{if(!same(before,await f.stat({bigint:true})))fail();const bytes=Buffer.alloc(Number(before.size));let offset=0;while(offset<bytes.length){const r=await f.read(bytes,offset,Math.min(65536,bytes.length-offset),offset);if(!r.bytesRead)fail();offset+=r.bytesRead;}const extra=Buffer.alloc(1);if((await f.read(extra,0,1,offset)).bytesRead||BigInt(offset)!==before.size||!same(before,await f.stat({bigint:true}))||!same(before,await regular(path,max)))fail();return bytes;}finally{await f.close();}}
 async function copyCipher(source,target,max,signal){
  const before=await regular(source,max),input=await open(source,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);let output;
@@ -70,9 +95,9 @@ export async function createRemoteRestoreEntry(input,dependencies={}){
   const checkBudget=async()=>{if(monitoring)return;monitoring=true;try{if(await usage(paths.work)>input.jobBudgetBytes)interrupt();}catch{interrupt();}finally{monitoring=false;}};monitor=setInterval(()=>{void checkBudget();},1000);
   keyPath=join(paths.keyRoot,'backup.key');keyStat=await privateWrite(keyPath,key);
   const archive=join(paths.work,'archive');await mkdir(archive,{mode:0o700});await mkdir(join(archive,'files'),{mode:0o700});
-  if((await readdir(paths.source)).sort().join(',')!=='complete.json,files,manifest.gcm,writing.json')fail();await directory(join(paths.source,'files'));const files=(await readdir(join(paths.source,'files'))).sort();if(files.length<1||files.length>100000||files.some(n=>!/^\d{8}\.gcm$/.test(n)))fail();let copied=0;
+  const source=await sourceInventory(paths.source),files=source.files;let copied=0;
   for(const name of ['writing.json','manifest.gcm',...files.map(n=>'files/'+n),'complete.json']){copied+=await copyCipher(join(paths.source,name),join(archive,name),input.jobBudgetBytes,signal);if(copied*3>input.jobBudgetBytes)fail();}
-  signal.throwIfAborted();const authenticated=join(paths.work,'authenticated'),verified=await run({operation:'verify',source:archive,destination:authenticated,keyFile:keyPath});
+  await preserveSource(paths.source,source);signal.throwIfAborted();const authenticated=join(paths.work,'authenticated'),verified=await run({operation:'verify',source:archive,destination:authenticated,keyFile:keyPath});
   const manifestBytes=await readBounded(join(authenticated,'manifest.json'),16*1024*1024),manifest=JSON.parse(manifestBytes.toString());if(verified?.operation!=='verified'||!Number.isSafeInteger(verified.files)||verified.files!==files.length||manifest.id!==input.backupId||sha(manifestBytes)!==input.authenticatedManifestSha256)fail();
   // Only authenticated configuration bytes can supply the preserved issuer.
   // Never infer trust from rows inside the candidate database.
@@ -82,11 +107,11 @@ export async function createRemoteRestoreEntry(input,dependencies={}){
    const bytes=await readBounded(join(authenticated,record.path.slice(6)+'.plain'),4096);if(bytes.length!==record.bytes||sha(bytes)!==record.sha256)fail();const archived=validatePublicAuthority(JSON.parse(bytes.toString('utf8')));
    if(authority&&['origin','keyId','publicKey'].some(k=>authority[k]!==archived[k]))fail();authority=archived;
   }
-  if(!authority)fail();
+  if(!authority)fail();await preserveSource(paths.source,source);
   signal.throwIfAborted();await checkBudget();signal.throwIfAborted();server=await start({work:paths.work,keyRoot:paths.keyRoot,signal});signal.throwIfAborted();
   const result=await run({operation:'restore',source:archive,destination:join(paths.work,'restored'),keyFile:keyPath},{withIsolatedDestination:async callback=>{signal.throwIfAborted();return callback({url:server.url,role:'native-isolated-loopback',localProfile:{id:input.jobId,isolationVerified:true,port:55432},expectedAuthority:authority});}});
   signal.throwIfAborted();await checkBudget();signal.throwIfAborted();const restored=await readBounded(join(paths.work,'restored','manifest.json'),16*1024*1024);if(result?.operation!=='restored-and-verified'||sha(restored)!==input.authenticatedManifestSha256)fail();
-  await stopServer();server=undefined;signal.throwIfAborted();return {operation:'restored-and-verified',backupId:input.backupId,authenticatedManifestSha256:input.authenticatedManifestSha256,files:verified.files};
+  await stopServer();server=undefined;signal.throwIfAborted();await preserveSource(paths.source,source);return {operation:'restored-and-verified',backupId:input.backupId,authenticatedManifestSha256:input.authenticatedManifestSha256,files:verified.files};
  }catch{fail();}finally{clearTimeout(timer);clearInterval(monitor);process.removeListener('SIGTERM',interrupt);process.removeListener('SIGINT',interrupt);dependencies.signal?.removeEventListener('abort',interrupt);try{await stopServer();}catch{fail();}finally{key?.fill(0);await removeOwned(keyPath,keyStat);}}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
