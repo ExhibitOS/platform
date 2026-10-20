@@ -33,7 +33,7 @@ privately, and supplied through the environment file; never put them in command
 arguments, artifacts, logs, or version control. Preserve this configuration when
 restarting or upgrading an existing installation. There is no default password.
 
-On startup the adapter applies and checks the ten public SQL migrations,
+On startup the adapter applies and checks the configured public SQL migrations,
 performs the existing one-time admin bootstrap only if the database has no
 credentials, and preserves a generated Ed25519 signing key under `/data/config`.
 The authenticated API binds to container loopback. A same-container streaming

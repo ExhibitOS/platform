@@ -68,7 +68,7 @@ set +a
 | --- | --- |
 | `DATABASE_URL` | 원본 또는 복원 대상 PostgreSQL 연결 URL. private 환경 값만 허용 |
 | `BLOB_ROOT` | filesystem backend의 실제 private 객체 root |
-| `BACKUP_BLOB_BACKEND` | `filesystem`(기본) 또는 `s3` |
+| `BACKUP_BLOB_BACKEND` | `filesystem`(기본), `s3` 또는 `postgres`. `postgres`는 해당 `DATABASE_URL`의 `hosted_objects`를 사용하며 `BLOB_ROOT`는 filesystem에서만 사용 |
 | `S3_BUCKET` | 이미 준비된 전용 S3 bucket 이름 |
 | `S3_ENDPOINT` | 이미 승인된 S3-compatible endpoint. AWS S3는 생략 가능 |
 | `AWS_REGION` | 기본 `us-east-1` |
