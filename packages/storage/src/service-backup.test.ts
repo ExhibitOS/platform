@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {test,expect} from 'vitest';
+import {test,expect,vi} from 'vitest';
 import {randomBytes,createHash} from 'node:crypto';
-import {mkdtemp,mkdir,readFile,writeFile,access,rename,stat,chmod,symlink,link,realpath} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,access,rename,stat,chmod,symlink,link,realpath,unlink} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Pool} from 'pg';
 import {FileBlobStore} from './blobs.js';
 import {createServiceBackup,verifyServiceBackup,restoreServiceBackup} from './service-backup.js';
+import * as encryptedFiles from './encrypted-files.js';
 import type {ServiceInventory} from './service-inventory.js';
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 // DB adapter is isolated here; this test exercises actual archive encryption,
@@ -48,6 +51,51 @@ test('draft2 streamed deployment artifact authenticates and stages after source 
 test('archives without deployment files keep draft1 compatibility',async()=>{
  const f=await deploymentFixture();await createServiceBackup(f.options);
  const result=await verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'verify')});expect(result.manifest.schemaVersion).toBe('1.0.0-draft.1');
+});
+test.skipIf(typeof process.getuid!=='function').each([0,6148,1048576])('bounded Finder metadata (%i bytes) stays outside authenticated and restored content',async(bytes)=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);
+ const path=join(f.options.destination,'.DS_Store'),metadata=Buffer.alloc(bytes,0x53);await writeFile(path,metadata,{mode:0o644,flag:'wx'});await chmod(path,0o644);
+ const verified=await verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-verify')});
+ expect(verified.files).toHaveLength(1);expect(verified.manifest.files.map(file=>file.path)).toEqual(['files/00000000.gcm']);expect(verified.receipt.objectCount).toBe(0);
+ await restoreServiceBackup({pool:f.makePool('789'),store:f.store,source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-restore'),snapshot:async()=>f.inventory,restore:async()=>{}});
+ await expect(access(join(f.root,'finder-restore','.DS_Store'))).rejects.toThrow();expect(await readFile(path)).toEqual(metadata);expect((await stat(path)).mode&0o777).toBe(0o644);
+});
+test.skipIf(typeof process.getuid!=='function').each(['unknown','unknown-with-finder','nested','symlink','hardlink','directory','fifo','oversized','executable','writable','special'])('Finder exception rejects %s archive entries',async(kind)=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);const path=join(f.options.destination,'.DS_Store');
+ if(kind==='unknown'||kind==='unknown-with-finder')await writeFile(join(f.options.destination,'.unexpected'),Buffer.from('unknown'),{mode:0o600});
+ if(kind==='nested')await writeFile(join(f.options.destination,'files/.DS_Store'),Buffer.from('nested'),{mode:0o600});
+ if(kind==='symlink')await symlink('manifest.gcm',path);
+ else if(kind==='hardlink')await link(join(f.options.destination,'manifest.gcm'),path);
+ else if(kind==='directory')await mkdir(path,{mode:0o700});
+ else if(kind==='fifo')await promisify(execFile)('mkfifo',[path]);
+ else if(!['unknown','nested'].includes(kind)){
+  await writeFile(path,Buffer.alloc(kind==='oversized'?1048577:6148,0x53),{mode:0o644,flag:'wx'});
+  await chmod(path,kind==='executable'?0o744:kind==='writable'?0o664:kind==='special'?0o1644:0o644);
+ }
+ await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-refused')})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+});
+test.skipIf(typeof process.getuid!=='function').each(['add','remove','replace','mutate','mode','unknown'])('Finder metadata %s during decryption refuses verification completion',async(kind)=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);const path=join(f.options.destination,'.DS_Store');
+ if(kind!=='add')await writeFile(path,Buffer.alloc(6148,0x53),{mode:0o644,flag:'wx'});
+ const decrypt=encryptedFiles.decryptBackupFile;
+ const spy=vi.spyOn(encryptedFiles,'decryptBackupFile').mockImplementationOnce(async(...args)=>{
+  const result=await decrypt(...args);
+  if(kind==='remove')await unlink(path);
+  else if(kind==='replace'){await rename(path,join(f.root,'preserved-finder-metadata'));await writeFile(path,Buffer.alloc(6148,0x53),{mode:0o644,flag:'wx'});}
+  else if(kind==='mode')await chmod(path,0o600);
+  else if(kind==='unknown')await writeFile(join(f.options.destination,'.unexpected'),Buffer.from('unknown'),{mode:0o600});
+  else await writeFile(path,Buffer.alloc(6148,kind==='add'?0x53:0x54),{mode:0o644,flag:kind==='add'?'wx':'w'});
+  return result;
+ });
+ try{await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-churn')})).rejects.toThrow('BACKUP_VERIFY_FAILED');expect(spy).toHaveBeenCalled();}
+ finally{spy.mockRestore();}
+});
+test.skipIf(typeof process.getuid!=='function')('Finder metadata does not bypass wrong-key or ciphertext authentication',async()=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);const path=join(f.options.destination,'.DS_Store');await writeFile(path,Buffer.alloc(6148,0x53),{mode:0o644,flag:'wx'});
+ await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:randomBytes(32),destination:join(f.root,'finder-wrong-key')})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ const cipher=join(f.options.destination,'files/00000000.gcm'),bytes=await readFile(cipher);bytes[bytes.length-1]=bytes[bytes.length-1]!^1;await writeFile(cipher,bytes);
+ await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-corruption')})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ expect(await readFile(path)).toEqual(Buffer.alloc(6148,0x53));
 });
 test.each(['wrong-hash','wrong-size','oversized','public-mode','symlink','hardlink','traversal','too-many'])('deployment input %s cannot publish completion',async(kind)=>{
  const f=await deploymentFixture();let name='images/platform.tar';const file={...f.file};

@@ -24,6 +24,21 @@ async function privateDirectory(path:string,create:boolean){
  return await realpath(target);
 }
 async function secretRead(path:string,max=16*1024*1024){const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);try{const stat=await file.stat();if(!stat.isFile()||stat.nlink!==1||stat.size<1||stat.size>max||(stat.mode&0o077)!==0)throw Error('BACKUP_FILE_INVALID');return await file.readFile();}finally{await file.close();}}
+// Finder metadata is not authenticated backup content. Only this bounded,
+// ordinary top-level file may accompany the closed archive inventory; retain
+// its identity for this verification, without copying it into restored data.
+async function archiveInventory(source:string):Promise<string|null>{
+ const contents=(await readdir(source)).sort();
+ if(inventoryCanonical(contents.filter(name=>name!=='.DS_Store'))!==inventoryCanonical(['complete.json','files','manifest.gcm','writing.json']))throw Error('BACKUP_ARCHIVE_INVENTORY');
+ if(!contents.includes('.DS_Store'))return null;
+ const path=join(source,'.DS_Store'),file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+ try{
+  const held=await file.stat({bigint:true}),named=await lstat(path,{bigint:true});
+  const pin=(stat:typeof held)=>[stat.dev,stat.ino,stat.size,stat.mode,stat.uid,stat.nlink,stat.mtimeNs,stat.ctimeNs].join(':');
+  if(!held.isFile()||named.isSymbolicLink()||held.nlink!==1n||held.size>1048576n||(held.mode&0o7133n)!==0n||typeof process.getuid!=='function'||held.uid!==BigInt(process.getuid())||pin(held)!==pin(named))throw Error('BACKUP_ARCHIVE_INVENTORY');
+  return pin(held);
+ }finally{await file.close();}
+}
 async function jsonExclusive(path:string,value:unknown){const file=await open(path,'wx',0o600);try{await file.writeFile(inventoryCanonical(value)+'\n');await file.sync();}finally{await file.close();}}
 async function supportedDatabase(c:PoolClient){const custom=(await c.query("SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'")).rows;if(custom.length)throw Error('BACKUP_UNSUPPORTED_SCHEMA');}
 async function identity(c:PoolClient):Promise<BackupManifest['sourceIdentity']>{
@@ -76,15 +91,16 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
 export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt}>{
  const source=await privateDirectory(options.source,false),destination=await privateDirectory(options.destination,true);
  try{
+  const finderMetadata=await archiveInventory(source);
   const receipt=JSON.parse((await secretRead(join(source,'complete.json'),4096)).toString()) as BackupReceipt;
   if(receipt.status!=='complete'||typeof receipt.id!=='string'||!/^[-a-f0-9]{36}$/.test(receipt.id)||!hex(receipt.manifestSha256)||!Number.isSafeInteger(receipt.objectCount)||receipt.objectCount<0)throw Error('BACKUP_RECEIPT_INVALID');
-  const contents=(await readdir(source)).sort();if(inventoryCanonical(contents)!==inventoryCanonical(['complete.json','files','manifest.gcm','writing.json']))throw Error('BACKUP_ARCHIVE_INVENTORY');
   if((await hashBackupFile(join(source,'manifest.gcm'))).sha256!==receipt.manifestSha256)throw Error('BACKUP_MANIFEST_INTEGRITY');
   await decryptBackupFile(join(source,'manifest.gcm'),join(destination,'manifest.json'),options.encryptionKey,receipt.id+':manifest');
   const manifest=JSON.parse((await secretRead(join(destination,'manifest.json'))).toString()) as BackupManifest;validateManifest(manifest);
   if(manifest.id!==receipt.id||manifest.inventory.objects.length!==receipt.objectCount)throw Error('BACKUP_RECEIPT_INVALID');
   const fileDirectory=await privateDirectory(join(source,'files'),false),actual=(await readdir(fileDirectory)).sort(),expected=manifest.files.map(f=>f.path.slice(6)).sort();if(inventoryCanonical(actual)!==inventoryCanonical(expected))throw Error('BACKUP_FILE_INVENTORY');
   const files=[];for(const f of manifest.files){const plainPath=join(destination,f.path.slice(6)+'.plain');await decryptBackupFile(join(fileDirectory,f.path.slice(6)),plainPath,options.encryptionKey,manifest.id+':'+f.path,f);files.push({...f,plainPath});}
+  if(await archiveInventory(source)!==finderMetadata)throw Error('BACKUP_ARCHIVE_INVENTORY');
   return {manifest,files,receipt};
  }catch{await jsonExclusive(join(destination,'failed.json'),{status:'failed'}).catch(()=>{});throw Error('BACKUP_VERIFY_FAILED');}
 }
