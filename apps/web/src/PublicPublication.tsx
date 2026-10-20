@@ -2,6 +2,7 @@ import { ViewerMark } from "./branding/ViewerMark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
+import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
 import { GuidedRoutes, type GuideRequest } from "./GuidedRoutes";
 import type { AudioApi, VoicePlayback } from "./viewer/audio";
@@ -19,6 +20,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     [loading, setLoading] = useState(false);
   const generation = useRef(0);
   const [mode, setMode] = useState<"text" | "3d">("text");
+  const [viewerUnavailable, setViewerUnavailable] = useState(false);
   const [guideRequest,setGuideRequest]=useState<GuideRequest>();
   const [voicePlayback,setVoicePlayback]=useState<VoicePlayback|null>(null);
   const voiceSubscription=useRef<(()=>void)|null>(null);
@@ -143,9 +145,14 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <h1>{value.exhibition.title}</h1>
           {presentationFor(value.exhibition).credits && <p>{presentationFor(value.exhibition).credits}</p>}
           <div className="publication-entry-actions">
-            {mode === "text" && <button className="publication-enter" ref={entryButton} onClick={() => { modeChanged.current = true; setMode("3d"); }}>관람 시작</button>}
+            {mode === "text" && <button className="publication-enter" ref={entryButton} onClick={() => {
+              // A rejected React.lazy import stays rejected in this page instance.
+              if (viewerUnavailable) { window.location.reload(); return; }
+              modeChanged.current = true; setMode("3d");
+            }}>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : "관람 시작"}</button>}
             <a href="#publication-artworks" onClick={() => document.getElementById("publication-artworks")?.focus()}>작품 목록 보기</a>
           </div>
+          {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 시작 안내</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           <section aria-label="관람 방식과 접근성 설정">
@@ -159,15 +166,17 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
               <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
             </>}
           </section>
-          {mode === "3d" && <Suspense fallback={<p role="status">전시를 준비하고 있어요. 기다리는 동안 작품 목록을 볼 수 있어요.</p>}>
+          {mode === "3d" && <ViewerBoundary focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={() => { modeChanged.current = true; setMode("text"); }}>
+            <Suspense fallback={<p role="status">전시를 준비하고 있어요. 기다리는 동안 작품 목록을 볼 수 있어요.</p>}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
               suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
-          </Suspense>}
+            </Suspense>
+          </ViewerBoundary>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
-            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d"} voicePlayback={voicePlayback} />}
+            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => setOverview(null)} />}
-          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !selectedId && !overview ? (routeId,index)=>{stopVoice();setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
+          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
             <p>아래 순서는 공개된 작품 목록의 순서입니다. 작가가 지정한 공간 이동 경로가 아닙니다.</p>
