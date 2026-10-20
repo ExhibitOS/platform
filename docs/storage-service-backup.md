@@ -158,6 +158,14 @@ node scripts/service-backup.mjs verify \
 사용하지 않습니다. 검증은 byte integrity 확인이며, 실제 새 DB/object 환경
 복원을 대체하지 않습니다.
 
+검증 실패 시 새 비공개 작업 공간의 `failed.json`에는 가능한 경우 `status`와
+고정된 `phase`만 mode0600으로 남습니다. 단계는 `archive-initial`, `receipt`,
+`manifest-cipher-check`, `manifest-decrypt`, `manifest-validate`, `file-inventory`,
+`files-decrypt`, `archive-final` 중 하나입니다. 이 값은 실패한 호출의 범위이며
+암호 인증 실패의 확정 원인이나 이전 단계 전체의 성공 증거가 아닙니다.
+예외 문구·경로·파일명·내용·키는 기록하지 않으며 외부 오류는 기존
+`BACKUP_VERIFY_FAILED`를 유지합니다. 진단 기록 실패도 성공으로 바꾸지 않습니다.
+
 ## 새 환경 복원과 무결성 확인
 
 1. 원본 source를 보존한 채 **새 PostgreSQL database**와 **새 빈 private

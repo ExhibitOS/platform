@@ -87,14 +87,27 @@ test.skipIf(typeof process.getuid!=='function').each(['add','remove','replace','
   else await writeFile(path,Buffer.alloc(6148,kind==='add'?0x53:0x54),{mode:0o644,flag:kind==='add'?'wx':'w'});
   return result;
  });
- try{await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-churn')})).rejects.toThrow('BACKUP_VERIFY_FAILED');expect(spy).toHaveBeenCalled();}
+ const destination=join(f.root,'finder-churn');
+ try{
+  await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination})).rejects.toThrow('BACKUP_VERIFY_FAILED');expect(spy).toHaveBeenCalled();
+  expect(JSON.parse(await readFile(join(destination,'failed.json'),'utf8'))).toEqual({status:'failed',phase:'archive-final'});
+  expect((await stat(join(destination,'failed.json'))).mode&0o777).toBe(0o600);
+  const manifest=JSON.parse(await readFile(join(destination,'manifest.json'),'utf8'));
+  for(const file of manifest.files){
+   const bytes=await readFile(join(destination,file.path.slice(6)+'.plain'));
+   expect(bytes.length).toBe(file.bytes);expect(createHash('sha256').update(bytes).digest('hex')).toBe(file.sha256);
+  }
+  await access(join(f.options.destination,'complete.json'));
+ }
  finally{spy.mockRestore();}
 });
 test.skipIf(typeof process.getuid!=='function')('Finder metadata does not bypass wrong-key or ciphertext authentication',async()=>{
  const f=await deploymentFixture();await createServiceBackup(f.options);const path=join(f.options.destination,'.DS_Store');await writeFile(path,Buffer.alloc(6148,0x53),{mode:0o644,flag:'wx'});
  await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:randomBytes(32),destination:join(f.root,'finder-wrong-key')})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ expect(JSON.parse(await readFile(join(f.root,'finder-wrong-key/failed.json'),'utf8'))).toEqual({status:'failed',phase:'manifest-decrypt'});
  const cipher=join(f.options.destination,'files/00000000.gcm'),bytes=await readFile(cipher);bytes[bytes.length-1]=bytes[bytes.length-1]!^1;await writeFile(cipher,bytes);
  await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'finder-corruption')})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ expect(JSON.parse(await readFile(join(f.root,'finder-corruption/failed.json'),'utf8'))).toEqual({status:'failed',phase:'files-decrypt'});
  expect(await readFile(path)).toEqual(Buffer.alloc(6148,0x53));
 });
 test.each(['wrong-hash','wrong-size','oversized','public-mode','symlink','hardlink','traversal','too-many'])('deployment input %s cannot publish completion',async(kind)=>{
