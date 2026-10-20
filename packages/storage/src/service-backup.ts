@@ -90,19 +90,29 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
 }
 export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt}>{
  const source=await privateDirectory(options.source,false),destination=await privateDirectory(options.destination,true);
+ // The attempted boundary is diagnostic only; it does not prove authentication
+ // or distinguish crypto errors from I/O, sync or close failures within a call.
+ let phase:'archive-initial'|'receipt'|'manifest-cipher-check'|'manifest-decrypt'|'manifest-validate'|'file-inventory'|'files-decrypt'|'archive-final'='archive-initial';
  try{
   const finderMetadata=await archiveInventory(source);
+  phase='receipt';
   const receipt=JSON.parse((await secretRead(join(source,'complete.json'),4096)).toString()) as BackupReceipt;
   if(receipt.status!=='complete'||typeof receipt.id!=='string'||!/^[-a-f0-9]{36}$/.test(receipt.id)||!hex(receipt.manifestSha256)||!Number.isSafeInteger(receipt.objectCount)||receipt.objectCount<0)throw Error('BACKUP_RECEIPT_INVALID');
+  phase='manifest-cipher-check';
   if((await hashBackupFile(join(source,'manifest.gcm'))).sha256!==receipt.manifestSha256)throw Error('BACKUP_MANIFEST_INTEGRITY');
+  phase='manifest-decrypt';
   await decryptBackupFile(join(source,'manifest.gcm'),join(destination,'manifest.json'),options.encryptionKey,receipt.id+':manifest');
+  phase='manifest-validate';
   const manifest=JSON.parse((await secretRead(join(destination,'manifest.json'))).toString()) as BackupManifest;validateManifest(manifest);
   if(manifest.id!==receipt.id||manifest.inventory.objects.length!==receipt.objectCount)throw Error('BACKUP_RECEIPT_INVALID');
+  phase='file-inventory';
   const fileDirectory=await privateDirectory(join(source,'files'),false),actual=(await readdir(fileDirectory)).sort(),expected=manifest.files.map(f=>f.path.slice(6)).sort();if(inventoryCanonical(actual)!==inventoryCanonical(expected))throw Error('BACKUP_FILE_INVENTORY');
+  phase='files-decrypt';
   const files=[];for(const f of manifest.files){const plainPath=join(destination,f.path.slice(6)+'.plain');await decryptBackupFile(join(fileDirectory,f.path.slice(6)),plainPath,options.encryptionKey,manifest.id+':'+f.path,f);files.push({...f,plainPath});}
+  phase='archive-final';
   if(await archiveInventory(source)!==finderMetadata)throw Error('BACKUP_ARCHIVE_INVENTORY');
   return {manifest,files,receipt};
- }catch{await jsonExclusive(join(destination,'failed.json'),{status:'failed'}).catch(()=>{});throw Error('BACKUP_VERIFY_FAILED');}
+ }catch{await jsonExclusive(join(destination,'failed.json'),{status:'failed',phase}).catch(()=>{});throw Error('BACKUP_VERIFY_FAILED');}
 }
 /** Fresh isolated target only. A failed candidate is left for inspection, never activated. */
 export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;restore:(path:string)=>Promise<void>}):Promise<BackupReceipt&{inventory:ServiceInventory}>{
