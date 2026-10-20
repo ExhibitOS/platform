@@ -14,13 +14,24 @@ unsupported protocol or platform version and inspect all component states.
 
 Database readiness compares the complete applied migration-name/SHA-256 inventory
 with the configured migration bytes. Web readiness requires a readable nonempty
-index.html under a real directory. Storage readiness requires an accessible
-read/write/searchable real directory. Symlink roots and index files fail closed.
+index.html under a real directory. The default filesystem storage probe requires
+an accessible read/write/searchable real directory, binds its device/inode identity
+through an open directory handle, and checks that available filesystem blocks are
+positive. It creates no probe object. Symlink roots and index files fail closed.
+
+A runtime can supply its own `storageCheck` instead. The optional
+[Pages/Render runtime](pages-render.md) checks its Postgres `hosted_objects` table
+with a small INSERT and byte/hash-checked SELECT inside a transaction, then
+ROLLBACK. This performs database/WAL work but commits no durable object; it does
+not use the ephemeral disk as artwork storage. Static-only Pages needs no Render
+runtime or database.
+
 Only status values leave the endpoint; database errors, paths, credentials and
 user rows are excluded. The runtime must bound pool connection acquisition;
 the migration inventory query also has a two-second client timeout.
 
-These checks do not certify throughput, quotas, device capabilities, external
-backups or realtime availability. The local runtime currently uses the Platform
-and PostgreSQL Compose services; realtime is a later implementation. This draft
-contract does not change authentication, asset rights or existing API health.
+These checks do not guarantee free inodes, quotas, that a larger upload will fit,
+throughput, device capabilities, external backups or realtime availability.
+The local runtime currently uses the Platform and PostgreSQL Compose services;
+these probes do not qualify realtime availability. This draft contract does not
+change authentication, asset rights or existing API health.
