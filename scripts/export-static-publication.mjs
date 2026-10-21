@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { fixtureURL,readOex,revisionHash,validateArtworkFiles,validateExhibition } from "@exhibitos/spec";
 import { checkOexProfile } from "../apps/api/dist/oex.js";
 const SAMPLE_REVISION="4a561248e1f166dfb3ca2ea4cfb692127e1e533440ce0c8a7aba1df069b58f00";
+const WALKING_SAMPLE_REVISION="fa261e9791bc482f92c30cf4aca325a9e3a9fc6609e67d3e12ae81d00c148afa";
 const MAX=25*1024*1024,COUNT=20000,sha=b=>createHash("sha256").update(b).digest("hex");
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const fail=(code,path)=>{throw Error(`${code}: ${path}`);};
@@ -21,7 +22,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  const raw=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString("utf8"));
  if(raw.publication?.id!==publicationId||raw.publication?.status!=="published"||!Number.isFinite(Date.parse(raw.publication.publishedAt)))fail("STATIC_NOT_PUBLISHED",publicationId);
  if(revisionHash(raw.exhibition)!==raw.publication.revisionSha256)fail("STATIC_REVISION",publicationId);
- if(studioDemo&&(raw.publication.revisionSha256!==SAMPLE_REVISION||[...raw.exhibition.artworks,...raw.exhibition.mediaAssets].some(a=>a.rights.licenseId!=="CC0-1.0")))fail("STATIC_DEMO_SAMPLE",publicationId);
+ if(studioDemo&&(![SAMPLE_REVISION,WALKING_SAMPLE_REVISION].includes(raw.publication.revisionSha256)||[...raw.exhibition.artworks,...raw.exhibition.mediaAssets].some(a=>a.rights.licenseId!=="CC0-1.0")))fail("STATIC_DEMO_SAMPLE",publicationId);
  const inventory=[...raw.exhibition.artworks.flatMap(a=>a.assets),...raw.exhibition.mediaAssets],byId=new Map();
  for(const asset of inventory){if(!safeStaticPath(asset.path))fail("STATIC_ASSET_PATH",asset.path);const prior=byId.get(asset.id);if(prior&&JSON.stringify(prior)!==JSON.stringify(asset))fail("STATIC_ASSET_ALIAS",asset.path);byId.set(asset.id,asset);}
  checkOexProfile(raw.exhibition);if(!validateExhibition(raw.exhibition,{publicationTime:new Date().toISOString()}).valid)fail("STATIC_DISPLAY_RIGHTS","publication.json");
@@ -54,9 +55,17 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
 /** The demo uses only the existing redistributable fixture; no server or authoring approval is fabricated. */
 export async function exportStaticStudioDemo({runtimeRoot,output}){
  const decoded=await readOex(await readFile(fixtureURL("oex/v1/examples/synthetic-media.oex")));
- const id=decoded.exhibition.id,revisionSha256=revisionHash(decoded.exhibition);
- if(revisionSha256!==SAMPLE_REVISION)fail("STATIC_DEMO_SAMPLE",id);
- const raw={publication:{id,revisionSha256,publishedAt:new Date().toISOString(),status:"published"},exhibition:decoded.exhibition,assets:decoded.manifest.assets.map(a=>({assetId:a.id,mime:a.mime,url:`/api/v1/publications/${id}/assets/${a.id}`}))};
+ const id=decoded.exhibition.id;
+ if(revisionHash(decoded.exhibition)!==SAMPLE_REVISION)fail("STATIC_DEMO_SAMPLE",id);
+ // The reference OEX is unchanged. Give its demo copy an authored, interior start
+ // instead of attempting to walk from the stationary overview camera.
+ const exhibition=structuredClone(decoded.exhibition);
+ exhibition.extensions={...exhibition.extensions,"org.exhibitos.studio/presentation":{
+  version:1,startCamera:{roomId:exhibition.rooms[0].id,position:[0,1.6,2],target:[0,1.6,0],fov:60},viewpoints:[],credits:"",
+ }};
+ const revisionSha256=revisionHash(exhibition);
+ if(revisionSha256!==WALKING_SAMPLE_REVISION)fail("STATIC_DEMO_SAMPLE",id);
+ const raw={publication:{id,revisionSha256,publishedAt:new Date().toISOString(),status:"published"},exhibition,assets:decoded.manifest.assets.map(a=>({assetId:a.id,mime:a.mime,url:`/api/v1/publications/${id}/assets/${a.id}`}))};
  return exportStaticPublication({origin:"http://127.0.0.1",publicationId:id,runtimeRoot,output,studioDemo:true,fetcher:async input=>{
   const path=new URL(input).pathname;
   if(path===`/api/v1/publications/${id}`)return Response.json(raw);
