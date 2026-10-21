@@ -162,10 +162,13 @@ node scripts/service-backup.mjs verify \
 고정된 `phase`가 mode0600으로 남습니다. archive 목록 확인 단계에는 추가로
 `archiveReason`이 고정 enum으로 남습니다: `BACKUP_ARCHIVE_INVENTORY`,
 `EACCES`, `EPERM`, `ENOENT`, `ENOTDIR`, `EIO`, `ESTALE`, `ELOOP`, `EMFILE`,
-`ENFILE`, 그 외에는 `ARCHIVE_IO_FAILED`. 예외 메시지·경로·파일명은 기록하지 않습니다. 단계는 `archive-initial`, `receipt`,
+`ENFILE`, `ENOMEM`, 그 외에는 `ARCHIVE_IO_FAILED`. 예외 메시지·경로·파일명은 기록하지 않습니다. 단계는 `archive-initial`, `receipt`,
 `manifest-cipher-check`, `manifest-decrypt`, `manifest-validate`, `file-inventory`,
 `files-decrypt`, `archive-final` 중 하나입니다. 이 값은 실패한 호출의 범위이며
 암호 인증 실패의 확정 원인이나 이전 단계 전체의 성공 증거가 아닙니다.
+목록은 `opendir`로 순차 조회하며 최상위는 최대5개(고정4개와 선택적 Finder
+메타데이터), 암호문 목록은 인증된 manifest의 파일 수까지만 허용합니다.
+초과·불일치·읽기 오류는 계속 거부하며 기존 파일명·권한·identity 검사는 유지합니다.
 예외 문구·경로·파일명·내용·키는 기록하지 않으며 외부 오류는 기존
 `BACKUP_VERIFY_FAILED`를 유지합니다. 진단 기록 실패도 성공으로 바꾸지 않습니다.
 
