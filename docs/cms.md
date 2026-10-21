@@ -1,5 +1,9 @@
 # Artist CMS reference flow
 
+## GLB-first product roles — 2026-10-21
+
+Create artworks here from supported GLB made by any capture/modeling tool. CaptureSpike and Mac Processing are optional; no private app account, signature, OES folder, sidecar or capture-history attachment is required. Processing is limited to CaptureSpike processing/model inspection/GLB save. Studio/CMS owns artwork metadata, measured dimensions, rights and declared provenance; Studio/Platform owns exhibition composition and new OEX export. A GLB upload pass is not quality/publication approval. Current CMS still creates the artwork record before uploading its asset; the role decision does not claim a new file-first screen has shipped. See [import limits](imports.md) and [OEX export](oex.md).
+
 Candidate implementation: actual acceptance evidence is recorded before merge. The [CMS OpenAPI contract](../contracts/cms-openapi.json) describes protected routes. Open `/cms` on the same origin as the authenticated API. The page uses server session cookies and CSRF tokens, never a client-supplied role. Login identity and artist identity have independent IDs; an artist can create an identity linked only to their own login, while a tenant admin can create an unlinked identity or explicitly link an existing tenant member. Login enrollment remains the protected admin flow described in [auth.md](auth.md).
 
 Create an artist profile, then an artwork with title/plain text description, positive width/height/depth in meters, the full public OES rights record, and authorship/source-unit/scale-conversion notes. These fields are reviewed metadata, not a complete exported OES artifact. They do not rescale geometry automatically. Record an already-applied conversion accurately; no second transform is silently added. Code licensing does not grant rights in uploaded artwork.

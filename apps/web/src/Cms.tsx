@@ -1226,9 +1226,13 @@ export function Cms() {
                         <fieldset>
                           <legend>GLB / PNG 등록과 파일 검사</legend>
                           <p className="cms-note">
-                            자기 포함 GLB 또는 8-bit RGB/RGBA PNG, 최대 32 MiB.
-                            외부 참조·텍스처 GLB 및 PNG 메타데이터는 현재
-                            지원하지 않습니다. 서버 worker 검사를 거쳐야 합니다.
+                            Processing 또는 다른 프로그램에서 저장한 지원 GLB로
+                            비공개 작품을 만들고, 작품 정보·실측 치수·권한·출처를
+                            입력하세요. GLB 또는 8-bit RGB/RGBA PNG는 최대 32 MiB입니다.
+                            GLB의 내장 PNG·Basis KTX2 텍스처는 제한된 프로필에서
+                            지원합니다. 내장 PNG는 각 변 최대 2048px·합계 2,097,152픽셀,
+                            내장 이미지 합계 8 MiB까지입니다. 외부 참조와 PNG
+                            메타데이터는 지원하지 않으며 서버 파일 검사를 거쳐야 합니다.
                             전시용 GLB 워터마크는 애니메이션·스킨·모프·비항등
                             노드 변환 없이 단일 scene으로 구성된 모델만
                             지원합니다.

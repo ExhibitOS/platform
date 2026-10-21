@@ -1,6 +1,12 @@
 # Authenticated primary-asset imports
 
-Implementation candidate; actual acceptance results are recorded before merge. This API adds one primary GLB or PNG asset to an existing artwork. It does not import an entire OES directory, OEX archive, JPEG/WebP, remote URL, or Capture dataset. Full artwork dimensions/provenance editing and publication remain later work. It accepts the public OES rights record and a positive physical `scaleMeters` value. Read [authentication](auth.md), [storage recovery](storage.md), and [OpenAPI](../contracts/import-openapi.json).
+Implementation candidate; actual acceptance results are recorded before merge. This API adds one primary GLB or PNG asset to an existing artwork. It does not import an entire OES directory, OEX archive, JPEG/WebP, remote URL, or Capture dataset. Artwork metadata/dimensions/declared provenance are managed in [CMS](cms.md); exhibition composition, OEX export and publication are separate Studio operations. It accepts the public OES rights record and a positive physical `scaleMeters` value. Read [authentication](auth.md), [storage recovery](storage.md), and [OpenAPI](../contracts/import-openapi.json).
+
+## Producer-independent GLB artwork flow
+
+The 2026-10-21 product role is GLB-only handoff: optional Mac Processing handles CaptureSpike captures and saves reviewed GLB; Studio creates artworks from supported GLB produced by any tool. CaptureSpike/Processing installation, their accounts/signatures, OES folders, metadata sidecars and private capture histories are not prerequisites. Current CMS creates the artist/artwork record before this asset upload; a file-first UI transition is not claimed complete. Enter title, artist, measured dimensions, rights and declared source in CMS. User-declared provenance is not authenticated capture history, and geometry bounds are not verified physical measurements.
+
+Reuse this authenticated upload rather than adding a new package receiver. Self-hosted accounts/DB/storage are sufficient; private Capture repositories or an ExhibitOS-operated central service are not required. Existing format/security limits still apply, so producer neutrality does not mean every GLB feature is accepted.
 
 ## Flow and authorization
 
@@ -12,7 +18,7 @@ An admin of the same tenant or the artwork's owning artist may create/read/uploa
 4. Poll `GET .../imports/:id`. State is `uploading → queued → processing → approved`, or `failed/cancelled`. Progress is a state milestone, not measured transfer percentage. An approved job returns its asset ID.
 5. Failed jobs expose `retryAt` and require explicit retry after the recorded exponential delay; at most five attempts. Cancel fences a queued/processing worker with its lease identity. Approved jobs cannot be cancelled through this endpoint.
 
-The worker is one-shot: after `npm run build`, supply private `DATABASE_URL` and `BLOB_ROOT` environment values and run `npm run import:work`. Repeat under a supervised local scheduler when desired; this task does not provision a production service. Never pass credentials in arguments or commit local data. The worker claims durable PostgreSQL jobs with a 30-second lease, runs a bounded decoder, then commits asset/rights/job together. Expired leases may be reclaimed; stale or cancelled workers cannot commit approval. No source or user bytes are automatically deleted.
+The standalone `import:work` entry is one-shot: after `npm run build`, supply private `DATABASE_URL` and `BLOB_ROOT` environment values and run `npm run import:work`. Repeat under a supervised scheduler when using that entry. The bundled local runtime already drives this worker automatically; do not start a duplicate worker for a normal local-runtime import. Never pass credentials in arguments or commit local data. The worker claims durable PostgreSQL jobs with a 30-second lease, runs a bounded decoder, then commits asset/rights/job together. Expired leases may be reclaimed; stale or cancelled workers cannot commit approval. No source or user bytes are automatically deleted.
 
 ## Qualified formats and limits
 
@@ -20,7 +26,7 @@ The platform limit is 32 MiB per object, narrower than the general public spec l
 
 The decoder has a five-second timeout, 128 MiB JavaScript heap limit and bounded output. Input/pixel/expanded-byte limits also bound native buffers; the heap flag alone is not a total OS memory sandbox. Failure terminates decoding and leaves quarantine unapproved. MIME spoof, truncated files, remote URI, malformed GLB/PNG and unsupported formats fail with safe errors; no external URL is fetched.
 
-`approved` means this narrow import profile passed, not that rights permit publication or every renderer/browser/device is supported. A private original download still checks independent `permissions.download`, current rights validity, tenant/ownership and hash/size. There is no anonymous or public import-bytes route. OEX/package generation, watermarked derivatives and publishing are not provided.
+`approved` means this narrow import profile passed, not that rights permit publication or every renderer/browser/device is supported. A private original download still checks independent `permissions.download`, current rights validity, tenant/ownership and hash/size. There is no anonymous or public import-bytes route. This asset-import endpoint does not generate OEX, display derivatives or publications; those are separate [CMS](cms.md), [OEX](oex.md) and Studio operations.
 
 ## Recovery and retention
 

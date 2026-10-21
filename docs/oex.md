@@ -1,5 +1,9 @@
 # Portable exhibition files
 
+## OEX responsibility — 2026-10-21
+
+Studio/Platform generates new exhibition OEX files. Artwork ingestion uses supported GLB plus metadata/rights entered in CMS; it does not require CaptureSpike, Mac Processing, OES folders or private capture history. Existing OEX import remains available for exhibition exchange and previously saved files, including older Processing transfer archives. Those compatibility paths and prior evidence are preserved; they are not the new default Processing handoff. See [GLB import](imports.md) and [CMS](cms.md).
+
 The bounded profile passed actual round-trip, failure and browser qualification.
 See [executed results and limits](performance/oex-results.md).
 
