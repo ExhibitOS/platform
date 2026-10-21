@@ -6,8 +6,10 @@ import {mkdtemp,mkdir,realpath,readFile,writeFile,readdir,lstat,rm,symlink,chmod
 import {join} from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {Readable} from 'node:stream';
-import {createRemoteRestoreEntry,readPrivateRestoreInput,postgresAccount,stopOwnedPostgres} from './remote-restore-entry.mjs';
+import {createRemoteRestoreEntry,readPrivateRestoreInput,postgresAccount,stopOwnedPostgres,restoreOwnerRoles,authenticatedRestoreOwnerRoles,createIsolatedOwnerRoles,startIsolatedPostgres} from './remote-restore-entry.mjs';
 import {runRemoteBackup} from './remote-backup-worker.mjs';
+import {postgresAdapter} from './service-backup.mjs';
+import {Client} from 'pg';
 import {FileBlobStore,createServiceBackup,verifyServiceBackup} from '../packages/storage/dist/index.js';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const key=Buffer.alloc(32,19),publicBytes=generateKeyPairSync('ed25519').publicKey.export({format:'der',type:'spki'}),authority={origin:'https://synthetic.onrender.com',keyId:sha(publicBytes),publicKey:publicBytes.toString('base64')};
@@ -18,7 +20,7 @@ async function fixture(archivedAuthority){
  const made=await createServiceBackup({pool:{connect:async()=>client},store:new FileBlobStore(join(root,'objects')),destination:paths.source,encryptionKey:key,...(archivedAuthority===undefined?{}:{configuration:new Map([['hosted-public-authority.json',Buffer.from(JSON.stringify(archivedAuthority))]])}),snapshot:async()=>inventory,dump:path=>writeFile(path,'synthetic SQL dump',{flag:'wx',mode:0o600})});
  await verifyServiceBackup({source:paths.source,destination:join(root,'reference'),encryptionKey:key});const manifest=await readFile(join(root,'reference','manifest.json'));
  const input={jobId:randomUUID(),keyBase64:key.toString('base64'),expectedAuthority:authority,backupId:made.id,authenticatedManifestSha256:sha(manifest),jobBudgetBytes:64*1024*1024};
- let starts=0,stops=0,restores=0;const dependencies={paths,start:async({signal})=>{signal.throwIfAborted();starts++;return {url:'postgresql://postgres:candidate-only@127.0.0.1:55432/postgres?sslmode=disable',stop:async()=>{stops++;}};},run:async(request,executor)=>{
+ let starts=0,stops=0,restores=0;const dependencies={paths,ownerRoles:async()=>[],start:async({signal})=>{signal.throwIfAborted();starts++;return {url:'postgresql://postgres:candidate-only@127.0.0.1:55432/postgres?sslmode=disable',stop:async()=>{stops++;}};},run:async(request,executor)=>{
   if(request.operation==='verify')return runRemoteBackup(request);restores++;
   await executor.withIsolatedDestination(async c=>{assert.equal(c.role,'native-isolated-loopback');assert.equal(c.localProfile.id,input.jobId);assert.equal(c.localProfile.isolationVerified,true);assert.deepEqual(c.expectedAuthority,authority);assert(!c.url.includes(input.keyBase64));});
   // SQL/process execution alone is injected; crypto/archive authentication and
@@ -43,6 +45,67 @@ test('failed owned-server shutdown rejects result and still removes only the eph
 
 test('authenticated archived public authority restores without original configuration; provided authority must agree',async()=>{
  for(const provided of [false,true]){const f=await fixture(authority);try{if(!provided)delete f.input.expectedAuthority;const result=await createRemoteRestoreEntry(f.input,f.dependencies);assert.equal(result.files,2);assert.deepEqual(f.counts(),{starts:1,stops:1,restores:1});assert.deepEqual(await sourceHashes(f.paths.source),f.before);assert.deepEqual(await readdir(f.paths.keyRoot),[]);}finally{await f.close();}}
+});
+
+test('simple authenticated owner candidates are bounded; reserved or unsafe tokens are refused',()=>{
+ const toc=Buffer.from('; Archive metadata\n1; 1259 42 TABLE public fixture synthetic_owner\n2; 0 0 ACL public TABLE fixture synthetic_owner\n3; 0 0 COMMENT - EXTENSION plpgsql \n4; 1259 43 TABLE public builtin postgres\n');
+ const roles=restoreOwnerRoles(toc);assert.deepEqual(roles,['synthetic_owner']);assert(Object.isFrozen(roles));
+ for(const owner of ['pg_unexpected','"quoted"','name;DROP', 'x'.repeat(64),'bad\u0000name'])assert.throws(()=>restoreOwnerRoles(Buffer.from(`1; 1259 42 TABLE public fixture ${owner}\n`)));
+ assert.throws(()=>restoreOwnerRoles(Buffer.from([0xff,0xfe])));
+ assert.throws(()=>restoreOwnerRoles(Buffer.from(Array.from({length:65},(_,i)=>`${i+1}; 1259 ${i+1} TABLE public fixture role_${i}\n`).join(''))));
+});
+
+test('owner extraction binds authenticated bytes and rejects hash changes, replacement and symlinks',async()=>{
+ const root=await realpath(await mkdtemp('/private/tmp/exhibitos-owner-pin-')),path=join(root,'00000000.gcm.plain'),bytes=Buffer.from('private synthetic dump');
+ const manifest={files:[{role:'database',path:'files/00000000.gcm',bytes:bytes.length,sha256:sha(bytes)}]},signal=new AbortController().signal;
+ try{
+  await writeFile(path,bytes,{mode:0o600});
+  const options={authenticated:root,manifest,signal};
+  assert.deepEqual(await authenticatedRestoreOwnerRoles(options,{list:async()=>Buffer.from('1; 1259 42 TABLE public fixture synthetic_owner\n')}),['synthetic_owner']);
+  await assert.rejects(authenticatedRestoreOwnerRoles({...options,manifest:{files:[{...manifest.files[0],sha256:'0'.repeat(64)}]}},{list:async()=>assert.fail('wrong hash reached pg_restore')}));
+  await assert.rejects(authenticatedRestoreOwnerRoles(options,{list:async()=>{await rename(path,join(root,'preserved'));await writeFile(path,bytes,{mode:0o600});return Buffer.from('1; 1259 42 TABLE public fixture synthetic_owner\n');}}));
+  await rm(path);await symlink(join(root,'preserved'),path);await assert.rejects(authenticatedRestoreOwnerRoles(options,{list:async()=>assert.fail('symlink reached pg_restore')}));
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('candidate role preparation never grants login, privilege or changes existing roles',async()=>{
+ const queries=[],signal=new AbortController().signal,client={query:async(query)=>{queries.push(query.text??query);return {rows:[]};}};
+ await createIsolatedOwnerRoles(client,['synthetic_owner'],signal);
+ const ddl=queries.find(sql=>sql.startsWith('CREATE ROLE'));
+ assert(ddl);for(const flag of ['NOLOGIN','NOSUPERUSER','NOCREATEDB','NOCREATEROLE','NOINHERIT','NOREPLICATION','NOBYPASSRLS'])assert(ddl.includes(flag));
+ assert(!queries.some(sql=>/^(ALTER|GRANT)/.test(sql)));assert(!ddl.includes('PASSWORD'));
+ await assert.rejects(createIsolatedOwnerRoles({query:async()=>({rows:[{rolname:'synthetic_owner'}]})},['synthetic_owner'],signal));
+ await assert.rejects(createIsolatedOwnerRoles({query:async(query)=>{if((query.text??query).startsWith('CREATE ROLE'))throw Error('synthetic DDL failure');return {rows:[]};}},['synthetic_owner'],signal));
+});
+
+test('owner preparation failure preserves the source and does not start a restore',async()=>{
+ const f=await fixture(authority);try{f.dependencies.ownerRoles=async()=>{throw Error('synthetic owner refusal');};await assert.rejects(createRemoteRestoreEntry(f.input,f.dependencies));assert.deepEqual(f.counts(),{starts:0,stops:0,restores:0});assert.deepEqual(await sourceHashes(f.paths.source),f.before);}finally{await f.close();}
+});
+
+// One focused real-PG regression, run only inside the pinned network-none
+// maintenance image. This does not repeat the full backup/restore corpus.
+test('native isolated PostgreSQL preserves simple owner/ACL and refuses unsupported owner/grantees', {skip:process.env.EXHIBITOS_NATIVE_PG_OWNER_FIXTURE!=='1'},async()=>{
+ const root=await realpath(await mkdtemp('/work/exhibitos-owner-pg-')),identity=postgresAccount(await readFile('/etc/passwd')),signal=new AbortController().signal;
+ await chown(root,0,identity.gid);await chmod(root,0o710);let server,client;const summaries=[];
+ const environment={PATH:'/usr/lib/postgresql/18/bin:/usr/local/bin:/usr/bin:/bin',PG_DUMP_BIN:'/usr/lib/postgresql/18/bin/pg_dump',PG_RESTORE_BIN:'/usr/lib/postgresql/18/bin/pg_restore'};
+ const start=async(name,roles=[])=>{const work=join(root,name),keyRoot=join(root,name+'-keys');await mkdir(work,{mode:0o700});await mkdir(keyRoot,{mode:0o700});server=await startIsolatedPostgres({work,keyRoot,signal,ownerRoles:roles});client=new Client({connectionString:server.url});await client.connect();};
+ const stop=async()=>{await client?.end();client=undefined;await server?.stop();server=undefined;};
+ const dump=join(root,'simple.dump'),unknown=join(root,'unknown.dump'),spaced=join(root,'spaced.dump');
+ const owners=async(path,label)=>{const authenticated=join(root,label);await mkdir(authenticated,{mode:0o700});const bytes=await readFile(path);await writeFile(join(authenticated,'00000000.gcm.plain'),bytes,{mode:0o600});return authenticatedRestoreOwnerRoles({authenticated,manifest:{files:[{role:'database',path:'files/00000000.gcm',bytes:bytes.length,sha256:sha(bytes)}]},signal});};
+ try{
+  await start('source');await client.query('CREATE ROLE synthetic_owner NOLOGIN; CREATE ROLE synthetic_grantee NOLOGIN; CREATE TABLE public.owner_fixture(id integer PRIMARY KEY, value text); ALTER TABLE public.owner_fixture OWNER TO synthetic_owner; INSERT INTO public.owner_fixture VALUES(1,\'preserved\'); GRANT SELECT ON public.owner_fixture TO PUBLIC');
+  const expected=(await client.query("SELECT pg_get_userbyid(relowner) AS owner,relacl::text AS acl FROM pg_class WHERE oid='public.owner_fixture'::regclass")).rows;
+  await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');let snapshot=(await client.query('SELECT pg_export_snapshot() AS id')).rows[0].id;await postgresAdapter(server.url,environment,signal).dump(dump,snapshot);await client.query('COMMIT');
+  await client.query('GRANT SELECT ON public.owner_fixture TO synthetic_grantee');await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');snapshot=(await client.query('SELECT pg_export_snapshot() AS id')).rows[0].id;await postgresAdapter(server.url,environment,signal).dump(unknown,snapshot);await client.query('COMMIT');
+  await client.query('CREATE ROLE "synthetic spaced" NOLOGIN; ALTER TABLE public.owner_fixture OWNER TO "synthetic spaced"');await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ');snapshot=(await client.query('SELECT pg_export_snapshot() AS id')).rows[0].id;await postgresAdapter(server.url,environment,signal).dump(spaced,snapshot);await client.query('COMMIT');await stop();
+  await start('before');await assert.rejects(postgresAdapter(server.url,environment,signal).restore(dump));assert.equal((await client.query("SELECT to_regclass('public.owner_fixture') AS t")).rows[0].t,null);summaries.push('missing owner refuses and single transaction preserves empty candidate');await stop();
+  const simpleOwners=await owners(dump,'simple-authenticated');assert.deepEqual(simpleOwners,['synthetic_owner']);await start('after',simpleOwners);await postgresAdapter(server.url,environment,signal).restore(dump);assert.deepEqual((await client.query("SELECT pg_get_userbyid(relowner) AS owner,relacl::text AS acl FROM pg_class WHERE oid='public.owner_fixture'::regclass")).rows,expected);assert.deepEqual((await client.query('SELECT * FROM public.owner_fixture ORDER BY id')).rows,[{id:1,value:'preserved'}]);
+  assert.deepEqual((await client.query("SELECT rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls FROM pg_roles WHERE rolname='synthetic_owner'")).rows,[{rolcanlogin:false,rolsuper:false,rolcreatedb:false,rolcreaterole:false,rolreplication:false,rolbypassrls:false}]);summaries.push('prepared NOLOGIN owner retains data and exact owner/ACL');await stop();
+  await start('unknown',await owners(unknown,'unknown-authenticated'));await assert.rejects(postgresAdapter(server.url,environment,signal).restore(unknown));assert.equal((await client.query("SELECT to_regclass('public.owner_fixture') AS t")).rows[0].t,null);summaries.push('unknown ACL grantee remains refused without ACL stripping');await stop();
+  let spacedOwners;try{spacedOwners=await owners(spaced,'spaced-authenticated');}catch{summaries.push('unsupported spaced owner refused before candidate');}
+  if(spacedOwners){assert(!spacedOwners.includes('synthetic spaced'));await start('spaced',spacedOwners);await assert.rejects(postgresAdapter(server.url,environment,signal).restore(spaced));assert.equal((await client.query("SELECT to_regclass('public.owner_fixture') AS t")).rows[0].t,null);summaries.push('unsupported full owner remains refused by normal restore');}
+  assert.equal(summaries.length,4);
+ }finally{await stop();/* Retain this isolated fixture for inspection; no source data or backups touched. */}
 });
 test('legacy authority absence, disagreement and private fields in archived authority fail before PostgreSQL',async()=>{
  for(const mode of ['legacy-missing','mismatch','private-field','malformed']){const f=await fixture(mode==='legacy-missing'?undefined:mode==='private-field'?{...authority,privateKey:'forbidden'}:mode==='malformed'?{...authority,keyId:'0'.repeat(64)}:authority);try{

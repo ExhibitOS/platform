@@ -79,8 +79,16 @@ certificate or a new backup/public-file format.
    files and image-layout records. Reuse the lower guards and existing core
    restore instead of fabricating those files. Preserve source role/ACL semantics;
    do not silently add `--no-owner` or `--no-acl`. Prepare required candidate roles
-   before restore using the existing operator-owned candidate path. Keep the
-   source and failed candidate inactive/preserved on failure.
+   before restore using the existing operator-owned candidate path. The fixed
+   native check now derives bounded simple ASCII owner candidates from the
+   authenticated dump through a held read-only descriptor and prepares only
+   absent, nonprivileged `NOLOGIN` roles in its new local cluster. It never
+   imports passwords, memberships or source login policy, or alters existing
+   roles. TOC output is not a general quoted-name/ACL-grantee parser: unsupported
+   owners or missing grantees still fail normal owner/ACL restoration instead
+   of being skipped. Data/inventory, authority, source preservation and normal
+   shutdown checks remain required; this is not remote service activation. Keep
+   the source and failed candidate inactive/preserved on failure.
 7. After actual restore/inventory equality, connect existing migration checks,
    runtime readiness/auth and explicit activation. A Render deploy rollback does
    not restore its DB. Actual interruption/update/restore/rollback evidence is
