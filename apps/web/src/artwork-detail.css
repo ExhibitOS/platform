@@ -5,7 +5,7 @@
 .artwork-detail dt { font-weight: 700; margin-top: 12px; }
 .artwork-detail dd { margin-left: 0; overflow-wrap: anywhere; }
 .artwork-detail label { display: block; margin: 12px 0; }
-.artwork-detail input[type=range] { width: min(100%, 360px); }
+.artwork-detail input[type=range] { width: min(100%, 360px); min-height: 44px; }
 .artwork-detail .detail-preview { min-height: 360px; width: 100%; }
 .artwork-detail canvas { display: block; max-width: 100%; }
 .artwork-detail .detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -18,3 +18,8 @@
 .publication-guide { border: 2px solid currentColor; padding: 12px; margin: 12px 0; }
 
 .artwork-detail button{min-height:44px}.artwork-detail-record{margin-top:1.5rem;border-top:1px solid currentColor}.artwork-detail-record>summary,.artwork-annotation-position>summary{min-height:44px;padding:.75rem 0;box-sizing:border-box;cursor:pointer}.artwork-detail summary:focus-visible{outline:2px solid currentColor;outline-offset:4px}.artwork-annotation-position{font-size:.9em}.artwork-detail .detail-text{line-height:1.7}.artwork-detail header button{flex-shrink:0}
+
+.artwork-detail .detail-preview { touch-action: none; cursor: grab; user-select: none; border-radius: 8px; overflow: hidden; }
+.artwork-detail .detail-preview[data-dragging] { cursor: grabbing; }
+.artwork-detail .detail-preview:focus-visible { outline: 3px solid #2465a5; outline-offset: 3px; }
+.artwork-detail .detail-gesture-hint { font-size: .9em; line-height: 1.5; margin: 8px 0; }

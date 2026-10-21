@@ -2,20 +2,86 @@ import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
 import type { PublicPublication } from "./publication-client";
 import { DEVICE_BUDGETS, fetchVerifiedAsset, selectAssetVariant } from "./viewer/loading";
 import type * as THREE from "three";
+
+import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
 
 export interface DetailAnchor { id: string; position: [number, number, number]; text: string }
 export function ArtworkDetailPreview({ publication, artwork, anchors }: {
   publication: PublicPublication; artwork: Artwork; anchors: DetailAnchor[];
 }) {
   const host = useRef<HTMLDivElement>(null);
-  const controls = useRef({ yaw: 0, zoom: 1 });
-  const [yaw, setYaw] = useState(0), [zoom, setZoom] = useState(1), [error, setError] = useState("");
-  controls.current = { yaw, zoom };
+  const [view, setView] = useState(INITIAL_DETAIL_VIEW), [error, setError] = useState("");
+  const { yaw, pitch, zoom } = view;
+  const controls = useRef(view);
+  const hint = useId();
+  const changeView = (next: typeof view) => { controls.current = next; setView(next); };
+  useEffect(() => {
+    const target = host.current;
+    if (!target) return;
+    const gesture = new DetailGesture();
+    const captured = new Set<number>();
+    const clear = () => {
+      gesture.clear(); delete target.dataset.dragging;
+      for (const id of captured) if (target.hasPointerCapture(id)) target.releasePointerCapture(id);
+      captured.clear();
+    };
+    const visibility = () => { if (document.visibilityState === "hidden") clear(); };
+    const down = (event: PointerEvent) => {
+      if (captured.size >= 2 || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
+      target.focus({ preventScroll: true });
+      try { target.setPointerCapture(event.pointerId); } catch { return; }
+      captured.add(event.pointerId); gesture.begin(event.pointerId, { x: event.clientX, y: event.clientY });
+      target.dataset.dragging = "true"; event.preventDefault();
+    };
+    const move = (event: PointerEvent) => {
+      if (!captured.has(event.pointerId)) return;
+      changeView(gesture.move(event.pointerId, { x: event.clientX, y: event.clientY }, controls.current));
+      event.preventDefault();
+    };
+    const end = (event: PointerEvent) => {
+      gesture.end(event.pointerId); captured.delete(event.pointerId);
+      if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+      if (!captured.size) delete target.dataset.dragging;
+    };
+    const wheel = (event: WheelEvent) => {
+      if (document.activeElement !== target || event.ctrlKey || event.metaKey) return;
+      event.preventDefault();
+      const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? target.clientHeight : 1);
+      changeView(detailView({ ...controls.current, zoom: controls.current.zoom * Math.exp(-Math.max(-300, Math.min(300, pixels)) * .002) }));
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const next = { ...controls.current };
+      switch (event.key) {
+        case "ArrowLeft": next.yaw -= 5; break;
+        case "ArrowRight": next.yaw += 5; break;
+        case "ArrowUp": next.pitch -= 5; break;
+        case "ArrowDown": next.pitch += 5; break;
+        case "+": case "=": next.zoom += .1; break;
+        case "-": next.zoom -= .1; break;
+        case "Home": Object.assign(next, INITIAL_DETAIL_VIEW); break;
+        default: return;
+      }
+      event.preventDefault(); event.stopPropagation(); changeView(detailView(next));
+    };
+    target.addEventListener("pointerdown", down); target.addEventListener("pointermove", move);
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"] as const) target.addEventListener(type, end);
+    target.addEventListener("wheel", wheel, { passive: false }); target.addEventListener("keydown", key);
+    target.addEventListener("blur", clear); window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      clear(); target.removeEventListener("pointerdown", down); target.removeEventListener("pointermove", move);
+      for (const type of ["pointerup", "pointercancel", "lostpointercapture"] as const) target.removeEventListener(type, end);
+      target.removeEventListener("wheel", wheel); target.removeEventListener("keydown", key);
+      target.removeEventListener("blur", clear); window.removeEventListener("blur", clear);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, []);
   useEffect(() => {
     const target = host.current;
     if (!target) return;
@@ -101,10 +167,10 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
         const extent = modelExtent;
         const resize = () => { const w = Math.max(1,target!.clientWidth), h = 360; renderer!.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
         observer = new ResizeObserver(resize); observer.observe(target!); resize();
-        const render = () => { if (disposed) return; model.rotation.y = controls.current.yaw * Math.PI / 180;
+        const render = () => { if (disposed) return; model.rotation.set(controls.current.pitch * Math.PI / 180, controls.current.yaw * Math.PI / 180, 0, "YXZ");
           const fit=metricCameraFit(extent,camera.aspect,controls.current.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
           renderer!.render(scene, camera);
-          renderer!.domElement.dataset.detailState = JSON.stringify({ rotationY: model.rotation.y, cameraPosition: camera.position.toArray(), clipping:[camera.near,camera.far], zoom: controls.current.zoom, dimensions: artwork.dimensions, measuredGeometry:metric,artifactGeometry:artifact.measured, anchors: anchors.map(a => a.position),anchorWorld:object.children.filter(n=>n.renderOrder===1).map(n=>n.getWorldPosition(new three.Vector3()).toArray()) });
+          renderer!.domElement.dataset.detailState = JSON.stringify({ rotationX: model.rotation.x, rotationY: model.rotation.y, cameraPosition: camera.position.toArray(), clipping:[camera.near,camera.far], zoom: controls.current.zoom, dimensions: artwork.dimensions, measuredGeometry:metric,artifactGeometry:artifact.measured, anchors: anchors.map(a => a.position),anchorWorld:object.children.filter(n=>n.renderOrder===1).map(n=>n.getWorldPosition(new three.Vector3()).toArray()) });
           frame = requestAnimationFrame(render); };
         render();
       } catch { if (!disposed) { setError("현재 권리 또는 그래픽·기기 예산 때문에 상세 이미지를 표시할 수 없습니다. 설명은 아래에서 읽을 수 있습니다."); release(); } }
@@ -123,11 +189,13 @@ export function ArtworkDetailPreview({ publication, artwork, anchors }: {
       cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); };
   }, [publication, artwork, anchors]);
   return <section aria-label="작품 확대 및 회전">
-    <div ref={host} className="detail-preview" data-testid="detail-preview" />
+    <div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label="작품 회전 및 확대 조작" aria-describedby={hint} />
+    <p id={hint} className="detail-gesture-hint">드래그하여 상하·좌우 회전 · 두 손가락으로 확대. 키보드는 방향키·+/−, Home으로 초기화합니다.</p>
     {error && <p role="status">{error}</p>}
-    <label>작품 회전 {yaw}° <input aria-label="작품 회전" type="range" min="-180" max="180" step="5" value={yaw} onChange={e => setYaw(Number(e.target.value))} /></label>
-    <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => setZoom(Number(e.target.value))} /></label>
-    <button onClick={() => { setYaw(0); setZoom(1); }}>상세 시점 초기화</button>
+    <label>작품 회전 {Math.round(yaw)}° <input aria-label="작품 회전" type="range" min="-180" max="180" step="5" value={yaw} onChange={e => changeView(detailView({ ...controls.current, yaw: Number(e.target.value) }))} /></label>
+    <label>작품 상하 회전 {Math.round(pitch)}° <input aria-label="작품 상하 회전" type="range" min="-90" max="90" step="5" value={pitch} onChange={e => changeView(detailView({ ...controls.current, pitch: Number(e.target.value) }))} /></label>
+    <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => changeView(detailView({ ...controls.current, zoom: Number(e.target.value) }))} /></label>
+    <button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })}>상세 시점 초기화</button>
     <p>작품의 미터 단위 좌표를 유지하는 디지털 미리보기입니다. 화면의 물리적 크기와는 다릅니다. 회전·확대 슬라이더는 방향키로도 조작할 수 있습니다.</p>
   </section>;
 }
