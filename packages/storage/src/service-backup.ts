@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomUUID} from 'node:crypto';
 import {constants} from 'node:fs';
-import {mkdir,mkdtemp,rm,lstat,realpath,readdir,readFile,writeFile,open,copyFile,chmod} from 'node:fs/promises';
+import {mkdir,mkdtemp,rm,lstat,realpath,opendir,readFile,writeFile,open,copyFile,chmod} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import type {Pool,PoolClient} from 'pg';
@@ -27,8 +27,18 @@ async function secretRead(path:string,max=16*1024*1024){const file=await open(pa
 // Finder metadata is not authenticated backup content. Only this bounded,
 // ordinary top-level file may accompany the closed archive inventory; retain
 // its identity for this verification, without copying it into restored data.
+async function archiveNames(path:string,maximum:number,errorCode:'BACKUP_ARCHIVE_INVENTORY'|'BACKUP_FILE_INVENTORY'):Promise<string[]>{
+ const names:string[]=[];
+ // Stream a bounded inventory instead of allocating a complete scandir result.
+ // for-await closes the directory on success, rejection, or an early overrun.
+ for await(const entry of await opendir(path,{bufferSize:32})){
+  if(names.length>=maximum)throw Error(errorCode);
+  names.push(entry.name);
+ }
+ return names.sort();
+}
 async function archiveInventory(source:string):Promise<string|null>{
- const contents=(await readdir(source)).sort();
+ const contents=await archiveNames(source,5,'BACKUP_ARCHIVE_INVENTORY');
  if(inventoryCanonical(contents.filter(name=>name!=='.DS_Store'))!==inventoryCanonical(['complete.json','files','manifest.gcm','writing.json']))throw Error('BACKUP_ARCHIVE_INVENTORY');
  if(!contents.includes('.DS_Store'))return null;
  const path=join(source,'.DS_Store'),file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
@@ -106,7 +116,7 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
   const manifest=JSON.parse((await secretRead(join(destination,'manifest.json'))).toString()) as BackupManifest;validateManifest(manifest);
   if(manifest.id!==receipt.id||manifest.inventory.objects.length!==receipt.objectCount)throw Error('BACKUP_RECEIPT_INVALID');
   phase='file-inventory';
-  const fileDirectory=await privateDirectory(join(source,'files'),false),actual=(await readdir(fileDirectory)).sort(),expected=manifest.files.map(f=>f.path.slice(6)).sort();if(inventoryCanonical(actual)!==inventoryCanonical(expected))throw Error('BACKUP_FILE_INVENTORY');
+  const fileDirectory=await privateDirectory(join(source,'files'),false),actual=await archiveNames(fileDirectory,manifest.files.length,'BACKUP_FILE_INVENTORY'),expected=manifest.files.map(f=>f.path.slice(6)).sort();if(inventoryCanonical(actual)!==inventoryCanonical(expected))throw Error('BACKUP_FILE_INVENTORY');
   phase='files-decrypt';
   const files=[];for(const f of manifest.files){const plainPath=join(destination,f.path.slice(6)+'.plain');await decryptBackupFile(join(fileDirectory,f.path.slice(6)),plainPath,options.encryptionKey,manifest.id+':'+f.path,f);files.push({...f,plainPath});}
   phase='archive-final';
@@ -118,7 +128,7 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
   let archiveReason:string|undefined;
   if(phase==='archive-initial'||phase==='archive-final'){
    const code=error&&typeof error==='object'&&'code' in error?error.code:undefined;
-   archiveReason=typeof code==='string'&&['EACCES','EPERM','ENOENT','ENOTDIR','EIO','ESTALE','ELOOP','EMFILE','ENFILE'].includes(code)?code:error instanceof Error&&error.message==='BACKUP_ARCHIVE_INVENTORY'?'BACKUP_ARCHIVE_INVENTORY':'ARCHIVE_IO_FAILED';
+   archiveReason=typeof code==='string'&&['EACCES','EPERM','ENOENT','ENOTDIR','EIO','ESTALE','ELOOP','EMFILE','ENFILE','ENOMEM'].includes(code)?code:error instanceof Error&&error.message==='BACKUP_ARCHIVE_INVENTORY'?'BACKUP_ARCHIVE_INVENTORY':'ARCHIVE_IO_FAILED';
   }
   await jsonExclusive(join(destination,'failed.json'),{status:'failed',phase,...(archiveReason?{archiveReason}:{})}).catch(()=>{});
  }

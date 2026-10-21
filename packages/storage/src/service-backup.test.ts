@@ -13,7 +13,7 @@ import * as encryptedFiles from './encrypted-files.js';
 import * as fsPromises from 'node:fs/promises';
 vi.mock('node:fs/promises',async importOriginal=>{
  const actual=await importOriginal<typeof import('node:fs/promises')>();
- return {...actual,readdir:vi.fn(actual.readdir)};
+ return {...actual,readdir:vi.fn(actual.readdir),opendir:vi.fn(actual.opendir)};
 });
 import type {ServiceInventory} from './service-inventory.js';
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
@@ -144,9 +144,9 @@ test('exact historical restore supplies only authenticated immutable migration e
 
 // The initial inventory boundary must distinguish fixed I/O categories without
 // leaking exception text, unknown codes, paths, or archive contents.
-test.each(['EACCES','ENOENT','ESTALE','UNSAFE_SECRET_CODE'])('archive inventory failure retains only safe reason for %s',async(code)=>{
+test.each(['EACCES','ENOENT','ESTALE','ENOMEM','UNSAFE_SECRET_CODE'])('archive inventory failure retains only safe reason for %s',async(code)=>{
  const f=await deploymentFixture();await createServiceBackup(f.options);
- const spy=vi.mocked(fsPromises.readdir).mockRejectedValueOnce(Object.assign(Error('private-secret /private/path'),{code,path:'/private/path'}));
+ const spy=vi.mocked(fsPromises.opendir).mockRejectedValueOnce(Object.assign(Error('private-secret /private/path'),{code,path:'/private/path'}));
  const destination=join(f.root,'safe-inventory-failure');
  try{
   await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination})).rejects.toThrow('BACKUP_VERIFY_FAILED');
@@ -157,4 +157,23 @@ test.each(['EACCES','ENOENT','ESTALE','UNSAFE_SECRET_CODE'])('archive inventory 
   await expect(access(join(destination,'manifest.json'))).rejects.toThrow();
   await access(join(f.options.destination,'complete.json'));
  }finally{spy.mockClear();}
+});
+
+test('bounded streamed archive and cipher inventories do not use an allocating readdir scan',async()=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);
+ const spy=vi.mocked(fsPromises.readdir).mockRejectedValue(Object.assign(Error('synthetic scandir pressure'),{code:'ENOMEM'}));
+ const calls=spy.mock.calls.length;
+ try{
+  const result=await verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination:join(f.root,'streamed-verify')});
+  expect(result.files).toHaveLength(1);expect(spy.mock.calls.length).toBe(calls);
+  expect(await readFile(result.files[0]!.plainPath,'utf8')).toBe('synthetic dump');
+ }finally{spy.mockReset();}
+});
+test('streamed top-level inventory still rejects an overrun before decrypting',async()=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);
+ for(const name of ['unexpected-a','unexpected-b'])await writeFile(join(f.options.destination,name),'synthetic',{mode:0o600});
+ const destination=join(f.root,'streamed-overrun');
+ await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ expect(JSON.parse(await readFile(join(destination,'failed.json'),'utf8'))).toEqual({status:'failed',phase:'archive-initial',archiveReason:'BACKUP_ARCHIVE_INVENTORY'});
+ await expect(access(join(destination,'manifest.json'))).rejects.toThrow();
 });
