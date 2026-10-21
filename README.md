@@ -1,6 +1,6 @@
 # ExhibitOS / Open Exhibition
 
-> 1차 제품 방향(2026-10-15): iPhone 촬영·원본 전달 → Mac Swift·RealityKit 최종 Processing → Mac Studio/CMS 전시 공개. Mac Manager, macOS/iOS Safari·Chrome을 검증 대상으로 하며 실제 지원 결과는 [support matrix](docs/performance/support-matrix.md)를 따릅니다. Windows/Linux native·범용 배포·XR/Federation은 후속 보류입니다.
+> 1차 제품 역할(2026-10-21): 선택적 CaptureSpike 촬영 → Mac Processing 처리·모델 확인·GLB 저장. Studio는 외부 촬영·모델링 도구의 지원 GLB로도 작품을 생성하고, 작품 정보·권한·전시 구성·OEX 내보내기를 담당합니다. Mac Manager와 macOS/iOS Safari·Chrome의 실제 검증 범위는 [support matrix](docs/performance/support-matrix.md)를 따릅니다. 역할 전환 결정과 실제 UI·배포 완료는 구분합니다.
 
 작품과 전시 공간을 제작하고, 관람하고, 배포하고, 보존하기 위한 디지털 전시 인프라입니다.
 
@@ -12,7 +12,11 @@
 
 공개 플랫폼은 Studio, Viewer, Runtime, CMS, API, Realtime을 포함합니다. 비공개 Capture 구현을 가져오거나 private submodule에 의존하지 않습니다.
 
-Capture iOS 앱과 processing pipeline은 별도 비공개 저장소에서 개발하며, 공개 OES artwork contract를 통해 결과물을 전달합니다. OES/OEX/OED는 현재 프로젝트에서 제안하는 규격입니다.
+CaptureSpike와 Mac Processing은 선택적 제작 도구입니다. 지원되는 GLB가 있으면 두 앱의 설치·계정·서명·촬영 이력이나 OES/별도 메타데이터 파일 없이 Studio에서 작품을 만들 수 있습니다. 제목·작가·실측 치수·권한·출처는 Studio에서 입력하며, 사용자 제공 출처를 인증된 촬영 기록으로 간주하지 않습니다.
+
+공개 Platform·Manager·배포 도구는 비공개 Capture/Processing 또는 operations 없이 빌드·설치·실행하는 구조를 유지합니다. 자체 서버·DB·관리자 계정으로 운영하며 ExhibitOS 중앙 계정을 요구하지 않습니다. 실제 도구체인·저장소·인증 설정은 아래 로컬 실행 안내를 따릅니다. 두 선택 앱의 지원 중단을 공개 컴포넌트의 실행 조건으로 연결하지 않습니다.
+
+OES는 작품 데이터 계약, OEX는 전시 교환 파일, OED는 배포 계약입니다. GLB 등록에 OES 폴더를 요구하지 않으며 새 OEX 생성은 Studio/Platform의 책임입니다. 기존 OEX 가져오기와 파일은 유지합니다. 현재 개발판에 남은 Processing OEX 절차는 이전 경로이고 최신 역할 전환의 구현 완료를 뜻하지 않습니다.
 
 저장소 분리 계획은 [architecture.md](docs/architecture.md), Git 설정 및 인증 이후 절차는 [git-setup.md](docs/git-setup.md)를 참고하세요.
 

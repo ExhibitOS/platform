@@ -2,7 +2,7 @@
 
 사용자가 제공한 `open-exhibition-project-plan.md`와 `exhibitos-private-capture-github-architecture.md`의 설계를 요약합니다. 두 문서는 Draft/Proposal이며, 아래 표는 목표 구조입니다. 현재 `ExhibitOS`는 GitHub 사용자 계정이며, 조직은 아직 구성하지 않았습니다.
 
-2026-10-01 기준 아래 MVP 저장소 7개를 모두 생성했습니다. 현재 모두 Private이며 기본 브랜치는 `main`입니다. 공개 예정 저장소의 Public 전환은 공개 시점과 라이선스가 확정된 뒤 진행합니다. Capture 저장소는 비공개로 유지합니다.
+아래 생성·초기 clone 기록은 2026-10-01 당시 MVP 구성 이력입니다. 당시 공개 여부나 초기화 상태를 현재 상태로 해석하지 않습니다. 공개 컴포넌트와 비공개 Capture 구현의 의존성 경계는 아래 최신 역할을 따릅니다.
 
 ## MVP 저장소
 
@@ -18,7 +18,7 @@
 | [capture-ios](https://github.com/ExhibitOS/capture-ios) | Private | iPhone Capture 앱 |
 | [capture-processing](https://github.com/ExhibitOS/capture-processing) | Private | 비공개 reconstruction 및 processing |
 
-현재 로컬 저장소는 `platform`에 연결되어 있습니다. 추가 저장소 6개는 README로 초기화했으며 아직 로컬에 clone하지 않았습니다. 이곳의 `docs/`에는 플랫폼 관련 문서를 두고, 프로젝트 공통 문서는 별도 `docs` 저장소에서 개발합니다. 다른 저장소의 소스는 이 저장소에 중첩하지 않습니다.
+이 로컬 저장소는 `platform`에 연결됩니다. 다른 저장소를 README로 초기화하고 아직 clone하지 않았다는 설명은 2026-10-01 당시 상태입니다. 이곳의 `docs/`에는 플랫폼 관련 문서를 두고, 프로젝트 공통 문서는 별도 `docs` 저장소에서 개발합니다. 다른 저장소의 소스는 이 저장소에 중첩하지 않습니다.
 
 `templates`, `examples`, `capture-pipeline`, `capture-ml`, `capture-datasets`, `capture-internal-tools`는 별도 관리가 필요해지는 시점에 분리합니다. 현재는 MVP 범위에 맞춰 저장소 수를 제한합니다.
 
@@ -27,11 +27,15 @@
 ## 의존 관계
 
 ```text
-Public Spec → Public Platform
-Public Spec → Private Capture → Artwork Artifact → Public Platform
+Public Spec → Public Platform (Studio / CMS / Viewer / Runtime)
+Optional CaptureSpike → Optional Mac Processing → GLB → Studio
+Other capture / modeling tools → supported GLB → Studio
+Studio → exhibition → OEX export
 ```
 
-Platform은 공개 규격과 GLB, preview, metadata, dimensions, rights, provenance를 읽습니다. Capture의 내부 알고리즘, SDK, 저장소, 빌드 서버가 플랫폼 실행의 필수 조건이 되어서는 안 됩니다.
+2026-10-21 역할 결정: Mac Processing은 CaptureSpike 촬영본 처리·모델 확인·GLB 저장만 담당하고, Studio는 GLB로 작품을 생성해 정보·치수·권한·출처·전시와 OEX 내보내기를 관리합니다. CaptureSpike와 Mac Processing은 선택적 제작 도구입니다. 지원되는 GLB가 있으면 두 앱의 설치·계정·서명·촬영 이력이나 OES/별도 메타데이터 파일 없이 Studio에서 작품을 만들 수 있습니다. 제목·작가·실측 치수·권한·출처는 Studio에서 입력하며, 사용자 제공 출처를 인증된 촬영 기록으로 간주하지 않습니다.
+
+공개 규격은 작품의 내부 저장·검증 계약으로 재사용합니다. 비공개 알고리즘·SDK·저장소·빌드 서버·앱 서명·App Store 영수증을 공개 컴포넌트의 빌드/실행/작품 등록에 요구하지 않습니다. 자체 서버/DB/인증으로 실행할 수 있어야 하며, 선택 앱의 배포·지원 중단과 공개 제품 사용을 분리합니다. 기존 OEX 가져오기·파일·출처 증거는 유지합니다. 새 역할의 구현·GUI 검증과 이 구조 결정을 구분합니다.
 
 원본 사진, depth, camera poses, ML models, proprietary datasets는 공개 Git에 저장하지 않습니다. `.gitignore`는 실수로 추가하는 것을 줄이기 위한 규칙이며 접근 제어나 비공개 저장소를 대체하지 않습니다.
 
