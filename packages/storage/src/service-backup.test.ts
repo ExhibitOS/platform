@@ -10,6 +10,11 @@ import type {Pool} from 'pg';
 import {FileBlobStore} from './blobs.js';
 import {createServiceBackup,verifyServiceBackup,restoreServiceBackup} from './service-backup.js';
 import * as encryptedFiles from './encrypted-files.js';
+import * as fsPromises from 'node:fs/promises';
+vi.mock('node:fs/promises',async importOriginal=>{
+ const actual=await importOriginal<typeof import('node:fs/promises')>();
+ return {...actual,readdir:vi.fn(actual.readdir)};
+});
 import type {ServiceInventory} from './service-inventory.js';
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 // DB adapter is isolated here; this test exercises actual archive encryption,
@@ -90,7 +95,7 @@ test.skipIf(typeof process.getuid!=='function').each(['add','remove','replace','
  const destination=join(f.root,'finder-churn');
  try{
   await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination})).rejects.toThrow('BACKUP_VERIFY_FAILED');expect(spy).toHaveBeenCalled();
-  expect(JSON.parse(await readFile(join(destination,'failed.json'),'utf8'))).toEqual({status:'failed',phase:'archive-final'});
+  expect(JSON.parse(await readFile(join(destination,'failed.json'),'utf8'))).toEqual({status:'failed',phase:'archive-final',archiveReason:'BACKUP_ARCHIVE_INVENTORY'});
   expect((await stat(join(destination,'failed.json'))).mode&0o777).toBe(0o600);
   const manifest=JSON.parse(await readFile(join(destination,'manifest.json'),'utf8'));
   for(const file of manifest.files){
@@ -135,4 +140,21 @@ test('exact historical restore supplies only authenticated immutable migration e
  expect(snapshots).toBe(1);
  await expect(restoreServiceBackup({pool:f.makePool('789'),store:f.store,source:f.options.destination,encryptionKey:randomBytes(32),destination:join(f.root,'wrong-key-history'),restore:async()=>{throw Error('must not restore');},snapshot:async()=>{snapshots++;return f.inventory;}})).rejects.toThrow('BACKUP_VERIFY_FAILED');
  expect(snapshots).toBe(1);
+});
+
+// The initial inventory boundary must distinguish fixed I/O categories without
+// leaking exception text, unknown codes, paths, or archive contents.
+test.each(['EACCES','ENOENT','ESTALE','UNSAFE_SECRET_CODE'])('archive inventory failure retains only safe reason for %s',async(code)=>{
+ const f=await deploymentFixture();await createServiceBackup(f.options);
+ const spy=vi.mocked(fsPromises.readdir).mockRejectedValueOnce(Object.assign(Error('private-secret /private/path'),{code,path:'/private/path'}));
+ const destination=join(f.root,'safe-inventory-failure');
+ try{
+  await expect(verifyServiceBackup({source:f.options.destination,encryptionKey:f.options.encryptionKey,destination})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+  const marker=await readFile(join(destination,'failed.json'),'utf8');
+  expect(JSON.parse(marker)).toEqual({status:'failed',phase:'archive-initial',archiveReason:code==='UNSAFE_SECRET_CODE'?'ARCHIVE_IO_FAILED':code});
+  expect(marker).not.toMatch(/private-secret|private\/path|UNSAFE_SECRET_CODE/);
+  expect((await stat(join(destination,'failed.json'))).mode&0o777).toBe(0o600);
+  await expect(access(join(destination,'manifest.json'))).rejects.toThrow();
+  await access(join(f.options.destination,'complete.json'));
+ }finally{spy.mockClear();}
 });

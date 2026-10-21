@@ -112,7 +112,18 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
   phase='archive-final';
   if(await archiveInventory(source)!==finderMetadata)throw Error('BACKUP_ARCHIVE_INVENTORY');
   return {manifest,files,receipt};
- }catch{await jsonExclusive(join(destination,'failed.json'),{status:'failed',phase}).catch(()=>{});throw Error('BACKUP_VERIFY_FAILED');}
+ }catch(error){
+  // Retain only fixed archive-boundary categories; never serialize an exception,
+  // path, filename, message, stack, key, or authenticated content.
+  let archiveReason:string|undefined;
+  if(phase==='archive-initial'||phase==='archive-final'){
+   const code=error&&typeof error==='object'&&'code' in error?error.code:undefined;
+   archiveReason=typeof code==='string'&&['EACCES','EPERM','ENOENT','ENOTDIR','EIO','ESTALE','ELOOP','EMFILE','ENFILE'].includes(code)?code:error instanceof Error&&error.message==='BACKUP_ARCHIVE_INVENTORY'?'BACKUP_ARCHIVE_INVENTORY':'ARCHIVE_IO_FAILED';
+  }
+  await jsonExclusive(join(destination,'failed.json'),{status:'failed',phase,...(archiveReason?{archiveReason}:{})}).catch(()=>{});
+ }
+ // Keep the caller-facing failure generic and unchained to private I/O details.
+ throw Error('BACKUP_VERIFY_FAILED');
 }
 /** Fresh isolated target only. A failed candidate is left for inspection, never activated. */
 export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;restore:(path:string)=>Promise<void>}):Promise<BackupReceipt&{inventory:ServiceInventory}>{

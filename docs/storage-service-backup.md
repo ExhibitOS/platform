@@ -159,7 +159,10 @@ node scripts/service-backup.mjs verify \
 복원을 대체하지 않습니다.
 
 검증 실패 시 새 비공개 작업 공간의 `failed.json`에는 가능한 경우 `status`와
-고정된 `phase`만 mode0600으로 남습니다. 단계는 `archive-initial`, `receipt`,
+고정된 `phase`가 mode0600으로 남습니다. archive 목록 확인 단계에는 추가로
+`archiveReason`이 고정 enum으로 남습니다: `BACKUP_ARCHIVE_INVENTORY`,
+`EACCES`, `EPERM`, `ENOENT`, `ENOTDIR`, `EIO`, `ESTALE`, `ELOOP`, `EMFILE`,
+`ENFILE`, 그 외에는 `ARCHIVE_IO_FAILED`. 예외 메시지·경로·파일명은 기록하지 않습니다. 단계는 `archive-initial`, `receipt`,
 `manifest-cipher-check`, `manifest-decrypt`, `manifest-validate`, `file-inventory`,
 `files-decrypt`, `archive-final` 중 하나입니다. 이 값은 실패한 호출의 범위이며
 암호 인증 실패의 확정 원인이나 이전 단계 전체의 성공 증거가 아닙니다.
