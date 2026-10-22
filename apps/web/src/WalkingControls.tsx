@@ -61,8 +61,9 @@ export function WalkingControls({
       <p id="walking-instructions">
         걷기 시작 후 화면에 초점을 두고 W/A/S/D 또는 ↑/↓로 이동하고 ←/→로 시점을
         돌립니다. 마우스 시점은 직접 선택합니다. Esc·다른 항목 선택·화면 전환은
-        일시 정지합니다. 터치는 화면 왼쪽 이동 버튼과 오른쪽 드래그를 함께
-        사용합니다.
+        일시 정지합니다. 터치는 왼쪽 방향 버튼으로 이동하고 오른쪽 방향 버튼이나
+        화면 오른쪽 드래그로 위·아래·좌우를 둘러봅니다. 버튼을 누르는 동안 움직이고
+        손을 떼면 멈춥니다.
       </p>
         <button disabled={!available} onClick={() => actions?.capture()}>마우스 시점 잡기</button>
       <div className="walking-settings">
@@ -115,30 +116,50 @@ export function WalkingTouch({
   paused: boolean;
   actions: WalkingActions | null;
 }) {
-  const move = (action: WalkAction, label: string) => (
+  const move = (action: WalkAction, label: string, direction: string, symbol: string) => (
     <button
+      type="button"
+      aria-label={label}
       data-walk-touch={action}
+      style={{ gridArea: direction }}
       disabled={!available || paused}
       onPointerDown={(event) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
         actions?.press(action, event.pointerId);
       }}
-      onPointerUp={(event) => actions?.release(event.pointerId)}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={(event) => event.preventDefault()}
+      onPointerUp={(event) => {
+        event.preventDefault();
+        actions?.release(event.pointerId);
+      }}
       onPointerCancel={(event) => actions?.release(event.pointerId)}
       onLostPointerCapture={(event) => actions?.release(event.pointerId)}
     >
-      {label}
+      <span aria-hidden="true">{symbol}</span>
     </button>
   );
   return (
     <div className="walking-touch" aria-label="터치 이동">
-      {move("forward", "앞으로 이동")}
-      {move("left", "왼쪽 이동")}
-      {move("backward", "뒤로 이동")}
-      {move("right", "오른쪽 이동")}
-      {move("turn-left", "왼쪽 시점")}
-      {move("turn-right", "오른쪽 시점")}
+      <div className="walking-touch-group" role="group" aria-label="이동">
+        <span className="walking-touch-label">이동</span>
+        <div className="walking-direction-pad">
+          {move("forward", "앞으로 이동", "up", "↑")}
+          {move("left", "왼쪽 이동", "left", "←")}
+          {move("right", "오른쪽 이동", "right", "→")}
+          {move("backward", "뒤로 이동", "down", "↓")}
+        </div>
+      </div>
+      <div className="walking-touch-group" role="group" aria-label="시점">
+        <span className="walking-touch-label">시점</span>
+        <div className="walking-direction-pad">
+          {move("look-up", "위쪽 시점", "up", "↑")}
+          {move("turn-left", "왼쪽 시점", "left", "←")}
+          {move("turn-right", "오른쪽 시점", "right", "→")}
+          {move("look-down", "아래쪽 시점", "down", "↓")}
+        </div>
+      </div>
     </div>
   );
 }

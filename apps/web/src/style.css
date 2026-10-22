@@ -93,12 +93,16 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 .walking-settings { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; margin: 1rem 0; }
 .walking-settings label { min-width: 0; }
 .walking-settings input[type=range] { width: 100%; }
-.walking-touch { display: flex; flex-wrap: wrap; gap: 8px; }
-.walking-touch button { min-width: 64px; min-height: 48px; touch-action: none; user-select: none; }
+.walking-touch { display: flex; justify-content: space-between; align-items: end; gap: 16px; pointer-events: none; }
+.walking-touch-group { display: grid; justify-items: center; gap: 6px; }
+.walking-touch-label { padding: 3px 8px; border-radius: 4px; background: #203d2c; color: #fff; font-size: 13px; }
+.walking-direction-pad { display: grid; grid-template-areas: ". up ." "left . right" ". down ."; grid-template-columns: repeat(3,44px); grid-template-rows: repeat(3,44px); gap: 6px; }
+.walking-touch button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; padding: 0; font-size: 24px; touch-action: none; user-select: none; -webkit-user-select: none; pointer-events: auto; }
 .geometry-preview canvas:focus-visible { outline: 3px solid #315641; outline-offset: 3px; }
 .geometry-stage { position: relative; }
-.geometry-stage .walking-touch { position: absolute; left: 10px; bottom: 10px; width: 146px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.geometry-stage .walking-touch button { padding: 5px; font-size: 11px; background: #183b2de6; }
+.geometry-stage .walking-touch { position: absolute; left: 8px; right: 8px; bottom: 8px; }
+.geometry-stage .walking-touch button { background: #203d2c; }
+@media (max-width: 367px) { .geometry-stage .walking-touch { position: static; flex-wrap: wrap; justify-content: center; margin-top: 8px; } }
 
 /* Accessible public entrance: readable without graphics or sound. */
 .publication-shell { overflow-wrap: anywhere; }

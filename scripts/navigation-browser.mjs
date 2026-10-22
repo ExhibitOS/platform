@@ -232,6 +232,7 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
     await check(
       "held movement loses canvas focus on settings; eye height changes preserve feet and fixed body clearance",
       async () => {
+        if (!(await state(page))) await start(page);
         await reset(page);
         await start(page);
         await page.keyboard.down("KeyW");
@@ -650,6 +651,8 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
         await touch("touchMove", [left, right]);
         await mobile.waitForTimeout(350);
         const both = await state(mobile);
+        report.touchAttempt = {before, both, box, forward, left, right, events: await mobile.evaluate(() => window.touchEvents)};
+        await mobile.screenshot({path:`${dir}/touch-attempt.png`,fullPage:true});
         assert(both.eyePosition[2] < before.eyePosition[2] - 0.35);
         assert(Math.abs(both.yaw - before.yaw) > 0.05);
         await touch("touchEnd", [left]);
@@ -668,6 +671,40 @@ export async function runNavigationBrowser({ origin, publicationId, fixture }) {
           touchBoth: both,
           touchReleased: released,
         });
+      },
+    );
+    await check(
+      "narrow directional buttons keep walking active; vertical view and explicit external-focus pause",
+      async () => {
+        for (const [label, field, sign] of [
+          ["위쪽 시점", "pitch", 1], ["아래쪽 시점", "pitch", -1],
+          ["왼쪽 시점", "yaw", 1], ["오른쪽 시점", "yaw", -1],
+        ]) {
+          const control = button(mobile, label);
+          const bounds = await control.boundingBox();
+          assert(bounds && bounds.width >= 44 && bounds.height >= 44);
+          const point = {x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2, id: 3};
+          const before = await state(mobile);
+          await touch("touchStart", [point]);
+          await mobile.waitForTimeout(250);
+          await touch("touchEnd", []);
+          const after = await state(mobile);
+          assert.equal(after.paused, false);
+          assert((after[field] - before[field]) * sign > 0.1, label);
+        }
+        // Compatibility mouse events must not transfer focus away from the canvas.
+        await button(mobile, "앞으로 이동").click();
+        assert.equal((await state(mobile)).paused, false);
+        await mobile.locator(".walking-controls details > summary").click();
+        await mobile.getByLabel("보행 속도", {exact:true}).selectOption("0.7");
+        await expect.poll(async () => (await state(mobile)).paused).toBe(true);
+        const stopped = await state(mobile);
+        await mobile.locator("canvas").focus();
+        await mobile.waitForTimeout(350);
+        assert.equal((await state(mobile)).paused, true);
+        near((await state(mobile)).eyePosition, stopped.eyePosition);
+        await start(mobile);
+        assert.equal((await state(mobile)).paused, false);
       },
     );
     const shot = `${dir}/narrow-walking.png`;

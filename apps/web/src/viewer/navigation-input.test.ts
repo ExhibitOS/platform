@@ -4,7 +4,7 @@ import { createWalkingInput } from './navigation-input';
 afterEach(() => vi.unstubAllGlobals());
 function fixture() {
   const doc = Object.assign(new EventTarget(), { activeElement: null as unknown, pointerLockElement: null as unknown, hidden:false, exitPointerLock:vi.fn(() => {doc.pointerLockElement=null;}) });
-  const canvas = Object.assign(new EventTarget(), { focus:()=>{doc.activeElement=canvas;}, requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn() });
+  const canvas = Object.assign(new EventTarget(), { focus:vi.fn(()=>{doc.activeElement=canvas;}), requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn() });
   vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
   const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error);
   input.enable();return {doc,canvas,input,pause,error};
@@ -26,6 +26,32 @@ test('touch movement tokens release independently and pause clears all held move
   expect(input.sample(.01)).toMatchObject({forward:1,right:1});input.release(1);
   expect(input.sample(.01)).toMatchObject({forward:0,right:1});input.pause();input.enable();
   expect(input.sample(.01)).toMatchObject({forward:0,right:0});input.dispose();
+});
+test('active touch controls keep canvas focus without reviving paused input',()=>{
+  const {input,canvas,doc,pause}=fixture();
+  canvas.focus.mockClear(); input.press('forward',1);
+  expect(canvas.focus).toHaveBeenCalledWith({preventScroll:true});
+  expect(doc.activeElement).toBe(canvas);
+  expect(input.sample(.1).forward).toBe(1);
+  canvas.dispatchEvent(new Event('blur'));
+  expect(pause).toHaveBeenCalledOnce();
+  canvas.focus.mockClear(); input.press('right',2);
+  expect(canvas.focus).not.toHaveBeenCalled();
+  expect(input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});
+  canvas.focus();
+  expect(input.sample(.1).forward).toBe(0);
+  input.enable(); input.press('right',2);
+  expect(input.sample(.1).right).toBe(1); input.dispose();
+});
+test('vertical touch look combines with movement and releases each pointer independently',()=>{
+  const {input}=fixture(); input.press('forward',1); input.press('look-up',2);
+  expect(input.sample(.1)).toMatchObject({forward:1,pitchDelta:.12});
+  input.release(2); expect(input.sample(.1)).toMatchObject({forward:1,pitchDelta:0});
+  input.press('look-down',3);expect(input.sample(.1).pitchDelta).toBe(-.12);
+  input.press('look-up',4);expect(input.sample(.1).pitchDelta).toBe(0);
+  input.pause();input.enable();
+  expect(input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});
+  input.dispose();
 });
 
 test('legacy void capture stays pending until a document failure and reports once', async () => {

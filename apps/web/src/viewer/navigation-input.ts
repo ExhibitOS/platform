@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 export type WalkAction =
-  "forward" | "backward" | "left" | "right" | "turn-left" | "turn-right";
+  "forward" | "backward" | "left" | "right" | "turn-left" | "turn-right" | "look-up" | "look-down";
 export function createWalkingInput(
   canvas: HTMLCanvasElement,
   onPause: () => void,
@@ -128,7 +128,12 @@ export function createWalkingInput(
       if (document.pointerLockElement === canvas) document.exitPointerLock();
     },
     press(action: WalkAction, id: number) {
-      if (enabled) touch.set(id, action);
+      if (enabled) {
+        // Only a current control gesture keeps the walking canvas focused.
+        // A paused session must still be resumed explicitly.
+        canvas.focus({ preventScroll: true });
+        touch.set(id, action);
+      }
     },
     release(id: number) {
       touch.delete(id);
@@ -149,7 +154,9 @@ export function createWalkingInput(
             Number(has("turn-right", "KeyE", "ArrowRight"))) *
             dt *
             1.2,
-        pitchDelta,
+        pitchDelta:
+          pitchDelta +
+          (Number(actions.has("look-up")) - Number(actions.has("look-down"))) * dt * 1.2,
       };
       yawDelta = 0;
       pitchDelta = 0;
