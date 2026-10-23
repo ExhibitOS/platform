@@ -34,7 +34,7 @@ test('standard normal/AO maps retain their exact local images and authored tange
 });
 test('normal/AO closed references and optional authored tangent bytes reject malformed or unsupported declarations',async()=>{
  const source=publicPBRTexturedGLB();
- for(const edit of [d=>d.samplers[0].wrapT=0,d=>d.samplers[0].magFilter=9987,d=>d.materials[0].normalTexture.index=9,d=>d.materials[0].normalTexture.scale=.5,d=>d.materials[0].normalTexture.texCoord=1,d=>d.materials[0].normalTexture.uri='https://invalid.example/map',d=>d.materials[0].occlusionTexture.index=-1,d=>d.materials[0].occlusionTexture.strength=0,d=>d.materials[0].occlusionTexture.unknown=true,d=>delete d.meshes[0].primitives[0].attributes.TEXCOORD_0,d=>d.accessors[4].type='VEC3',d=>d.accessors[4].count=3,d=>d.accessors[4].componentType=5123,(d,b)=>b.writeFloatLE(NaN,d.bufferViews[d.accessors[4].bufferView].byteOffset),(d,b)=>b.writeFloatLE(0,d.bufferViews[d.accessors[4].bufferView].byteOffset+12)]) {
+ for(const edit of [d=>d.samplers[0].wrapT=0,d=>d.samplers[0].magFilter=9987,d=>d.materials[0].normalTexture.index=9,d=>d.materials[0].normalTexture.scale=2.01,d=>d.materials[0].normalTexture.texCoord=1,d=>d.materials[0].normalTexture.uri='https://invalid.example/map',d=>d.materials[0].occlusionTexture.index=-1,d=>d.materials[0].occlusionTexture.strength=-.01,d=>d.materials[0].occlusionTexture.unknown=true,d=>delete d.meshes[0].primitives[0].attributes.TEXCOORD_0,d=>d.accessors[4].type='VEC3',d=>d.accessors[4].count=3,d=>d.accessors[4].componentType=5123,(d,b)=>b.writeFloatLE(NaN,d.bufferViews[d.accessors[4].bufferView].byteOffset),(d,b)=>b.writeFloatLE(0,d.bufferViews[d.accessors[4].bufferView].byteOffset+12)]) {
   await assert.rejects(decode(changeTextureGLB(source,edit),mime));
  }
 });
@@ -62,4 +62,35 @@ test('base-colour and linear maps cannot alias one image through the same or dif
  }
  const pair=publicTexturedLODPair(),alias=b=>changeTextureGLB(b,d=>{d.textures.push({source:0,sampler:0});d.materials[0].normalTexture={index:1};});
  assert.throws(()=>qualifyApprovedTexturedPair(alias(pair.full),alias(pair.coarse),8,2),{message:'APPROVED_LOD_UNSUPPORTED'});
+});
+
+
+test('packed ORM/AO linear image alias and authored normal/AO strengths survive display without rewriting maps',async()=>{
+ for(const [scale,strength] of [[0,0],[.5,.25],[2,1]]){
+  const source=changeTextureGLB(publicPBRTexturedGLB(),d=>{const m=d.materials[0];m.normalTexture.scale=scale;m.occlusionTexture.strength=strength;m.pbrMetallicRoughness.metallicRoughnessTexture={index:2};});
+  await decode(source,mime);const marked=await derivative(source,mime);await decode(marked,mime);
+  assert.deepEqual(parse(marked).materials.slice(0,parse(source).materials.length),parse(source).materials);
+  const bin=b=>b.subarray(28+b.readUInt32LE(12));for(const image of parse(source).images){const v=parse(source).bufferViews[image.bufferView];assert.deepEqual(bin(marked).subarray(v.byteOffset,v.byteOffset+v.byteLength),bin(source).subarray(v.byteOffset,v.byteOffset+v.byteLength));}
+ }
+});
+test('approved packed PBR LOD binds exact strengths and all ORM channels, while omitted defaults equal explicit one',async()=>{
+ const pair=publicPBRTexturedLODPair(),edit=(b,scale=0,strength=.25)=>changeTextureGLB(b,d=>{const m=d.materials[0];m.normalTexture.scale=scale;m.occlusionTexture.strength=strength;m.pbrMetallicRoughness.metallicRoughnessTexture={index:2};});
+ const full=edit(pair.full),coarse=edit(pair.coarse);for(const b of [full,coarse])await decode(b,mime);
+ assert.equal(qualifyApprovedTexturedPair(full,coarse,8,2).coarse.triangles,2);
+ for(const mismatch of [edit(pair.coarse,.5,.25),edit(pair.coarse,0,0),changeTextureGLB(coarse,(d,b)=>{b[d.bufferViews[d.images[2].bufferView].byteOffset+40]^=1;})])assert.throws(()=>qualifyApprovedTexturedPair(full,mismatch,8,2));
+ const absent=changeTextureGLB(pair.coarse,d=>{delete d.materials[0].normalTexture.scale;delete d.materials[0].occlusionTexture.strength;});
+ assert.equal(qualifyApprovedTexturedPair(pair.full,absent,8,2).coarse.triangles,2);
+});
+test('ORM stays within closed PNG/UV0/cap profile and never aliases colour or sRGB-only Basis',async()=>{
+ for(const edit of [d=>d.materials[0].pbrMetallicRoughness.metallicRoughnessTexture={index:0},d=>d.materials[0].pbrMetallicRoughness.metallicRoughnessTexture={index:2,texCoord:1},d=>d.materials[0].pbrMetallicRoughness.metallicRoughnessTexture={index:2,scale:1},d=>d.materials[0].pbrMetallicRoughness.metallicRoughnessTexture={index:9},d=>d.materials[0].normalTexture.scale=-.01,d=>d.materials[0].occlusionTexture.strength=1.01])await assert.rejects(decode(changeTextureGLB(publicPBRTexturedGLB(),edit),mime));
+ const basis=withPublicBasis(changeTextureGLB(publicTexturedGLB({png:publicTexturePNG(8,8),images:3}),d=>{d.materials=[{pbrMetallicRoughness:{baseColorTexture:{index:1},metallicRoughnessTexture:{index:0}},occlusionTexture:{index:2}}];}));
+ await assert.rejects(decode(basis,mime));
+ const pair=publicPBRTexturedLODPair(),alias=b=>changeTextureGLB(b,d=>{d.materials[0].pbrMetallicRoughness.metallicRoughnessTexture={index:0};});
+ assert.throws(()=>qualifyApprovedTexturedPair(alias(pair.full),alias(pair.coarse),8,2),{message:'APPROVED_LOD_UNSUPPORTED'});
+});
+
+test('ORM-only material still requires finite matching UV0 rather than bypassing textured primitive checks',async()=>{
+ const source=changeTextureGLB(publicTexturedGLB(),d=>{d.materials[0].pbrMetallicRoughness={metallicRoughnessTexture:{index:0},metallicFactor:.5,roughnessFactor:.75};});
+ await decode(source,mime);
+ for(const edit of [d=>delete d.meshes[0].primitives[0].attributes.TEXCOORD_0,d=>d.accessors[2].count=3,(d,b)=>b.writeFloatLE(1.1,d.bufferViews[d.accessors[2].bufferView].byteOffset)])await assert.rejects(decode(changeTextureGLB(source,edit),mime));
 });

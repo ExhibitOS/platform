@@ -240,3 +240,5 @@ export * from "./opening.js";
 export * from "./artifact-affine.js";
 
 export * from "./bounded-ktx2.js";
+
+export * from "./pbr-texture-profile.js";

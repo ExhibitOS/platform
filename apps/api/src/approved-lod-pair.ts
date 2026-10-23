@@ -1,4 +1,5 @@
-import {embeddedBasisPairs} from '@exhibitos/studio-contract';
+import {embeddedBasisPairs, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
+import type {PbrTextureRole} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /** Bounded compatibility check for an explicitly approved textured pair.
  * Format/PNG decoding remains the isolated validation worker's responsibility.
@@ -18,19 +19,27 @@ function model(bytes:Buffer){
  const basis=embeddedBasisPairs(d,(i)=>view(d.images[i].bufferView));
  let pixels=0,imageBytes=0;
  const images=d.images.map((im:{bufferView:number;mimeType:string})=>{if(!closed(im,['bufferView','mimeType'])||!['image/png','image/ktx2'].includes(im.mimeType))fail();const b=view(im.bufferView);if(im.mimeType==='image/ktx2')return b;if(b.length<33||b.toString('ascii',12,16)!=='IHDR')fail();const w=b.readUInt32BE(16),h=b.readUInt32BE(20);pixels+=w*h;imageBytes+=b.length;if(!w||!h||w>2048||h>2048||pixels>2097152||imageBytes>8388608)fail();return b;});
- // Bind each primitive through its actual PBR material; one material may use three local maps.
+ // Bind each primitive through its actual PBR material; one material may use colour, normal, AO and packed G-roughness/B-metalness maps.
  const usedTextures=new Set<number>(),usedSamplers=new Set<number>(),usedImages=new Set<number>(),colourImages=new Set<number>(),linearImages=new Set<number>();
  const samplers=d.samplers.map((v:Record<string,unknown>)=>{if(!closed(v,['magFilter','minFilter','wrapS','wrapT'])||v.magFilter!==9729||v.minFilter!==9729||![33071,10497,33648].includes(v.wrapS as number)||![33071,10497,33648].includes(v.wrapT as number))fail();return v;});
  const textures=d.textures.map((v:{source:number;sampler:number})=>{if(!closed(v,['source','sampler'],['extensions'])||!integer(v.source)||v.source>=images.length||!integer(v.sampler)||v.sampler>=samplers.length)fail();usedSamplers.add(v.sampler);usedImages.add(v.source);return v;});
  for(const index of basis.keys())usedImages.add(index);
  if(usedSamplers.size!==samplers.length||usedImages.size!==images.length)fail();
- const map=(input:unknown,parameter?:string)=>{if(input===undefined)return null;if(!closed(input,['index'],['texCoord',...(parameter?[parameter]:[])]))return fail();const v=input as Record<string,unknown>,index=v.index;if(!integer(index))return fail();if(index>=textures.length||Object.hasOwn(v,'texCoord')&&v.texCoord!==0||parameter&&Object.hasOwn(v,parameter)&&v[parameter]!==1)fail();usedTextures.add(index);const texture=textures[index],source=texture.source;if(parameter&&(d.images[source].mimeType!=='image/png'||Object.hasOwn(texture,'extensions')))fail();(parameter?linearImages:colourImages).add(source);return {index,texCoord:0,...(parameter?{[parameter]:1}:{})};};
+ const map=(input:unknown,role:PbrTextureRole)=>{
+  if(input===undefined)return null;
+  const binding=(()=>{try{return pbrTextureBinding(input,role,textures.length);}catch{return fail();}})();
+  const {index,texCoord,scale,strength}=binding,texture=textures[index],source=texture.source,linear=pbrTextureIsLinear(role);
+  usedTextures.add(index);
+  if(linear&&(d.images[source].mimeType!=='image/png'||Object.hasOwn(texture,'extensions')))fail();
+  (linear?linearImages:colourImages).add(source);
+  return {index,texCoord,...(scale===undefined?{}:{scale}),...(strength===undefined?{}:{strength})};
+ };
  const materials=d.materials.map((m:Record<string,unknown>)=>{
   if(!closed(m,['pbrMetallicRoughness'],['doubleSided','normalTexture','occlusionTexture'])||Object.hasOwn(m,'doubleSided')&&typeof m.doubleSided!=='boolean')fail();
-  const p=m.pbrMetallicRoughness as Record<string,unknown>;if(!closed(p,['baseColorTexture'],['baseColorFactor','metallicFactor','roughnessFactor']))fail();
+  const p=m.pbrMetallicRoughness as Record<string,unknown>;if(!closed(p,['baseColorTexture'],['baseColorFactor','metallicFactor','roughnessFactor','metallicRoughnessTexture']))fail();
   const factor=p.baseColorFactor??[1,1,1,1];if(!Array.isArray(factor)||factor.length!==4||factor.some((v:unknown)=>typeof v!=='number'||!Number.isFinite(v)||v<0||v>1))fail();
   for(const name of ['metallicFactor','roughnessFactor'])if(Object.hasOwn(p,name)&&(typeof p[name]!=='number'||!Number.isFinite(p[name])||p[name]<0||p[name]>1))fail();
-  return {doubleSided:m.doubleSided??false,baseColorTexture:map(p.baseColorTexture),baseColorFactor:factor,metallicFactor:p.metallicFactor??1,roughnessFactor:p.roughnessFactor??1,normalTexture:map(m.normalTexture,'scale'),occlusionTexture:map(m.occlusionTexture,'strength')};
+  return {doubleSided:m.doubleSided??false,baseColorTexture:map(p.baseColorTexture,'colour'),metallicRoughnessTexture:map(p.metallicRoughnessTexture,'metallicRoughness'),baseColorFactor:factor,metallicFactor:p.metallicFactor??1,roughnessFactor:p.roughnessFactor??1,normalTexture:map(m.normalTexture,'normal'),occlusionTexture:map(m.occlusionTexture,'occlusion')};
  });
  if(usedTextures.size!==textures.length||[...linearImages].some(i=>colourImages.has(i)))fail();
  const read=(i:number,components:number,index=false,bounds=false)=>{const a=d.accessors[i];if(!integer(i)||!closed(a,['bufferView','componentType','count','type'],bounds?['min','max']:[])||a.componentType!==(index?5125:5126)||a.type!==(index?'SCALAR':components===4?'VEC4':components===3?'VEC3':'VEC2')||!integer(a.count)||!a.count||a.count>131072)fail();const b=view(a.bufferView);if(b.length!==a.count*components*4)fail();return {a,b};};
