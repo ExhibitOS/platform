@@ -192,7 +192,10 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
     const bytes = view(a.bufferView), v = doc.bufferViews[a.bufferView], stride = v.byteStride ?? 8;
     if (!integer(stride) || stride < 8 || stride > 252 || stride % 4 || (a.byteOffset ?? 0) + (a.count - 1) * stride + 8 > bytes.length) fail();
     for (let i = 0; i < a.count; i++) for (let j = 0; j < 2; j++) {
-      const x = bytes.readFloatLE((a.byteOffset ?? 0) + i * stride + j * 4); if (!Number.isFinite(x) || x < 0 || x > 1) fail();
+      // UVs address normalized image size, but are not constrained to one tile.
+      // Supported samplers above define clamp/repeat/mirror behavior. Preserve
+      // authored values within the same finite magnitude cap as Processing.
+      const x = bytes.readFloatLE((a.byteOffset ?? 0) + i * stride + j * 4); if (!Number.isFinite(x) || Math.abs(x) > 20000) fail();
     }
     // glTF can derive a tangent frame when absent. An authored frame must retain its exact handedness.
     if (primitive.attributes?.TANGENT !== undefined) {
