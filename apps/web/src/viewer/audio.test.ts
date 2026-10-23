@@ -231,3 +231,32 @@ test('stopping script audio while its verified load pending prevents late start 
 test('targeted script audio stop removes only matching sources while mute removes all',async()=>{const {runtime,id,internal}=scriptRuntime();const other='22222222-2222-4222-8222-222222222222';const publication=(internal as unknown as {publication:import("../publication-client").PublicPublication}).publication;publication.exhibition.mediaAssets.push({...publication.exhibition.mediaAssets[0]!,id:other});publication.assets.push({...publication.assets[0]!,assetId:other});(runtime as unknown as {experience:{voices:{assetId:string;placementId:string;transcript:string}[]}}).experience.voices.push({assetId:other,placementId:id,transcript:'Other synthetic transcript'});await runtime.playScriptAudio(id,.5,()=>true);await runtime.playScriptAudio(other,.5,()=>true);assert.equal(runtime.snapshot().active,2);runtime.stopScriptAudio(id);assert.equal(runtime.snapshot().active,1);runtime.mute(true);assert.equal(runtime.snapshot().active,0);});
 
 test('script audio without authored readable transcript association is denied before media loading',async()=>{const {runtime,id,internal}=scriptRuntime();(runtime as unknown as {experience:{voices:unknown[]}}).experience.voices=[];let loads=0;internal.load=async()=>{loads++;return {} as AudioBuffer;};await assert.rejects(runtime.playScriptAudio(id,1,()=>true),/SCRIPT_AUDIO_TRANSCRIPT_MISSING/);assert.equal(loads,0);assert.equal(runtime.snapshot().active,0);});
+
+function preparedShortStep(duration=.7){
+ const {id,runtime}=voiceRuntime(),calls:number[][]=[],envelope:number[][]=[],sources:Array<{stopped:boolean;onended:((event:Event)=>void)|null}>=[];
+ const parameter=()=>({value:0,setValueAtTime:(...v:number[])=>envelope.push(v),linearRampToValueAtTime:(...v:number[])=>envelope.push(v)});
+ const node=()=>({connect:()=>node(),disconnect:()=>{}});
+ const internal=runtime as unknown as {state:{enabled:boolean};context:AudioContext;master:GainNode;convolver:ConvolverNode;experience:{footsteps:unknown[]};buffers:Map<string,AudioBuffer>;publication:import('../publication-client').PublicPublication};
+ internal.context={state:'running',currentTime:2,close:async()=>{},listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},createGain:()=>({...node(),gain:parameter()}),createBufferSource:()=>{const source={...node(),playbackRate:{value:1},stopped:false,onended:null,start:(...args:number[])=>calls.push(args),stop:()=>{source.stopped=true;}};sources.push(source);return source;}} as unknown as AudioContext;
+ internal.master={...node(),gain:parameter()} as unknown as GainNode;internal.convolver={disconnect:()=>{}} as ConvolverNode;internal.state.enabled=true;
+ internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];internal.buffers.set(id,{duration,length:Math.round(duration*48000),numberOfChannels:1} as AudioBuffer);
+ const stride=()=>{runtime.update(state(0,{floorSurfaceId:id}));for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{floorSurfaceId:id}));};
+ return {id,runtime,internal,calls,envelope,sources,stride};
+}
+test('short verified authored step retains its own natural duration and per-clip envelope',()=>{
+ const {runtime,calls,envelope,stride}=preparedShortStep();runtime.lifecycle(true);stride();
+ assert.equal(runtime.snapshot().footsteps,1);assert.deepEqual(calls,[[0,0,.7]]);assert(envelope.some(v=>v[0]===0&&typeof v[1]==='number'&&v[1]>2.6));runtime.dispose();
+});
+test('visitor footsteps off stops active step sources and resets distance without enabling audio or changing zone consent',()=>{
+ const {runtime,calls,sources,stride}=preparedShortStep();runtime.lifecycle(true);stride();runtime.footstepsEnabled(false);
+ assert.equal(sources[0]!.stopped,true);assert.equal(runtime.snapshot().active,0);assert.equal(runtime.snapshot().footstepsEnabled,false);assert.equal(runtime.snapshot().zoneTransitions,false);
+ stride();assert.equal(calls.length,1);runtime.footstepsEnabled(true);assert.equal(calls.length,1);
+ runtime.update(state(.8));assert.equal(calls.length,1);runtime.visibility(false);stride();assert.equal(calls.length,1);
+ const fresh=voiceRuntime().runtime;fresh.footstepsEnabled(false);assert.equal(fresh.snapshot().enabled,false);assert.equal(fresh.snapshot().context,'not-created');
+});
+test('room admission retains the cache buffer of an active step until its source ends',()=>{
+ const {id,runtime,internal,stride}=preparedShortStep();runtime.lifecycle(true);stride();
+ internal.publication.exhibition.rooms=[{id:'room-a'},{id:'room-b'}] as import('@exhibitos/spec').Exhibition['rooms'];internal.publication.exhibition.audioZones=[];internal.publication.exhibition.placements=[];internal.publication.exhibition.surfaces=[];
+ const setRoom=(runtime as unknown as {setRoom:(id:string)=>void}).setRoom.bind(runtime);setRoom('room-a');assert.equal(internal.buffers.has(id),true);
+ runtime.footstepsEnabled(false);setRoom('room-b');assert.equal(internal.buffers.has(id),false);
+});
