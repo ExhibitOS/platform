@@ -1,3 +1,4 @@
+import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails} from '@exhibitos/studio-contract';
@@ -36,6 +37,8 @@ export function validateDraft(document: unknown): ValidationResult {
   if(!plaques.valid)return plaques;
   const benches=validateStudioBenches((document as Draft).candidate);
   if(!benches.valid)return benches;
+  const floors=validateStudioFloors((document as Draft).candidate);
+  if(!floors.valid)return floors;
   const installation=validateStudioInstallation((document as Draft).candidate);
   if(!installation.valid)return installation;
   const errors=(document as Draft).candidate.artworks.flatMap((a,i)=>[...validateViewerLod(a).errors,...validateArtworkDisplayPolicy(a).errors].map(e=>({...e,path:`/candidate/artworks/${i}${e.path}`})));

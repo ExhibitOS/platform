@@ -104,3 +104,18 @@ test("static bootstrap insertion preserves literal dollar title through the actu
  const result=await exportStaticPublication(options),html=await readFile(join(result.output,'index.html'),'utf8');
  assert(html.includes('<h1>$&amp; title $` $&#39;</h1>'));assert(!html.includes('STATIC_COVER_SHELL'));assert(html.includes('<title>$&amp; title $` $&#39;</title>'));
 });
+
+test('floor metadata survives static export without invented media or sound',async t=>{
+ const {fixture,options}=await setup(t),e=fixture.raw.exhibition,namespace='org.exhibitos.studio/floors';
+ const room=e.rooms[0],floor={id:'50000000-0000-4000-8000-000000000021',roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}};
+ e.surfaces.push(floor);
+ const floors={version:1,bindings:[{target:{kind:'surface',surfaceId:floor.id},preset:'wood',repeatMeters:[1.8,1.8],rotation:0,normalScale:0,aoStrength:0}]};
+ e.extensions={...e.extensions,[namespace]:floors};fixture.raw.publication.revisionSha256=revisionHash(e);
+ const result=await exportStaticPublication(options),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'))),published=JSON.parse(await readFile(join(result.output,index.publication.path)));
+ assert.deepEqual(published.exhibition.extensions[namespace],floors);assert.equal(index.assets.length,3);
+});
+test('invalid floor references cannot bypass static profile admission',async t=>{
+ const {fixture,options}=await setup(t),e=fixture.raw.exhibition;
+ e.extensions={...e.extensions,'org.exhibitos.studio/floors':{version:1,bindings:[{target:{kind:'surface',surfaceId:randomUUID()},preset:'wood',repeatMeters:[1.8,1.8],rotation:0}]}};fixture.raw.publication.revisionSha256=revisionHash(e);
+ await assert.rejects(exportStaticPublication(options),/OEX_PROFILE_INVALID/);await assert.rejects(lstat(options.output),{code:'ENOENT'});
+});
