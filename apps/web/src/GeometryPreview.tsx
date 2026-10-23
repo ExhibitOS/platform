@@ -1,3 +1,4 @@
+import {applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
@@ -126,7 +127,9 @@ export function GeometryPreview({
   openingViewpoint,
   onXrReady,
   onXrArtworks,
+  referenceTone = 'linear',
 }: {
+  referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
   document: Document;
@@ -305,19 +308,21 @@ export function GeometryPreview({
       renderer.setPixelRatio(
         Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2),
       );
-      renderer.outputColorSpace = three.SRGBColorSpace;
+      applyReferenceOutput(three,renderer,referenceTone);
+      const compactQuality=(viewerBudget?.maxTextureSize??2048)<=512;
+      const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
+      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
       scene.add(model);
-      scene.add(
-        new three.HemisphereLight(
+      const hemisphere = new three.HemisphereLight(
           0xffffff,
           0x71806a,
           document.lights.length ? 0.4 : 2.5,
-        ),
-      );
+        );
+      scene.add(hemisphere);
       const sun = new three.DirectionalLight(
         0xffffff,
         document.lights.length ? 0 : 3,
@@ -739,6 +744,17 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      // Async environment setup starts only AFTER scene teardown is registered.
+      // Failed/cancelled generation keeps the existing lighting and text/navigation.
+      void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
+        if(!environment)return;
+        if(disposed||gpuLost){environment.dispose();return;}
+        owned.push(environment);scene.environmentIntensity=.45;
+        hemisphere.intensity=document.lights.length ? .2 : .6;
+        if(!daylight&&!document.lights.length)sun.intensity=2;
+        renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,assetBudgetBytes});
+        render();
+      }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
       orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
@@ -866,7 +882,7 @@ export function GeometryPreview({
         Promise<InstanceType<typeof three.Object3D>>
       >();
       const byteCache = new MemoryAssetCache<ArrayBuffer>(
-        viewerBudget?.maxCacheBytes ?? 33554432,
+        assetBudgetBytes,
       );
       let cacheHits = 0;
       const decodedResources = new Map<
@@ -1009,10 +1025,10 @@ export function GeometryPreview({
               artwork.dimensions.width,
               artwork.dimensions.height,
             );
-            const material = new three.MeshStandardMaterial({
+            const material = new three.MeshBasicMaterial({
               map: texture,
               side: three.DoubleSide,
-              roughness: 0.8,
+              toneMapped: false,
             });
             resources.push(geometry, material);
             object = new three.Mesh(geometry, material);
@@ -1184,7 +1200,7 @@ export function GeometryPreview({
           for (const key of tasks.keys()) {
             if (
               decodedTotal + byteCache.stats().bytes <=
-              viewerBudget.maxCacheBytes
+              assetBudgetBytes
             )
               break;
             byteCache.delete(key);
@@ -1269,7 +1285,7 @@ export function GeometryPreview({
                 used +
                   byteCache.stats().bytes +
                   (object.userData.viewer?.decodedBytes ?? 0) >
-                viewerBudget.maxCacheBytes
+                assetBudgetBytes
               ) {
                 destroy(object);
                 failed.add(art.revisionId);
@@ -1400,7 +1416,7 @@ export function GeometryPreview({
       abort.abort();
       release();
     };
-  }, [
+  }, [referenceTone,
     document,
     appearance,
     session,
