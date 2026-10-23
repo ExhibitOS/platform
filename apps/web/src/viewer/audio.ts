@@ -4,6 +4,7 @@ import type { PublicPublication } from "../publication-client";
 import type { NavigationState } from "./navigation";
 import { fetchVerifiedAsset } from "./loading";
 import { authoredDistanceGain, occlusionGain } from "./audio-geometry";
+import {recordedStepPolicy,type StepHistory} from "./recorded-step-policy";
 
 export type FloorSound = "wood" | "stone" | "concrete" | "carpet";
 export interface VoicePlayback {
@@ -19,6 +20,7 @@ export interface AudioState {
   suspended: boolean;
   context: string;
   footsteps: number;
+  footstepsEnabled: boolean;
   material: FloorSound;
   roomId: string | null;
   loaded: number;
@@ -113,6 +115,8 @@ export class ExhibitionAudio implements AudioApi {
   private explicitLoads = new Set<string>();
   private steps = new Map<FloorSound, AudioBuffer>();
   private playing = new Set<AudioBufferSourceNode>();
+  private stepSources = new Set<AudioBufferSourceNode>();
+  private stepHistory:StepHistory={nextSide:"left"};
   private scriptGeneration=0;
   private scriptMediaGenerations=new Map<string,number>();
   private scriptSources=new Map<string,AudioBufferSourceNode>();
@@ -138,7 +142,7 @@ export class ExhibitionAudio implements AudioApi {
   private room?: string;
   private experience: Experience;
   private curation: ReturnType<typeof curationFor>;
-  private state: AudioState = { voice: {assetId:null,positionSeconds:0,durationSeconds:0,status:"stopped"}, zoneTransitions:false, zoneId:null, enabled: false, muted: false, volume: 0.5, suspended: true, context: "not-created", footsteps: 0, material: "concrete", roomId: null, loaded: 0, decodedBytes: 0, requests: 0, active: 0, reverbSeconds: 0, zoneGain: 0, message: "소리는 선택해서 켭니다. 음성 설명은 소리 없이 읽을 수 있습니다." };
+  private state: AudioState = { voice: {assetId:null,positionSeconds:0,durationSeconds:0,status:"stopped"}, zoneTransitions:false, zoneId:null, enabled: false, muted: false, volume: 0.5, suspended: true, context: "not-created", footsteps: 0, footstepsEnabled:true, material: "concrete", roomId: null, loaded: 0, decodedBytes: 0, requests: 0, active: 0, reverbSeconds: 0, zoneGain: 0, message: "소리는 선택해서 켭니다. 음성 설명은 소리 없이 읽을 수 있습니다." };
   constructor(private publication: PublicPublication, private changed: (state: AudioState) => void) {
     this.experience = experienceFor(publication.exhibition);
     this.curation = curationFor(publication.exhibition);
@@ -187,6 +191,7 @@ export class ExhibitionAudio implements AudioApi {
     this.emit();
   }
   volume(value: number) { this.state.volume = Number.isFinite(value)?Math.max(0, Math.min(1, value)):0; this.updateMaster(); this.emit(); }
+  footstepsEnabled(value:boolean) {this.state.footstepsEnabled=value;this.stride.reset();if(!value)for(const source of [...this.stepSources])this.stop(source);this.emit();}
   mute(value: boolean) { this.state.muted = value; if (value) this.silence(); this.updateMaster(); this.emit(); }
   private updateMaster() { if (this.master && this.context) this.master.gain.setValueAtTime(this.state.muted || !this.visible || !this.audible ? 0 : this.state.volume, this.context.currentTime); }
   private stop(source: AudioBufferSourceNode) { try { source.stop(); } catch { /* Already ended. */ } source.disconnect(); this.playing.delete(source); source.onended?.(new Event("ended")); source.onended=null; }
@@ -217,7 +222,7 @@ export class ExhibitionAudio implements AudioApi {
       listener.forwardX.setValueAtTime(-Math.sin(state.yaw), now); listener.forwardY.setValueAtTime(0, now); listener.forwardZ.setValueAtTime(-Math.cos(state.yaw), now);
       const material = this.experience.footsteps.find(f => f.surfaceId === state.floorSurfaceId)?.material;
       this.state.material = material === "wood" || material === "carpet" || material === "stone" ? material : material === "metal" ? "stone" : "concrete";
-      if (this.stride.advance(state, this.moving && this.visible && !this.state.muted && !this.detail) && this.context.state === "running") this.footstep(state);
+      if (this.stride.advance(state, this.moving && this.visible && !this.state.muted && !this.detail && this.state.footstepsEnabled) && this.context.state === "running") this.footstep(state);
       if (this.zone) {
         const zone = this.publication.exhibition.audioZones.find(z => z.id === this.zone!.id)!;
         const p = this.worldPosition(zone.roomId, zone.position);
@@ -231,6 +236,7 @@ export class ExhibitionAudio implements AudioApi {
     this.transition();
   }
   private footstep(state: NavigationState) {
+    if(!this.state.footstepsEnabled)return;
     this.audible=true;this.updateMaster();
     const context = this.context!;
     const custom = this.experience.footsteps.find(f => f.surfaceId === state.floorSurfaceId)?.assetId;
@@ -239,9 +245,20 @@ export class ExhibitionAudio implements AudioApi {
       buffer = this.steps.get(this.state.material);
       if (!buffer) { const wave = footstepWave(this.state.material, context.sampleRate); buffer = context.createBuffer(1, wave.length, context.sampleRate); buffer.copyToChannel(new Float32Array(wave), 0); this.steps.set(this.state.material, buffer); }
     }
+    // Only an explicitly authored, verified loaded short WAV enters the natural-tail path.
+    // Legacy long custom WAVs retain their existing 0.2s cap; no automatic segmentation.
+    const decision=custom&&this.buffers.get(custom)===buffer?recordedStepPolicy([{id:custom,durationSeconds:buffer.duration,verified:true}],{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:this.state.voice.status==='playing'},this.stepHistory,{selection:Math.random(),gain:Math.random(),rate:Math.random()}):undefined;
     const source = context.createBufferSource(), gain = context.createGain();
-    source.buffer = buffer; gain.gain.value = 0.35; source.connect(gain).connect(this.master!); gain.connect(this.convolver!);
-    this.track(source, () => gain.disconnect()); source.start(0, 0, Math.min(buffer.duration, 0.2)); this.state.footsteps++; this.emit();
+    source.buffer = buffer; gain.gain.value = 0.35*(this.state.voice.status==='playing'?.35:1); source.connect(gain).connect(this.master!); gain.connect(this.convolver!);
+    this.stepSources.add(source);this.track(source, () => {this.stepSources.delete(source);gain.disconnect();});
+    try{
+      if(decision?.play){
+        const plan=decision.plan,now=context.currentTime;source.playbackRate.value=plan.playbackRate;
+        gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(plan.peakGain,now+plan.fadeInSeconds);gain.gain.setValueAtTime(plan.peakGain,now+plan.fadeOutStartSeconds);gain.gain.linearRampToValueAtTime(0,now+plan.wallDurationSeconds);
+        source.start(0,plan.offsetSeconds,plan.mediaDurationSeconds);this.stepHistory=plan.nextHistory;
+      }else source.start(0,0,Math.min(buffer.duration,.2));
+    }catch{this.stop(source);this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
+    this.state.footsteps++; this.emit();
   }
   private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) { this.playing.add(source); source.onended = () => { this.playing.delete(source); source.disconnect(); cleanup(); this.emit(); }; }
   private worldPosition(roomId: string, local: [number, number, number]): [number, number, number] {
@@ -258,7 +275,7 @@ export class ExhibitionAudio implements AudioApi {
     this.allowed = new Set(doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId));
     for(const voice of this.experience.voices) {const placement=doc.placements.find(p=>p.id===voice.placementId);if(placement&&rooms.has(placement.roomId))this.allowed.add(voice.assetId);}
     for (const entry of this.experience.footsteps) { const surface = doc.surfaces.find(s => s.id === entry.surfaceId); if (entry.assetId && surface && rooms.has(surface.roomId)) this.allowed.add(entry.assetId); }
-    for (const [key] of this.buffers) if (!this.allowed.has(key) && this.voice?.buffer !== this.buffers.get(key)) this.buffers.delete(key);
+    for (const [key] of this.buffers) if (!this.allowed.has(key) && ![...this.playing].some(source=>source.buffer===this.buffers.get(key))) this.buffers.delete(key);
     if (this.context && this.convolver && this.wet) {
       const room = doc.rooms[index]!;
       const seconds = Math.min(1.8, Math.max(0.15, Math.cbrt(room.dimensions.width*room.dimensions.height*room.dimensions.depth)/12));
@@ -268,7 +285,7 @@ export class ExhibitionAudio implements AudioApi {
     }
     if (this.state.enabled) this.preload(); this.emit();
   }
-  private preload() { if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return; for (const id of [...this.allowed].slice(0, 8)) void this.load(id,true).then(()=>{if(!this.allowed.has(id)&&this.buffers.get(id)!==this.voice?.buffer)this.buffers.delete(id);this.emit();}).catch((error) => { if(error instanceof Error && error.message === "AUDIO_PRELOAD_STALE")return; this.state.message="일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다."; this.emit(); }); }
+  private preload() { if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return; for (const id of [...this.allowed].slice(0, 8)) void this.load(id,true).then(()=>{if(!this.allowed.has(id)&&![...this.playing].some(source=>source.buffer===this.buffers.get(id)))this.buffers.delete(id);this.emit();}).catch((error) => { if(error instanceof Error && error.message === "AUDIO_PRELOAD_STALE")return; this.state.message="일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다."; this.emit(); }); }
   private load(id: string, preload = false): Promise<AudioBuffer> {
     if(!preload)this.explicitLoads.add(id);
     const cached = this.buffers.get(id); if (cached) {this.explicitLoads.delete(id);return Promise.resolve(cached);}
@@ -285,7 +302,7 @@ export class ExhibitionAudio implements AudioApi {
       const buffer = await this.context.decodeAudioData(bytes);
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
       const size = buffer.length * buffer.numberOfChannels * 4;
-      while (size + [...this.buffers.values()].reduce((n,b)=>n+b.length*b.numberOfChannels*4,0)>MAX_DECODED) { const key = [...this.buffers.keys()].find(k=>this.buffers.get(k)!==this.voice?.buffer && this.buffers.get(k)!==this.zone?.source.buffer && ![...this.scriptSources.values()].some(s=>s.buffer===this.buffers.get(k))); if (!key) throw Error("AUDIO_CACHE_LIMIT"); this.buffers.delete(key); }
+      while (size + [...this.buffers.values()].reduce((n,b)=>n+b.length*b.numberOfChannels*4,0)>MAX_DECODED) { const key = [...this.buffers.keys()].find(k=>![...this.playing].some(source=>source.buffer===this.buffers.get(k))); if (!key) throw Error("AUDIO_CACHE_LIMIT"); this.buffers.delete(key); }
       this.buffers.set(id, buffer); this.emit(); return buffer;
     }).finally(()=>{this.pending.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;
