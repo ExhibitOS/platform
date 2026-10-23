@@ -1,11 +1,31 @@
 import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
 describe("bounded Viewer loading",()=>{
+ it('admits bounded full-only painting for compact resizing and guards source decode before allocation',()=>{
+  const a=syntheticArtwork('image'),asset=a.assets[0]!;asset.bytes=4856525;
+  a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:asset.id,detail:'full',textureSize:1401}]}};
+  expect(selectAssetVariant(a,Infinity,DEVICE_BUDGETS.compact)).toBe(asset);
+  const bytes=new ArrayBuffer(33),p=new DataView(bytes);new Uint8Array(bytes).set([137,80,78,71,13,10,26,10]);p.setUint32(8,13);p.setUint32(12,0x49484452);p.setUint32(16,1401);p.setUint32(20,1098);p.setUint8(24,8);p.setUint8(25,6);
+  expect(()=>checkImageDecode(bytes,a,asset,DEVICE_BUDGETS.compact)).not.toThrow();
+  p.setUint32(16,1402);expect(()=>checkImageDecode(bytes,a,asset,DEVICE_BUDGETS.compact)).toThrow('IMAGE_DECODE_BUDGET');
+  p.setUint32(16,1401);p.setUint32(20,0);expect(()=>checkImageDecode(bytes,a,asset,DEVICE_BUDGETS.compact)).toThrow('IMAGE_DECODE_BUDGET');
+  p.setUint32(20,1098);p.setUint8(24,16);expect(()=>checkImageDecode(bytes,a,asset,DEVICE_BUDGETS.compact)).toThrow('IMAGE_DECODE_BUDGET');p.setUint8(24,8);
+  expect(()=>checkImageDecode(new ArrayBuffer(2),a,asset,DEVICE_BUDGETS.compact)).toThrow('IMAGE_DECODE_BUDGET');
+  asset.bytes=8388609;expect(()=>selectAssetVariant(a,Infinity,DEVICE_BUDGETS.compact)).toThrow('ASSET_BUDGET_EXCEEDED');
+  asset.bytes=1;a.extensions[LOD_NAMESPACE]={version:1,variants:[{assetId:asset.id,detail:'full',textureSize:2049}]};expect(()=>selectAssetVariant(a,Infinity,DEVICE_BUDGETS.compact)).toThrow('ASSET_BUDGET_EXCEEDED');
+ });
+ it('prefers smaller authored painting and refuses transient decode over the concurrency share',()=>{
+  const a=syntheticArtwork('image'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:100000};full.bytes=8000000;a.assets.push(coarse);
+  a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',textureSize:2048},{assetId:coarse.id,detail:'coarse',textureSize:1024}]}};
+  expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toBe(coarse);
+  a.assets.pop();a.extensions[LOD_NAMESPACE]={version:1,variants:[{assetId:full.id,detail:'full',textureSize:2048}]};
+  expect(()=>selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toThrow('ASSET_BUDGET_EXCEEDED');
+ });
  it("prioritizes queued demand, deduplicates and retains cancellation slots until settlement then retries",async()=>{const started:string[]=[],finish=new Map<string,(v:string)=>void>(),discarded:string[]=[];const s=new AssetScheduler<string>({concurrency:1,load:key=>{started.push(key);return new Promise(r=>finish.set(key,r));},onDiscard:v=>discarded.push(v)});const far=s.request("far",20),near=s.request("near",1);expect(s.request("near",3)).toBe(near);await tick();expect(started).toEqual(["near"]);const aborted=expect(near).rejects.toMatchObject({name:"AbortError"});s.cancel("near");await aborted;await tick();expect(s.stats().active).toBe(1);expect(started).toEqual(["near"]);finish.get("near")!("late");await tick();expect(discarded).toEqual(["late"]);expect(started).toEqual(["near","far"]);finish.get("far")!("ok");expect(await far).toBe("ok");const again=s.retry("near");await tick();finish.get("near")!("retry");expect(await again).toBe("retry");s.dispose();expect(s.stats()).toMatchObject({active:0,queued:0,completed:2,cancelled:1});});
  it("evicts only unpinned LRU resources and disposes rejected allocations and teardown",()=>{const disposed:string[]=[];const c=new MemoryAssetCache<string>(10,v=>disposed.push(v));c.set("a","a",6);c.acquire("a");expect(c.set("b","b",6)).toBe(false);expect(disposed).toEqual(["b"]);expect(c.delete("a")).toBe(false);c.release("a");expect(c.set("c","c",6)).toBe(true);expect(disposed).toEqual(["b","a"]);expect(c.stats().bytes).toBe(6);c.clear();expect(disposed).toEqual(["b","a","c"]);});
  it("selects actual qualified coarse detail and refuses known over-budget fallback including case-varied byte aliases",()=>{const a=syntheticArtwork("sculpture"),full=a.assets[0]!;full.bytes=1000;const low={...full,id:"a0000000-0000-4000-8000-000000000001",bytes:100};a.assets.push(low);a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:"full",triangles:30000},{assetId:low.id.toUpperCase(),detail:"coarse",triangles:3000}]}};expect(validateViewerLod(a).valid).toBe(true);expect(selectAssetVariant(a,10,DEVICE_BUDGETS.compact).id).toBe(low.id);low.bytes=2000;expect(validateViewerLod(a).valid).toBe(false);a.assets.pop();a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:"full",triangles:30000}]}};expect(()=>selectAssetVariant(a,1,DEVICE_BUDGETS.compact)).toThrow("ASSET_BUDGET_EXCEEDED");});

@@ -14,6 +14,7 @@ import {
   AssetScheduler,
   MemoryAssetCache,
   fetchVerifiedAsset,
+  checkImageDecode,
   prioritizePlacements,
   selectAssetVariant,
   type DeviceBudget,
@@ -982,11 +983,13 @@ export function GeometryPreview({
         try {
           let object: InstanceType<typeof three.Object3D>;
           if (artwork.artworkType === "image") {
+            const sourceSize=viewerBudget?checkImageDecode(bytes!,artwork,inventory,viewerBudget):undefined;
             let bitmap = await createImageBitmap(
               new Blob([bytes!], { type: "image/png" }),
               { imageOrientation: "flipY" },
             );
             resources.push({ dispose: () => bitmap.close() });
+            if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
             const declared = lodVariantsFor(artwork).find(
               (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
             )?.textureSize;

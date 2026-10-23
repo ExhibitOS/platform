@@ -6,7 +6,7 @@ import { embeddedPNGManager } from './embedded-glb.js';
 import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
 import type { PublicPublication } from "./publication-client";
-import { deviceBudget, fetchVerifiedAsset, selectAssetVariant } from "./viewer/loading";
+import { checkImageDecode, deviceBudget, fetchVerifiedAsset, selectAssetVariant } from "./viewer/loading";
 import type * as THREE from "three";
 
 import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
@@ -117,8 +117,11 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, referenceT
           revisionSha256: publication.publication.revisionSha256, asset, inventory, signal: abort.signal, ...publication.local });
         let object: THREE.Object3D;let modelExtent=Math.max(artwork.dimensions.width,artwork.dimensions.height),metric:ReturnType<typeof centerMetricModel>["measured"]|undefined;
         if (inventory.mime === "image/png") {
+          const sourceSize=checkImageDecode(bytes,artwork,inventory,budget);
           let bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }), { imageOrientation: "flipY" });
           resources.add({ dispose: () => bitmap.close() });
+          if(disposed||abort.signal.aborted){release();return;}
+          if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
           if (bitmap.width > budget.maxTextureSize || bitmap.height > budget.maxTextureSize) {
             const scale=budget.maxTextureSize/Math.max(bitmap.width,bitmap.height),resized=await createImageBitmap(bitmap,{imageOrientation:'none',resizeWidth:Math.max(1,Math.round(bitmap.width*scale)),resizeHeight:Math.max(1,Math.round(bitmap.height*scale))});
             if(disposed||abort.signal.aborted){resized.close();release();return;}

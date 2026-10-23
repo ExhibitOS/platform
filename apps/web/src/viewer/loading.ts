@@ -11,10 +11,30 @@ export function prioritizePlacements(doc:Exhibition,roomId:string,position:[numb
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==="full"),coarse=variants.find(v=>v.detail==="coarse");
  const fits=(v:typeof full)=>!!v&&(v.triangles===undefined||v.triangles<=budget.maxTriangles)&&(v.textureSize===undefined||v.textureSize<=budget.maxTextureSize);
- const selected=coarse&&(distance>2||!fits(full))&&fits(coarse)?coarse:fits(full)?full:undefined;
+ let selected=coarse&&(distance>2||!fits(full))&&fits(coarse)?coarse:fits(full)?full:undefined;
+ // Images already resize uniformly before GPU upload. Permit only a small,
+ // bounded source when no authored variant fits; model limits stay unchanged.
+ if(!selected&&artwork.artworkType==='image'){
+  selected=[coarse,full].find(variant=>{
+   if(variant?.textureSize===undefined||variant.textureSize>2048)return false;
+   const asset=artwork.assets.find(a=>a.id.toLowerCase()===variant.assetId.toLowerCase());
+   const peak=Math.min(variant.textureSize**2,2097152)*4+(asset?.bytes??Infinity)+budget.maxTextureSize**2*4*4/3;
+   return asset?.mime==='image/png'&&asset.bytes<=8388608&&peak<=(budget.maxCacheBytes-2097152)/budget.concurrency;
+  });
+ }
  if(!selected)throw new Error("ASSET_BUDGET_EXCEEDED");
  const asset=artwork.assets.find(a=>a.id.toLowerCase()===selected.assetId.toLowerCase());
  if(!asset)throw new Error("VARIANT_REFERENCE");return asset;
+}
+/** Header allocation guard before the browser decoder; hash/profile admission is separate. */
+export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
+ const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
+ if(declared===undefined||declared<=budget.maxTextureSize)return;
+ const p=new DataView(bytes),signature=[137,80,78,71,13,10,26,10];
+ if(bytes.byteLength<33||bytes.byteLength>8388608||signature.some((n,i)=>p.getUint8(i)!==n)||p.getUint32(8)!==13||p.getUint32(12)!==0x49484452||p.getUint8(24)!==8||![2,6].includes(p.getUint8(25))||p.getUint8(26)!==0||p.getUint8(27)!==0||p.getUint8(28)!==0)throw Error('IMAGE_DECODE_BUDGET');
+ const w=p.getUint32(16),h=p.getUint32(20);
+ if(!w||!h||w>Math.min(declared,2048)||h>Math.min(declared,2048)||w*h>2097152)throw Error('IMAGE_DECODE_BUDGET');
+ return {width:w,height:h};
 }
 export type LoadingStatus="queued"|"loading"|"loaded"|"error"|"cancelled";
 export interface LoadingEvent {key:string;status:LoadingStatus;error?:unknown}
