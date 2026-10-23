@@ -246,3 +246,4 @@ export * from "./installation-resolver.js";
 export * from "./installation-commands.js";
 
 export * from "./pbr-texture-profile.js";
+export * from './display-policy.js';

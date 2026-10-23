@@ -1,3 +1,4 @@
+import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import { validateStudioInstallation } from '@exhibitos/studio-contract';
 import { validateViewerEntrance } from '@exhibitos/studio-contract';
 import {validateSpatialProfile} from '@exhibitos/studio-contract';
@@ -25,6 +26,6 @@ export function validateDraft(document: unknown): ValidationResult {
   if(!presentation.valid)return presentation;
   const installation=validateStudioInstallation((document as Draft).candidate);
   if(!installation.valid)return installation;
-  const errors=(document as Draft).candidate.artworks.flatMap((a,i)=>validateViewerLod(a).errors.map(e=>({...e,path:`/candidate/artworks/${i}${e.path}`})));
+  const errors=(document as Draft).candidate.artworks.flatMap((a,i)=>[...validateViewerLod(a).errors,...validateArtworkDisplayPolicy(a).errors].map(e=>({...e,path:`/candidate/artworks/${i}${e.path}`})));
   return {valid:errors.length===0,errors};
 }
