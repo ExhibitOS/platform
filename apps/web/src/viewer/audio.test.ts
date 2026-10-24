@@ -260,3 +260,105 @@ test('room admission retains the cache buffer of an active step until its source
  const setRoom=(runtime as unknown as {setRoom:(id:string)=>void}).setRoom.bind(runtime);setRoom('room-a');assert.equal(internal.buffers.has(id),true);
  runtime.footstepsEnabled(false);setRoom('room-b');assert.equal(internal.buffers.has(id),false);
 });
+
+function voicePriorityRuntime() {
+ const {id,runtime}=voiceRuntime();
+ const parameter=()=>({value:1,targets:[] as number[][],envelope:[] as number[][],
+  setValueAtTime(value:number,time:number){this.value=value;this.envelope.push([value,time]);},
+  linearRampToValueAtTime(value:number,time:number){this.envelope.push([value,time]);},
+  setTargetAtTime(value:number,time:number,constant:number){this.targets.push([value,time,constant]);}});
+ const node=()=>({connections:[] as object[],disconnected:false,gain:parameter(),playbackRate:{value:1},
+  positionX:parameter(),positionY:parameter(),positionZ:parameter(),onended:null as ((event:Event)=>void)|null,
+  stopped:false,connect(target:object){this.connections.push(target);return target;},
+  disconnect(){this.disconnected=true;},stop(){this.stopped=true;},start(){if(failStart)throw Error('SYNTHETIC_START_FAILURE');}});
+ let failStart=false;
+ const sources:ReturnType<typeof node>[]=[];
+ const context={state:'running',currentTime:2,sampleRate:48000,destination:node(),resume:async()=>{},close:async()=>{},
+  listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},
+  createGain:node,createConvolver:node,createPanner:node,createBufferSource:()=>{const s=node();sources.push(s);return s;}};
+ const internal=runtime as unknown as {context:AudioContext;master:ReturnType<typeof node>;background:ReturnType<typeof node>;wet:ReturnType<typeof node>;convolver:ReturnType<typeof node>;
+  load:(id:string)=>Promise<AudioBuffer>;checkAvailability:()=>Promise<void>;room:string;
+  buffers:Map<string,AudioBuffer>;experience:{footsteps:unknown[]};publication:import('../publication-client').PublicPublication};
+ internal.context=context as unknown as AudioContext;
+ internal.checkAvailability=async()=>{};internal.load=async()=>({duration:.7} as AudioBuffer);
+ internal.publication.exhibition.audioZones=[];
+ const enable=async()=>{await runtime.enable();internal.room=id;};
+ return {id,runtime,internal,context,sources,enable,failStart:()=>{failStart=true;}};
+}
+
+test('voice priority routes active dry steps, zones and wet tails through one bus while voice bypasses it',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();const random=vi.spyOn(Math,'random').mockReturnValue(.5);
+ try{
+  await f.enable();const {internal,runtime,id,sources}=f;
+  assert.deepEqual(internal.background.connections,[internal.master]);
+  assert.deepEqual(internal.convolver.connections,[internal.wet]);assert.deepEqual(internal.wet.connections,[internal.background]);
+  internal.publication.exhibition.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:'Synthetic zone'}];
+  await runtime.playZone(id);const panner=sources[0]!.connections[0] as typeof internal.background;
+  const zoneGain=panner.connections[0] as typeof internal.background;
+  assert.deepEqual(zoneGain.connections,[internal.background,internal.convolver]);
+  internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];internal.buffers.set(id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
+  runtime.lifecycle(true);runtime.update(state(0,{floorSurfaceId:id}));runtime.update(state(.3,{floorSurfaceId:id}));runtime.update(state(.6,{floorSurfaceId:id}));
+  const step=sources[1]!,stepGain=step.connections[0] as typeof internal.background;
+  assert.deepEqual(stepGain.connections,[internal.background,internal.convolver]);
+  await runtime.playVoice(id);assert.deepEqual(sources[2]!.connections,[internal.master]);
+  assert.equal(step.stopped,false);assert.equal(sources[0]!.stopped,false);
+  assert.deepEqual(internal.background.gain.targets.at(-1),[.35,2,.03]);
+  runtime.update(state(.9,{floorSurfaceId:id}));runtime.update(state(1.2,{floorSurfaceId:id}));const speakingStepGain=sources[3]!.connections[0] as typeof internal.background;
+  assert(speakingStepGain.gain.envelope.some(([value])=>value===.35)); // Envelope is not ducked a second time.
+  f.context.currentTime=3;sources[2]!.onended!(new Event('ended'));
+  assert.deepEqual(internal.background.gain.targets.at(-1),[1,3,.12]);assert.equal(runtime.voicePlayback().status,'ended');
+ }finally{f.runtime.dispose();random.mockRestore();vi.useRealTimers();}
+});
+
+test('voice priority replacement ignores old source end events and restores only when the current voice stops',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  await f.enable();await f.runtime.playVoice(f.id);const ended=f.sources[0]!.onended!;
+  await f.runtime.playVoice(f.id);const count=f.internal.background.gain.targets.length;
+  ended(new Event('ended'));assert.equal(f.internal.background.gain.targets.length,count);
+  assert.equal(f.runtime.voicePlayback().status,'playing');assert.deepEqual(f.internal.background.gain.targets.at(-1),[.35,2,.03]);
+  f.runtime.stopVoice();assert.deepEqual(f.internal.background.gain.targets.at(-1),[1,2,.12]);assert(f.sources[1]!.stopped);
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
+test('voice priority rejects failed starts, loads and availability without ducking background',async()=>{
+ vi.useFakeTimers();
+ try{for(const stage of ['start','load','availability']){
+  const f=voicePriorityRuntime();try{
+   await f.enable();if(stage==='start')f.failStart();else if(stage==='load')f.internal.load=async()=>{throw Error('SYNTHETIC_FAILURE');};else f.internal.checkAvailability=async()=>{throw Error('SYNTHETIC_FAILURE');};
+   await assert.rejects(f.runtime.playVoice(f.id),/SYNTHETIC/);
+   assert(!f.internal.background.gain.targets.some(([value])=>value===.35));assert.equal(f.runtime.snapshot().active,0);
+  }finally{f.runtime.dispose();}
+ }}finally{vi.useRealTimers();}
+});
+
+test('voice priority late cancelled request failure cannot restore background over a newer voice',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  await f.enable();let reject:(error:Error)=>void=()=>{},entered:()=>void=()=>{};const ready=new Promise<void>(resolve=>{entered=resolve;});
+  f.internal.load=()=>new Promise((_resolve,fail)=>{reject=fail;entered();});
+  const old=f.runtime.playVoice(f.id);const rejected=assert.rejects(old,/OLD_REQUEST_FAILURE/);await ready;
+  f.internal.load=async()=>({duration:.7} as AudioBuffer);await f.runtime.playVoice(f.id);
+  const count=f.internal.background.gain.targets.length;reject(Error('OLD_REQUEST_FAILURE'));await rejected;
+  assert.equal(f.internal.background.gain.targets.length,count);assert.equal(f.runtime.voicePlayback().status,'playing');
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
+test('voice priority cancelled pending load never ducks and lifecycle controls retain master silence',async()=>{
+ vi.useFakeTimers();
+ try{for(const action of ['stop','pause','mute','hide','dispose']){
+  const f=voicePriorityRuntime();try{
+   await f.enable();await f.runtime.playVoice(f.id);
+   if(action==='stop')f.runtime.stopVoice();else if(action==='pause')f.runtime.lifecycle(false);else if(action==='mute')f.runtime.mute(true);else if(action==='hide')f.runtime.visibility(false);else f.runtime.dispose();
+   assert(f.sources[0]!.stopped);assert.deepEqual(f.internal.background.gain.targets.at(-1),[1,2,.12]);
+   if(action!=='stop')assert.equal(f.internal.master.gain.value,0);
+   if(action==='dispose')assert(f.internal.background.disconnected);
+  }finally{f.runtime.dispose();}
+ }
+ const f=voicePriorityRuntime();try{
+  await f.enable();let finish:(buffer:AudioBuffer)=>void=()=>{},entered:()=>void=()=>{};const ready=new Promise<void>(resolve=>{entered=resolve;});
+  f.internal.load=()=>new Promise(resolve=>{finish=resolve;entered();});const request=f.runtime.playVoice(f.id);await ready;f.runtime.stopVoice();finish({duration:.7} as AudioBuffer);
+  await assert.rejects(request,/AUDIO_CANCELLED/);assert(!f.internal.background.gain.targets.some(([value])=>value===.35));assert.equal(f.sources.length,0);
+ }finally{f.runtime.dispose();}
+ }finally{vi.useRealTimers();}
+});
