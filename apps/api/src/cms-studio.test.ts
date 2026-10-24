@@ -4,6 +4,7 @@ import { validateArtwork } from "@exhibitos/spec";
 import { ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
 import { Cms, validMetadata, type ArtworkMetadata } from "./cms.ts";
 import type { Session } from "./auth.ts";
+import {sha256} from '@exhibitos/storage';
 const tenantId = "10000000-0000-4000-8000-000000000001", id = "10000000-0000-4000-8000-000000000002", assetId = "10000000-0000-4000-8000-000000000003";
 const session = { tenantId, userId: "10000000-0000-4000-8000-000000000004", role: "artist" } as Session;
 const rights = { holder: "Synthetic owner", ownership: "owner", licenseId: "CC0-1.0", permissions: { display: true, download: false, export: false, commercial: false }, creditLine: "Synthetic credit" };
@@ -17,6 +18,18 @@ function setup(mime = "model/gltf-binary") {
     return { cms, c, gate, query, approval };
 }
 describe("protected approved CMS to Studio metadata projection", () => {
+    it('reads an approved PNG secondary with unchanged revision, rights and byte-integrity gates',async()=>{
+        const seed=setup('image/png'),artwork=(await seed.cms.studioArtwork(seed.c,session,id)).artwork,bytes=Buffer.from('synthetic approved coarse PNG bytes');
+        const coarse={...artwork.assets[0]!,id:'10000000-0000-4000-8000-000000000098',path:'assets/coarse.png',bytes:bytes.length,sha256:sha256(bytes)};artwork.assets.push(coarse);
+        const get=vi.fn(async()=>bytes),cms=new Cms({get} as unknown as NonNullable<ConstructorParameters<typeof Cms>[0]>);
+        vi.spyOn(cms,'studioArtwork').mockResolvedValue({artwork,previewUrl:'/unused'});
+        const row={...coarse,object_key:'synthetic/coarse',rights:artwork.rights},query=vi.fn().mockResolvedValue({rows:[row]}),c={query} as unknown as PoolClient;
+        expect(await cms.approvedVariantOriginal(c,session,id,coarse.id,7)).toEqual(bytes);
+        await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,8)).rejects.toMatchObject({code:'REVISION_CONFLICT'});
+        row.sha256='b'.repeat(64);await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});row.sha256=coarse.sha256;
+        row.rights={...artwork.rights,permissions:{...artwork.rights.permissions,display:false}};await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+        expect(get).toHaveBeenCalledOnce();
+    });
     it("produces stable full public snapshots for sculpture and painting without fetching bytes or private notes/keys", async () => {
         for (const mime of ["model/gltf-binary", "image/png"]) {
             const { cms, c, query } = setup(mime);

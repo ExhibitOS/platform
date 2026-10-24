@@ -5,6 +5,18 @@ import type {PbrTextureRole} from '@exhibitos/studio-contract';
  * Format/PNG decoding remains the isolated validation worker's responsibility.
  * This checks retained geometry/texture relationships, not physical error or permission. */
 import { measureFullVariant } from './viewer-variants.ts';
+/** PNG decoding/CRC checks remain in the existing strict worker. This binds an
+ * authored pair to measured detail and the same uncropped image rectangle. */
+export function qualifyApprovedImagePair(full:Buffer,coarse:Buffer,fullEdge:number,coarseEdge:number){
+ const dimensions=(bytes:Buffer,declared:number)=>{
+  if(bytes.length<33||bytes.length>33554432||bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.toString('ascii',12,16)!=='IHDR'||bytes[24]!==8||![2,6].includes(bytes[25]!))throw Error('APPROVED_LOD_INVALID');
+  const width=bytes.readUInt32BE(16),height=bytes.readUInt32BE(20);
+  if(!width||!height||width*height>4194304||Math.max(width,height)>8192||!Number.isSafeInteger(declared)||declared<Math.max(width,height))throw Error('APPROVED_LOD_INVALID');
+  return {width,height,edge:Math.max(width,height)};
+ };
+ const high=dimensions(full,fullEdge),low=dimensions(coarse,coarseEdge);
+ if(low.edge>=high.edge||coarse.length>=full.length||Math.abs(high.width*low.height-high.height*low.width)>high.width+high.height)throw Error('APPROVED_LOD_UNSUPPORTED');
+}
 const fail=():never=>{throw Error('APPROVED_LOD_UNSUPPORTED');};
 const closed=(v:unknown,required:string[],optional:string[]=[])=>!!v&&typeof v==='object'&&!Array.isArray(v)&&required.every(k=>Object.hasOwn(v,k))&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k));
 const integer=(v:unknown):v is number=>Number.isSafeInteger(v)&&(v as number)>=0;

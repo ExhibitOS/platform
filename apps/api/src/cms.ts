@@ -440,7 +440,7 @@ export class Cms {
     const {artwork}=await this.studioArtwork(c,s,id);
     if(artwork.revision!==expectedRevision)throw new ApiError(409,'REVISION_CONFLICT');
     const declared=artwork.assets.find(a=>a.id.toLowerCase()===assetId.toLowerCase());
-    if(!declared||declared.mime!=='model/gltf-binary')throw new ApiError(409,'APPROVAL_INVALID');
+    if(!declared||(declared.mime!=='model/gltf-binary'&&!(artwork.artworkType==='image'&&declared.mime==='image/png')))throw new ApiError(409,'APPROVAL_INVALID');
     if(!this.blobs)throw new ApiError(503,'STORAGE_UNAVAILABLE');
     await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     const row=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,assetId])).rows[0];

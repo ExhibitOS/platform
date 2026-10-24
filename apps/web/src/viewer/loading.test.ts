@@ -2,10 +2,37 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, AssetPeakBudget, assetDecodeReserve } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ImageDetailOwner, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
+describe('authored painting near tiers',()=>{
+ const image=()=>{const a=syntheticArtwork('image'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:1000};full.bytes=1048576;a.assets.push(coarse);a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',textureSize:2048},{assetId:coarse.id,detail:'coarse',textureSize:512}]}};return {a,full,coarse};};
+ it('holds one image owner through ties and requires a stable focused/occupancy winner',()=>{
+  const owner=new ImageDetailOwner(),a={id:'a',demand:true,occupancy:.2,focused:false},b={id:'b',demand:true,occupancy:.1,focused:false};
+  expect(owner.update([a,b],0)).toBeUndefined();expect(owner.update([a,b],300)).toBe('a');
+  b.occupancy=.2;expect(owner.update([b,a],400)).toBe('a');
+  b.focused=true;expect(owner.update([a,b],500)).toBe('a');expect(owner.update([a,b],799)).toBe('a');expect(owner.update([a,b],800)).toBe('b');
+  b.focused=false;a.occupancy=.6;expect(owner.update([a,b],900)).toBe('b');expect(owner.update([a,b],1200)).toBe('a');
+  expect(owner.update([],1300)).toBeUndefined();
+ });
+ it('uses a valid compact coarse and rejects missing refs instead of fetching an oversized full',()=>{
+  const {a,full,coarse}=image();expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toBe(coarse);expect(selectAssetVariant(a,0,DEVICE_BUDGETS.desktop)).toBe(full);
+  a.assets=a.assets.filter(v=>v.id!==coarse.id);expect(()=>selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toThrow('VIEWER_LOD_INVALID');
+ });
+ it('guards explicit desktop pair pixels before decode while retaining compact two-megapixel protection',()=>{
+  const {a,full}=image(),bytes=new ArrayBuffer(64),v=new DataView(bytes);[137,80,78,71,13,10,26,10].forEach((n,i)=>v.setUint8(i,n));v.setUint32(8,13);v.setUint32(12,0x49484452);v.setUint32(16,2048);v.setUint32(20,1920);v.setUint8(24,8);v.setUint8(25,2);
+  expect(checkImageDecode(bytes,a,full,DEVICE_BUDGETS.desktop)).toEqual({width:2048,height:1920});
+  expect(()=>checkImageDecode(bytes,a,full,DEVICE_BUDGETS.compact)).toThrow('IMAGE_DECODE_BUDGET');
+  v.setUint32(20,2049);expect(()=>checkImageDecode(bytes,a,full,DEVICE_BUDGETS.desktop)).toThrow('IMAGE_DECODE_BUDGET');
+ });
+ it('accounts for old residents and encoded copies instead of enlarging the shared image budget',()=>{
+  const {a,full}=image(),usable=96*1024*1024-3932160-2097152,resident=6*1024*1024;
+  const small=imageFullDecodeCeiling(a,full,DEVICE_BUDGETS.desktop)!;expect(small+resident).toBeLessThan(usable);
+  full.bytes=8388608;expect(imageFullDecodeCeiling(a,full,DEVICE_BUDGETS.desktop)!+resident).toBeGreaterThan(usable);
+  full.bytes++;expect(()=>imageFullDecodeCeiling(a,full,DEVICE_BUDGETS.desktop)).toThrow('IMAGE_DECODE_BUDGET');
+ });
+});
 describe("bounded Viewer loading",()=>{
  it('admits bounded full-only painting for compact resizing and guards source decode before allocation',()=>{
   const a=syntheticArtwork('image'),asset=a.assets[0]!;asset.bytes=4856525;

@@ -21,7 +21,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, AssetPeakBudget, assetDecodeReserve,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ImageDetailOwner, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -1250,8 +1250,9 @@ export function GeometryPreview({
           failed = new Set<string>();
         const desired = new Map<string, string>();
         const pending=new Map<string,string>(), transitions=new Map<string,DetailTransition>(), retryAfter=new Map<string,number>(), awaySince=new Map<string,number>();
+        const imageOwner=new ImageDetailOwner(), imageFullLoads=new Set<string>();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
-        let sequence=0, automatic=true, manualFull=false;
+        let sequence=0, automatic=true, manualFull=false, manualImageFull=false;
         const resident=()=>[...objects.values()].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(assetBudgetBytes,resident);
         const reserve=(key:string,bytes:number)=>{
@@ -1272,12 +1273,15 @@ export function GeometryPreview({
           concurrency: viewerBudget.concurrency,
           load: async (key, signal) => {
             const t = tasks.get(key)!;
+            const pair=authoredImagePair(t.art),fullImage=pair?.full.assetId.toLowerCase()===t.inventory.id.toLowerCase();
+            if(fullImage)imageFullLoads.add(key);
             try {
               reserve(key,t.inventory.bytes*3);
               const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,viewerBudget,bytes)));
               object.userData.loadKey=key;
               return object;
             } catch(error){peak.release(key);tasks.delete(key);throw error;}
+            finally{imageFullLoads.delete(key);}
           },
           onDiscard: object=>{peak.release(object.userData.loadKey);tasks.delete(object.userData.loadKey);destroy(object);},
         });
@@ -1358,6 +1362,17 @@ export function GeometryPreview({
           }
           const prior=pending.get(art.revisionId);
           if(prior&&desired.get(art.revisionId)===inventory.id)return;
+          const pair=authoredImagePair(art),fullImage=pair?.full.assetId.toLowerCase()===inventory.id.toLowerCase();
+          if(fullImage){
+            const anotherFull=arts.some(other=>{const p=authoredImagePair(other);return p&&other.revisionId!==art.revisionId&&active.get(other.revisionId)?.toLowerCase()===p.full.assetId.toLowerCase();});
+            const pendingFull=[...pending.values()].some(key=>{const task=tasks.get(key);return task&&authoredImagePair(task.art)?.full.assetId.toLowerCase()===task.inventory.id.toLowerCase();});
+            let ceiling:number;try{ceiling=imageFullDecodeCeiling(art,inventory,viewerBudget)!;}catch{if(!active.has(art.revisionId))request(art,false);return;}
+            if(anotherFull||pendingFull||imageFullLoads.size||peak.total()-byteCache.stats().bytes+ceiling>assetBudgetBytes){
+              // Contention does not start a request or replace a visible stage.
+              if(!active.has(art.revisionId))request(art,false);
+              return;
+            }
+          }
           if(prior)scheduler.cancel(prior);
           desired.set(art.revisionId, inventory.id);
           const key=`${inventory.id}/${sequence++}`;
@@ -1418,7 +1433,7 @@ export function GeometryPreview({
                 if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
                 retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+5000:Infinity);
                 if(active.has(art.revisionId)){update();return;}
-                if (error?.name !== "AbortError" && !full) {
+                if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget);
                     if (fallback.id !== inventory.id) {
@@ -1437,9 +1452,10 @@ export function GeometryPreview({
         };
         demand.current = (kind) => {
           if (kind === 'auto'){automatic=true;return;}
-          if (kind === 'full'||kind==='coarse'){automatic=false;manualFull=kind==='full';}
+          if (kind === 'full'||kind==='coarse'){automatic=false;manualFull=kind==='full';manualImageFull=manualFull;}
           if (kind === "cancel") {
             automatic=false;
+            manualImageFull=false;
             scheduler.cancelAll();
             update();
             return;
@@ -1452,14 +1468,15 @@ export function GeometryPreview({
               : kind === "retry"
                 ? arts.filter((a) => failed.has(a.revisionId))
                 : arts.filter((a) => requested.has(a.revisionId));
-          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, kind === "full" || (kind==='next'&&!automatic&&manualFull));}
+          if(kind==='next'&&!automatic&&manualFull)manualImageFull=true;
+          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull))&&(!authoredImagePair(art)||imageOwner.current()===art.revisionId));}
         };
         const automaticDemand=()=>{
           if(disposed||gpuLost||xrActive.current)return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
-          for(const art of arts){
-            let visible=false,distance=Infinity,focused=false,screenDemand=false;
+          const observations=arts.map(art=>{
+            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0;
             const low=lodVariantsFor(art).find(v=>v.detail==='coarse');
             for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){
               const group=placements.get(p.id.toLowerCase());if(!group||!group.visible)continue;
@@ -1472,11 +1489,17 @@ export function GeometryPreview({
               if(!screen.visible)continue;
               visible=true;const isFocused=focusedPlacement.current===p.id;focused=focused||isFocused;
               const {occupancy,projectedPixels:pixels}=screen;
+              maxOccupancy=Math.max(maxOccupancy,occupancy);
               screenDemand=screenDemand||detailDemand({kind:art.artworkType,visible:true,distance:d,occupancy,projectedPixels:pixels,coarseTextureSize:low?.textureSize,focused:isFocused});
             }
             let transition=transitions.get(art.revisionId);if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
             const want=transition.update(screenDemand,now);
-            if(!automatic)continue;
+            return {art,visible,distance,focused,want,occupancy:maxOccupancy};
+          });
+          const owner=imageOwner.update(observations.filter(v=>{const pair=authoredImagePair(v.art);return pair&&(pair.full.textureSize??Infinity)<=viewerBudget.maxTextureSize;}).map(v=>({id:v.art.revisionId,demand:v.want,occupancy:v.occupancy,focused:v.focused})),now);
+          for(const {art,visible,distance,focused,want} of observations){
+            const pair=authoredImagePair(art);
+            if(!automatic&&(!manualImageFull||!pair))continue;
             if(!visible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
@@ -1490,7 +1513,11 @@ export function GeometryPreview({
               }
             }else awaySince.delete(art.revisionId);
             // Do not start unrequested far assets; entrance preparation remains bounded.
-            if((requested.has(art.revisionId)||visible)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,want);
+            const wantFull=want&&(!pair||owner===art.revisionId);
+            // Retain an already visible-stage full image through the short
+            // hysteresis hold, but never begin an offscreen full-image fetch.
+            if(pair&&!visible&&wantFull&&active.get(art.revisionId)?.toLowerCase()===pair.full.assetId.toLowerCase())continue;
+            if((requested.has(art.revisionId)||visible)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,wantFull&&(!pair||visible));
           }
         };
         const statsTimer = setInterval(()=>{automaticDemand();update();}, 200);

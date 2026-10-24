@@ -15,7 +15,9 @@ export function selectAssetVariant(artwork:Artwork,distance:number,budget:Device
  // Images already resize uniformly before GPU upload. Permit only a small,
  // bounded source when no authored variant fits; model limits stay unchanged.
  if(!selected&&artwork.artworkType==='image'){
-  selected=[coarse,full].find(variant=>{
+  // An authored pair never substitutes its large full source for an unusable
+  // compact coarse reference. Legacy single-image resizing remains unchanged.
+  selected=[coarse??full].find(variant=>{
    if(variant?.textureSize===undefined||variant.textureSize>2048)return false;
    const asset=artwork.assets.find(a=>a.id.toLowerCase()===variant.assetId.toLowerCase());
    const peak=Math.min(variant.textureSize**2,2097152)*4+(asset?.bytes??Infinity)+budget.maxTextureSize**2*4*4/3;
@@ -25,6 +27,19 @@ export function selectAssetVariant(artwork:Artwork,distance:number,budget:Device
  if(!selected)throw new Error("ASSET_BUDGET_EXCEEDED");
  const asset=artwork.assets.find(a=>a.id.toLowerCase()===selected.assetId.toLowerCase());
  if(!asset)throw new Error("VARIANT_REFERENCE");return asset;
+}
+export function authoredImagePair(artwork:Artwork){
+ if(artwork.artworkType!=='image')return undefined;
+ const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==='full'),coarse=variants.find(v=>v.detail==='coarse');
+ return full&&coarse?{full,coarse}:undefined;
+}
+/** Includes encoded cache/copies, worst declared source bitmap, temporary
+ * bitmap and mipmapped texture. Actual header dimensions refine it after fetch. */
+export function imageFullDecodeCeiling(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
+ const pair=authoredImagePair(artwork);if(!pair||inventory.id.toLowerCase()!==pair.full.assetId.toLowerCase())return undefined;
+ const edge=pair.full.textureSize;
+ if(!edge||edge>Math.min(2048,budget.maxTextureSize)||inventory.bytes>8388608)throw Error('IMAGE_DECODE_BUDGET');
+ return Math.ceil(inventory.bytes*4+edge*edge*4*(2+4/3));
 }
 /** Demand is measured in screen pixels for paintings, projected area for geometry. */
 export function detailScreenBounds(input:{corners:ReadonlyArray<{x:number;y:number;z:number;depth:number}>;near:number;intersectsFrustum:boolean;width:number;height:number}){
@@ -51,6 +66,20 @@ export class DetailTransition {
   if(this.changedAt===undefined)this.changedAt=now;
   if(demand!==this.full&&now-this.changedAt>=(demand?300:1800))this.full=demand;
   return this.full;
+ }
+}
+/** One stable full-image owner; existing per-art tier hysteresis supplies the
+ * 1.8s hold, while a higher-priority candidate must win for 300ms. */
+export class ImageDetailOwner {
+ private owner:string|undefined;private candidate:string|undefined;private since=0;
+ current(){return this.owner;}
+ update(items:ReadonlyArray<{id:string;demand:boolean;occupancy:number;focused:boolean}>,now:number){
+  const best=[...items].filter(v=>v.demand).sort((a,b)=>Number(b.focused)-Number(a.focused)||b.occupancy-a.occupancy||Number(b.id===this.owner)-Number(a.id===this.owner)||a.id.localeCompare(b.id))[0]?.id;
+  if(best===this.owner){this.candidate=undefined;return this.owner;}
+  if(best===undefined){this.owner=undefined;this.candidate=undefined;return undefined;}
+  if(best!==this.candidate){this.candidate=best;this.since=now;}
+  if(now-this.since>=300){this.owner=best;this.candidate=undefined;}
+  return this.owner;
  }
 }
 export class AssetPeakBudget {
@@ -93,11 +122,12 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
 /** Header allocation guard before the browser decoder; hash/profile admission is separate. */
 export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
  const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
- if(declared===undefined||declared<=budget.maxTextureSize)return;
+ const desktopPair=budget.maxTextureSize>=2048&&!!authoredImagePair(artwork);
+ if(!desktopPair&&(declared===undefined||declared<=budget.maxTextureSize))return;
  const p=new DataView(bytes),signature=[137,80,78,71,13,10,26,10];
  if(bytes.byteLength<33||bytes.byteLength>8388608||signature.some((n,i)=>p.getUint8(i)!==n)||p.getUint32(8)!==13||p.getUint32(12)!==0x49484452||p.getUint8(24)!==8||![2,6].includes(p.getUint8(25))||p.getUint8(26)!==0||p.getUint8(27)!==0||p.getUint8(28)!==0)throw Error('IMAGE_DECODE_BUDGET');
  const w=p.getUint32(16),h=p.getUint32(20);
- if(!w||!h||w>Math.min(declared,2048)||h>Math.min(declared,2048)||w*h>2097152)throw Error('IMAGE_DECODE_BUDGET');
+ if(!w||!h||w>Math.min(declared??0,2048)||h>Math.min(declared??0,2048)||w*h>(desktopPair?4194304:2097152))throw Error('IMAGE_DECODE_BUDGET');
  return {width:w,height:h};
 }
 export type LoadingStatus="queued"|"loading"|"loaded"|"error"|"cancelled";

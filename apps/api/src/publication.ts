@@ -14,7 +14,7 @@ import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
-import { qualifyApprovedTexturedPair } from "./approved-lod-pair.ts";
+import { qualifyApprovedTexturedPair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
 import { Audio, audioMedia, validatePcmWav, type MediaAsset } from "./audio.ts";
 import { allowedRights } from "./rights.ts";
 export interface PublicationIssue {
@@ -193,12 +193,28 @@ export class Publications {
                 } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision) as {bytes:Buffer;mime:"model/gltf-binary"};
                 // Unsupported/nonreducing simplification remains an honest full-only fallback.
                 const fullMetric=measureFullVariant(result.bytes,result.mime);
-                const generated:GeneratedVariants=await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
-                let variants:GeneratedVariants={...generated,full:fullMetric};
-                let coarseSource:PreparedAsset['coarseSource'];
-                const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string;triangles?:number}[]}|undefined;
+                const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
                 if(lod&&!validateViewerLod(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
                 const low=lod?.variants.find(v=>v.detail==='coarse'),high=lod?.variants.find(v=>v.detail==='full');
+                const generated:GeneratedVariants=low&&high&&result.mime==='image/png'?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
+                let variants:GeneratedVariants={...generated,full:fullMetric};
+                let coarseSource:PreparedAsset['coarseSource'];
+                if(low&&high&&result.mime==='image/png'){
+                    const full=await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision);
+                    const coarse=await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision);
+                    // Both inputs must remain authorized even for unsupported pairs.
+                    const displayCoarse=await publicationImageDerivative(artwork,coarse,low.assetId);
+                    try{
+                        qualifyApprovedImagePair(full,coarse,high.textureSize!,low.textureSize!);
+                        const coarseMetric=measureFullVariant(displayCoarse,'image/png');
+                        if(!coarseMetric.textureSize||!fullMetric.textureSize||coarseMetric.textureSize>=fullMetric.textureSize||displayCoarse.length>=result.bytes.length)throw Error('APPROVED_LOD_UNSUPPORTED');
+                        variants={full:fullMetric,coarse:coarseMetric,bytes:displayCoarse};
+                        const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
+                        coarseSource={id:source.id,sha256:source.sha256};
+                    }catch(error){if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
+                    if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
+                    if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse))throw new ApiError(409,'ASSET_INTEGRITY');
+                }
                 if(low&&high&&result.mime==='model/gltf-binary'){
                     // Current authorization/integrity failures are never converted to full-only fallback.
                     const full=await this.cms.displayApprovedVariant(c,s,artwork.id,high.assetId,artwork.revision);
