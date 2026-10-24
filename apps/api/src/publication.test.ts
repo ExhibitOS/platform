@@ -6,7 +6,22 @@ import { fixtureURL, validateExhibition, type Exhibition } from "@exhibitos/spec
 import { sha256 } from "@exhibitos/storage";
 import { CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
 import { projectPublication, approvedPublicationSource } from "./publication.ts";
+import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 describe("immutable anonymous publication projection", () => {
+    it('publishes only the approved PNG cover reference and preserves UUID-shaped public prose', async () => {
+        const candidate = JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'), 'utf8')) as Exhibition;
+        const image = candidate.artworks.find(a => a.artworkType === 'image')!;
+        candidate.extensions = { [ENTRANCE_NAMESPACE]: { version: 1, artist: image.primaryAssetId, introduction: 'Public cover text', imageAssetId: image.primaryAssetId.toUpperCase(), imageAlt: 'Synthetic painting', mobilePosition: 'center' }, 'private.example/notes': { token: 'private' } };
+        const original = structuredClone(candidate);
+        const prepared = candidate.artworks.map(a => ({ artwork: a, sourceAssetId: a.primaryAssetId, sourceSha256: a.assets[0]!.sha256, bytes: Buffer.from('Synthetic qualified bytes'), mime: a.artworkType === 'image' ? 'image/png' as const : 'model/gltf-binary' as const }));
+        const { snapshot } = projectPublication(candidate, prepared, '2026-10-23T10:00:00.000Z');
+        expect(validateViewerEntrance(snapshot).valid).toBe(true);
+        expect(entranceFor(snapshot).imageAssetId).toBe(snapshot.artworks.find(a => a.artworkType === 'image')!.primaryAssetId);
+        expect(entranceFor(snapshot).imageAssetId).not.toBe(image.primaryAssetId);
+        expect(entranceFor(snapshot).artist).toBe(image.primaryAssetId);
+        expect(snapshot.extensions).not.toHaveProperty('private.example/notes');
+        expect(candidate).toEqual(original);
+    });
     it('preserves author rule IDs and UUID-shaped text while mapping only executable scene references',async()=>{
         const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
         e.extensions={[SPATIAL_NAMESPACE]:{version:1,rules:[{id:'author-rule',once:true,trigger:{type:'room_enter',roomId:e.rooms[0]!.id},actions:[{type:'set_light',lightId:e.lights[0]!.id,multiplier:.4,delayMs:0},{type:'show_text',text:e.lights[0]!.id,locale:'en',delayMs:0}]}]}};

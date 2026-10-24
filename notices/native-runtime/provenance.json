@@ -1,0 +1,187 @@
+{
+  "scope": "Original upstream license texts for bundled runtime components; version headers identify supplier versions and do not attest reproducible binary sources.",
+  "files": [
+    {
+      "project": "facebook/zstd",
+      "version": "1.5.7",
+      "commit": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "file": "zstd-1.5.7-LICENSE",
+      "upstreamURL": "https://raw.githubusercontent.com/facebook/zstd/f8745da6ff1ad1e7bab384bd1f9d742439278e99/LICENSE",
+      "sha256": "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+    },
+    {
+      "project": "facebook/zstd",
+      "version": "1.5.7",
+      "commit": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "file": "zstd-1.5.7-COPYING",
+      "upstreamURL": "https://raw.githubusercontent.com/facebook/zstd/f8745da6ff1ad1e7bab384bd1f9d742439278e99/COPYING",
+      "sha256": "f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505"
+    },
+    {
+      "project": "openssl/openssl",
+      "version": "3.5.7",
+      "commit": "8cf17aaeb4599f8af87fefd810b5b5fee90fe69e",
+      "file": "OpenSSL-3.5.7-LICENSE.txt",
+      "upstreamURL": "https://raw.githubusercontent.com/openssl/openssl/8cf17aaeb4599f8af87fefd810b5b5fee90fe69e/LICENSE.txt",
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+    },
+    {
+      "project": "GNOME/libxml2",
+      "version": "2.15.3",
+      "commit": "c94eb0210183b9d7cb43f8e7fddc6be55843ef49",
+      "file": "libxml2-2.15.3-Copyright",
+      "upstreamURL": "https://raw.githubusercontent.com/GNOME/libxml2/c94eb0210183b9d7cb43f8e7fddc6be55843ef49/Copyright",
+      "sha256": "5d4873884a890122a4b9b20ad56ac6f7da1d796a5bfcf04a427970ac96217626"
+    },
+    {
+      "project": "postgres/postgres",
+      "version": "18.6",
+      "commit": "724edf9bde9d356724ad384a2e196edc3c9f80f7",
+      "file": "PostgreSQL-18.6-Snowball-README",
+      "upstreamURL": "https://raw.githubusercontent.com/postgres/postgres/724edf9bde9d356724ad384a2e196edc3c9f80f7/src/backend/snowball/README",
+      "sha256": "fb7da88460327103e5b999e3eb23016983746e3c59bd55b567c4c369b7b286a3",
+      "tag": "REL_18_6"
+    },
+    {
+      "project": "snowballstem/snowball",
+      "version": "d19326ac6c1b9a417fc872f7c2f845265a5e9ece",
+      "commit": "d19326ac6c1b9a417fc872f7c2f845265a5e9ece",
+      "file": "Snowball-d19326a-COPYING",
+      "upstreamURL": "https://raw.githubusercontent.com/snowballstem/snowball/d19326ac6c1b9a417fc872f7c2f845265a5e9ece/COPYING",
+      "sha256": "f6f9e4c0e737728ca980de8595ded046d5e077017c1bb0ee05dc794a01434dae"
+    }
+  ],
+  "postgresSupplier": {
+    "release": "v2.9.6",
+    "assetID": 512422981,
+    "archiveSHA256": "9fc7d0dc08cf46dfd94bb32cbaaad81b41b37847a42d6dcb2f9fbd292813defb",
+    "recipeURL": "https://raw.githubusercontent.com/PostgresApp/PostgresApp/v2.9.6/src-18/makefile",
+    "postgresSourceURL": "https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.bz2",
+    "supplierPatches": [
+      "src-18/patches/fd.c.patch"
+    ],
+    "scope": "Supplier recipe and retained notice correspondence, not reproducible binary or signed distribution qualification."
+  },
+  "managedPostgresComponents": [
+    {
+      "component": "PostgreSQL/libpq/PLpgSQL",
+      "version": "18.6",
+      "source": "postgresSourceURL + supplierPatches",
+      "retainedNotice": "postgres/share/doc/postgresql/html/legalnotice.html",
+      "runtimePaths": [
+        "bin/postgres",
+        "bin/initdb",
+        "bin/pg_dump",
+        "bin/pg_restore",
+        "lib/libpq.5.dylib",
+        "lib/libpq.dylib",
+        "lib/postgresql/plpgsql.dylib",
+        "lib/postgresql/dict_snowball.dylib"
+      ],
+      "dataPaths": [
+        "share/postgresql/*.sql",
+        "share/postgresql/postgres.bki",
+        "share/postgresql/*.sample",
+        "share/postgresql/errcodes.txt",
+        "share/postgresql/sql_features.txt",
+        "share/postgresql/timezone/**",
+        "share/postgresql/timezonesets/**",
+        "share/postgresql/extension/plpgsql*"
+      ]
+    },
+    {
+      "component": "Snowball/dict_snowball",
+      "version": "d19326ac6c1b9a417fc872f7c2f845265a5e9ece",
+      "sourceRecord": "PostgreSQL-18.6-Snowball-README",
+      "notice": "Snowball-d19326a-COPYING",
+      "runtimePaths": [
+        "lib/postgresql/dict_snowball.dylib",
+        "share/postgresql/tsearch_data/**"
+      ]
+    },
+    {
+      "component": "ICU",
+      "version": "77.1",
+      "retainedVersionEvidence": "postgres/include/unicode/uvernum.h",
+      "retainedNotice": "postgres/share/icu/77.1/LICENSE",
+      "runtimePaths": [
+        "lib/libicudata.77.1.dylib",
+        "lib/libicudata.77.dylib",
+        "lib/libicudata.dylib",
+        "lib/libicui18n.77.1.dylib",
+        "lib/libicui18n.77.dylib",
+        "lib/libicui18n.dylib",
+        "lib/libicuuc.77.1.dylib",
+        "lib/libicuuc.77.dylib",
+        "lib/libicuuc.dylib"
+      ],
+      "sourceURL": "https://github.com/unicode-org/icu/releases/download/release-77-1/icu4c-77_1-src.tgz"
+    },
+    {
+      "component": "LZ4",
+      "version": "1.10.0",
+      "retainedNoticeAndVersionEvidence": "postgres/include/lz4.h",
+      "runtimePaths": [
+        "lib/liblz4.1.10.0.dylib",
+        "lib/liblz4.1.dylib",
+        "lib/liblz4.dylib"
+      ],
+      "sourceURL": "https://github.com/lz4/lz4/archive/refs/tags/v1.10.0.tar.gz"
+    },
+    {
+      "component": "Zstandard",
+      "version": "1.5.7",
+      "noticeFiles": [
+        "zstd-1.5.7-LICENSE",
+        "zstd-1.5.7-COPYING"
+      ],
+      "runtimePaths": [
+        "lib/libzstd.1.5.7.dylib",
+        "lib/libzstd.1.dylib",
+        "lib/libzstd.dylib"
+      ]
+    },
+    {
+      "component": "OpenSSL",
+      "version": "3.5.7",
+      "noticeFiles": [
+        "OpenSSL-3.5.7-LICENSE.txt"
+      ],
+      "runtimePaths": [
+        "lib/libssl.3.dylib",
+        "lib/libssl.dylib",
+        "lib/libcrypto.3.dylib",
+        "lib/libcrypto.dylib"
+      ]
+    },
+    {
+      "component": "libxml2",
+      "version": "2.15.3",
+      "noticeFiles": [
+        "libxml2-2.15.3-Copyright"
+      ],
+      "runtimePaths": [
+        "lib/libxml2.16.dylib",
+        "lib/libxml2.dylib"
+      ]
+    }
+  ],
+  "excludedOptionalPostgresComponents": {
+    "profile": "managed-core-v1",
+    "extensions": [
+      "postgis",
+      "postgis_raster",
+      "postgis_sfcgal",
+      "plpython3u",
+      "plpython3",
+      "plv8",
+      "pljs",
+      "pgrouting",
+      "vector",
+      "wal2json",
+      "pldbgapi"
+    ],
+    "reason": "Not required by the supported managed UTF-8 schema; archives requiring other extensions must be rejected before restore. Original supplier and prior payload trees are preserved.",
+    "pythonExternalRuntime": "Supplier recipe rewrites PL/Python to /Library/Frameworks/Python.framework/Python; no standalone Python closure is claimed."
+  }
+}

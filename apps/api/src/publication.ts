@@ -1,3 +1,5 @@
+import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
+import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {SPATIAL_NAMESPACE,spatialAudioWithoutTranscript,validateSpatialProfile,remapSpatialProgram,type SpatialProgram} from '@exhibitos/studio-contract';
 import { randomUUID } from "node:crypto";
@@ -50,7 +52,7 @@ interface AssetRow {
     bytes: number;
     mime: string;
 }
-const PUBLIC_REFERENCE_FIELDS = new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
+const PUBLIC_REFERENCE_FIELDS = new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','imageAssetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
 const issue = (code: string, path: string, message: string, remediation: string): PublicationIssue => ({ code, path, message, remediation });
 const equal = (a: unknown, b: unknown): boolean => {
     const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, sorted(x)])) : v;
@@ -71,6 +73,7 @@ export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha
 }
 /** Only complete public fields and known presentation/material extensions cross the anonymous boundary. */
 export function projectPublication(candidate: Exhibition, prepared: PreparedAsset[], at: string, media: PreparedMedia[] = []) {
+    if(!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     const doc = structuredClone(candidate), ids = new Map<string, string>(), assets: {
         id: string;
         prepared: PreparedAsset;
@@ -87,9 +90,10 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
                 collect(x);
         } };
     // Unknown namespaces are retained privately but never implicitly published.
-    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
+    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, ENTRANCE_NAMESPACE, EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
     const spatial=doc.extensions?.[SPATIAL_NAMESPACE] as unknown as SpatialProgram|undefined;
-    if(doc.extensions)delete doc.extensions[SPATIAL_NAMESPACE];
+    const installation=doc.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
+    if(doc.extensions){delete doc.extensions[SPATIAL_NAMESPACE];delete doc.extensions[INSTALLATION_NAMESPACE];}
     collect(doc);
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
@@ -116,6 +120,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     doc.mediaAssets=media.map(p=>({...structuredClone(p.source),path:`media/${map(p.source.id)}/audio.wav`}));
     const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (PUBLIC_REFERENCE_FIELDS.has(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [field === 'surfaces' ? ids.get(k.toLowerCase()) ?? k : k, remap(x,k)])) : v;
     const snapshot = remap(doc) as Exhibition;
+    if(installation)snapshot.extensions={...snapshot.extensions,[INSTALLATION_NAMESPACE]:remapStudioInstallation(installation,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(spatial)snapshot.extensions={...snapshot.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,map) as unknown as {[key:string]:import("@exhibitos/spec").JsonValue}};
     snapshot.createdAt = at;
     snapshot.revision = 1;
@@ -138,7 +143,7 @@ export class Publications {
         const errors: PublicationIssue[] = [], prepared: PreparedAsset[] = [], media:PreparedMedia[]=[];
         let totalBytes = 0;
         const at = new Date().toISOString();
-        for(const e of [...validateArchitecture(candidate,true).errors,...validateSpatialProfile(candidate).errors,...validateViewerCuration(candidate).errors])errors.push(issue(e.code,e.path,e.message,"Correct template licensing, architecture or curation controls before publishing."));
+        for(const e of [...validateStudioInstallation(candidate).errors,...validateViewerEntrance(candidate).errors,...validateArchitecture(candidate,true).errors,...validateSpatialProfile(candidate).errors,...validateViewerCuration(candidate).errors])errors.push(issue(e.code,e.path,e.message,"Correct template licensing, architecture or curation controls before publishing."));
         for(const id of spatialAudioWithoutTranscript(candidate)) errors.push(issue("SPATIAL_AUDIO_TRANSCRIPT","/candidate/extensions/org.exhibitos.runtime~1spatial-scripting","Script audio lacks a readable original transcript: "+id,"Bind the approved audio to an authored voice or audio zone with its original transcript before publishing."));
         const valid = validateExhibition(candidate, { publicationTime: at });
         for (const e of valid.errors.slice(0, 64))
@@ -297,7 +302,7 @@ export class Publications {
         const now = Date.now();
         if (!(await c.query("SELECT 1 FROM tenants t JOIN exhibitions e ON e.tenant_id=t.id WHERE t.id=$1 AND e.id=$2 AND t.deleted_at IS NULL AND e.deleted_at IS NULL", [row.tenant_id, row.exhibition_id])).rowCount)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-        if (!validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateArchitecture(row.snapshot,true).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateSpatialProfile(row.snapshot).valid || !validateViewerCuration(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
+        if (!validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateArchitecture(row.snapshot,true).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateStudioInstallation(row.snapshot).valid || !validateSpatialProfile(row.snapshot).valid || !validateViewerCuration(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         const records = (await c.query("SELECT pa.*,a.revision AS current_revision,a.approved_revision,a.approved_asset_id,a.deleted_at AS artwork_deleted,a.metadata AS current_metadata,ar.deleted_at AS artist_deleted,t.deleted_at AS tenant_deleted,e.deleted_at AS exhibition_deleted,asset.deleted_at AS asset_deleted,asset.state AS asset_state,asset.sha256 AS current_source_sha256,asset.bytes AS current_source_bytes,asset.mime AS current_source_mime,asset.artwork_id AS source_artwork_id,ap.snapshot AS source_approval,r.deleted_at AS rights_deleted,r.metadata AS current_rights FROM publication_assets pa JOIN artworks a ON (a.tenant_id,a.id)=(pa.tenant_id,pa.artwork_id) JOIN artists ar ON (ar.tenant_id,ar.id)=(a.tenant_id,a.artist_id) JOIN tenants t ON t.id=pa.tenant_id JOIN exhibitions e ON (e.tenant_id,e.id)=(pa.tenant_id,$2) JOIN assets asset ON (asset.tenant_id,asset.id)=(pa.tenant_id,pa.source_asset_id) JOIN rights r ON (r.tenant_id,r.id)=(asset.tenant_id,asset.rights_id) JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision)=(pa.tenant_id,pa.artwork_id,pa.artwork_revision) WHERE pa.publication_id=$1", [row.id, row.exhibition_id])).rows;
         if (records.length !== row.snapshot.artworks.flatMap(a=>a.assets).length)

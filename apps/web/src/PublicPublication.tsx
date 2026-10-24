@@ -11,6 +11,7 @@ import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
+import { EntranceCover } from './EntranceCover';
 import "./publication-novice.css";
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,7 +20,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
   const generation = useRef(0);
-  const [mode, setMode] = useState<"text" | "3d">("text");
+  const [mode, setMode] = useState<"cover" | "text" | "3d">("cover");
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
   const [guideRequest,setGuideRequest]=useState<GuideRequest>();
   const [voicePlayback,setVoicePlayback]=useState<VoicePlayback|null>(null);
@@ -52,10 +53,11 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     await audio.current.playVoice(assetId);
   }, []);
   const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
+  const showTextArtworks=useCallback(()=>{stopVoice();setSelectedId(null);setOverview(null);setMode("text");document.getElementById("publication-artworks")?.focus();},[stopVoice]);
   async function load() {
     const current = ++generation.current;
     setLoading(true);
-    setMode("text");
+    setMode("cover");
     setGuidedIndex(null);
     setGuideRequest(undefined);
     setSelectedId(null);
@@ -127,7 +129,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     <main className={`cms-shell publication-shell${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion}>
       <nav className="publication-skip-links" aria-label="바로 가기">
         <a href="#publication-viewing" onClick={() => viewingHeading.current?.focus()}>관람 설정으로 건너뛰기</a>
-        <a href="#publication-artworks" onClick={() => document.getElementById("publication-artworks")?.focus()}>작품 목록으로 건너뛰기</a>
+        <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
       <header>
         <a className="brand" href="/">
@@ -141,17 +143,18 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
-          <p className="eyebrow">EXHIBITION</p>
-          <h1>{value.exhibition.title}</h1>
+          <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode === "cover"}>
           {presentationFor(value.exhibition).credits && <p>{presentationFor(value.exhibition).credits}</p>}
           <div className="publication-entry-actions">
-            {mode === "text" && <button className="publication-enter" ref={entryButton} onClick={() => {
+            {mode !== "3d" && <button className="publication-enter" ref={entryButton} onClick={() => {
               // A rejected React.lazy import stays rejected in this page instance.
               if (viewerUnavailable) { window.location.reload(); return; }
               modeChanged.current = true; setMode("3d");
             }}>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : "관람 시작"}</button>}
-            <a href="#publication-artworks" onClick={() => document.getElementById("publication-artworks")?.focus()}>작품 목록 보기</a>
+            <a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 전시 관람</a>
+            <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록 보기</a>
           </div>
+          </EntranceCover>
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 시작 안내</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>

@@ -1,6 +1,7 @@
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
+import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
@@ -126,7 +127,13 @@ export function GeometryPreview({
   openingViewpoint,
   onXrReady,
   onXrArtworks,
+  onRenderState,
+  cameraRequest,
+  spaceTransparency,
 }: {
+  cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
+  spaceTransparency?: boolean;
+  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number})=>void;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
   document: Document;
@@ -160,7 +167,10 @@ export function GeometryPreview({
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
   const editingEnabled=!!editing;
-  const [transparentSpace,setTransparentSpace]=useState(false);
+  const [localTransparentSpace,setTransparentSpace]=useState(false);
+  const transparentSpace=spaceTransparency??localTransparentSpace;
+  const consumedCameraRequest=useRef<number|undefined>(undefined);
+  const [installationIssueCount,setInstallationIssueCount]=useState(0);
   const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
@@ -223,11 +233,15 @@ export function GeometryPreview({
   const demand = useRef<
     ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
+  const [assetReport,setAssetReport]=useState({loaded:0,failed:0});
   const [restart, setRestart] = useState(0);
   const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
+  const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
+  useEffect(()=>{nativeReport.current?.({ready,message,...assetReport});},[ready,message,assetReport]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -259,6 +273,7 @@ export function GeometryPreview({
     setWalkPaused(true);
     setWalkLoading(false);
     setReady(false);
+    setAssetReport({loaded:0,failed:0});
     setMessage("공간 미리보기를 준비합니다.");
     setPublicMessage("전시를 준비하고 있어요.");
     const build = async () => {
@@ -434,6 +449,7 @@ export function GeometryPreview({
         const assertionPose=new three.Group();pose(assertionPose,artwork.transform);assertionPose.add(bounds);group.add(assertionPose);
         owned.push(geometry, edges, material);
       }
+      const installation=installDecor(three,document,rooms);owned.push(installation);setInstallationIssueCount(installation.issues.length);
       const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
       for (const item of document.lights) {
         const color = new three.Color().setRGB(
@@ -531,7 +547,7 @@ export function GeometryPreview({
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
-      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;scriptDiagnostics();render();}};
+      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
         if (!viewerBudget || trace.started || xrActive.current) return;
@@ -712,7 +728,7 @@ export function GeometryPreview({
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
       const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
-      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,render}):null;
+      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render}):null;
       editingSync.current=()=>editor?.sync();
       release = () => {
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
@@ -1192,9 +1208,11 @@ export function GeometryPreview({
           const loaded = ordered.filter((p) =>
             active.has(p.artworkRevisionId),
           ).length;
+          setAssetReport(previous=>previous.loaded===loaded&&previous.failed===failed.size?previous:{loaded,failed:failed.size});
           renderer.domElement.dataset.viewerState = JSON.stringify({
             loadedPlacements: loaded,
             authoredLights: document.lights.length,
+            installationPrimitives:installation.primitiveCount,installationIssues:installation.issues,
             loadedAssets: active.size,
             entranceLoaded: arts
               .slice(0, viewerBudget.entranceAssets)
@@ -1373,6 +1391,7 @@ export function GeometryPreview({
           unavailable++;
         }
         if (!disposed) {
+          setAssetReport({loaded:rendered,failed:unavailable});
           if (publicSource) setPublicMessage(unavailable ? `작품 ${rendered}개를 볼 수 있어요. ${unavailable}개는 불러오지 못했어요. 다시 시도할 수 있어요.` : `공간과 작품 ${rendered}개를 볼 수 있어요.`);
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
@@ -1412,7 +1431,8 @@ export function GeometryPreview({
   ]);
   return (
     <figure data-reduced-motion={walkSettings.reducedMotion} className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
-      {editing&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
+      {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
+      {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
       <div className="geometry-stage">
         <div ref={host} />
         {viewerBudget && walkingMode && (

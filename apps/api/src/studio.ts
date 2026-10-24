@@ -1,3 +1,5 @@
+import {validateStudioInstallation} from '@exhibitos/studio-contract';
+import { validateViewerEntrance } from '@exhibitos/studio-contract';
 import {validateSpatialProfile} from '@exhibitos/studio-contract';
 import { validateViewerCuration, validateArchitecture, validateStudioMaterials, validateStudioPresentation, validateViewerLod, validateViewerExperience, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { createHash, randomUUID } from "node:crypto";
@@ -42,6 +44,8 @@ function checked(input: StudioInput) {
     !validateArchitecture(input.draft.candidate).valid ||
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
+    !validateStudioInstallation(input.draft.candidate).valid ||
+    !validateViewerEntrance(input.draft.candidate).valid ||
     !validateSpatialProfile(input.draft.candidate).valid || !validateViewerCuration(input.draft.candidate).valid || !validateViewerExperience(input.draft.candidate).valid ||
     input.draft.candidate.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid)
   )
@@ -64,6 +68,24 @@ export class Studio {
     if (!["admin", "curator", "artist"].includes(s.role))
       throw new ApiError(403, "FORBIDDEN");
   }
+  /** Same role/tenant/owner policy as access; only small authoring summaries. */
+  async list(c: PoolClient, s: Session, q: { limit?: string; cursor?: string; q?: string }) {
+    this.role(s);
+    const limit = Number(q.limit ?? 20);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50 || (q.q?.length ?? 0) > 100)
+      throw new ApiError(400, "INVALID_INPUT");
+    if (q.cursor) uuid(q.cursor);
+    const result = await c.query(
+      `SELECT id,revision,metadata->'candidate'->>'title' AS title FROM exhibitions
+       WHERE tenant_id=$1 AND studio_managed AND deleted_at IS NULL
+       AND ($2::boolean OR studio_owner_user_id=$3) AND ($4::uuid IS NULL OR id>$4)
+       AND ($5='' OR strpos(lower(metadata->'candidate'->>'title'),lower($5))>0)
+       ORDER BY id LIMIT $6`,
+      [s.tenantId, s.role === "admin", s.userId, q.cursor ?? null, q.q ?? "", limit + 1],
+    );
+    const more = result.rows.length > limit, rows = result.rows.slice(0, limit);
+    return { items: rows.map(r => ({ id: r.id as string, revision: r.revision as number, title: typeof r.title === "string" ? r.title : "Untitled" })), nextCursor: more ? rows.at(-1)?.id as string : null };
+  }
   async access(c: PoolClient, s: Session, id: string) {
     this.role(s);
     uuid(id);
@@ -80,6 +102,7 @@ export class Studio {
       !validateArchitecture(row.metadata.candidate).valid ||
       !validateStudioMaterials(row.metadata.candidate).valid ||
       !validateStudioPresentation(row.metadata.candidate).valid ||
+      !validateViewerEntrance(row.metadata.candidate).valid ||
       !validateSpatialProfile(row.metadata.candidate).valid || !validateViewerCuration(row.metadata.candidate).valid || !validateViewerExperience(row.metadata.candidate).valid ||
       row.metadata.candidate.artworks.some((a:unknown)=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid)
     )

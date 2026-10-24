@@ -1,3 +1,6 @@
+import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
+import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';
+import { fileURLToPath } from 'node:url';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {SPATIAL_NAMESPACE,validateSpatialProfile,remapSpatialProgram,type SpatialProgram} from '@exhibitos/studio-contract';
 import {randomUUID} from 'node:crypto';
@@ -16,7 +19,7 @@ export const MAX_OEX_UPLOAD=67108864;
 const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
 const LEGAL_NOTICES={'org.exhibitos/apache-license':'Apache-2.0','org.exhibitos/cc0-license':'CC0-1.0'}as const;
 // Public contract entity identities and reference fields; licenseId is authored rights data.
-const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
+const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','imageAssetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -30,13 +33,13 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  }
 
 
- if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioInstallation(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,ENTRANCE_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -54,8 +57,10 @@ export function remapOex(e:Exhibition){
  for(const v of presentation?.viewpoints??[])if(!ids.has(v.id.toLowerCase()))ids.set(v.id.toLowerCase(),randomUUID());
  const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(REFERENCE_FIELDS.has(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[field==='surfaces'?(ids.get(k.toLowerCase())??k):k,visit(x,k)])):v;
  const source=structuredClone(e),spatial=source.extensions?.[SPATIAL_NAMESPACE] as unknown as SpatialProgram|undefined;
- if(source.extensions)delete source.extensions[SPATIAL_NAMESPACE];
+ const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
+ if(source.extensions){delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
  const exhibition=visit(source)as Exhibition;
+ if(installation)exhibition.extensions={...exhibition.extensions,[INSTALLATION_NAMESPACE]:remapStudioInstallation(installation,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(spatial)exhibition.extensions={...exhibition.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,id=>ids.get(id.toLowerCase())??id) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
  const assetAliases:{sourceAssetId:string;sourceArtworkRevisionId:string;destinationArtworkId:string;destinationArtworkRevisionId:string;destinationAssetId:string;sourceArtifactPath:string;destinationArtifactPath:string}[]=[];
@@ -81,7 +86,7 @@ export function remapOex(e:Exhibition){
 export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>}>{
  return new Promise((resolve,reject)=>{
   const url=new URL('./oex-validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
-  const child=execFile(process.execPath,['--max-old-space-size=512',url.pathname],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
+  const child=execFile(process.execPath,['--max-old-space-size=512',fileURLToPath(url)],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
    if(error){reject(new ApiError(422,'OEX_INVALID'));return;}
    try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}resolve({exhibition:parsed.exhibition,files});}catch{reject(new ApiError(422,'OEX_INVALID'));}
   });child.stdin?.on('error',()=>{});child.stdin?.end(bytes);

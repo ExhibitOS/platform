@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ExhibitOS contributors
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
-import artworkSchema from "@exhibitos/spec/schemas/artwork.json" with { type: "json" };
-import exhibitionSchema from "@exhibitos/spec/schemas/exhibition.json" with { type: "json" };
-import lifecycleJson from "@exhibitos/spec/schemas/lifecycle.json" with { type: "json" };
+import {revisionSchema,lifecycleSchema,utcSchema} from "./schema-standalone.mjs";
 import {
   validateArtwork,
   validateRights,
@@ -12,20 +8,6 @@ import {
 } from "./artwork-validation.mjs";
 export const EXHIBITION_VERSION = "1.0.0-draft.1";
 export const HASH_PROFILE = "oes-sorted-json-v1";
-const schemas = [artworkSchema, exhibitionSchema, lifecycleJson];
-const ajv = new Ajv2020({
-  strict: true,
-  allErrors: true,
-  validateFormats: true,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-});
-addFormats(ajv, ["uuid", "date-time"]);
-schemas.forEach((schema) => ajv.addSchema(schema));
-const revisionSchema = ajv.getSchema(schemas[1].$id),
-  lifecycleSchema = ajv.getSchema(schemas[2].$id);
-const utcSchema = ajv.compile(schemas[0].properties.createdAt);
 const utf8Length = (value) => new TextEncoder().encode(value).length;
 const issue = (code, path, message) => ({ code, path, message });
 const result = (errors) => ({

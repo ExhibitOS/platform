@@ -3,17 +3,35 @@ import { createServer, request as httpRequest } from "node:http";
 import { constants } from "node:fs";
 import { open, mkdir, lstat, readdir, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { generateKeyPairSync } from "node:crypto";
 import { Transform } from "node:stream";
 import { Pool } from "pg";
 import { FileBlobStore, migrate } from "../packages/storage/dist/index.js";
+import { openLocalWorkspace, validateLocalWorkspace } from "../apps/api/dist/local-workspace.js";
+import { readNativeWorkspaceChannel } from "./native-workspace-channel.mjs";
 import { bootstrap, config } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
 import { loadFreezeConfig } from "../apps/api/dist/freeze.js";
 import { Imports } from "../apps/api/dist/imports.js";
 
 const MAX_BODY = 65 * 1024 * 1024;
+// Native execution has no container port mapping. Bind both listeners to
+// loopback explicitly; the original container profile retains its exact ports.
+export function localRuntimeNetwork(environment) {
+  const mode = environment.EXHIBITOS_RUNTIME_MODE ?? "container";
+  if (!["container", "native"].includes(mode)) throw Error("LOCAL_RUNTIME_MODE_INVALID");
+  const port = Number(environment.EXHIBITOS_PORT ?? 13200);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) throw Error("LOCAL_CONFIGURATION_INVALID");
+  if (mode === "container") return { mode, port, apiPort: 3000, proxyPort: 8080, proxyHost: "0.0.0.0" };
+  const apiPort = Number(environment.EXHIBITOS_API_PORT ?? 13201);
+  if (String(port) !== String(environment.EXHIBITOS_PORT ?? 13200)
+      || String(apiPort) !== String(environment.EXHIBITOS_API_PORT ?? 13201)
+      || !Number.isInteger(apiPort) || apiPort < 1024 || apiPort > 65535 || apiPort === port) {
+    throw Error("LOCAL_CONFIGURATION_INVALID");
+  }
+  return { mode, port, apiPort, proxyPort: port, proxyHost: "127.0.0.1" };
+}
 const hop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"]);
 const mime = path => path.endsWith(".html") ? "text/html; charset=utf-8" : path.endsWith(".js") || path.endsWith(".mjs") ? "application/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".json") ? "application/json" : "text/plain; charset=utf-8";
 async function safeStatic(root, path) {
@@ -24,7 +42,7 @@ async function safeStatic(root, path) {
   return file;
 }
 export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
-  const root = await realpath(webRoot), allowed = new Set(["basis/basis_transcoder.js", "basis/basis_transcoder.wasm", "basis/exhibitos-basis-worker.js","index.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
+  const root = await realpath(webRoot), allowed = new Set(["basis/basis_transcoder.js", "basis/basis_transcoder.wasm", "basis/exhibitos-basis-worker.js","index.html", "native-viewport.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
   for (const name of await readdir(join(root, "assets"))) if (/^[-\w.]+\.(?:js|css)$/.test(name)) allowed.add(`assets/${name}`);
   const expectedHost = new URL(origin).host;
   const server = createServer(async (req, reply) => {
@@ -52,7 +70,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
     if (!allowed.has(path)) { deny(404); return; }
     let file;
     try {
-      file = await safeStatic(root, path); reply.writeHead(200, { ...(path === "basis/exhibitos-basis-worker.js" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'"} : {}), "content-type": path.endsWith(".wasm")?"application/wasm":mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": (await file.stat()).size });
+      file = await safeStatic(root, path); reply.writeHead(200, { ...(path === "native-viewport.html" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'", "referrer-policy":"no-referrer"} : {}), ...(path === "basis/exhibitos-basis-worker.js" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'"} : {}), "content-type": path.endsWith(".wasm")?"application/wasm":mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": (await file.stat()).size });
       if (req.method === "HEAD") { reply.end(); await file.close(); }
       else { const stream = file.createReadStream(); stream.once("error", () => reply.destroy()); reply.once("close", () => { if (!reply.writableFinished) stream.destroy(); }); stream.pipe(reply); }
     } catch { await file?.close().catch(() => {}); if (!reply.headersSent) deny(404); else reply.destroy(); }
@@ -96,12 +114,18 @@ async function signingKey(directory) {
   } catch (error) { if (error.code !== "EEXIST") throw error; }
   return path;
 }
-export async function startLocalRuntime(environment = process.env) {
-  const port = Number(environment.EXHIBITOS_PORT ?? 13200);
-  if (!Number.isInteger(port) || port < 1024 || port > 65535 || !environment.DATABASE_URL || !/^[a-f0-9-]{36}$/.test(environment.TENANT_ID ?? "") || !environment.ADMIN_SUBJECT || !environment.ADMIN_PASSWORD) throw Error("LOCAL_CONFIGURATION_INVALID");
+export async function startLocalRuntime(environment = process.env, privateWorkspace) {
+  const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
+  const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
+  if (environment.EXHIBITOS_AUTHORING_MODE !== undefined && !personal) throw Error("LOCAL_AUTHORING_MODE_INVALID");
+  if (personal) {
+    validateLocalWorkspace(privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
+    if (privateWorkspace.tenantId !== environment.TENANT_ID || environment.ADMIN_SUBJECT !== undefined || environment.ADMIN_PASSWORD !== undefined) throw Error("LOCAL_WORKSPACE_CONFIGURATION_INVALID");
+  } else if (privateWorkspace !== undefined) throw Error("LOCAL_WORKSPACE_CHANNEL_INVALID");
+  if (!Number.isInteger(port) || port < 1024 || port > 65535 || !environment.DATABASE_URL || !/^[a-f0-9-]{36}$/.test(environment.TENANT_ID ?? "") || (!personal && (!environment.ADMIN_SUBJECT || !environment.ADMIN_PASSWORD))) throw Error("LOCAL_CONFIGURATION_INVALID");
   const origin = `http://127.0.0.1:${port}`;
   if (environment.AUTH_ORIGIN !== undefined && environment.AUTH_ORIGIN !== origin) throw Error("LOCAL_ORIGIN_INVALID");
-  const webRoot = new URL("../apps/web/dist/", import.meta.url).pathname, migrationDirectory = new URL("../database/migrations/", import.meta.url).pathname;
+  const webRoot = fileURLToPath(new URL("../apps/web/dist/", import.meta.url)), migrationDirectory = fileURLToPath(new URL("../database/migrations/", import.meta.url));
   const blobRoot = resolve(environment.BLOB_ROOT ?? "/data/blobs"), configRoot = resolve(environment.CONFIG_ROOT ?? "/data/config");
   const pool = new Pool({ connectionString: environment.DATABASE_URL, connectionTimeoutMillis: 5000, statement_timeout: 30000 });
   // pg-pool already removes the failed idle client. Handle its separate error event
@@ -111,14 +135,18 @@ export async function startLocalRuntime(environment = process.env) {
   try {
     await migrate(pool, migrationDirectory);
     stage = "BOOTSTRAP";
-    if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);
+    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
+    else {
+      if ((await pool.query("SELECT 1 FROM local_workspaces LIMIT 1")).rowCount) throw Error("LOCAL_WORKSPACE_ACCOUNT_MODE_REFUSED");
+      if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);
+    }
     stage = "STORAGE"; await mkdir(blobRoot, { recursive: true, mode: 0o700 });
     stage = "SIGNING_KEY";
     const keyFile = await signingKey(configRoot), freeze = await loadFreezeConfig({ runtimeRoot: webRoot, signingKeyFile: keyFile, origin });
     stage = "API"; const blobs = new FileBlobStore(blobRoot);
     app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: true, lifecycle: { migrationDirectory, webRoot, blobRoot } });
-    await app.listen({ host: "127.0.0.1", port: 3000 });
-    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(8080, "0.0.0.0", resolve); });
+    await app.listen({ host: "127.0.0.1", port: apiPort });
+    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
     const importer = new Imports(pool, blobs); let stopping = false, timer, running, failures = 0, closed;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     running = tick();
@@ -127,6 +155,6 @@ export async function startLocalRuntime(environment = process.env) {
   } catch { proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  try { const runtime = await startLocalRuntime(); console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
+  try { const privateWorkspace = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? await readNativeWorkspaceChannel() : undefined; const runtime = await startLocalRuntime(process.env, privateWorkspace); console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
   catch (error) { console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
 }

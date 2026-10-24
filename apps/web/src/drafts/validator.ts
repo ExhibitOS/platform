@@ -1,3 +1,5 @@
+import { validateStudioInstallation } from '@exhibitos/studio-contract';
+import { validateViewerEntrance } from '@exhibitos/studio-contract';
 import {validateSpatialProfile} from '@exhibitos/studio-contract';
 import type { Lifecycle } from "@exhibitos/spec";
 import { validateLifecycle } from "./exhibition-validation.mjs";
@@ -7,6 +9,8 @@ import type { ValidationResult } from "@exhibitos/spec";
 export function validateDraft(document: unknown): ValidationResult {
   const result = validateLifecycle(document);
   if (!result.valid) return result;
+  const entrance=validateViewerEntrance((document as Draft).candidate);
+  if(!entrance.valid)return entrance;
   const spatial=validateSpatialProfile((document as Draft).candidate);
   if(!spatial.valid)return spatial;
   const curation=validateViewerCuration((document as Draft).candidate);
@@ -19,6 +23,8 @@ export function validateDraft(document: unknown): ValidationResult {
   if (!materials.valid) return materials;
   const presentation=validateStudioPresentation((document as Draft).candidate);
   if(!presentation.valid)return presentation;
+  const installation=validateStudioInstallation((document as Draft).candidate);
+  if(!installation.valid)return installation;
   const errors=(document as Draft).candidate.artworks.flatMap((a,i)=>validateViewerLod(a).errors.map(e=>({...e,path:`/candidate/artworks/${i}${e.path}`})));
   return {valid:errors.length===0,errors};
 }

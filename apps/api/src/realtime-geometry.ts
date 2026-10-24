@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from '@exhibitos/spec';
-import { artifactCorners,artifactHullHit,artifactSweptCapsuleHit,validateArtworkWalkingProfile,presentationFor } from '@exhibitos/studio-contract';
+import { resolveInstallations,artifactCorners,artifactHullHit,artifactSweptCapsuleHit,validateArtworkWalkingProfile,presentationFor } from '@exhibitos/studio-contract';
 type V=[number,number,number];type Q=[number,number,number,number];
 export interface PresencePose {roomId:string;position:V;yaw:number}
 const add=(a:V,b:V):V=>a.map((n,i)=>n+b[i]!) as V;
@@ -23,6 +23,7 @@ export function createPresenceGeometry(exhibition:Exhibition){
   return {placement,corners:artifactCorners(art.dimensions,[art.transform,placement.transform,room.transform],true)};
  });
  // World Euclidean capsule radius against the same affine assertion hull used by Rapier, including shear.
+ const installation=resolveInstallations(exhibition).flatMap(r=>r.solids);
  const boxHit=(box:typeof boxes[number],a:V,b:V)=>artifactHullHit(box.corners,a,b,radius);
  const surfaces=[...exhibition.surfaces];
  for(const room of exhibition.rooms)if(!surfaces.some(s=>s.roomId===room.id&&s.type==='floor'))surfaces.push({id:`implicit-floor:${room.id}`,roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}});
@@ -50,7 +51,7 @@ export function createPresenceGeometry(exhibition:Exhibition){
   const body=[pose.position,[pose.position[0],(pose.position[1]+floor)/2,pose.position[2]] as V,[pose.position[0],floor+.3,pose.position[2]] as V];
   for(const entry of planes.filter(p=>p.surface.type==='wall'))for(const point of body){const p=local(entry,point);if(Math.abs(p[2])<radius-.001&&footprint(entry,p,radius)&&!doorAt(entry,p))return false;}
   const foot:V=[pose.position[0],floor+radius,pose.position[2]],head:V=[pose.position[0],floor+1.75-radius,pose.position[2]];
-  if(boxes.some(box=>boxHit(box,foot,head)))return false;
+  if(boxes.some(box=>boxHit(box,foot,head))||installation.some(s=>s.collision.hit(foot,head,radius)))return false;
   for(const entry of planes.filter(p=>p.surface.type==='ceiling')){
    const center=pointWorld(entry,[0,0,0]),normal=sub(pointWorld(entry,[0,0,1]),center);
    if(Math.abs(normal[1])<.05)return false;
@@ -68,6 +69,7 @@ export function createPresenceGeometry(exhibition:Exhibition){
   // Substeps inspect ceilings/support, while swept affine-hull sphere segments prevent thin-object tunnelling.
   const oldFloor=ground(previous.position,previous.roomId)!,newFloor=ground(next.position,next.roomId)!;
   for(const box of boxes)if(artifactSweptCapsuleHit(box.corners,[previous.position[0],oldFloor+radius,previous.position[2]],[previous.position[0],oldFloor+1.75-radius,previous.position[2]],[next.position[0],newFloor+radius,next.position[2]],[next.position[0],newFloor+1.75-radius,next.position[2]],radius))return false;
+  for(const solid of installation)if(solid.collision.swept([previous.position[0],oldFloor+radius,previous.position[2]],[previous.position[0],oldFloor+1.75-radius,previous.position[2]],[next.position[0],newFloor+radius,next.position[2]],[next.position[0],newFloor+1.75-radius,next.position[2]],radius))return false;
   for(let i=1;i<Math.ceil(distance/.05);i++){const t=i/Math.ceil(distance/.05),position=previous.position.map((n,j)=>n+(next.position[j]!-n)*t) as V;
    if(!valid({roomId:previous.roomId,position,yaw:previous.yaw})&&!valid({roomId:next.roomId,position,yaw:next.yaw}))return false;
   }

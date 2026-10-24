@@ -6,8 +6,20 @@ import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
 import {checkOexProfile,remapOex,decodeOex} from './oex.ts';
 import {validMetadata} from './cms.ts';
+import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'))as Exhibition;}
 describe('OEX service boundaries',()=>{
+ it('preserves bounded poster settings and remaps the cover with its approved PNG inventory', async () => {
+  const e = await fixture(), image = e.artworks.find(a => a.artworkType === 'image')!;
+  e.extensions = { [ENTRANCE_NAMESPACE]: { version: 1, artist: image.primaryAssetId, introduction: 'Public introduction', imageAssetId: image.primaryAssetId.toUpperCase(), imageAlt: 'Synthetic painting', mobilePosition: 'bottom' } };
+  expect(() => checkOexProfile(e)).not.toThrow();
+  const mapped = remapOex(e).exhibition;
+  expect(validateViewerEntrance(mapped).valid).toBe(true);
+  expect(entranceFor(mapped).imageAssetId).toBe(mapped.artworks.find(a => a.artworkType === 'image')!.primaryAssetId);
+  expect(entranceFor(mapped).artist).toBe(image.primaryAssetId);
+  (e.extensions[ENTRANCE_NAMESPACE] as { imageAssetId: string }).imageAssetId = e.artworks.find(a => a.artworkType !== 'image')!.primaryAssetId;
+  expect(() => checkOexProfile(e)).toThrow('OEX_PROFILE_INVALID');
+ });
  it('accepts bounded spatial programs and remaps exact IDs without changing author rules or text',async()=>{
   const e=await fixture();e.extensions={[SPATIAL_NAMESPACE]:{version:1,rules:[{id:'author-rule',once:true,trigger:{type:'room_enter',roomId:e.rooms[0]!.id},actions:[{type:'set_light',lightId:e.lights[0]!.id,multiplier:.4,delayMs:0},{type:'show_text',text:e.lights[0]!.id,locale:'en',delayMs:0}]}]}};
   expect(()=>checkOexProfile(e)).not.toThrow();const mapped=remapOex(e).exhibition,p=spatialProgramFor(mapped);expect(validateSpatialProfile(mapped).valid).toBe(true);expect(p.rules[0]!.id).toBe('author-rule');expect(p.rules[0]!.trigger).toEqual({type:'room_enter',roomId:mapped.rooms[0]!.id});expect(p.rules[0]!.actions[0]).toMatchObject({lightId:mapped.lights[0]!.id});expect(p.rules[0]!.actions[1]).toMatchObject({text:e.lights[0]!.id});

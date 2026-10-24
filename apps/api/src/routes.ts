@@ -113,6 +113,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(store){const integrity=new Integrities(store,{migrationDirectory:fileURLToPath(new URL('../../../database/migrations/',import.meta.url))});app.get(`${prefix}/integrity`,call(false,async(c,s)=>integrity.inspect(c,s)));}
 
  const studio=new Studio(),sp=`${prefix}/studio/exhibitions`;
+ app.get(sp,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100}},[])}},call(false,async(c,s,req)=>studio.list(c,s,req.query as Record<string,string>)));
  const studioBody=object({draft:{type:'object'},requestId:id});
  app.post(sp,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const result=await studio.create(c,s,req.body as StudioInput);reply.code(201).header('etag',result.etag);return result;}));
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));

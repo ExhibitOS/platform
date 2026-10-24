@@ -37,6 +37,7 @@ export async function bootstrap(pool: Pool, tenantId: string, subject: string, p
  return transaction(pool, async client => {
   await client.query('SELECT pg_advisory_xact_lock(82003)');
   await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
+  if ((await client.query('SELECT 1 FROM local_workspaces LIMIT 1')).rowCount) throw new ApiError(409,'BOOTSTRAP_CLOSED');
   const previous = await client.query('SELECT 1 FROM auth_credentials LIMIT 1');
   if (previous.rowCount) throw new ApiError(409,'BOOTSTRAP_CLOSED');
   const userId = randomUUID();

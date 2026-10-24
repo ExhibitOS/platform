@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import type { Pool, PoolClient } from 'pg';
@@ -9,7 +10,7 @@ export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'mo
 export function decode(bytes:Buffer,mime:string) {
  return new Promise<void>((resolve,reject)=>{
   const path=new URL('./validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))path.pathname=path.pathname.replace(/\.js$/,'.ts');
-  const child=execFile(process.execPath,['--max-old-space-size=128',path.pathname,mime],{timeout:5000,maxBuffer:4096,env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,stdout)=>{
+  const child=execFile(process.execPath,['--max-old-space-size=128',fileURLToPath(path),mime],{timeout:5000,maxBuffer:4096,env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,stdout)=>{
    if(error || stdout.trim()!=='VALID')reject(new ApiError(422,'FORMAT_REJECTED'));else resolve();
   });
   child.stdin?.on('error',()=>{});child.stdin?.end(bytes);

@@ -13,3 +13,14 @@ original pinned validator. Parity fixtures cover meaningful negative semantics.
 This module stores draft metadata, geometry and asset descriptors. It does not
 store asset bytes, produce an OEX, publish an exhibition, or validate actual asset
 content. Local backups and rescue exports are metadata JSON only.
+
+Schema checks are now emitted ahead of time by
+`node scripts/build-web-schema-validators.mjs` from the same pinned public
+artwork/exhibition/lifecycle schemas and strict AJV options. Commit the generated
+`schema-standalone.mjs` with schema changes; `prebuild` checks its exact source
+hashes/output. The original semantic/reference/rights/geometry checks remain in
+the browser modules. Runtime helpers use static imports with CommonJS/ESM
+normalization; the browser no longer needs string code generation. This permits
+the native viewport CSP to keep `unsafe-eval` disabled. The parity suite compares
+valid and invalid documents to the public validator, and a separate process tests
+browser validation with string code generation prohibited.
