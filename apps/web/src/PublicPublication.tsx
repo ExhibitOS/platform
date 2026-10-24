@@ -27,8 +27,12 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   const [stageReady, setStageReady] = useState(false);
   const [stageMessage,setStageMessage]=useState("공간을 준비하고 있어요.");
+  const [entryAttempt,setEntryAttempt]=useState(0),[entryFailed,setEntryFailed]=useState(false),[longEntry,setLongEntry]=useState(false);
+  const entryGeneration=useRef(0),entryStatus=useRef<HTMLParagraphElement>(null);
+  const [entryTiming,setEntryTiming]=useState<{pressedAt:number;usableAt?:number}|null>(null);
   const modeRef=useRef(mode),menuRef=useRef(menuOpen);modeRef.current=mode;menuRef.current=menuOpen;
-  const onStageState=useCallback((state:{ready:boolean;message:string})=>{if(modeRef.current!=="3d")return;setStageMessage(state.message);if(state.ready)setStageReady(true);},[]);
+  const onStageState=useCallback((state:{ready:boolean;message:string;error?:boolean})=>{if(modeRef.current!=="3d"||entryAttempt!==entryGeneration.current)return;setStageMessage(state.message);if(state.error)setEntryFailed(true);if(state.ready){setEntryFailed(false);setStageReady(true);setEntryTiming(value=>value&&value.usableAt===undefined?{...value,usableAt:performance.now()}:value);}},[entryAttempt]);
+  useEffect(()=>{if(mode!=="3d"||stageReady||entryFailed)return;entryStatus.current?.focus({preventScroll:true});const timer=setTimeout(()=>setLongEntry(true),8000);return()=>clearTimeout(timer);},[mode,stageReady,entryFailed,entryAttempt]);
   useEffect(()=>{if(stageReady&&modeRef.current==="3d"&&!menuRef.current)document.querySelector<HTMLCanvasElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});},[stageReady]);
   const [guideRequest,setGuideRequest]=useState<GuideRequest>();
   const [voicePlayback,setVoicePlayback]=useState<VoicePlayback|null>(null);
@@ -51,6 +55,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   }, [mode]);
   useEffect(() => { if (guidedIndex !== null) guideHeading.current?.focus(); }, [guidedIndex]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
   const [overview, setOverview] = useState<"opening" | "credits" | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
@@ -63,9 +68,16 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     await audio.current.playVoice(assetId);
   }, []);
   const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
-  const showTextArtworks=useCallback(()=>{stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);setStageReady(false);modeChanged.current=true;setMode("text");},[stopVoice]);
+  const showTextArtworks=useCallback(()=>{entryGeneration.current++;modeRef.current="text";stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);setStageReady(false);modeChanged.current=true;setMode("text");},[stopVoice]);
+  const cancelEntry=()=>{entryGeneration.current++;modeRef.current="cover";setStageReady(false);setEntryFailed(false);setLongEntry(false);setMenuOpen(false);modeChanged.current=true;setMode("cover");};
+  const enter=()=>{
+    if(modeRef.current==="3d")return;
+    if(viewerUnavailable){window.location.reload();return;}
+    const current=++entryGeneration.current;modeRef.current="3d";setEntryAttempt(current);setEntryTiming({pressedAt:performance.now()});setMenuOpen(false);setStageReady(false);setEntryFailed(false);setLongEntry(false);setStageMessage("공간을 준비하고 있어요.");setMode("3d");
+  };
   async function load() {
     const current = ++generation.current;
+    entryGeneration.current++;modeRef.current="cover";
     setLoading(true);
     setMode("cover");
     setStageReady(false);
@@ -137,23 +149,20 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     [value],
   );
   return (
-    <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion}>
+    <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
       <nav className="publication-skip-links" aria-label="바로 가기">
         <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
-      {(loading || error) && <p className="publication-load-state" role="status" data-testid="public-state">{loading ? "전시를 준비하고 있어요." : error}</p>}
+      {(loading || error) && <section className="publication-load-state entrance-cover" data-has-image="false"><div className="entrance-cover-copy"><h1>{initial?.exhibition.title??"전시를 준비하고 있어요"}</h1>{initial&&entranceFor(initial.exhibition).artist&&<p className="entrance-cover-artist">{entranceFor(initial.exhibition).artist}</p>}<p role="status" data-testid="public-state">{loading ? "전시 정보를 확인하고 있어요." : error}</p></div></section>}
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
           <div className={mode==="3d"?"publication-entry-loading":"publication-cover-surface"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
           <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text" && !stageReady}>
           <div className="publication-entry-actions">
-            {mode!=="3d" ? <button className="publication-enter" ref={entryButton} onClick={() => {
-              // A rejected React.lazy import stays rejected in this page instance.
-              if (viewerUnavailable) { window.location.reload(); return; }
-              setMenuOpen(false);setStageReady(false);setStageMessage("공간을 준비하고 있어요."); modeChanged.current = true; setMode("3d");
-            }}>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : "입장하기"}</button> : <><p role="status">{stageMessage}</p><button onClick={showTextArtworks}>텍스트로 관람</button></>}
+            <button className="publication-enter" ref={entryButton} onClick={enter} disabled={mode==="3d"} aria-busy={mode==="3d"&&!stageReady}>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : mode==="3d"?"입장 준비 중":"입장하기"}</button>
+            {mode==="3d"&&<><p className="publication-entry-progress" role={entryFailed?"alert":"status"} ref={entryStatus} tabIndex={-1}>{entryFailed?"공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.":longEntry?"공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.":"전시장으로 들어가고 있어요."}</p><div className="publication-entry-secondary"><button onClick={cancelEntry}>입장 취소</button><button onClick={showTextArtworks}>텍스트로 관람</button></div><output hidden data-testid="entry-stage-diagnostics">{stageMessage}</output></>}
             {mode === "cover" && <a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
           </div>
           </EntranceCover></div>
@@ -161,8 +170,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <details data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
           <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
           <div className="publication-menu-panel">
-          <div ref={setControlsHost} />
-          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
+          <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
+          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           <section aria-label="관람 방식과 접근성 설정">
@@ -185,13 +194,13 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           </details>
           </div></details>
           {mode === "3d" && <button className="publication-text-route" onClick={showTextArtworks}>텍스트로 관람</button>}
-          {mode === "3d" && <ViewerBoundary focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={() => { modeChanged.current = true; setMode("text"); }}>
+          {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
-          </ViewerBoundary>}
+          </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
             onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => setOverview(null)} />}

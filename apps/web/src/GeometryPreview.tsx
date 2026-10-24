@@ -147,7 +147,7 @@ export function GeometryPreview({
   viewFov?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
-  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number})=>void;
+  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
@@ -237,6 +237,7 @@ export function GeometryPreview({
   const [walkingMode, setWalkingMode] = useState(false),
     [walkPaused, setWalkPaused] = useState(true),
     [walkLoading, setWalkLoading] = useState(false),
+    [walkPreparation,setWalkPreparation]=useState<'pending'|'ready'|'failed'>('pending'),
     [walkMessage, setWalkMessage] = useState(
       "정지 관람입니다. 걷기 시작을 선택하세요.",
     );
@@ -262,10 +263,10 @@ export function GeometryPreview({
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
   const enteredWalking=useRef(false);
-  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation]);
+  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport});},[ready,message,publicMessage,publicSource,assetReport]);
+  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive||(walkPreparation==='ready'&&walkingMode),navigationFailed:immersive&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,walkPreparation,walkingMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -296,6 +297,7 @@ export function GeometryPreview({
     setWalkingMode(false);
     setWalkPaused(true);
     setWalkLoading(false);
+    setWalkPreparation('pending');
     setReady(false);
     setAssetReport({loaded:0,failed:0});
     setMessage("공간 미리보기를 준비합니다.");
@@ -902,9 +904,11 @@ export function GeometryPreview({
               adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
               walkingActions.current = adapter.actions;
+              setWalkPreparation('ready');
             })()
               .catch(() => {
                 if (!disposed) {
+                  setWalkPreparation('failed');
                   controls.enabled = true;
                   setWalkMessage(
                     "이 전시의 시작 위치나 바닥에서 안전한 걷기를 준비할 수 없습니다. 정지 관람과 작품 목록을 사용할 수 있습니다.",
@@ -1380,8 +1384,8 @@ export function GeometryPreview({
             textures: renderer.info.memory.textures,
           });
           setPublicMessage(failed.size > 0
-            ? `작품 ${failed.size}개를 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요.`
-            : `작품 ${active.size}개를 불러왔어요. 작품 목록에서도 감상할 수 있어요.`);
+            ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요."
+            : "공간에서 관람할 수 있어요. 작품 목록에서도 감상할 수 있어요.");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
@@ -1683,7 +1687,7 @@ export function GeometryPreview({
         }
         if (!disposed) {
           setAssetReport({loaded:rendered,failed:unavailable});
-          if (publicSource) setPublicMessage(unavailable ? `작품 ${rendered}개를 볼 수 있어요. ${unavailable}개는 불러오지 못했어요. 다시 시도할 수 있어요.` : `공간과 작품 ${rendered}개를 볼 수 있어요.`);
+          if (publicSource) setPublicMessage(unavailable ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요." : "공간에서 관람할 수 있어요.");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
           );
