@@ -11,10 +11,94 @@ export function prioritizePlacements(doc:Exhibition,roomId:string,position:[numb
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==="full"),coarse=variants.find(v=>v.detail==="coarse");
  const fits=(v:typeof full)=>!!v&&(v.triangles===undefined||v.triangles<=budget.maxTriangles)&&(v.textureSize===undefined||v.textureSize<=budget.maxTextureSize);
- const selected=coarse&&(distance>2||!fits(full))&&fits(coarse)?coarse:fits(full)?full:undefined;
+ let selected=coarse&&(distance>2||!fits(full))&&fits(coarse)?coarse:fits(full)?full:undefined;
+ // Images already resize uniformly before GPU upload. Permit only a small,
+ // bounded source when no authored variant fits; model limits stay unchanged.
+ if(!selected&&artwork.artworkType==='image'){
+  selected=[coarse,full].find(variant=>{
+   if(variant?.textureSize===undefined||variant.textureSize>2048)return false;
+   const asset=artwork.assets.find(a=>a.id.toLowerCase()===variant.assetId.toLowerCase());
+   const peak=Math.min(variant.textureSize**2,2097152)*4+(asset?.bytes??Infinity)+budget.maxTextureSize**2*4*4/3;
+   return asset?.mime==='image/png'&&asset.bytes<=8388608&&peak<=(budget.maxCacheBytes-2097152)/budget.concurrency;
+  });
+ }
  if(!selected)throw new Error("ASSET_BUDGET_EXCEEDED");
  const asset=artwork.assets.find(a=>a.id.toLowerCase()===selected.assetId.toLowerCase());
  if(!asset)throw new Error("VARIANT_REFERENCE");return asset;
+}
+/** Demand is measured in screen pixels for paintings, projected area for geometry. */
+export function detailScreenBounds(input:{corners:ReadonlyArray<{x:number;y:number;z:number;depth:number}>;near:number;intersectsFrustum:boolean;width:number;height:number}){
+ const hidden={visible:false,occupancy:0,projectedPixels:0};
+ if(!input.intersectsFrustum||!input.corners.length)return hidden;
+ if(input.corners.some(p=>p.depth>-input.near)&&input.corners.some(p=>p.depth<=-input.near))return {visible:true,occupancy:1,projectedPixels:Math.max(input.width,input.height)};
+ if(input.corners.some(p=>![p.x,p.y,p.z].every(Number.isFinite)||p.z< -1||p.z>1))return hidden;
+ const left=Math.min(...input.corners.map(p=>p.x)),right=Math.max(...input.corners.map(p=>p.x)),bottom=Math.min(...input.corners.map(p=>p.y)),top=Math.max(...input.corners.map(p=>p.y));
+ if(right< -1||left>1||top< -1||bottom>1)return hidden;
+ return {visible:true,occupancy:Math.max(0,Math.min(1,right)-Math.max(-1,left))*Math.max(0,Math.min(1,top)-Math.max(-1,bottom))/4,projectedPixels:Math.max((right-left)*input.width/2,(top-bottom)*input.height/2)};
+}
+export function detailDemand(input:{kind:string;visible:boolean;distance:number;occupancy:number;projectedPixels:number;coarseTextureSize?:number;focused:boolean}):boolean {
+ if(!input.visible||!Number.isFinite(input.distance)||input.distance<=0)return false;
+ if(input.focused)return true;
+ return input.distance<=6 && (input.kind==='image'
+  ? input.occupancy>=.025 && input.projectedPixels>=(input.coarseTextureSize??512)*.85
+  : input.occupancy>=.075);
+}
+/** Avoid switching on a passing glance, and retain detail across short view changes. */
+export class DetailTransition {
+ private full=false;private changedAt:number|undefined;private lastDemand=false;
+ update(demand:boolean,now:number):boolean {
+  if(demand!==this.lastDemand){this.lastDemand=demand;this.changedAt=now;}
+  if(this.changedAt===undefined)this.changedAt=now;
+  if(demand!==this.full&&now-this.changedAt>=(demand?300:1800))this.full=demand;
+  return this.full;
+ }
+}
+export class AssetPeakBudget {
+ private reservations=new Map<string,number>();
+ constructor(private maxBytes:number,private resident:()=>number){}
+ reserve(key:string,bytes:number){
+  if(!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>this.maxBytes)throw Error('ASSET_TRANSITION_PEAK');
+  this.reservations.set(key,bytes);
+ }
+ release(key:string){this.reservations.delete(key);}
+ total(except?:string){return this.resident()+[...this.reservations].reduce((n,[key,bytes])=>n+(key===except?0:bytes),0);}
+}
+/** Conservative additional fetch/decode peak; resident old/new assets are separate. */
+export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer):number {
+ const variant=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase());
+ if(artwork.artworkType==='image'){
+  const header=new DataView(bytes);if(bytes.byteLength<24)throw Error('IMAGE_DECODE_BUDGET');
+  const w=header.getUint32(16),h=header.getUint32(20);if(!w||!h)throw Error('IMAGE_DECODE_BUDGET');
+  const scale=Math.min(1,budget.maxTextureSize/Math.max(w,h));
+  // Encoded chunks/concatenation/hash, source bitmap, resized bitmap + mipmapped GPU texture.
+  return Math.ceil(inventory.bytes*3+w*h*4+Math.ceil(w*scale)*Math.ceil(h*scale)*4*(1+4/3));
+ }
+ const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
+ const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
+ const glb=JSON.parse(new TextDecoder().decode(new Uint8Array(bytes,20,length))) as {images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source:number}>;bufferViews?:Array<{byteOffset?:number;byteLength:number}>};
+ let textureBytes=0;
+ for(const [index,image] of (glb.images??[]).entries()){
+  const view=image.bufferView===undefined?undefined:glb.bufferViews?.[image.bufferView];
+  const offset=28+length+(view?.byteOffset??0);
+  if(!view||view.byteLength<28||offset+view.byteLength>bytes.byteLength)throw Error('DECODE_BUDGET_EXCEEDED');
+  const png=image.mimeType==='image/png',ktx=image.mimeType==='image/ktx2';if(!png&&!ktx)throw Error('DECODE_BUDGET_EXCEEDED');
+  const w=header.getUint32(offset+(png?16:20),ktx),h=header.getUint32(offset+(png?20:24),ktx);
+  if(!w||!h||Math.max(w,h)>Math.min(variant?.textureSize??budget.maxTextureSize,budget.maxTextureSize))throw Error('DECODE_BUDGET_EXCEEDED');
+  const copies=Math.max(1,(glb.textures??[]).filter(t=>t.source===index).length);
+  textureBytes+=copies*w*h*4*(1+4/3);
+ }
+ // Include encoded/parsed and geometry CPU/GPU copies, every embedded image's CPU/GPU allocation.
+ return Math.ceil(inventory.bytes*5+(variant?.triangles??budget.maxTriangles)*3*64*2+textureBytes);
+}
+/** Header allocation guard before the browser decoder; hash/profile admission is separate. */
+export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
+ const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
+ if(declared===undefined||declared<=budget.maxTextureSize)return;
+ const p=new DataView(bytes),signature=[137,80,78,71,13,10,26,10];
+ if(bytes.byteLength<33||bytes.byteLength>8388608||signature.some((n,i)=>p.getUint8(i)!==n)||p.getUint32(8)!==13||p.getUint32(12)!==0x49484452||p.getUint8(24)!==8||![2,6].includes(p.getUint8(25))||p.getUint8(26)!==0||p.getUint8(27)!==0||p.getUint8(28)!==0)throw Error('IMAGE_DECODE_BUDGET');
+ const w=p.getUint32(16),h=p.getUint32(20);
+ if(!w||!h||w>Math.min(declared,2048)||h>Math.min(declared,2048)||w*h>2097152)throw Error('IMAGE_DECODE_BUDGET');
+ return {width:w,height:h};
 }
 export type LoadingStatus="queued"|"loading"|"loaded"|"error"|"cancelled";
 export interface LoadingEvent {key:string;status:LoadingStatus;error?:unknown}
