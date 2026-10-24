@@ -29,7 +29,8 @@ function harness(fail=false,onGenerate=()=>{}) {
 }
 
 test('reference output is explicit fixed exposure and budget fallback allocates no environment',async()=>{
- const h=harness();applyReferenceOutput(three,h.renderer,'linear');expect(h.renderer.outputColorSpace).toBe(three.SRGBColorSpace);expect(h.renderer.toneMapping).toBe(three.NoToneMapping);expect(h.renderer.toneMappingExposure).toBe(1);
+ const h=harness();applyReferenceOutput(three,h.renderer);expect(h.renderer.toneMapping).toBe(three.NeutralToneMapping);
+ applyReferenceOutput(three,h.renderer,'linear');expect(h.renderer.outputColorSpace).toBe(three.SRGBColorSpace);expect(h.renderer.toneMapping).toBe(three.NoToneMapping);expect(h.renderer.toneMappingExposure).toBe(1);
  applyReferenceOutput(three,h.renderer,'neutral');expect(h.renderer.toneMapping).toBe(three.NeutralToneMapping);
  expect(environmentEstimate(64).generationPeakBytes).toBeLessThan(environmentEstimate(128).generationPeakBytes);
  expect(await installReferenceEnvironment(h.api,h.renderer,h.scene,0,false,()=>false)).toBeUndefined();expect(h.state.generated).toBe(0);

@@ -2,8 +2,10 @@
 import type * as THREE from 'three';
 
 export type ReferenceTone = 'linear' | 'neutral';
-/** Fixed exposure for the reference comparison. Selection follows actual comparison. */
-export function applyReferenceOutput(three:typeof THREE, renderer:THREE.WebGLRenderer, tone:ReferenceTone) {
+/** Fixed reference comparison selects Neutral for lit surfaces; image materials opt out. */
+export const DEFAULT_REFERENCE_TONE: ReferenceTone = 'neutral';
+/** Fixed sRGB output and exposure; explicit NoTone remains available for comparison. */
+export function applyReferenceOutput(three:typeof THREE, renderer:THREE.WebGLRenderer, tone:ReferenceTone = DEFAULT_REFERENCE_TONE) {
   renderer.outputColorSpace=three.SRGBColorSpace;
   renderer.toneMapping=tone==='neutral'?three.NeutralToneMapping:three.NoToneMapping;
   renderer.toneMappingExposure=1;

@@ -1,4 +1,4 @@
-import {applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
+import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
@@ -12,7 +12,7 @@ import type * as THREE from "three";
 import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
 
 export interface DetailAnchor { id: string; position: [number, number, number]; text: string }
-export function ArtworkDetailPreview({ publication, artwork, anchors, referenceTone = 'linear' }: {
+export function ArtworkDetailPreview({ publication, artwork, anchors, referenceTone = DEFAULT_REFERENCE_TONE }: {
   referenceTone?: ReferenceTone;
   publication: PublicPublication; artwork: Artwork; anchors: DetailAnchor[];
 }) {

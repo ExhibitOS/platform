@@ -1,4 +1,4 @@
-import {applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
+import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
@@ -128,7 +128,7 @@ export function GeometryPreview({
   openingViewpoint,
   onXrReady,
   onXrArtworks,
-  referenceTone = 'linear',
+  referenceTone = DEFAULT_REFERENCE_TONE,
 }: {
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
