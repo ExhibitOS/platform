@@ -1,3 +1,5 @@
+import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
@@ -14,11 +16,12 @@ import {
   AssetScheduler,
   MemoryAssetCache,
   fetchVerifiedAsset,
+  checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, AssetPeakBudget, assetDecodeReserve,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor } from "@exhibitos/studio-contract";
+import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -115,6 +118,7 @@ export function GeometryPreview({
   onNavigationMode,
   onArtworkSelect,
   proximityDetail = false,
+  focusedPlacementId,
   onDetailEntryReady,
   reducedMotion,
   onReducedMotionChange,
@@ -130,10 +134,12 @@ export function GeometryPreview({
   onRenderState,
   cameraRequest,
   spaceTransparency,
+  referenceTone = DEFAULT_REFERENCE_TONE,
 }: {
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number})=>void;
+  referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
   document: Document;
@@ -145,6 +151,7 @@ export function GeometryPreview({
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
   proximityDetail?: boolean;
+  focusedPlacementId?: string | null;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
   guideRequest?: GuideRequest;
@@ -192,6 +199,7 @@ export function GeometryPreview({
     >(null);
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
+  const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
   const suspendedWasWalking = useRef(false);
@@ -231,10 +239,11 @@ export function GeometryPreview({
     walkSettingsRef.current=next;setWalkSettings(next);walkingActions.current?.settings(next);
   },[reducedMotion]);
   const demand = useRef<
-    ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
+    ((kind: "next" | "auto" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
   const [assetReport,setAssetReport]=useState({loaded:0,failed:0});
   const [restart, setRestart] = useState(0);
+  const [shadowMessage,setShadowMessage]=useState('');
   const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
@@ -320,19 +329,22 @@ export function GeometryPreview({
       renderer.setPixelRatio(
         Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2),
       );
-      renderer.outputColorSpace = three.SRGBColorSpace;
+      applyReferenceOutput(three,renderer,referenceTone);
+      const compactQuality=(viewerBudget?.maxTextureSize??2048)<=512;
+      const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
+      const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
+      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
       scene.add(model);
-      scene.add(
-        new three.HemisphereLight(
+      const hemisphere = new three.HemisphereLight(
           0xffffff,
           0x71806a,
           document.lights.length ? 0.4 : 2.5,
-        ),
-      );
+        );
+      scene.add(hemisphere);
       const sun = new three.DirectionalLight(
         0xffffff,
         document.lights.length ? 0 : 3,
@@ -502,6 +514,15 @@ export function GeometryPreview({
           extent / 1000,
           extent * 100,
         );
+      const shadowCandidates=[...scriptLights.values()].flatMap(({light})=>{
+        const item=document.lights.find(item=>scriptLights.get(item.id)?.light===light),room=item&&rooms.get(item.roomId.toLowerCase());
+        return room&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room}]:[];
+      });
+      for(const room of rooms.values())shadowCandidates.push({light:sun,room});
+      const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
+        renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
+        setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면에서는 공간 그림자를 생략합니다.':'이 공간에서는 그림자를 생략하고 작품과 조명을 표시합니다.');
+      });owned.push(shadowPass);
       const controls = new OrbitControls(camera, renderer.domElement);
       let pointerStart: [number,number] | undefined;
       const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
@@ -528,7 +549,8 @@ export function GeometryPreview({
       const render = () => {
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
-          renderer.render(scene, camera);
+          shadowPass.flush();
+          try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
           navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
@@ -547,7 +569,7 @@ export function GeometryPreview({
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
-      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;scriptDiagnostics();render();}};
+      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
         if (!viewerBudget || trace.started || xrActive.current) return;
@@ -726,9 +748,9 @@ export function GeometryPreview({
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
-      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
-      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render}):null;
+      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
       editingSync.current=()=>editor?.sync();
       release = () => {
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
@@ -755,6 +777,17 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      // Async environment setup starts only AFTER scene teardown is registered.
+      // Failed/cancelled generation keeps the existing lighting and text/navigation.
+      void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
+        if(!environment)return;
+        if(disposed||gpuLost){environment.dispose();return;}
+        owned.push(environment);scene.environmentIntensity=.45;
+        hemisphere.intensity=document.lights.length ? .2 : .6;
+        if(!daylight&&!document.lights.length)sun.intensity=2;
+        renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
+        render();
+      }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
       orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
@@ -882,7 +915,7 @@ export function GeometryPreview({
         Promise<InstanceType<typeof three.Object3D>>
       >();
       const byteCache = new MemoryAssetCache<ArrayBuffer>(
-        viewerBudget?.maxCacheBytes ?? 33554432,
+        assetBudgetBytes,
       );
       let cacheHits = 0;
       const decodedResources = new Map<
@@ -895,6 +928,7 @@ export function GeometryPreview({
           (a) => a.id === artwork.primaryAssetId,
         )!,
         taskSignal = abort.signal,
+        reserveDecode?: (bytes:ArrayBuffer)=>void,
       ) => {
         const signal = AbortSignal.any([abort.signal, taskSignal]);
         let bytes: ArrayBuffer;
@@ -978,15 +1012,18 @@ export function GeometryPreview({
         if (!publicSource) bytes = await response!.arrayBuffer();
         if (bytes!.byteLength > 33554432 || disposed || signal.aborted)
           throw Error("DERIVATIVE_UNAVAILABLE");
+        reserveDecode?.(bytes!);
         const resources: Array<{ dispose: () => void }> = [];
         try {
           let object: InstanceType<typeof three.Object3D>;
           if (artwork.artworkType === "image") {
+            const sourceSize=viewerBudget?checkImageDecode(bytes!,artwork,inventory,viewerBudget):undefined;
             let bitmap = await createImageBitmap(
               new Blob([bytes!], { type: "image/png" }),
               { imageOrientation: "flipY" },
             );
             resources.push({ dispose: () => bitmap.close() });
+            if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
             const declared = lodVariantsFor(artwork).find(
               (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
             )?.textureSize;
@@ -1025,10 +1062,10 @@ export function GeometryPreview({
               artwork.dimensions.width,
               artwork.dimensions.height,
             );
-            const material = new three.MeshStandardMaterial({
+            const material = new three.MeshBasicMaterial({
               map: texture,
               side: three.DoubleSide,
-              roughness: 0.8,
+              toneMapped: false,
             });
             resources.push(geometry, material);
             object = new three.Mesh(geometry, material);
@@ -1090,7 +1127,7 @@ export function GeometryPreview({
                   const data = attribute.array;
                   if (!buffers.has(data.buffer)) {
                     buffers.add(data.buffer);
-                    decodedBytes += data.buffer.byteLength;
+                    decodedBytes += data.buffer.byteLength*2;
                   }
                 }
               }
@@ -1098,7 +1135,7 @@ export function GeometryPreview({
                 const data = node.geometry.index.array;
                 if (!buffers.has(data.buffer)) {
                   buffers.add(data.buffer);
-                  decodedBytes += data.buffer.byteLength;
+                  decodedBytes += data.buffer.byteLength*2;
                 }
               }
               for (const material of Array.isArray(node.material)
@@ -1112,7 +1149,7 @@ export function GeometryPreview({
                       height?: number;
                     };
                     decodedBytes +=
-                      ((image?.width ?? 0) * (image?.height ?? 0) * 4 * 4) / 3;
+                      (image?.width ?? 0) * (image?.height ?? 0) * 4 * (1+4/3);
                   }
             }
           });
@@ -1174,6 +1211,16 @@ export function GeometryPreview({
           requested = new Set<string>(),
           failed = new Set<string>();
         const desired = new Map<string, string>();
+        const pending=new Map<string,string>(), transitions=new Map<string,DetailTransition>(), retryAfter=new Map<string,number>(), awaySince=new Map<string,number>();
+        const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
+        let sequence=0, automatic=true, manualFull=false;
+        const resident=()=>[...objects.values()].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
+        const peak=new AssetPeakBudget(assetBudgetBytes,resident);
+        const reserve=(key:string,bytes:number)=>{
+          // Compressed cache is expendable; visible decoded assets stay pinned through replacement.
+          for(const art of arts)for(const asset of art.assets)byteCache.delete(asset.id);
+          peak.reserve(key,bytes);
+        };
         const tasks = new Map<
           string,
           {
@@ -1185,11 +1232,16 @@ export function GeometryPreview({
           InstanceType<typeof three.Object3D>
         >({
           concurrency: viewerBudget.concurrency,
-          load: (key, signal) => {
+          load: async (key, signal) => {
             const t = tasks.get(key)!;
-            return loadArtwork(t.art, t.inventory, signal);
+            try {
+              reserve(key,t.inventory.bytes*3);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,viewerBudget,bytes)));
+              object.userData.loadKey=key;
+              return object;
+            } catch(error){peak.release(key);tasks.delete(key);throw error;}
           },
-          onDiscard: destroy,
+          onDiscard: object=>{peak.release(object.userData.loadKey);tasks.delete(object.userData.loadKey);destroy(object);},
         });
         const update = () => {
           if (disposed || gpuLost) return;
@@ -1200,10 +1252,10 @@ export function GeometryPreview({
           for (const key of tasks.keys()) {
             if (
               decodedTotal + byteCache.stats().bytes <=
-              viewerBudget.maxCacheBytes
+              assetBudgetBytes
             )
               break;
-            byteCache.delete(key);
+            byteCache.delete(tasks.get(key)!.inventory.id);
           }
           const loaded = ordered.filter((p) =>
             active.has(p.artworkRevisionId),
@@ -1222,6 +1274,8 @@ export function GeometryPreview({
             failed: failed.size,
             cacheHits,
             budgetTotalBytes: decodedTotal + byteCache.stats().bytes,
+            transitionPeakBytes: peak.total(),
+            automaticDetail:automatic,
             cache: byteCache.stats(),
             scheduler: scheduler.stats(),
             assetIds: [...active.values()],
@@ -1259,38 +1313,44 @@ export function GeometryPreview({
             return;
           }
           if (active.get(art.revisionId) === inventory.id) {
+            const prior=pending.get(art.revisionId);
+            if(prior&&desired.get(art.revisionId)!==inventory.id){desired.set(art.revisionId,inventory.id);scheduler.cancel(prior);pending.delete(art.revisionId);}
             update();
             return;
           }
+          const prior=pending.get(art.revisionId);
+          if(prior&&desired.get(art.revisionId)===inventory.id)return;
+          if(prior)scheduler.cancel(prior);
           desired.set(art.revisionId, inventory.id);
-          tasks.set(inventory.id, { art, inventory });
+          const key=`${inventory.id}/${sequence++}`;
+          pending.set(art.revisionId,key);
+          tasks.set(key, { art, inventory });
           void scheduler
-            .request(inventory.id, arts.indexOf(art))
+            .request(key, full?-100:arts.indexOf(art))
             .then((object) => {
-              if (disposed) {
-                destroy(object);
-                return;
-              }
-              if (desired.get(art.revisionId) !== inventory.id) {
+              peak.release(key);
+              const current=pending.get(art.revisionId)===key;
+              if(current)pending.delete(art.revisionId);
+              tasks.delete(key);
+              if (disposed || !current || desired.get(art.revisionId) !== inventory.id) {
                 destroy(object);
                 return;
               }
               const old = objects.get(art.revisionId);
               const used = [...objects.values()]
-                .filter((value) => value !== old)
                 .reduce(
                   (sum, value) =>
                     sum + (value.userData.viewer?.decodedBytes ?? 0),
                   0,
                 );
               if (
-                used +
+                peak.total()-resident()+used +
                   byteCache.stats().bytes +
                   (object.userData.viewer?.decodedBytes ?? 0) >
-                viewerBudget.maxCacheBytes
+                assetBudgetBytes
               ) {
                 destroy(object);
-                failed.add(art.revisionId);
+                retryAfter.set(art.revisionId,performance.now()+5000);
                 update();
                 return;
               }
@@ -1305,14 +1365,21 @@ export function GeometryPreview({
               }
               if (old && old !== object){xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);destroy(old);}
               objects.set(art.revisionId, object);
+              const oldId=active.get(art.revisionId);
               active.set(art.revisionId, inventory.id);
+              if(oldId&&oldId!==inventory.id)byteCache.delete(oldId);
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
-              failed.delete(art.revisionId);
+              failed.delete(art.revisionId);retryAfter.delete(art.revisionId);
+              shadowPass.invalidate();
               render();
               update();
             })
             .catch((error) => {
+              if(pending.get(art.revisionId)===key)pending.delete(art.revisionId);
               if (!disposed) {
+                if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
+                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+5000:Infinity);
+                if(active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget);
@@ -1331,7 +1398,10 @@ export function GeometryPreview({
           update();
         };
         demand.current = (kind) => {
+          if (kind === 'auto'){automatic=true;return;}
+          if (kind === 'full'||kind==='coarse'){automatic=false;manualFull=kind==='full';}
           if (kind === "cancel") {
+            automatic=false;
             scheduler.cancelAll();
             update();
             return;
@@ -1344,9 +1414,48 @@ export function GeometryPreview({
               : kind === "retry"
                 ? arts.filter((a) => failed.has(a.revisionId))
                 : arts.filter((a) => requested.has(a.revisionId));
-          for (const art of selected) request(art, kind === "full");
+          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, kind === "full" || (kind==='next'&&!automatic&&manualFull));}
         };
-        const statsTimer = setInterval(update, 100);
+        const automaticDemand=()=>{
+          if(disposed||gpuLost||xrActive.current)return;
+          const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
+          const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+          for(const art of arts){
+            let visible=false,distance=Infinity,focused=false,screenDemand=false;
+            const low=lodVariantsFor(art).find(v=>v.detail==='coarse');
+            for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){
+              const group=placements.get(p.id.toLowerCase());if(!group||!group.visible)continue;
+              let shown=true;for(let parent=group.parent;parent;parent=parent.parent)shown=shown&&parent.visible;
+              if(!shown)continue;
+              const points=artifactCorners(art.dimensions,[art.transform]).map(v=>group.localToWorld(new three.Vector3(...v)));
+              const box=new three.Box3().setFromPoints(points),center=box.getCenter(new three.Vector3());
+              const d=camera.position.distanceTo(center);distance=Math.min(distance,d);
+              const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:frustum.intersectsBox(box),width:renderer.domElement.width,height:renderer.domElement.height});
+              if(!screen.visible)continue;
+              visible=true;const isFocused=focusedPlacement.current===p.id;focused=focused||isFocused;
+              const {occupancy,projectedPixels:pixels}=screen;
+              screenDemand=screenDemand||detailDemand({kind:art.artworkType,visible:true,distance:d,occupancy,projectedPixels:pixels,coarseTextureSize:low?.textureSize,focused:isFocused});
+            }
+            let transition=transitions.get(art.revisionId);if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
+            const want=transition.update(screenDemand,now);
+            if(!automatic)continue;
+            if(!visible&&!focused&&distance>12){
+              const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
+              if(now-since>=5000){
+                const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
+                desired.delete(art.revisionId);
+                const old=objects.get(art.revisionId);if(old){
+                  for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){const group=placements.get(p.id.toLowerCase());if(group){group.clear();for(const bound of placeholders.get(p.id.toLowerCase())??[])group.add(bound);}}
+                  objects.delete(art.revisionId);const id=active.get(art.revisionId);active.delete(art.revisionId);requested.delete(art.revisionId);xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);destroy(old);if(id)byteCache.delete(id);shadowPass.invalidate();render();
+                }
+                continue;
+              }
+            }else awaySince.delete(art.revisionId);
+            // Do not start unrequested far assets; entrance preparation remains bounded.
+            if((requested.has(art.revisionId)||visible)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,want);
+          }
+        };
+        const statsTimer = setInterval(()=>{automaticDemand();update();}, 200);
         const originalRelease = release;
         release = () => {
           clearInterval(statsTimer);
@@ -1386,6 +1495,7 @@ export function GeometryPreview({
           if (bounds) group.remove(bounds);
           group.add(object.clone(true));
           rendered++;
+          shadowPass.invalidate();
           render();
         } catch {
           unavailable++;
@@ -1419,7 +1529,7 @@ export function GeometryPreview({
       abort.abort();
       release();
     };
-  }, [
+  }, [referenceTone,
     document,
     appearance,
     session,
@@ -1444,7 +1554,7 @@ export function GeometryPreview({
         )}
       </div>
       <figcaption role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
-      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p></details>}
+      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       <ViewControls className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
       <div className="cms-actions">
@@ -1526,6 +1636,7 @@ export function GeometryPreview({
             다음 작품 불러오기
           </button>
           <details className="viewer-options"><summary>작품 불러오기 설정</summary>
+          <button disabled={!ready} onClick={() => demand.current?.("auto")}>화면에 맞춰 자동 조절</button>
           <button disabled={!ready} onClick={() => demand.current?.("coarse")}>
             불러온 작품 입구 품질
           </button>
