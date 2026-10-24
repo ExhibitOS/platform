@@ -41,7 +41,7 @@ export function EntranceCover({ publication, showImage, children }: {
       {failed && <p role="status">표지 이미지를 불러오지 못했어요. 입장과 텍스트 관람은 계속 이용할 수 있어요. <button onClick={() => setRetry(n => n + 1)}>표지 다시 불러오기</button></p>}
     </div>}
     <div className="entrance-cover-copy">
-      <p className="eyebrow">EXHIBITION</p><h1>{publication.exhibition.title}</h1>
+      <h1>{publication.exhibition.title}</h1>
       {settings.artist && <p className="entrance-cover-artist">{settings.artist}</p>}
       {settings.introduction && <p className="entrance-cover-introduction">{settings.introduction}</p>}
       {children}

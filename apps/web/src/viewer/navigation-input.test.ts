@@ -27,6 +27,17 @@ test('touch movement tokens release independently and pause clears all held move
   expect(input.sample(.01)).toMatchObject({forward:0,right:1});input.pause();input.enable();
   expect(input.sample(.01)).toMatchObject({forward:0,right:0});input.dispose();
 });
+test('manual mouse drag looks without pointer lock and release or pause clears the gesture',()=>{
+  const {input,canvas,doc}=fixture();
+  const pointer=(type:string,x:number,y:number)=>canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:7,pointerType:'mouse',button:0,clientX:x,clientY:y}));
+  pointer('pointerdown',20,20);pointer('pointermove',30,25);
+  expect(input.sample(.01)).toMatchObject({yawDelta:-.04,pitchDelta:-.02});
+  expect(doc.pointerLockElement).toBeNull();expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+  pointer('pointerup',30,25);pointer('pointermove',50,40);
+  expect(input.sample(.01)).toMatchObject({yawDelta:0,pitchDelta:0});
+  pointer('pointerdown',20,20);input.pause();input.enable();pointer('pointermove',50,40);
+  expect(input.sample(.01)).toMatchObject({yawDelta:0,pitchDelta:0});input.dispose();
+});
 test('active touch controls keep canvas focus without reviving paused input',()=>{
   const {input,canvas,doc,pause}=fixture();
   canvas.focus.mockClear(); input.press('forward',1);

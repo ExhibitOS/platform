@@ -80,10 +80,11 @@ export function createWalkingInput(
   const pointerdown = (event: PointerEvent) => {
     if (
       !enabled ||
-      event.pointerType !== "touch" ||
-      event.clientX <
+      document.pointerLockElement === canvas ||
+      (event.pointerType === "mouse" && event.button !== 0) ||
+      (event.pointerType === "touch" && event.clientX <
         canvas.getBoundingClientRect().left +
-          canvas.getBoundingClientRect().width / 2
+          canvas.getBoundingClientRect().width / 2)
     )
       return;
     event.preventDefault();
