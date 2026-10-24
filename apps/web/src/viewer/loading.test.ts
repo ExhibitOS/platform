@@ -2,14 +2,14 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ImageDetailOwner, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
 describe('authored painting near tiers',()=>{
  const image=()=>{const a=syntheticArtwork('image'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:1000};full.bytes=1048576;a.assets.push(coarse);a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',textureSize:2048},{assetId:coarse.id,detail:'coarse',textureSize:512}]}};return {a,full,coarse};};
- it('holds one image owner through ties and requires a stable focused/occupancy winner',()=>{
-  const owner=new ImageDetailOwner(),a={id:'a',demand:true,occupancy:.2,focused:false},b={id:'b',demand:true,occupancy:.1,focused:false};
+ it('holds attention through ties and requires a stable focused/occupancy winner',()=>{
+  const owner=new ArtworkAttention(),a={id:'a',demand:true,occupancy:.2,focused:false},b={id:'b',demand:true,occupancy:.1,focused:false};
   expect(owner.update([a,b],0)).toBeUndefined();expect(owner.update([a,b],300)).toBe('a');
   b.occupancy=.2;expect(owner.update([b,a],400)).toBe('a');
   b.focused=true;expect(owner.update([a,b],500)).toBe('a');expect(owner.update([a,b],799)).toBe('a');expect(owner.update([a,b],800)).toBe('b');
@@ -66,7 +66,7 @@ describe("bounded Viewer loading",()=>{
 describe('automatic detail transitions',()=>{
  it('keeps near-plane-intersecting geometry in demand without projecting behind-eye corners, and rejects out-of-frustum bounds',()=>{
   const near={corners:[{x:-2,y:-2,z:-3,depth:0},{x:.5,y:.5,z:.5,depth:-1}],near:.1,intersectsFrustum:true,width:800,height:600};
-  expect(detailScreenBounds(near)).toEqual({visible:true,occupancy:1,projectedPixels:800});
+  expect(detailScreenBounds(near)).toEqual({visible:true,occupancy:1,projectedPixels:800,gazeDistance:0});
   expect(detailDemand({kind:'sculpture',distance:.3,focused:false,...detailScreenBounds(near)})).toBe(true);
   expect(detailScreenBounds({...near,intersectsFrustum:false}).visible).toBe(false);
   expect(detailScreenBounds({...near,corners:[{x:0,y:0,z:3,depth:.5}]}).visible).toBe(false);
@@ -110,5 +110,80 @@ describe('automatic detail transitions',()=>{
   const b=new ArrayBuffer(33),v=new DataView(b);v.setUint32(16,1401);v.setUint32(20,1098);
   expect(assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toBeGreaterThan(1401*1098*4+1000*3);
   v.setUint32(16,0);expect(()=>assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toThrow('IMAGE_DECODE_BUDGET');
+ });
+});
+
+
+describe('shared attended artwork preparation',()=>{
+ it('admits the recorded central 387px painting before the larger peripheral painting can claim attention',()=>{
+  const central={id:'vg',kind:'image',visible:true,distance:2.944,occupancy:.05622,projectedPixels:387.19,coarseTextureSize:512,focused:false,gazeDistance:.03};
+  const peripheral={...central,id:'rem',distance:3.676,occupancy:.0975,projectedPixels:590.32,gazeDistance:.8};
+  expect(detailDemand(central)).toBe(true);expect(detailDemand(peripheral)).toBe(true);
+  const owner=new ArtworkAttention(),candidates=[central,peripheral].map(v=>({...v,demand:detailDemand(v)}));
+  owner.update(candidates,0);expect(owner.update(candidates,300)).toBe('vg');
+  expect(owner.update([...candidates].reverse(),700)).toBe('vg');
+  expect(detailDemand({...central,gazeDistance:.8})).toBe(false);
+ });
+ it('prepares a mixed nearby pair and excludes occluded/unrelated-room and far candidates',()=>{
+  const item=(id:string,distance:number,eligible=true)=>({id,distance,eligible,demand:false,occupancy:0,focused:false});
+  const items=[item('current-painting',1),item('same-wall-painting',2),item('near-door-sculpture',3),item('behind-wall-sculpture',.5,false),item('unrelated-room-painting',1,false),item('far-sculpture',9)];
+  expect(nearbyPreparation(items,'current-painting')).toEqual(['same-wall-painting','near-door-sculpture']);
+  const owner=new ArtworkAttention();const sculpture={...item('sculpture',2),demand:true,gazeDistance:.02};
+  owner.update([sculpture],0);expect(owner.update([sculpture],300)).toBe('sculpture');
+ });
+ it('keeps current pinned while expendable prepared/encoded assets make room under the same peak',()=>{
+  const disposed:string[]=[],cache=new MemoryAssetCache<string>(100,v=>disposed.push(v));
+  cache.set('current','current',40);cache.acquire('current');cache.set('prepared','prepared',20);cache.set('encoded','encoded',20);
+  const peak=new AssetPeakBudget(100,()=>cache.stats().bytes);
+  expect(()=>peak.reserve('new-current',35)).toThrow('ASSET_TRANSITION_PEAK');
+  cache.delete('encoded');cache.delete('prepared');peak.reserve('new-current',35);
+  expect(cache.get('current')).toBe('current');expect(disposed).toEqual(['encoded','prepared']);expect(peak.total()).toBe(75);
+ });
+ it('does not allow an aborted preparation generation to replace its new current request',async()=>{
+  const started:string[]=[],finish=new Map<string,(v:string)=>void>(),discarded:string[]=[];
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:key=>{started.push(key);return new Promise(resolve=>finish.set(key,resolve));},onDiscard:v=>discarded.push(v)});
+  const old=scheduler.request('asset/old',100);await tick();const rejected=expect(old).rejects.toMatchObject({name:'AbortError'});scheduler.cancel('asset/old');await rejected;
+  const current=scheduler.request('asset/new',-100);await tick();expect(started).toEqual(['asset/old']);
+  finish.get('asset/old')!('stale-prepared');await tick();expect(discarded).toEqual(['stale-prepared']);expect(started).toEqual(['asset/old','asset/new']);
+  finish.get('asset/new')!('current');expect(await current).toBe('current');scheduler.dispose();
+ });
+});
+
+
+describe('displayed detail pressure and generation isolation',()=>{
+ const paired=(kind:'image'|'sculpture')=>{
+  const artwork=syntheticArtwork(kind),full=artwork.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:100};full.bytes=1000;artwork.assets.push(coarse);
+  artwork.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',...(kind==='sculpture'?{triangles:100}:{textureSize:2048})},{assetId:coarse.id,detail:'coarse',...(kind==='sculpture'?{triangles:20}:{textureSize:512})}]}};
+  return {artwork,full,coarse};
+ };
+ it('makes current detail progress by ready-before-swap downgrading an old visible full neighbor, and allows a later revisit',()=>{
+  const a=paired('image'),b=paired('sculpture'),displayed=new Map([['a',{asset:a.coarse.id,bytes:5}],['b',{asset:b.full.id,bytes:60}]]);
+  const peak=new AssetPeakBudget(100,()=>[...displayed.values()].reduce((sum,v)=>sum+v.bytes,0));
+  const candidates=()=>[{id:'a',artwork:a.artwork,assetId:displayed.get('a')!.asset,visible:true,lastAttended:2000},{id:'b',artwork:b.artwork,assetId:displayed.get('b')!.asset,visible:true,lastAttended:0}];
+  expect(()=>peak.reserve('a-full',45)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(displayedDetailReclamation(candidates(),'a',1799,DEVICE_BUDGETS.desktop)).toBeUndefined();
+  expect(displayedDetailReclamation(candidates(),'a',1800,DEVICE_BUDGETS.desktop)).toEqual({id:'b',evict:false,assetId:b.coarse.id});
+  peak.reserve('b-coarse',10);expect(displayed.get('b')!.asset).toBe(b.full.id); // Old remains displayed during preparation.
+  peak.release('b-coarse');displayed.set('b',{asset:b.coarse.id,bytes:5});
+  peak.reserve('a-full',45);peak.release('a-full');displayed.set('a',{asset:a.full.id,bytes:60});
+  expect(displayed.get('a')!.asset).toBe(a.full.id);
+  // Turn back after grace: the same shared policy now protects B and reclaims A.
+  expect(()=>peak.reserve('b-full',45)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(displayedDetailReclamation(candidates(),'b',3800,DEVICE_BUDGETS.desktop)).toEqual({id:'a',evict:false,assetId:a.coarse.id});
+  peak.reserve('a-coarse',10);peak.release('a-coarse');displayed.set('a',{asset:a.coarse.id,bytes:5});
+  expect(()=>peak.reserve('b-full',45)).not.toThrow();
+ });
+ it('never manufactures a coarse tuple for visible full-only geometry and only evicts it offscreen after grace',()=>{
+  const artwork=syntheticArtwork('sculpture'),assetId=artwork.assets[0]!.id,item={id:'full-only',artwork,assetId,visible:true,lastAttended:0};
+  expect(displayedDetailReclamation([item],'current',2000,DEVICE_BUDGETS.desktop)).toBeUndefined();
+  expect(displayedDetailReclamation([{...item,visible:false}],'current',1799,DEVICE_BUDGETS.desktop)).toBeUndefined();
+  expect(displayedDetailReclamation([{...item,visible:false}],'current',1800,DEVICE_BUDGETS.desktop)).toEqual({id:'full-only',evict:true});
+  expect(displayedDetailReclamation([{...item,visible:false}],'full-only',5000,DEVICE_BUDGETS.desktop)).toBeUndefined();
+ });
+ it('ignores a stale non-abort rejection without poisoning the succeeding request retry/failure state',()=>{
+  const pending=new Map([['art','new-key']]),retryAfter=new Map<string,number>(),failed=new Set<string>();
+  const reject=(key:string)=>{if(!settleAssetGeneration(pending,'art',key))return;retryAfter.set('art',Infinity);failed.add('art');};
+  reject('old-key');expect(pending.get('art')).toBe('new-key');expect(retryAfter.size).toBe(0);expect(failed.size).toBe(0);
+  reject('new-key');expect(pending.has('art')).toBe(false);expect(retryAfter.get('art')).toBe(Infinity);expect(failed.has('art')).toBe(true);
  });
 });
