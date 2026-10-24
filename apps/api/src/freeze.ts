@@ -54,6 +54,11 @@ export async function loadFreezeRuntime(runtimeRoot:string):Promise<{runtime:Fre
  }catch{throw new ApiError(503,'FREEZE_RUNTIME_INVALID');}
 }
 interface FreezeRow {tenant_id:string;id:string;exhibition_id:string;source_snapshot:Exhibition;manifest:FreezeManifest;manifest_sha256:string;signature:string;inventory:{oex:string[];runtime:{path:string;key:string}[]};revoked:boolean}
+/** Verify stored signature integrity only; callers still enforce access, rights and revocation. */
+export function verifyFreezeSignature(row:Pick<FreezeRow,'manifest'|'manifest_sha256'|'signature'>,authority:FreezeManifest['authority'],signingKey:KeyObject){
+ if(row.manifest.authority.keyId!==authority.keyId||row.manifest.authority.origin!==authority.origin||row.manifest.authority.publicKey!==authority.publicKey)throw new ApiError(403,'FREEZE_AUTHORITY_CHANGED');
+ if(hash(row.manifest)!==row.manifest_sha256||!verify(null,Buffer.from(freezeCanonical(row.manifest)),createPublicKey(signingKey),Buffer.from(row.signature,'base64')))throw new ApiError(409,'FREEZE_INTEGRITY');
+}
 export function offlineDeadline(s:Session,seconds:number,rights:unknown[],now=Date.now()){
  if(!Number.isInteger(seconds)||seconds<1||seconds>MAX_OFFLINE_SECONDS)throw new ApiError(400,'OFFLINE_INTERVAL_INVALID');
  let deadline=Math.min(now+seconds*1000,Date.parse(s.expiresAt));
@@ -71,8 +76,7 @@ export class Freezes {
  private summary(row:FreezeRow):FreezeSummary{return {id:row.id,createdAt:row.manifest.createdAt,manifestSha256:row.manifest_sha256,manifest:row.manifest,status:row.revoked?'revoked':'available'};}
  private async access(c:PoolClient,s:Session,id:string){uuid(id);const row=(await c.query('SELECT f.*,a.revoked FROM exhibition_freezes f JOIN freeze_availability a ON (a.tenant_id,a.freeze_id)=(f.tenant_id,f.id) WHERE f.tenant_id=$1 AND f.id=$2 FOR UPDATE OF a',[s.tenantId,id])).rows[0]as FreezeRow|undefined;if(!row)throw new ApiError(403,'FORBIDDEN');await this.studio.access(c,s,row.exhibition_id);return row;}
  private validSignature(row:FreezeRow){
-  if(row.manifest.authority.keyId!==this.authority.keyId||row.manifest.authority.origin!==this.authority.origin||row.manifest.authority.publicKey!==this.authority.publicKey)throw new ApiError(403,'FREEZE_AUTHORITY_CHANGED');
-  if(hash(row.manifest)!==row.manifest_sha256||!verify(null,Buffer.from(freezeCanonical(row.manifest)),createPublicKey(this.config.signingKey),Buffer.from(row.signature,'base64')))throw new ApiError(409,'FREEZE_INTEGRITY');
+  verifyFreezeSignature(row,this.authority,this.config.signingKey);
  }
  private async current(c:PoolClient,s:Session,row:FreezeRow){
   if(row.revoked)throw new ApiError(403,'FREEZE_REVOKED');this.validSignature(row);

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {generateKeyPairSync,createPublicKey} from 'node:crypto';
+import {generateKeyPairSync,createPublicKey,sign} from 'node:crypto';
 import {mkdtemp,writeFile,chmod,symlink,realpath,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {describe,it,expect} from 'vitest';
-import {freezeCanonical,freezeFileMime,FREEZE_VERSION} from '@exhibitos/studio-contract';
+import {freezeCanonical,freezeFileMime,FREEZE_VERSION,type FreezeManifest} from '@exhibitos/studio-contract';
 import {sha256,type BlobStore} from '@exhibitos/storage';
 import type {Pool} from 'pg';
 import type {Session} from './auth.ts';
-import {Freezes,loadFreezeConfig,loadFreezeRuntime,offlineDeadline} from './freeze.ts';
+import {Freezes,loadFreezeConfig,loadFreezeRuntime,offlineDeadline,verifyFreezeSignature} from './freeze.ts';
 const digest=(v:unknown)=>sha256(Buffer.from(freezeCanonical(v)));
 async function root(){return realpath(await mkdtemp(join(tmpdir(),'exhibitos-freeze-unit-')));}
 async function runtime(dir:string){
@@ -20,6 +20,19 @@ async function runtime(dir:string){
  return {entries,files};
 }
 describe('signed freeze service boundaries',()=>{
+ it('verifies stored signatures and rejects changed authority, hash, signed bytes and signing key',()=>{
+  const {privateKey}=generateKeyPairSync('ed25519'),publicKey=createPublicKey(privateKey).export({format:'der',type:'spki'});
+  const authority={origin:'http://127.0.0.1:3000',keyId:sha256(publicKey),publicKey:publicKey.toString('base64')};
+  // Signature verification is independent of the manifest shape validation at creation.
+  const manifest={schemaVersion:FREEZE_VERSION,kind:'exhibition-freeze',authority,createdAt:'2026-10-24T00:00:00Z'}as FreezeManifest;
+  const row={manifest,manifest_sha256:digest(manifest),signature:sign(null,Buffer.from(freezeCanonical(manifest)),privateKey).toString('base64')};
+  expect(()=>verifyFreezeSignature(row,authority,privateKey)).not.toThrow();
+  for(const field of ['origin','keyId','publicKey']as const)expect(()=>verifyFreezeSignature(row,{...authority,[field]:'changed'},privateKey)).toThrow('FREEZE_AUTHORITY_CHANGED');
+  expect(()=>verifyFreezeSignature({...row,manifest_sha256:'0'.repeat(64)},authority,privateKey)).toThrow('FREEZE_INTEGRITY');
+  const changed={...manifest,createdAt:'2026-10-25T00:00:00Z'};
+  expect(()=>verifyFreezeSignature({...row,manifest:changed,manifest_sha256:digest(changed)},authority,privateKey)).toThrow('FREEZE_INTEGRITY');
+  expect(()=>verifyFreezeSignature(row,authority,generateKeyPairSync('ed25519').privateKey)).toThrow('FREEZE_INTEGRITY');
+ });
  it('loads only explicit0600 Ed25519 PKCS8 config and denies wrong modes, symlinks and malformed key without revealing contents',async()=>{
   const dir=await root(),{privateKey}=generateKeyPairSync('ed25519'),key=join(dir,'key.json');
   await writeFile(key,JSON.stringify({schemaVersion:FREEZE_VERSION,name:'exhibitos-freeze-ed25519',privateKey:privateKey.export({format:'der',type:'pkcs8'}).toString('base64')}),{mode:0o600});
