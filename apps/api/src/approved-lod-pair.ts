@@ -1,4 +1,5 @@
-import {embeddedBasisPairs} from '@exhibitos/studio-contract';
+import {embeddedBasisPairs, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
+import type {PbrTextureRole} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /** Bounded compatibility check for an explicitly approved textured pair.
  * Format/PNG decoding remains the isolated validation worker's responsibility.
@@ -18,19 +19,27 @@ function model(bytes:Buffer){
  const basis=embeddedBasisPairs(d,(i)=>view(d.images[i].bufferView));
  let pixels=0,imageBytes=0;
  const images=d.images.map((im:{bufferView:number;mimeType:string})=>{if(!closed(im,['bufferView','mimeType'])||!['image/png','image/ktx2'].includes(im.mimeType))fail();const b=view(im.bufferView);if(im.mimeType==='image/ktx2')return b;if(b.length<33||b.toString('ascii',12,16)!=='IHDR')fail();const w=b.readUInt32BE(16),h=b.readUInt32BE(20);pixels+=w*h;imageBytes+=b.length;if(!w||!h||w>2048||h>2048||pixels>2097152||imageBytes>8388608)fail();return b;});
- // Bind each primitive through its actual PBR material; one material may use three local maps.
+ // Bind each primitive through its actual PBR material; one material may use colour, normal, AO and packed G-roughness/B-metalness maps.
  const usedTextures=new Set<number>(),usedSamplers=new Set<number>(),usedImages=new Set<number>(),colourImages=new Set<number>(),linearImages=new Set<number>();
- const samplers=d.samplers.map((v:Record<string,unknown>)=>{if(!closed(v,['magFilter','minFilter','wrapS','wrapT'])||v.magFilter!==9729||v.minFilter!==9729||![33071,10497,33648].includes(v.wrapS as number)||![33071,10497,33648].includes(v.wrapT as number))fail();return v;});
+ const samplers=d.samplers.map((v:Record<string,unknown>)=>{if(!closed(v,['magFilter','minFilter','wrapS','wrapT'])||![9728,9729].includes(v.magFilter as number)||v.minFilter!==9729||![33071,10497,33648].includes(v.wrapS as number)||![33071,10497,33648].includes(v.wrapT as number))fail();return v;});
  const textures=d.textures.map((v:{source:number;sampler:number})=>{if(!closed(v,['source','sampler'],['extensions'])||!integer(v.source)||v.source>=images.length||!integer(v.sampler)||v.sampler>=samplers.length)fail();usedSamplers.add(v.sampler);usedImages.add(v.source);return v;});
  for(const index of basis.keys())usedImages.add(index);
  if(usedSamplers.size!==samplers.length||usedImages.size!==images.length)fail();
- const map=(input:unknown,parameter?:string)=>{if(input===undefined)return null;if(!closed(input,['index'],['texCoord',...(parameter?[parameter]:[])]))return fail();const v=input as Record<string,unknown>,index=v.index;if(!integer(index))return fail();if(index>=textures.length||Object.hasOwn(v,'texCoord')&&v.texCoord!==0||parameter&&Object.hasOwn(v,parameter)&&v[parameter]!==1)fail();usedTextures.add(index);const texture=textures[index],source=texture.source;if(parameter&&(d.images[source].mimeType!=='image/png'||Object.hasOwn(texture,'extensions')))fail();(parameter?linearImages:colourImages).add(source);return {index,texCoord:0,...(parameter?{[parameter]:1}:{})};};
+ const map=(input:unknown,role:PbrTextureRole)=>{
+  if(input===undefined)return null;
+  const binding=(()=>{try{return pbrTextureBinding(input,role,textures.length);}catch{return fail();}})();
+  const {index,texCoord,scale,strength}=binding,texture=textures[index],source=texture.source,linear=pbrTextureIsLinear(role);
+  usedTextures.add(index);
+  if(linear&&(d.images[source].mimeType!=='image/png'||Object.hasOwn(texture,'extensions')))fail();
+  (linear?linearImages:colourImages).add(source);
+  return {index,texCoord,...(scale===undefined?{}:{scale}),...(strength===undefined?{}:{strength})};
+ };
  const materials=d.materials.map((m:Record<string,unknown>)=>{
   if(!closed(m,['pbrMetallicRoughness'],['doubleSided','normalTexture','occlusionTexture'])||Object.hasOwn(m,'doubleSided')&&typeof m.doubleSided!=='boolean')fail();
-  const p=m.pbrMetallicRoughness as Record<string,unknown>;if(!closed(p,['baseColorTexture'],['baseColorFactor','metallicFactor','roughnessFactor']))fail();
+  const p=m.pbrMetallicRoughness as Record<string,unknown>;if(!closed(p,['baseColorTexture'],['baseColorFactor','metallicFactor','roughnessFactor','metallicRoughnessTexture']))fail();
   const factor=p.baseColorFactor??[1,1,1,1];if(!Array.isArray(factor)||factor.length!==4||factor.some((v:unknown)=>typeof v!=='number'||!Number.isFinite(v)||v<0||v>1))fail();
   for(const name of ['metallicFactor','roughnessFactor'])if(Object.hasOwn(p,name)&&(typeof p[name]!=='number'||!Number.isFinite(p[name])||p[name]<0||p[name]>1))fail();
-  return {doubleSided:m.doubleSided??false,baseColorTexture:map(p.baseColorTexture),baseColorFactor:factor,metallicFactor:p.metallicFactor??1,roughnessFactor:p.roughnessFactor??1,normalTexture:map(m.normalTexture,'scale'),occlusionTexture:map(m.occlusionTexture,'strength')};
+  return {doubleSided:m.doubleSided??false,baseColorTexture:map(p.baseColorTexture,'colour'),metallicRoughnessTexture:map(p.metallicRoughnessTexture,'metallicRoughness'),baseColorFactor:factor,metallicFactor:p.metallicFactor??1,roughnessFactor:p.roughnessFactor??1,normalTexture:map(m.normalTexture,'normal'),occlusionTexture:map(m.occlusionTexture,'occlusion')};
  });
  if(usedTextures.size!==textures.length||[...linearImages].some(i=>colourImages.has(i)))fail();
  const read=(i:number,components:number,index=false,bounds=false)=>{const a=d.accessors[i];if(!integer(i)||!closed(a,['bufferView','componentType','count','type'],bounds?['min','max']:[])||a.componentType!==(index?5125:5126)||a.type!==(index?'SCALAR':components===4?'VEC4':components===3?'VEC3':'VEC2')||!integer(a.count)||!a.count||a.count>131072)fail();const b=view(a.bufferView);if(b.length!==a.count*components*4)fail();return {a,b};};
@@ -41,7 +50,7 @@ function model(bytes:Buffer){
   const tangent=p.attributes.TANGENT===undefined?null:read(p.attributes.TANGENT,4);
   const pos=read(p.attributes.POSITION,3,false,true),normal=read(p.attributes.NORMAL,3),uv=read(p.attributes.TEXCOORD_0,2),ix=read(p.indices,1,true);vertices+=pos.a.count;triangles+=ix.a.count/3;if(vertices>65536||triangles>131072||ix.a.count%3||normal.a.count!==pos.a.count||uv.a.count!==pos.a.count||tangent!==null&&tangent.a.count!==pos.a.count)fail();
   const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],tuples=new Set<string>();
-  for(let i=0;i<pos.a.count;i++){let norm=0;for(let c=0;c<3;c++){const x=pos.b.readFloatLE(i*12+c*4),y=normal.b.readFloatLE(i*12+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000||!Number.isFinite(y))fail();min[c]=Math.min(min[c]!,x);max[c]=Math.max(max[c]!,x);norm+=y*y;}if(norm<1e-12||Math.abs(Math.sqrt(norm)-1)>1e-4)fail();for(let c=0;c<2;c++){const x=uv.b.readFloatLE(i*8+c*4);if(!Number.isFinite(x)||x<0||x>1)fail();}if(tangent){for(let k=0;k<4;k++){const v=tangent.b.readFloatLE(i*16+k*4);if(!Number.isFinite(v)||k===3&&v!==1&&v!==-1)fail();}const length=Math.hypot(...[0,1,2].map(k=>tangent.b.readFloatLE(i*16+k*4)));const dot=[0,1,2].reduce((sum,k)=>sum+tangent.b.readFloatLE(i*16+k*4)*normal.b.readFloatLE(i*12+k*4),0);if(Math.abs(length-1)>1e-4||Math.abs(dot)>1e-4)fail();}tuples.add(Buffer.concat([pos.b.subarray(i*12,i*12+12),normal.b.subarray(i*12,i*12+12),uv.b.subarray(i*8,i*8+8),...(tangent?[tangent.b.subarray(i*16,i*16+16)]:[])]).toString('hex'));}
+  for(let i=0;i<pos.a.count;i++){let norm=0;for(let c=0;c<3;c++){const x=pos.b.readFloatLE(i*12+c*4),y=normal.b.readFloatLE(i*12+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000||!Number.isFinite(y))fail();min[c]=Math.min(min[c]!,x);max[c]=Math.max(max[c]!,x);norm+=y*y;}if(norm<1e-12||Math.abs(Math.sqrt(norm)-1)>1e-4)fail();for(let c=0;c<2;c++){const x=uv.b.readFloatLE(i*8+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000)fail();}if(tangent){for(let k=0;k<4;k++){const v=tangent.b.readFloatLE(i*16+k*4);if(!Number.isFinite(v)||k===3&&v!==1&&v!==-1)fail();}const length=Math.hypot(...[0,1,2].map(k=>tangent.b.readFloatLE(i*16+k*4)));const dot=[0,1,2].reduce((sum,k)=>sum+tangent.b.readFloatLE(i*16+k*4)*normal.b.readFloatLE(i*12+k*4),0);if(Math.abs(length-1)>1e-4||Math.abs(dot)>1e-4)fail();}tuples.add(Buffer.concat([pos.b.subarray(i*12,i*12+12),normal.b.subarray(i*12,i*12+12),uv.b.subarray(i*8,i*8+8),...(tangent?[tangent.b.subarray(i*16,i*16+16)]:[])]).toString('hex'));}
   if(!same(pos.a.min,min)||!same(pos.a.max,max))fail();for(let i=0;i<ix.a.count;i++)if(ix.b.readUInt32LE(i*4)>=pos.a.count)fail();
   const seen=new Set<string>();
   for(let i=0;i<ix.a.count;i+=3){const ids=[0,1,2].map(k=>ix.b.readUInt32LE((i+k)*4));if(new Set(ids).size!==3)fail();const key=[ids.join(','),[ids[1],ids[2],ids[0]].join(','),[ids[2],ids[0],ids[1]].join(',')].sort()[0]!;if(seen.has(key))fail();seen.add(key);const point=(j:number)=>[0,1,2].map(k=>pos.b.readFloatLE(ids[j]!*12+k*4)),a=point(0),b=point(1),c=point(2),ab=b.map((v,k)=>v-a[k]!),ac=c.map((v,k)=>v-a[k]!),n=[ab[1]!*ac[2]!-ab[2]!*ac[1]!,ab[2]!*ac[0]!-ab[0]!*ac[2]!,ab[0]!*ac[1]!-ab[1]!*ac[0]!];if(!n.every(Number.isFinite)||Math.hypot(...n)<1e-12)fail();let dot=0;for(const id of ids)for(let k=0;k<3;k++)dot+=n[k]!*normal.b.readFloatLE(id!*12+k*4);if(!Number.isFinite(dot)||dot<=0)fail();}
