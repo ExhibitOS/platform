@@ -163,7 +163,7 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   }
   for (const bytes of imageBytes) png(bytes, texturePixels, 2048);
   for (const sampler of doc.samplers) {
-    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || sampler.magFilter !== 9729 || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
+    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || ![9728,9729].includes(sampler.magFilter) || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
   }
   for (const t of doc.textures) if (!closed(t,["source","sampler"],["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !integer(t.sampler) || t.sampler >= doc.samplers.length) fail();
   if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();

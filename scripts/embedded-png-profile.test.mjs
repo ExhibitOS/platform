@@ -115,3 +115,23 @@ test('approved wrapped UV pair retains exact tuples and refuses changed lineage 
  await decode(full,mime);await decode(coarse,mime);assert.equal(qualifyApprovedTexturedPair(full,coarse,8,2).coarse.triangles,2);
  for(const value of [.375,NaN,20001])assert.throws(()=>qualifyApprovedTexturedPair(full,changeTextureGLB(coarse,(d,b)=>b.writeFloatLE(value,d.bufferViews[d.accessors[d.meshes[0].primitives[0].attributes.TEXCOORD_0].bufferView].byteOffset)),8,2));
 });
+
+test('nearest magnification retains exact authored sampler/maps through isolated admission display and LOD pair',async()=>{
+ for(const magFilter of [9728,9729]){
+  const pair=publicPBRTexturedLODPair(),edit=b=>changeTextureGLB(b,d=>{d.samplers[0].magFilter=magFilter;d.materials[0].pbrMetallicRoughness.metallicRoughnessTexture={index:2};}),full=edit(pair.full),coarse=edit(pair.coarse),before=Buffer.from(full);
+  for(const bytes of [full,coarse])await decode(bytes,mime);
+  assert.equal(qualifyApprovedTexturedPair(full,coarse,8,2).coarse.triangles,2);
+  const marked=await derivative(full,mime);await decode(marked,mime);
+  const a=parse(full),b=parse(marked),bin=x=>x.subarray(28+x.readUInt32LE(12));
+  assert.deepEqual(b.samplers,a.samplers);assert.deepEqual(b.textures,a.textures);assert.deepEqual(b.materials.slice(0,a.materials.length),a.materials);assert.deepEqual(b.meshes.slice(0,a.meshes.length),a.meshes);
+  for(const view of a.bufferViews)assert.deepEqual(bin(marked).subarray(view.byteOffset??0,(view.byteOffset??0)+view.byteLength),bin(full).subarray(view.byteOffset??0,(view.byteOffset??0)+view.byteLength));
+  assert.deepEqual(full,before);
+ }
+});
+test('nearest magnification keeps min wrap closed sampler and exact pair correspondence guards',async()=>{
+ const pair=publicPBRTexturedLODPair(),nearest=b=>changeTextureGLB(b,d=>{d.samplers[0].magFilter=9728;}),full=nearest(pair.full),coarse=nearest(pair.coarse);
+ for(const edit of [d=>d.samplers[0].magFilter=0,d=>d.samplers[0].magFilter=9987,d=>d.samplers[0].magFilter='9728',d=>d.samplers[0].minFilter=9728,d=>d.samplers[0].minFilter=9987,d=>d.samplers[0].wrapS=0,d=>d.samplers[0].extra=true,d=>delete d.samplers[0].magFilter]){
+  const bad=changeTextureGLB(coarse,edit);await assert.rejects(decode(bad,mime));assert.throws(()=>qualifyApprovedTexturedPair(full,bad,8,2));
+ }
+ assert.throws(()=>qualifyApprovedTexturedPair(full,pair.coarse,8,2));
+});
