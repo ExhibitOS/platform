@@ -3,6 +3,11 @@ import type * as THREE from 'three';
 
 // Installed r186 PCF uses one RGBA8 target and one uint32 depth texture, no mipmaps.
 export const SHADOW_RESERVE_BYTES = 512 * 512 * 8;
+/** r186 PCF: outer Vogel tap sqrt(4.5/5)*radius plus the hardware tap's
+ * diagonal footprint. Express the receiver offset in fitted world units. */
+export function directionalNormalBias(width:number,height:number,radius:number){
+  return Math.max(.01,Math.max(width,height)/512*(Math.sqrt(.9)*radius+Math.SQRT2));
+}
 type Candidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D};
 export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number};
 
@@ -69,7 +74,10 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     });
     if(meshes.length>64||triangles>100000){releaseMap(selected.light);renderer.shadowMap.enabled=false;emit('unavailable');return;}
     for(const mesh of meshes){flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=true;mesh.receiveShadow=true;}
-    const shadow=selected.light.shadow;shadow.mapSize.set(512,512);shadow.bias=-.0001;shadow.normalBias=.01;shadow.autoUpdate=false;shadow.needsUpdate=true;
+    const shadow=selected.light.shadow;shadow.mapSize.set(512,512);shadow.bias=-.0001;
+    shadow.normalBias=shadow.camera instanceof three.OrthographicCamera
+      ?directionalNormalBias(shadow.camera.right-shadow.camera.left,shadow.camera.top-shadow.camera.bottom,shadow.radius):.01;
+    shadow.autoUpdate=false;shadow.needsUpdate=true;
     selected.light.castShadow=true;renderer.shadowMap.enabled=true;renderer.shadowMap.type=three.PCFShadowMap;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
     updates++;emit('bounded',meshes.length,triangles);
   };

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,SHADOW_RESERVE_BYTES,type ShadowReport} from './shadows';
+import {installBoundedShadows,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport} from './shadows';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
-  const room=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());room.add(mesh);
+  const room=new three.Group(),mesh=new three.Mesh<three.BufferGeometry,three.MeshStandardMaterial>(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());room.add(mesh);
   const light=new three.DirectionalLight();light.position.set(4,8,4);room.add(light,light.target);
   const renderer={shadowMap:{enabled:false,autoUpdate:true,type:three.BasicShadowMap,needsUpdate:false}} as unknown as three.WebGLRenderer;
   const reports:ShadowReport[]=[];
@@ -16,6 +16,21 @@ test('compact and insufficient reserve allocate no shadow and retain material me
     const h=setup(compact,bytes),material=h.mesh.material;h.pass.flush();
     expect(h.reports[0]?.mode).toBe(mode);expect(h.light.shadow.map).toBeNull();expect(h.light.castShadow).toBe(false);expect(h.mesh.material).toBe(material);expect(h.renderer.shadowMap.enabled).toBe(false);h.pass.dispose();
   }
+});
+test('PCF receiver bias follows fitted world footprint without changing map budget or caster policy',()=>{
+  const h=setup();h.mesh.geometry=new three.PlaneGeometry(8,8);h.mesh.rotation.x=-Math.PI/2;h.mesh.material.side=three.DoubleSide;
+  const material=h.mesh.material,geometry=h.mesh.geometry,authored=h.light.position.clone();h.pass.flush();
+  const initial=h.light.shadow.normalBias;expect(initial).toBeGreaterThan(.01);
+  expect(h.mesh.castShadow&&h.mesh.receiveShadow).toBe(true);expect(h.light.shadow.mapSize.toArray()).toEqual([512,512]);expect(SHADOW_RESERVE_BYTES).toBe(2097152);
+  expect(h.mesh.geometry).toBe(geometry);expect(h.mesh.material).toBe(material);expect(h.light.position.equals(authored)).toBe(true);
+  h.mesh.scale.setScalar(.5);h.pass.invalidate();h.pass.flush();expect(h.light.shadow.normalBias).toBeLessThan(initial);expect(h.light.shadow.normalBias).toBeGreaterThanOrEqual(.01);
+  h.pass.dispose();
+});
+test('PCF footprint accounts for both orthographic axes and retains existing small-scene floor',()=>{
+  expect(directionalNormalBias(.5,.5,1)).toBe(.01);
+  expect(directionalNormalBias(8,4,1)).toBe(directionalNormalBias(4,8,1));
+  expect(directionalNormalBias(16,8,1)).toBeCloseTo(2*directionalNormalBias(8,4,1));
+  expect(directionalNormalBias(8,4,2)).toBeGreaterThan(directionalNormalBias(8,4,1));
 });
 test('only dirty scene changes update one bounded map; navigation and repeated renders reuse it',()=>{
   const h=setup();h.pass.flush();expect(h.reports[0]).toMatchObject({mode:'bounded',mapSize:512,casters:1,triangles:12,updates:1});
