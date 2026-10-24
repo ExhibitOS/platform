@@ -1,3 +1,4 @@
+import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
@@ -228,6 +229,7 @@ export function GeometryPreview({
     ((kind: "next" | "full" | "coarse" | "retry" | "cancel") => void) | null
   >(null);
   const [restart, setRestart] = useState(0);
+  const [shadowMessage,setShadowMessage]=useState('');
   const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
@@ -312,7 +314,8 @@ export function GeometryPreview({
       applyReferenceOutput(three,renderer,referenceTone);
       const compactQuality=(viewerBudget?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
-      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve);
+      const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
+      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
@@ -492,6 +495,15 @@ export function GeometryPreview({
           extent / 1000,
           extent * 100,
         );
+      const shadowCandidates=[...scriptLights.values()].flatMap(({light})=>{
+        const item=document.lights.find(item=>scriptLights.get(item.id)?.light===light),room=item&&rooms.get(item.roomId.toLowerCase());
+        return room&&(light instanceof three.DirectionalLight||light instanceof three.SpotLight)?[{light,room}]:[];
+      });
+      for(const room of rooms.values())shadowCandidates.push({light:sun,room});
+      const shadowPass=installBoundedShadows(three,renderer,shadowCandidates,compactQuality,shadowReserve,value=>{
+        renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
+        setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면에서는 공간 그림자를 생략합니다.':'이 공간에서는 그림자를 생략하고 작품과 조명을 표시합니다.');
+      });owned.push(shadowPass);
       const controls = new OrbitControls(camera, renderer.domElement);
       let pointerStart: [number,number] | undefined;
       const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
@@ -518,6 +530,7 @@ export function GeometryPreview({
       const render = () => {
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
+          shadowPass.flush();
           renderer.render(scene, camera);
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
@@ -537,7 +550,7 @@ export function GeometryPreview({
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
-      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){entry.light.intensity=entry.original*Math.max(0,Math.min(1,multiplier));scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;scriptDiagnostics();render();}};
+      const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
         if (!viewerBudget || trace.started || xrActive.current) return;
@@ -716,9 +729,9 @@ export function GeometryPreview({
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
-      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();callback(time,frame);}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
-      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,render}):null;
+      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,render:()=>{shadowPass.invalidate();render();}}):null;
       editingSync.current=()=>editor?.sync();
       release = () => {
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
@@ -753,7 +766,7 @@ export function GeometryPreview({
         owned.push(environment);scene.environmentIntensity=.45;
         hemisphere.intensity=document.lights.length ? .2 : .6;
         if(!daylight&&!document.lights.length)sun.intensity=2;
-        renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,assetBudgetBytes});
+        renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
       }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
       orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current; };
@@ -1309,6 +1322,7 @@ export function GeometryPreview({
               active.set(art.revisionId, inventory.id);
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
               failed.delete(art.revisionId);
+              shadowPass.invalidate();
               render();
               update();
             })
@@ -1387,6 +1401,7 @@ export function GeometryPreview({
           if (bounds) group.remove(bounds);
           group.add(object.clone(true));
           rendered++;
+          shadowPass.invalidate();
           render();
         } catch {
           unavailable++;
@@ -1443,7 +1458,7 @@ export function GeometryPreview({
         )}
       </div>
       <figcaption role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
-      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p></details>}
+      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       <ViewControls className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
       <div className="cms-actions">
