@@ -32,6 +32,49 @@ test('PCF footprint accounts for both orthographic axes and retains existing sma
   expect(directionalNormalBias(16,8,1)).toBeCloseTo(2*directionalNormalBias(8,4,1));
   expect(directionalNormalBias(8,4,2)).toBeGreaterThan(directionalNormalBias(8,4,1));
 });
+function shadowArgs(h:ReturnType<typeof setup>,depth:three.Material):Parameters<three.Mesh['onBeforeShadow']>{
+  return [h.renderer,new three.Scene(),new three.Camera(),h.light.shadow.camera,h.mesh.geometry,depth,new three.Group()];
+}
+test('planar depth side follows rotated surface without mutating shared authored material or solid caster',()=>{
+  const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1).rotateX(.47).rotateY(.63);
+  const material=h.mesh.material,solid=new three.Mesh(new three.BoxGeometry(1,1,1),material);h.room.add(solid);
+  const before=h.mesh.onBeforeShadow,after=h.mesh.onAfterShadow;h.pass.flush();
+  expect(h.mesh.onBeforeShadow).not.toBe(before);expect(solid.onBeforeShadow).toBe(before);
+  const depth=new three.MeshDepthMaterial({side:three.BackSide}),args=shadowArgs(h,depth);
+  h.mesh.onBeforeShadow(...args);expect(depth.side).toBe(three.FrontSide);
+  expect(material.side).toBe(three.FrontSide);expect(material.shadowSide).toBeNull();expect(h.mesh.material).toBe(material);expect(solid.material).toBe(material);
+  h.mesh.onAfterShadow(...args);expect(depth.side).toBe(three.BackSide);
+  material.shadowSide=three.BackSide;h.mesh.onBeforeShadow(...args);expect(depth.side).toBe(three.BackSide);
+  h.pass.dispose();expect(h.mesh.onBeforeShadow).toBe(before);expect(h.mesh.onAfterShadow).toBe(after);expect(material.shadowSide).toBe(three.BackSide);
+});
+test('planar depth policy preserves explicit and custom deformation or shadow intent',()=>{
+  const cases:((h:ReturnType<typeof setup>)=>void)[]=[
+    h=>{h.mesh.material.shadowSide=three.BackSide;},
+    h=>{h.mesh.customDepthMaterial=new three.MeshDepthMaterial();},
+    h=>{h.mesh.material.onBeforeCompile=()=>{};},
+    h=>{h.mesh.onBeforeShadow=()=>{};},
+    h=>{h.mesh.material.displacementMap=new three.Texture();},
+    h=>{h.mesh.geometry.morphAttributes.position=[h.mesh.geometry.getAttribute('position').clone()];},
+    h=>{h.mesh.geometry=new three.BoxGeometry(1,1,1);},
+    h=>{h.mesh.geometry=new three.BoxGeometry(1/512,1,1).translate(10000,0,0);h.mesh.position.x=-10000;},
+    h=>{const p=h.mesh.geometry.getAttribute('position');p.setZ(0,.02);},
+    h=>{h.mesh.geometry=new three.BufferGeometry().setFromPoints([new three.Vector3(),new three.Vector3(1,0,0),new three.Vector3(2,0,0)]);},
+  ];
+  for(const configure of cases){const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1);configure(h);const before=h.mesh.onBeforeShadow,after=h.mesh.onAfterShadow;h.pass.flush();expect(h.mesh.onBeforeShadow).toBe(before);expect(h.mesh.onAfterShadow).toBe(after);h.pass.dispose();}
+  const geometry=new three.PlaneGeometry(1,1),material=new three.MeshStandardMaterial();
+  const skinned=new three.SkinnedMesh(geometry,material);skinned.boundingBox=new three.Box3(new three.Vector3(-.5,-.5,0),new three.Vector3(.5,.5,0));
+  const instanced=new three.InstancedMesh(geometry,material,1);instanced.setMatrixAt(0,new three.Matrix4());
+  for(const mesh of [skinned,instanced,new three.Mesh(geometry,[material]),new three.Mesh(geometry,new three.ShaderMaterial())]){
+    const h=setup();h.room.remove(h.mesh);h.room.add(mesh);const before=mesh.onBeforeShadow,after=mesh.onAfterShadow;h.pass.flush();expect(mesh.onBeforeShadow).toBe(before);expect(mesh.onAfterShadow).toBe(after);h.pass.dispose();
+  }
+});
+test('planar depth side and owned hooks restore after interrupted draw, exclusion and disposal',()=>{
+  const h=setup();h.mesh.geometry=new three.PlaneGeometry(1,1);const before=h.mesh.onBeforeShadow,after=h.mesh.onAfterShadow;h.pass.flush();
+  const depth=new three.MeshDepthMaterial({side:three.BackSide}),args=shadowArgs(h,depth);
+  expect(()=>{try{h.mesh.onBeforeShadow(...args);throw Error('draw failed');}finally{h.pass.afterRender();}}).toThrow('draw failed');expect(depth.side).toBe(three.BackSide);
+  h.mesh.onBeforeShadow(...args);h.mesh.visible=false;h.pass.invalidate();h.pass.flush();expect(depth.side).toBe(three.BackSide);expect(h.mesh.onBeforeShadow).toBe(before);expect(h.mesh.onAfterShadow).toBe(after);
+  h.mesh.visible=true;h.pass.invalidate();h.pass.flush();h.mesh.onBeforeShadow(...args);const replacement=()=>{};h.mesh.onBeforeShadow=replacement;h.pass.dispose();h.pass.dispose();expect(depth.side).toBe(three.BackSide);expect(h.mesh.onBeforeShadow).toBe(replacement);expect(h.mesh.onAfterShadow).toBe(after);
+});
 test('only dirty scene changes update one bounded map; navigation and repeated renders reuse it',()=>{
   const h=setup();h.pass.flush();expect(h.reports[0]).toMatchObject({mode:'bounded',mapSize:512,casters:1,triangles:12,updates:1});
   expect(h.light.castShadow&&h.mesh.castShadow&&h.mesh.receiveShadow).toBe(true);expect(h.light.shadow.autoUpdate).toBe(false);expect(h.renderer.shadowMap.autoUpdate).toBe(false);
