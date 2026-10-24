@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "prebuild": "node ../../scripts/build-web-schema-validators.mjs --check"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",

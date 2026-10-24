@@ -60,3 +60,16 @@ test("demo requires its fixed entry and still refuses extra HTML",async t=>{
  await writeFile(join(runtime,"other.html"),"must not export");
  await assert.rejects(exportStaticStudioDemo({runtimeRoot:runtime,output:join(directory,"extra")}),/STATIC_RUNTIME_UNLISTED: other.html/);
 });
+
+test('installation metadata survives bound static export without changing asset bytes',async t=>{
+ const {fixture,options}=await setup(t),e=fixture.raw.exhibition,namespace='org.exhibitos.studio/installation';
+ const installation={version:1,placements:[{placementId:e.placements[0].id,pedestal:{kind:'box',position:[0,0,0],yaw:0,dimensions:{width:1,depth:1,height:.8},material:{preset:'paint',color:'#FFFFFF',roughness:0,metalness:0}}}]};
+ e.extensions={...e.extensions,[namespace]:installation};fixture.raw.publication.revisionSha256=revisionHash(e);
+ const result=await exportStaticPublication(options),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'))),published=JSON.parse(await readFile(join(result.output,index.publication.path)));
+ assert.deepEqual(published.exhibition.extensions[namespace],installation);assert.equal(published.publication.revisionSha256,revisionHash(published.exhibition));
+ for(const entry of index.assets)assert.equal(sha(await readFile(join(result.output,entry.path))),entry.sha256);
+});
+test('invalid installation cannot be exported even with a matching authored revision hash',async t=>{
+ const {fixture,options}=await setup(t),e=fixture.raw.exhibition;e.extensions={...e.extensions,'org.exhibitos.studio/installation':{version:1,placements:[{placementId:randomUUID(),frame:{kind:'none'}}]}};fixture.raw.publication.revisionSha256=revisionHash(e);
+ await assert.rejects(exportStaticPublication(options),/OEX_PROFILE_INVALID/);await assert.rejects(lstat(options.output),{code:'ENOENT'});
+});

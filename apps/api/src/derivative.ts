@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { ApiError } from "./auth.ts";
 export function derivative(bytes: Buffer, mime: string, options?: {maxTextureSize:512|2048}) {
@@ -7,7 +8,7 @@ export function derivative(bytes: Buffer, mime: string, options?: {maxTextureSiz
       url.pathname = url.pathname.replace(/\.js$/, ".ts");
     const child = execFile(
       process.execPath,
-      ["--max-old-space-size=128", url.pathname, mime, "derivative",String(options?.maxTextureSize??512)],
+      ["--max-old-space-size=128", fileURLToPath(url), mime, "derivative",String(options?.maxTextureSize??512)],
       {
         timeout: 5000,
         maxBuffer: 40 * 1024 * 1024,

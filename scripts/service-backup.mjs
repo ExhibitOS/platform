@@ -2,7 +2,7 @@
 import {constants} from 'node:fs';
 import {open,lstat,realpath,statfs,readdir,readFile} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {pathToFileURL,fileURLToPath} from 'node:url';
 import {randomBytes,createHash,createPublicKey,verify} from 'node:crypto';
 import {freezeCanonical} from '@exhibitos/studio-contract';
 import {spawn} from 'node:child_process';
@@ -104,7 +104,7 @@ function fileSink(file){
  let position=0;
  return new Writable({write(chunk,_encoding,done){void(async()=>{let offset=0;while(offset<chunk.length){const result=await file.write(chunk,offset,chunk.length-offset,position);if(result.bytesWritten<1)fail('BACKUP_PG_WRITE_FAILED');offset+=result.bytesWritten;position+=result.bytesWritten;}})().then(()=>done(),done);}});
 }
-export function postgresAdapter(connectionString,environment=process.env,abortSignal){
+export function postgresAdapter(connectionString,environment=process.env,abortSignal,beforeRestore){
  return {
   async dump(path,snapshotId){
    if(!/^[0-9A-F]{8}-[0-9A-F]{8}-[0-9]+$/i.test(snapshotId))fail('BACKUP_SNAPSHOT_ID');
@@ -116,7 +116,7 @@ export function postgresAdapter(connectionString,environment=process.env,abortSi
   async restore(path){
    // A credential-free libpq connection string activates PGDATABASE and the other private environment defaults.
    const command=postgresCommand('pg_restore',['--exit-on-error','--single-transaction','--dbname=application_name=exhibitos-service-backup'],connectionString,environment),file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);let running;
-   try{const stat=await file.stat();if(!stat.isFile()||stat.nlink!==1||stat.size<1)fail('BACKUP_DUMP_INVALID');running=launch(command,abortSignal);running.child.stdout.resume();const copying=pipeline(file.createReadStream({autoClose:true}),running.child.stdin).catch(()=>{running.child.kill('SIGTERM');throw Error('BACKUP_PG_RESTORE_FAILED');});await Promise.all([running.completed,copying]);}finally{running?.child.kill('SIGTERM');await file.close().catch(()=>{});}
+   try{const stat=await file.stat();if(!stat.isFile()||stat.nlink!==1||stat.size<1)fail('BACKUP_DUMP_INVALID');if(beforeRestore)await beforeRestore(file,abortSignal);running=launch(command,abortSignal);running.child.stdout.resume();const copying=pipeline(file.createReadStream({autoClose:true,start:0}),running.child.stdin).catch(()=>{running.child.kill('SIGTERM');throw Error('BACKUP_PG_RESTORE_FAILED');});await Promise.all([running.completed,copying]);}finally{running?.child.kill('SIGTERM');await file.close().catch(()=>{});}
   },
  };
 }
@@ -179,8 +179,9 @@ export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
  if(!Number.isSafeInteger(cap)||cap<1024*1024)fail('BACKUP_RESOURCE_BUDGET');return cap;
 }
 export async function main(argv=process.argv.slice(2),environment=process.env,privateOptions={}){
- if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>!['jobBudgetBytes','freezeAuthority'].includes(k)))fail('BACKUP_RESOURCE_BUDGET');
+ if(!privateOptions||typeof privateOptions!=='object'||Array.isArray(privateOptions)||Object.keys(privateOptions).some(k=>!['jobBudgetBytes','freezeAuthority','restoredSystemIdentifier','beforeRestore'].includes(k))||privateOptions.beforeRestore!==undefined&&typeof privateOptions.beforeRestore!=='function')fail('BACKUP_RESOURCE_BUDGET');
  const {command,flags}=parse(argv),keyPath=flags['--key-file'];
+ if(privateOptions.restoredSystemIdentifier!==undefined&&(command!=='restore'||typeof privateOptions.restoredSystemIdentifier!=='string'||! /^[1-9][0-9]{0,19}$/.test(privateOptions.restoredSystemIdentifier)||BigInt(privateOptions.restoredSystemIdentifier)>18446744073709551615n))fail('CANDIDATE_DATABASE_ID_INVALID');
  if(command==='check-source-configuration'){
   if(Object.keys(flags).sort().join(',')!=='--manifest-file,--manifest-sha256,--quiesced'||!flags['--quiesced'])fail('BACKUP_USAGE');
   let input;try{input=JSON.parse(environment.BACKUP_CONFIGURATION_FILES);}catch{fail('BACKUP_CONFIGURATION_INVALID');}
@@ -198,7 +199,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(new URL('../database/migrations/',import.meta.url).pathname,authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(fileURLToPath(new URL('../database/migrations/',import.meta.url)),authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
   finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
@@ -213,7 +214,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
-  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async(c,authenticatedMigrations)=>{
+  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal,privateOptions.beforeRestore),migrationDirectory=fileURLToPath(new URL('../database/migrations/',import.meta.url)),snapshot=async(c,authenticatedMigrations)=>{
    if(privateOptions.freezeAuthority!==undefined)await verifyBackupFreezeAuthority(c,privateOptions.freezeAuthority);
    const inventory=await collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(migrationDirectory,authenticatedMigrations));
    if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
@@ -224,6 +225,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
    const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});
    return {operation:'created',backupId:result.id};
   }
+  if(privateOptions.restoredSystemIdentifier!==undefined){await backup.reconcileRestoredServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,snapshotSystemIdentifier:privateOptions.restoredSystemIdentifier});return {operation:'restored-and-verified'};}
   const existing=await pool.query("SELECT count(*)::integer AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");if(existing.rows[0].count!==0||(await blobs.store.listAll()).length!==0)fail('BACKUP_DESTINATION_NOT_EMPTY');
   await backup.restoreServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,restore:adapter.restore});return {operation:'restored-and-verified'};
  }finally{process.removeListener('SIGINT',interrupted);process.removeListener('SIGTERM',interrupted);await pool.end();await blobs.dispose();key.fill(0);}

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,validateArtworkWalkingProfile} from "@exhibitos/studio-contract";
+import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -43,6 +43,7 @@ export interface CollisionVolume {
     rotation: Quat;
     halfExtents: Vec3;
     affineCorners?: Vec3[];
+    convexVertices?: Vec3[];
 }
 /** Floor support rectangle minus capsule-expanded static collision volumes; not a pathfinding navmesh. */
 export interface WalkableRegion {
@@ -191,6 +192,13 @@ export async function createNavigationController(doc: Exhibition, options: {
             // Affine corners are the authoritative diagnostic; legacy fields only describe the enclosing AABB.
             const min=[0,1,2].map(i=>Math.min(...corners.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...corners.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,affineCorners:corners});
+        }
+        for(const record of resolveInstallations(doc))for(const solid of record.solids){
+            if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
+            const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
+            const collider=world.createCollider(desc);kinds.set(collider.handle,'solid');
+            const min=[0,1,2].map(i=>Math.min(...solid.vertices.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...solid.vertices.map(p=>p[i]!)));
+            solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,convexVertices:solid.vertices});
         }
         const half = NAVIGATION_PROFILE.bodyHeight / 2, radius = NAVIGATION_PROFILE.radius;
         character = world.createCollider(RAPIER.ColliderDesc.capsule(half - radius, radius).setTranslation(0, 10000, 0));

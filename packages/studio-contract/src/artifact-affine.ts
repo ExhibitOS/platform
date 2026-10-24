@@ -94,3 +94,57 @@ export function artifactSweptCapsuleHit(corners:AffinePoint[],oldFoot:AffinePoin
  for(const indices of [[0,1,2],[0,2,3]]){const tri=indices.map(i=>quad[i]!);if(Math.hypot(...cross(sub(tri[1]!,tri[0]!),sub(tri[2]!,tri[0]!)))<=1e-12)continue;for(const face of faces)for(const f of [[face[0]!,face[1]!,face[2]!],[face[0]!,face[2]!,face[3]!]])if(triangleDistance(tri,f.map(i=>corners[i]!))<=expanded*expanded)return true;}
  return false;
 }
+
+/** Prepared bounded convex solid for installation prisms and 32-sided cylinders.
+ * Append beside shared affine distance helpers; validation happens once per scene.
+ * Rapier consumes Float32 vertices; queries expand the double hull by their maximum
+ * rounding displacement. No collider is created for decorative planar mats.
+ */
+export function createConvexCollision(input:AffinePoint[],indices:number[]){
+ if(input.length<4||input.length>64||indices.length<12||indices.length>384||indices.length%3||indices.some(i=>!Number.isSafeInteger(i)||i<0||i>=input.length))throw Error('ARTIFACT_HULL_UNSUPPORTED');
+ const vertices=input.map(p=>[...p] as AffinePoint);artifactBounds(vertices);
+ const center=vertices[0]!.map((_,i)=>vertices.reduce((n,p)=>n+p[i]!,0)/vertices.length) as AffinePoint;
+ const triangles:Array<[AffinePoint,AffinePoint,AffinePoint]>=[],planes:{point:AffinePoint;normal:AffinePoint}[]=[],edges=new Map<string,{count:number;balance:number;triangles:number[]}>(),used=new Set<number>(),faceKeys=new Set<string>();
+ let volume6=0;
+ const bounds=artifactBounds(vertices),tolerance=Math.max(1e-9,Math.hypot(...bounds.size)*1e-10);
+ const roundedCenter=vertices[0]!.map((_,i)=>vertices.reduce((n,p)=>n+Math.fround(p[i]!),0)/vertices.length) as AffinePoint;
+ for(let i=0;i<indices.length;i+=3){
+  const ids=indices.slice(i,i+3),triangle=ids.map(i=>vertices[i]!) as [AffinePoint,AffinePoint,AffinePoint];if(new Set(ids).size!==3)throw Error('ARTIFACT_HULL_DEGENERATE');
+  const faceKey=[...ids].sort((a,b)=>a-b).join(',');if(faceKeys.has(faceKey))throw Error('ARTIFACT_HULL_UNSUPPORTED');faceKeys.add(faceKey);
+  for(let j=0;j<3;j++){const a=ids[j]!,b=ids[(j+1)%3]!;used.add(a);const key=[a,b].sort((a,b)=>a-b).join(','),edge=edges.get(key)??{count:0,balance:0,triangles:[]};edge.count++;edge.balance+=a<b?1:-1;edge.triangles.push(i/3);edges.set(key,edge);}
+  for(const [tri,c]of [[triangle,center],[triangle.map(p=>p.map(Math.fround) as AffinePoint),roundedCenter]] as const){
+   const n=cross(sub(tri[1]!,tri[0]!),sub(tri[2]!,tri[0]!));if(!(Math.hypot(...n)>1e-12)||!(dot(n,sub(tri[0]!,c))>1e-18))throw Error('ARTIFACT_HULL_DEGENERATE');
+  }
+  const n=cross(sub(triangle[1],triangle[0]),sub(triangle[2],triangle[0])),length=Math.hypot(...n),normal=n.map(v=>v/length) as AffinePoint;
+  if(vertices.some(p=>dot(normal,sub(p,triangle[0]))>tolerance))throw Error('ARTIFACT_HULL_NONCONVEX');
+  volume6+=dot(n,sub(triangle[0],center));
+  triangles.push(triangle);planes.push({point:triangle[0],normal});
+ }
+ if(used.size!==vertices.length||[...edges.values()].some(e=>e.count!==2||e.balance!==0)||!(volume6>1e-18))throw Error('ARTIFACT_HULL_UNSUPPORTED');
+ const adjacency=triangles.map(()=>new Set<number>());
+ for(const edge of edges.values()){const [a,b]=edge.triangles as [number,number];adjacency[a]!.add(b);adjacency[b]!.add(a);}
+ const visited=new Set<number>(),stack=[0];while(stack.length){const i=stack.pop()!;if(visited.has(i))continue;visited.add(i);for(const j of adjacency[i]!)if(!visited.has(j))stack.push(j);}
+ if(visited.size!==triangles.length)throw Error('ARTIFACT_HULL_UNSUPPORTED');
+ const rounding=tolerance+1e-7+Math.max(...vertices.map(p=>Math.hypot(...p.map(n=>Math.fround(n)-n))));
+ const point=(p:AffinePoint)=>{if(!Array.isArray(p)||p.length!==3||p.some(n=>!Number.isFinite(n)||Math.abs(n)>10000))throw Error('ARTIFACT_CAPSULE_UNSUPPORTED');};
+ const radiusCheck=(r:number)=>{if(!Number.isFinite(r)||r<0||r>1)throw Error('ARTIFACT_CAPSULE_UNSUPPORTED');};
+ const separated=(points:AffinePoint[],expanded:number)=>[0,1,2].some(i=>Math.max(...points.map(p=>p[i]!))<bounds.min[i]!-expanded||Math.min(...points.map(p=>p[i]!))>bounds.max[i]!+expanded);
+ function hit(a:AffinePoint,b:AffinePoint,radius:number){
+  point(a);point(b);radiusCheck(radius);const expanded=radius+rounding,direction=sub(b,a);if(separated([a,b],expanded))return false;let lo=0,hi=1,best=Infinity;
+  for(let i=0;i<planes.length;i++){
+   const plane=planes[i]!,offset=dot(plane.normal,sub(a,plane.point)),slope=dot(plane.normal,direction);
+   if(Math.abs(slope)<1e-15){if(offset>0)lo=Infinity;}else{const t=-offset/slope;if(slope<0)lo=Math.max(lo,t);else hi=Math.min(hi,t);}
+   const [x,y,z]=triangles[i]!;best=Math.min(best,pointTriangle(a,x,y,z),pointTriangle(b,x,y,z),segments(a,b,x,y),segments(a,b,y,z),segments(a,b,z,x));
+  }
+  return lo<=hi&&hi>=0&&lo<=1||best<=expanded*expanded;
+ }
+ function swept(oldFoot:AffinePoint,oldHead:AffinePoint,newFoot:AffinePoint,newHead:AffinePoint,radius:number){
+  for(const p of [oldFoot,oldHead,newFoot,newHead])point(p);radiusCheck(radius);
+  if(Math.hypot(...sub(sub(oldHead,oldFoot),sub(newHead,newFoot)))>1e-7)throw Error('ARTIFACT_CAPSULE_UNSUPPORTED');
+  const quad=[oldFoot,newFoot,newHead,oldHead];if(separated(quad,radius+rounding))return false;for(let i=0;i<4;i++)if(hit(quad[i]!,quad[(i+1)%4]!,radius))return true;
+  const expanded=radius+rounding;
+  for(const ids of [[0,1,2],[0,2,3]]){const tri=ids.map(i=>quad[i]!);if(Math.hypot(...cross(sub(tri[1]!,tri[0]!),sub(tri[2]!,tri[0]!)))<=1e-12)continue;for(const face of triangles)if(triangleDistance(tri,face)<=expanded*expanded)return true;}
+  return false;
+ }
+ return {hit,swept};
+}

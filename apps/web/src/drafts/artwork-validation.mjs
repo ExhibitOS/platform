@@ -1,28 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ExhibitOS contributors
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
-import schema from "@exhibitos/spec/schemas/artwork.json" with { type: "json" };
+import {artworkSchema as validate,artworkUtc as validateUtc,rightsSchema} from "./schema-standalone.mjs";
 
 export const ARTWORK_VERSION = "1.0.0-draft.1";
 export const MAX_DOCUMENT_BYTES = 1048576;
 export const MAX_ASSET_TOTAL_BYTES = 268435456;
-const ajv = new Ajv2020({
-  strict: true,
-  allErrors: true,
-  validateFormats: true,
-  coerceTypes: false,
-  useDefaults: false,
-  removeAdditional: false,
-});
-addFormats(ajv, ["uuid", "date-time"]);
-const validate = ajv.compile(schema);
-const validateUtc = ajv.compile({
-  type: "string",
-  format: "date-time",
-  pattern: schema.properties.createdAt.pattern,
-});
-const rightsSchema = ajv.compile(schema.$defs.rights);
 const issue = (code, path, message) => ({ code, path, message });
 
 export function validateArtwork(document, { publicationTime } = {}) {

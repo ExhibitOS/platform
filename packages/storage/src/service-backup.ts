@@ -153,10 +153,39 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   await c.query('COMMIT');transaction=false;
   // Reconstitute named configuration/runtime only after DB/object equality passes.
   // These are staged files in the new private candidate, never the running source.
-  for(const role of ['runtime','configuration','deployment'] as const){const entries=verified.files.filter(f=>f.role===role);if(!entries.length)continue;const root=join(resolve(options.destination),role);await mkdir(root,{mode:0o700});for(const f of entries){let directory=root;const parts=f.name!.split('/');for(const part of parts.slice(0,-1)){directory=join(directory,part);await mkdir(directory,{mode:0o700}).catch(error=>{if(error.code!=='EEXIST')throw error;});const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('RESTORE_PATH_INVALID');}const target=join(directory,parts.at(-1)!);await copyFile(f.plainPath,target,constants.COPYFILE_EXCL);await chmod(target,0o600);}}
+  await stageVerifiedExtras(verified,options.destination);
   const receipt={...verified.receipt,inventory};await jsonExclusive(join(resolve(options.destination),'restored.json'),verified.receipt);return receipt;
  }catch{await jsonExclusive(join(resolve(options.destination),'restore-failed.json'),{status:'failed'}).catch(()=>{});throw Error('RESTORE_FAILED');}
  finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);}
+}
+async function stageVerifiedExtras(verified:Awaited<ReturnType<typeof verifyServiceBackup>>,destination:string){
+ for(const role of ['runtime','configuration','deployment'] as const){const entries=verified.files.filter(f=>f.role===role);if(!entries.length)continue;const root=join(resolve(destination),role);await mkdir(root,{mode:0o700});for(const f of entries){let directory=root;const parts=f.name!.split('/');for(const part of parts.slice(0,-1)){directory=join(directory,part);await mkdir(directory,{mode:0o700}).catch(error=>{if(error.code!=='EEXIST')throw error;});const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('RESTORE_PATH_INVALID');}const target=join(directory,parts.at(-1)!);await copyFile(f.plainPath,target,constants.COPYFILE_EXCL);await chmod(target,0o600);}}
+}
+/** Resume the SAME quiesced physical candidate after an uncertain restore.
+ * Reauthenticate to a NEW quarantine, never replay pg_restore into nonempty DB.
+ * Only absent authenticated blobs may be completed; conflicts/extra data refuse. */
+export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;snapshotSystemIdentifier:string}):Promise<BackupReceipt>{
+ if(!options.store.listAll)throw Error('RESTORE_CONFIG');
+ const verified=await verifyServiceBackup(options);
+ const client=await options.pool.connect();
+ try{
+  const current=await identity(client);
+  if(current.systemIdentifier!==options.snapshotSystemIdentifier||current.systemIdentifier===verified.manifest.sourceIdentity.systemIdentifier||current.database!==verified.manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
+ }finally{client.release();}
+ const expected=new Map(verified.files.filter(f=>f.role==='object').map(f=>[f.key!,f]));
+ const existing=await options.store.listAll();
+ if(existing.some(key=>!expected.has(key)))throw Error('RESTORE_OBJECT_CONFLICT');
+ const present=new Set(existing);
+ for(const [key,file]of expected){
+  const bytes=present.has(key)?await options.store.get(key):await readFile(file.plainPath);
+  if(bytes.length!==file.bytes||sha(bytes)!==file.sha256)throw Error('RESTORE_OBJECT_CONFLICT');
+  if(!present.has(key))await options.store.put(key,bytes);
+ }
+ const manifestBytes=await secretRead(join(options.destination,'manifest.json'));
+ await verifyRestoredInventory({pool:options.pool,snapshot:options.snapshot,manifestBytes,expectedManifestSha256:sha(manifestBytes),snapshotSystemIdentifier:options.snapshotSystemIdentifier});
+ await stageVerifiedExtras(verified,options.destination);
+ await jsonExclusive(join(options.destination,'restored.json'),verified.receipt);
+ return verified.receipt;
 }
 
 /** Trusted operator observation only. Pin raw manifest bytes from an authenticated

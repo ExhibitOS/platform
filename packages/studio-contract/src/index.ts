@@ -217,6 +217,7 @@ export function presentationFor(candidate: {
 }
 
 export * from "./viewer.js";
+export * from './entrance.js';
 
 export * from "./experience.js";
 
@@ -240,5 +241,8 @@ export * from "./opening.js";
 export * from "./artifact-affine.js";
 
 export * from "./bounded-ktx2.js";
+export * from "./installation.js";
+export * from "./installation-resolver.js";
+export * from "./installation-commands.js";
 
 export * from "./pbr-texture-profile.js";
