@@ -39,6 +39,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [highContrast, setHighContrast] = useMediaPreference("(prefers-contrast: more)");
   const entryButton = useRef<HTMLButtonElement>(null);
   const viewingHeading = useRef<HTMLHeadingElement>(null);
+  const [viewingFocusRequest,setViewingFocusRequest]=useState(0);
+  useEffect(()=>{if(viewingFocusRequest)viewingHeading.current?.focus();},[viewingFocusRequest]);
   const guideHeading = useRef<HTMLHeadingElement>(null);
   const modeChanged = useRef(false);
   useEffect(() => {
@@ -137,7 +139,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   return (
     <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion}>
       <nav className="publication-skip-links" aria-label="바로 가기">
-        <a href="#publication-viewing" onClick={() => setMenuOpen(true)}>관람 설정으로 건너뛰기</a>
+        <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
       {(loading || error) && <p className="publication-load-state" role="status" data-testid="public-state">{loading ? "전시를 준비하고 있어요." : error}</p>}
@@ -160,6 +162,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
           <div className="publication-menu-panel">
           <div ref={setControlsHost} />
+          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           <section aria-label="관람 방식과 접근성 설정">
@@ -193,7 +196,6 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => setOverview(null)} />}
           <div hidden={mode !== "text"} className="publication-text-content">
-          <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
             <p>아래 순서는 공개된 작품 목록의 순서입니다. 작가가 지정한 공간 이동 경로가 아닙니다.</p>
