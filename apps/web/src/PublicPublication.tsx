@@ -169,7 +169,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           {mode === "3d" && <ViewerBoundary focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={() => { modeChanged.current = true; setMode("text"); }}>
             <Suspense fallback={<p role="status">전시를 준비하고 있어요. 기다리는 동안 작품 목록을 볼 수 있어요.</p>}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
-              suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
+              focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary>}

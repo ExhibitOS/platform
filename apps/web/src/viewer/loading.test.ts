@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, AssetPeakBudget, assetDecodeReserve } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
@@ -33,4 +34,54 @@ describe("bounded Viewer loading",()=>{
  it("cancels a real oversized HTTP stream and stops transfer at inventory limit",async()=>{const a=syntheticArtwork("image"),inventory=a.assets[0]!;inventory.bytes=3;inventory.sha256=createHash("sha256").update(new Uint8Array([1,2,3])).digest("hex");const publicationId="a0000000-0000-4000-8000-000000000001",revisionSha256="1".repeat(64),asset={assetId:inventory.id,mime:inventory.mime,url:`/api/v1/publications/${publicationId}/assets/${inventory.id}`};let closed=false;const server=createServer((_req,res)=>{res.writeHead(200,{"content-type":inventory.mime,"x-exhibitos-publication-revision":revisionSha256});res.on("close",()=>{closed=true;});res.write(new Uint8Array(4));});await new Promise<void>(r=>server.listen(0,"127.0.0.1",r));const address=server.address();if(!address||typeof address==="string")throw Error("HTTP_TEST_BIND");try{const fetcher=((url,options)=>fetch(`http://127.0.0.1:${address.port}${url}`,options)) as typeof fetch;await expect(fetchVerifiedAsset({publicationId,revisionSha256,asset,inventory,signal:new AbortController().signal,fetcher})).rejects.toThrow("ASSET_INTEGRITY");for(let i=0;i<100&&!closed;i++)await new Promise(r=>setTimeout(r,10));expect(closed).toBe(true);}finally{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));}});
  it("interrupts a pending reader on abort and releases the stream",async()=>{const a=syntheticArtwork("image"),inventory=a.assets[0]!;inventory.bytes=3;inventory.sha256="0".repeat(64);const publicationId="a0000000-0000-4000-8000-000000000001",revisionSha256="1".repeat(64),asset={assetId:inventory.id,mime:inventory.mime,url:`/api/v1/publications/${publicationId}/assets/${inventory.id}`},controller=new AbortController();let cancelled=false;const fetcher=(async()=>new Response(new ReadableStream({cancel(){cancelled=true;}}),{headers:{"content-type":inventory.mime,"x-exhibitos-publication-revision":revisionSha256}})) as typeof fetch;const result=fetchVerifiedAsset({publicationId,revisionSha256,asset,inventory,signal:controller.signal,fetcher});await tick();controller.abort();await expect(result).rejects.toMatchObject({name:"AbortError"});expect(cancelled).toBe(true);});
 
+});
+
+describe('automatic detail transitions',()=>{
+ it('keeps near-plane-intersecting geometry in demand without projecting behind-eye corners, and rejects out-of-frustum bounds',()=>{
+  const near={corners:[{x:-2,y:-2,z:-3,depth:0},{x:.5,y:.5,z:.5,depth:-1}],near:.1,intersectsFrustum:true,width:800,height:600};
+  expect(detailScreenBounds(near)).toEqual({visible:true,occupancy:1,projectedPixels:800});
+  expect(detailDemand({kind:'sculpture',distance:.3,focused:false,...detailScreenBounds(near)})).toBe(true);
+  expect(detailScreenBounds({...near,intersectsFrustum:false}).visible).toBe(false);
+  expect(detailScreenBounds({...near,corners:[{x:0,y:0,z:3,depth:.5}]}).visible).toBe(false);
+ });
+ it('keeps the accepted textured LOD pair within existing caps and reserves full geometry/maps before replacing coarse',()=>{
+  const {publicPBRTexturedLODPair}=createRequire(import.meta.url)('../../../../scripts/embedded-texture-fixture.mjs') as {publicPBRTexturedLODPair:()=>{full:Buffer;coarse:Buffer}};
+  const pair=publicPBRTexturedLODPair(),a=syntheticArtwork('sculpture'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:pair.coarse.length};full.bytes=pair.full.length;a.assets.push(coarse);
+  a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',triangles:8},{assetId:coarse.id,detail:'coarse',triangles:2}]}};
+  expect(selectAssetVariant(a,Infinity,DEVICE_BUDGETS.compact).id).toBe(coarse.id);
+  expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact).id).toBe(full.id);
+  const fullReserve=assetDecodeReserve(a,full,DEVICE_BUDGETS.compact,new Uint8Array(pair.full).buffer),coarseReserve=assetDecodeReserve(a,coarse,DEVICE_BUDGETS.compact,new Uint8Array(pair.coarse).buffer);
+  expect(fullReserve).toBeGreaterThan(coarseReserve);expect(fullReserve).toBeGreaterThan(full.bytes*5+8*3*64*2);
+  const peak=new AssetPeakBudget(DEVICE_BUDGETS.compact.maxCacheBytes,()=>coarseReserve);expect(()=>peak.reserve('detail',fullReserve)).not.toThrow();
+ });
+ it('uses visibility, actual pixel demand and projected geometry area, with explicit focus',()=>{
+  const image={kind:'image',visible:true,distance:3,occupancy:.1,projectedPixels:200,coarseTextureSize:512,focused:false};
+  expect(detailDemand(image)).toBe(false);
+  expect(detailDemand({...image,projectedPixels:900})).toBe(true);
+  expect(detailDemand({...image,projectedPixels:900,distance:12})).toBe(false);
+  expect(detailDemand({...image,focused:true})).toBe(true);
+  expect(detailDemand({...image,focused:true,visible:false})).toBe(false);
+  expect(detailDemand({...image,kind:'sculpture',occupancy:.08})).toBe(true);
+  expect(detailDemand({...image,kind:'sculpture',occupancy:.01,projectedPixels:900})).toBe(false);
+ });
+ it('requires a sustained close view and retains detail over short look-away or threshold oscillations',()=>{
+  const t=new DetailTransition();expect(t.update(true,0)).toBe(false);expect(t.update(true,299)).toBe(false);expect(t.update(true,300)).toBe(true);
+  expect(t.update(false,400)).toBe(true);expect(t.update(true,600)).toBe(true);
+  expect(t.update(false,700)).toBe(true);expect(t.update(false,2499)).toBe(true);expect(t.update(false,2500)).toBe(false);
+ });
+ it('counts resident old assets and every outstanding reservation, keeping cancelled decode charged until released',()=>{
+  let resident=40;const peak=new AssetPeakBudget(100,()=>resident);
+  peak.reserve('replacement',35);peak.reserve('other',20);expect(peak.total()).toBe(95);
+  expect(()=>peak.reserve('third',6)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(()=>peak.reserve('replacement',41)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(peak.total()).toBe(95);peak.release('other');peak.reserve('replacement',45);expect(peak.total()).toBe(85);
+  // Commit accounts new and old together before releasing the old decoded asset.
+  peak.release('replacement');resident+=45;expect(peak.total()).toBe(85);resident-=40;expect(peak.total()).toBe(45);
+ });
+ it('reserves source bitmap and resized mipmaps separately for bounded paintings',()=>{
+  const a=syntheticArtwork('image'),asset=a.assets[0]!;asset.bytes=1000;
+  const b=new ArrayBuffer(33),v=new DataView(b);v.setUint32(16,1401);v.setUint32(20,1098);
+  expect(assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toBeGreaterThan(1401*1098*4+1000*3);
+  v.setUint32(16,0);expect(()=>assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toThrow('IMAGE_DECODE_BUDGET');
+ });
 });

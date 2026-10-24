@@ -27,6 +27,7 @@ export function Viewer({
   suspendNavigation = false,
   onArtworkSelect,
   proximityDetail = false,
+  focusedPlacementId,
   onAudioReady,
   onDetailEntryReady,
   reducedMotion,
@@ -38,6 +39,7 @@ export function Viewer({
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
   proximityDetail?: boolean;
+  focusedPlacementId?: string | null;
   onAudioReady?: (api: AudioApi | null) => void;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
   reducedMotion?: boolean;
@@ -198,6 +200,7 @@ export function Viewer({
           onArtworkSelect?.(id);
         }}
         proximityDetail={proximityDetail}
+        focusedPlacementId={focusedPlacementId}
         onDetailEntryReady={onDetailEntryReady}
         guideRequest={guideRequest}
         openingViewpoint={openingView}
