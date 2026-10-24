@@ -107,6 +107,7 @@ export function verifyPcmWav(bytes: ArrayBuffer) {
 export class ExhibitionAudio implements AudioApi {
   private context?: AudioContext;
   private master?: GainNode;
+  private background?: GainNode;
   private convolver?: ConvolverNode;
   private wet?: GainNode;
   private abort = new AbortController();
@@ -155,7 +156,14 @@ export class ExhibitionAudio implements AudioApi {
     return {...voice,positionSeconds:voice.status==="playing"&&this.context?Math.min(voice.durationSeconds,Math.max(0,this.context.currentTime-this.voiceStartedAt)):voice.positionSeconds};
   }
   subscribeVoice(changed:(playback:VoicePlayback)=>void) {this.voiceListeners.add(changed);changed(this.voicePlayback());return ()=>{this.voiceListeners.delete(changed);};}
-  private voiceStatus(status:VoicePlayback["status"]) {this.state.voice={...this.voicePlayback(),...(status==="ended"?{positionSeconds:this.state.voice.durationSeconds}:{}),status};if(this.voiceTimer)clearInterval(this.voiceTimer);this.voiceTimer=undefined;for(const listener of this.voiceListeners)listener(this.voicePlayback());}
+  private voiceStatus(status:VoicePlayback["status"]) {this.state.voice={...this.voicePlayback(),...(status==="ended"?{positionSeconds:this.state.voice.durationSeconds}:{}),status};this.updateVoicePriority();if(this.voiceTimer)clearInterval(this.voiceTimer);this.voiceTimer=undefined;for(const listener of this.voiceListeners)listener(this.voicePlayback());}
+  private updateVoicePriority() {
+    if (!this.background || !this.context) return;
+    const speaking = !!this.voice && this.state.voice.status === "playing";
+    // One post-effect bus also attenuates sources and reverb tails already in flight.
+    // Successive targets continue from the current value without resetting source envelopes.
+    this.background.gain.setTargetAtTime(speaking ? 0.35 : 1, this.context.currentTime, speaking ? 0.03 : 0.12);
+  }
   snapshot() { return { ...this.state,voice:this.voicePlayback() }; }
   private emit() {
     if (this.disposed) return;
@@ -175,9 +183,11 @@ export class ExhibitionAudio implements AudioApi {
       if (!this.master) {
         this.master = this.context.createGain();
         this.master.connect(this.context.destination);
+        this.background = this.context.createGain();
+        this.background.connect(this.master);
         this.convolver = this.context.createConvolver();
         this.wet = this.context.createGain();
-        this.convolver.connect(this.wet).connect(this.master);
+        this.convolver.connect(this.wet).connect(this.background);
       }
       await this.context.resume();
       if (this.disposed) return;
@@ -247,9 +257,9 @@ export class ExhibitionAudio implements AudioApi {
     }
     // Only an explicitly authored, verified loaded short WAV enters the natural-tail path.
     // Legacy long custom WAVs retain their existing 0.2s cap; no automatic segmentation.
-    const decision=custom&&this.buffers.get(custom)===buffer?recordedStepPolicy([{id:custom,durationSeconds:buffer.duration,verified:true}],{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:this.state.voice.status==='playing'},this.stepHistory,{selection:Math.random(),gain:Math.random(),rate:Math.random()}):undefined;
+    const decision=custom&&this.buffers.get(custom)===buffer?recordedStepPolicy([{id:custom,durationSeconds:buffer.duration,verified:true}],{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:!this.background&&this.state.voice.status==='playing'},this.stepHistory,{selection:Math.random(),gain:Math.random(),rate:Math.random()}):undefined;
     const source = context.createBufferSource(), gain = context.createGain();
-    source.buffer = buffer; gain.gain.value = 0.35*(this.state.voice.status==='playing'?.35:1); source.connect(gain).connect(this.master!); gain.connect(this.convolver!);
+    source.buffer = buffer; gain.gain.value = 0.35*(!this.background&&this.state.voice.status==='playing'?.35:1); source.connect(gain).connect(this.background ?? this.master!); gain.connect(this.convolver!);
     this.stepSources.add(source);this.track(source, () => {this.stepSources.delete(source);gain.disconnect();});
     try{
       if(decision?.play){
@@ -336,6 +346,7 @@ export class ExhibitionAudio implements AudioApi {
       try { source.start(); } catch(error) {this.stop(source);this.voice=undefined;throw error;}
       this.voiceStartedAt=this.context.currentTime;
       this.state.voice={assetId:id,positionSeconds:0,durationSeconds:Number.isFinite(buffer.duration)?buffer.duration:0,status:"playing"};
+      this.updateVoicePriority();
       this.voiceTimer=setInterval(()=>{this.emit();for(const listener of this.voiceListeners)listener(this.voicePlayback());},100);
       for(const listener of this.voiceListeners)listener(this.voicePlayback());
       this.audible=true;
@@ -380,7 +391,7 @@ export class ExhibitionAudio implements AudioApi {
       const p=this.worldPosition(zone.roomId,zone.position);
       panner.positionX.value=p[0];panner.positionY.value=p[1];panner.positionZ.value=p[2];
       gain.gain.value=this.zoneGain(zone,p);
-      source.connect(panner).connect(gain).connect(this.master!);
+      source.connect(panner).connect(gain).connect(this.background ?? this.master!);
       gain.connect(this.convolver!);
       this.zone={id,source,gain,panner};
       this.state.zoneId=id;
@@ -433,5 +444,5 @@ export class ExhibitionAudio implements AudioApi {
     try{source.start();}catch(error){this.stop(source);throw error;}
     this.audible=true;this.updateMaster();this.emit();
   }
-  dispose() { if(this.disposed)return; this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.voiceListeners.clear(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
+  dispose() { if(this.disposed)return; this.silence(); this.disposed=true; this.abort.abort(); if(this.availabilityTimer)clearInterval(this.availabilityTimer); this.buffers.clear(); this.steps.clear(); this.voiceListeners.clear(); this.background?.disconnect(); this.master?.disconnect(); this.convolver?.disconnect(); this.wet?.disconnect(); void this.context?.close().catch(()=>{}); }
 }
