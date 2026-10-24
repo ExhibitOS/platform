@@ -9,9 +9,14 @@ export function visitingFov(authored: number, preferred: number | undefined, asp
   return Math.min(vertical, 2 * Math.atan(Math.tan(horizontal * Math.PI / 360) / aspect) * 180 / Math.PI);
 }
 
-/** Uniformly fit the fullscreen buffer into the former document-view pixel cost. */
-export function visitingBuffer(width: number, height: number, preferredRatio: number) {
+/** Full-HD-class desktop ceiling; larger displays stay bounded, not native. */
+export const DESKTOP_VISITING_PIXELS = 1920 * 1080;
+
+/** Stable per-profile budgets; compact retains its former document-view cost. */
+export function visitingBuffer(width: number, height: number, preferredRatio: number, compact = false) {
   const legacyWidth = Math.max(1, Math.min(width, 1440) - (width <= 600 ? 48 : 96));
-  const pixelBudget = legacyWidth * 360 * preferredRatio ** 2;
+  const pixelBudget = compact
+    ? legacyWidth * 360 * preferredRatio ** 2
+    : Math.min(DESKTOP_VISITING_PIXELS, width * height * preferredRatio ** 2);
   return {pixelBudget, ratio: Math.min(preferredRatio, Math.sqrt(pixelBudget / (width * height)))};
 }

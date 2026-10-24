@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 export type WalkAction =
   "forward" | "backward" | "left" | "right" | "turn-left" | "turn-right" | "look-up" | "look-down";
+export type WalkingPauseReason = "user" | "panel" | "settings" | "blur" | "window" | "hidden" | "escape" | "pointerlock";
 export function createWalkingInput(
   canvas: HTMLCanvasElement,
-  onPause: () => void,
+  onPause: (reason: WalkingPauseReason) => void,
   onCaptureError: (message: string) => void,
+  isPanelFocus: (target: EventTarget | null) => boolean = () => false,
 ) {
   const keys = new Set<string>(),
     touch = new Map<number, WalkAction>();
@@ -22,12 +24,12 @@ export function createWalkingInput(
     yawDelta = 0;
     pitchDelta = 0;
   };
-  const stop = () => {
+  const stop = (reason: WalkingPauseReason = "user") => {
     captureGeneration++;
     clear();
     enabled = false;
     hadLock = false;
-    onPause();
+    onPause(reason);
   };
   const codes = new Set([
     "KeyW",
@@ -52,7 +54,7 @@ export function createWalkingInput(
     )
       return;
     if (event.code === "Escape") {
-      stop();
+      stop("escape");
       if (document.pointerLockElement === canvas) document.exitPointerLock();
       return;
     }
@@ -69,12 +71,12 @@ export function createWalkingInput(
     }
   };
   const visibility = () => {
-    if (document.hidden) stop();
+    if (document.hidden) stop("hidden");
   };
   const lockchange = () => {
     const locked = document.pointerLockElement === canvas;
     if (locked && pendingCapture && pendingCapture.generation !== captureGeneration) return;
-    if (hadLock && !locked) stop();
+    if (hadLock && !locked) stop("pointerlock");
     hadLock = locked;
   };
   const pointerdown = (event: PointerEvent) => {
@@ -104,11 +106,13 @@ export function createWalkingInput(
     if (look?.id === event.pointerId) look = undefined;
     touch.delete(event.pointerId);
   };
+  const windowBlur = () => stop("window");
+  const canvasBlur = (event: FocusEvent) => stop(isPanelFocus(event.relatedTarget) ? "panel" : "blur");
   window.addEventListener("keydown", keydown);
   window.addEventListener("keyup", keyup);
   window.addEventListener("mousemove", move);
-  window.addEventListener("blur", stop);
-  canvas.addEventListener("blur", stop);
+  window.addEventListener("blur", windowBlur);
+  canvas.addEventListener("blur", canvasBlur);
   document.addEventListener("visibilitychange", visibility);
   document.addEventListener("pointerlockchange", lockchange);
   canvas.addEventListener("pointerdown", pointerdown);
@@ -124,8 +128,8 @@ export function createWalkingInput(
       hadLock = document.pointerLockElement === canvas;
       canvas.focus({ preventScroll: true });
     },
-    pause() {
-      stop();
+    pause(reason: WalkingPauseReason = "user") {
+      stop(reason);
       if (document.pointerLockElement === canvas) document.exitPointerLock();
     },
     press(action: WalkAction, id: number) {
@@ -213,8 +217,8 @@ export function createWalkingInput(
       window.removeEventListener("keydown", keydown);
       window.removeEventListener("keyup", keyup);
       window.removeEventListener("mousemove", move);
-      window.removeEventListener("blur", stop);
-      canvas.removeEventListener("blur", stop);
+      window.removeEventListener("blur", windowBlur);
+      canvas.removeEventListener("blur", canvasBlur);
       document.removeEventListener("visibilitychange", visibility);
       document.removeEventListener("pointerlockchange", lockchange);
       canvas.removeEventListener("pointerdown", pointerdown);

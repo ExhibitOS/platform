@@ -6,7 +6,7 @@ import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
 import { teleportToViewpoint } from "./navigation-teleport";
-import { createWalkingInput } from "./navigation-input";
+import { createWalkingInput, type WalkingPauseReason } from "./navigation-input";
 export async function createWalkingCamera({
   document,
   camera,
@@ -18,6 +18,7 @@ export async function createWalkingCamera({
   onMode,
   onMessage,
   onState,
+  isPanelFocus,
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
@@ -26,9 +27,10 @@ export async function createWalkingCamera({
   canvas: HTMLCanvasElement;
   settings: WalkingSettings;
   render: () => void;
-  onMode: (walking: boolean, paused: boolean) => void;
+  onMode: (walking: boolean, paused: boolean, reason?: WalkingPauseReason) => void;
   onMessage: (text: string) => void;
   onState?: (state: NavigationState) => void;
+  isPanelFocus?: (target: EventTarget | null) => boolean;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
   const angles = new Euler().setFromQuaternion((initialCamera ?? camera).quaternion, "YXZ");
@@ -90,21 +92,21 @@ export async function createWalkingCamera({
     camera.rotation.set(pitch, state.yaw, 0, "YXZ");
     render();
   };
-  const stop = () => {
+  const stop = (reason: WalkingPauseReason) => {
     if (disposed) return;
     paused = true;
     controller.pause();
     targetYaw = controller.state().yaw;
     targetPitch = pitch;
     cancelAnimationFrame(frame);
-    onMode(walking, true);
+    onMode(walking, true, reason);
     publish();
     onMessage("걷기가 일시 정지되었습니다. 다시 걷기는 직접 선택하세요.");
   };
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  });
+  }, isPanelFocus);
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);
@@ -173,7 +175,7 @@ export async function createWalkingCamera({
         onMessage("이 viewpoint는 몸의 여유 공간·바닥·시점 조건을 만족하지 않습니다. 기존 위치에서 정지했습니다. 작품 목록을 사용할 수 있습니다.");
       }
     },
-    pause: () => input.pause(),
+    pause: (reason) => input.pause(reason),
     stationary: () => {
       input.pause();
       walking = false;
@@ -207,7 +209,7 @@ export async function createWalkingCamera({
       }
     },
     settings: (value) => {
-      input.pause();
+      input.pause("settings");
       try {
         controller.setSettings(value);
         Object.assign(settings, value);

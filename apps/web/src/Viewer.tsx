@@ -231,7 +231,7 @@ export function Viewer({
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(walking&&!paused)onNavigationActive?.();if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
-      <details className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} /></details>
+      <details data-visitor-panel={immersive ? "" : undefined} className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} /></details>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<details className="viewer-settings-menu"><summary>관람 설정</summary>
       <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
         {immersive && <label>시야<select aria-label="시야" value={viewFov} onChange={event=>setViewFov(event.target.value==="authored"?"authored":Number(event.target.value))}><option value={42}>좁게</option><option value={48}>기본</option><option value={54}>넓게</option><option value="authored">제작자가 저장한 시야</option></select></label>}
