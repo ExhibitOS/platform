@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { WalkAction } from "./viewer/navigation-input";
+import type { WalkAction, WalkingPauseReason } from "./viewer/navigation-input";
 export interface WalkingSettings {
   speed: 0.7 | 1.3 | 1.6;
   eyeHeight: number;
@@ -8,7 +8,7 @@ export interface WalkingSettings {
 export interface WalkingActions {
   start: () => void;
   teleport?: (viewpointId: string) => void;
-  pause: () => void;
+  pause: (reason?: WalkingPauseReason) => void;
   stationary: () => void;
   capture: () => void;
   reset: () => void;

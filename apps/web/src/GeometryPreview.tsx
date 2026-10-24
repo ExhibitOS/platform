@@ -1,6 +1,7 @@
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
+import {installPanelResume} from './viewer/panel-resume';
 import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
@@ -544,16 +545,18 @@ export function GeometryPreview({
         camera.updateProjectionMatrix();
       };
       let pointerStart: [number,number] | undefined;
+      const panelResume = immersive ? installPanelResume(renderer.domElement, () => walkingActions.current?.pause("panel"), () => walkingActions.current?.start()) : undefined;
       const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
-        if (xrActive.current || suspendedRef.current || (!navigationCallbacks.current.onArtworkSelect&&!navigationCallbacks.current.onScriptClick)) return;
+        if (xrActive.current || suspendedRef.current || (!panelResume && !navigationCallbacks.current.onArtworkSelect && !navigationCallbacks.current.onScriptClick)) return;
         const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
         const hit=ray.intersectObject(model,true)[0];
         let object=hit?.object;
         while(object) { if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
+        panelResume?.blank(event, currentWalkMode.current.walking && currentWalkMode.current.paused && !gpuLost);
       };
       renderer.domElement.addEventListener("click",pick);
       controls.enableDamping = false;
@@ -786,6 +789,7 @@ export function GeometryPreview({
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         editor?.dispose();editingSync.current=null;
         walkingRelease();
+        panelResume?.dispose();
         orbitEnabled.current = null;
         renderer.domElement.removeEventListener("click",pick);
         renderer.domElement.removeEventListener("pointerdown",down);
@@ -855,6 +859,7 @@ export function GeometryPreview({
                 initialCamera,
                 controls,
                 canvas: renderer.domElement,
+                isPanelFocus: panelResume?.isPanelFocus,
                 settings: { ...walkSettingsRef.current },
                 render,
                 onState: (state) => {
@@ -873,7 +878,8 @@ export function GeometryPreview({
                     else if (!placement) nearPlacement = undefined;
                   }
                 },
-                onMode: (walking, paused) => {
+                onMode: (walking, paused, reason) => {
+                  panelResume?.mode(walking, paused, reason);
                   currentWalkMode.current = { walking, paused };
                   navigationCallbacks.current.onNavigationMode?.(walking, paused);
                   if (!disposed) {

@@ -158,7 +158,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           </div>
           </EntranceCover></div>
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
-          <details className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
+          <details data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
           <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
           <div className="publication-menu-panel">
           <div ref={setControlsHost} />

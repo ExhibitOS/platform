@@ -54,6 +54,18 @@ test('active touch controls keep canvas focus without reviving paused input',()=
   input.enable(); input.press('right',2);
   expect(input.sample(.1).right).toBe(1); input.dispose();
 });
+test('panel pause carries its reason and resume clears held input without capturing the pointer',()=>{
+  const {input,canvas,pause}=fixture();
+  input.press('forward',1); input.press('turn-left',2);
+  input.pause('panel');
+  expect(pause).toHaveBeenLastCalledWith('panel');
+  input.enable();
+  expect(input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});
+  expect(canvas.requestPointerLock).not.toHaveBeenCalled();
+  window.dispatchEvent(new Event('blur'));
+  expect(pause).toHaveBeenLastCalledWith('window');
+  input.dispose();
+});
 test('vertical touch look combines with movement and releases each pointer independently',()=>{
   const {input}=fixture(); input.press('forward',1); input.press('look-up',2);
   expect(input.sample(.1)).toMatchObject({forward:1,pitchDelta:.12});
