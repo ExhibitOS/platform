@@ -2,7 +2,7 @@
 import {constants} from 'node:fs';
 import {open,lstat,realpath,statfs,readdir,readFile} from 'node:fs/promises';
 import {resolve,dirname,relative} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {pathToFileURL,fileURLToPath} from 'node:url';
 import {randomBytes,createHash,createPublicKey,verify} from 'node:crypto';
 import {freezeCanonical} from '@exhibitos/studio-contract';
 import {spawn} from 'node:child_process';
@@ -199,7 +199,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(new URL('../database/migrations/',import.meta.url).pathname,authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(fileURLToPath(new URL('../database/migrations/',import.meta.url)),authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
   finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
@@ -214,7 +214,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  if(environment.BLOB_ROOT&&(inside(environment.BLOB_ROOT,destination)||inside(destination,environment.BLOB_ROOT)||source&&(inside(environment.BLOB_ROOT,source)||inside(source,environment.BLOB_ROOT))))fail('BACKUP_PATH_OVERLAP');
  const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL}),abort=new AbortController();const interrupted=()=>abort.abort();process.once('SIGINT',interrupted);process.once('SIGTERM',interrupted);
  try{
-  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal,privateOptions.beforeRestore),migrationDirectory=new URL('../database/migrations/',import.meta.url).pathname,snapshot=async(c,authenticatedMigrations)=>{
+  const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal,privateOptions.beforeRestore),migrationDirectory=fileURLToPath(new URL('../database/migrations/',import.meta.url)),snapshot=async(c,authenticatedMigrations)=>{
    if(privateOptions.freezeAuthority!==undefined)await verifyBackupFreezeAuthority(c,privateOptions.freezeAuthority);
    const inventory=await collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(migrationDirectory,authenticatedMigrations));
    if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
