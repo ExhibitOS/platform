@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {nativeBackupBudget,nativeRestoreIdentifier,nativeRestoreExtensions,nativeRestorePreflight} from './native-service-backup.mjs';
+import {nativeBackupBudget,nativeRestoreIdentifier,nativeRestoreExtensions,nativeRestorePreflight,nativeBackupErrorCode} from './native-service-backup.mjs';
 import {postgresRuntimeSelection} from './package-native-runtime.mjs';
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+test('native maintenance exposes only exact safe codes, never underlying exception details',()=>{
+  for(const code of ['BACKUP_RESOURCE_BUDGET','BACKUP_PG_EXIT_FAILED','BACKUP_MIGRATION_CATALOG','NATIVE_POSTGRES_EXTENSION_UNSUPPORTED'])assert.equal(nativeBackupErrorCode(Error(code)),code);
+  for(const value of [undefined,null,'BACKUP_PG_EXIT_FAILED',Error('postgresql://user:secret@host/db'),Error('BACKUP_PG_EXIT_FAILED\nprivate SQL'),Error('/private/key.bin'),Error('BACKUP_UNRECOGNIZED')])assert.equal(nativeBackupErrorCode(value),'NATIVE_BACKUP_FAILED');
+});
 test('native maintenance refuses missing, unsafe and exhausted private resource budgets',()=>{
   for(const value of [undefined,'','0','-1','4194303','4e9','+4194304',' 4194304','9007199254740992']) {
     assert.throws(()=>nativeBackupBudget({EXHIBITOS_NATIVE_BACKUP_JOB_BUDGET_BYTES:value}),/BACKUP_RESOURCE_BUDGET/);

@@ -9,6 +9,32 @@ import {spawn} from 'node:child_process';
 
 const TOC_LIMIT = 1024 * 1024;
 const tocInvalid = () => Error('NATIVE_POSTGRES_TOC_INVALID');
+// Only fixed product codes may cross the private maintenance stderr boundary.
+// Unknown exceptions can contain credentials, SQL, filesystem paths or input.
+const safeBackupErrors = new Set([
+  'NATIVE_POSTGRES_EXTENSION_UNSUPPORTED', 'NATIVE_POSTGRES_TOC_INVALID',
+  'BACKUP_RESOURCE_BUDGET', 'BACKUP_DATABASE_CONFIG', 'BACKUP_DATABASE_OPTION',
+  'BACKUP_DATABASE_REQUIRED', 'BACKUP_BLOB_BACKEND', 'BACKUP_BLOB_ROOT_PATH',
+  'BACKUP_BLOB_ROOT_REQUIRED', 'BACKUP_CONFIGURATION_INVALID',
+  'BACKUP_FILE_PATH', 'BACKUP_FILE_MODE', 'BACKUP_FILE_CHANGED',
+  'BACKUP_KEY_SIZE', 'BACKUP_KEY_REQUIRED', 'BACKUP_DIRECTORY_PATH',
+  'BACKUP_DIRECTORY_INVALID', 'BACKUP_PATH_OVERLAP', 'BACKUP_DEPLOYMENT_INVALID',
+  'BACKUP_DEPLOYMENT_PATH', 'BACKUP_DEPLOYMENT_LIMIT', 'BACKUP_MIGRATION_CATALOG',
+  'BACKUP_FREEZE_AUTHORITY_MISMATCH', 'BACKUP_FREEZE_INTEGRITY',
+  'BACKUP_PG_TOOL', 'BACKUP_PG_TIMEOUT', 'BACKUP_PG_EXEC_FAILED',
+  'BACKUP_PG_EXIT_FAILED', 'BACKUP_PG_WRITE_FAILED', 'BACKUP_PG_DUMP_FAILED',
+  'BACKUP_PG_DUMP_EMPTY', 'BACKUP_PG_RESTORE_FAILED', 'BACKUP_DUMP_LIMIT',
+  'BACKUP_DUMP_INVALID', 'BACKUP_SNAPSHOT_ID', 'BACKUP_SNAPSHOT',
+  'BACKUP_SOURCE_CHANGED', 'BACKUP_SOURCE_IDENTITY', 'BACKUP_UNSUPPORTED_SCHEMA',
+  'BACKUP_INVENTORY_INVALID', 'BACKUP_ARCHIVE_INVENTORY', 'BACKUP_CONFIG',
+  'BACKUP_FILE_INVALID', 'BACKUP_FILE_INVENTORY', 'BACKUP_MANIFEST_INTEGRITY',
+  'BACKUP_MANIFEST_INVALID', 'BACKUP_MANIFEST_LIMIT', 'BACKUP_RECEIPT_INVALID',
+  'BACKUP_VERIFY_FAILED', 'BACKUP_DESTINATION_NOT_EMPTY',
+  'SOURCE_CONFIGURATION_FILESYSTEM_UNVERIFIED', 'CANDIDATE_DATABASE_ID_INVALID'
+]);
+export function nativeBackupErrorCode(error) {
+  return safeBackupErrors.has(error?.message) ? error.message : 'NATIVE_BACKUP_FAILED';
+}
 export function nativeRestoreExtensions(toc) {
   if (typeof toc !== 'string' || Buffer.byteLength(toc) > TOC_LIMIT || !toc.endsWith('\n') || /[\x00-\x08\x0b-\x1f\x7f]/.test(toc)) throw tocInvalid();
   const extensions = new Set(); let entries = 0;
@@ -92,7 +118,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const result = await main(args, process.env, options);
     console.log(JSON.stringify(result));
   } catch (error) {
-    console.error(['NATIVE_POSTGRES_EXTENSION_UNSUPPORTED','NATIVE_POSTGRES_TOC_INVALID'].includes(error?.message) ? error.message : 'NATIVE_BACKUP_FAILED');
+    console.error(nativeBackupErrorCode(error));
     process.exitCode = 1;
   }
 }
