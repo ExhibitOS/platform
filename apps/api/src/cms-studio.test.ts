@@ -27,7 +27,7 @@ describe("protected approved CMS to Studio metadata projection", () => {
         expect(await cms.approvedVariantOriginal(c,session,id,coarse.id,7)).toEqual(bytes);
         await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,8)).rejects.toMatchObject({code:'REVISION_CONFLICT'});
         row.sha256='b'.repeat(64);await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});row.sha256=coarse.sha256;
-        row.rights={...artwork.rights,permissions:{...artwork.rights.permissions,display:false}};await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+        row.rights={...artwork.rights,permissions:{...rights.permissions,display:false}};await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
         expect(get).toHaveBeenCalledOnce();
     });
     it("produces stable full public snapshots for sculpture and painting without fetching bytes or private notes/keys", async () => {
