@@ -7,7 +7,7 @@ import type { Session } from "./auth.ts";
 import {sha256} from '@exhibitos/storage';
 const tenantId = "10000000-0000-4000-8000-000000000001", id = "10000000-0000-4000-8000-000000000002", assetId = "10000000-0000-4000-8000-000000000003";
 const session = { tenantId, userId: "10000000-0000-4000-8000-000000000004", role: "artist" } as Session;
-const rights = { holder: "Synthetic owner", ownership: "owner", licenseId: "CC0-1.0", permissions: { display: true, download: false, export: false, commercial: false }, creditLine: "Synthetic credit" };
+const rights = { holder: "Synthetic owner", ownership: "owner" as const, licenseId: "CC0-1.0", permissions: { display: true, download: false, export: false, commercial: false }, creditLine: "Synthetic credit" };
 function setup(mime = "model/gltf-binary") {
     const metadata = { title: "Synthetic approved", description: "Physical artwork", dimensions: { width: 1.2, height: 2, depth: 0.05, unit: "m" }, rights, provenance: { source: "human-authored", sourceUnits: "m", scaleApplied: true, notes: "private authoring notes must stay hidden" } };
     const approval = { revision: 7, created_at: "2026-01-01T00:00:00.000Z", snapshot: { metadata, asset: { id: assetId, mime, bytes: 1516, sha256: "a".repeat(64), rightsRevision: 4, object_key: "private/original" } } };
