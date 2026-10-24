@@ -1,3 +1,6 @@
+import {qualifyDemoDisplay} from './demo-display-policy.ts';
+import {publicationImageDerivative} from './demo-display-derivative.ts';
+import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
 import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -10,7 +13,6 @@ import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curatio
 import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
-import { derivative } from "./derivative.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
 import { qualifyApprovedTexturedPair } from "./approved-lod-pair.ts";
 import { Audio, audioMedia, validatePcmWav, type MediaAsset } from "./audio.ts";
@@ -98,9 +100,10 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
         assets.push({ id: assetId, prepared: p });
-        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE];
+        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE],displayPolicy=a.extensions?.[DISPLAY_POLICY_NAMESPACE],approvedDisplay=qualifyDemoDisplay(p.artwork,p.bytes);
         delete a.extensions;
         if(details!==undefined&&validateArtworkDetails(p.artwork).valid)a.extensions={[ARTWORK_DETAILS_NAMESPACE]:structuredClone(details)};
+        if(displayPolicy!==undefined)a.extensions={...a.extensions,[DISPLAY_POLICY_NAMESPACE]:structuredClone(displayPolicy)};
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: sha256(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
         if (p.variants) {
@@ -114,7 +117,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
             }
             a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants}};
         }
-        a.provenance = { authorship: a.provenance.authorship, events: [{ id: randomUUID(), type: "exhibited", at, description: "Approved display derivative explicitly published by its authorized exhibition editor." }] };
+        a.provenance = { authorship: a.provenance.authorship, events: [{ id: randomUUID(), type: "exhibited", at, description: approvedDisplay?`Approved exact selected open-access display. Object ${approvedDisplay.officialObjectURL}; raw SHA256 ${approvedDisplay.rawSourceSha256}; canonical SHA256 ${approvedDisplay.canonicalAssetSha256}; recipe SHA256 ${approvedDisplay.recipeSha256}; rights evidence SHA256 ${approvedDisplay.rightsEvidenceSha256}.`:"Approved display derivative explicitly published by its authorized exhibition editor." }] };
         return a;
     });
     doc.mediaAssets=media.map(p=>({...structuredClone(p.source),path:`media/${map(p.source.id)}/audio.wav`}));
@@ -149,6 +152,7 @@ export class Publications {
         for (const e of valid.errors.slice(0, 64))
             errors.push(issue(e.code, e.path, e.message, "Correct the referenced geometry, rights or accessibility field and save the draft before retrying."));
         if(candidate.mediaAssets.length>32||!validateViewerExperience(candidate).valid) errors.push(issue("PUBLICATION_LIMIT","/candidate/mediaAssets","Invalid bounded experience or more than32 media assets.","Correct the experience references and use at most32 approved media assets."));
+        for(const [i,a]of candidate.artworks.entries())for(const e of validateArtworkDisplayPolicy(a).errors)errors.push(issue(e.code,`/candidate/artworks/${i}${e.path}`,e.message,'Use the exact approved selected-file policy and primary asset.'));
         if (candidate.artworks.length > 64)
             errors.push(issue("PUBLICATION_LIMIT", "/candidate/artworks", "At most 64 artworks per bounded publication.", "Split the exhibition into smaller publication drafts."));
         if (errors.length)
@@ -185,7 +189,7 @@ export class Publications {
                     if(!asset||!this.blobs)throw new ApiError(503,"STORAGE_UNAVAILABLE");
                     const original=Buffer.from(await this.blobs.get(asset.object_key));
                     if(original.length!==Number(asset.bytes)||sha256(original)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
-                    result={bytes:await derivative(original,"image/png",{maxTextureSize:2048}),mime:"image/png"};
+                    result={bytes:await publicationImageDerivative(artwork,original),mime:"image/png"};
                 } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision) as {bytes:Buffer;mime:"model/gltf-binary"};
                 // Unsupported/nonreducing simplification remains an honest full-only fallback.
                 const fullMetric=measureFullVariant(result.bytes,result.mime);

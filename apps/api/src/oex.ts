@@ -1,3 +1,5 @@
+import {qualifyDemoDisplay} from './demo-display-policy.ts';
+import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
 import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';
 import { fileURLToPath } from 'node:url';
@@ -33,19 +35,19 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  }
 
 
- if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioInstallation(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioInstallation(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,ENTRANCE_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,ENTRANCE_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
  };
  scan(e,'exhibition');
- for(const a of e.artworks){if(!validRights(a.rights)||a.assets.length>8||a.assets.some(x=>!['image/png','model/gltf-binary'].includes(x.mime)||x.bytes>MAX_UPLOAD))throw new ApiError(422,'OEX_PROFILE_INVALID');}
+ for(const a of e.artworks){qualifyDemoDisplay(a);if(!validRights(a.rights)||a.assets.length>8||a.assets.some(x=>!['image/png','model/gltf-binary'].includes(x.mime)||x.bytes>MAX_UPLOAD))throw new ApiError(422,'OEX_PROFILE_INVALID');}
  for(const m of e.mediaAssets)if(m.mime!=='audio/wav'||!validRights(m.rights))throw new ApiError(422,'OEX_PROFILE_INVALID');
 }
 /** Only typed UUID fields and material surface keys are rewritten. UUID-shaped human prose is untouched. */
