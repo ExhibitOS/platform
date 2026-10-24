@@ -1,6 +1,6 @@
 import { ViewerMark } from "./branding/ViewerMark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { materialFor, presentationFor } from "@exhibitos/studio-contract";
+import { entranceFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -13,6 +13,7 @@ import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
 import { EntranceCover } from './EntranceCover';
 import "./publication-novice.css";
+import "./publication-immersive.css";
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
@@ -22,6 +23,13 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const generation = useRef(0);
   const [mode, setMode] = useState<"cover" | "text" | "3d">("cover");
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
+  const [stageReady, setStageReady] = useState(false);
+  const [stageMessage,setStageMessage]=useState("공간을 준비하고 있어요.");
+  const modeRef=useRef(mode),menuRef=useRef(menuOpen);modeRef.current=mode;menuRef.current=menuOpen;
+  const onStageState=useCallback((state:{ready:boolean;message:string})=>{if(modeRef.current!=="3d")return;setStageMessage(state.message);if(state.ready)setStageReady(true);},[]);
+  useEffect(()=>{if(stageReady&&modeRef.current==="3d"&&!menuRef.current)document.querySelector<HTMLCanvasElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});},[stageReady]);
   const [guideRequest,setGuideRequest]=useState<GuideRequest>();
   const [voicePlayback,setVoicePlayback]=useState<VoicePlayback|null>(null);
   const voiceSubscription=useRef<(()=>void)|null>(null);
@@ -36,8 +44,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   useEffect(() => {
     if (!modeChanged.current) return;
     modeChanged.current = false;
-    if (mode === "text") entryButton.current?.focus();
-    else viewingHeading.current?.focus();
+    if (mode === "text") document.getElementById("publication-artworks")?.focus();
+    else if (mode === "cover") entryButton.current?.focus();
   }, [mode]);
   useEffect(() => { if (guidedIndex !== null) guideHeading.current?.focus(); }, [guidedIndex]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -53,11 +61,12 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     await audio.current.playVoice(assetId);
   }, []);
   const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
-  const showTextArtworks=useCallback(()=>{stopVoice();setSelectedId(null);setOverview(null);setMode("text");document.getElementById("publication-artworks")?.focus();},[stopVoice]);
+  const showTextArtworks=useCallback(()=>{stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);setStageReady(false);modeChanged.current=true;setMode("text");},[stopVoice]);
   async function load() {
     const current = ++generation.current;
     setLoading(true);
     setMode("cover");
+    setStageReady(false);
     setGuidedIndex(null);
     setGuideRequest(undefined);
     setSelectedId(null);
@@ -126,37 +135,32 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     [value],
   );
   return (
-    <main className={`cms-shell publication-shell${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion}>
+    <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion}>
       <nav className="publication-skip-links" aria-label="바로 가기">
-        <a href="#publication-viewing" onClick={() => viewingHeading.current?.focus()}>관람 설정으로 건너뛰기</a>
+        <a href="#publication-viewing" onClick={() => setMenuOpen(true)}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
-      <header>
-        <a className="brand" href="/">
-          <ViewerMark />ExhibitOS<span>OPEN EXHIBITION</span>
-        </a>
-        <span>전시 관람</span>
-      </header>
-      <p role="status" data-testid="public-state">
-        {loading ? "전시를 준비하고 있어요." : error || "관람을 시작하거나 작품 목록을 살펴보세요."}
-      </p>
+      {(loading || error) && <p className="publication-load-state" role="status" data-testid="public-state">{loading ? "전시를 준비하고 있어요." : error}</p>}
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
-          <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode === "cover"}>
-          {presentationFor(value.exhibition).credits && <p>{presentationFor(value.exhibition).credits}</p>}
+          <div className={mode==="3d"?"publication-entry-loading":"publication-cover-surface"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
+          <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text" && !stageReady}>
           <div className="publication-entry-actions">
-            {mode !== "3d" && <button className="publication-enter" ref={entryButton} onClick={() => {
+            {mode!=="3d" ? <button className="publication-enter" ref={entryButton} onClick={() => {
               // A rejected React.lazy import stays rejected in this page instance.
               if (viewerUnavailable) { window.location.reload(); return; }
-              modeChanged.current = true; setMode("3d");
-            }}>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : "관람 시작"}</button>}
-            <a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 전시 관람</a>
-            <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록 보기</a>
+              setMenuOpen(false);setStageReady(false);setStageMessage("공간을 준비하고 있어요."); modeChanged.current = true; setMode("3d");
+            }}>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : "입장하기"}</button> : <><p role="status">{stageMessage}</p><button onClick={showTextArtworks}>텍스트로 관람</button></>}
+            {mode === "cover" && <a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
           </div>
-          </EntranceCover>
+          </EntranceCover></div>
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
-          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 시작 안내</button>
+          <details className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
+          <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
+          <div className="publication-menu-panel">
+          <div ref={setControlsHost} />
+          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           <section aria-label="관람 방식과 접근성 설정">
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
@@ -165,20 +169,30 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <label><input type="checkbox" checked={highContrast} onChange={e => setHighContrast(e.target.checked)} />높은 대비</label>
             <p>처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.</p>
             {mode === "3d" && <>
-              <button onClick={() => { stopVoice(); setSelectedId(null); setOverview(null); modeChanged.current = true; setMode("text"); }}>글·목록 관람으로 돌아가기</button>
+              <button onClick={showTextArtworks}>텍스트로 관람</button>
               <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
             </>}
           </section>
+          {mode === "text" && <button onClick={() => {setMenuOpen(false);modeChanged.current=true;setMode("cover");}}>전시 표지로</button>}
+          <details className="publication-record">
+            <summary>전시 공개 정보</summary>
+            <p>공개일 {value.publication.publishedAt}</p>
+            <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
+            <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
+          </details>
+          </div></details>
+          {mode === "3d" && <button className="publication-text-route" onClick={showTextArtworks}>텍스트로 관람</button>}
           {mode === "3d" && <ViewerBoundary focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={() => { modeChanged.current = true; setMode("text"); }}>
-            <Suspense fallback={<p role="status">전시를 준비하고 있어요. 기다리는 동안 작품 목록을 볼 수 있어요.</p>}>
+            <Suspense fallback={null}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
-              focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
+              immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
             onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => setOverview(null)} />}
+          <div hidden={mode !== "text"} className="publication-text-content">
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
@@ -226,9 +240,11 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <button disabled={loading} onClick={() => void load()}>{initial?.local?.kind === "static" ? "전시 파일 다시 확인" : initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}</button>
             <p>이미 전달된 작품 파일은 복제될 수 있습니다.</p>
           </details>
+          </div>
         </article>
       )}
       <footer>
+        <span className="publication-brand"><ViewerMark />ExhibitOS</span>
         <a href="/THIRD_PARTY_NOTICES.txt">제3자 고지</a>
       </footer>
     </main>
@@ -245,9 +261,9 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
     return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, []);
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
-    <header><h2 id="exhibition-overview-title">{mode === "opening" ? "전시 시작 안내" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
+    <header><h2 id="exhibition-overview-title">{mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
     <h3>{publication.exhibition.title}</h3>
-    {mode === "opening" ? <>{textMode && <p>현재 글·목록 관람입니다. 목록에서 작품 설명과 대본을 읽거나 목록 순서 안내를 이용하세요. 공간을 보고 싶으면 안내를 닫고 관람 시작을 선택하세요.</p>}<p>3D 관람에서 걷기 시작 후 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 안내를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
+    {mode === "opening" ? <>{entranceFor(publication.exhibition).introduction && <p className="detail-text">{entranceFor(publication.exhibition).introduction}</p>}{textMode && <p>현재 텍스트로 관람하고 있어요. 작품 목록에서 설명과 대본을 읽을 수 있어요. 공간을 보려면 소개를 닫고 입장하기를 선택하세요.</p>}<h3>관람 방법</h3><p>걷기를 선택한 뒤 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 소개를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
       <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
       <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
       <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>

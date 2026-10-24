@@ -1,4 +1,5 @@
 import { ViewerAnalytics } from './viewer/analytics';
+import {createPortal} from 'react-dom';
 import { request, RequestError, type Session } from './cms-client';
 import {ViewerXr,type XrState} from './viewer/xr';
 import {XrControls} from './viewer/XrControls';
@@ -33,8 +34,16 @@ export function Viewer({
   reducedMotion,
   onReducedMotionChange,
   guideRequest,
+  immersive = false,
+  controlsHost,
+  onNavigationActive,
+  onStageState,
 }: {
   publication: PublicPublication;
+  immersive?: boolean;
+  controlsHost?: HTMLElement|null;
+  onNavigationActive?:()=>void;
+  onStageState?:(state:{ready:boolean;message:string})=>void;
   appearance: (id: string) => SurfaceAppearance;
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
@@ -47,6 +56,8 @@ export function Viewer({
   onReducedMotionChange?: (value: boolean) => void;
 }) {
   const analytics = useRef<ViewerAnalytics | null>(null);
+  const [viewFov,setViewFov]=useState<number|"authored">(48);
+  const [introDismissed,setIntroDismissed]=useState(false);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const analyticsConsentRef = useRef(false);
   useEffect(() => {
@@ -181,9 +192,14 @@ export function Viewer({
     [publication],
   );
   return (
-    <section aria-label="전시 Viewer">
+    <section className={immersive ? "immersive-viewer" : undefined} aria-label="전시 Viewer">
+      {immersive && !introDismissed && <aside className="viewer-brief" aria-label="짧은 관람 안내"><p><span className="viewer-guide-pointer">방향키로 걷고 드래그로 둘러보세요.</span><span className="viewer-guide-touch">화면 버튼으로 걷고 시점을 움직이세요.</span> 작품을 선택하면 설명을 볼 수 있어요.</p><button onPointerDown={event=>event.preventDefault()} onClick={()=>setIntroDismissed(true)}>안내 닫기</button></aside>}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       <GeometryPreview
+        immersive={immersive}
+        controlsHost={controlsHost}
+        viewFov={viewFov === "authored" ? undefined : viewFov}
+        onRenderState={state=>onStageState?.({ready:state.ready&&(state.loaded>0||publication.exhibition.placements.length===0),message:state.message})}
         onXrReady={xrReady}
         onXrArtworks={xrLoaded}
         document={publication.exhibition}
@@ -211,12 +227,14 @@ export function Viewer({
         onScriptClick={scriptProgram.rules.length?id=>script.current?.event({type:'artwork_click',placementId:id},performance.now(),Date.now()):undefined}
         reducedMotion={reducedMotion}
         onReducedMotionChange={value=>{presenceReduced.current=value;onReducedMotionChange?.(value);}}
-        onNavigationState={state => audio.current?.update(state)}
+        onNavigationState={state => {audio.current?.update(state);if(immersive&&state.velocity.some(value=>Math.abs(value)>.01))setIntroDismissed(true);}}
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
-        onNavigationMode={(walking,paused)=>{if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
+        onNavigationMode={(walking,paused)=>{if(walking&&!paused)onNavigationActive?.();if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
-      <AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} />
+      <details className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} /></details>
+      {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<details className="viewer-settings-menu"><summary>관람 설정</summary>
       <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
+        {immersive && <label>시야<select aria-label="시야" value={viewFov} onChange={event=>setViewFov(event.target.value==="authored"?"authored":Number(event.target.value))}><option value={42}>좁게</option><option value={48}>기본</option><option value={54}>넓게</option><option value="authored">제작자가 저장한 시야</option></select></label>}
         <p>기기에 맞는 설정을 자동으로 사용해요. 화면이 느리거나 선명도를 바꾸고 싶을 때 조정하세요.</p>
       <label>
         Viewer 품질
@@ -260,6 +278,7 @@ export function Viewer({
       </fieldset>
       </ViewerDisclosure>}
       <p className="cms-note">가까운 작품부터 불러와요. 나머지 작품을 불러오는 중에도 감상을 계속할 수 있어요. 소리 없이도 작품 설명을 읽을 수 있어요.</p>
+      </details>)}
     </section>
   );
 }

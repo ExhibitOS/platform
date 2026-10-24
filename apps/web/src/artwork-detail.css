@@ -6,7 +6,7 @@
 .artwork-detail dd { margin-left: 0; overflow-wrap: anywhere; }
 .artwork-detail label { display: block; margin: 12px 0; }
 .artwork-detail input[type=range] { width: min(100%, 360px); min-height: 44px; }
-.artwork-detail .detail-preview { min-height: 360px; width: 100%; }
+.artwork-detail .detail-preview { height:clamp(180px,48svh,360px); width:100%; }
 .artwork-detail canvas { display: block; max-width: 100%; }
 .artwork-detail .detail-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .artwork-detail button { margin: 4px; }

@@ -1,4 +1,6 @@
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {createPortal} from 'react-dom';
+import {visitingFov,visitingBuffer} from './viewer/framing';
 import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
@@ -11,7 +13,7 @@ import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AssetScheduler,
   MemoryAssetCache,
@@ -135,7 +137,13 @@ export function GeometryPreview({
   cameraRequest,
   spaceTransparency,
   referenceTone = DEFAULT_REFERENCE_TONE,
+  immersive = false,
+  controlsHost,
+  viewFov,
 }: {
+  immersive?: boolean;
+  controlsHost?: HTMLElement|null;
+  viewFov?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number})=>void;
@@ -174,6 +182,10 @@ export function GeometryPreview({
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
   const editingEnabled=!!editing;
+  const [inputMode,setInputMode]=useState<"auto"|"pointer"|"touch">("auto");
+  const viewFovRef=useRef(viewFov);viewFovRef.current=viewFov;
+  const resizeAction=useRef<(()=>void)|null>(null);
+  useEffect(()=>{resizeAction.current?.();},[viewFov]);
   const [localTransparentSpace,setTransparentSpace]=useState(false);
   const transparentSpace=spaceTransparency??localTransparentSpace;
   const consumedCameraRequest=useRef<number|undefined>(undefined);
@@ -248,9 +260,11 @@ export function GeometryPreview({
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  const enteredWalking=useRef(false);
+  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,message,...assetReport});},[ready,message,assetReport]);
+  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport});},[ready,message,publicMessage,publicSource,assetReport]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -524,6 +538,11 @@ export function GeometryPreview({
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면에서는 공간 그림자를 생략합니다.':'이 공간에서는 그림자를 생략하고 작품과 조명을 표시합니다.');
       });owned.push(shadowPass);
       const controls = new OrbitControls(camera, renderer.domElement);
+      let authoredFov = camera.fov;
+      const applyProjection = () => {
+        camera.fov = immersive ? visitingFov(authoredFov,viewFovRef.current,camera.aspect) : authoredFov;
+        camera.updateProjectionMatrix();
+      };
       let pointerStart: [number,number] | undefined;
       const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
       renderer.domElement.addEventListener("pointerdown",down);
@@ -546,7 +565,10 @@ export function GeometryPreview({
         samples: Array<{ at: number; ms: number; triangles: number }>;
         frame: number;
       } = { started: 0, samples: [], frame: 0 };
+      let projectionStamp = "", framePixelBudget:number|undefined;
       const render = () => {
+        const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
+        if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
           shadowPass.flush();
@@ -625,8 +647,8 @@ export function GeometryPreview({
               ? room.localToWorld(new three.Vector3(...savedCamera.target))
               : new three.Vector3(...savedCamera.target),
           );
-          camera.fov = savedCamera.fov;
-          camera.updateProjectionMatrix();
+          authoredFov = savedCamera.fov;
+          applyProjection();
         } else if (kind === "front" && selectionRef.current) {
           const selection=selectionRef.current;
           const surfaceId =
@@ -689,12 +711,18 @@ export function GeometryPreview({
       const resize = () => {
         if (!host.current) return;
         const width = Math.max(host.current.clientWidth, 1),
-          height = 360;
+          height = immersive ? Math.max(host.current.clientHeight, 1) : 360;
+        const preferredRatio = Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2);
+        // Fill the CSS host without increasing the former 360px framebuffer budget.
+        const {pixelBudget,ratio} = visitingBuffer(width,height,preferredRatio);
+        framePixelBudget = immersive ? pixelBudget : undefined;
+        renderer.setPixelRatio(immersive ? ratio : preferredRatio);
         renderer.setSize(width, height);
         camera.aspect = width / height;
-        camera.updateProjectionMatrix();
+        applyProjection();
         render();
       };
+      resizeAction.current = resize;
       renderer.domElement.setAttribute("aria-label", "전시 공간 3D 미리보기");
       renderer.domElement.setAttribute("role", "img");
       const lost = (event: Event) => {
@@ -745,6 +773,7 @@ export function GeometryPreview({
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
       setReady(true);
+      if(immersive)renderer.domElement.tabIndex=0;
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
@@ -1526,6 +1555,7 @@ export function GeometryPreview({
       navigationCallbacks.current.onPresenceSceneReady?.(null);
       navigationCallbacks.current.onScriptSceneReady?.(null);
       disposed = true;
+      resizeAction.current = null;
       abort.abort();
       release();
     };
@@ -1538,13 +1568,15 @@ export function GeometryPreview({
     restart,
     transparentSpace,
     editingEnabled,
+    immersive,
   ]);
+  const ControlsFrame = immersive ? "details" : "div";
   return (
-    <figure data-reduced-motion={walkSettings.reducedMotion} className="geometry-preview" aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
+    <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
       <div className="geometry-stage">
-        <div ref={host} />
+        <div className="geometry-render-host" ref={host} />
         {viewerBudget && walkingMode && (
           <WalkingTouch
             available={ready && !xrRunning && !suspendNavigation}
@@ -1553,7 +1585,10 @@ export function GeometryPreview({
           />
         )}
       </div>
-      <figcaption role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
+      <figcaption hidden={immersive && ready && assetReport.loaded===document.placements.length && assetReport.failed===0} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
+      {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
+      {immersive && <summary>공간 조작</summary>}
+      {immersive && <label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>setInputMode(event.target.value as typeof inputMode)}><option value="auto">기기에 맞게</option><option value="pointer">마우스·키보드</option><option value="touch">화면 버튼</option></select></label>}
       {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       <ViewControls className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
@@ -1654,6 +1689,7 @@ export function GeometryPreview({
         </div>
       )}
       {publicSource ? <details className="viewer-options"><summary>이동 도움말과 화면 표현</summary><p>걷기를 시작하지 않아도 작품을 선택하거나 목록에서 감상할 수 있어요. 표시된 시점으로 이동할 때는 이동 가능한 공간을 확인합니다. 소리는 직접 켤 때만 재생돼요.</p><p>저장된 조명은 화면에서 비슷하게 표현하며 실제 밝기 측정값은 아닙니다. 마우스 없이 위 버튼으로도 시점을 바꿀 수 있어요.</p></details> : <p className="cms-note">사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 분할 곡선벽·계단·경사로를 동일한 평면으로 렌더링합니다. 실제 보행 가능성은 공개 Viewer에서 검사하세요. 저장된 조명은 시각적 근사이며 물리적 조도 측정을 지원하지 않습니다. 마우스 없이 위 버튼으로 시점을 바꿀 수 있습니다.</p>}
+      </ControlsFrame>)}
     </figure>
   );
 }

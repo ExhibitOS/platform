@@ -178,7 +178,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, referenceT
         target!.append(renderer.domElement);
         const camera = new three.PerspectiveCamera(45, 1, modelExtent/100, modelExtent*100);
         const extent = modelExtent;
-        const resize = () => { const w = Math.max(1,target!.clientWidth), h = 360; renderer!.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+        const resize = () => { const w = Math.max(1,target!.clientWidth), h = Math.max(1,target!.clientHeight); renderer!.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
         observer = new ResizeObserver(resize); observer.observe(target!); resize();
         const render = () => { if (disposed) return; model.rotation.set(controls.current.pitch * Math.PI / 180, controls.current.yaw * Math.PI / 180, 0, "YXZ");
           const fit=metricCameraFit(extent,camera.aspect,controls.current.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
