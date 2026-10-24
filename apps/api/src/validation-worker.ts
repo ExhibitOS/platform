@@ -1,5 +1,5 @@
 import {verifyBasisPayload} from './basis-payload.ts';
-import {embeddedBasisPairs} from '@exhibitos/studio-contract';
+import {embeddedBasisPairs, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
 import { deflateSync, inflateSync } from "node:zlib";
 import { validateBytes } from "gltf-validator";
 const LIMIT = 32 * 1024 * 1024,
@@ -163,20 +163,20 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   }
   for (const bytes of imageBytes) png(bytes, texturePixels, 2048);
   for (const sampler of doc.samplers) {
-    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || sampler.magFilter !== 9729 || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
+    if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || ![9728,9729].includes(sampler.magFilter) || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
   }
   for (const t of doc.textures) if (!closed(t,["source","sampler"],["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !integer(t.sampler) || t.sampler >= doc.samplers.length) fail();
   if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();
   const usedTextures = new Set<number>(), colourImages=new Set<number>(), linearImages=new Set<number>();
   for (const m of doc.materials) {
-    if (!closed(m,[],["name","pbrMetallicRoughness","doubleSided","alphaMode","alphaCutoff","normalTexture","occlusionTexture"]) || m.pbrMetallicRoughness !== undefined && !closed(m.pbrMetallicRoughness,[],["baseColorTexture","baseColorFactor","metallicFactor","roughnessFactor"])) fail();
-    for (const [t,parameter] of [[m.pbrMetallicRoughness?.baseColorTexture,null],[m.normalTexture,"scale"],[m.occlusionTexture,"strength"]] as const) {
+    if (!closed(m,[],["name","pbrMetallicRoughness","doubleSided","alphaMode","alphaCutoff","normalTexture","occlusionTexture"]) || m.pbrMetallicRoughness !== undefined && !closed(m.pbrMetallicRoughness,[],["baseColorTexture","baseColorFactor","metallicFactor","roughnessFactor","metallicRoughnessTexture"])) fail();
+    for (const [t,role] of [[m.pbrMetallicRoughness?.baseColorTexture,'colour'],[m.normalTexture,'normal'],[m.occlusionTexture,'occlusion'],[m.pbrMetallicRoughness?.metallicRoughnessTexture,'metallicRoughness']] as const) {
       if (t === undefined) continue;
-      if (!closed(t,["index"],["texCoord",...(parameter ? [parameter] : [])]) || !integer(t.index) || t.index >= doc.textures.length || Object.hasOwn(t,"texCoord") && t.texCoord !== 0 || parameter && Object.hasOwn(t,parameter) && t[parameter] !== 1) fail();
-      usedTextures.add(t.index);
-      const texture=doc.textures[t.index],source=texture.source;
-      if(parameter && (doc.images[source].mimeType!=="image/png" || texture.extensions!==undefined))fail();
-      (parameter?linearImages:colourImages).add(source);
+      const binding = pbrTextureBinding(t, role, doc.textures.length);
+      usedTextures.add(binding.index);
+      const texture=doc.textures[binding.index],source=texture.source,linear=pbrTextureIsLinear(role);
+      if(linear && (doc.images[source].mimeType!=="image/png" || texture.extensions!==undefined))fail();
+      (linear?linearImages:colourImages).add(source);
     }
   }
   if([...linearImages].some(i=>colourImages.has(i)))fail();
@@ -186,13 +186,16 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   if (usedImages.size !== doc.images.length) fail();
   for (const mesh of doc.meshes ?? []) for (const primitive of mesh.primitives ?? []) {
     const material = doc.materials[primitive.material];
-    if (!material?.pbrMetallicRoughness?.baseColorTexture && !material?.normalTexture && !material?.occlusionTexture) continue;
+    if (!material?.pbrMetallicRoughness?.baseColorTexture && !material?.normalTexture && !material?.occlusionTexture && !material?.pbrMetallicRoughness?.metallicRoughnessTexture) continue;
     const a = doc.accessors?.[primitive.attributes?.TEXCOORD_0], position = doc.accessors?.[primitive.attributes?.POSITION];
     if (!a || a.type !== "VEC2" || a.componentType !== 5126 || a.normalized !== undefined || a.sparse !== undefined || !integer(a.count) || a.count < 1 || a.count > 131072 || a.count !== position?.count || !integer(a.byteOffset ?? 0)) fail();
     const bytes = view(a.bufferView), v = doc.bufferViews[a.bufferView], stride = v.byteStride ?? 8;
     if (!integer(stride) || stride < 8 || stride > 252 || stride % 4 || (a.byteOffset ?? 0) + (a.count - 1) * stride + 8 > bytes.length) fail();
     for (let i = 0; i < a.count; i++) for (let j = 0; j < 2; j++) {
-      const x = bytes.readFloatLE((a.byteOffset ?? 0) + i * stride + j * 4); if (!Number.isFinite(x) || x < 0 || x > 1) fail();
+      // UVs address normalized image size, but are not constrained to one tile.
+      // Supported samplers above define clamp/repeat/mirror behavior. Preserve
+      // authored values within the same finite magnitude cap as Processing.
+      const x = bytes.readFloatLE((a.byteOffset ?? 0) + i * stride + j * 4); if (!Number.isFinite(x) || Math.abs(x) > 20000) fail();
     }
     // glTF can derive a tangent frame when absent. An authored frame must retain its exact handedness.
     if (primitive.attributes?.TANGENT !== undefined) {
