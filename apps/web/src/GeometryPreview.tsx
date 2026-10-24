@@ -545,7 +545,7 @@ export function GeometryPreview({
         camera.updateProjectionMatrix();
       };
       let pointerStart: [number,number] | undefined;
-      const panelResume = immersive ? installPanelResume(renderer.domElement, () => walkingActions.current?.pause("panel"), () => walkingActions.current?.start()) : undefined;
+      let panelResume: ReturnType<typeof installPanelResume> | undefined;
       const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
@@ -745,6 +745,9 @@ export function GeometryPreview({
       };
       renderer.domElement.addEventListener("webglcontextlost", lost);
       host.current.replaceChildren(renderer.domElement);
+      // Panel scope requires the attached public canvas; before attachment its
+      // closest publication shell is null.
+      if (immersive) panelResume = installPanelResume(renderer.domElement, () => walkingActions.current?.pause("panel"), () => walkingActions.current?.start());
       const observer = new ResizeObserver(resize);
       observer.observe(host.current);
       controls.addEventListener("change", render);
