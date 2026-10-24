@@ -7,6 +7,18 @@ import { sha256 } from "@exhibitos/storage";
 import { CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
 import { projectPublication, approvedPublicationSource } from "./publication.ts";
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
+import {LOD_NAMESPACE,validateViewerLod} from '@exhibitos/studio-contract';
+import {remapOex,checkOexProfile} from './oex.ts';
+it('preserves authored PNG coarse/full through public projection and typed OEX identity remap',async()=>{
+ const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,a=e.artworks.find(a=>a.artworkType==='image')!,primary=a.assets.find(v=>v.id===a.primaryAssetId)!;
+ primary.bytes=1000;const coarse={...primary,id:crypto.randomUUID(),path:'assets/coarse.png',bytes:100,sha256:'b'.repeat(64)};a.assets.push(coarse);a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:primary.id,detail:'full',textureSize:2048},{assetId:coarse.id,detail:'coarse',textureSize:512}]}};
+ e.artworks=[a];e.placements=e.placements.filter(p=>p.artworkRevisionId===a.revisionId);e.accessibility.artworkDescriptions=e.accessibility.artworkDescriptions.filter(d=>e.placements.some(p=>p.id===d.placementId));
+ expect(approvedPublicationSource({asset:primary,importedArtwork:a},coarse,primary.id)).toBe(true);
+ const result=projectPublication(e,[{artwork:a,sourceAssetId:primary.id,sourceSha256:primary.sha256,coarseSource:{id:coarse.id,sha256:coarse.sha256},bytes:Buffer.alloc(1000),mime:'image/png',variants:{full:{textureSize:2048},coarse:{textureSize:512},bytes:Buffer.alloc(100)}}],'2026-10-24T00:00:00Z');
+ const published=result.snapshot.artworks[0]!;expect(validateViewerLod(published).valid).toBe(true);expect(published.assets).toHaveLength(2);expect(result.assets[1]!.prepared.sourceAssetId).toBe(coarse.id);
+ const remapped=remapOex(result.snapshot).exhibition;expect(()=>checkOexProfile(remapped)).not.toThrow();expect(validateViewerLod(remapped.artworks[0]!).valid).toBe(true);
+ const lod=remapped.artworks[0]!.extensions![LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]};expect(lod.variants.find(v=>v.detail==='full')!.assetId).toBe(remapped.artworks[0]!.primaryAssetId);expect(lod.variants.every(v=>remapped.artworks[0]!.assets.some(a=>a.id===v.assetId))).toBe(true);
+});
 describe("immutable anonymous publication projection", () => {
     it('publishes only the approved PNG cover reference and preserves UUID-shaped public prose', async () => {
         const candidate = JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'), 'utf8')) as Exhibition;
