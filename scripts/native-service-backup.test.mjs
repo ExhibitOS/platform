@@ -41,7 +41,7 @@ test('managed restore preflight is awaited on the pinned file before adapter mut
   const selection=join(dir,'selection.json'),archivePath=join(dir,'authenticated.dump'),executable=join(dir,'pg_restore'),received=join(dir,'received');
   const record={format:'exhibitos-native-postgres-selection-v1',profile:'managed-core-v1',supportedExtensions:['plpgsql']};
   await writeFile(selection,JSON.stringify(record),{mode:0o600});await writeFile(archivePath,'authenticated-dump-bytes',{mode:0o600});
-  await writeFile(executable,`#!${process.execPath}\nimport fs from 'node:fs';\nif(process.argv[2]==='--list'){fs.readFileSync(3);process.stdout.write(${JSON.stringify(toc)});}else{const chunks=[];process.stdin.on('data',c=>chunks.push(c));process.stdin.on('end',()=>fs.writeFileSync(${JSON.stringify(received)},Buffer.concat(chunks)));}\n`,{mode:0o700});
+  await writeFile(executable,`#!${process.execPath}\nimport fs from 'node:fs';\nif(process.argv[2]==='--list'){fs.readFileSync(0);process.stdout.write(${JSON.stringify(toc)});}else{const chunks=[];process.stdin.on('data',c=>chunks.push(c));process.stdin.on('end',()=>fs.writeFileSync(${JSON.stringify(received)},Buffer.concat(chunks)));}\n`,{mode:0o700});
   const hook=await nativeRestorePreflight({PG_RESTORE_BIN:executable},selection);
   const {postgresAdapter}=await import('./service-backup.mjs');
   const environment={PG_RESTORE_BIN:executable};

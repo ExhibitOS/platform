@@ -73,10 +73,12 @@ export async function nativeRestorePreflight(environment, selectionURL = new URL
   const executable = environment.PG_RESTORE_BIN;
   if (typeof executable !== 'string' || !executable.startsWith('/') || !executable.endsWith('/pg_restore')) throw tocInvalid();
   return async (archive, signal) => {
-    // fd3 is the already-authenticated regular file opened by the adapter.
+    // Stdin is the already-authenticated regular file opened by the adapter.
+    // pg_restore can reopen a named archive after sniffing its header. On
+    // macOS /dev/fd aliases share offsets, so supply the pinned file as stdin.
     // No path reopening, database connection, archive SQL or inherited secrets.
-    const child = spawn(executable, ['--list', '/dev/fd/3'], {
-      stdio: ['ignore', 'pipe', 'ignore', archive.fd], signal,
+    const child = spawn(executable, ['--list'], {
+      stdio: [archive.fd, 'pipe', 'ignore'], signal,
       env: {PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C'}
     });
     const chunks = []; let bytes = 0, failed = false;
