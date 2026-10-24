@@ -15,7 +15,7 @@ test('native maintenance refuses missing, unsafe and exhausted private resource 
 });
 test('managed PostgreSQL selection retains initialization, PLpgSQL and text search without optional runtimes',()=>{
   const p=postgresRuntimeSelection('managed-core-v1');
-  for(const f of ['bin/postgres','bin/initdb','bin/pg_dump','bin/pg_restore','lib/postgresql/plpgsql.dylib','lib/postgresql/dict_snowball.dylib','share/postgresql/postgres.bki'])assert(p.files.includes(f));
+  for(const f of ['bin/postgres','bin/initdb','bin/pg_isready','bin/psql','bin/createdb','bin/pg_dump','bin/pg_restore','lib/postgresql/plpgsql.dylib','lib/postgresql/dict_snowball.dylib','share/postgresql/postgres.bki'])assert(p.files.includes(f));
   assert.deepEqual(p.supportedExtensions,['plpgsql']);
   assert(!p.files.some(f=>/postgis|plpython|SFCGAL|libgdal|libgeos/.test(f)));
   assert.equal(postgresRuntimeSelection().profile,'validation-full');

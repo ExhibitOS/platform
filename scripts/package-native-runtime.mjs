@@ -76,7 +76,7 @@ export function postgresRuntimeSelection(profile = 'validation-full') {
     'postgresql.conf.sample', 'psqlrc.sample', 'snowball_create.sql',
     'sql_features.txt', 'system_constraints.sql', 'system_functions.sql', 'system_views.sql'];
   return {profile, supportedExtensions: ['plpgsql'], files: [
-    ...['postgres', 'initdb', 'pg_dump', 'pg_restore'].map(name => `bin/${name}`),
+    ...['postgres', 'initdb', 'pg_isready', 'psql', 'createdb', 'pg_dump', 'pg_restore'].map(name => `bin/${name}`),
     ...libraries.map(name => `lib/${name}`),
     'lib/postgresql/plpgsql.dylib', 'lib/postgresql/dict_snowball.dylib',
     ...data.map(name => `share/postgresql/${name}`),

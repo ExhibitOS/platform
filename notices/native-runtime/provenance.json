@@ -76,7 +76,10 @@
         "lib/libpq.5.dylib",
         "lib/libpq.dylib",
         "lib/postgresql/plpgsql.dylib",
-        "lib/postgresql/dict_snowball.dylib"
+        "lib/postgresql/dict_snowball.dylib",
+        "bin/pg_isready",
+        "bin/psql",
+        "bin/createdb"
       ],
       "dataPaths": [
         "share/postgresql/*.sql",
