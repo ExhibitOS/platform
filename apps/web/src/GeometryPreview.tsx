@@ -713,8 +713,8 @@ export function GeometryPreview({
         const width = Math.max(host.current.clientWidth, 1),
           height = immersive ? Math.max(host.current.clientHeight, 1) : 360;
         const preferredRatio = Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2);
-        // Fill the CSS host without increasing the former 360px framebuffer budget.
-        const {pixelBudget,ratio} = visitingBuffer(width,height,preferredRatio);
+        // Desktop gets a bounded full-HD buffer; compact keeps its former cost.
+        const {pixelBudget,ratio} = visitingBuffer(width,height,preferredRatio,compactQuality);
         framePixelBudget = immersive ? pixelBudget : undefined;
         renderer.setPixelRatio(immersive ? ratio : preferredRatio);
         renderer.setSize(width, height);

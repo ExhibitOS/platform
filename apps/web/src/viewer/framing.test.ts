@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
-import {visitingFov,visitingBuffer} from './framing';
+import {visitingFov,visitingBuffer,DESKTOP_VISITING_PIXELS} from './framing';
 const frames=[[1440,810],[1920,810],[390,844],[844,390]] as const;
 test('display choices preserve narrower authored views and allow the unchanged authored option',()=>{
   expect(visitingFov(30,48,16/9)).toBeCloseTo(30);
@@ -18,11 +18,24 @@ test('a wide-window user choice still changes the actual projection rather than 
   const values=[42,48,54].map(v=>visitingFov(60,v,1920/810));
   expect(values[0]).toBeLessThan(values[1]!);expect(values[1]).toBeLessThan(values[2]!);
 });
-test('fullscreen buffers retain the old desktop and compact pixel ceilings with uniform scaling',()=>{
+test('compact fullscreen buffers retain the former pixel ceilings with uniform scaling',()=>{
   for(const [width,height,ratio,ceiling] of [[1440,810,1.5,1088640],[1920,810,1.5,1088640],[390,844,1,123120]] as const){
-    const frame=visitingBuffer(width,height,ratio);
+    const frame=visitingBuffer(width,height,ratio,true);
     expect(frame.ratio).toBeGreaterThan(0);expect(frame.ratio).toBeLessThanOrEqual(ratio);
     expect(Math.floor(width*frame.ratio)*Math.floor(height*frame.ratio)).toBeLessThanOrEqual(ceiling);
     expect(frame.pixelBudget).toBe(ceiling);
   }
+});
+test('desktop Full HD at DPR1 uses native internal resolution without upscaling',()=>{
+  expect(visitingBuffer(1920,1080,1)).toEqual({pixelBudget:2073600,ratio:1});
+  expect(visitingBuffer(1280,720,1)).toEqual({pixelBudget:921600,ratio:1});
+});
+test('desktop retina and larger windows retain a stable explicit pixel ceiling and preferred DPR limit',()=>{
+  for(const [width,height,preferred] of [[1440,810,1.5],[1920,1080,1.5],[3840,2160,1.5],[844,390,1.5]] as const){
+    const result=visitingBuffer(width,height,preferred);
+    expect(result.ratio).toBeLessThanOrEqual(preferred);
+    expect(Math.floor(width*result.ratio)*Math.floor(height*result.ratio)).toBeLessThanOrEqual(DESKTOP_VISITING_PIXELS);
+    expect(visitingBuffer(width,height,preferred)).toEqual(result);
+  }
+  expect(visitingBuffer(3840,2160,1.5).ratio).toBe(.5);
 });
