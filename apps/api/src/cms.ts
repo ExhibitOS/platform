@@ -33,6 +33,15 @@ const canonical = (v: unknown): unknown =>
         )
       : v;
 const json = (v: unknown) => JSON.stringify(canonical(v));
+function revisionIdentity(s:Session,id:string,revision:number){
+  const digest=createHash('sha256').update(`${s.tenantId}:${id}:${revision}`).digest('hex');
+  return `${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-8${digest.slice(17,20)}-${digest.slice(20,32)}`;
+}
+function importedTextInvariant(m:ArtworkMetadata){
+  // Only existing title/description/medium and private notes are text edits.
+  return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
+}
+interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown}}
 const exact = (v: unknown, keys: string[]) =>
   !!v &&
   typeof v === "object" &&
@@ -350,6 +359,7 @@ export class Cms {
     id: string,
     b: { revision: number; assetId: string },
   ) {
+    if(!exact(b,['revision','assetId']))throw new ApiError(400,'INVALID_INPUT');
     const a = await this.ownArtwork(c, s, id);
     if (a.revision !== b.revision) throw new ApiError(409, "REVISION_CONFLICT");
     if (!validMetadata(a.metadata)) throw new ApiError(400, "INVALID_METADATA");
@@ -363,6 +373,22 @@ export class Cms {
     if(asset.mime==='model/gltf-binary'&&a.metadata.dimensions.depth===undefined)throw new ApiError(422,'MODEL_DEPTH_REQUIRED');
     if (!allowedRights(a.metadata.rights, "display"))
       throw new ApiError(403, "RIGHTS_DENIED");
+    const lineage=(await c.query('SELECT revision,snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision<=$3 ORDER BY revision DESC LIMIT 1',[s.tenantId,id,b.revision])).rows[0] as ImportedApproval|undefined;
+    let importedArtwork:Artwork|undefined;
+    if(lineage&&Object.hasOwn(lineage.snapshot,'importedArtwork')){
+      const previous=lineage.snapshot.metadata,primary=lineage.snapshot.asset as {id?:string;sha256?:string;bytes?:number;mime?:string}|null;
+      if(!Number.isSafeInteger(lineage.revision)||lineage.revision<1||lineage.revision>b.revision||!validMetadata(previous)||!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==Number(asset.bytes)||primary.mime!==asset.mime||json(importedTextInvariant(previous))!==json(importedTextInvariant(a.metadata)))throw new ApiError(409,'APPROVAL_INVALID');
+      const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.artist_id])).rows[0];
+      importedArtwork=await this.importedApproval(c,s,id,lineage,typeof artist?.metadata?.name==='string'?artist.metadata.name:'Unnamed artist');
+      if(lineage.revision<b.revision){
+        importedArtwork.revisionId=revisionIdentity(s,id,b.revision);importedArtwork.revision=b.revision;importedArtwork.createdAt=new Date(a.updated_at).toISOString();
+        importedArtwork.metadata={...importedArtwork.metadata,title:a.metadata.title,description:a.metadata.description};
+        if(a.metadata.medium===undefined)delete importedArtwork.metadata.medium;else importedArtwork.metadata.medium=a.metadata.medium;
+        importedArtwork.extensions={...importedArtwork.extensions,'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:b.revision}};
+        importedArtwork.provenance.events.push({id:importedArtwork.revisionId,type:'edited',at:importedArtwork.createdAt,description:'CMS reviewed text revision; approved source assets, dimensions and rights retained.'});
+      }
+      if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid||!validateArtworkDisplayPolicy(importedArtwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
+    }
     if (json(a.metadata.rights) !== json(asset.rights)) {
       await c.query(
         "UPDATE rights SET metadata=$3,revision=revision+1 WHERE tenant_id=$1 AND id=$2",
@@ -374,6 +400,7 @@ export class Cms {
     const bytes = Buffer.from(await this.blobs.get(asset.object_key));
     if (bytes.length !== Number(asset.bytes) || sha256(bytes) !== asset.sha256)
       throw new ApiError(409, "ASSET_INTEGRITY");
+    if(importedArtwork)qualifyDemoDisplay(importedArtwork,bytes);
     await derivative(bytes, asset.mime);
     const snapshot = {
       metadata: a.metadata,
@@ -384,6 +411,7 @@ export class Cms {
         mime: asset.mime,
         rightsRevision: asset.rights_revision,
       },
+      ...(importedArtwork?{importedArtwork}:{}),
     };
     const prior = await c.query(
       "SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3",
@@ -402,6 +430,21 @@ export class Cms {
     );
     return this.detail(c, s, id);
   }
+  /** Revalidate a server-owned immutable imported lineage against current assets. */
+  private async importedApproval(c:PoolClient,s:Session,id:string,approval:ImportedApproval,artist:string){
+    if(!validMetadata(approval.snapshot.metadata)||!approval.snapshot.asset||typeof approval.snapshot.asset!=='object'||Array.isArray(approval.snapshot.asset))throw new ApiError(409,'APPROVAL_INVALID');
+    const m=approval.snapshot.metadata,asset=approval.snapshot.asset as {id:string;sha256:string;bytes:number;mime:string};
+      const imported=structuredClone(approval.snapshot.importedArtwork)as Artwork;
+      const binding=imported?.extensions?.['org.exhibitos.studio/cms']as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
+      if(!validateArtwork(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||!validateArtworkDisplayPolicy(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE,DISPLAY_POLICY_NAMESPACE].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
+      if(imported.metadata.title!==m.title||(imported.metadata.description??'')!==m.description||imported.metadata.medium!==m.medium||(imported.metadata.artist??'Imported artist')!==artist||imported.dimensions.width!==m.dimensions.width||imported.dimensions.height!==m.dimensions.height||imported.dimensions.depth!==m.dimensions.depth||creationYearFor(imported)!==m.creationYear||imported.provenance.authorship!==m.provenance.source||json(imported.rights)!==json(m.rights))throw new ApiError(409,'APPROVAL_INVALID');
+      const primary=imported.assets.find(x=>x.id.toLowerCase()===imported.primaryAssetId.toLowerCase());
+      if(!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==asset.bytes||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
+      const rows=(await c.query("SELECT a.id,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,imported.assets.map(a=>a.id)])).rows;
+      for(const source of imported.assets){const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
+      qualifyDemoDisplay(imported);
+      return imported;
+  }
   /** Immutable approved metadata projected into a public OES snapshot; no bytes or storage keys. */
   async studioArtwork(c: PoolClient, s: Session, id: string) {
     uuid(id);
@@ -413,24 +456,16 @@ export class Cms {
     if(!approval||!approval.snapshot?.asset||typeof approval.snapshot.asset!=="object"||!validMetadata(approval.snapshot?.metadata)) throw new ApiError(409,"REVISION_NOT_APPROVED");
     const m=approval.snapshot.metadata as ArtworkMetadata, asset=approval.snapshot.asset as {id:string;mime:string;bytes:number;sha256:string};
     if(!allowedRights(m.rights,"display"))throw new ApiError(403,"RIGHTS_DENIED");
-    // Only the internal OEX importer can add this field to the immutable approval JSON.
+    // Only the internal importer or a revalidated server-owned imported lineage
+    // can carry this field into an immutable approval; callers cannot supply it.
     // Preserve source OES revision/provenance/paths while applying the same current policy gates.
     if(Object.hasOwn(approval.snapshot,'importedArtwork')){
       if(!validMetadata(approval.current_metadata)||json(approval.current_metadata)!==json(m)||approval.approved_asset_id!==asset.id)throw new ApiError(409,'APPROVAL_INVALID');
-      const imported=structuredClone(approval.snapshot.importedArtwork)as Artwork;
-      const binding=imported?.extensions?.['org.exhibitos.studio/cms']as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
-      if(!validateArtwork(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||!validateArtworkDisplayPolicy(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE,DISPLAY_POLICY_NAMESPACE].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
-      if(imported.metadata.title!==m.title||(imported.metadata.description??'')!==m.description||imported.metadata.medium!==m.medium||(imported.metadata.artist??'Imported artist')!==display.artist||imported.dimensions.width!==m.dimensions.width||imported.dimensions.height!==m.dimensions.height||imported.dimensions.depth!==m.dimensions.depth||creationYearFor(imported)!==m.creationYear||imported.provenance.authorship!==m.provenance.source||json(imported.rights)!==json(m.rights))throw new ApiError(409,'APPROVAL_INVALID');
-      const primary=imported.assets.find(x=>x.id.toLowerCase()===imported.primaryAssetId.toLowerCase());
-      if(!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==asset.bytes||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
-      const rows=(await c.query("SELECT a.id,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,imported.assets.map(a=>a.id)])).rows;
-      for(const source of imported.assets){const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
-      qualifyDemoDisplay(imported);
+      const imported=await this.importedApproval(c,s,id,approval,display.artist);
       return {artwork:imported,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
     }
     // Snapshot IDs are stable across repeat requests; URI is only a relative inventory name.
-    const digest=createHash("sha256").update(`${s.tenantId}:${id}:${approval.revision}`).digest("hex");
-    const revisionId=`${digest.slice(0,8)}-${digest.slice(8,12)}-4${digest.slice(13,16)}-8${digest.slice(17,20)}-${digest.slice(20,32)}`;
+    const revisionId=revisionIdentity(s,id,approval.revision);
     const artwork: Artwork={schemaVersion:"1.0.0-draft.1",kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:"meter",coordinates:"right-handed-y-up",dimensions:{width:m.dimensions.width,height:m.dimensions.height,...(m.dimensions.depth===undefined?{}:{depth:m.dimensions.depth})},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}})}};
     if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
