@@ -24,7 +24,8 @@
 .viewer-brief h2{font-size:1.125rem;line-height:1.4;margin:0 0 .4rem}
 .viewer-brief p+p{margin-top:.4rem}
 .viewer-brief h2:focus{outline:2px solid currentColor;outline-offset:-2px}
-@media(max-height:480px){.viewer-brief{flex-direction:row;gap:.75rem}.viewer-brief-copy{flex:1 1 auto}.viewer-brief>button{align-self:center}}
+/* Reserve guide space before reserving the full touch-pad inset on short screens. */
+@media(max-height:480px){.immersive-viewer[data-input-mode=touch]>.viewer-brief{--viewer-guide-bottom:min(12rem,max(1rem,calc(100dvh - 9.5rem)))}.viewer-brief{flex-direction:row;gap:.75rem;max-height:calc(100dvh - var(--viewer-guide-bottom,1.25rem) - 3.5rem)}.viewer-brief-copy{flex:1 1 auto}.viewer-brief>button{align-self:center}}
 
 .publication-live-stage{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity 160ms ease-out}
 .publication-live-stage[data-stage-ready=true],.publication-live-stage:has([aria-label="3D 관람 오류"]){opacity:1;pointer-events:auto}
