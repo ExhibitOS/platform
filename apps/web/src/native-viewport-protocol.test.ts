@@ -2,7 +2,8 @@
 import {describe,it,expect} from 'vitest';
 import {newDraft} from './drafts/example';
 import {checkedFrame,nativeGeometryAction,geometryProposal,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
-import {newDoor} from './geometry/model';
+import {newDoor,applyGeometryCommand,createGeometryState,undoGeometry} from './geometry/model';
+import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL} from '@exhibitos/studio-contract';
 const uuid=()=>crypto.randomUUID();
 const frame=():NativeViewportFrame=>({version:1,epoch:uuid(),sequence:1,tenantId:uuid(),principalId:uuid(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
 function selectedArchitecture() {
@@ -22,6 +23,36 @@ function selectedArchitecture() {
  return {f,actions};
 }
 describe('native viewport frame and shared geometry proposal boundary',()=>{
+ it('sets and removes only the selected surface material through the existing validated command path',()=>{
+  const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces[0]!.id,otherId=f.draft.candidate.surfaces[1]!.id;
+  const other={color:'#123456',roughness:.3,metalness:.1},material={color:'#abcdef',roughness:0,metalness:1};
+  f.draft.candidate.extensions![MATERIAL_NAMESPACE]={version:1,surfaces:{[surfaceId.toUpperCase()]:other,[otherId]:other}};
+  const selected:NativeViewportFrame={...f,selection:{kind:'surface',id:surfaceId}},original=structuredClone(selected);
+  const command={type:'set-material' as const,surfaceId,material},state=applyGeometryCommand(createGeometryState(f.draft.candidate),command);
+  const result=nativeGeometryAction(selected,command),expected=structuredClone(f.draft.candidate);
+  expected.extensions![MATERIAL_NAMESPACE]={version:1,surfaces:{[surfaceId]:material,[otherId]:other}};
+  expect(result).toEqual(expected);expect(result).toEqual(state.present);expect(undoGeometry(state).present).toEqual(f.draft.candidate);
+  expect(checkedFrame({...selected,draft:{...f.draft,candidate:result}}).draft.candidate).toEqual(result);
+  const removed=nativeGeometryAction({...selected,draft:{...f.draft,candidate:result}},{...command,material:null});
+  expected.extensions![MATERIAL_NAMESPACE]={version:1,surfaces:{[otherId]:other}};
+  expect(removed).toEqual(expected);expect(materialFor(removed,surfaceId)).toEqual(DEFAULT_MATERIAL);expect(selected).toEqual(original);
+ });
+ it('denies material edits outside the enabled current selected surface and closed action envelope',()=>{
+  const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces[0]!.id;
+  const selected:NativeViewportFrame={...f,selection:{kind:'surface',id:surfaceId}},original=structuredClone(selected);
+  const command={type:'set-material' as const,surfaceId,material:{color:'#abcdef',roughness:.8,metalness:0}};
+  for(const invalid of [{...selected,disabled:true},{...selected,selection:null},{...selected,selection:{kind:'room' as const,id:surfaceId}},{...selected,selection:{kind:'surface' as const,id:uuid()}}])expect(()=>nativeGeometryAction(invalid,command)).toThrow('VIEWPORT_COMMAND_DENIED');
+  for(const action of [{...command,surfaceId:'invalid'},{...command,surfaceId:uuid()},{...command,extra:true},{type:command.type,surfaceId},...['',0,false,[],undefined].map(material=>({...command,material}))])expect(()=>nativeGeometryAction(selected,action as NativeGeometryAction)).toThrow('VIEWPORT_COMMAND_DENIED');
+  expect(()=>nativeGeometryAction(checkedFrame(selected,selected),command)).toThrow('VIEWPORT_FRAME_STALE');
+  const missing=uuid();expect(()=>nativeGeometryAction({...selected,selection:{kind:'surface',id:missing}},{...command,surfaceId:missing})).toThrow();
+  expect(selected).toEqual(original);
+ });
+ it('keeps strict material metadata validation without mutating the source on refusal',()=>{
+  const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces[0]!.id;
+  const selected:NativeViewportFrame={...f,selection:{kind:'surface',id:surfaceId}},original=structuredClone(selected),valid={color:'#abcdef',roughness:.8,metalness:0};
+  for(const material of [{...valid,color:'#ABCDEF'},{...valid,color:'#fff'},{...valid,roughness:-.1},{...valid,roughness:1.1},{...valid,metalness:NaN},{...valid,metalness:Infinity},{...valid,roughness:'0.8'},{...valid,extra:true},{color:valid.color,roughness:.8},{}])expect(()=>nativeGeometryAction(selected,{type:'set-material',surfaceId,material} as NativeGeometryAction)).toThrow('INVALID_GEOMETRY');
+  expect(selected).toEqual(original);
+ });
  it('refuses stale scopes, invalid document and unknown commands without changing the source',()=>{
   const f=frame(),original=structuredClone(f);expect(checkedFrame(f)).toEqual(f);
   for(const bad of [{...f,version:2},{...f,extra:true},{...f,selection:{kind:'room',id:uuid()}},{...f,sequence:0},{...f,cameraSequence:-1},{...f,cameraSequence:0.5},{...f,transparent:'true'}])expect(()=>checkedFrame(bad)).toThrow();
