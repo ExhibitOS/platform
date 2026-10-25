@@ -1415,7 +1415,15 @@ export function GeometryPreview({
             return;
           }
           const prior=pending.get(art.revisionId);
-          if(prior&&desired.get(art.revisionId)===inventory.id)return;
+          if(prior&&desired.get(art.revisionId)===inventory.id){
+            // Promote the same preparation; aborting here restarts verified
+            // download/decode exactly when the viewer turns towards the work.
+            if(art.revisionId===currentArtwork){
+              const task=tasks.get(prior);if(task)task.prepareOnly=false;
+              void scheduler.request(prior,-100);
+            }
+            return;
+          }
           const ready=prepared.get(inventory.id);
           if(ready&&prepareOnly)return;
           const cached=byteCache.get(inventory.id);
@@ -1437,7 +1445,8 @@ export function GeometryPreview({
           desired.set(art.revisionId, inventory.id);
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
-          tasks.set(key, { art, inventory, prepareOnly, downloadOnly });
+          const task={ art, inventory, prepareOnly, downloadOnly };
+          tasks.set(key,task);
           void scheduler
             .request(key, art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art))
             .then(({object}) => {
@@ -1452,7 +1461,7 @@ export function GeometryPreview({
               if(peak.total()+(object.userData.viewer?.decodedBytes??0)>assetBudgetBytes){
                 destroy(object);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
               }
-              if(prepareOnly&&currentArtwork!==art.revisionId){
+              if(task.prepareOnly&&currentArtwork!==art.revisionId){
                 if(preparing.has(art.revisionId)){prepared.set(inventory.id,{artId:art.revisionId,object,lastUseful:performance.now()});stage(inventory.id,'prepared-resident');}
                 else destroy(object);
                 update();return;
@@ -1489,7 +1498,7 @@ export function GeometryPreview({
                 if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
                 retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===currentArtwork?500:5000):Infinity);
                 if(error?.message==='ASSET_TRANSITION_PEAK'&&art.revisionId===currentArtwork)reclaimForCurrent();
-                if(prepareOnly||active.has(art.revisionId)){update();return;}
+                if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget);
@@ -1601,15 +1610,17 @@ export function GeometryPreview({
             }
             let transition=transitions.get(art.revisionId);if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
             const want=transition.update(screenDemand,now);
-            return {art,visible,distance,focused,want,occupancy:maxOccupancy,gazeDistance,eligible};
+            return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible};
           });
-          const candidates=observations.map(v=>({id:v.art.revisionId,demand:v.want,occupancy:v.occupancy,focused:v.focused,gazeDistance:v.gazeDistance,distance:v.distance,eligible:v.eligible}));
+          // Attention and detail grace run together rather than adding two
+          // consecutive dwell delays before the first detailed request.
+          const candidates=observations.map(v=>({id:v.art.revisionId,demand:v.demand||(v.art.revisionId===attention.current()&&v.want),occupancy:v.occupancy,focused:v.focused,gazeDistance:v.gazeDistance,distance:v.distance,eligible:v.eligible}));
           currentArtwork=attention.update(candidates,now);
           if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
           for(const observation of observations)observedVisible.set(observation.art.revisionId,observation.visible);
           preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
           // Cancel obsolete preparation without releasing its unsettled reservation.
-          for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&(artId===currentArtwork||!preparing.has(artId))){scheduler.cancel(key);pending.delete(artId);}}
+          for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&artId!==currentArtwork&&!preparing.has(artId)){scheduler.cancel(key);pending.delete(artId);}}
           for(const [id,value] of prepared){
             if(preparing.has(value.artId)||value.artId===currentArtwork)value.lastUseful=now;
             else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}

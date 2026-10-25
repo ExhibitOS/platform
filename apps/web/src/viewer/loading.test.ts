@@ -16,6 +16,20 @@ describe('authored painting near tiers',()=>{
   b.focused=false;a.occupancy=.6;expect(owner.update([a,b],900)).toBe('b');expect(owner.update([a,b],1200)).toBe('a');
   expect(owner.update([],1300)).toBeUndefined();
  });
+ it('acquires alongside detail dwell and keeps the attended tier through a brief look away',()=>{
+  const owner=new ArtworkAttention(),transition=new DetailTransition();
+  const observe=(demand:boolean,now:number)=>{
+   const want=transition.update(demand,now);
+   return {want,current:owner.update([{id:'painting',demand:demand||(owner.current()==='painting'&&want),occupancy:demand?.2:0,focused:false}],now)};
+  };
+  expect(observe(true,0)).toEqual({want:false,current:undefined});
+  expect(observe(true,300)).toEqual({want:true,current:'painting'});
+  expect(observe(false,400)).toEqual({want:true,current:'painting'});
+  expect(observe(true,600)).toEqual({want:true,current:'painting'});
+  expect(observe(false,700)).toEqual({want:true,current:'painting'});
+  expect(observe(false,2499)).toEqual({want:true,current:'painting'});
+  expect(observe(false,2500)).toEqual({want:false,current:undefined});
+ });
  it('uses a valid compact coarse and rejects missing refs instead of fetching an oversized full',()=>{
   const {a,full,coarse}=image();expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toBe(coarse);expect(selectAssetVariant(a,0,DEVICE_BUDGETS.desktop)).toBe(full);
   a.assets=a.assets.filter(v=>v.id!==coarse.id);expect(()=>selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toThrow('VIEWER_LOD_INVALID');
@@ -128,6 +142,7 @@ describe('shared attended artwork preparation',()=>{
   const item=(id:string,distance:number,eligible=true)=>({id,distance,eligible,demand:false,occupancy:0,focused:false});
   const items=[item('current-painting',1),item('same-wall-painting',2),item('near-door-sculpture',3),item('behind-wall-sculpture',.5,false),item('unrelated-room-painting',1,false),item('far-sculpture',9)];
   expect(nearbyPreparation(items,'current-painting')).toEqual(['same-wall-painting','near-door-sculpture']);
+  expect(nearbyPreparation(items,undefined)).toEqual(['current-painting','same-wall-painting']);
   const owner=new ArtworkAttention();const sculpture={...item('sculpture',2),demand:true,gazeDistance:.02};
   owner.update([sculpture],0);expect(owner.update([sculpture],300)).toBe('sculpture');
  });
@@ -151,6 +166,26 @@ describe('shared attended artwork preparation',()=>{
 
 
 describe('displayed detail pressure and generation isolation',()=>{
+ it('promotes a queued preparation in place before peers and reclaims expendable memory only after promotion',async()=>{
+  let resident=80;const peak=new AssetPeakBudget(100,()=>resident),started:string[]=[];
+  let finish!:()=>void;const role={prepareOnly:true};
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:async key=>{
+   started.push(key);
+   if(key==='blocking')await new Promise<void>(resolve=>finish=resolve);
+   if(key==='prepared'){
+    if(!role.prepareOnly)resident-=30;
+    peak.reserve(key,40);
+   }
+   return key;
+  }});
+  const blocking=scheduler.request('blocking');await tick();
+  const peer=scheduler.request('peer',100),prepared=scheduler.request('prepared',100);
+  role.prepareOnly=false;expect(scheduler.request('prepared',-100)).toBe(prepared);
+  finish();await blocking;expect(await prepared).toBe('prepared');await peer;
+  expect(started).toEqual(['blocking','prepared','peer']);
+  expect(scheduler.stats()).toMatchObject({completed:3,failed:0,cancelled:0});
+  expect(peak.total()).toBe(90);peak.release('prepared');scheduler.dispose();
+ });
  const paired=(kind:'image'|'sculpture')=>{
   const artwork=syntheticArtwork(kind),full=artwork.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:100};full.bytes=1000;artwork.assets.push(coarse);
   artwork.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',...(kind==='sculpture'?{triangles:100}:{textureSize:2048})},{assetId:coarse.id,detail:'coarse',...(kind==='sculpture'?{triangles:20}:{textureSize:512})}]}};
@@ -179,6 +214,12 @@ describe('displayed detail pressure and generation isolation',()=>{
   expect(displayedDetailReclamation([{...item,visible:false}],'current',1799,DEVICE_BUDGETS.desktop)).toBeUndefined();
   expect(displayedDetailReclamation([{...item,visible:false}],'current',1800,DEVICE_BUDGETS.desktop)).toEqual({id:'full-only',evict:true});
   expect(displayedDetailReclamation([{...item,visible:false}],'full-only',5000,DEVICE_BUDGETS.desktop)).toBeUndefined();
+ });
+ it('downgrades an offscreen authored pair without discarding its renderable work on a quick turn back',()=>{
+  const {artwork,full,coarse}=paired('image');
+  const item={id:'painting',artwork,assetId:full.id,visible:false,lastAttended:0};
+  expect(displayedDetailReclamation([item],'current',1800,DEVICE_BUDGETS.desktop)).toEqual({id:'painting',evict:false,assetId:coarse.id});
+  expect(displayedDetailReclamation([{...item,assetId:coarse.id}],'current',1800,DEVICE_BUDGETS.desktop)).toBeUndefined();
  });
  it('ignores a stale non-abort rejection without poisoning the succeeding request retry/failure state',()=>{
   const pending=new Map([['art','new-key']]),retryAfter=new Map<string,number>(),failed=new Set<string>();

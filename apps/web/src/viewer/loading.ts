@@ -84,7 +84,8 @@ export class ArtworkAttention {
 }
 /** At most two plausible short-move/turn neighbors, without a media-specific quota. */
 export function nearbyPreparation(items:ReadonlyArray<AttentionCandidate>,current:string|undefined){
- if(current===undefined)return [];
+ // Walking/turning can leave no attended artwork. Keep the bounded nearby
+ // preparation alive so the first focused work need not start from a cold load.
  return [...items].filter(v=>v.id!==current&&v.eligible&&Number.isFinite(v.distance)&&(v.distance??Infinity)<=6)
   .sort((a,b)=>Number(b.demand)-Number(a.demand)||(a.distance!-b.distance!)||(a.gazeDistance??Infinity)-(b.gazeDistance??Infinity)||a.id.localeCompare(b.id)).slice(0,2).map(v=>v.id);
 }
@@ -94,18 +95,18 @@ export function settleAssetGeneration(pending:Map<string,string>,artId:string,ke
  pending.delete(artId);return true;
 }
 /** Pressure may reclaim one old displayed detail, never the attended object.
- * Visible replacements must use a real supported authored coarse tuple. */
+ * Prefer a real coarse replacement even offscreen, preserving a quick turn back. */
 export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;visible:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){
  if(!current)return undefined;
  for(const item of [...items].sort((a,b)=>Number(a.visible)-Number(b.visible)||a.lastAttended-b.lastAttended||a.id.localeCompare(b.id))){
   if(item.id===current||now-item.lastAttended<1800)continue;
   let full;try{full=lodVariantsFor(item.artwork).find(v=>v.detail==='full');}catch{continue;}
   if(full?.assetId.toLowerCase()!==item.assetId.toLowerCase())continue;
-  if(!item.visible)return {id:item.id,evict:true as const};
   try{
    const coarse=selectAssetVariant(item.artwork,Infinity,budget);
    if(coarse.id.toLowerCase()!==item.assetId.toLowerCase())return {id:item.id,evict:false as const,assetId:coarse.id};
   }catch{/* No real supported replacement: retain the visible object. */}
+  if(!item.visible)return {id:item.id,evict:true as const};
  }
  return undefined;
 }
