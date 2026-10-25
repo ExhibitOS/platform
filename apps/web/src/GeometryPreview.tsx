@@ -1419,7 +1419,8 @@ export function GeometryPreview({
           if(!ready&&full&&authoredImagePair(art)){
             try{
               const ceiling=cached?assetDecodeReserve(art,inventory,viewerBudget,cached):imageFullDecodeCeiling(art,inventory,viewerBudget)!;
-              const reclaimable=[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
+              // A speculative load cannot spend a peer's retained preparation.
+              const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
               // Fetch a verified header first when the conservative declared square cannot fit.
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>assetBudgetBytes;
               if(downloadOnly&&cached){
