@@ -2,7 +2,18 @@
 import type {Artwork} from '@exhibitos/spec';
 import {derivative} from './derivative.ts';
 import {decode} from './imports.ts';
-import {qualifyDemoDisplayAsset} from './demo-display-policy.ts';
+import {qualifyDemoDisplay,qualifyDemoDisplayAsset} from './demo-display-policy.ts';
+import {measureFullVariant} from './viewer-variants.ts';
+/** Only an explicitly model-typed exact primary receives a strict immutable copy.
+ * Ordinary CMS previews and every unselected GLB retain the default mark. */
+export async function publicationModelDerivative(artwork:Artwork,original:Buffer){
+ const approval=qualifyDemoDisplay(artwork,original);
+ if(approval?.canonicalMime!=='model/gltf-binary')return derivative(original,'model/gltf-binary');
+ await decode(original,'model/gltf-binary');
+ const metric=measureFullVariant(original,'model/gltf-binary');
+ if(metric.triangles!==approval.canonicalTriangles||(metric.textureSize??0)>approval.canonicalMaxTextureSize!)throw Error('DISPLAY_POLICY_INVALID');
+ return Buffer.from(original);
+}
 /** Explicit selected-file branch only. Default display keeps the existing mark. */
 export async function publicationImageDerivative(artwork:Artwork,original:Buffer,sourceAssetId=artwork.primaryAssetId){
  const approval=qualifyDemoDisplayAsset(artwork,sourceAssetId,original);

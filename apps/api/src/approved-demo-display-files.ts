@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="5b4f008fecdbe08b04abdfec2f8f427e5fc025b88d3088595d14ab7bf815ea4d";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="0a546ced57f5822fcb4f6163128e1bd524044344b74563ce069229a38b5b8302";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -161,5 +161,34 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
       "width": 512,
       "height": 391
     }
+  },
+  {
+    "approvalId": "2963550d-61e7-55ab-9be9-19813e8e5ea4",
+    "institutionRecordId": "si-99ca3d6f-6d54-45a5-9b95-f8c245a662c2",
+    "officialObjectURL": "https://americanart.si.edu/artwork/old-arrow-maker-14629",
+    "officialFileURL": "https://3d-api.si.edu/content/document/3d_package:99ca3d6f-6d54-45a5-9b95-f8c245a662c2/Old_Arrow_Maker-20k-thumb.glb",
+    "rawSourceSha256": "3bf9c83769045e91e1b212af8f5739d1ea7c6e554a3eef159540f05b2887091b",
+    "rightsEvidenceSha256": "743fe23cd881176877ddd5cb425f80fd62a43efa46b539379429276f07cfa84a",
+    "canonicalAssetSha256": "13e430d0eb72d5e2a4ef0717e5f69d56ed3d0b76b0ee0e8d987d4e3d283f3bbe",
+    "canonicalBytes": 1415084,
+    "recipeSha256": "563d11226d9cc3d386f5db50088a155561988230453d3221256a252e89a446a6",
+    "rightsEvidenceURLs": [
+      "https://www.si.edu/object/3d/old-arrow-maker%3A99ca3d6f-6d54-45a5-9b95-f8c245a662c2",
+      "https://americanart.si.edu/artwork/old-arrow-maker-14629",
+      "https://3d-api.si.edu/api/v1.0/content/file/search?model_url=99ca3d6f-6d54-45a5-9b95-f8c245a662c2&file_type=glb&rows=8",
+      "https://creativecommons.org/publicdomain/zero/1.0/"
+    ],
+    "allowedPublicUses": {
+      "staticAssets": true,
+      "OEXIncludingAsset": true,
+      "publicRepository": true,
+      "derivativeEditing": true,
+      "basis": "ExistingexactSmithsonian3D file CC0 dedication/448a candidate review; scopedcopyrightredistribution only/noendorsement or runtime-publicadmission."
+    },
+    "canonicalMime": "model/gltf-binary",
+    "canonicalRole": "model",
+    "artworkType": "sculpture",
+    "canonicalTriangles": 20000,
+    "canonicalMaxTextureSize": 512
   }
 ] as const;
