@@ -21,7 +21,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ImageDetailOwner, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -147,7 +147,7 @@ export function GeometryPreview({
   viewFov?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
-  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number})=>void;
+  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
@@ -237,6 +237,7 @@ export function GeometryPreview({
   const [walkingMode, setWalkingMode] = useState(false),
     [walkPaused, setWalkPaused] = useState(true),
     [walkLoading, setWalkLoading] = useState(false),
+    [walkPreparation,setWalkPreparation]=useState<'pending'|'ready'|'failed'>('pending'),
     [walkMessage, setWalkMessage] = useState(
       "정지 관람입니다. 걷기 시작을 선택하세요.",
     );
@@ -262,10 +263,10 @@ export function GeometryPreview({
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
   const enteredWalking=useRef(false);
-  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation]);
+  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport});},[ready,message,publicMessage,publicSource,assetReport]);
+  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive||(walkPreparation==='ready'&&walkingMode),navigationFailed:immersive&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,walkPreparation,walkingMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -296,6 +297,7 @@ export function GeometryPreview({
     setWalkingMode(false);
     setWalkPaused(true);
     setWalkLoading(false);
+    setWalkPreparation('pending');
     setReady(false);
     setAssetReport({loaded:0,failed:0});
     setMessage("공간 미리보기를 준비합니다.");
@@ -902,9 +904,11 @@ export function GeometryPreview({
               adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
               walkingActions.current = adapter.actions;
+              setWalkPreparation('ready');
             })()
               .catch(() => {
                 if (!disposed) {
+                  setWalkPreparation('failed');
                   controls.enabled = true;
                   setWalkMessage(
                     "이 전시의 시작 위치나 바닥에서 안전한 걷기를 준비할 수 없습니다. 정지 관람과 작품 목록을 사용할 수 있습니다.",
@@ -960,13 +964,17 @@ export function GeometryPreview({
         InstanceType<typeof three.Object3D>,
         Array<{ dispose: () => void }>
       >();
-      const loadArtwork = async (
-        artwork: Document["artworks"][number],
-        inventory = artwork.assets.find(
-          (a) => a.id === artwork.primaryAssetId,
-        )!,
-        taskSignal = abort.signal,
-        reserveDecode?: (bytes:ArrayBuffer)=>void,
+      const checkPublicAvailability=async(signal:AbortSignal)=>{
+        if(!publicSource)throw Error('PUBLIC_DERIVATIVE_UNAVAILABLE');
+        if(publicSource.check)await publicSource.check();
+        else{
+          const current=await fetch(`/api/v1/publications/${publicSource.publicationId}`,{credentials:'omit',cache:'no-store',signal});
+          if(!current.ok||(await current.json()).publication.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLIC_DERIVATIVE_UNAVAILABLE');
+        }
+        signal.throwIfAborted();
+      };
+      const readArtworkBytes = async (
+        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal,
       ) => {
         const signal = AbortSignal.any([abort.signal, taskSignal]);
         let bytes: ArrayBuffer;
@@ -978,20 +986,8 @@ export function GeometryPreview({
           if (!source) throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
           const cached = byteCache.get(inventory.id);
           if (cached) {
-            // Reuse is scoped to this renderer/publication and still checks authoritative availability.
-            if (publicSource.check) await publicSource.check();
-            else {
-            const current = await fetch(
-              `/api/v1/publications/${publicSource.publicationId}`,
-              { credentials: "omit", cache: "no-store", signal },
-            );
-            if (
-              !current.ok ||
-              (await current.json()).publication.revisionSha256 !==
-                publicSource.revisionSha256
-            )
-              throw Error("PUBLIC_DERIVATIVE_UNAVAILABLE");
-            }
+            // Reuse still checks authoritative availability.
+            await checkPublicAvailability(signal);
             bytes = cached;
             cacheHits++;
           } else {
@@ -1050,7 +1046,20 @@ export function GeometryPreview({
         if (!publicSource) bytes = await response!.arrayBuffer();
         if (bytes!.byteLength > 33554432 || disposed || signal.aborted)
           throw Error("DERIVATIVE_UNAVAILABLE");
+        return bytes!;
+      };
+      const loadArtwork = async (
+        artwork: Document["artworks"][number],
+        inventory = artwork.assets.find(a=>a.id===artwork.primaryAssetId)!,
+        taskSignal = abort.signal,
+        reserveDecode?: (bytes:ArrayBuffer)=>void,
+        stage?: (value:string)=>void,
+      ) => {
+        const signal=AbortSignal.any([abort.signal,taskSignal]);
+        const bytes=await readArtworkBytes(artwork,inventory,signal);
+        stage?.('verified-download');
         reserveDecode?.(bytes!);
+        stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
         const resources: Array<{ dispose: () => void }> = [];
         try {
           let object: InstanceType<typeof three.Object3D>;
@@ -1250,14 +1259,25 @@ export function GeometryPreview({
           failed = new Set<string>();
         const desired = new Map<string, string>();
         const pending=new Map<string,string>(), transitions=new Map<string,DetailTransition>(), retryAfter=new Map<string,number>(), awaySince=new Map<string,number>();
-        const imageOwner=new ImageDetailOwner(), imageFullLoads=new Set<string>();
+        const attention=new ArtworkAttention();
+        const prepared=new Map<string,{artId:string;object:InstanceType<typeof three.Object3D>;lastUseful:number}>();
+        const stages=new Map<string,{stage:string;at:number;durationsMs:Record<string,number>}>();
+        const stage=(id:string,value:string)=>{
+          const now=performance.now(),previous=stages.get(id),durationsMs={...previous?.durationsMs};
+          if(previous)durationsMs[previous.stage]=(durationsMs[previous.stage]??0)+now-previous.at;
+          stages.delete(id);stages.set(id,{stage:value,at:now,durationsMs});while(stages.size>32)stages.delete(stages.keys().next().value!);
+        };
+        let currentArtwork:string|undefined;
+        let preparing=new Set<string>();
+        const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
-        let sequence=0, automatic=true, manualFull=false, manualImageFull=false;
-        const resident=()=>[...objects.values()].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
+        let sequence=0, automatic=true, manualFull=false;
+        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(assetBudgetBytes,resident);
         const reserve=(key:string,bytes:number)=>{
-          // Compressed cache is expendable; visible decoded assets stay pinned through replacement.
-          for(const art of arts)for(const asset of art.assets)byteCache.delete(asset.id);
+          // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
+          for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=assetBudgetBytes)break;byteCache.delete(asset.id);}
+          if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=assetBudgetBytes)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
           peak.reserve(key,bytes);
         };
         const tasks = new Map<
@@ -1265,29 +1285,57 @@ export function GeometryPreview({
           {
             art: Document["artworks"][number];
             inventory: Document["artworks"][number]["assets"][number];
+            prepareOnly:boolean; downloadOnly:boolean;
           }
         >();
         const scheduler = new AssetScheduler<
-          InstanceType<typeof three.Object3D>
+          {object?:InstanceType<typeof three.Object3D>;key:string}
         >({
-          concurrency: viewerBudget.concurrency,
+          // Fetch, decode/parse and texture/shader preparation share this serial slot.
+          concurrency: 1,
           load: async (key, signal) => {
             const t = tasks.get(key)!;
-            const pair=authoredImagePair(t.art),fullImage=pair?.full.assetId.toLowerCase()===t.inventory.id.toLowerCase();
-            if(fullImage)imageFullLoads.add(key);
             try {
-              reserve(key,t.inventory.bytes*3);
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,viewerBudget,bytes)));
+              const ready=prepared.get(t.inventory.id);
+              if(ready&&!t.prepareOnly){
+                // Recheck current rights/revision before displaying a retained object.
+                await checkPublicAvailability(signal);
+                signal.throwIfAborted();
+                prepared.delete(t.inventory.id);
+                try{reserve(key,ready.object.userData.viewer?.decodedBytes??0);}catch(error){prepared.set(t.inventory.id,ready);throw error;}
+                ready.object.userData.loadKey=key;
+                return {object:ready.object,key};
+              }
+              reserve(key,t.inventory.bytes*4);
+              stage(t.inventory.id,'fetch-verify');
+              if(t.downloadOnly){
+                await readArtworkBytes(t.art,t.inventory,signal);
+                signal.throwIfAborted();
+                stage(t.inventory.id,'verified-download');
+                return {key};
+              }
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,viewerBudget,bytes)),value=>stage(t.inventory.id,value));
               object.userData.loadKey=key;
-              return object;
-            } catch(error){peak.release(key);tasks.delete(key);throw error;}
-            finally{imageFullLoads.delete(key);}
+              try{
+                signal.throwIfAborted();
+                stage(t.inventory.id,'texture-upload-shader-prepare');
+                object.traverse(node=>{if(node instanceof three.Mesh)for(const material of Array.isArray(node.material)?node.material:[node.material])for(const value of Object.values(material))if(value instanceof three.Texture)renderer.initTexture(value);});
+                renderer.compile(object,camera,scene);
+                signal.throwIfAborted();
+                // Geometry buffers are uploaded by the first draw, not compile().
+                stage(t.inventory.id,'textures-shaders-prepared-geometry-awaits-draw');
+                return {object,key};
+              }catch(error){destroy(object);throw error;}
+            } catch(error){
+              stage(t.inventory.id,signal.aborted?'cancelled-settled':error instanceof Error&&error.message==='ASSET_TRANSITION_PEAK'?'deferred-budget':'failed');
+              peak.release(key);tasks.delete(key);throw error;
+            }
           },
-          onDiscard: object=>{peak.release(object.userData.loadKey);tasks.delete(object.userData.loadKey);destroy(object);},
+          onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled');peak.release(result.key);tasks.delete(result.key);if(result.object)destroy(result.object);},
         });
         const update = () => {
           if (disposed || gpuLost) return;
-          const decodedTotal = [...objects.values()].reduce(
+          const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             0,
           );
@@ -1318,11 +1366,13 @@ export function GeometryPreview({
             budgetTotalBytes: decodedTotal + byteCache.stats().bytes,
             transitionPeakBytes: peak.total(),
             automaticDetail:automatic,
+            currentArtwork, preparedAssetIds:[...prepared.keys()], preparationStages:[...stages].map(([assetId,value])=>({assetId,...value})),
+            allocationEstimateOnly:true,
             cache: byteCache.stats(),
             scheduler: scheduler.stats(),
             assetIds: [...active.values()],
             pixelRatio: renderer.getPixelRatio(),
-            decodedBytes: [...objects.values()].reduce(
+            decodedBytes: [...objects.values(),...[...prepared.values()].map(v=>v.object)].reduce(
               (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
               0,
             ),
@@ -1334,13 +1384,13 @@ export function GeometryPreview({
             textures: renderer.info.memory.textures,
           });
           setPublicMessage(failed.size > 0
-            ? `작품 ${failed.size}개를 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요.`
-            : `작품 ${active.size}개를 불러왔어요. 작품 목록에서도 감상할 수 있어요.`);
+            ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요."
+            : "공간에서 관람할 수 있어요. 작품 목록에서도 감상할 수 있어요.");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
         };
-        const request = (art: (typeof arts)[number], full = false) => {
+        const request = (art: (typeof arts)[number], full = false, prepareOnly=false):void => {
           requested.add(art.revisionId);
           let inventory: (typeof art.assets)[number];
           try {
@@ -1362,51 +1412,48 @@ export function GeometryPreview({
           }
           const prior=pending.get(art.revisionId);
           if(prior&&desired.get(art.revisionId)===inventory.id)return;
-          const pair=authoredImagePair(art),fullImage=pair?.full.assetId.toLowerCase()===inventory.id.toLowerCase();
-          if(fullImage){
-            const anotherFull=arts.some(other=>{const p=authoredImagePair(other);return p&&other.revisionId!==art.revisionId&&active.get(other.revisionId)?.toLowerCase()===p.full.assetId.toLowerCase();});
-            const pendingFull=[...pending.values()].some(key=>{const task=tasks.get(key);return task&&authoredImagePair(task.art)?.full.assetId.toLowerCase()===task.inventory.id.toLowerCase();});
-            let ceiling:number;try{ceiling=imageFullDecodeCeiling(art,inventory,viewerBudget)!;}catch{if(!active.has(art.revisionId))request(art,false);return;}
-            if(anotherFull||pendingFull||imageFullLoads.size||peak.total()-byteCache.stats().bytes+ceiling>assetBudgetBytes){
-              // Contention does not start a request or replace a visible stage.
-              if(!active.has(art.revisionId))request(art,false);
-              return;
-            }
+          const ready=prepared.get(inventory.id);
+          if(ready&&prepareOnly)return;
+          const cached=byteCache.get(inventory.id);
+          let downloadOnly=false;
+          if(!ready&&full&&authoredImagePair(art)){
+            try{
+              const ceiling=cached?assetDecodeReserve(art,inventory,viewerBudget,cached):imageFullDecodeCeiling(art,inventory,viewerBudget)!;
+              // A speculative load cannot spend a peer's retained preparation.
+              const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
+              // Fetch a verified header first when the conservative declared square cannot fit.
+              downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>assetBudgetBytes;
+              if(downloadOnly&&cached){
+                if(art.revisionId===currentArtwork){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
+                if(!active.has(art.revisionId))request(art,false,prepareOnly);return;
+              }
+            }catch{if(!active.has(art.revisionId))request(art,false,prepareOnly);return;}
           }
           if(prior)scheduler.cancel(prior);
           desired.set(art.revisionId, inventory.id);
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
-          tasks.set(key, { art, inventory });
+          tasks.set(key, { art, inventory, prepareOnly, downloadOnly });
           void scheduler
-            .request(key, full?-100:arts.indexOf(art))
-            .then((object) => {
+            .request(key, art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art))
+            .then(({object}) => {
               peak.release(key);
-              const current=pending.get(art.revisionId)===key;
-              if(current)pending.delete(art.revisionId);
+              const current=settleAssetGeneration(pending,art.revisionId,key);
               tasks.delete(key);
+              if(!object){update();return;}
               if (disposed || !current || desired.get(art.revisionId) !== inventory.id) {
                 destroy(object);
                 return;
               }
-              const old = objects.get(art.revisionId);
-              const used = [...objects.values()]
-                .reduce(
-                  (sum, value) =>
-                    sum + (value.userData.viewer?.decodedBytes ?? 0),
-                  0,
-                );
-              if (
-                peak.total()-resident()+used +
-                  byteCache.stats().bytes +
-                  (object.userData.viewer?.decodedBytes ?? 0) >
-                assetBudgetBytes
-              ) {
-                destroy(object);
-                retryAfter.set(art.revisionId,performance.now()+5000);
-                update();
-                return;
+              if(peak.total()+(object.userData.viewer?.decodedBytes??0)>assetBudgetBytes){
+                destroy(object);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
               }
+              if(prepareOnly&&currentArtwork!==art.revisionId){
+                if(preparing.has(art.revisionId)){prepared.set(inventory.id,{artId:art.revisionId,object,lastUseful:performance.now()});stage(inventory.id,'prepared-resident');}
+                else destroy(object);
+                update();return;
+              }
+              const old = objects.get(art.revisionId);
               for (const p of ordered.filter(
                 (p) => p.artworkRevisionId === art.revisionId,
               )) {
@@ -1420,19 +1467,25 @@ export function GeometryPreview({
               objects.set(art.revisionId, object);
               const oldId=active.get(art.revisionId);
               active.set(art.revisionId, inventory.id);
+              if(art.revisionId===currentArtwork&&full)reclaiming.clear();
+              stage(inventory.id,'attached-awaiting-draw');
               if(oldId&&oldId!==inventory.id)byteCache.delete(oldId);
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
               failed.delete(art.revisionId);retryAfter.delete(art.revisionId);
               shadowPass.invalidate();
               render();
+              stage(inventory.id,'display-attached-render-requested');
               update();
             })
             .catch((error) => {
-              if(pending.get(art.revisionId)===key)pending.delete(art.revisionId);
+              const current=settleAssetGeneration(pending,art.revisionId,key);
+              // A late non-abort failure belongs to its old request, not its successor.
+              if(!current){if(error?.name==='AbortError')tasks.delete(key);if(!disposed)update();return;}
               if (!disposed) {
                 if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
-                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+5000:Infinity);
-                if(active.has(art.revisionId)){update();return;}
+                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===currentArtwork?500:5000):Infinity);
+                if(error?.message==='ASSET_TRANSITION_PEAK'&&art.revisionId===currentArtwork)reclaimForCurrent();
+                if(prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget);
@@ -1450,12 +1503,39 @@ export function GeometryPreview({
             });
           update();
         };
+        const reclaimForCurrent=()=>{
+          // Let one ready-before-swap downgrade settle before reclaiming another.
+          if([...reclaiming].some(id=>pending.has(id)))return;
+          const candidate=displayedDetailReclamation(arts.filter(art=>active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
+            id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
+          })),currentArtwork,performance.now(),viewerBudget);
+          if(!candidate)return;
+          const art=arts.find(v=>v.revisionId===candidate.id)!;
+          reclaiming.add(candidate.id);
+          if(!candidate.evict){retryAfter.delete(candidate.id);request(art,false);return;}
+          const key=pending.get(candidate.id);if(key){scheduler.cancel(key);pending.delete(candidate.id);}
+          desired.delete(candidate.id);
+          const old=objects.get(candidate.id),oldAsset=active.get(candidate.id);
+          for(const p of ordered.filter(p=>p.artworkRevisionId===candidate.id)){
+            const group=placements.get(p.id.toLowerCase());if(group){group.clear();for(const bound of placeholders.get(p.id.toLowerCase())??[])group.add(bound);}
+          }
+          objects.delete(candidate.id);active.delete(candidate.id);requested.delete(candidate.id);xrArtworks.delete(candidate.id);
+          xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
+          if(old)destroy(old);if(oldAsset)byteCache.delete(oldAsset);
+          shadowPass.invalidate();render();
+        };
         demand.current = (kind) => {
           if (kind === 'auto'){automatic=true;return;}
-          if (kind === 'full'||kind==='coarse'){automatic=false;manualFull=kind==='full';manualImageFull=manualFull;}
+          if(kind==='cancel'||kind==='coarse'){
+            preparing.clear();
+            for(const [id,value] of prepared){destroy(value.object);stage(id,'released-manual-preparation');}
+            prepared.clear();
+            if(kind==='coarse')for(const [artId,key] of pending)if(tasks.get(key)?.prepareOnly){scheduler.cancel(key);pending.delete(artId);}
+            // Unsettled jobs retain their own peak reservations until loader settlement.
+          }
+          if (kind === 'full'||kind==='coarse'){automatic=false;manualFull=kind==='full';}
           if (kind === "cancel") {
             automatic=false;
-            manualImageFull=false;
             scheduler.cancelAll();
             update();
             return;
@@ -1468,15 +1548,31 @@ export function GeometryPreview({
               : kind === "retry"
                 ? arts.filter((a) => failed.has(a.revisionId))
                 : arts.filter((a) => requested.has(a.revisionId));
-          if(kind==='next'&&!automatic&&manualFull)manualImageFull=true;
-          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull))&&(!authoredImagePair(art)||imageOwner.current()===art.revisionId));}
+          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull)));}
         };
         const automaticDemand=()=>{
-          if(disposed||gpuLost||xrActive.current)return;
+          if(disposed||gpuLost||xrActive.current||!automatic)return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+          const wallMeshes=document.surfaces.filter(v=>v.type==='wall').map(v=>surfaces.get(v.id.toLowerCase())!).filter(Boolean);
+          const clearPath=(from:InstanceType<typeof three.Vector3>,to:InstanceType<typeof three.Vector3>)=>{
+            const direction=to.clone().sub(from),length=direction.length();if(length<.2)return true;
+            const ray=new three.Raycaster(from,direction.normalize(),.05,Math.max(.05,length-.15));
+            return !ray.intersectObjects(wallMeshes,true).some(hit=>hit.object instanceof three.Mesh);
+          };
+          const contains=(room:Document['rooms'][number],point:InstanceType<typeof three.Vector3>,margin=0)=>{
+            const local=rooms.get(room.id.toLowerCase())!.worldToLocal(point.clone()),d=room.dimensions;
+            return Math.abs(local.x)<=d.width/2+margin&&Math.abs(local.z)<=d.depth/2+margin&&local.y>=-margin&&local.y<=d.height+margin;
+          };
+          const cameraRoom=document.rooms.find(room=>contains(room,camera.position));
+          const doors=document.openings.filter(v=>v.type==='door').flatMap(door=>{
+            const surface=document.surfaces.find(v=>v.id.toLowerCase()===door.surfaceId.toLowerCase()),group=surfaces.get(door.surfaceId.toLowerCase());
+            if(!surface||!group)return [];
+            const point=group.localToWorld(new three.Vector3(door.offset[0],door.offset[1],0));
+            return camera.position.distanceTo(point)<=3&&clearPath(camera.position,point)?[{point,roomId:surface.roomId}]:[];
+          });
           const observations=arts.map(art=>{
-            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0;
+            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0,gazeDistance=Infinity,eligible=false;
             const low=lodVariantsFor(art).find(v=>v.detail==='coarse');
             for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){
               const group=placements.get(p.id.toLowerCase());if(!group||!group.visible)continue;
@@ -1484,22 +1580,38 @@ export function GeometryPreview({
               if(!shown)continue;
               const points=artifactCorners(art.dimensions,[art.transform]).map(v=>group.localToWorld(new three.Vector3(...v)));
               const box=new three.Box3().setFromPoints(points),center=box.getCenter(new three.Vector3());
-              const d=camera.position.distanceTo(center);distance=Math.min(distance,d);
+              const d=box.distanceToPoint(camera.position);distance=Math.min(distance,d);
+              const room=document.rooms.find(v=>v.id.toLowerCase()===p.roomId.toLowerCase());
+              const sameRoom=cameraRoom?.id.toLowerCase()===p.roomId.toLowerCase();
+              const unobstructed=clearPath(camera.position,center);
+              const viaDoor=room&&doors.some(door=>(sameRoom||contains(room,door.point,.4))&&door.point.distanceTo(center)<=6&&clearPath(door.point,center));
+              const plausible=!!((sameRoom&&unobstructed)||viaDoor);
+              eligible=eligible||plausible;
               const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:frustum.intersectsBox(box),width:renderer.domElement.width,height:renderer.domElement.height});
-              if(!screen.visible)continue;
+              if(!screen.visible||!unobstructed)continue;
               visible=true;const isFocused=focusedPlacement.current===p.id;focused=focused||isFocused;
               const {occupancy,projectedPixels:pixels}=screen;
+              gazeDistance=Math.min(gazeDistance,screen.gazeDistance);
               maxOccupancy=Math.max(maxOccupancy,occupancy);
-              screenDemand=screenDemand||detailDemand({kind:art.artworkType,visible:true,distance:d,occupancy,projectedPixels:pixels,coarseTextureSize:low?.textureSize,focused:isFocused});
+              screenDemand=screenDemand||detailDemand({kind:art.artworkType,visible:true,distance:Math.max(.001,d),occupancy,projectedPixels:pixels,coarseTextureSize:low?.textureSize,gazeDistance:screen.gazeDistance,focused:isFocused});
             }
             let transition=transitions.get(art.revisionId);if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
             const want=transition.update(screenDemand,now);
-            return {art,visible,distance,focused,want,occupancy:maxOccupancy};
+            return {art,visible,distance,focused,want,occupancy:maxOccupancy,gazeDistance,eligible};
           });
-          const owner=imageOwner.update(observations.filter(v=>{const pair=authoredImagePair(v.art);return pair&&(pair.full.textureSize??Infinity)<=viewerBudget.maxTextureSize;}).map(v=>({id:v.art.revisionId,demand:v.want,occupancy:v.occupancy,focused:v.focused})),now);
-          for(const {art,visible,distance,focused,want} of observations){
-            const pair=authoredImagePair(art);
-            if(!automatic&&(!manualImageFull||!pair))continue;
+          const candidates=observations.map(v=>({id:v.art.revisionId,demand:v.want,occupancy:v.occupancy,focused:v.focused,gazeDistance:v.gazeDistance,distance:v.distance,eligible:v.eligible}));
+          currentArtwork=attention.update(candidates,now);
+          if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
+          for(const observation of observations)observedVisible.set(observation.art.revisionId,observation.visible);
+          preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
+          // Cancel obsolete preparation without releasing its unsettled reservation.
+          for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&(artId===currentArtwork||!preparing.has(artId))){scheduler.cancel(key);pending.delete(artId);}}
+          for(const [id,value] of prepared){
+            if(preparing.has(value.artId)||value.artId===currentArtwork)value.lastUseful=now;
+            else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
+          }
+          const sorted=[...observations].sort((a,b)=>Number(b.art.revisionId===currentArtwork)-Number(a.art.revisionId===currentArtwork));
+          for(const {art,visible,distance,focused,want} of sorted){
             if(!visible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
@@ -1512,12 +1624,19 @@ export function GeometryPreview({
                 continue;
               }
             }else awaySince.delete(art.revisionId);
-            // Do not start unrequested far assets; entrance preparation remains bounded.
-            const wantFull=want&&(!pair||owner===art.revisionId);
-            // Retain an already visible-stage full image through the short
-            // hysteresis hold, but never begin an offscreen full-image fetch.
-            if(pair&&!visible&&wantFull&&active.get(art.revisionId)?.toLowerCase()===pair.full.assetId.toLowerCase())continue;
-            if((requested.has(art.revisionId)||visible)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,wantFull&&(!pair||visible));
+            const isCurrent=art.revisionId===currentArtwork,neighbor=preparing.has(art.revisionId);
+            const wantFull=isCurrent&&want;
+            if((retryAfter.get(art.revisionId)??0)>now)continue;
+            if(isCurrent)request(art,wantFull);
+            else if(reclaiming.has(art.revisionId)){
+              if(active.has(art.revisionId))request(art,false);
+            }
+            else if(neighbor){
+              if(visible&&!active.has(art.revisionId))request(art,false);
+              else request(art,true,true);
+            }
+            else if(requested.has(art.revisionId)||visible)request(art,false);
+
           }
         };
         const statsTimer = setInterval(()=>{automaticDemand();update();}, 200);
@@ -1527,6 +1646,8 @@ export function GeometryPreview({
           scheduler.dispose();
           originalRelease();
           for (const object of objects.values()) destroy(object);
+          for(const value of prepared.values())destroy(value.object);
+          prepared.clear();
           byteCache.clear();
           renderer.domElement.dataset.disposed = "true";
         };
@@ -1567,7 +1688,7 @@ export function GeometryPreview({
         }
         if (!disposed) {
           setAssetReport({loaded:rendered,failed:unavailable});
-          if (publicSource) setPublicMessage(unavailable ? `작품 ${rendered}개를 볼 수 있어요. ${unavailable}개는 불러오지 못했어요. 다시 시도할 수 있어요.` : `공간과 작품 ${rendered}개를 볼 수 있어요.`);
+          if (publicSource) setPublicMessage(unavailable ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요." : "공간에서 관람할 수 있어요.");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
           );

@@ -18,3 +18,10 @@
 .publication-menu-panel .geometry-controls,.publication-menu-panel .viewer-settings-menu{position:static;max-width:none;max-height:none;overflow:visible;margin:0 0 1rem;background:transparent;box-shadow:none}.publication-menu-panel .geometry-controls>summary,.publication-menu-panel .viewer-settings-menu>summary{padding:.4rem 0;box-shadow:none}.publication-menu-panel .geometry-controls[open],.publication-menu-panel .viewer-settings-menu[open]{padding:0}.publication-shell .geometry-immersive .geometry-stage .walking-touch{bottom:max(1rem,env(safe-area-inset-bottom))}.viewer-brief{bottom:1.25rem}
 @media(pointer:coarse){.viewer-brief{bottom:12rem}.viewer-guide-pointer{display:none}}
 @media(pointer:fine){.viewer-guide-touch{display:none}}
+
+.publication-live-stage{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity 160ms ease-out}
+.publication-live-stage[data-stage-ready=true],.publication-live-stage:has([aria-label="3D 관람 오류"]){opacity:1;pointer-events:auto}
+.publication-entry-loading{background:var(--publication-paper,#f8fbfc)}
+.publication-entry-loading .publication-enter[disabled]{opacity:1;background:#51656a;color:#fff;cursor:progress}
+@media(prefers-reduced-motion:reduce){.publication-live-stage{transition:none}}
+.publication-shell[data-reduced-motion=true] .publication-live-stage{transition:none}

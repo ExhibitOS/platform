@@ -43,19 +43,19 @@ export function imageFullDecodeCeiling(artwork:Artwork,inventory:Artwork['assets
 }
 /** Demand is measured in screen pixels for paintings, projected area for geometry. */
 export function detailScreenBounds(input:{corners:ReadonlyArray<{x:number;y:number;z:number;depth:number}>;near:number;intersectsFrustum:boolean;width:number;height:number}){
- const hidden={visible:false,occupancy:0,projectedPixels:0};
+ const hidden={visible:false,occupancy:0,projectedPixels:0,gazeDistance:Infinity};
  if(!input.intersectsFrustum||!input.corners.length)return hidden;
- if(input.corners.some(p=>p.depth>-input.near)&&input.corners.some(p=>p.depth<=-input.near))return {visible:true,occupancy:1,projectedPixels:Math.max(input.width,input.height)};
+ if(input.corners.some(p=>p.depth>-input.near)&&input.corners.some(p=>p.depth<=-input.near))return {visible:true,occupancy:1,projectedPixels:Math.max(input.width,input.height),gazeDistance:0};
  if(input.corners.some(p=>![p.x,p.y,p.z].every(Number.isFinite)||p.z< -1||p.z>1))return hidden;
  const left=Math.min(...input.corners.map(p=>p.x)),right=Math.max(...input.corners.map(p=>p.x)),bottom=Math.min(...input.corners.map(p=>p.y)),top=Math.max(...input.corners.map(p=>p.y));
  if(right< -1||left>1||top< -1||bottom>1)return hidden;
- return {visible:true,occupancy:Math.max(0,Math.min(1,right)-Math.max(-1,left))*Math.max(0,Math.min(1,top)-Math.max(-1,bottom))/4,projectedPixels:Math.max((right-left)*input.width/2,(top-bottom)*input.height/2)};
+ return {visible:true,occupancy:Math.max(0,Math.min(1,right)-Math.max(-1,left))*Math.max(0,Math.min(1,top)-Math.max(-1,bottom))/4,projectedPixels:Math.max((right-left)*input.width/2,(top-bottom)*input.height/2),gazeDistance:Math.hypot((left+right)/2,(top+bottom)/2)};
 }
-export function detailDemand(input:{kind:string;visible:boolean;distance:number;occupancy:number;projectedPixels:number;coarseTextureSize?:number;focused:boolean}):boolean {
+export function detailDemand(input:{kind:string;visible:boolean;distance:number;occupancy:number;projectedPixels:number;coarseTextureSize?:number;gazeDistance?:number;focused:boolean}):boolean {
  if(!input.visible||!Number.isFinite(input.distance)||input.distance<=0)return false;
  if(input.focused)return true;
  return input.distance<=6 && (input.kind==='image'
-  ? input.occupancy>=.025 && input.projectedPixels>=(input.coarseTextureSize??512)*.85
+  ? input.occupancy>=.025 && input.projectedPixels>=(input.coarseTextureSize??512)*((input.gazeDistance??Infinity)<=.35?.65:.85)
   : input.occupancy>=.075);
 }
 /** Avoid switching on a passing glance, and retain detail across short view changes. */
@@ -68,19 +68,46 @@ export class DetailTransition {
   return this.full;
  }
 }
-/** One stable full-image owner; existing per-art tier hysteresis supplies the
- * 1.8s hold, while a higher-priority candidate must win for 300ms. */
-export class ImageDetailOwner {
+export interface AttentionCandidate { id:string; demand:boolean; occupancy:number; focused:boolean; gazeDistance?:number; distance?:number; eligible?:boolean }
+/** One stable attended artwork across both media; preparation shares its ordering. */
+export class ArtworkAttention {
  private owner:string|undefined;private candidate:string|undefined;private since=0;
  current(){return this.owner;}
- update(items:ReadonlyArray<{id:string;demand:boolean;occupancy:number;focused:boolean}>,now:number){
-  const best=[...items].filter(v=>v.demand).sort((a,b)=>Number(b.focused)-Number(a.focused)||b.occupancy-a.occupancy||Number(b.id===this.owner)-Number(a.id===this.owner)||a.id.localeCompare(b.id))[0]?.id;
+ update(items:ReadonlyArray<AttentionCandidate>,now:number){
+  const best=[...items].filter(v=>v.demand&&v.eligible!==false).sort((a,b)=>Number(b.focused)-Number(a.focused)||(a.gazeDistance??Infinity)-(b.gazeDistance??Infinity)||b.occupancy-a.occupancy||Number(b.id===this.owner)-Number(a.id===this.owner)||a.id.localeCompare(b.id))[0]?.id;
   if(best===this.owner){this.candidate=undefined;return this.owner;}
   if(best===undefined){this.owner=undefined;this.candidate=undefined;return undefined;}
   if(best!==this.candidate){this.candidate=best;this.since=now;}
   if(now-this.since>=300){this.owner=best;this.candidate=undefined;}
   return this.owner;
  }
+}
+/** At most two plausible short-move/turn neighbors, without a media-specific quota. */
+export function nearbyPreparation(items:ReadonlyArray<AttentionCandidate>,current:string|undefined){
+ if(current===undefined)return [];
+ return [...items].filter(v=>v.id!==current&&v.eligible&&Number.isFinite(v.distance)&&(v.distance??Infinity)<=6)
+  .sort((a,b)=>Number(b.demand)-Number(a.demand)||(a.distance!-b.distance!)||(a.gazeDistance??Infinity)-(b.gazeDistance??Infinity)||a.id.localeCompare(b.id)).slice(0,2).map(v=>v.id);
+}
+/** Claim settlement only for the exact request that still owns this artwork. */
+export function settleAssetGeneration(pending:Map<string,string>,artId:string,key:string){
+ if(pending.get(artId)!==key)return false;
+ pending.delete(artId);return true;
+}
+/** Pressure may reclaim one old displayed detail, never the attended object.
+ * Visible replacements must use a real supported authored coarse tuple. */
+export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;visible:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){
+ if(!current)return undefined;
+ for(const item of [...items].sort((a,b)=>Number(a.visible)-Number(b.visible)||a.lastAttended-b.lastAttended||a.id.localeCompare(b.id))){
+  if(item.id===current||now-item.lastAttended<1800)continue;
+  let full;try{full=lodVariantsFor(item.artwork).find(v=>v.detail==='full');}catch{continue;}
+  if(full?.assetId.toLowerCase()!==item.assetId.toLowerCase())continue;
+  if(!item.visible)return {id:item.id,evict:true as const};
+  try{
+   const coarse=selectAssetVariant(item.artwork,Infinity,budget);
+   if(coarse.id.toLowerCase()!==item.assetId.toLowerCase())return {id:item.id,evict:false as const,assetId:coarse.id};
+  }catch{/* No real supported replacement: retain the visible object. */}
+ }
+ return undefined;
 }
 export class AssetPeakBudget {
  private reservations=new Map<string,number>();

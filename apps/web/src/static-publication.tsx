@@ -3,13 +3,15 @@ import { DynamicConnectionStatus } from "./DynamicConnectionStatus";
 import { PublicPublication } from "./PublicPublication";
 import { loadStaticPublication } from "./static-publication-source";
 import "./style.css";
+const bootstrap=document.querySelector('[data-cover-bootstrap]');
+const coverTitle=bootstrap?.querySelector('h1')?.textContent??'전시를 준비하고 있어요',coverArtist=bootstrap?.querySelector('.entrance-cover-artist')?.textContent;
 const root=createRoot(document.getElementById("root")!);
 let generation=0,timer:ReturnType<typeof setTimeout>|undefined;
 function failed(){root.render(<main className="cms-shell"><h1>전시를 열지 못했어요</h1><p role="alert">전시 파일을 확인할 수 없어요. 연결 상태와 게시 상태·표시 기한을 확인한 뒤 다시 시도해 주세요.</p><button onClick={()=>void load()}>다시 시도</button></main>);}
 async function load(){
  const current=++generation;
  if(timer!==undefined)clearTimeout(timer);
- root.render(<p role="status">전시를 준비하고 있어요.</p>);
+ root.render(<main className="publication-shell"><section className="entrance-cover publication-bootstrap" data-has-image="false"><div className="entrance-cover-copy"><h1>{coverTitle}</h1>{coverArtist&&<p className="entrance-cover-artist">{coverArtist}</p>}<p role="status">전시 정보를 확인하고 있어요.</p></div></section></main>);
  try {
   const value=await loadStaticPublication();
   if(current!==generation)return;

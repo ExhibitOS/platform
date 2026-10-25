@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
-import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget } from "./export-static-publication.mjs";
+import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
 const sha=b=>createHash("sha256").update(b).digest("hex");
 export async function staticFixture(){
  const decoded=await readOex(await readFile(fixtureURL("oex/v1/examples/synthetic-media.oex"))),id=randomUUID(),exhibition=decoded.exhibition;
@@ -72,4 +72,20 @@ test('installation metadata survives bound static export without changing asset 
 test('invalid installation cannot be exported even with a matching authored revision hash',async t=>{
  const {fixture,options}=await setup(t),e=fixture.raw.exhibition;e.extensions={...e.extensions,'org.exhibitos.studio/installation':{version:1,placements:[{placementId:randomUUID(),frame:{kind:'none'}}]}};fixture.raw.publication.revisionSha256=revisionHash(e);
  await assert.rejects(exportStaticPublication(options),/OEX_PROFILE_INVALID/);await assert.rejects(lstat(options.output),{code:'ENOENT'});
+});
+
+test("static cover bootstrap escapes authored text and exposes no actionable or asset-loading shell",()=>{
+ const html=staticCoverShell('<script>title</script>', 'Artist & "credit"');
+ assert(html.includes('&lt;script&gt;title&lt;/script&gt;'));assert(html.includes('Artist &amp; &quot;credit&quot;'));
+ const dollars=staticCoverShell('$& title $` $\'', 'Artist $$');assert(dollars.includes('$&amp; title $` $&#39;'));assert(dollars.includes('Artist $$'));
+ assert(!/<(?:script|img|button|a)(?:\s|>)/i.test(html));assert(html.includes('data-cover-bootstrap'));assert(!staticCoverShell('Title').includes('entrance-cover-artist'));
+});
+
+test("static bootstrap insertion preserves literal dollar title through the actual exporter",async t=>{
+ const {fixture,options,runtime}=await setup(t);
+ fixture.raw.exhibition.title='$& title $` $\'';
+ fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ await writeFile(join(runtime,'static.html'),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"><title>ExhibitOS 전시</title></head><body><div id="root"><!--STATIC_COVER_SHELL--></div></body></html>');
+ const result=await exportStaticPublication(options),html=await readFile(join(result.output,'index.html'),'utf8');
+ assert(html.includes('<h1>$&amp; title $` $&#39;</h1>'));assert(!html.includes('STATIC_COVER_SHELL'));assert(html.includes('<title>$&amp; title $` $&#39;</title>'));
 });
