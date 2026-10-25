@@ -137,6 +137,7 @@ export function GeometryPreview({
   onXrArtworks,
   onRenderState,
   cameraRequest,
+  onSelectionFindReady,
   spaceTransparency,
   referenceTone = DEFAULT_REFERENCE_TONE,
   immersive = false,
@@ -150,6 +151,7 @@ export function GeometryPreview({
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
   viewFov?: number;
+  onSelectionFindReady?: (action:((id:string)=>boolean)|null)=>void;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
@@ -214,6 +216,8 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
+  const selectionFindAction=useRef<{document:typeof document;find:(id:string)=>boolean}|null>(null),selectionFindDocument=useRef(document);selectionFindDocument.current=document;
+  useEffect(()=>{onSelectionFindReady?.(id=>selectionFindAction.current?.document===selectionFindDocument.current?selectionFindAction.current.find(id):false);return()=>onSelectionFindReady?.(null);},[onSelectionFindReady]);
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
@@ -638,6 +642,7 @@ export function GeometryPreview({
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
       ) => {
         if(xrActive.current)return;
+        camera.near=extent/1000;camera.far=extent*100;camera.updateProjectionMatrix();
         camera.up.set(0, 1, 0);
         controls.target.copy(center);
         const savedCamera =
@@ -773,6 +778,16 @@ export function GeometryPreview({
         camera.up.set(0,1,0);camera.position.copy(pos);controls.target.copy(target);camera.lookAt(target);controls.update();render();
         setWalkMessage('선택한 안내 정류점의 정지 시점입니다. 보행이나 소리를 자동으로 시작하지 않습니다. 글 안내도 계속 읽을 수 있습니다.');
       };
+      selectionFindAction.current={document,find:id=>{
+        if(xrActive.current||selectionRef.current?.kind!=='placement'||selectionRef.current.id!==id)return false;
+        const selected=placements.get(id.toLowerCase());if(!selected)return false;
+        const box=new three.Box3().setFromObject(selected,true);if(box.isEmpty())return false;
+        const point=box.getCenter(new three.Vector3()),size=box.getSize(new three.Vector3()),extent=Math.max(...size.toArray());
+        if(!point.toArray().concat(size.toArray()).every(Number.isFinite)||extent<1e-6||extent>10000)return false;
+        const delta=camera.position.clone().sub(controls.target);if(delta.lengthSq()<1e-8)delta.set(1,.7,1);
+        const distance=extent*2.1/Math.min(1,camera.aspect);camera.near=Math.max(extent/100,distance-extent*4);camera.far=distance+extent*4;camera.updateProjectionMatrix();
+        camera.up.set(0,1,0);controls.target.copy(point);camera.position.copy(point).add(delta.normalize().multiplyScalar(distance));camera.lookAt(point);controls.update();render();return true;
+      }};
       action.current = view;
       resize();
       view(
@@ -803,7 +818,7 @@ export function GeometryPreview({
         renderer.domElement.removeEventListener("click",pick);
         renderer.domElement.removeEventListener("pointerdown",down);
         walkingActions.current = null;
-        action.current = null;
+        action.current = null;selectionFindAction.current=null;
         guideAction.current=null;
         demand.current = null;
         cancelAnimationFrame(trace.frame);
