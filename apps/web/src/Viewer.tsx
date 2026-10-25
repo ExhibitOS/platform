@@ -45,7 +45,7 @@ export function Viewer({
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
   onNavigationActive?:()=>void;
-  onStageState?:(state:{ready:boolean;message:string;error?:boolean})=>void;
+  onStageState?:(state:{ready:boolean;message:string;error?:boolean;phase?:"space"|"artwork"|"navigation"})=>void;
   appearance: (id: string) => SurfaceAppearance;
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
@@ -206,7 +206,7 @@ export function Viewer({
         inputMode={inputMode}
         onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
-        onRenderState={state=>onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message})}
+        onRenderState={state=>onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"})}
         onXrReady={xrReady}
         onXrArtworks={xrLoaded}
         document={publication.exhibition}

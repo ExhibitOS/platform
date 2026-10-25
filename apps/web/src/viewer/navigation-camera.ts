@@ -20,6 +20,7 @@ export async function createWalkingCamera({
   onMessage,
   onState,
   isPanelFocus,
+  resumeMovement,
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
@@ -32,6 +33,7 @@ export async function createWalkingCamera({
   onMessage: (text: string) => void;
   onState?: (state: NavigationState) => void;
   isPanelFocus?: (target: EventTarget | null) => boolean;
+  resumeMovement?: () => boolean;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
   const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
@@ -108,7 +110,7 @@ export async function createWalkingCamera({
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus);
+  }, isPanelFocus, resumeMovement);
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);

@@ -242,6 +242,7 @@ export function GeometryPreview({
     return () => onDetailEntryReady?.(null);
   }, [onDetailEntryReady]);
   const walkingActions = useRef<WalkingActions | null>(null);
+  const [panelResumeAvailable,setPanelResumeAvailable]=useState(false);
   const [walkingMode, setWalkingMode] = useState(false),
     [walkPaused, setWalkPaused] = useState(true),
     [walkLoading, setWalkLoading] = useState(false),
@@ -304,6 +305,7 @@ export function GeometryPreview({
     xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
     setWalkPaused(true);
+    setPanelResumeAvailable(false);
     setWalkLoading(false);
     setWalkPreparation('pending');
     setReady(false);
@@ -758,7 +760,7 @@ export function GeometryPreview({
       host.current.replaceChildren(renderer.domElement);
       // Panel scope requires the attached public canvas; before attachment its
       // closest publication shell is null.
-      if (immersive) panelResume = installPanelResume(renderer.domElement, () => walkingActions.current?.pause("panel"), () => walkingActions.current?.start());
+      if (immersive) panelResume = installPanelResume(renderer.domElement, () => walkingActions.current?.pause("panel"), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); });
       const observer = new ResizeObserver(resize);
       observer.observe(host.current);
       controls.addEventListener("change", render);
@@ -884,6 +886,7 @@ export function GeometryPreview({
                 controls,
                 canvas: renderer.domElement,
                 isPanelFocus: panelResume?.isPanelFocus,
+                resumeMovement: () => panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false,
                 settings: { ...walkSettingsRef.current },
                 render,
                 onState: (state) => {
@@ -922,7 +925,10 @@ export function GeometryPreview({
               // Media/user preferences can change while the physics module loads.
               adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
-              walkingActions.current = adapter.actions;
+              walkingActions.current = { ...adapter.actions,
+                  canResumeInput: () => !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
+                  resumeInput: () => panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false,
+                };
               setWalkPreparation('ready');
             })()
               .catch(() => {
@@ -1767,6 +1773,7 @@ export function GeometryPreview({
           <WalkingTouch
             available={ready && !xrRunning && !suspendNavigation}
             paused={walkPaused}
+            resumable={panelResumeAvailable}
             actions={walkingActions.current}
           />
         )}

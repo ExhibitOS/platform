@@ -53,3 +53,12 @@ test("tab-away, modal, error, or closed-panel invalidation rejects pending click
   expect(gate.consume(20, 30, true)).toBe(false);
   expect(click(gate)).toBe(false);
 });
+
+test("movement consumes only a panel-owned resumable session, never another stop", () => {
+ const gate=panelPaused();expect(gate.canResume()).toBe(true);
+ expect(gate.movement(false)).toBe(false);expect(gate.movement(true)).toBe(true);
+ expect(gate.movement(true)).toBe(false);expect(click(gate)).toBe(false);
+ for(const reason of ["user","escape","window","hidden","blur","pointerlock"] as const){
+  const stopped=panelPaused();stopped.mode(true,true,reason);expect(stopped.movement(true)).toBe(false);
+ }
+});

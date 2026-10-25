@@ -13,6 +13,7 @@ import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
 import { EntranceCover, coverAspectRatio } from './EntranceCover';
 import { EntranceReadingShell } from './EntranceReadingShell';
+import { EntryProgress } from "./EntryProgress";
 import { EntryTicket } from './EntryTicket';
 import "./publication-novice.css";
 import "./publication-immersive.css";
@@ -28,12 +29,13 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [menuOpen, setMenuOpen] = useState(false);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   const [stageReady, setStageReady] = useState(false);
+  const [entryPhase,setEntryPhase]=useState<"space"|"artwork"|"navigation">("space");
   const [stageMessage,setStageMessage]=useState("공간을 준비하고 있어요.");
   const [entryAttempt,setEntryAttempt]=useState(0),[entryFailed,setEntryFailed]=useState(false),[longEntry,setLongEntry]=useState(false);
   const entryGeneration=useRef(0),entryStatus=useRef<HTMLParagraphElement>(null);
   const [entryTiming,setEntryTiming]=useState<{pressedAt:number;usableAt?:number}|null>(null);
   const modeRef=useRef(mode),menuRef=useRef(menuOpen);modeRef.current=mode;menuRef.current=menuOpen;
-  const onStageState=useCallback((state:{ready:boolean;message:string;error?:boolean})=>{if(modeRef.current!=="3d"||entryAttempt!==entryGeneration.current)return;setStageMessage(state.message);if(state.error)setEntryFailed(true);if(state.ready){setEntryFailed(false);setStageReady(true);setEntryTiming(value=>value&&value.usableAt===undefined?{...value,usableAt:performance.now()}:value);}},[entryAttempt]);
+  const onStageState=useCallback((state:{ready:boolean;message:string;error?:boolean;phase?:"space"|"artwork"|"navigation"})=>{if(modeRef.current!=="3d"||entryAttempt!==entryGeneration.current)return;setStageMessage(state.message);if(state.phase)setEntryPhase(state.phase);if(state.error)setEntryFailed(true);if(state.ready){setEntryFailed(false);setStageReady(true);setEntryTiming(value=>value&&value.usableAt===undefined?{...value,usableAt:performance.now()}:value);}},[entryAttempt]);
   useEffect(()=>{if(mode!=="3d"||stageReady||entryFailed)return;entryStatus.current?.focus({preventScroll:true});const timer=setTimeout(()=>setLongEntry(true),8000);return()=>clearTimeout(timer);},[mode,stageReady,entryFailed,entryAttempt]);
   useEffect(()=>{if(stageReady&&modeRef.current==="3d"&&!menuRef.current)document.querySelector<HTMLCanvasElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});},[stageReady]);
   const [guideRequest,setGuideRequest]=useState<GuideRequest>();
@@ -77,7 +79,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     if(modeRef.current==="3d")return;
     if(viewerUnavailable){window.location.reload();return;}
     const ticketBox=entryButton.current?.getBoundingClientRect();setEntryTicketRect(ticketBox?{left:ticketBox.left,top:ticketBox.top,width:ticketBox.width}:null);
-    const current=++entryGeneration.current;modeRef.current="3d";setEntryAttempt(current);setEntryTiming({pressedAt:performance.now()});setMenuOpen(false);setStageReady(false);setEntryFailed(false);setLongEntry(false);setStageMessage("공간을 준비하고 있어요.");setMode("3d");
+    const current=++entryGeneration.current;modeRef.current="3d";setEntryAttempt(current);setEntryTiming({pressedAt:performance.now()});setMenuOpen(false);setStageReady(false);setEntryFailed(false);setLongEntry(false);setStageMessage("공간을 준비하고 있어요.");setEntryPhase("space");setMode("3d");
   };
   async function load() {
     const current = ++generation.current;
@@ -174,6 +176,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <div className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>
             {!stageReady&&<div className="publication-entry-recovery">
               <p className="publication-entry-progress" role={entryFailed?"alert":"status"} ref={entryStatus} tabIndex={-1}>{entryFailed?"공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.":longEntry?"공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.":"전시장으로 들어가고 있어요."}</p>
+              <EntryProgress active={!entryFailed} phase={entryPhase} />
               <div className="publication-entry-secondary"><button onClick={cancelEntry}>입장 취소</button><button onClick={showTextArtworks}>텍스트로 관람</button></div>
               <output hidden data-testid="entry-stage-diagnostics">{stageMessage}</output>
             </div>}
