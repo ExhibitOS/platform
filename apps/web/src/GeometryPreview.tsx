@@ -21,7 +21,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -1199,8 +1199,7 @@ export function GeometryPreview({
                       width?: number;
                       height?: number;
                     };
-                    decodedBytes +=
-                      (image?.width ?? 0) * (image?.height ?? 0) * 4 * (1+4/3);
+                    decodedBytes += textureResidentBytes(image?.width ?? 0,image?.height ?? 0);
                   }
             }
           });

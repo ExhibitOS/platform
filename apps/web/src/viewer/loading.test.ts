@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
@@ -166,6 +166,20 @@ describe('shared attended artwork preparation',()=>{
 
 
 describe('displayed detail pressure and generation isolation',()=>{
+ it('promotes real nonsquare prepared textures using conservative integer resident bytes',()=>{
+  for(const [width,height] of [[1792,1404],[512,401],[1948,2048]]){
+   const estimate=textureResidentBytes(width!,height!)+280;
+   expect(Number.isSafeInteger(estimate)).toBe(true);
+   expect(estimate).toBeGreaterThanOrEqual(width!*height!*4*(1+4/3)+280);
+   let resident=estimate+6000000;
+   const peak=new AssetPeakBudget(94633984,()=>resident);
+   resident-=estimate; // Transfer the same prepared object to the in-flight slot.
+   expect(()=>peak.reserve('same-prepared',estimate)).not.toThrow();
+   expect(peak.total()).toBe(estimate+6000000);
+   peak.release('same-prepared');resident+=estimate;
+   expect(peak.total()).toBe(estimate+6000000);
+  }
+ });
  it('promotes a queued preparation in place before peers and reclaims expendable memory only after promotion',async()=>{
   let resident=80;const peak=new AssetPeakBudget(100,()=>resident),started:string[]=[];
   let finish!:()=>void;const role={prepareOnly:true};

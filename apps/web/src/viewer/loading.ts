@@ -120,6 +120,11 @@ export class AssetPeakBudget {
  release(key:string){this.reservations.delete(key);}
  total(except?:string){return this.resident()+[...this.reservations].reduce((n,[key,bytes])=>n+(key===except?0:bytes),0);}
 }
+/** CPU bitmap plus mipmapped GPU texture, rounded up to integral bytes so a
+ * prepared object's later reservation uses the same conservative byte unit. */
+export function textureResidentBytes(width:number,height:number){
+ return Math.ceil(width*height*4*(1+4/3));
+}
 /** Conservative additional fetch/decode peak; resident old/new assets are separate. */
 export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer):number {
  const variant=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase());
