@@ -35,7 +35,8 @@ describe("immutable anonymous publication projection", () => {
     it('publishes only the approved PNG cover reference and preserves UUID-shaped public prose', async () => {
         const candidate = JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'), 'utf8')) as Exhibition;
         const image = candidate.artworks.find(a => a.artworkType === 'image')!;
-        candidate.extensions = { [ENTRANCE_NAMESPACE]: { version: 1, artist: image.primaryAssetId, introduction: 'Public cover text', imageAssetId: image.primaryAssetId.toUpperCase(), imageAlt: 'Synthetic painting', mobilePosition: 'center' }, 'private.example/notes': { token: 'private' } };
+        const presentation={ticketTitle:image.primaryAssetId,ticketDetail:'Public ticket detail',ticketAnimation:false,coverUnfold:true,doorEffect:false};
+        candidate.extensions = { [ENTRANCE_NAMESPACE]: { version: 1, artist: image.primaryAssetId, introduction: 'Public cover text', imageAssetId: image.primaryAssetId.toUpperCase(), imageAlt: 'Synthetic painting', mobilePosition: 'center',presentation }, 'private.example/notes': { token: 'private' } };
         const original = structuredClone(candidate);
         const prepared = candidate.artworks.map(a => ({ artwork: a, sourceAssetId: a.primaryAssetId, sourceSha256: a.assets[0]!.sha256, bytes: Buffer.from('Synthetic qualified bytes'), mime: a.artworkType === 'image' ? 'image/png' as const : 'model/gltf-binary' as const }));
         const { snapshot } = projectPublication(candidate, prepared, '2026-10-23T10:00:00.000Z');
@@ -43,6 +44,7 @@ describe("immutable anonymous publication projection", () => {
         expect(entranceFor(snapshot).imageAssetId).toBe(snapshot.artworks.find(a => a.artworkType === 'image')!.primaryAssetId);
         expect(entranceFor(snapshot).imageAssetId).not.toBe(image.primaryAssetId);
         expect(entranceFor(snapshot).artist).toBe(image.primaryAssetId);
+        expect(entranceFor(snapshot).presentation).toEqual(presentation);
         expect(snapshot.extensions).not.toHaveProperty('private.example/notes');
         expect(candidate).toEqual(original);
     });

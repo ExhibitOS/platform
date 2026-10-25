@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { entranceFor, MAX_COVER_BYTES } from '@exhibitos/studio-contract';
+import { entranceFor, entryPresentationFor, MAX_COVER_BYTES } from '@exhibitos/studio-contract';
 import type { PublicPublication } from './publication-client';
 import { fetchVerifiedAsset } from './viewer/loading';
 import './entrance-cover.css';
@@ -9,9 +9,10 @@ import './entrance-cover.css';
 export function EntranceCover({ publication, showImage, children }: {
   publication: PublicPublication; showImage: boolean; children: ReactNode;
 }) {
-  const settings = entranceFor(publication.exhibition), generation = useRef(0);
+  const settings = entranceFor(publication.exhibition), presentation=entryPresentationFor(publication.exhibition), generation = useRef(0);
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
+  const [unfoldConsumed,setUnfoldConsumed]=useState(false);
   const work=publication.exhibition.artworks.find(a=>a.assets.some(asset=>asset.id.toLowerCase()===settings.imageAssetId?.toLowerCase()));
   const ratio=work&&work.dimensions.height>0?work.dimensions.width/work.dimensions.height:4/3;
   useEffect(() => {
@@ -37,9 +38,13 @@ export function EntranceCover({ publication, showImage, children }: {
     }).catch(() => { if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
     return () => { abort.abort(); if(current===generation.current)generation.current++;if (objectURL) URL.revokeObjectURL(objectURL); };
   }, [publication, showImage, settings.imageAssetId, retry]);
-  return <section className="entrance-cover" aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)}>
+  return <section className="entrance-cover" aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)} data-cover-unfold={!unfoldConsumed&&presentation.coverUnfold&&showImage&&Boolean(settings.imageAssetId)}>
+    <div className="entrance-cover-spread" onFocusCapture={()=>setUnfoldConsumed(true)} onAnimationEnd={event=>{
+      // Consume decoration on first completion/focus; never wait for it to enter.
+      if(event.animationName==='cover-spread-left'||event.animationName==='cover-spread-right')setUnfoldConsumed(true);
+    }}>
     {showImage && settings.imageAssetId && <div className="entrance-cover-image" style={{aspectRatio:String(ratio)}} aria-busy={!loaded&&!failed} data-image-state={failed?'failed':loaded?'ready':'loading'}>
-      <span className="entrance-cover-image-paper" aria-hidden="true"><span/><span/><span/></span>
+      <span className="entrance-cover-image-paper" aria-hidden="true"/>
       {image&&!failed&&<img key={image.url} src={image.url} width={image.width} height={image.height} alt={settings.imageAlt} decoding="async" onLoad={()=>{if(image.generation===generation.current)setLoaded(true);}} onError={() => {if(image.generation===generation.current)setFailed(true);}} />}
       {failed && <div className="entrance-cover-image-failure"><p role="status">표지를 불러오지 못했어요. 입장과 글 관람은 이용할 수 있어요.</p><button onClick={() => setRetry(n => n + 1)}>표지 다시 불러오기</button></div>}
     </div>}
@@ -48,6 +53,7 @@ export function EntranceCover({ publication, showImage, children }: {
       {settings.artist && <p className="entrance-cover-artist">{settings.artist}</p>}
       {settings.introduction && <p className="entrance-cover-introduction">{settings.introduction}</p>}
       {children}
+    </div>
     </div>
   </section>;
 }

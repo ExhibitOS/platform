@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { expect, test } from 'vitest';
-import { ENTRANCE_NAMESPACE, MAX_COVER_BYTES, entranceFor, validateViewerEntrance } from './entrance';
+import { ENTRANCE_NAMESPACE, MAX_COVER_BYTES, entranceFor, entryPresentationFor, validateViewerEntrance } from './entrance';
 const id = 'abcdefab-0000-4000-8000-000000000001';
 const fixture = () => ({ artworks: [{ artworkType: 'image', primaryAssetId: id, assets: [{ id, role: 'image', mime: 'image/png', bytes: 1024 }] }],
   extensions: { [ENTRANCE_NAMESPACE]: { version: 1, artist: 'Artist', introduction: 'Public introduction', imageAssetId: id.toUpperCase(), imageAlt: 'A blue painting', mobilePosition: 'top' } } });
@@ -36,4 +36,33 @@ test('text poster remains valid without an image and bounded metadata rejects fu
   expect(validateViewerEntrance(candidate).valid).toBe(true);
   candidate.extensions[ENTRANCE_NAMESPACE].version = 2;
   expect(validateViewerEntrance(candidate).valid).toBe(false);
+});
+test('legacy presentation defaults are copy-safe and do not rewrite a saved document',()=>{
+  const candidate=fixture(),before=JSON.stringify(candidate),settings=entryPresentationFor(candidate);
+  expect(settings).toEqual({ticketTitle:'',ticketDetail:'',ticketAnimation:true,coverUnfold:true,doorEffect:true});
+  settings.ticketAnimation=false;settings.ticketTitle='Changed';
+  expect(entryPresentationFor({}).ticketAnimation).toBe(true);
+  expect(JSON.stringify(candidate)).toBe(before);
+});
+test('all independent authored effect combinations and public ticket prose survive save/reopen',()=>{
+  for(let mask=0;mask<8;mask++){
+    const candidate=fixture(),presentation={ticketTitle:mask===0?'😀'.repeat(80):id,ticketDetail:'Plain <b>public</b> text',ticketAnimation:!!(mask&1),coverUnfold:!!(mask&2),doorEffect:!!(mask&4)};
+    Object.assign(candidate.extensions[ENTRANCE_NAMESPACE],{presentation});
+    Object.assign(candidate.extensions,{'private.example/retained':{keep:'raw'}});
+    const before=JSON.stringify(candidate);
+    expect(validateViewerEntrance(candidate).valid).toBe(true);
+    const reopened=JSON.parse(JSON.stringify(candidate));
+    expect(entryPresentationFor(reopened)).toEqual(presentation);
+    entryPresentationFor(reopened).doorEffect=true;
+    expect(entryPresentationFor(candidate)).toEqual(presentation);
+    expect(JSON.stringify(candidate)).toBe(before);
+  }
+});
+test('invalid/future presentation settings are rejected without stripping original data',()=>{
+  const valid={ticketTitle:'Title',ticketDetail:'Detail',ticketAnimation:true,coverUnfold:true,doorEffect:true};
+  for(const presentation of [null,{}, {...valid,version:2},{...valid,ticketTitle:'x'.repeat(161)},{...valid,ticketTitle:'😀'.repeat(81)},{...valid,ticketDetail:'x'.repeat(513)},{...valid,ticketDetail:'😀'.repeat(257)},...['ticketAnimation','coverUnfold','doorEffect'].flatMap(key=>[0,null,'true'].map(value=>({...valid,[key]:value})))]){
+    const candidate=fixture();Object.assign(candidate.extensions[ENTRANCE_NAMESPACE],{presentation});
+    const before=JSON.stringify(candidate);expect(validateViewerEntrance(candidate).valid).toBe(false);
+    expect(()=>entryPresentationFor(candidate)).toThrow('VIEWER_ENTRANCE_INVALID');expect(JSON.stringify(candidate)).toBe(before);
+  }
 });

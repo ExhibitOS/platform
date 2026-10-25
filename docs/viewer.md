@@ -26,6 +26,16 @@ PNG는 전시용 watermark가 적용된 qualified bytes에서 만들고, GLB coa
 
 ## 검증과 운영 한계
 
+### 표지·입장권 연출 설정
+
+`org.exhibitos.viewer/entrance` version 1은 선택적 `presentation` 객체를 지원한다. 객체가 있으면 `ticketTitle`(최대 160자), `ticketDetail`(최대 512자), `ticketAnimation`, `coverUnfold`, `doorEffect` 다섯 필드가 모두 필요하다. 제목·설명은 일반 공개 텍스트이며 HTML·URL·새 자산·발급 자격을 추가하지 않는다. 빈 제목은 전시 제목, 빈 설명은 기존 표지 작가 문구로 표시한다. 객체가 없는 이전 문서는 그대로 유지하고 소비 시 빈 문구와 세 효과 `true`를 기본값으로 사용한다. 명시적 `false`는 독립적으로 유지한다.
+
+입장권 자체가 `입장하기` 버튼이다. 설명과 이미지를 포함한 전체 표지는 한 번의 대칭 수평 펼침을 사용하며, 좁은 화면에서는 펼침을 생략한다. 문 열림은 준비 중의 장식이며 실제 전시장 화면이나 진행률이 아니다. 효과 완료를 기다리지 않고 기존 실제 준비 완료 신호로 입장한다. 방문자의 움직임 줄이기·기기 설정은 저장된 저작자 값을 변경하지 않고 효과보다 우선한다. 취소·오류 복구·텍스트 관람은 독립 경로다.
+
+Studio는 기존 entrance namespace의 알려진 필드만 수정하고 관련 없는 확장과 원문을 보존한다. 지원하지 않는 알려진 객체·향후 구조는 명시적으로 거부하며 기본값으로 덮어쓰거나 조용히 삭제하지 않는다. 기존 OEX·공개 projection·정적 출력이 같은 객체를 운반하며 ticket 문구 안의 UUID 모양 문자열은 참조 ID로 치환하지 않는다. 새 설정을 모르는 이전 validator/runtime은 이를 명시적으로 거부할 수 있으므로 새 설정의 소비는 해당 계약을 지원하는 버전에 결속한다.
+
+연출은 [전체 종이 펼침](https://codepen.io/jessenwells/pen/pJPbBR), [입장권 참고](https://codepen.io/cliffpyles/pen/xbEdVgd), [문 열림 참고](https://codepen.io/eyedoubleyou/pen/XWWEyWQ)의 시각 방향을 참고한 독립 CSS 구현이다. 참고의 지연·반복·외부 폰트·라이브러리·자산을 복사하지 않는다. [CodePen 공개 Pen 라이선스 안내](https://blog.codepen.io/documentation/licensing/)는 공개 Pen 코드의 MIT 조건을 설명하지만, 링크만으로 특정 자산의 권리를 추정하지 않는다.
+
 GLB child process의 V8 heap128MiB·timeout8초는 native/WASM RSS의 강제 한도가 아니다. Full metric은 coarse 생성 성공 여부와 독립적으로 측정하여 단순화 실패가 기기 예산을 우회하지 않도록 한다. 생성 실패·hash 오류·권리 철회는 성공한 LOD로 표시하지 않는다.
 
 실제 reference scene과 cold/warm·60초 render 측정 정의는 [Viewer 측정 protocol](performance/viewer-protocol.md)을 따른다. 실제 [측정 결과](performance/viewer-baseline.md)는 source commit과 raw samples를 보존한다. Foundation baseline은 Viewer 성능 결과가 아니다. 물리적 iPhone/GPU 및 mobile working-set 검증은 해당 기기와 측정 근거가 있을 때만 지원 matrix에 반영한다. 공개 snapshot/variant의 DB metadata와 object bytes는 Git bundle backup에 포함되지 않으며 [storage 복원 절차](storage.md)의 일관된 DB/blob backup이 필요하다.

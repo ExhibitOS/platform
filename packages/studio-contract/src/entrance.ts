@@ -3,6 +3,13 @@ import type { MaterialValidation } from './index.js';
 
 export const ENTRANCE_NAMESPACE = 'org.exhibitos.viewer/entrance';
 export const MAX_COVER_BYTES = 8 * 1024 * 1024;
+export interface ViewerEntryPresentation {
+  ticketTitle: string;
+  ticketDetail: string;
+  ticketAnimation: boolean;
+  coverUnfold: boolean;
+  doorEffect: boolean;
+}
 export interface ViewerEntrance {
   version: 1;
   artist: string;
@@ -10,7 +17,9 @@ export interface ViewerEntrance {
   imageAssetId?: string;
   imageAlt: string;
   mobilePosition: 'center' | 'top' | 'bottom';
+  presentation?: ViewerEntryPresentation;
 }
+const presentationDefaults: ViewerEntryPresentation = { ticketTitle: '', ticketDetail: '', ticketAnimation: true, coverUnfold: true, doorEffect: true };
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -23,7 +32,7 @@ export function validateViewerEntrance(candidate: unknown): MaterialValidation {
   if (!object(candidate) || !object(candidate.extensions) || !Object.hasOwn(candidate.extensions, ENTRANCE_NAMESPACE)) return { valid: true, errors };
   const value = candidate.extensions[ENTRANCE_NAMESPACE];
   if (!object(value)) { fail('Expected entrance version 1'); return { valid: false, errors }; }
-  const keys = ['version', 'artist', 'introduction', 'imageAlt', 'mobilePosition', ...(value.imageAssetId === undefined ? [] : ['imageAssetId'])];
+  const keys = ['version', 'artist', 'introduction', 'imageAlt', 'mobilePosition', ...(value.imageAssetId === undefined ? [] : ['imageAssetId']), ...(value.presentation === undefined ? [] : ['presentation'])];
   if (value.version !== 1 || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key)) ||
       typeof value.artist !== 'string' || value.artist.length > 512 ||
       typeof value.introduction !== 'string' || value.introduction.length > 4096 ||
@@ -31,6 +40,15 @@ export function validateViewerEntrance(candidate: unknown): MaterialValidation {
       typeof value.mobilePosition !== 'string' || !['center', 'top', 'bottom'].includes(value.mobilePosition)) {
     fail('Expected bounded public artist, introduction, image description and mobile position');
     return { valid: false, errors };
+  }
+  if (value.presentation !== undefined) {
+    const p = value.presentation;
+    if (!object(p) || Object.keys(p).sort().join(',') !== 'coverUnfold,doorEffect,ticketAnimation,ticketDetail,ticketTitle' ||
+        typeof p.ticketTitle !== 'string' || p.ticketTitle.length > 160 ||
+        typeof p.ticketDetail !== 'string' || p.ticketDetail.length > 512 ||
+        typeof p.ticketAnimation !== 'boolean' || typeof p.coverUnfold !== 'boolean' || typeof p.doorEffect !== 'boolean') {
+      fail('Expected bounded public ticket text and three independent boolean presentation effects');
+    }
   }
   if (value.imageAssetId !== undefined) {
     const id = value.imageAssetId;
@@ -53,4 +71,11 @@ export function entranceFor(candidate: { extensions?: unknown; artworks?: unknow
   if (!validateViewerEntrance(candidate).valid) throw Error('VIEWER_ENTRANCE_INVALID');
   const value = object(candidate.extensions) ? candidate.extensions[ENTRANCE_NAMESPACE] : undefined;
   return structuredClone((value as ViewerEntrance | undefined) ?? defaults);
+}
+
+/** Absence keeps legacy documents unchanged; callers receive fresh authored defaults.
+ * Empty ticket text falls back to the exhibition title / entrance artist in the UI.
+ * Visitor reduced motion suppresses effects without rewriting this metadata. */
+export function entryPresentationFor(candidate: { extensions?: unknown; artworks?: unknown }): ViewerEntryPresentation {
+  return structuredClone(entranceFor(candidate).presentation ?? presentationDefaults);
 }
