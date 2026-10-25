@@ -59,7 +59,7 @@ window.exhibitosViewport={
  },
  findSelection:async value=>{
   const frame=current,request=checkedCatalogRequest(value,frame,'find');const {abort,signal}=beginCatalogRequest(request);
-  try{await catalogSession(frame!,signal);if(findCurrentSelection?.frame!==frame||!findCurrentSelection.action(request.selection.id))throw Error('VIEWPORT_SELECTION_NOT_READY');return {...catalogBinding(request),selection:request.selection,accepted:true};}
+  try{await catalogSession(frame!,signal);const finder=findCurrentSelection;if(!finder||finder.frame!==frame||!finder.action(request.selection.id))throw Error('VIEWPORT_SELECTION_NOT_READY');return {...catalogBinding(request),selection:request.selection,accepted:true};}
   finally{catalogRequests.delete(abort);abort.abort();}
  },
  action:action=>{if(!current)throw Error('VIEWPORT_NOT_READY');return action?.type==='installation-command'?nativeInstallationAction(current,action):nativeGeometryAction(current,action);},

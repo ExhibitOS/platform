@@ -38,7 +38,11 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
    object=(await loader.parseAsync(protectedBytes.bytes,'')).scene;protectedBytes.assertLoaded();signal.throwIfAborted();
    let triangles=0,memory=0;const seen=new Set<unknown>();object.traverse(node=>{if(!(node instanceof three.Mesh))return;
     const geometry=node.geometry;triangles+=(geometry.index?.count??geometry.getAttribute('position')?.count??0)/3;
-    for(const attribute of Object.values(geometry.attributes)){if(!seen.has(attribute)){seen.add(attribute);memory+=attribute.array.byteLength;}}
+    for(const attribute of Object.values(geometry.attributes)){
+     if(!(attribute instanceof three.BufferAttribute)&&!(attribute instanceof three.InterleavedBufferAttribute))throw Error('THUMBNAIL_ATTRIBUTE_UNSUPPORTED');
+     const buffer=attribute instanceof three.InterleavedBufferAttribute?attribute.data:attribute;
+     if(!seen.has(buffer)){seen.add(buffer);memory+=buffer.array.byteLength;}
+    }
     if(geometry.index&&!seen.has(geometry.index)){seen.add(geometry.index);memory+=geometry.index.array.byteLength;}
     for(const material of Array.isArray(node.material)?node.material:[node.material])for(const item of Object.values(material))if(item instanceof three.Texture&&!seen.has(item)){seen.add(item);const image=item.image as {width?:number;height?:number}|undefined;const w=image?.width??0,h=image?.height??0;if(w>1024||h>1024)throw Error('THUMBNAIL_TEXTURE_LIMIT');memory+=w*h*4*4/3;}
    });if(triangles>150000||memory>32*1024*1024)throw Error('THUMBNAIL_MODEL_LIMIT');
