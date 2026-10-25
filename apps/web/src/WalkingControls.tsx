@@ -24,6 +24,7 @@ export function WalkingControls({
   onSettings,
   actions,
   message,
+  allowPointerCapture = true,
 }: {
   available: boolean;
   walking: boolean;
@@ -32,6 +33,7 @@ export function WalkingControls({
   onSettings: (settings: WalkingSettings) => void;
   actions: WalkingActions | null;
   message: string;
+  allowPointerCapture?: boolean;
 }) {
   return (
     <section className="walking-controls" aria-label="걷기 조작">
@@ -65,7 +67,7 @@ export function WalkingControls({
         화면 오른쪽 드래그로 위·아래·좌우를 둘러봅니다. 버튼을 누르는 동안 움직이고
         손을 떼면 멈춥니다.
       </p>
-        <button disabled={!available} onClick={() => actions?.capture()}>마우스 시점 잡기</button>
+        {allowPointerCapture && <button disabled={!available} onClick={() => actions?.capture()}>마우스 시점 잡기</button>}
       <div className="walking-settings">
         <label>
           보행 속도

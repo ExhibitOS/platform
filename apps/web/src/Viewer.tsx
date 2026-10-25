@@ -22,6 +22,8 @@ import type { PublicPublication } from "./publication-client";
 import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio";
 import { AudioControls } from "./viewer/AudioControls";
 import { DEVICE_BUDGETS, deviceBudget } from "./viewer/loading";
+import { useMediaPreference } from "./publication-accessibility";
+import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "./ViewerInputGuide";
 export function Viewer({
   publication,
   appearance,
@@ -58,6 +60,9 @@ export function Viewer({
   const analytics = useRef<ViewerAnalytics | null>(null);
   const [viewFov,setViewFov]=useState<number|"authored">(48);
   const [introDismissed,setIntroDismissed]=useState(false);
+  const [guideSequence,setGuideSequence]=useState(0);
+  const [inputMode,setInputMode]=useState<ViewerInputMode>("auto");
+  const [coarsePointer]=useMediaPreference("(pointer: coarse)");
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const analyticsConsentRef = useRef(false);
   useEffect(() => {
@@ -192,12 +197,14 @@ export function Viewer({
     [publication],
   );
   return (
-    <section className={immersive ? "immersive-viewer" : undefined} aria-label="전시 Viewer">
-      {immersive && !introDismissed && <aside className="viewer-brief" aria-label="짧은 관람 안내"><p><span className="viewer-guide-pointer">방향키로 걷고 드래그로 둘러보세요.</span><span className="viewer-guide-touch">화면 버튼으로 걷고 시점을 움직이세요.</span> 작품을 선택하면 설명을 볼 수 있어요.</p><button onPointerDown={event=>event.preventDefault()} onClick={()=>setIntroDismissed(true)}>안내 닫기</button></aside>}
+    <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
+      {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>setIntroDismissed(true)} />}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       <GeometryPreview
         immersive={immersive}
         controlsHost={controlsHost}
+        inputMode={inputMode}
+        onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
         onRenderState={state=>onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message})}
         onXrReady={xrReady}
@@ -233,6 +240,7 @@ export function Viewer({
       />
       <details data-visitor-panel={immersive ? "" : undefined} className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} /></details>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<details className="viewer-settings-menu"><summary>관람 설정</summary>
+      {immersive && <button onClick={()=>{setIntroDismissed(false);setGuideSequence(n=>n+1);}}>조작 안내 다시 보기</button>}
       <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
         {immersive && <label>시야<select aria-label="시야" value={viewFov} onChange={event=>setViewFov(event.target.value==="authored"?"authored":Number(event.target.value))}><option value={42}>좁게</option><option value={48}>기본</option><option value={54}>넓게</option><option value="authored">제작자가 저장한 시야</option></select></label>}
         <p>기기에 맞는 설정을 자동으로 사용해요. 화면이 느리거나 선명도를 바꾸고 싶을 때 조정하세요.</p>
