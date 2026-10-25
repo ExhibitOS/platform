@@ -77,6 +77,8 @@ test('invalid installation cannot be exported even with a matching authored revi
 test("static cover bootstrap escapes authored text and exposes no actionable or asset-loading shell",()=>{
  const html=staticCoverShell('<script>title</script>', 'Artist & "credit"');
  assert(html.includes('&lt;script&gt;title&lt;/script&gt;'));assert(html.includes('Artist &amp; &quot;credit&quot;'));
+ const folded=staticCoverShell('Title','Artist','Short introduction',true);
+ assert(folded.includes('data-paper-state="folded"'));assert(folded.includes('entrance-paper-left'));assert(folded.includes('entrance-paper-outside entrance-cover-copy" aria-hidden="true"'));assert(folded.includes('Short introduction'));assert(folded.includes('entrance-paper-inside'));assert(!folded.includes('<img'));
  const dollars=staticCoverShell('$& title $` $\'', 'Artist $$');assert(dollars.includes('$&amp; title $` $&#39;'));assert(dollars.includes('Artist $$'));
  assert(!/<(?:script|img|button|a)(?:\s|>)/i.test(html));assert(html.includes('data-cover-bootstrap'));assert(!staticCoverShell('Title').includes('entrance-cover-artist'));
  assert(html.includes('<p class="publication-entry-status-quiet" role="status">'));
