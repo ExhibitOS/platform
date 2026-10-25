@@ -39,7 +39,7 @@ export function EntranceCover({ publication, showImage, children }: {
   }, [publication, showImage, settings.imageAssetId, retry]);
   return <section className="entrance-cover" aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)}>
     {showImage && settings.imageAssetId && <div className="entrance-cover-image" style={{aspectRatio:String(ratio)}} aria-busy={!loaded&&!failed} data-image-state={failed?'failed':loaded?'ready':'loading'}>
-      <span className="entrance-cover-image-paper" aria-hidden="true"/>
+      <span className="entrance-cover-image-paper" aria-hidden="true"><span/><span/><span/></span>
       {image&&!failed&&<img key={image.url} src={image.url} width={image.width} height={image.height} alt={settings.imageAlt} decoding="async" onLoad={()=>{if(image.generation===generation.current)setLoaded(true);}} onError={() => {if(image.generation===generation.current)setFailed(true);}} />}
       {failed && <div className="entrance-cover-image-failure"><p role="status">표지를 불러오지 못했어요. 입장과 글 관람은 이용할 수 있어요.</p><button onClick={() => setRetry(n => n + 1)}>표지 다시 불러오기</button></div>}
     </div>}
