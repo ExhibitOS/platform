@@ -1,5 +1,5 @@
 import { ViewerMark } from "./branding/ViewerMark";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { entranceFor, entryPresentationFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
@@ -44,6 +44,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [reducedMotion, setReducedMotion] = useMediaPreference("(prefers-reduced-motion: reduce)");
   const [highContrast, setHighContrast] = useMediaPreference("(prefers-contrast: more)");
   const entryButton = useRef<HTMLButtonElement>(null);
+  const [entryTicketRect,setEntryTicketRect]=useState<{left:number;top:number;width:number}|null>(null);
   const viewingHeading = useRef<HTMLHeadingElement>(null);
   const [viewingFocusRequest,setViewingFocusRequest]=useState(0);
   useEffect(()=>{if(viewingFocusRequest)viewingHeading.current?.focus();},[viewingFocusRequest]);
@@ -75,6 +76,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const enter=()=>{
     if(modeRef.current==="3d")return;
     if(viewerUnavailable){window.location.reload();return;}
+    const ticketBox=entryButton.current?.getBoundingClientRect();setEntryTicketRect(ticketBox?{left:ticketBox.left,top:ticketBox.top,width:ticketBox.width}:null);
     const current=++entryGeneration.current;modeRef.current="3d";setEntryAttempt(current);setEntryTiming({pressedAt:performance.now()});setMenuOpen(false);setStageReady(false);setEntryFailed(false);setLongEntry(false);setStageMessage("공간을 준비하고 있어요.");setMode("3d");
   };
   async function load() {
@@ -161,7 +163,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
-          <div className="publication-cover-surface" data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
+          <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
           <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}>
             <div className="publication-entry-actions">
               <EntryTicket title={entryPresentation.ticketTitle||value.exhibition.title} detail={entryPresentation.ticketDetail||entranceFor(value.exhibition).artist} active={mode==="3d"} animate={entryPresentation.ticketAnimation&&!reducedMotion} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>
