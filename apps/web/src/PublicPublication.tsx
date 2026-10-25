@@ -1,6 +1,6 @@
 import { ViewerMark } from "./branding/ViewerMark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { entranceFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -12,6 +12,7 @@ import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
 import { EntranceCover } from './EntranceCover';
+import { EntryTicket } from './EntryTicket';
 import "./publication-novice.css";
 import "./publication-immersive.css";
 const uuid =
@@ -148,6 +149,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     },
     [value],
   );
+  const entryPresentation=entryPresentationFor(value?.exhibition??{});
   return (
     <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
       <nav className="publication-skip-links" aria-label="바로 가기">
@@ -161,8 +163,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <div className={mode==="3d"?"publication-entry-loading":"publication-cover-surface"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
           <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text" && !stageReady}>
           <div className="publication-entry-actions" data-entry-state={entryFailed?'failed':longEntry?'waiting':mode==='3d'?'entering':'idle'}>
-            <button className="publication-enter" ref={entryButton} onClick={enter} disabled={mode==="3d"} aria-busy={mode==="3d"&&!stageReady}><span>{viewerUnavailable ? "3D 다시 시도 · 페이지 새로고침" : "입장하기"}</span><span className="publication-enter-stub" aria-hidden="true">↗</span></button>
-            {mode==="3d"&&<><div key={entryAttempt} className="publication-entry-ticket" aria-hidden="true"><div className="publication-entry-ticket-body"><span className="publication-entry-ticket-label">관람권</span><strong>{value.exhibition.title}</strong></div><span className="publication-entry-ticket-stub">입장</span></div><p className={`publication-entry-progress${!entryFailed&&!longEntry?' publication-entry-status-quiet':''}`} role={entryFailed?"alert":"status"} ref={entryStatus} tabIndex={-1}>{entryFailed?"공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.":longEntry?"공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.":"전시장으로 들어가고 있어요."}</p><div className="publication-entry-secondary"><button onClick={cancelEntry}>입장 취소</button><button onClick={showTextArtworks}>텍스트로 관람</button></div><output hidden data-testid="entry-stage-diagnostics">{stageMessage}</output></>}
+            <EntryTicket title={entryPresentation.ticketTitle||value.exhibition.title} detail={entryPresentation.ticketDetail||entranceFor(value.exhibition).artist} active={mode==="3d"} animate={entryPresentation.ticketAnimation&&!reducedMotion} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>
+            {mode==="3d"&&<>{entryPresentation.doorEffect&&!reducedMotion&&!entryFailed&&<div key={entryAttempt} className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>}<p className={`publication-entry-progress${!entryFailed&&!longEntry?' publication-entry-status-quiet':''}`} role={entryFailed?"alert":"status"} ref={entryStatus} tabIndex={-1}>{entryFailed?"공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.":longEntry?"공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.":"전시장으로 들어가고 있어요."}</p><div className="publication-entry-secondary"><button onClick={cancelEntry}>입장 취소</button><button onClick={showTextArtworks}>텍스트로 관람</button></div><output hidden data-testid="entry-stage-diagnostics">{stageMessage}</output></>}
             {mode === "cover" && <a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
           </div>
           </EntranceCover></div>

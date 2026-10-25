@@ -11,12 +11,14 @@ async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/exa
 describe('OEX service boundaries',()=>{
  it('preserves bounded poster settings and remaps the cover with its approved PNG inventory', async () => {
   const e = await fixture(), image = e.artworks.find(a => a.artworkType === 'image')!;
-  e.extensions = { [ENTRANCE_NAMESPACE]: { version: 1, artist: image.primaryAssetId, introduction: 'Public introduction', imageAssetId: image.primaryAssetId.toUpperCase(), imageAlt: 'Synthetic painting', mobilePosition: 'bottom' } };
+  const presentation={ticketTitle:image.primaryAssetId,ticketDetail:'Public ticket detail',ticketAnimation:true,coverUnfold:false,doorEffect:true};
+  e.extensions = { [ENTRANCE_NAMESPACE]: { version: 1, artist: image.primaryAssetId, introduction: 'Public introduction', imageAssetId: image.primaryAssetId.toUpperCase(), imageAlt: 'Synthetic painting', mobilePosition: 'bottom',presentation } };
   expect(() => checkOexProfile(e)).not.toThrow();
   const mapped = remapOex(e).exhibition;
   expect(validateViewerEntrance(mapped).valid).toBe(true);
   expect(entranceFor(mapped).imageAssetId).toBe(mapped.artworks.find(a => a.artworkType === 'image')!.primaryAssetId);
   expect(entranceFor(mapped).artist).toBe(image.primaryAssetId);
+  expect(entranceFor(mapped).presentation).toEqual(presentation);
   (e.extensions[ENTRANCE_NAMESPACE] as { imageAssetId: string }).imageAssetId = e.artworks.find(a => a.artworkType !== 'image')!.primaryAssetId;
   expect(() => checkOexProfile(e)).toThrow('OEX_PROFILE_INVALID');
  });
