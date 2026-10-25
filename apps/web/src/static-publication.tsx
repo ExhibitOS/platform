@@ -1,17 +1,19 @@
 import { createRoot } from "react-dom/client";
+import { EntranceReadingShell } from "./EntranceReadingShell";
 import { DynamicConnectionStatus } from "./DynamicConnectionStatus";
 import { PublicPublication } from "./PublicPublication";
 import { loadStaticPublication } from "./static-publication-source";
 import "./style.css";
 const bootstrap=document.querySelector('[data-cover-bootstrap]');
-const coverTitle=bootstrap?.querySelector('h1')?.textContent??'전시',coverArtist=bootstrap?.querySelector('.entrance-cover-artist')?.textContent;
+const coverTitle=bootstrap?.querySelector('.entrance-paper-left h1')?.textContent??'전시',coverArtist=bootstrap?.querySelector('.entrance-cover-artist')?.textContent;
+const coverIntroduction=bootstrap?.querySelector('.entrance-cover-introduction')?.textContent??undefined,coverHasImage=bootstrap?.getAttribute('data-has-image')==='true',coverFolded=bootstrap?.getAttribute('data-paper-state')==='folded',coverRatio=Number(bootstrap?.getAttribute('data-cover-ratio'))||4/3;
 const root=createRoot(document.getElementById("root")!);
 let generation=0,timer:ReturnType<typeof setTimeout>|undefined;
 function failed(){root.render(<main className="cms-shell"><h1>전시를 열지 못했어요</h1><p role="alert">전시 파일을 확인할 수 없어요. 연결 상태와 게시 상태·표시 기한을 확인한 뒤 다시 시도해 주세요.</p><button onClick={()=>void load()}>다시 시도</button></main>);}
 async function load(){
  const current=++generation;
  if(timer!==undefined)clearTimeout(timer);
- root.render(<main className="publication-shell"><section className="entrance-cover publication-bootstrap" data-has-image="false"><div className="entrance-cover-copy"><h1>{coverTitle}</h1>{coverArtist&&<p className="entrance-cover-artist">{coverArtist}</p>}<p className="publication-entry-status-quiet" role="status">전시 정보를 확인하고 있어요.</p></div></section></main>);
+ root.render(<main className="publication-shell"><EntranceReadingShell title={coverTitle} artist={coverArtist??undefined} introduction={coverIntroduction} hasImage={coverHasImage} folded={coverFolded} ratio={coverRatio} status={<p className="publication-entry-status-quiet" role="status">전시 정보를 확인하고 있어요.</p>}/></main>);
  try {
   const value=await loadStaticPublication();
   if(current!==generation)return;
