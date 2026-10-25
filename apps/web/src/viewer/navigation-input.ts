@@ -7,6 +7,7 @@ export function createWalkingInput(
   onPause: (reason: WalkingPauseReason) => void,
   onCaptureError: (message: string) => void,
   isPanelFocus: (target: EventTarget | null) => boolean = () => false,
+  resumeMovement: () => boolean = () => false,
 ) {
   const keys = new Set<string>(),
     touch = new Map<number, WalkAction>();
@@ -44,6 +45,15 @@ export function createWalkingInput(
     "ArrowRight",
   ]);
   const keydown = (event: KeyboardEvent) => {
+    // Respect text entry, IME, native controls, and application shortcuts even
+    // if a browser leaves the canvas as the reported active element.
+    const protectedTarget = (target: EventTarget | null) => typeof Element !== "undefined" && target instanceof Element &&
+      !!target.closest('input,textarea,select,button,summary,a[href],[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="button"],[role="dialog"],[aria-modal="true"]');
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
+      event.altKey || event.ctrlKey || event.metaKey || document.hidden ||
+      protectedTarget(event.target) || protectedTarget(document.activeElement)) return;
+    if (!enabled && /^(KeyQ|KeyW|KeyE|KeyA|KeyS|KeyD)$/.test(event.code) && !event.repeat)
+      resumeMovement(); // Synchronous start clears old inputs, then this event is applied below.
     if (
       !enabled ||
       (document.activeElement !== canvas &&
@@ -80,6 +90,8 @@ export function createWalkingInput(
     hadLock = locked;
   };
   const pointerdown = (event: PointerEvent) => {
+    if (!enabled && event.pointerType === "touch" && event.clientX >=
+      canvas.getBoundingClientRect().left + canvas.getBoundingClientRect().width / 2) resumeMovement();
     if (
       !enabled ||
       document.pointerLockElement === canvas ||

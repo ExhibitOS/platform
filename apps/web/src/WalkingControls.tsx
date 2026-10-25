@@ -7,6 +7,8 @@ export interface WalkingSettings {
 }
 export interface WalkingActions {
   start: () => void;
+  canResumeInput?: () => boolean;
+  resumeInput?: () => boolean;
   teleport?: (viewpointId: string) => void;
   pause: (reason?: WalkingPauseReason) => void;
   stationary: () => void;
@@ -112,10 +114,12 @@ export function WalkingControls({
 export function WalkingTouch({
   available,
   paused,
+  resumable = false,
   actions,
 }: {
   available: boolean;
   paused: boolean;
+  resumable?: boolean;
   actions: WalkingActions | null;
 }) {
   const move = (action: WalkAction, label: string, direction: string, symbol: string) => (
@@ -124,8 +128,10 @@ export function WalkingTouch({
       aria-label={label}
       data-walk-touch={action}
       style={{ gridArea: direction }}
-      disabled={!available || paused}
+      disabled={!available || (paused && !resumable)}
       onPointerDown={(event) => {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        if (paused && !actions?.resumeInput?.()) return;
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
         actions?.press(action, event.pointerId);

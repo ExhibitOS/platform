@@ -15,6 +15,12 @@ export function createPanelResumeGate() {
     },
     invalidate() { eligible = false; cancel(); },
     cancel,
+    canResume: () => eligible,
+    movement(allowed: boolean) {
+      const result = eligible && allowed;
+      if (result) { eligible = false; cancel(); }
+      return result;
+    },
     begin(id: number, x: number, y: number, allowed: boolean) {
       gesture = eligible && allowed ? { id, x, y, released: false } : undefined;
     },
@@ -34,7 +40,7 @@ export function createPanelResumeGate() {
   };
 }
 
-export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void, resume: () => void) {
+export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void, resume: () => void, availabilityChanged: (available: boolean) => void = () => {}) {
   const root = canvas.closest(".publication-shell");
   const gate = createPanelResumeGate(), pointers = new Set<number>();
   let panelFocus = false, focusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,11 +72,11 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void,
     gate.end(event.pointerId, event.clientX, event.clientY, event.target === canvas);
   };
   const cancel = () => gate.cancel();
-  const invalid = () => { gate.invalidate(); pointers.clear(); panelFocus = false; };
+  const invalid = () => { gate.invalidate(); pointers.clear(); panelFocus = false; availabilityChanged(false); };
   const key = (event: KeyboardEvent) => { if (event.key === "Escape") invalid(); };
   const hidden = () => { if (document.hidden) invalid(); };
   const cancelled = (event: PointerEvent) => { pointers.delete(event.pointerId); cancel(); };
-  const toggle = () => { if (!open()) gate.invalidate(); };
+  const toggle = () => { if (!open()) gate.invalidate(); availabilityChanged(canResume()); };
   document.addEventListener("pointerdown", down, true);
   document.addEventListener("pointermove", move, true);
   document.addEventListener("pointerup", up, true);
@@ -82,8 +88,19 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void,
   document.addEventListener("contextmenu", cancel, true);
   root?.addEventListener("toggle", toggle, true);
   window.addEventListener("blur", invalid);
+  const canResume = () => gate.canResume() && open() && !document.hidden &&
+    !root?.querySelector('dialog[open], [aria-modal="true"], [inert] canvas');
   return {
-    mode: gate.mode,
+    mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
+      gate.mode(walking, paused, reason); availabilityChanged(canResume());
+    },
+    canResume,
+    movement(allowed: boolean) {
+      if (!gate.movement(allowed && canResume())) return false;
+      for (const panel of panels()) panel.open = false;
+      resume();
+      return true;
+    },
     isPanelFocus: (target: EventTarget | null) => panelFocus || owns(target),
     blank(event: MouseEvent, allowed: boolean) {
       if (!gate.consume(event.clientX, event.clientY, allowed && event.isTrusted && event.button === 0 && open())) return;

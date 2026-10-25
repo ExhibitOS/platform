@@ -2,11 +2,11 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWalkingInput } from './navigation-input';
 afterEach(() => vi.unstubAllGlobals());
-function fixture() {
+function fixture(resume?: () => boolean) {
   const doc = Object.assign(new EventTarget(), { activeElement: null as unknown, pointerLockElement: null as unknown, hidden:false, exitPointerLock:vi.fn(() => {doc.pointerLockElement=null;}) });
   const canvas = Object.assign(new EventTarget(), { focus:vi.fn(()=>{doc.activeElement=canvas;}), requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn() });
   vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
-  const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error);
+  const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error,undefined,resume);
   input.enable();return {doc,canvas,input,pause,error};
 }
 test('pending capture after pause then resume releases stale native lock',async()=>{
@@ -248,4 +248,42 @@ test('Escape explicitly releases owned native capture and clears movement withou
   input.enable();
   expect(input.sample(.01).forward).toBe(0);
   input.dispose();
+});
+
+test('same Q/W/E/A/S/D event resumes and retains its existing action; release clears it',()=>{
+ for(const code of ['KeyQ','KeyW','KeyE','KeyA','KeyS','KeyD']){
+  let f:ReturnType<typeof fixture>;const resume=vi.fn(()=>{f.input.enable();return true;});f=fixture(resume);f.input.pause('panel');
+  window.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code}));
+  expect(resume).toHaveBeenCalledOnce();const value=f.input.sample(.1);
+  expect(Object.values(value).some(v=>v!==0)).toBe(true);
+  window.dispatchEvent(Object.assign(new Event('keyup'),{code}));
+  expect(f.input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});f.input.dispose();
+ }
+});
+test('IME, shortcuts, repeat and non-resume keys never start a paused session',()=>{
+ const resume=vi.fn(()=>false),f=fixture(resume);f.input.pause('panel');
+ for(const fields of [{ctrlKey:true},{metaKey:true},{altKey:true},{isComposing:true},{keyCode:229},{repeat:true},{code:'ArrowUp'}]){
+  window.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyW',...fields}));
+ }
+ expect(resume).not.toHaveBeenCalled();f.input.dispose();
+});
+test('Shift preserves movement, and background entry never resumes',()=>{
+ let f:ReturnType<typeof fixture>;const resume=vi.fn(()=>{f.input.enable();return true;});f=fixture(resume);f.input.pause('panel');
+ f.doc.hidden=true;window.dispatchEvent(Object.assign(new Event('keydown'),{code:'KeyW'}));expect(resume).not.toHaveBeenCalled();
+ f.doc.hidden=false;window.dispatchEvent(Object.assign(new Event('keydown'),{code:'KeyW',shiftKey:true}));
+ expect(f.input.sample(.1).forward).toBe(1);window.dispatchEvent(new Event('blur'));expect(f.input.sample(.1).forward).toBe(0);f.input.dispose();
+});
+test('first right touch resumes existing drag and retains the same captured pointer',()=>{
+ let f:ReturnType<typeof fixture>;const resume=vi.fn(()=>{f.input.enable();return true;});f=fixture(resume);f.input.pause('panel');
+ const pointer=(type:string,x:number)=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:8,pointerType:'touch',button:0,clientX:x,clientY:20}));
+ pointer('pointerdown',70);pointer('pointermove',80);expect(resume).toHaveBeenCalledOnce();expect(f.canvas.setPointerCapture).toHaveBeenCalledWith(8);
+ expect(f.input.sample(.1).yawDelta).toBe(-.04);pointer('pointercancel',80);pointer('pointermove',90);expect(f.input.sample(.1).yawDelta).toBe(0);f.input.dispose();
+});
+
+test('focused controls and editable event targets retain their keys without resuming',()=>{
+ class Control extends EventTarget {closest(){return this;}}
+ vi.stubGlobal('Element',Control);
+ const resume=vi.fn(()=>false),f=fixture(resume);f.input.pause('panel');
+ f.doc.activeElement=new Control();window.dispatchEvent(Object.assign(new Event('keydown'),{code:'KeyW'}));
+ expect(resume).not.toHaveBeenCalled();f.input.dispose();
 });

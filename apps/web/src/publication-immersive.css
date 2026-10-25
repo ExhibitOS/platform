@@ -33,3 +33,15 @@
 
 @media(prefers-reduced-motion:reduce){.publication-live-stage{transition:none}}
 .publication-shell[data-reduced-motion=true] .publication-live-stage{transition:none}
+
+/* Menu and sound use the same right edge, hit box, label/mark spacing and gap. */
+.publication-shell{--visitor-panel-right:clamp(1.25rem,3vw,3rem);--visitor-panel-top:1.25rem;--visitor-panel-height:3.25rem;--visitor-panel-gap:.75rem}
+.publication-mode-3d .publication-menu{right:var(--visitor-panel-right);top:var(--visitor-panel-top)}
+.publication-mode-3d .immersive-viewer>.viewer-audio-menu{right:var(--visitor-panel-right);top:calc(var(--visitor-panel-top) + var(--visitor-panel-height) + var(--visitor-panel-gap))}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary{width:7rem;height:var(--visitor-panel-height);min-height:44px;box-sizing:border-box;display:flex;justify-content:space-between;gap:.75rem;padding:.6rem 1rem;line-height:1.5;font-size:1rem}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary::after{margin-left:0;flex:none}
+@media(max-width:700px){.publication-shell{--visitor-panel-right:.75rem;--visitor-panel-top:.75rem}}
+
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary{margin-left:auto}
+.publication-mode-3d .viewer-audio-menu[open]{padding:0}
+.publication-mode-3d .viewer-audio-menu[open] .viewer-audio{padding:1rem}
