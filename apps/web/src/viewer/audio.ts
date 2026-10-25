@@ -4,7 +4,7 @@ import type { PublicPublication } from "../publication-client";
 import type { NavigationState } from "./navigation";
 import { fetchVerifiedAsset } from "./loading";
 import { authoredDistanceGain, occlusionGain } from "./audio-geometry";
-import {recordedStepPolicy,type StepHistory} from "./recorded-step-policy";
+import {recordedStepPolicy,RECORDED_STEP_LIMITS,type StepHistory,type VerifiedStepSample} from "./recorded-step-policy";
 
 export type FloorSound = "wood" | "stone" | "concrete" | "carpet";
 export interface VoicePlayback {
@@ -38,7 +38,7 @@ export interface AudioApi {
   subscribeVoice: (changed: (playback: VoicePlayback) => void) => () => void;
 }
 interface Experience {
-  footsteps: Array<{ surfaceId: string; material: string; assetId?: string }>;
+  footsteps: Array<{ surfaceId: string; material: string; assetId?: string; bank?:{assetId:string}[] }>;
   rooms: Array<{ roomId: string; reverb: number }>;
   voices: Array<{ assetId: string; placementId: string; transcript:string }>;
 }
@@ -139,6 +139,9 @@ export class ExhibitionAudio implements AudioApi {
   private availabilityTimer?: ReturnType<typeof setInterval>;
   private detail = false;
   private allowed = new Set<string>();
+  private floor?:string;
+  private stepWindow=0;
+  private failedStepPreloads=new Set<string>();
   private position: [number, number, number] = [0, 0, 0];
   private room?: string;
   private experience: Experience;
@@ -194,7 +197,7 @@ export class ExhibitionAudio implements AudioApi {
       this.state.enabled = this.context.state === "running";
       this.state.message = this.state.enabled ? "소리를 켰습니다. 걷기에서 발소리, 음성 버튼에서 설명을 들을 수 있습니다." : "브라우저가 소리를 허용하지 않았습니다. 설명을 읽거나 다시 켜세요.";
       this.updateMaster();
-      if (this.state.enabled) { const room=this.room; this.room=undefined; this.setRoom(room); this.preload();
+      if (this.state.enabled) { this.failedStepPreloads.clear(); const room=this.room; this.room=undefined; this.setRoom(room); this.preload();
         this.availabilityTimer ??= setInterval(()=>{if(this.playing.size || this.moving)void this.checkAvailability().catch(()=>{this.state.enabled=false;this.silence();this.buffers.clear();this.state.message="전시 또는 소리 권한이 변경되었습니다. 재생을 멈췄습니다.";this.emit();});},10000);
       }
     } catch { this.state.message = "소리를 시작할 수 없습니다. 음성 설명은 글로 읽을 수 있습니다."; }
@@ -226,6 +229,7 @@ export class ExhibitionAudio implements AudioApi {
   update(state: NavigationState) {
     this.position = [...state.eyePosition];
     this.setRoom(state.roomId);
+    if(this.floor!==state.floorSurfaceId){this.floor=state.floorSurfaceId;this.stepWindow=0;this.failedStepPreloads.clear();this.preload();}
     if (this.context && this.state.enabled) {
       const listener = this.context.listener, now = this.context.currentTime;
       listener.positionX.setValueAtTime(this.position[0], now); listener.positionY.setValueAtTime(this.position[1], now); listener.positionZ.setValueAtTime(this.position[2], now);
@@ -249,15 +253,20 @@ export class ExhibitionAudio implements AudioApi {
     if(!this.state.footstepsEnabled)return;
     this.audible=true;this.updateMaster();
     const context = this.context!;
-    const custom = this.experience.footsteps.find(f => f.surfaceId === state.floorSurfaceId)?.assetId;
-    let buffer = custom ? this.buffers.get(custom) : undefined;
+    const entry=this.experience.footsteps.find(f=>f.surfaceId===state.floorSurfaceId),custom=entry?.assetId;
+    const samples:VerifiedStepSample[]=entry?.bank?entry.bank.flatMap(({assetId})=>{
+      const b=this.buffers.get(assetId);if(!b)return [];
+      if(!Number.isFinite(b.duration)||b.duration<RECORDED_STEP_LIMITS.minClipSeconds||b.duration>RECORDED_STEP_LIMITS.maxClipSeconds){this.state.message='일부 녹음 발소리의 길이를 지원하지 않습니다. 사용 가능한 짧은 샘플이나 기본 발소리를 사용합니다.';return [];}
+      return [{id:assetId,durationSeconds:b.duration,verified:true as const}];
+    }):custom&&this.buffers.has(custom)?[{id:custom,durationSeconds:this.buffers.get(custom)!.duration,verified:true}]:[];
+    const decision=recordedStepPolicy(samples,{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:!this.background&&this.state.voice.status==='playing'},this.stepHistory,{selection:Math.random(),gain:Math.random(),rate:Math.random()});
+    let buffer=decision.play?this.buffers.get(decision.plan.sampleId):!entry?.bank&&custom?this.buffers.get(custom):undefined;
     if (!buffer) {
       buffer = this.steps.get(this.state.material);
       if (!buffer) { const wave = footstepWave(this.state.material, context.sampleRate); buffer = context.createBuffer(1, wave.length, context.sampleRate); buffer.copyToChannel(new Float32Array(wave), 0); this.steps.set(this.state.material, buffer); }
     }
     // Only an explicitly authored, verified loaded short WAV enters the natural-tail path.
     // Legacy long custom WAVs retain their existing 0.2s cap; no automatic segmentation.
-    const decision=custom&&this.buffers.get(custom)===buffer?recordedStepPolicy([{id:custom,durationSeconds:buffer.duration,verified:true}],{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:!this.background&&this.state.voice.status==='playing'},this.stepHistory,{selection:Math.random(),gain:Math.random(),rate:Math.random()}):undefined;
     const source = context.createBufferSource(), gain = context.createGain();
     source.buffer = buffer; gain.gain.value = 0.35*(!this.background&&this.state.voice.status==='playing'?.35:1); source.connect(gain).connect(this.background ?? this.master!); gain.connect(this.convolver!);
     this.stepSources.add(source);this.track(source, () => {this.stepSources.delete(source);gain.disconnect();});
@@ -269,6 +278,7 @@ export class ExhibitionAudio implements AudioApi {
       }else source.start(0,0,Math.min(buffer.duration,.2));
     }catch{this.stop(source);this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
     this.state.footsteps++; this.emit();
+    if(entry?.bank){this.stepWindow=(this.stepWindow+1)%entry.bank.length;this.preload();}
   }
   private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) { this.playing.add(source); source.onended = () => { this.playing.delete(source); source.disconnect(); cleanup(); this.emit(); }; }
   private worldPosition(roomId: string, local: [number, number, number]): [number, number, number] {
@@ -284,7 +294,7 @@ export class ExhibitionAudio implements AudioApi {
     const rooms = new Set([id, doc.rooms[index + 1]?.id].filter(Boolean));
     this.allowed = new Set(doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId));
     for(const voice of this.experience.voices) {const placement=doc.placements.find(p=>p.id===voice.placementId);if(placement&&rooms.has(placement.roomId))this.allowed.add(voice.assetId);}
-    for (const entry of this.experience.footsteps) { const surface = doc.surfaces.find(s => s.id === entry.surfaceId); if (entry.assetId && surface && rooms.has(surface.roomId)) this.allowed.add(entry.assetId); }
+    for (const entry of this.experience.footsteps) { const surface = doc.surfaces.find(s => s.id === entry.surfaceId); if (surface && rooms.has(surface.roomId)) for(const id of entry.bank?.map(s=>s.assetId)??(entry.assetId?[entry.assetId]:[]))this.allowed.add(id); }
     for (const [key] of this.buffers) if (!this.allowed.has(key) && ![...this.playing].some(source=>source.buffer===this.buffers.get(key))) this.buffers.delete(key);
     if (this.context && this.convolver && this.wet) {
       const room = doc.rooms[index]!;
@@ -295,14 +305,29 @@ export class ExhibitionAudio implements AudioApi {
     }
     if (this.state.enabled) this.preload(); this.emit();
   }
-  private preload() { if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return; for (const id of [...this.allowed].slice(0, 8)) void this.load(id,true).then(()=>{if(!this.allowed.has(id)&&![...this.playing].some(source=>source.buffer===this.buffers.get(id)))this.buffers.delete(id);this.emit();}).catch((error) => { if(error instanceof Error && error.message === "AUDIO_PRELOAD_STALE")return; this.state.message="일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다."; this.emit(); }); }
+  private preloadTargets(){
+    const entry=this.experience.footsteps.find(f=>f.surfaceId===this.floor),ids=entry?.bank?.map(s=>s.assetId)??(entry?.assetId?[entry.assetId]:[]);
+    const priority=[...ids.slice(this.stepWindow),...ids.slice(0,this.stepWindow)];
+    return [...new Set([...priority,...this.allowed])].filter(id=>this.allowed.has(id)&&!this.failedStepPreloads.has(id)).slice(0,8);
+  }
+  private preload() {
+    if (!this.state.enabled || !this.visible || this.disposed || this.state.muted) return;
+    const missing=this.preloadTargets().filter(id=>!this.buffers.has(id)&&!this.pending.has(id));
+    for(const id of missing.slice(0,Math.max(0,8-this.pending.size)))void this.load(id,true).then(()=>{
+      if(!this.allowed.has(id)&&![...this.playing].some(source=>source.buffer===this.buffers.get(id)))this.buffers.delete(id);this.emit();
+    }).catch(error=>{
+      if(error instanceof Error&&error.message==='AUDIO_PRELOAD_STALE')return;
+      if(this.experience.footsteps.some(f=>f.bank?.some(s=>s.assetId===id)))this.failedStepPreloads.add(id);
+      this.state.message='일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다.';this.emit();
+    }).finally(()=>{if(!this.preloadTargets().includes(id))this.preload();});
+  }
   private load(id: string, preload = false): Promise<AudioBuffer> {
     if(!preload)this.explicitLoads.add(id);
     const cached = this.buffers.get(id); if (cached) {this.explicitLoads.delete(id);return Promise.resolve(cached);}
     const pending = this.pending.get(id); if (pending) return pending;
     const promise = this.loadQueue.catch(()=>{}).then(async () => {
       if (!this.state.enabled || !this.context || this.disposed) throw Error("AUDIO_NOT_ENABLED");
-      if(preload && ((!this.visible||this.state.muted)||(!this.allowed.has(id) && !this.explicitLoads.has(id))))throw Error("AUDIO_PRELOAD_STALE");
+      if(preload && ((!this.visible||this.state.muted)||(!this.preloadTargets().includes(id) && !this.explicitLoads.has(id))))throw Error("AUDIO_PRELOAD_STALE");
       const inventory = this.publication.exhibition.mediaAssets.find(a => a.id === id), asset = this.publication.assets.find(a => a.assetId === id);
       if (!inventory || !asset || inventory.mime !== "audio/wav") throw Error("AUDIO_MISSING");
       this.state.requests++; this.emit();

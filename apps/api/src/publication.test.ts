@@ -20,6 +20,18 @@ it('preserves authored PNG coarse/full through public projection and typed OEX i
  const lod=remapped.artworks[0]!.extensions![LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]};expect(lod.variants.find(v=>v.detail==='full')!.assetId).toBe(remapped.artworks[0]!.primaryAssetId);expect(lod.variants.every(v=>remapped.artworks[0]!.assets.some(a=>a.id===v.assetId))).toBe(true);
 });
 describe("immutable anonymous publication projection", () => {
+    it('recorded step bank follows typed OEX and public media IDs without mutating the authored binding',async()=>{
+        const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+        e.surfaces[0]!.type='floor';
+        const sources=[1,2].map(n=>({id:`60000000-0000-4000-8000-00000000000${n}`,path:`media/step${n}.wav`,mime:'audio/wav' as const,bytes:1600,sha256:sha256(Buffer.alloc(1600)),rights:structuredClone(e.artworks[0]!.rights)}));
+        e.mediaAssets=sources;e.extensions={[EXPERIENCE_NAMESPACE]:{version:1,footsteps:[{surfaceId:e.surfaces.find(s=>s.type==='floor')!.id,material:'wood',bank:sources.map(s=>({assetId:s.id.toUpperCase()}))}],voices:[],annotations:[],rooms:[],translations:[]}};
+        const before=structuredClone(e),mapped=remapOex(e).exhibition;
+        const binding=(doc:Exhibition)=>doc.extensions![EXPERIENCE_NAMESPACE] as unknown as {footsteps:{surfaceId:string;bank:{assetId:string}[]}[]};
+        expect(binding(mapped).footsteps[0]!.bank.map(s=>s.assetId)).toEqual(mapped.mediaAssets.map(s=>s.id));expect(binding(mapped).footsteps[0]!.surfaceId).toBe(mapped.surfaces.find(s=>s.type==='floor')!.id);
+        const prepared=e.artworks.map(a=>({artwork:a,sourceAssetId:a.primaryAssetId,sourceSha256:a.assets[0]!.sha256,bytes:Buffer.from('synthetic bytes'),mime:a.artworkType==='image'?'image/png' as const:'model/gltf-binary' as const}));
+        const {snapshot,media}=projectPublication(e,prepared,'2026-10-24T00:00:00.000Z',sources.map(source=>({source,bytes:Buffer.alloc(1600)})));
+        expect(binding(snapshot).footsteps[0]!.bank.map(s=>s.assetId)).toEqual(media.map(s=>s.id));expect(binding(snapshot).footsteps[0]!.surfaceId).toBe(snapshot.surfaces.find(s=>s.type==='floor')!.id);expect(e).toEqual(before);
+    });
     it('publishes only the approved PNG cover reference and preserves UUID-shaped public prose', async () => {
         const candidate = JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'), 'utf8')) as Exhibition;
         const image = candidate.artworks.find(a => a.artworkType === 'image')!;

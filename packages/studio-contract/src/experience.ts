@@ -2,7 +2,7 @@
 export const EXPERIENCE_NAMESPACE = 'org.exhibitos.viewer/experience';
 export interface ViewerExperience {
   version: 1;
-  footsteps: {surfaceId:string;material:'wood'|'stone'|'concrete'|'carpet'|'metal';assetId?:string}[];
+  footsteps: {surfaceId:string;material:'wood'|'stone'|'concrete'|'carpet'|'metal';assetId?:string;bank?:{assetId:string}[]}[];
   voices: {placementId:string;assetId:string;transcript:string;locale:string}[];
   annotations: {annotationId:string;position:[number,number,number]}[];
   rooms: {roomId:string;reverb:number}[];
@@ -22,11 +22,13 @@ export function validateViewerExperience(candidate:unknown) {
   const ids=(name:string)=>new Set(Array.isArray(candidate[name])?candidate[name].filter(object).map(x=>ref(x.id)):[]);
   const floors=new Set(Array.isArray(candidate.surfaces)?candidate.surfaces.filter(object).filter(x=>x.type==='floor').map(x=>ref(x.id)):[]);
   const media=ids('mediaAssets'),placements=ids('placements'),annotations=ids('annotations'),rooms=ids('rooms');
+  const wavMedia=new Set(Array.isArray(candidate.mediaAssets)?candidate.mediaAssets.filter(object).filter(x=>x.mime==='audio/wav').map(x=>ref(x.id)):[]);
+  const bank=(x:Record<string,unknown>)=>x.bank===undefined||(x.assetId===undefined&&Array.isArray(x.bank)&&x.bank.length>=2&&x.bank.length<=16&&x.bank.every(s=>object(s)&&keys(s,['assetId'])&&wavMedia.has(ref(s.assetId)))&&new Set(x.bank.map(s=>ref((s as Record<string,unknown>).assetId))).size===x.bank.length);
   const check=(name:string,max:number,valid:(v:Record<string,unknown>)=>boolean,identity:(v:Record<string,unknown>)=>string)=>{
     const list=value[name];if(!Array.isArray(list)||list.length>max){fail(`Invalid bounded ${name} array`);return;}
     const seen=new Set<string>();for(const x of list){if(!object(x)||!valid(x)){fail(`Invalid ${name} entry or reference`);continue;}const id=identity(x);if(seen.has(id))fail(`Duplicate ${name} identity`);seen.add(id);}
   };
-  check('footsteps',256,x=>keys(x,['surfaceId','material'],['assetId'])&&floors.has(ref(x.surfaceId))&&['wood','stone','concrete','carpet','metal'].includes(String(x.material))&&(x.assetId===undefined||media.has(ref(x.assetId))),x=>ref(x.surfaceId));
+  check('footsteps',256,x=>keys(x,['surfaceId','material'],['assetId','bank'])&&floors.has(ref(x.surfaceId))&&['wood','stone','concrete','carpet','metal'].includes(String(x.material))&&(x.assetId===undefined||media.has(ref(x.assetId)))&&bank(x),x=>ref(x.surfaceId));
   check('voices',64,x=>keys(x,['placementId','assetId','transcript','locale'])&&placements.has(ref(x.placementId))&&media.has(ref(x.assetId))&&text(x.transcript,16384)&&locale(x.locale),x=>`${ref(x.placementId)}:${String(x.locale).toLowerCase()}`);
   const anchorBounds=(x:Record<string,unknown>)=>{
     const annotation=Array.isArray(candidate.annotations)?candidate.annotations.filter(object).find(a=>ref(a.id)===ref(x.annotationId)):undefined;
