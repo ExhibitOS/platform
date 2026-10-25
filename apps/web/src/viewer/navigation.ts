@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations} from "@exhibitos/studio-contract";
+import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,presentationFor} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -111,7 +111,7 @@ export function wallCollisionPanels(surface: Exhibition["surfaces"][number], ope
     return panels;
 }
 export async function createNavigationController(doc: Exhibition, options: {
-    position: Vec3;
+    position?: Vec3;
     yaw?: number;
     eyeHeight?: number;
     speed?: 0.7 | 1.3 | 1.6;
@@ -211,7 +211,8 @@ export async function createNavigationController(doc: Exhibition, options: {
         world.timestep = NAVIGATION_PROFILE.fixedStep;
         world.step();
         let center: Vec3 = [0, 0, 0], yaw = options.yaw ?? 0, velocity: Vec3 = [0, 0, 0], accumulator = 0, steps = 0, paused = true, grounded = false, blocked = false, recovered = false, disposed = false;
-        const shape = new RAPIER.Capsule(half - radius, radius), initial = structuredClone(options.position);
+        const shape = new RAPIER.Capsule(half - radius, radius);
+        let initial = structuredClone(options.position);
         const snapshot = (): NavigationState => ({ ... (grounded ? groundInfo(center[0], center[2], center[1] - half)?.floor : undefined), eyePosition: [center[0], center[1] - half + settings.eyeHeight, center[2]], yaw, velocity: [...velocity], grounded, steps, paused, blocked, recovered });
         const ensure = () => {
             if (disposed)
@@ -247,7 +248,7 @@ export async function createNavigationController(doc: Exhibition, options: {
         } = {}) {
             ensure();
             const eye = pose.position ?? initial, nextYaw = pose.yaw ?? options.yaw ?? 0;
-            if (!finite(eye) || !Number.isFinite(nextYaw))
+            if (!eye || !finite(eye) || !Number.isFinite(nextYaw))
                 throw Error("NAVIGATION_SPAWN_UNSAFE");
             const next = standingAt(eye);
             if (!next)
@@ -403,6 +404,25 @@ export async function createNavigationController(doc: Exhibition, options: {
                     return false;
             }
             return true;
+        }
+        if (initial === undefined) {
+            // Omission is the no-authored-camera entry path, never a repair of
+            // an unsafe authored pose. Regions/cells already use world floor transforms.
+            if (presentationFor(doc).startCamera) throw Error("NAVIGATION_SPAWN_UNSAFE");
+            for (const region of regions) {
+                if (region.normal[1] < Math.cos(35 * Math.PI / 180) - 0.001) continue;
+                const middle = [0, 1, 2].map(i => region.corners.reduce((n, p) => n + p[i]!, 0) / region.corners.length) as Vec3;
+                // The existing mesh is bounded to 4096 cells. Prefer the floor
+                // center, then its nearest qualified cells; do not search outside it.
+                const cells = navigationMesh.cells.filter(c => c.roomId === region.roomId && c.surfaceId === region.surfaceId)
+                    .sort((a, b) => Math.hypot(...a.center.map((n, i) => n - middle[i]!)) - Math.hypot(...b.center.map((n, i) => n - middle[i]!)));
+                for (const foot of [middle, ...cells.map(c => c.center)]) {
+                    const eye: Vec3 = [foot[0], foot[1] + settings.eyeHeight, foot[2]];
+                    if (isWalkable(eye)) { initial = eye; break; }
+                }
+                if (initial) break;
+            }
+            if (!initial) throw Error("NAVIGATION_SPAWN_UNSAFE");
         }
         reset();
         return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {

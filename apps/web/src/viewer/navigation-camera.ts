@@ -2,6 +2,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import type { PerspectiveCamera } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { presentationFor } from "@exhibitos/studio-contract";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
@@ -33,9 +34,10 @@ export async function createWalkingCamera({
   isPanelFocus?: (target: EventTarget | null) => boolean;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
-  const angles = new Euler().setFromQuaternion((initialCamera ?? camera).quaternion, "YXZ");
+  const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
+  const angles = defaultEntry ? new Euler(0, 0, 0, "YXZ") : new Euler().setFromQuaternion((initialCamera ?? camera).quaternion, "YXZ");
   const controller = await createNavigationController(document, {
-    position: (initialCamera ?? camera).position.toArray() as [number, number, number],
+    position: defaultEntry ? undefined : (initialCamera ?? camera).position.toArray() as [number, number, number],
     yaw: angles.y,
     ...settings,
   });
