@@ -10,6 +10,8 @@ import {allowedRights} from './rights.ts';
 export type DemoDisplayApproval = typeof APPROVED_DEMO_DISPLAY_FILES[number] & {
  canonicalMaxPixels?:2097152|4194304;
  coarse?:{sha256:string;bytes:number;width:number;height:number};
+ canonicalMime?:'model/gltf-binary';canonicalRole?:'model';artworkType?:'sculpture';
+ canonicalTriangles?:number;canonicalMaxTextureSize?:number;
 };
 /** Called at the legitimate OEX/publication producer boundary. Inventory declarations
  * alone never prove bytes; a producing caller supplies the observed primary bytes.
@@ -19,7 +21,12 @@ export function qualifyDemoDisplay(artwork:Artwork,bytes?:Buffer){
  let policy;try{policy=artworkDisplayPolicy(artwork);}catch(error){throw Object.assign(new ApiError(422,'DISPLAY_POLICY_INVALID'),{cause:error});}
  if(!policy)return undefined;
  const approval:DemoDisplayApproval|undefined=APPROVED_DEMO_DISPLAY_FILES.find(a=>a.approvalId.toLowerCase()===policy.approvalId.toLowerCase()),primary=artwork.assets.find(a=>a.id.toLowerCase()===artwork.primaryAssetId.toLowerCase());
- if(!approval||!primary||policy.rightsEvidenceSha256!==approval.rightsEvidenceSha256||policy.sourceAssetSha256!==approval.canonicalAssetSha256||primary.sha256!==approval.canonicalAssetSha256||primary.bytes!==approval.canonicalBytes||primary.mime!=='image/png'||primary.role!=='image'||artwork.artworkType!=='image'||!allowedRights(artwork.rights,'display'))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ if(!approval||!primary||policy.rightsEvidenceSha256!==approval.rightsEvidenceSha256||policy.sourceAssetSha256!==approval.canonicalAssetSha256||primary.sha256!==approval.canonicalAssetSha256||primary.bytes!==approval.canonicalBytes||!allowedRights(artwork.rights,'display'))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ if(approval.canonicalMime==='model/gltf-binary'){
+  if(approval.canonicalRole!=='model'||approval.artworkType!=='sculpture'||primary.mime!=='model/gltf-binary'||primary.role!=='model'||artwork.artworkType!=='sculpture'||!Number.isSafeInteger(approval.canonicalTriangles)||approval.canonicalTriangles!<1||approval.canonicalTriangles!>20000||approval.canonicalMaxTextureSize!==512||approval.coarse||artwork.assets.length!==1||!validateViewerLod(artwork).valid)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+  const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
+  if(lod&&(lod.variants.length!==1||lod.variants[0]?.detail!=='full'||lod.variants[0]?.assetId.toLowerCase()!==primary.id.toLowerCase()||lod.variants[0]?.triangles!==approval.canonicalTriangles||(lod.variants[0]?.textureSize!==undefined&&lod.variants[0].textureSize!==approval.canonicalMaxTextureSize)))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ }else if(primary.mime!=='image/png'||primary.role!=='image'||artwork.artworkType!=='image')throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  if(bytes&&(bytes.length!==primary.bytes||sha256(bytes)!==primary.sha256))throw new ApiError(409,'ASSET_INTEGRITY');
  if(approval.canonicalMaxPixels!==undefined&&![2097152,4194304].includes(approval.canonicalMaxPixels))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  if(approval.coarse){
@@ -36,6 +43,7 @@ export function qualifyDemoDisplay(artwork:Artwork,bytes?:Buffer){
  * inferred merely from the primary approval or an authored LOD declaration. */
 export function qualifyDemoDisplayAsset(artwork:Artwork,assetId:string,bytes:Buffer){
  const approval=qualifyDemoDisplay(artwork);if(!approval)return undefined;
+ if(approval.canonicalMime==='model/gltf-binary')return undefined;
  if(assetId.toLowerCase()===artwork.primaryAssetId.toLowerCase()){
   qualifyDemoDisplay(artwork,bytes);
   return {maxPixels:approval.canonicalMaxPixels??2097152,maxEdge:2048};

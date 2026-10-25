@@ -1,5 +1,5 @@
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
-import {publicationImageDerivative} from './demo-display-derivative.ts';
+import {publicationImageDerivative,publicationModelDerivative} from './demo-display-derivative.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
 import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -182,6 +182,7 @@ export class Publications {
                     continue;
                 }
                 const primary = artwork.assets.find(a => a.id === artwork.primaryAssetId)!;
+                const exactModel=qualifyDemoDisplay(artwork)?.canonicalMime==='model/gltf-binary';
                 let result: {bytes:Buffer;mime:"model/gltf-binary"|"image/png"};
                 if (artwork.artworkType === "image") {
                     await this.cms.display(c,s,artwork.id,false,artwork.revision);
@@ -190,13 +191,18 @@ export class Publications {
                     const original=Buffer.from(await this.blobs.get(asset.object_key));
                     if(original.length!==Number(asset.bytes)||sha256(original)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
                     result={bytes:await publicationImageDerivative(artwork,original),mime:"image/png"};
+                } else if(exactModel){
+                    const original=await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision);
+                    result={bytes:await publicationModelDerivative(artwork,original),mime:'model/gltf-binary'};
+                    if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
+                    if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
                 } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision) as {bytes:Buffer;mime:"model/gltf-binary"};
                 // Unsupported/nonreducing simplification remains an honest full-only fallback.
                 const fullMetric=measureFullVariant(result.bytes,result.mime);
                 const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
                 if(lod&&!validateViewerLod(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
                 const low=lod?.variants.find(v=>v.detail==='coarse'),high=lod?.variants.find(v=>v.detail==='full');
-                const generated:GeneratedVariants=low&&high&&result.mime==='image/png'?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
+                const generated:GeneratedVariants=exactModel||(low&&high&&result.mime==='image/png')?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
                 let variants:GeneratedVariants={...generated,full:fullMetric};
                 let coarseSource:PreparedAsset['coarseSource'];
                 if(low&&high&&result.mime==='image/png'){
