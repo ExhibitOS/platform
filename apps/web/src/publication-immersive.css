@@ -18,10 +18,13 @@
 .publication-menu-panel .geometry-controls,.publication-menu-panel .viewer-settings-menu{position:static;max-width:none;max-height:none;overflow:visible;margin:0 0 1rem;background:transparent;box-shadow:none}.publication-menu-panel .geometry-controls>summary,.publication-menu-panel .viewer-settings-menu>summary{padding:.4rem 0;box-shadow:none}.publication-menu-panel .geometry-controls[open],.publication-menu-panel .viewer-settings-menu[open]{padding:0}.publication-shell .geometry-immersive .geometry-stage .walking-touch{bottom:max(1rem,env(safe-area-inset-bottom))}.viewer-brief{bottom:1.25rem}
 .geometry-immersive[data-input-mode=trackpad] .walking-touch{display:none}
 .immersive-viewer[data-input-mode=touch]>.viewer-brief{--viewer-guide-bottom:12rem;bottom:var(--viewer-guide-bottom)}
-.viewer-brief{z-index:21;flex-wrap:wrap;max-height:calc(100dvh - var(--viewer-guide-bottom,1.25rem) - 6rem);overflow:auto;box-sizing:border-box}
+.viewer-brief{z-index:21;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:.5rem;max-height:calc(100dvh - var(--viewer-guide-bottom,1.25rem) - 6rem);overflow:hidden;box-sizing:border-box}
+.viewer-brief-copy{min-height:0;overflow:auto}
+.viewer-brief>button{align-self:flex-start;flex-shrink:0}
 .viewer-brief h2{font-size:1.125rem;line-height:1.4;margin:0 0 .4rem}
 .viewer-brief p+p{margin-top:.4rem}
-.viewer-brief h2:focus{outline:2px solid currentColor;outline-offset:3px}
+.viewer-brief h2:focus{outline:2px solid currentColor;outline-offset:-2px}
+@media(max-height:480px){.viewer-brief{flex-direction:row;gap:.75rem}.viewer-brief-copy{flex:1 1 auto}.viewer-brief>button{align-self:center}}
 
 .publication-live-stage{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity 160ms ease-out}
 .publication-live-stage[data-stage-ready=true],.publication-live-stage:has([aria-label="3D 관람 오류"]){opacity:1;pointer-events:auto}
