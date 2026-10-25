@@ -79,6 +79,8 @@ test("static cover bootstrap escapes authored text and exposes no actionable or 
  assert(html.includes('&lt;script&gt;title&lt;/script&gt;'));assert(html.includes('Artist &amp; &quot;credit&quot;'));
  const dollars=staticCoverShell('$& title $` $\'', 'Artist $$');assert(dollars.includes('$&amp; title $` $&#39;'));assert(dollars.includes('Artist $$'));
  assert(!/<(?:script|img|button|a)(?:\s|>)/i.test(html));assert(html.includes('data-cover-bootstrap'));assert(!staticCoverShell('Title').includes('entrance-cover-artist'));
+ assert(html.includes('<p class="publication-entry-status-quiet" role="status">'));
+ assert(staticCoverShell('').includes('<h1>전시</h1>'));
 });
 
 test("static bootstrap insertion preserves literal dollar title through the actual exporter",async t=>{

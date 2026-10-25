@@ -9,7 +9,7 @@ import { checkOexProfile } from "../apps/api/dist/oex.js";
 /** Inert public text only; actionable entry waits for verified index/document data. */
 export function staticCoverShell(title,artist=""){
  const escape=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
- return `<section class="entrance-cover publication-bootstrap" data-cover-bootstrap data-has-image="false"><div class="entrance-cover-copy"><h1>${escape(title)}</h1>${artist?`<p class="entrance-cover-artist">${escape(artist)}</p>`:""}<p role="status">전시 정보를 확인하고 있어요.</p></div></section>`;
+ return `<section class="entrance-cover publication-bootstrap" data-cover-bootstrap data-has-image="false"><div class="entrance-cover-copy"><h1>${escape(title||'전시')}</h1>${artist?`<p class="entrance-cover-artist">${escape(artist)}</p>`:""}<p class="publication-entry-status-quiet" role="status">전시 정보를 확인하고 있어요.</p></div></section>`;
 }
 const SAMPLE_REVISION="4a561248e1f166dfb3ca2ea4cfb692127e1e533440ce0c8a7aba1df069b58f00";
 const WALKING_SAMPLE_REVISION="fa261e9791bc482f92c30cf4aca325a9e3a9fc6609e67d3e12ae81d00c148afa";

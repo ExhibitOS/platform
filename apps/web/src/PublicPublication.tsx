@@ -156,7 +156,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
         <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
-      {(loading || error) && <section className="publication-load-state entrance-cover" data-has-image="false"><div className="entrance-cover-copy"><h1>{initial?.exhibition.title??"전시를 준비하고 있어요"}</h1>{initial&&entranceFor(initial.exhibition).artist&&<p className="entrance-cover-artist">{entranceFor(initial.exhibition).artist}</p>}<p role="status" data-testid="public-state">{loading ? "전시 정보를 확인하고 있어요." : error}</p></div></section>}
+      {(loading || error) && <section className="publication-load-state entrance-cover" data-has-image="false"><div className="entrance-cover-copy"><h1>{initial?.exhibition.title??"전시"}</h1>{initial&&entranceFor(initial.exhibition).artist&&<p className="entrance-cover-artist">{entranceFor(initial.exhibition).artist}</p>}<p className={loading?'publication-entry-status-quiet':undefined} role={loading?'status':'alert'} data-testid="public-state">{loading ? "전시 정보를 확인하고 있어요." : error}</p></div></section>}
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
