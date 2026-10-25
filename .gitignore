@@ -80,3 +80,4 @@ test-results/
 
 # Generated static Viewer/Studio runtime; evidence packages are preserved separately.
 /apps/web/dist-static/
+/dist-demo/
