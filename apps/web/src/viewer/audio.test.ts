@@ -247,6 +247,30 @@ test('short verified authored step retains its own natural duration and per-clip
  const {runtime,calls,envelope,stride}=preparedShortStep();runtime.lifecycle(true);stride();
  assert.equal(runtime.snapshot().footsteps,1);assert.deepEqual(calls,[[0,0,.7]]);assert(envelope.some(v=>v[0]===0&&typeof v[1]==='number'&&v[1]>2.6));runtime.dispose();
 });
+test('recorded step bank selects distinct loaded buffers with their natural ends and keeps visitor stop',()=>{
+ const {id,runtime,internal,calls,sources,stride}=preparedShortStep(),other='second-step';
+ internal.experience.footsteps=[{surfaceId:id,material:'wood',bank:[{assetId:id},{assetId:other}]}];internal.buffers.set(other,{duration:1.2,length:57600,numberOfChannels:1}as AudioBuffer);
+ const random=vi.spyOn(Math,'random').mockReturnValue(0);
+ try{runtime.lifecycle(true);stride();stride();stride();assert.deepEqual(calls.map(c=>c[2]),[.7,1.2,.7]);runtime.footstepsEnabled(false);assert(sources.every(s=>s.stopped));stride();assert.equal(calls.length,3);}finally{runtime.dispose();random.mockRestore();}
+});
+test('recorded step bank excludes unqualified long recordings rather than truncating them into steps',()=>{
+ const {id,runtime,internal,calls,stride}=preparedShortStep(),long='full-recording';
+ internal.experience.footsteps=[{surfaceId:id,material:'wood',bank:[{assetId:id},{assetId:long}]}];internal.buffers.set(long,{duration:60,length:2880000,numberOfChannels:1}as AudioBuffer);
+ runtime.lifecycle(true);stride();assert.deepEqual(calls,[[0,0,.7]]);assert.match(runtime.snapshot().message,/길이/);runtime.dispose();
+});
+test('recorded step bank preloads current floor ahead of eight other assets and refills a same-room floor change',async()=>{
+ const {id,runtime,internal}=preparedShortStep();
+ const audio=runtime as unknown as {allowed:Set<string>;pending:Map<string,Promise<AudioBuffer>>;preload:()=>void;load:(id:string,preload?:boolean)=>Promise<AudioBuffer>;setRoom:(id:string)=>void;publication:import('../publication-client').PublicPublication};
+ const ids=Array.from({length:16},(_,i)=>`sample-${i}`),other=['other-a','other-b'],requested:string[]=[];
+ internal.experience.footsteps=[{surfaceId:id,material:'wood',bank:ids.map(assetId=>({assetId}))},{surfaceId:'other-floor',material:'stone',bank:other.map(assetId=>({assetId}))}];
+ audio.publication.exhibition.rooms=[{id:'room'}] as import('@exhibitos/spec').Exhibition['rooms'];audio.publication.exhibition.audioZones=Array.from({length:8},(_,i)=>({assetId:`zone-${i}`,roomId:'room'})) as import('@exhibitos/spec').Exhibition['audioZones'];audio.publication.exhibition.surfaces=[{id,roomId:'room'},{id:'other-floor',roomId:'room'}]as import('@exhibitos/spec').Exhibition['surfaces'];audio.publication.exhibition.placements=[];
+ internal.state.enabled=false;audio.setRoom('room');internal.state.enabled=true;internal.buffers.clear();
+ audio.load=async assetId=>{requested.push(assetId);const b={duration:.2,length:9600,numberOfChannels:1}as AudioBuffer;internal.buffers.set(assetId,b);return b;};
+ runtime.lifecycle(true);runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));await Promise.resolve();assert.deepEqual(requested,ids.slice(0,8));
+ for(let n=0;n<9;n++){runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{roomId:'room',floorSurfaceId:id}));}await Promise.resolve();assert(ids.every(assetId=>requested.includes(assetId)));
+ requested.length=0;runtime.update(state(0,{roomId:'room',floorSurfaceId:'other-floor'}));await Promise.resolve();assert.deepEqual(requested.slice(0,2),other);
+ internal.buffers.delete(other[0]!);audio.pending=new Map(Array.from({length:8},(_,i)=>[`held-${i}`,new Promise<AudioBuffer>(()=>{})]));requested.length=0;audio.preload();assert.equal(requested.length,0);audio.pending.clear();runtime.dispose();
+});
 test('visitor footsteps off stops active step sources and resets distance without enabling audio or changing zone consent',()=>{
  const {runtime,calls,sources,stride}=preparedShortStep();runtime.lifecycle(true);stride();runtime.footstepsEnabled(false);
  assert.equal(sources[0]!.stopped,true);assert.equal(runtime.snapshot().active,0);assert.equal(runtime.snapshot().footstepsEnabled,false);assert.equal(runtime.snapshot().zoneTransitions,false);
