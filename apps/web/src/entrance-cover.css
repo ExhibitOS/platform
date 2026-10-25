@@ -19,10 +19,10 @@
 .entrance-cover-image[data-image-state=ready] img{visibility:visible}
 .entrance-cover-image-failure{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.5rem;padding:1rem;color:var(--publication-muted,#51656a)}
 .entrance-cover-actions{margin-top:1.5rem;width:min(100%,34rem)}
-.entrance-cover .publication-entry-actions{display:flex;align-items:flex-start;flex-direction:column;gap:1rem;min-height:10rem}
+.entrance-cover .publication-entry-actions{display:flex;align-items:flex-start;flex-direction:column;gap:1rem;min-height:10rem;margin:0}
 .entrance-cover .publication-entry-actions a{display:inline-flex;align-items:center;min-height:44px;padding-block:.25rem;font-size:1.05rem}
 /* Grid track boundary owns the seam, both notch centres, and the departing stub. */
-.publication-shell .publication-entry-ticket{--ticket-stub:6rem;--ticket-notch:.65rem;--ticket-rule:1px;position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--ticket-stub);align-items:stretch;gap:0;width:min(100%,32rem);min-height:6rem;padding:0;border:1px solid var(--publication-ink,#182d32);border-radius:2px;background:var(--publication-paper,#f8fbfc);color:var(--publication-ink,#182d32);box-shadow:0 4px 12px #0000000d;text-align:left;isolation:isolate}
+.publication-shell .publication-entry-ticket{--ticket-stub:6rem;--ticket-notch:.65rem;--ticket-rule:1px;position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--ticket-stub);align-items:stretch;gap:0;width:min(100%,32rem);min-height:6rem;padding:0;font-size:1.05rem;border:1px solid var(--publication-ink,#182d32);border-radius:2px;background:var(--publication-paper,#f8fbfc);color:var(--publication-ink,#182d32);box-shadow:0 4px 12px #0000000d;text-align:left;isolation:isolate}
 .publication-entry-ticket-body{display:grid;gap:.3rem;min-width:0;padding:1rem 1.25rem}
 .publication-entry-ticket-label{font-size:.875rem;letter-spacing:.12em}
 .publication-entry-ticket strong{font-size:1.125rem;line-height:1.5;overflow-wrap:anywhere;white-space:normal}
