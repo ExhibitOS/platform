@@ -4,7 +4,7 @@
 .entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:repeat(2,minmax(0,1fr))}
 .entrance-cover-copy{min-width:0;padding:clamp(1.25rem,3vw,3rem);background:var(--publication-paper,#f8fbfc)}
 .entrance-paper-left{display:flex;flex-direction:column;border:1px solid #182d3220;box-shadow:0 8px 24px #182d320c}
-.entrance-cover-prose{min-width:0}.entrance-paper-ticket-slot{margin-top:auto;padding-top:2rem;min-height:8rem;box-sizing:content-box}
+.entrance-cover-prose{min-width:0}.entrance-paper-ticket-slot{position:relative;z-index:1;margin-top:auto;padding-top:2rem;min-height:8rem;box-sizing:content-box}
 .entrance-cover h1{margin:0 0 1.25rem;font-size:clamp(2rem,3.8vw,4rem);line-height:1.17;letter-spacing:-.04em;font-weight:650;word-break:keep-all;overflow-wrap:anywhere;text-wrap:balance}
 .entrance-cover-artist{margin:.75rem 0;font-size:clamp(1rem,1.4vw,1.25rem);line-height:1.6;overflow-wrap:anywhere}
 .entrance-cover-introduction{margin:1rem 0 0;white-space:pre-wrap;line-height:1.75;color:var(--publication-muted,#51656a);overflow-wrap:anywhere}
@@ -15,8 +15,8 @@
 .entrance-cover[data-paper-state=folded] .entrance-paper-leaf{transform:rotateY(-180deg)}
 .entrance-cover[data-paper-state=opening] .entrance-paper-leaf{animation:cover-paper-open 620ms cubic-bezier(.22,.65,.25,1) both}
 @keyframes cover-paper-open{from{transform:rotateY(-180deg)}to{transform:rotateY(0deg)}}
-.entrance-cover-image{position:relative;min-width:0;width:100%;display:grid;place-items:center;overflow:hidden;padding:clamp(1rem,2vw,2rem)}
-.entrance-cover-image img{display:block;width:100%;height:100%;max-height:58svh;object-fit:contain;visibility:hidden}
+.entrance-cover-image{position:relative;min-width:0;width:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);place-items:center;overflow:hidden;padding:clamp(1rem,2vw,2rem)}
+.entrance-cover-image img{display:block;min-width:0;min-height:0;width:100%;height:100%;max-height:58svh;object-fit:contain;visibility:hidden}
 .entrance-cover-image[data-image-state=ready] img{visibility:visible}
 .entrance-cover-image-failure{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.5rem;padding:1rem;color:var(--publication-muted,#51656a)}
 .entrance-cover-actions{margin-top:1.5rem;width:min(100%,34rem)}
@@ -63,7 +63,7 @@
 .publication-shell[data-reduced-motion=true] .publication-entry-ticket-stub{animation:none;transform:none}
 .publication-shell[data-reduced-motion=true] .publication-entry-door{display:none}
 .publication-shell[data-reduced-motion=true] .publication-entry-overlay[data-ready=true]{visibility:hidden}
-@media(max-width:700px){.entrance-cover{padding:5rem 1.25rem 2rem}.entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:minmax(0,1fr)}.entrance-paper-leaf{min-height:0;height:clamp(10rem,28svh,20rem);aspect-ratio:auto!important;transform:none!important;animation:none!important}.entrance-paper-outside{display:none}.entrance-cover-copy{padding:1.25rem}.entrance-cover-image{height:100%;min-height:0;max-height:none}.entrance-cover-image img{max-height:100%}.entrance-cover[data-image-position=top] img{object-position:top}.entrance-cover[data-image-position=bottom] img{object-position:bottom}.entrance-cover h1{font-size:clamp(2rem,8vw,3rem)}.publication-shell .publication-entry-ticket{--ticket-stub:5.5rem}.publication-entry-recovery{top:max(.75rem,env(safe-area-inset-top))}}
+@media(max-width:700px){.entrance-cover{padding:5rem 1.25rem 2rem}.entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:minmax(0,1fr)}.entrance-paper-leaf{min-height:0;height:auto;transform:none!important;animation:none!important}.entrance-paper-outside{display:none}.entrance-cover-copy{padding:1.25rem}.entrance-cover-image{height:100%;min-height:0;max-height:none}.entrance-cover-image img{max-height:100%}.entrance-cover[data-image-position=top] img{object-position:top}.entrance-cover[data-image-position=bottom] img{object-position:bottom}.entrance-cover h1{font-size:clamp(2rem,8vw,3rem)}.publication-shell .publication-entry-ticket{--ticket-stub:5.5rem}.publication-entry-recovery{top:max(.75rem,env(safe-area-inset-top))}}
 @media(prefers-reduced-motion:reduce){.publication-cover-surface[data-entering=true] .publication-entry-ticket{visibility:hidden}.entrance-paper-leaf{animation:none!important;transform:none!important}.entrance-paper-outside,.publication-entry-door{display:none}.publication-entry-ticket-stub,.publication-entry-ticket{animation:none!important;transform:none!important}.publication-entry-overlay[data-ready=true]{visibility:hidden}}
 
 /* The total includes unknown decode and scene work: never imply a percentage. */
