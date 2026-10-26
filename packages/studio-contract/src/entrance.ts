@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MaterialValidation } from './index.js';
+import {validateEntranceDesign,type ViewerEntranceDesign} from './entrance-design.js';
 
 export const ENTRANCE_NAMESPACE = 'org.exhibitos.viewer/entrance';
 export const MAX_COVER_BYTES = 8 * 1024 * 1024;
@@ -18,6 +19,7 @@ export interface ViewerEntrance {
   imageAlt: string;
   mobilePosition: 'center' | 'top' | 'bottom';
   presentation?: ViewerEntryPresentation;
+  design?: ViewerEntranceDesign;
 }
 const presentationDefaults: ViewerEntryPresentation = { ticketTitle: '', ticketDetail: '', ticketAnimation: true, coverUnfold: true, doorEffect: true };
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -32,7 +34,7 @@ export function validateViewerEntrance(candidate: unknown): MaterialValidation {
   if (!object(candidate) || !object(candidate.extensions) || !Object.hasOwn(candidate.extensions, ENTRANCE_NAMESPACE)) return { valid: true, errors };
   const value = candidate.extensions[ENTRANCE_NAMESPACE];
   if (!object(value)) { fail('Expected entrance version 1'); return { valid: false, errors }; }
-  const keys = ['version', 'artist', 'introduction', 'imageAlt', 'mobilePosition', ...(value.imageAssetId === undefined ? [] : ['imageAssetId']), ...(value.presentation === undefined ? [] : ['presentation'])];
+  const keys = ['version', 'artist', 'introduction', 'imageAlt', 'mobilePosition', ...(value.imageAssetId === undefined ? [] : ['imageAssetId']), ...(value.presentation === undefined ? [] : ['presentation']), ...(value.design === undefined ? [] : ['design'])];
   if (value.version !== 1 || Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key)) ||
       typeof value.artist !== 'string' || value.artist.length > 512 ||
       typeof value.introduction !== 'string' || value.introduction.length > 4096 ||
@@ -50,6 +52,7 @@ export function validateViewerEntrance(candidate: unknown): MaterialValidation {
       fail('Expected bounded public ticket text and three independent boolean presentation effects');
     }
   }
+  if(value.design!==undefined){const design=validateEntranceDesign(value.design);errors.push(...design.errors);}
   if (value.imageAssetId !== undefined) {
     const id = value.imageAssetId;
     const artworks = Array.isArray(candidate.artworks) ? candidate.artworks.filter(object) : [];
