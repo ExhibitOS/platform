@@ -1,0 +1,98 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* These layouts consume the host's verified image and entry state. Nothing here gates entry. */
+.entrance-theme {
+  --theme-paper:var(--publication-paper,#f8fbfc);
+  --theme-ink:var(--publication-ink,#182d32);
+  --theme-muted:var(--publication-muted,#51656a);
+  --theme-action:var(--publication-action,#135967);
+  --theme-margin:32px;
+  --theme-title-scale:1;
+  --theme-copy-ratio:.45;
+  --theme-duration:400ms;
+  --theme-strength:1;
+  color:var(--theme-ink);
+  background:var(--theme-paper);
+  padding:calc(4.5rem + var(--theme-margin)) max(1rem,var(--theme-margin)) max(2rem,var(--theme-margin));
+  min-height:100svh;
+  box-sizing:border-box;
+  font-family:inherit;
+  overflow-wrap:anywhere;
+  isolation:isolate;
+}
+.entrance-theme[data-palette=light]{--theme-paper:#fff;--theme-ink:#182d32;--theme-muted:#51656a;--theme-action:#135967}
+.entrance-theme[data-palette=dark]{--theme-paper:#182d32;--theme-ink:#f8fbfc;--theme-muted:#c3d1d4;--theme-action:#b9e7ef}
+.entrance-theme[data-type=serif] .entrance-theme-title{font-family:"Iowan Old Style","Palatino Linotype","Noto Serif KR",serif}
+.entrance-theme ::selection{color:var(--theme-paper);background:var(--theme-ink)}
+.entrance-theme :is(button,a):focus-visible{outline:3px solid var(--theme-ink);outline-offset:5px}
+.entrance-theme a{text-underline-offset:.2em}
+.entrance-theme-layout{max-width:92rem;margin-inline:auto;min-width:0}
+.entrance-theme-copy,.entrance-theme-caption{min-width:0}
+.entrance-theme-title{font-size:calc(clamp(2.25rem,5vw,5rem)*var(--theme-title-scale));line-height:1.12;letter-spacing:-.03em;margin:0;text-wrap:balance;font-weight:650;overflow-wrap:anywhere}
+.entrance-theme-artist{margin:1rem 0 0;font-size:clamp(1rem,1.5vw,1.35rem);line-height:1.6}
+.entrance-theme-introduction{max-width:55ch;margin:1.25rem 0 0;white-space:pre-wrap;line-height:1.75;color:var(--theme-muted)}
+.entrance-theme-image{position:relative;margin:0;min-width:0;min-height:12rem;aspect-ratio:4/3;display:grid;place-items:center;overflow:hidden;background:var(--theme-paper)}
+.entrance-theme-image img{display:block;width:100%;height:100%;min-height:0;object-fit:var(--theme-image-fit,contain);object-position:var(--theme-image-focus,50% 50%)}
+.entrance-theme-image-message{padding:1.5rem;max-width:36ch;color:var(--theme-muted);text-align:center}
+.entrance-theme-image-message p{margin:0 0 1rem}
+.entrance-theme .entrance-theme-image-message button{min-height:44px;background:var(--theme-ink);color:var(--theme-paper)}
+.entrance-theme-entry{min-width:0;margin-top:2rem;color:var(--theme-ink)}
+.entrance-theme .entrance-theme-entry button{background:var(--theme-ink);color:var(--theme-paper);min-height:48px}
+.entrance-theme[data-response=press] .entrance-theme-entry button:active{transform:translateY(1px)}
+.entrance-theme-utilities{max-width:92rem;margin:1.5rem auto 0;position:relative;color:var(--theme-ink)}
+.entrance-theme-utilities a{color:inherit}
+.entrance-theme .entrance-theme-utilities button{background:var(--theme-ink);color:var(--theme-paper)}
+/* Poster: headline and image compose a single announcement; the entry band spans it. */
+.entrance-theme-poster .entrance-theme-layout{display:grid;grid-template-columns:minmax(0,calc(var(--theme-copy-ratio)*100%)) minmax(0,1fr);align-items:end;gap:2rem}
+.entrance-theme-poster .entrance-theme-copy{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:end}
+.entrance-theme-poster .entrance-theme-title{grid-column:1/-1;font-size:calc(clamp(2.75rem,7vw,6rem)*var(--theme-title-scale))}
+.entrance-theme-poster .entrance-theme-artist{grid-column:1}
+.entrance-theme-poster .entrance-theme-introduction{grid-column:2}
+.entrance-theme-poster .entrance-theme-image{grid-column:1/-1;aspect-ratio:16/9;max-height:70svh}
+.entrance-theme-poster .entrance-theme-entry{grid-column:1/-1;border-block:1px solid currentColor;margin:0;padding:1rem 0}
+.entrance-theme-poster .entrance-theme-entry button{width:100%;text-align:center}
+.entrance-theme-poster[data-has-image=false] .entrance-theme-copy{min-height:45svh;align-content:center}
+/* Artwork: the entire image has its own field; caption and action recede alongside it. */
+.entrance-theme-artwork .entrance-theme-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(14rem,calc(var(--theme-copy-ratio)*70%));gap:clamp(1.5rem,4vw,4rem);align-items:center}
+.entrance-theme-artwork .entrance-theme-image{height:calc(100svh - 12rem);min-height:18rem;max-height:64rem;aspect-ratio:auto}
+.entrance-theme-artwork .entrance-theme-title{font-size:calc(clamp(1.75rem,3vw,3rem)*var(--theme-title-scale))}
+.entrance-theme-artwork .entrance-theme-entry{margin-top:2rem}
+.entrance-theme-artwork[data-has-image=false] .entrance-theme-layout{grid-template-columns:minmax(0,40rem);justify-content:center;min-height:55svh}
+/* Invitation: one open card, generous internal whitespace; no ornamental envelope. */
+.entrance-theme-invitation .entrance-theme-layout{max-width:64rem;padding:clamp(1.5rem,5vw,4rem);box-sizing:border-box;box-shadow:0 16px 48px #182d3218;display:grid;grid-template-columns:minmax(0,calc(var(--theme-copy-ratio)*100%)) minmax(0,1fr);gap:clamp(1.5rem,4vw,3rem);align-items:center;transform-origin:center}
+.entrance-theme-invitation .entrance-theme-title{font-size:calc(clamp(2rem,3.5vw,3.5rem)*var(--theme-title-scale))}
+.entrance-theme-invitation .entrance-theme-image{aspect-ratio:3/4}
+.entrance-theme-invitation .entrance-theme-entry{grid-column:1/-1;text-align:center;margin-top:.5rem;padding-top:1.5rem;border-top:1px solid currentColor}
+.entrance-theme-invitation[data-has-image=false] .entrance-theme-copy{grid-column:1/-1;max-width:38rem;justify-self:center;text-align:center}
+/* Threshold: the still is left intact; readable information sits outside its frame. */
+.entrance-theme-threshold .entrance-theme-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+.entrance-theme-threshold .entrance-theme-image{width:100%;height:min(66svh,48rem);aspect-ratio:auto}
+.entrance-theme-threshold .entrance-theme-arrival{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2rem;align-items:center;padding-top:1.5rem}
+.entrance-theme-threshold .entrance-theme-title{font-size:calc(clamp(2rem,3.5vw,3.5rem)*var(--theme-title-scale))}
+.entrance-theme-threshold .entrance-theme-entry{margin:0}
+.entrance-theme-threshold[data-has-image=false] .entrance-theme-arrival{min-height:55svh}
+/* Only the host's one-shot revealing state animates; pending and failures stay readable. */
+.entrance-theme[data-cover-state=revealing][data-cover-effect=mask] .entrance-theme-image img{animation:entrance-theme-mask var(--theme-duration) cubic-bezier(.16,1,.3,1) both}
+.entrance-theme[data-cover-state=revealing][data-cover-effect=fade] .entrance-theme-image img{animation:entrance-theme-fade var(--theme-duration) ease-out both}
+.entrance-theme[data-cover-state=revealing][data-cover-effect=card] .entrance-theme-layout{animation:entrance-theme-card var(--theme-duration) cubic-bezier(.16,1,.3,1) both}
+@keyframes entrance-theme-mask{from{clip-path:inset(0 calc(100% * var(--theme-strength)) 0 0)}to{clip-path:inset(0)}}
+@keyframes entrance-theme-fade{from{opacity:calc(1 - var(--theme-strength))}to{opacity:1}}
+@keyframes entrance-theme-card{from{transform:perspective(1200px) rotateX(calc(8deg * var(--theme-strength)));opacity:calc(1 - var(--theme-strength) * .4)}to{transform:none;opacity:1}}
+@media(max-width:700px){
+  .entrance-theme{padding:calc(4rem + min(var(--theme-margin),24px)) max(1rem,min(var(--theme-margin),24px)) 2rem}
+  .entrance-theme-poster .entrance-theme-layout{grid-template-columns:minmax(0,1fr);gap:1.25rem}
+  .entrance-theme-poster .entrance-theme-copy{display:block}
+  .entrance-theme-poster .entrance-theme-image{aspect-ratio:4/5;max-height:none}
+  .entrance-theme-artwork .entrance-theme-layout{grid-template-columns:minmax(0,1fr);gap:1.5rem}
+  .entrance-theme-artwork .entrance-theme-image{height:auto;aspect-ratio:var(--theme-source-ratio,4/3);min-height:0;max-height:none}
+  .entrance-theme-invitation .entrance-theme-layout{grid-template-columns:minmax(0,1fr);padding:1.5rem}
+  .entrance-theme-invitation .entrance-theme-image{aspect-ratio:4/3}
+  .entrance-theme-invitation .entrance-theme-entry{margin:0}
+  .entrance-theme-threshold .entrance-theme-image{height:auto;aspect-ratio:var(--theme-source-ratio,4/3)}
+  .entrance-theme-threshold .entrance-theme-arrival{grid-template-columns:minmax(0,1fr);gap:1.25rem}
+  .entrance-theme[data-mobile-motion=none] :is(.entrance-theme-layout,.entrance-theme-image img){animation:none!important;transform:none!important;clip-path:none!important;opacity:1!important}
+  .entrance-theme[data-mobile-motion=simple][data-cover-state=revealing] :is(.entrance-theme-layout,.entrance-theme-image img){animation-name:entrance-theme-fade;transform:none;clip-path:none}
+}
+.entrance-theme[data-reduced-motion=true] :is(.entrance-theme-layout,.entrance-theme-image img){animation:none!important;transform:none!important;clip-path:none!important;opacity:1!important}
+.entrance-theme[data-reduced-motion=true] .entrance-theme-entry button:active{transform:none}
+@media(prefers-reduced-motion:reduce){.entrance-theme :is(.entrance-theme-layout,.entrance-theme-image img){animation:none!important;transform:none!important;clip-path:none!important;opacity:1!important}.entrance-theme .entrance-theme-entry button:active{transform:none}}
+@media(forced-colors:active){.entrance-theme-invitation .entrance-theme-layout{outline:1px solid CanvasText}.entrance-theme-image{background:Canvas}}

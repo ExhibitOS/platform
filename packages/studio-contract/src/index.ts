@@ -256,3 +256,5 @@ export * from './plaques.js';
 
 export * from './surface-panels.js';
 export * from './architectural-finishes.js';
+
+export * from './entrance-design.js';

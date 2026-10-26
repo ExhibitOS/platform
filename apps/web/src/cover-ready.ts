@@ -16,7 +16,7 @@ export async function waitForCoverLayout(element:HTMLElement,signal:AbortSignal)
   const measure=()=>{
    if(signal.aborted){stop();return;}
    if(!element.isConnected){signal.removeEventListener('abort',stop);reject(Error('COVER_UNMOUNTED'));return;}
-   const nodes=[element,...element.querySelectorAll<HTMLElement>('.entrance-cover-prose,.entrance-cover-image,.entrance-paper-ticket-slot')];
+   const nodes=[element,...element.querySelectorAll<HTMLElement>('.entrance-cover-prose,.entrance-cover-image,.entrance-paper-ticket-slot,.entrance-theme-copy,.entrance-theme-caption,.entrance-theme-image,.entrance-theme-entry')];
    const size=nodes.map(n=>[n.offsetWidth,n.offsetHeight,n.scrollWidth,n.scrollHeight].join(',')).join(';');
    stable=size===previous&&element.offsetWidth>0&&element.offsetHeight>0?stable+1:0;previous=size;
    if(stable>=1){signal.removeEventListener('abort',stop);resolve();}else frame=requestAnimationFrame(measure);

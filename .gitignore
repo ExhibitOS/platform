@@ -81,3 +81,6 @@ test-results/
 # Generated static Viewer/Studio runtime; evidence packages are preserved separately.
 /apps/web/dist-static/
 /dist-demo/
+
+# Trusted build-time cover shell companion; generated, never a public payload.
+/apps/web/dist-cover-shell/
