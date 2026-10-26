@@ -98,6 +98,28 @@ export function settleAssetGeneration(pending:Map<string,string>,artId:string,ke
 export function minimumDetailPending(items:ReadonlyArray<{visible:boolean;eligible:boolean;active:boolean;pending:boolean;budgetBlocked:boolean}>){
  return items.some(v=>(v.visible||v.eligible)&&!v.active&&(v.pending||v.budgetBlocked));
 }
+/** Minimum-only room window: current room, paired-door neighbors, and one empty connector.
+ * Never traverses a second populated gallery or recursively walks the exhibition. */
+export function minimumRoomInterest(document:Exhibition,currentRoomId:string|undefined):ReadonlySet<string>{
+ const known=new Set(document.rooms.map(r=>r.id.toLowerCase())),current=currentRoomId?.toLowerCase(),result=new Set<string>();
+ if(!current||!known.has(current))return result;
+ const surfaces=new Map(document.surfaces.filter(s=>s.type==='wall').map(s=>[s.id.toLowerCase(),s.roomId.toLowerCase()]));
+ const openings=new Map(document.openings.map(o=>[o.id.toLowerCase(),o])),adjacent=new Map<string,Set<string>>();
+ for(const door of document.openings){
+  const pair=door.connectsToOpeningId&&openings.get(door.connectsToOpeningId.toLowerCase());
+  if(door.type!=='door'||!pair||pair.type!=='door'||pair.connectsToOpeningId?.toLowerCase()!==door.id.toLowerCase())continue;
+  const a=surfaces.get(door.surfaceId.toLowerCase()),b=surfaces.get(pair.surfaceId.toLowerCase());
+  if(!a||!b||a===b||!known.has(a)||!known.has(b))continue;
+  const links=adjacent.get(a)??new Set<string>();links.add(b);adjacent.set(a,links);
+ }
+ result.add(current);const occupied=new Set(document.placements.map(p=>p.roomId.toLowerCase()));
+ for(const next of adjacent.get(current)??[]){result.add(next);if(!occupied.has(next))for(const beyond of adjacent.get(next)??[])result.add(beyond);}
+ return result;
+}
+/** Center-ray failure is not whole-bounds occlusion. Called only after the existing frustum test. */
+export function minimumFootprintVisible<T>(corners:ReadonlyArray<T>,centerClear:boolean,clear:(point:T)=>boolean){
+ return centerClear||corners.slice(0,8).some(point=>clear(point));
+}
 /** Pressure may reclaim one old displayed detail, never the attended object.
  * Prefer a real coarse replacement even offscreen, preserving a quick turn back. */
 export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;visible:boolean;minimumRequired?:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){

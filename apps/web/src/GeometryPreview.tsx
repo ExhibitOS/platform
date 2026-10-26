@@ -23,7 +23,7 @@ import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AssetScheduler, minimumDetailPending,
+  AssetScheduler, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
   MemoryAssetCache,
   fetchVerifiedAsset,
   checkImageDecode,
@@ -1293,6 +1293,7 @@ export function GeometryPreview({
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
         const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>();
+        let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
@@ -1409,7 +1410,7 @@ export function GeometryPreview({
             budgetTotalBytes: decodedTotal + byteCache.stats().bytes,
             transitionPeakBytes: peak.total(),
             automaticDetail:automatic,
-            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumBudgetBlocked:[...minimumBlocked],minimumBudgetBytes:assetBudgetBytes,
+            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...minimumRooms],minimumBudgetBlocked:[...minimumBlocked],minimumBudgetBytes:assetBudgetBytes,
             currentArtwork, preparedAssetIds:[...prepared.keys()], preparationStages:[...stages].map(([assetId,value])=>({assetId,...value})),
             allocationEstimateOnly:true,
             cache: byteCache.stats(),
@@ -1627,6 +1628,7 @@ export function GeometryPreview({
             return Math.abs(local.x)<=d.width/2+margin&&Math.abs(local.z)<=d.depth/2+margin&&local.y>=-margin&&local.y<=d.height+margin;
           };
           const cameraRoom=document.rooms.find(room=>contains(room,camera.position));
+          if(cameraRoom?.id!==minimumRoomId){minimumRoomId=cameraRoom?.id;minimumRooms=minimumRoomInterest(document,minimumRoomId);}
           const doors=document.openings.filter(v=>v.type==='door').flatMap(door=>{
             const surface=document.surfaces.find(v=>v.id.toLowerCase()===door.surfaceId.toLowerCase()),group=surfaces.get(door.surfaceId.toLowerCase());
             if(!surface||!group)return [];
@@ -1634,7 +1636,7 @@ export function GeometryPreview({
             return camera.position.distanceTo(point)<=3&&clearPath(camera.position,point)?[{point,roomId:surface.roomId}]:[];
           });
           const observations=arts.map(art=>{
-            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0,gazeDistance=Infinity,eligible=false;
+            let visible=false,distance=Infinity,focused=false,screenDemand=false,maxOccupancy=0,gazeDistance=Infinity,eligible=false,minimumEligible=false;
             const low=lodVariantsFor(art).find(v=>v.detail==='coarse');
             for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){
               const group=placements.get(p.id.toLowerCase());if(!group||!group.visible)continue;
@@ -1645,13 +1647,17 @@ export function GeometryPreview({
               const d=box.distanceToPoint(camera.position);distance=Math.min(distance,d);
               const room=document.rooms.find(v=>v.id.toLowerCase()===p.roomId.toLowerCase());
               const sameRoom=cameraRoom?.id.toLowerCase()===p.roomId.toLowerCase();
+              minimumEligible=minimumEligible||minimumRooms.has(p.roomId.toLowerCase());
               const unobstructed=clearPath(camera.position,center);
               const viaDoor=room&&doors.some(door=>(sameRoom||contains(room,door.point,.4))&&door.point.distanceTo(center)<=6&&clearPath(door.point,center));
               const plausible=!!((sameRoom&&unobstructed)||viaDoor);
               eligible=eligible||plausible;
               const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:frustum.intersectsBox(box),width:renderer.domElement.width,height:renderer.domElement.height});
-              if(!screen.visible||!unobstructed)continue;
-              visible=true;const isFocused=focusedPlacement.current===p.id;focused=focused||isFocused;
+              if(!screen.visible||!minimumFootprintVisible(points,unobstructed,point=>clearPath(camera.position,point)))continue;
+              visible=true;
+              // Partial footprints protect the minimum; detail keeps its center-clear requirement.
+              if(!unobstructed)continue;
+              const isFocused=focusedPlacement.current===p.id;focused=focused||isFocused;
               const {occupancy,projectedPixels:pixels}=screen;
               gazeDistance=Math.min(gazeDistance,screen.gazeDistance);
               maxOccupancy=Math.max(maxOccupancy,occupancy);
@@ -1659,14 +1665,14 @@ export function GeometryPreview({
             }
             let transition=transitions.get(art.revisionId);if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
             const want=transition.update(screenDemand,now);
-            return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible};
+            return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible,minimumEligible};
           });
           // Attention and detail grace run together rather than adding two
           // consecutive dwell delays before the first detailed request.
           const candidates=observations.map(v=>({id:v.art.revisionId,demand:v.demand||(v.art.revisionId===attention.current()&&v.want),occupancy:v.occupancy,focused:v.focused,gazeDistance:v.gazeDistance,distance:v.distance,eligible:v.eligible}));
           currentArtwork=attention.update(candidates,now);
           if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
-          for(const observation of observations){observedVisible.set(observation.art.revisionId,observation.visible);observedEligible.set(observation.art.revisionId,observation.eligible);if(!observation.visible&&!observation.eligible)minimumBlocked.delete(observation.art.revisionId);}
+          for(const observation of observations){observedVisible.set(observation.art.revisionId,observation.visible);observedEligible.set(observation.art.revisionId,observation.minimumEligible);if(!observation.visible&&!observation.minimumEligible)minimumBlocked.delete(observation.art.revisionId);}
           preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
           // Cancel obsolete preparation without releasing its unsettled reservation.
           for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&artId!==currentArtwork&&!preparing.has(artId)){scheduler.cancel(key);pending.delete(artId);}}
@@ -1676,10 +1682,10 @@ export function GeometryPreview({
           }
           const sorted=[...observations].sort((a,b)=>Number(b.art.revisionId===currentArtwork)-Number(a.art.revisionId===currentArtwork));
           // Current/connected-room minima get the serial slot before speculative or attended detail.
-          for(const {art,visible,eligible}of sorted)if((visible||eligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
-          const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.eligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)})));
-          for(const {art,visible,eligible,distance,focused,want} of sorted){
-            if(!visible&&!eligible&&!focused&&distance>12){
+          for(const {art,visible,minimumEligible}of sorted)if((visible||minimumEligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
+          const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)})));
+          for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
+            if(!visible&&!minimumEligible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}

@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
+import {readFileSync} from "node:fs";
+import * as Three from "three";
+import type {Exhibition} from "@exhibitos/spec";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
 import { syntheticArtwork } from "../placement/model";
-import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
+import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
 describe('authored painting near tiers',()=>{
  const image=()=>{const a=syntheticArtwork('image'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:1000};full.bytes=1048576;a.assets.push(coarse);a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',textureSize:2048},{assetId:coarse.id,detail:'coarse',textureSize:512}]}};return {a,full,coarse};};
@@ -255,4 +258,43 @@ it('keeps detail behind a memory-blocked minimum throughout retry grace, then re
  expect(minimumDetailPending([{...waiting,visible:false,eligible:false}])).toBe(false);
  // A failed asset without a memory reservation is isolated rather than blocking independent detail forever.
  expect(minimumDetailPending([{...waiting,budgetBlocked:false}])).toBe(false);
+});
+
+
+function referenceExhibition():Exhibition {
+ const root=new URL('../../../../demos/reference-exhibition/source/',import.meta.url),index=JSON.parse(readFileSync(new URL('static-publication-index.json',root),'utf8'));
+ return JSON.parse(readFileSync(new URL(index.publication.path,root),'utf8')).exhibition;
+}
+it('keeps a single-GLB minimum across the empty two-door connector before painting detail',()=>{
+ const doc=referenceExhibition(),image=doc.artworks.find(a=>a.artworkType==='image')!,sculpture=doc.artworks.find(a=>a.artworkType==='sculpture')!;
+ const painting=doc.placements.find(p=>p.artworkRevisionId===image.revisionId)!,placed=doc.placements.find(p=>p.artworkRevisionId===sculpture.revisionId)!;
+ const rooms=minimumRoomInterest(doc,painting.roomId),minimum=selectAssetVariant(sculpture,Infinity,DEVICE_BUDGETS.desktop);
+ expect(rooms.has(placed.roomId.toLowerCase())).toBe(true);
+ expect(lodVariantsFor(sculpture)).toHaveLength(1);expect(minimum.id).toBe(sculpture.primaryAssetId);
+ expect(displayedDetailReclamation([{id:sculpture.revisionId,artwork:sculpture,assetId:minimum.id,visible:false,minimumRequired:rooms.has(placed.roomId.toLowerCase()),lastAttended:0}],image.revisionId,10000,DEVICE_BUDGETS.desktop)).toBeUndefined();
+});
+it('bounds the minimum room window at a populated neighbor and ignores broken door pairs',()=>{
+ const doc=referenceExhibition(),image=doc.artworks.find(a=>a.artworkType==='image')!,sculpture=doc.artworks.find(a=>a.artworkType==='sculpture')!;
+ const painting=doc.placements.find(p=>p.artworkRevisionId===image.revisionId)!,placed=doc.placements.find(p=>p.artworkRevisionId===sculpture.revisionId)!;
+ const surfaces=new Map(doc.surfaces.map(s=>[s.id,s.roomId])),openings=new Map(doc.openings.map(o=>[o.id,o]));
+ const direct=(roomId:string)=>new Set(doc.openings.filter(o=>surfaces.get(o.surfaceId)===roomId).map(o=>surfaces.get(openings.get(o.connectsToOpeningId??'')?.surfaceId??'')));
+ const connector=doc.rooms.find(r=>!doc.placements.some(p=>p.roomId===r.id)&&direct(r.id).has(painting.roomId)&&direct(r.id).has(placed.roomId))!;
+ const occupied=structuredClone(doc);occupied.placements.push({...structuredClone(placed),id:crypto.randomUUID(),roomId:connector.id});
+ expect(minimumRoomInterest(occupied,painting.roomId).has(placed.roomId.toLowerCase())).toBe(false);
+ const closed=structuredClone(doc);closed.openings=[];expect([...minimumRoomInterest(closed,painting.roomId)]).toEqual([painting.roomId.toLowerCase()]);
+ expect(minimumRoomInterest(doc,crypto.randomUUID()).size).toBe(0);
+});
+it('admits a partial sculpture footprint through the real two-jamb geometry while preserving opaque-wall rejection',()=>{
+ const walls:Three.Mesh[]=[];
+ for(const x of [4,8])for(const [z,depth,y,height]of [[-10.1,3.8,2,4],[-3.9,3.8,2,4],[-7,2.4,3.5,1]] as const){
+  const wall=new Three.Mesh(new Three.BoxGeometry(.12,height,depth),new Three.MeshBasicMaterial({side:Three.DoubleSide}));wall.position.set(x,y,z);wall.updateMatrixWorld(true);walls.push(wall);
+ }
+ const center=new Three.Vector3(13,1.1709545,-7),corners=Array.from({length:8},(_,i)=>new Three.Vector3(i&1?13.1742358:12.8257642,i&2?1.441909:.9,i&4?-6.8273684:-7.1726316));
+ const clear=(from:Three.Vector3,to:Three.Vector3)=>{const d=to.clone().sub(from),length=d.length();return new Three.Raycaster(from,d.normalize(),.05,length-.15).intersectObjects(walls).length===0;};
+ const partial=new Three.Vector3(.05893,1.66095,-8.74768),opaque=new Three.Vector3(0,1.66,-9.6);
+ expect(clear(partial,center)).toBe(false);expect(minimumFootprintVisible(corners,false,p=>clear(partial,p))).toBe(true);
+ expect(minimumFootprintVisible(corners,clear(opaque,center),p=>clear(opaque,p))).toBe(false);
+ let probes=0;expect(minimumFootprintVisible(corners,true,()=>{probes++;return false;})).toBe(true);expect(probes).toBe(0);
+ minimumFootprintVisible([...corners,...corners],false,()=>{probes++;return false;});expect(probes).toBe(8);
+ for(const wall of walls){wall.geometry.dispose();(wall.material as Three.Material).dispose();}
 });
