@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { entranceFor, entryPresentationFor, MAX_COVER_BYTES } from '@exhibitos/studio-contract';
+import { entranceFor, MAX_COVER_BYTES } from '@exhibitos/studio-contract';
 import type { PublicPublication } from './publication-client';
 import { fetchVerifiedAsset } from './viewer/loading';
 import { waitForCoverLayout } from './cover-ready';
+import {entranceRuntime,entranceContent,catalogueStyle} from './entrance-runtime';
+import {PosterCover} from './entrance-themes/PosterCover';
+import {ArtworkCover} from './entrance-themes/ArtworkCover';
+import {InvitationCover} from './entrance-themes/InvitationCover';
+import {ThresholdCover} from './entrance-themes/ThresholdCover';
+import type {ThemeProps} from './entrance-themes/types';
 import './entrance-cover.css';
+import './entrance-host.css';
 
 export function coverAspectRatio(publication:PublicPublication){
  const id=entranceFor(publication.exhibition).imageAssetId;
@@ -12,32 +19,32 @@ export function coverAspectRatio(publication:PublicPublication){
  return work&&work.dimensions.height>0?work.dimensions.width/work.dimensions.height:4/3;
 }
 /** One verified poster stays mounted across the entry request. It never gates entry. */
-export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children }: {
-  publication: PublicPublication; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;
+export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale }: {
+  publication: PublicPublication; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;locale?:string;
 }) {
-  const settings = entranceFor(publication.exhibition), presentation=entryPresentationFor(publication.exhibition), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
+  const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
   const [layoutReady,setLayoutReady]=useState(false);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
-  const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&settings.imageAssetId&&motion&&presentation.coverUnfold?'folded':'flat');
+  const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&settings.imageAssetId&&motion&&canReveal?'folded':'flat');
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
-    if(!interactive||!showImage||!settings.imageAssetId||failed||!motion||!presentation.coverUnfold)setPaper('flat');
+    if(!interactive||!showImage||!settings.imageAssetId||failed||!motion||!canReveal)setPaper('flat');
     else if(layoutReady)setPaper(state=>state==='folded'?'opening':state);
-  },[interactive,showImage,settings.imageAssetId,failed,motion,presentation.coverUnfold,layoutReady]);
+  },[interactive,showImage,settings.imageAssetId,failed,motion,canReveal,layoutReady]);
   useEffect(()=>{
     const compact=window.matchMedia('(max-width:700px)'),reduced=window.matchMedia('(prefers-reduced-motion:reduce)');
-    const flatten=()=>setPaper('flat'),preference=()=>{if(compact.matches||reduced.matches)flatten();};
+    const flatten=()=>setPaper('flat'),preference=()=>{if((compact.matches&&(design.theme==='catalogue'||design.effects.mobile==='none'))||reduced.matches)flatten();};
     preference();compact.addEventListener('change',preference);reduced.addEventListener('change',preference);window.addEventListener('resize',flatten);
     return()=>{compact.removeEventListener('change',preference);reduced.removeEventListener('change',preference);window.removeEventListener('resize',flatten);};
-  },[]);
+  },[design.theme,design.effects.mobile]);
   useEffect(()=>{
     setLayoutReady(false);
-    if(!loaded||!spread.current||!interactive||!motion||!presentation.coverUnfold)return;
+    if(!loaded||!spread.current||!interactive||!motion||!canReveal)return;
     const current=generation.current,abort=new AbortController(),signal=AbortSignal.any([abort.signal,AbortSignal.timeout(15000)]);
     void waitForCoverLayout(spread.current,signal).then(()=>{if(current===generation.current&&!signal.aborted)setLayoutReady(true);}).catch(()=>{if(!abort.signal.aborted&&current===generation.current)setPaper('flat');});
     return()=>abort.abort();
-  },[loaded,interactive,motion,presentation.coverUnfold]);
+  },[loaded,interactive,motion,canReveal]);
   const ratio=coverAspectRatio(publication);
   useEffect(() => {
     const current=++generation.current, abort = new AbortController();
@@ -69,19 +76,26 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     }).catch(() => { if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
     return () => { abort.abort(); if(current===generation.current)generation.current++;if (objectURL) URL.revokeObjectURL(objectURL); };
   }, [publication, showImage, settings.imageAssetId, retry]);
-  const copy=<><h1>{publication.exhibition.title}</h1>
-    {settings.artist&&<p className="entrance-cover-artist">{settings.artist}</p>}
-    {settings.introduction&&<p className="entrance-cover-introduction">{settings.introduction}</p>}</>;
-  return <section className="entrance-cover" aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)} data-paper-state={paper}>
+  const displayed=()=>{if(image?.generation===generation.current)requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});};
+  const imageFailed=()=>{if(image?.generation===generation.current)setFailed(true);};
+  const phase=paper==='folded'&&layoutReady?'opening':paper;
+  if(design.theme!=='catalogue'){
+    const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
+    const status:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+    const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
+    return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component key={image?.url??'pending'} {...props}/></div>;
+  }
+  const style=catalogueStyle(design,authored,effects);
+  const copy=<><h1>{content.title}</h1>
+    {content.artist&&<p className="entrance-cover-artist">{content.artist}</p>}
+    {content.introduction&&<p className="entrance-cover-introduction">{content.introduction}</p>}</>;
+  return <section className="entrance-cover" style={style} lang={content.locale} aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)} data-paper-state={phase}>
     <div className="entrance-cover-spread" ref={spread}>
       <div className="entrance-cover-copy entrance-paper-left"><div className="entrance-cover-prose">{copy}</div>{ticket&&<div className="entrance-paper-ticket-slot">{ticket}</div>}</div>
       {showImage&&settings.imageAssetId&&<div className="entrance-paper-leaf" style={{aspectRatio:String(ratio)}} onAnimationEnd={event=>{if(event.animationName==='cover-paper-right')setPaper(state=>state==='opening'?'open':state);}}>
         <div className="entrance-paper-outside entrance-cover-copy" aria-hidden="true">{copy}</div>
         <div className="entrance-cover-image entrance-paper-inside" aria-busy={!loaded&&!failed} data-image-state={failed?'failed':loaded?'ready':'loading'}>
-          {image&&!failed&&<img key={image.url} src={image.url} width={image.width} height={image.height} alt={settings.imageAlt} decoding="async" onLoad={event=>{
-            // Predecode plus DOM load and a display opportunity precede any opening.
-            if(event.currentTarget.complete&&image.generation===generation.current)requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});
-          }} onError={()=>{if(image.generation===generation.current)setFailed(true);}}/>}
+          {image&&!failed&&<img key={image.url} src={image.url} width={image.width} height={image.height} alt={settings.imageAlt} decoding="async" onLoad={displayed} onError={imageFailed}/>}
           {failed&&<div className="entrance-cover-image-failure"><p role="status">표지를 불러오지 못했어요. 입장과 글 관람은 이용할 수 있어요.</p><button onClick={()=>setRetry(n=>n+1)}>표지 다시 불러오기</button></div>}
         </div>
       </div>}

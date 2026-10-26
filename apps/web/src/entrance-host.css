@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Shared readiness and viewport ownership; the theme modules own their compositions. */
+.entrance-theme-image[data-image-state=decoded] img{visibility:hidden}
+.publication-cover-surface[data-entering=true] .entrance-theme-host{visibility:hidden;pointer-events:none}
+.publication-shell .publication-entry-action{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem 1.25rem;border:1px solid currentColor;font-size:1rem;line-height:1.5}
+.publication-entry-action-time{font-size:.8rem;display:flex;gap:.5rem;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.publication-entry-action--minimal{width:auto}
+.publication-entry-action--confirm{min-width:12rem;justify-content:center!important}
+.publication-entry-action--threshold{min-width:10rem}
+.publication-entry-overlay[data-transition=fade] .publication-entry-door,.publication-entry-overlay[data-transition=none] .publication-entry-door{display:none}
+.publication-entry-overlay[data-ready=true][data-transition=fade]{background:var(--publication-paper,#f8fbfc);animation:entrance-stage-fade var(--entry-transition-duration,220ms) ease-out both}
+.publication-entry-overlay[data-ready=true][data-transition=panels] .publication-entry-door-left{animation:entrance-panel-left var(--entry-transition-duration,400ms) cubic-bezier(.16,1,.3,1) both}
+.publication-entry-overlay[data-ready=true][data-transition=panels] .publication-entry-door-right{animation:entrance-panel-right var(--entry-transition-duration,400ms) cubic-bezier(.16,1,.3,1) both}
+.publication-entry-overlay[data-ready=true][data-transition=none]{visibility:hidden}
+@keyframes entrance-stage-fade{to{opacity:0;visibility:hidden}}
+@keyframes entrance-panel-left{to{transform:translateX(-100%)}}
+@keyframes entrance-panel-right{to{transform:translateX(100%)}}
+.publication-shell[data-reduced-motion=true] .publication-entry-overlay[data-ready=true]{animation:none!important;visibility:hidden}
+@media(prefers-reduced-motion:reduce){.publication-entry-overlay[data-ready=true]{animation:none!important;visibility:hidden}}
+
+.entrance-theme-entry,.publication-entry-placeholder{min-height:3.5rem}

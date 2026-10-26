@@ -17,6 +17,7 @@ import { EntranceCover, coverAspectRatio } from './EntranceCover';
 import { EntranceReadingShell } from './EntranceReadingShell';
 import { EntryProgress } from "./EntryProgress";
 import { EntryTicket } from './EntryTicket';
+import {entranceRuntime,entranceContent} from './entrance-runtime';
 import "./publication-novice.css";
 import "./publication-immersive.css";
 const uuid =
@@ -28,6 +29,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const generation = useRef(0);
   const [mode, setMode] = useState<"cover" | "text" | "3d">("cover");
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
+  const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   const [stageReady, setStageReady] = useState(false);
@@ -163,26 +165,26 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     else setOverview(plaque.source.kind==='exhibition'?"opening":{roomId:plaque.roomId});
   };
   const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
-  const entryPresentation=entryPresentationFor(value?.exhibition??{});
+  const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
   return (
     <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
       <nav className="publication-skip-links" aria-label="바로 가기">
         <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
-      {(loading||error)&&<EntranceReadingShell title={initial?.exhibition.title??"전시"} artist={initial&&entranceFor(initial.exhibition).artist} introduction={initial&&entranceFor(initial.exhibition).introduction} hasImage={Boolean(!error&&initial&&entranceFor(initial.exhibition).imageAssetId)} folded={!reducedMotion&&entryPresentation.coverUnfold} ratio={initial?coverAspectRatio(initial):4/3} status={<p className={loading?'publication-entry-status-quiet':undefined} role={loading?'status':'alert'} data-testid="public-state">{loading?"전시 정보를 확인하고 있어요.":error}</p>}/>}
+      {(loading||error)&&<EntranceReadingShell exhibition={initial?.exhibition} title={initial?.exhibition.title??"전시"} artist={initial&&entranceFor(initial.exhibition).artist} introduction={initial&&entranceFor(initial.exhibition).introduction} hasImage={Boolean(!error&&initial&&entranceFor(initial.exhibition).imageAssetId)} folded={!reducedMotion&&entryPresentation.coverUnfold} ratio={initial?coverAspectRatio(initial):4/3} status={<p className={loading?'publication-entry-status-quiet':undefined} role={loading?'status':'alert'} data-testid="public-state">{loading?"전시 정보를 확인하고 있어요.":error}</p>}/>}
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
           <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`,'--entry-ticket-height':`${entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&viewerUnavailable}>
-          <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
-            ticket={<EntryTicket title={value.exhibition.title} active={mode==="3d"} animate={entryPresentation.ticketAnimation&&!reducedMotion} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
+          <EntranceCover key={value.publication.revisionSha256} publication={value} locale={entranceLocale} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
+            ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
 
             <div className="publication-entry-actions">
               {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
             </div>
           </EntranceCover></div>
-          {mode==="3d"&&!viewerUnavailable&&<div className="publication-entry-overlay" key={entryAttempt} data-ready={stageReady} data-door-effect={entryPresentation.doorEffect&&!reducedMotion} data-failed={entryFailed}>
+          {mode==="3d"&&!viewerUnavailable&&<div className="publication-entry-overlay" key={entryAttempt} data-ready={stageReady} data-transition={runtime!.effects.transition} style={{'--entry-transition-duration':`${(runtime!.effects.transition==='doors'?650:runtime!.effects.transition==='panels'?400:220)/runtime!.effects.speed}ms`} as CSSProperties} data-door-effect={runtime!.effects.transition!=='none'} data-failed={entryFailed}>
             <div className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>
             {!stageReady&&<div className="publication-entry-recovery">
               <p className="publication-entry-progress" role={entryFailed?"alert":"status"} ref={entryStatus} tabIndex={-1}>{entryFailed?"공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.":longEntry?"공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.":"전시장으로 들어가고 있어요."}</p>
@@ -201,6 +203,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
           <section aria-label="관람 방식과 접근성 설정">
+            {runtime!.design.translations.length>0&&<label>표지 언어<select value={entranceLocale} onChange={e=>setEntranceLocale(e.target.value)}><option value="">원문</option>{runtime!.design.translations.map(t=><option key={t.locale} value={t.locale}>{t.locale}</option>)}</select></label>}
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
             <p>글·목록 관람에서는 3D 공간·작품 이미지·음성을 불러오지 않습니다. 설명, 대본, 치수와 권리를 읽을 수 있습니다.</p>
             <label><input type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} />움직임 줄이기</label>
