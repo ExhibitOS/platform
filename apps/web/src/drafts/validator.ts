@@ -1,3 +1,4 @@
+import {validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import { validateStudioInstallation } from '@exhibitos/studio-contract';
@@ -25,6 +26,8 @@ export function validateDraft(document: unknown): ValidationResult {
   if (!materials.valid) return materials;
   const presentation=validateStudioPresentation((document as Draft).candidate);
   if(!presentation.valid)return presentation;
+  const lightDetails=validateStudioLightDetails((document as Draft).candidate);
+  if(!lightDetails.valid)return lightDetails;
   const benches=validateStudioBenches((document as Draft).candidate);
   if(!benches.valid)return benches;
   const installation=validateStudioInstallation((document as Draft).candidate);

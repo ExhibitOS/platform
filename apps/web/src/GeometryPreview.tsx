@@ -7,6 +7,7 @@ import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
+import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
 import {benchesFor} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
@@ -547,6 +548,8 @@ export function GeometryPreview({
           }
         }
       }
+      const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
+      if(lightDetails.records.length)renderer.domElement.dataset.lightDetails=JSON.stringify(lightDetails.records);
       model.updateMatrixWorld(true);
       const bounds = new three.Box3().setFromObject(model),
         center = bounds.getCenter(new three.Vector3()),

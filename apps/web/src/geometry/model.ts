@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from "@exhibitos/spec";
 import {
+  removeLightDetails,
   TEMPLATE_NAMESPACE,
   MATERIAL_NAMESPACE,
   type PbrMaterial,
@@ -184,7 +185,7 @@ export function applyGeometryCommand(
     case "align-placement": { const p=find(doc.placements,command.id); const result=alignPlacement(doc,p,find(doc.surfaces,command.surfaceId),command.offset,command.snap); replace(doc.placements,p.id,result); break; }
     case "add-light": doc.lights.push(clone(command.light)); break;
     case "set-light": replace(doc.lights,command.id,command.light); break;
-    case "remove-light": find(doc.lights,command.id); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
+    case "remove-light": find(doc.lights,command.id); doc=removeLightDetails(doc,command.id); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
     case "set-title": doc.title=command.title; break;
     case "set-navigation": doc.navigation=clone(command.navigation); doc.accessibility.routeIds=doc.navigation.filter(r=>r.accessible).map(r=>r.id); break;
     case "set-presentation": doc.extensions={...doc.extensions,[PRESENTATION_NAMESPACE]:clone(command.presentation) as unknown as NonNullable<Exhibition["extensions"]>[string]}; break;
