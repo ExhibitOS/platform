@@ -25,7 +25,10 @@ The approved GLB retains the provider geometry, scale and integral oval base.
 The exhibition's separate plain box pedestal and placement are authored metadata.
 One simple bench in the sculpture room and its explicit seated viewpoint use the
 same editable exhibition metadata; returning restores the prior view with walking
-stopped. Artwork files, transforms, descriptions and rights are preserved.
+stopped. One authored spot fixture aims at a painting, with a directional
+light providing the base fill. Their simple project geometry and visual colour
+temperature are not a calibrated luminaire or lux measurement. Artwork files,
+transforms, descriptions and rights are preserved.
 Reported institutional dimensions and the digital model bounds are distinguished
 in the description; physical scale has not been independently calibrated.
 The approved four-artist introduction, descriptions, rights, credits and display
