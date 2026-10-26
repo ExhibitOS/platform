@@ -43,8 +43,15 @@ export function installPreviewEditing({scene,camera,renderer,model,targets,orbit
   const picked=closestEditorSelection(selections);if(picked)b.select(picked);
  };
  const lostCapture=()=>queueMicrotask(()=>{if(active)cancel();});
+ const dragOver=(e:DragEvent)=>{const b=bridge();if(b&&!b.disabled&&b.dropArtwork&&e.dataTransfer?.types.includes('application/x-exhibitos-artwork')){e.preventDefault();e.dataTransfer.dropEffect='copy';}};
+ const drop=(e:DragEvent)=>{
+  const b=bridge(),id=e.dataTransfer?.getData('application/x-exhibitos-artwork');if(!b||b.disabled||!b.dropArtwork||!id)return;
+  e.preventDefault();cancel();const rect=renderer.domElement.getBoundingClientRect(),ray=new Raycaster();ray.setFromCamera(new Vector2((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1),camera);
+  for(const hit of ray.intersectObject(model,true)){let node:Object3D|null=hit.object;while(node&&!node.userData.editorSelection)node=node.parent;const picked=node?.userData.editorSelection as EditorSelection|undefined;if(picked?.kind==='surface'){b.dropArtwork(id,picked.id,hit.point.toArray() as [number,number,number]);return;}}
+  report('작품을 놓을 벽을 선택해 주세요. 썸네일을 눌러 배치할 수도 있어요.');
+ };
  const key=(e:KeyboardEvent)=>{if(e.key==='Escape'&&active){e.preventDefault();cancel();}};
- renderer.domElement.addEventListener('pointerdown',onDown,true);renderer.domElement.addEventListener('click',onClick);renderer.domElement.addEventListener('pointercancel',cancel);renderer.domElement.addEventListener('lostpointercapture',lostCapture);window.addEventListener('blur',cancel);window.addEventListener('keydown',key);control.addEventListener('change',render);
+ renderer.domElement.addEventListener('pointerdown',onDown,true);renderer.domElement.addEventListener('click',onClick);renderer.domElement.addEventListener('dragover',dragOver);renderer.domElement.addEventListener('drop',drop);renderer.domElement.addEventListener('pointercancel',cancel);renderer.domElement.addEventListener('lostpointercapture',lostCapture);window.addEventListener('blur',cancel);window.addEventListener('keydown',key);control.addEventListener('change',render);
  sync();
- return {sync,dispose(){cancel();renderer.domElement.removeEventListener('pointerdown',onDown,true);renderer.domElement.removeEventListener('click',onClick);renderer.domElement.removeEventListener('pointercancel',cancel);renderer.domElement.removeEventListener('lostpointercapture',lostCapture);window.removeEventListener('blur',cancel);window.removeEventListener('keydown',key);control.dispose();scene.remove(control.getHelper());clearHighlight();}};
+ return {sync,dispose(){cancel();renderer.domElement.removeEventListener('pointerdown',onDown,true);renderer.domElement.removeEventListener('click',onClick);renderer.domElement.removeEventListener('dragover',dragOver);renderer.domElement.removeEventListener('drop',drop);renderer.domElement.removeEventListener('pointercancel',cancel);renderer.domElement.removeEventListener('lostpointercapture',lostCapture);window.removeEventListener('blur',cancel);window.removeEventListener('keydown',key);control.dispose();scene.remove(control.getHelper());clearHighlight();}};
 }

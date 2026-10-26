@@ -9,6 +9,7 @@ export type Pose=Exhibition['rooms'][number]['transform'];
 export interface EditorBridge {
  document:Exhibition;selection:EditorSelection|null;mode:EditMode;view:string;disabled:boolean;preview:GeometryCommand|null;
  select:(selection:EditorSelection)=>void;previewChange:(command:GeometryCommand|null)=>void;commit:(command:GeometryCommand)=>void;error:(message:string)=>void;
+ dropArtwork?:(artworkRevisionId:string,surfaceId:string,worldPoint:[number,number,number])=>void;
 }
 export const selectionKey=(s:EditorSelection)=>s.kind+':'+s.id;
 export function selectedItem(doc:Exhibition,s:EditorSelection){return s.kind==='room'?doc.rooms.find(x=>x.id===s.id):s.kind==='surface'?doc.surfaces.find(x=>x.id===s.id):s.kind==='opening'?doc.openings.find(x=>x.id===s.id):doc.placements.find(x=>x.id===s.id)}

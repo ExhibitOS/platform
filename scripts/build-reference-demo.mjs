@@ -23,12 +23,12 @@ export function localPublicationFetch(sourceRoot){
  };
 }
 
-export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-static'),output=join(root,'dist-demo')}={}){
+export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-static'),output=join(root,'dist-demo'),privateEditor=false}={}){
  const {createPagesPublicationSource}=await import('./pages-publication-source.mjs');
  const {exportStaticPublication}=await import('./export-static-publication.mjs');
  const pinned=JSON.parse(await readFile(join(root,'demos/reference-exhibition/publication.json'),'utf8'));
  const source=createPagesPublicationSource({origin:sourceOrigin,...pinned,fetch:localPublicationFetch(join(root,'demos/reference-exhibition/source'))});
- return exportStaticPublication({origin:'http://127.0.0.1',publicationId:pinned.publicationId,runtimeRoot,output,fetcher:async input=>{
+ return exportStaticPublication({origin:'http://127.0.0.1',publicationId:pinned.publicationId,runtimeRoot,output,privateEditor,fetcher:async input=>{
   const url=new URL(input),base=`/api/v1/publications/${pinned.publicationId}`;
   if(url.origin!=='http://127.0.0.1'||url.search||url.hash)throw Error('DEMO_EXPORT_PATH');
   if(url.pathname===base)return Response.json(await source.anonymous(pinned.publicationId));

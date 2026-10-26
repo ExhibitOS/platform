@@ -1,20 +1,26 @@
-/* A single physical leaf turns around the vertical spine over the fixed left page. */
-.entrance-cover{min-height:calc(100svh - 5rem);padding:clamp(5rem,8vw,7rem) clamp(1.5rem,6vw,7rem) 3rem;color:var(--publication-ink,#182d32);background:var(--publication-paper,#f8fbfc)}
-.entrance-cover-spread{position:relative;display:grid;grid-template-columns:minmax(0,1fr);perspective:1800px;isolation:isolate}
+/* Equal paper halves share one spine. The whole sheet turns as both halves unfold. */
+.entrance-cover{min-height:calc(100svh - 5rem);padding:clamp(5rem,8vw,7rem) clamp(1.5rem,6vw,7rem) 3rem;color:var(--publication-ink,#182d32);background:var(--publication-paper,#f8fbfc);perspective:1800px}
+.entrance-cover-spread{position:relative;display:grid;grid-template-columns:minmax(0,1fr);transform-style:preserve-3d;transform-origin:center center;pointer-events:none}
 .entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:repeat(2,minmax(0,1fr))}
 .entrance-cover-copy{min-width:0;padding:clamp(1.25rem,3vw,3rem);background:var(--publication-paper,#f8fbfc)}
-.entrance-paper-left{display:flex;flex-direction:column;border:1px solid #182d3220;box-shadow:0 8px 24px #182d320c}
+.entrance-paper-left{pointer-events:auto;position:relative;transform-style:preserve-3d;transform-origin:right center;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;flex-direction:column;border:1px solid #182d3220;box-shadow:0 8px 24px #182d320c}
 .entrance-cover-prose{min-width:0}.entrance-paper-ticket-slot{position:relative;z-index:1;margin-top:auto;padding-top:2rem;min-height:8rem;box-sizing:content-box}
 .entrance-cover h1{margin:0 0 1.25rem;font-size:clamp(2rem,3.8vw,4rem);line-height:1.17;letter-spacing:-.04em;font-weight:650;word-break:keep-all;overflow-wrap:anywhere;text-wrap:balance}
 .entrance-cover-artist{margin:.75rem 0;font-size:clamp(1rem,1.4vw,1.25rem);line-height:1.6;overflow-wrap:anywhere}
 .entrance-cover-introduction{margin:1rem 0 0;white-space:pre-wrap;line-height:1.75;color:var(--publication-muted,#51656a);overflow-wrap:anywhere}
-.entrance-paper-leaf{position:relative;min-width:0;min-height:24rem;transform-style:preserve-3d;transform-origin:left center;transform:rotateY(0deg)}
+.entrance-paper-leaf{pointer-events:auto;width:100%;height:100%;position:relative;min-width:0;min-height:24rem;transform-style:preserve-3d;transform-origin:left center;transform:rotateY(0deg)}
 .entrance-paper-inside,.entrance-paper-outside{backface-visibility:hidden;-webkit-backface-visibility:hidden;box-sizing:border-box;border:1px solid #182d3220;box-shadow:0 8px 24px #182d320c}
 .entrance-paper-outside{position:absolute;inset:0;transform:rotateY(180deg);background:linear-gradient(90deg,#182d320c,transparent 12%),var(--publication-paper,#f8fbfc);pointer-events:none}
 .entrance-paper-inside{height:100%;background:linear-gradient(90deg,#182d320d,transparent 12%),var(--publication-paper,#f8fbfc)}
-.entrance-cover[data-paper-state=folded] .entrance-paper-leaf{transform:rotateY(-180deg)}
-.entrance-cover[data-paper-state=opening] .entrance-paper-leaf{animation:cover-paper-open 620ms cubic-bezier(.22,.65,.25,1) both}
-@keyframes cover-paper-open{from{transform:rotateY(-180deg)}to{transform:rotateY(0deg)}}
+.entrance-cover[data-paper-state=folded] .entrance-cover-spread{transform:translateX(20%) rotateY(60deg)}
+.entrance-cover[data-paper-state=folded] .entrance-paper-left{transform:rotateY(-72deg)}
+.entrance-cover[data-paper-state=folded] .entrance-paper-leaf{transform:rotateY(72deg)}
+.entrance-cover[data-paper-state=opening] .entrance-cover-spread{animation:cover-paper-sheet 620ms cubic-bezier(.22,.65,.25,1) both}
+.entrance-cover[data-paper-state=opening] .entrance-paper-left{animation:cover-paper-left 620ms cubic-bezier(.22,.65,.25,1) both}
+.entrance-cover[data-paper-state=opening] .entrance-paper-leaf{animation:cover-paper-right 620ms cubic-bezier(.22,.65,.25,1) both}
+@keyframes cover-paper-sheet{from{transform:translateX(20%) rotateY(60deg)}to{transform:none}}
+@keyframes cover-paper-left{from{transform:rotateY(-72deg)}to{transform:none}}
+@keyframes cover-paper-right{from{transform:rotateY(72deg)}to{transform:none}}
 .entrance-cover-image{position:relative;min-width:0;width:100%;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);place-items:center;overflow:hidden;padding:clamp(1rem,2vw,2rem)}
 .entrance-cover-image img{display:block;min-width:0;min-height:0;width:100%;height:100%;max-height:58svh;object-fit:contain;visibility:hidden}
 .entrance-cover-image[data-image-state=ready] img{visibility:visible}
@@ -38,8 +44,10 @@
 @keyframes entry-ticket-away{0%,65%{opacity:1}100%{opacity:0}}
 .publication-cover-surface[data-entering=true]{position:absolute;inset:0;pointer-events:none;z-index:42}
 .publication-cover-surface[data-entering=true] .publication-entry-ticket{position:fixed;left:var(--entry-ticket-left);top:var(--entry-ticket-top);width:var(--entry-ticket-width);height:var(--entry-ticket-height);visibility:visible}
-.publication-cover-surface[data-entering=true] .entrance-cover{background:transparent}
+.publication-cover-surface[data-entering=true] .entrance-cover{background:transparent;perspective:none}
 .publication-cover-surface[data-entering=true] .entrance-cover-spread{visibility:hidden;perspective:none}
+/* Entry rects are viewport measurements: remove every owned containing block synchronously. */
+.publication-cover-surface[data-entering=true] .entrance-cover-spread,.publication-cover-surface[data-entering=true] .entrance-paper-left,.publication-cover-surface[data-entering=true] .entrance-paper-leaf{transform:none!important;animation:none!important;transform-style:flat}
 .publication-cover-surface[data-entering=true] .publication-entry-ticket[data-ticket-animation=false]{visibility:hidden}
 /* Full-size closed doors conceal the preparing canvas. Ready opens inward into that same canvas. */
 .publication-entry-overlay{position:absolute;inset:0;background:var(--publication-paper,#f8fbfc)}
@@ -58,13 +66,13 @@
 .publication-entry-recovery{position:absolute;z-index:45;left:50%;top:max(1.25rem,env(safe-area-inset-top));transform:translateX(-50%);width:min(38rem,calc(100% - 2rem));max-height:calc(100% - 2rem);overflow:auto;padding:1rem;background:var(--publication-paper,#f8fbfc);box-sizing:border-box;border:1px solid #182d3220;color:var(--publication-ink,#182d32)}
 .publication-entry-progress{margin:0 0 .75rem;line-height:1.6}.publication-entry-progress:focus{outline:none}.publication-entry-secondary{display:flex;gap:.75rem;flex-wrap:wrap}
 .publication-entry-status-quiet{position:absolute!important;width:1px;height:1px;min-height:0!important;padding:0;margin:-1px!important;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
-.publication-shell[data-reduced-motion=true] .entrance-paper-leaf{animation:none;transform:none}
+.publication-shell[data-reduced-motion=true] .entrance-cover-spread,.publication-shell[data-reduced-motion=true] .entrance-paper-left,.publication-shell[data-reduced-motion=true] .entrance-paper-leaf{animation:none;transform:none}
 .publication-shell[data-reduced-motion=true] .entrance-paper-outside{display:none}
 .publication-shell[data-reduced-motion=true] .publication-entry-ticket-stub{animation:none;transform:none}
 .publication-shell[data-reduced-motion=true] .publication-entry-door{display:none}
 .publication-shell[data-reduced-motion=true] .publication-entry-overlay[data-ready=true]{visibility:hidden}
-@media(max-width:700px){.entrance-cover{padding:5rem 1.25rem 2rem}.entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:minmax(0,1fr)}.entrance-paper-leaf{min-height:0;height:auto;transform:none!important;animation:none!important}.entrance-paper-outside{display:none}.entrance-cover-copy{padding:1.25rem}.entrance-cover-image{height:100%;min-height:0;max-height:none}.entrance-cover-image img{max-height:100%}.entrance-cover[data-image-position=top] img{object-position:top}.entrance-cover[data-image-position=bottom] img{object-position:bottom}.entrance-cover h1{font-size:clamp(2rem,8vw,3rem)}.publication-shell .publication-entry-ticket{--ticket-stub:5.5rem}.publication-entry-recovery{top:max(.75rem,env(safe-area-inset-top))}}
-@media(prefers-reduced-motion:reduce){.publication-cover-surface[data-entering=true] .publication-entry-ticket{visibility:hidden}.entrance-paper-leaf{animation:none!important;transform:none!important}.entrance-paper-outside,.publication-entry-door{display:none}.publication-entry-ticket-stub,.publication-entry-ticket{animation:none!important;transform:none!important}.publication-entry-overlay[data-ready=true]{visibility:hidden}}
+@media(max-width:700px){.entrance-cover-spread,.entrance-paper-left{transform:none!important;animation:none!important}.entrance-cover{padding:5rem 1.25rem 2rem}.entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:minmax(0,1fr)}.entrance-paper-leaf{min-height:0;height:auto;transform:none!important;animation:none!important}.entrance-paper-outside{display:none}.entrance-cover-copy{padding:1.25rem}.entrance-cover-image{height:100%;min-height:0;max-height:none}.entrance-cover-image img{max-height:100%}.entrance-cover[data-image-position=top] img{object-position:top}.entrance-cover[data-image-position=bottom] img{object-position:bottom}.entrance-cover h1{font-size:clamp(2rem,8vw,3rem)}.publication-shell .publication-entry-ticket{--ticket-stub:5.5rem}.publication-entry-recovery{top:max(.75rem,env(safe-area-inset-top))}}
+@media(prefers-reduced-motion:reduce){.publication-cover-surface[data-entering=true] .publication-entry-ticket{visibility:hidden}.entrance-cover-spread,.entrance-paper-left,.entrance-paper-leaf{animation:none!important;transform:none!important}.entrance-paper-outside,.publication-entry-door{display:none}.publication-entry-ticket-stub,.publication-entry-ticket{animation:none!important;transform:none!important}.publication-entry-overlay[data-ready=true]{visibility:hidden}}
 
 /* The total includes unknown decode and scene work: never imply a percentage. */
 .publication-entry-meter-space{min-height:2.75rem;margin:0 0 .75rem}

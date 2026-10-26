@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { entranceFor, entryPresentationFor, MAX_COVER_BYTES } from '@exhibitos/studio-contract';
 import type { PublicPublication } from './publication-client';
 import { fetchVerifiedAsset } from './viewer/loading';
+import { waitForCoverLayout } from './cover-ready';
 import './entrance-cover.css';
 
 export function coverAspectRatio(publication:PublicPublication){
@@ -14,21 +15,29 @@ export function coverAspectRatio(publication:PublicPublication){
 export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children }: {
   publication: PublicPublication; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;
 }) {
-  const settings = entranceFor(publication.exhibition), presentation=entryPresentationFor(publication.exhibition), generation = useRef(0);
+  const settings = entranceFor(publication.exhibition), presentation=entryPresentationFor(publication.exhibition), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
+  const [layoutReady,setLayoutReady]=useState(false);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
   const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&settings.imageAssetId&&motion&&presentation.coverUnfold?'folded':'flat');
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
     if(!interactive||!showImage||!settings.imageAssetId||failed||!motion||!presentation.coverUnfold)setPaper('flat');
-    else if(loaded)setPaper(state=>state==='folded'?'opening':state);
-  },[interactive,showImage,settings.imageAssetId,failed,motion,presentation.coverUnfold,loaded]);
+    else if(layoutReady)setPaper(state=>state==='folded'?'opening':state);
+  },[interactive,showImage,settings.imageAssetId,failed,motion,presentation.coverUnfold,layoutReady]);
   useEffect(()=>{
-    const compact=window.matchMedia('(max-width:700px)');
-    const flatten=()=>{if(compact.matches)setPaper('flat');};
-    flatten();compact.addEventListener('change',flatten);
-    return()=>compact.removeEventListener('change',flatten);
+    const compact=window.matchMedia('(max-width:700px)'),reduced=window.matchMedia('(prefers-reduced-motion:reduce)');
+    const flatten=()=>setPaper('flat'),preference=()=>{if(compact.matches||reduced.matches)flatten();};
+    preference();compact.addEventListener('change',preference);reduced.addEventListener('change',preference);window.addEventListener('resize',flatten);
+    return()=>{compact.removeEventListener('change',preference);reduced.removeEventListener('change',preference);window.removeEventListener('resize',flatten);};
   },[]);
+  useEffect(()=>{
+    setLayoutReady(false);
+    if(!loaded||!spread.current||!interactive||!motion||!presentation.coverUnfold)return;
+    const current=generation.current,abort=new AbortController(),signal=AbortSignal.any([abort.signal,AbortSignal.timeout(15000)]);
+    void waitForCoverLayout(spread.current,signal).then(()=>{if(current===generation.current&&!signal.aborted)setLayoutReady(true);}).catch(()=>{if(!abort.signal.aborted&&current===generation.current)setPaper('flat');});
+    return()=>abort.abort();
+  },[loaded,interactive,motion,presentation.coverUnfold]);
   const ratio=coverAspectRatio(publication);
   useEffect(() => {
     const current=++generation.current, abort = new AbortController();
@@ -64,9 +73,9 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     {settings.artist&&<p className="entrance-cover-artist">{settings.artist}</p>}
     {settings.introduction&&<p className="entrance-cover-introduction">{settings.introduction}</p>}</>;
   return <section className="entrance-cover" aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)} data-paper-state={paper}>
-    <div className="entrance-cover-spread">
+    <div className="entrance-cover-spread" ref={spread}>
       <div className="entrance-cover-copy entrance-paper-left"><div className="entrance-cover-prose">{copy}</div>{ticket&&<div className="entrance-paper-ticket-slot">{ticket}</div>}</div>
-      {showImage&&settings.imageAssetId&&<div className="entrance-paper-leaf" style={{aspectRatio:String(ratio)}} onAnimationEnd={event=>{if(event.animationName==='cover-paper-open')setPaper(state=>state==='opening'?'open':state);}}>
+      {showImage&&settings.imageAssetId&&<div className="entrance-paper-leaf" style={{aspectRatio:String(ratio)}} onAnimationEnd={event=>{if(event.animationName==='cover-paper-right')setPaper(state=>state==='opening'?'open':state);}}>
         <div className="entrance-paper-outside entrance-cover-copy" aria-hidden="true">{copy}</div>
         <div className="entrance-cover-image entrance-paper-inside" aria-busy={!loaded&&!failed} data-image-state={failed?'failed':loaded?'ready':'loading'}>
           {image&&!failed&&<img key={image.url} src={image.url} width={image.width} height={image.height} alt={settings.imageAlt} decoding="async" onLoad={event=>{
