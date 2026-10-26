@@ -33,7 +33,8 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
   const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&settings.imageAssetId&&motion&&canReveal?'folded':'flat');
   const imageStateCallback=useRef(onImageState);imageStateCallback.current=onImageState;
-  useEffect(()=>{imageStateCallback.current?.(!showImage||!settings.imageAssetId?'absent':failed?'failed':loaded?'ready':'loading');},[showImage,settings.imageAssetId,failed,loaded]);
+  const displayedImageState:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+  useEffect(()=>{imageStateCallback.current?.(displayedImageState);},[displayedImageState]);
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
     if(!interactive||!showImage||!settings.imageAssetId||failed||!motion||!canReveal)setPaper('flat');
@@ -90,7 +91,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   const phase=paper==='folded'&&layoutReady?'opening':paper;
   if(design.theme!=='catalogue'){
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
-    const status:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+    const status=displayedImageState;
     const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
     return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component {...props}/></div>;
   }

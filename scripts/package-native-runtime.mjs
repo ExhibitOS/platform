@@ -159,6 +159,9 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   try { await lstat(join(staticRoot,'static-studio.html')); fail('NATIVE_PACKAGE_STATIC_VIEWER_INVALID'); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   await copy(staticRoot,join(platform,'apps/web/dist-static'));
+  // Authored entrance themes use this trusted build-time companion, never code
+  // from a caller-provided runtime directory or a public exhibition payload.
+  await copy(join(source,'apps/web/dist-cover-shell'),join(platform,'apps/web/dist-cover-shell'));
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));
   await copy(join(source,'LICENSE'),join(platform,'LICENSE'));
