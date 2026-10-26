@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,artifactBounds,IDENTITY_ARTIFACT_POSE} from "@exhibitos/studio-contract";
+import {lightKelvinHex,artifactCorners,artifactBounds,IDENTITY_ARTIFACT_POSE} from "@exhibitos/studio-contract";
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 export type Placement = Exhibition["placements"][number];
 export type Light = Exhibition["lights"][number];
@@ -64,6 +64,5 @@ export function syntheticArtwork(type: Artwork["artworkType"] = "sculpture"): Ar
 /** Bounded visual Kelvin approximation; not a calibrated luminaire spectrum. */
 export function kelvinColor(kelvin:number):string {
  if(!Number.isFinite(kelvin)||kelvin<1000||kelvin>20000)throw Error('색온도는1000..20000K');
- const t=kelvin/100,clamp=(n:number)=>Math.round(Math.max(0,Math.min(255,n))).toString(16).padStart(2,'0');
- return '#'+[t<=66?255:329.698727446*Math.pow(t-60,-.1332047592),t<=66?99.4708025861*Math.log(t)-161.1195681661:288.1221695283*Math.pow(t-60,-.0755148492),t>=66?255:t<=19?0:138.5177312231*Math.log(t-10)-305.0447927307].map(clamp).join('');
+ return lightKelvinHex(kelvin);
 }

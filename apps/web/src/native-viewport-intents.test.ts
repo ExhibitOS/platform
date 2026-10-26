@@ -6,6 +6,7 @@ import type {NativeViewportFrame} from './native-viewport-protocol';
 import type {LightInspectorRequest} from './native-light-inspector';
 import type {PlacementBegin} from './native-placement-protocol';
 import type {BenchInspectorRequest} from './native-bench-inspector';
+import type {LightDetailsRequest} from './native-light-details';
 vi.mock('react-dom/client',()=>({createRoot:()=>({render:()=>{}})}));
 vi.mock('./GeometryPreview',()=>({GeometryPreview:()=>null}));
 vi.mock('./StudioFloorPlan',()=>({StudioFloorPlan:()=>null}));
@@ -59,4 +60,13 @@ it('wired bench intent excludes placement/light/ordinary changes, authenticates 
 it('late bench results are rejected after a new frame and release the optional intent',async()=>{
  const s=await sample(),request=benchRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.benchInspector(request),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
  await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
+});
+function detailsRequest(s:Awaited<ReturnType<typeof sample>>):LightDetailsRequest{return {...s.request,type:'set-light-details',settings:{fixture:'none'}};}
+it('light details wired pending intent excludes legacy light, bench, placement and ordinary edits, with authenticated exact reply',async()=>{
+ const s=await sample(),request=detailsRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.lightDetails(request);
+ await expect(s.vm.lightInspector(s.request)).rejects.toThrow('LIGHT_DETAILS_INTENT_ACTIVE');await expect(s.vm.benchInspector(benchRequest(s))).rejects.toThrow('LIGHT_DETAILS_INTENT_ACTIVE');expect(()=>s.vm.placement(s.begin)).toThrow('LIGHT_DETAILS_INTENT_ACTIVE');expect(()=>s.vm.action({type:'add-light',roomId:s.begin.roomId})).toThrow('LIGHT_DETAILS_INTENT_ACTIVE');
+ resolve(s.session());const reply=await pending;expect(reply).toMatchObject({requestId:request.requestId,lightId:request.lightId});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.accepted.capabilities).toContain('light-fixture-aim-v1');expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
+});
+it('light details late frame results are fenced and release the new optional intent',async()=>{
+ const s=await sample();let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.lightDetails(detailsRequest(s)),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });

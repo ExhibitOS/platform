@@ -1,3 +1,4 @@
+import {validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {validateStudioInstallation} from '@exhibitos/studio-contract';
@@ -47,6 +48,7 @@ function checked(input: StudioInput) {
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
     !validateStudioBenches(input.draft.candidate).valid ||
+    !validateStudioLightDetails(input.draft.candidate).valid ||
     !validateStudioInstallation(input.draft.candidate).valid ||
     !validateViewerEntrance(input.draft.candidate).valid ||
     !validateSpatialProfile(input.draft.candidate).valid || !validateViewerCuration(input.draft.candidate).valid || !validateViewerExperience(input.draft.candidate).valid ||
@@ -106,6 +108,7 @@ export class Studio {
       !validateStudioMaterials(row.metadata.candidate).valid ||
       !validateStudioPresentation(row.metadata.candidate).valid ||
       !validateStudioBenches(row.metadata.candidate).valid ||
+      !validateStudioLightDetails(row.metadata.candidate).valid ||
       !validateViewerEntrance(row.metadata.candidate).valid ||
       !validateSpatialProfile(row.metadata.candidate).valid || !validateViewerCuration(row.metadata.candidate).valid || !validateViewerExperience(row.metadata.candidate).valid ||
       row.metadata.candidate.artworks.some((a:unknown)=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid)

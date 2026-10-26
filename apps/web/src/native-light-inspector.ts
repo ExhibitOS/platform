@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {freezeCanonical} from '@exhibitos/studio-contract';
+import {validateStudioLightDetails,freezeCanonical} from '@exhibitos/studio-contract';
 import type {CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import {validateDraft} from './drafts/validator';
@@ -36,6 +36,8 @@ export function nativeLightInspectorCandidate(frame:NativeViewportFrame,input:un
  const expectedUnit=request.light.type===source.type?source.unit:units[request.light.type];
  if(!expectedUnit||request.light.unit!==expectedUnit)throw Error('LIGHT_INSPECTOR_UNIT_INVALID');
  if(freezeCanonical(preserved(light))!==freezeCanonical(preserved(request.light)))throw Error('LIGHT_INSPECTOR_FIELDS_CHANGED');
+ const prospective=structuredClone(frame.draft.candidate);prospective.lights=prospective.lights.map(l=>l.id.toLowerCase()===request.lightId.toLowerCase()?{...structuredClone(request.light),id:l.id}:l);
+ if(!validateStudioLightDetails(prospective).valid)throw Error('LIGHT_DETAILS_REQUIRES_ADVANCED_INSPECTOR: 기구·조준·색온도는 조명 상세 편집에서 함께 변경해 주세요.');
  const candidate=applyGeometryCommand(createGeometryState(frame.draft.candidate),{type:'set-light',id,light:request.light}).present;
  if(!validateDraft({...frame.draft,candidate}).valid)throw Error('LIGHT_INSPECTOR_CANDIDATE_INVALID');
  return candidate;
