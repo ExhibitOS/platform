@@ -1,21 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {useId,type Ref} from 'react';
+import {useEffect,useId,useState,type Ref} from 'react';
 
+/** A device-local minute, not an issued time, expiry, or server credential. */
+export function localTicketMinute(now:Date){
+ const pad=(n:number)=>String(n).padStart(2,'0');
+ const date=`${now.getFullYear()}.${pad(now.getMonth()+1)}.${pad(now.getDate())}`;
+ const minute=`${pad(now.getHours())}:${pad(now.getMinutes())}`;
+ return {date,minute,dateTime:`${date.replaceAll('.','-')}T${minute}`};
+}
 /** The ticket is the action itself; it never represents a reservation or issued credential. */
-export function EntryTicket({title,detail,active,animate,unavailable,buttonRef,onEnter}:{
-  title:string;detail:string;active:boolean;animate:boolean;unavailable:boolean;
+export function EntryTicket({title,active,animate,unavailable,buttonRef,onEnter}:{
+  title:string;active:boolean;animate:boolean;unavailable:boolean;
   buttonRef:Ref<HTMLButtonElement>;onEnter:()=>void;
 }){
+  const [now,setNow]=useState(()=>new Date());
+  useEffect(()=>{
+    if(active)return;
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    const refresh=()=>{
+      clearTimeout(timer);
+      if(document.hidden)return;
+      setNow(new Date());
+      timer=setTimeout(refresh,60000-Date.now()%60000);
+    };
+    refresh();document.addEventListener('visibilitychange',refresh);
+    return()=>{clearTimeout(timer);document.removeEventListener('visibilitychange',refresh);};
+  },[active]);
   const action=unavailable?'3D 다시 시도 · 페이지 새로고침':'입장하기';
-  const descriptionId=useId();
+  const descriptionId=useId(),local=localTicketMinute(now);
   return <button type="button" className="publication-enter publication-entry-ticket" ref={buttonRef}
     onClick={onEnter} disabled={active} aria-busy={active} aria-label={action} aria-describedby={descriptionId}
     data-entering={active} data-ticket-animation={animate}>
     <span id={descriptionId} className="publication-entry-ticket-body">
-      <span className="publication-entry-ticket-label">관람권</span>
       <strong>{title}</strong>
-      {detail&&<span className="publication-entry-ticket-detail">{detail}</span>}
+      <time className="publication-entry-ticket-time" dateTime={local.dateTime}><span>{local.date}</span><span>{local.minute}</span></time>
     </span>
-    <span className="publication-entry-ticket-stub" aria-hidden="true">{action}<span>↗</span></span>
+    <span className="publication-entry-ticket-stub" aria-hidden="true">입장하기</span>
   </button>;
 }

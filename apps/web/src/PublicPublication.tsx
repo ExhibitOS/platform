@@ -48,7 +48,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [reducedMotion, setReducedMotion] = useMediaPreference("(prefers-reduced-motion: reduce)");
   const [highContrast, setHighContrast] = useMediaPreference("(prefers-contrast: more)");
   const entryButton = useRef<HTMLButtonElement>(null);
-  const [entryTicketRect,setEntryTicketRect]=useState<{left:number;top:number;width:number}|null>(null);
+  const [entryTicketRect,setEntryTicketRect]=useState<{left:number;top:number;width:number;height:number}|null>(null);
   const viewingHeading = useRef<HTMLHeadingElement>(null);
   const [viewingFocusRequest,setViewingFocusRequest]=useState(0);
   useEffect(()=>{if(viewingFocusRequest)viewingHeading.current?.focus();},[viewingFocusRequest]);
@@ -80,7 +80,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const enter=()=>{
     if(modeRef.current==="3d")return;
     if(viewerUnavailable){window.location.reload();return;}
-    const ticketBox=entryButton.current?.getBoundingClientRect();setEntryTicketRect(ticketBox?{left:ticketBox.left,top:ticketBox.top,width:ticketBox.width}:null);
+    const ticketBox=entryButton.current?.getBoundingClientRect();setEntryTicketRect(ticketBox?{left:ticketBox.left,top:ticketBox.top,width:ticketBox.width,height:ticketBox.height}:null);
     const current=++entryGeneration.current;modeRef.current="3d";setEntryAttempt(current);setEntryTiming({pressedAt:performance.now()});setMenuOpen(false);setStageReady(false);setEntryFailed(false);setLongEntry(false);setStageMessage("공간을 준비하고 있어요.");setEntryPhase("space");setMode("3d");
   };
   async function load() {
@@ -174,10 +174,11 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
-          <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
-          <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}>
+          <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`,'--entry-ticket-height':`${entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&viewerUnavailable}>
+          <EntranceCover key={value.publication.revisionSha256} publication={value} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
+            ticket={<EntryTicket title={value.exhibition.title} active={mode==="3d"} animate={entryPresentation.ticketAnimation&&!reducedMotion} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
+
             <div className="publication-entry-actions">
-              <EntryTicket title={entryPresentation.ticketTitle||value.exhibition.title} detail={entryPresentation.ticketDetail||entranceFor(value.exhibition).artist} active={mode==="3d"} animate={entryPresentation.ticketAnimation&&!reducedMotion} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>
               {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
             </div>
           </EntranceCover></div>

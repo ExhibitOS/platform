@@ -11,8 +11,8 @@ export function coverAspectRatio(publication:PublicPublication){
  return work&&work.dimensions.height>0?work.dimensions.width/work.dimensions.height:4/3;
 }
 /** One verified poster stays mounted across the entry request. It never gates entry. */
-export function EntranceCover({ publication, showImage, interactive = true, motion = true, children }: {
-  publication: PublicPublication; showImage: boolean; interactive?: boolean; motion?: boolean; children: ReactNode;
+export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children }: {
+  publication: PublicPublication; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;
 }) {
   const settings = entranceFor(publication.exhibition), presentation=entryPresentationFor(publication.exhibition), generation = useRef(0);
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
@@ -65,7 +65,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     {settings.introduction&&<p className="entrance-cover-introduction">{settings.introduction}</p>}</>;
   return <section className="entrance-cover" aria-label="전시 표지" data-image-position={settings.mobilePosition} data-has-image={Boolean(showImage&&settings.imageAssetId)} data-paper-state={paper}>
     <div className="entrance-cover-spread">
-      <div className="entrance-cover-copy entrance-paper-left">{copy}</div>
+      <div className="entrance-cover-copy entrance-paper-left"><div className="entrance-cover-prose">{copy}</div>{ticket&&<div className="entrance-paper-ticket-slot">{ticket}</div>}</div>
       {showImage&&settings.imageAssetId&&<div className="entrance-paper-leaf" style={{aspectRatio:String(ratio)}} onAnimationEnd={event=>{if(event.animationName==='cover-paper-open')setPaper(state=>state==='opening'?'open':state);}}>
         <div className="entrance-paper-outside entrance-cover-copy" aria-hidden="true">{copy}</div>
         <div className="entrance-cover-image entrance-paper-inside" aria-busy={!loaded&&!failed} data-image-state={failed?'failed':loaded?'ready':'loading'}>
