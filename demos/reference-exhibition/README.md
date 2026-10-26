@@ -31,7 +31,10 @@ temperature are not a calibrated luminaire or lux measurement. Artwork files,
 transforms, descriptions and rights are preserved. One painting-room plaque
 references the existing exhibition title and introduction; selecting it opens
 the same accessible reading panel as its menu and text-list buttons. Its small
-derived near text is not the only reading route.
+derived near text is not the only reading route. One existing painting-room
+door wall has explicit .12m depth and restrained jamb/floor/ceiling bands.
+The original 2.4m opening passes through the whole depth; the same solid boxes
+are used for visible geometry and walking collision, without a threshold.
 Reported institutional dimensions and the digital model bounds are distinguished
 in the description; physical scale has not been independently calibrated.
 The approved four-artist introduction, descriptions, rights, credits and display

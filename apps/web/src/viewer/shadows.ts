@@ -126,7 +126,8 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
       const materials=Array.isArray(node.material)?node.material:[node.material];
       // Transparent editor shells and annotation overlays must not become opaque blockers.
       if(materials.some(material=>material.transparent||!material.depthTest))return;
-      meshes.push(node);triangles+=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3;
+      const instances=node instanceof three.InstancedMesh?(Number.isSafeInteger(node.count)&&node.count>=0?node.count:Infinity):1;
+      meshes.push(node);triangles+=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
     });
     if(meshes.length>64||triangles>100000){releaseMap(selected.light);renderer.shadowMap.enabled=false;emit('unavailable');return;}
     for(const mesh of meshes){flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=true;mesh.receiveShadow=true;installPlanarDepth(mesh);}

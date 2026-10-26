@@ -1,3 +1,4 @@
+import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
@@ -29,6 +30,8 @@ export function validateDraft(document: unknown): ValidationResult {
   if(!presentation.valid)return presentation;
   const lightDetails=validateStudioLightDetails((document as Draft).candidate);
   if(!lightDetails.valid)return lightDetails;
+  const finishes=validateArchitecturalFinishes((document as Draft).candidate);
+  if(!finishes.valid)return finishes;
   const plaques=validateStudioPlaques((document as Draft).candidate);
   if(!plaques.valid)return plaques;
   const benches=validateStudioBenches((document as Draft).candidate);

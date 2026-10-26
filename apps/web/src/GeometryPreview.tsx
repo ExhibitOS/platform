@@ -1,3 +1,5 @@
+import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
+import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
@@ -57,61 +59,6 @@ export interface DetailEntryActions {
   commit: (pointer: boolean) => void;
 }
 export type GeometrySelection=EditorSelection;
-
-// Partition centered XY rectangles instead of triangulating holes that touch a
-// wall edge. A floor-level door is an actual empty region in the rendered wall.
-function panels(
-  surface: Document["surfaces"][number],
-  openings: Document["openings"],
-) {
-  const width = surface.dimensions.width,
-    height = surface.dimensions.height;
-  const rectangles = openings
-    .filter((item) => item.surfaceId.toLowerCase() === surface.id.toLowerCase())
-    .map((item) => ({
-      left: item.offset[0] - item.dimensions.width / 2,
-      right: item.offset[0] + item.dimensions.width / 2,
-      bottom: item.offset[1] - item.dimensions.height / 2,
-      top: item.offset[1] + item.dimensions.height / 2,
-    }));
-  const xs = [
-    ...new Set([
-      -width / 2,
-      width / 2,
-      ...rectangles.flatMap((item) => [item.left, item.right]),
-    ]),
-  ].sort((a, b) => a - b);
-  const result: Array<{ x: number; y: number; width: number; height: number }> =
-    [];
-  for (let i = 0; i < xs.length - 1; i++) {
-    const left = xs[i]!,
-      right = xs[i + 1]!,
-      mid = (left + right) / 2;
-    if (right <= left) continue;
-    const blocked = rectangles
-      .filter((item) => mid > item.left && mid < item.right)
-      .sort((a, b) => a.bottom - b.bottom);
-    let bottom = -height / 2;
-    for (const item of blocked) {
-      if (item.bottom > bottom)
-        result.push({
-          x: mid,
-          y: (bottom + item.bottom) / 2,
-          width: right - left,
-          height: item.bottom - bottom,
-        });
-      bottom = Math.max(bottom, item.top);
-    }
-    if (bottom < height / 2)
-      result.push({
-        x: mid,
-        y: (bottom + height / 2) / 2,
-        width: right - left,
-        height: height / 2 - bottom,
-      });
-  }
-  return result;
-}
 
 export function GeometryPreview({
   document,
@@ -434,6 +381,7 @@ export function GeometryPreview({
         group.add(outline);
         owned.push(box, edges, material);
       }
+      const styledWalls=new Set(wallFinishesFor(document).map(w=>w.surfaceId.toLowerCase())),surfaceMaterials=new Map<string,InstanceType<typeof three.MeshStandardMaterial>>();
       document.surfaces.forEach((surface, index) => {
         const group = new three.Group();
         pose(group, surface.transform);
@@ -451,7 +399,8 @@ export function GeometryPreview({
             side: three.DoubleSide,
             transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace,
           });
-        owned.push(material);
+        owned.push(material);surfaceMaterials.set(surface.id.toLowerCase(),material);
+        if(styledWalls.has(surface.id.toLowerCase()))return;
         for (const rectangle of rectangles[index]!) {
           const geometry = new three.PlaneGeometry(
               rectangle.width,
@@ -464,6 +413,8 @@ export function GeometryPreview({
         }
 
       });
+      const architecturalFinishes=installArchitecturalFinishes(three,document,surfaces,surfaceMaterials);owned.push(architecturalFinishes);
+      if(architecturalFinishes.records.length)renderer.domElement.dataset.architecturalFinishes=JSON.stringify(architecturalFinishes.records);
       for (const opening of document.openings) {
         const geometry = new three.PlaneGeometry(
             opening.dimensions.width,
