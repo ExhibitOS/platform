@@ -28,7 +28,10 @@ same editable exhibition metadata; returning restores the prior view with walkin
 stopped. One authored spot fixture aims at a painting, with a directional
 light providing the base fill. Their simple project geometry and visual colour
 temperature are not a calibrated luminaire or lux measurement. Artwork files,
-transforms, descriptions and rights are preserved.
+transforms, descriptions and rights are preserved. One painting-room plaque
+references the existing exhibition title and introduction; selecting it opens
+the same accessible reading panel as its menu and text-list buttons. Its small
+derived near text is not the only reading route.
 Reported institutional dimensions and the digital model bounds are distinguished
 in the description; physical scale has not been independently calibrated.
 The approved four-artist introduction, descriptions, rights, credits and display
