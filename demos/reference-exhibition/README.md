@@ -23,6 +23,9 @@ The Smithsonian 3D display model is supplied under CC0-1.0:
 
 The approved GLB retains the provider geometry, scale and integral oval base.
 The exhibition's separate plain box pedestal and placement are authored metadata.
+One simple bench in the sculpture room and its explicit seated viewpoint use the
+same editable exhibition metadata; returning restores the prior view with walking
+stopped. Artwork files, transforms, descriptions and rights are preserved.
 Reported institutional dimensions and the digital model bounds are distinguished
 in the description; physical scale has not been independently calibrated.
 The approved four-artist introduction, descriptions, rights, credits and display
