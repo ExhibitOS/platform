@@ -29,6 +29,7 @@ export function Viewer({
   appearance,
   suspendNavigation = false,
   onArtworkSelect,
+  onPlaqueSelect,
   proximityDetail = false,
   focusedPlacementId,
   onAudioReady,
@@ -49,6 +50,7 @@ export function Viewer({
   appearance: (id: string) => SurfaceAppearance;
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
+  onPlaqueSelect?: (id:string)=>void;
   proximityDetail?: boolean;
   focusedPlacementId?: string | null;
   onAudioReady?: (api: AudioApi | null) => void;
@@ -222,6 +224,7 @@ export function Viewer({
           analytics.current?.artwork(artwork?.id ?? null);
           onArtworkSelect?.(id);
         }}
+        onPlaqueSelect={onPlaqueSelect}
         proximityDetail={proximityDetail}
         focusedPlacementId={focusedPlacementId}
         onDetailEntryReady={onDetailEntryReady}

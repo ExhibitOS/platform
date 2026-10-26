@@ -1,7 +1,8 @@
+import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { entranceFor, entryPresentationFor, benchesFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -63,7 +64,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
-  const [overview, setOverview] = useState<"opening" | "credits" | null>(null);
+  const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
   const prepareDetailEntry = useCallback(() => { detailEntry.current?.prepare(); }, []);
@@ -155,6 +156,13 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     },
     [value],
   );
+  const requestPlaque=(id:string)=>{
+    if(!value)return;const plaque=plaquesFor(value.exhibition).find(p=>p.id===id&&p.visible);if(!plaque)return;
+    stopVoice();
+    if(plaque.source.kind==='artwork'){const source=plaque.source;setSelectedId(value.exhibition.placements.find(p=>p.id.toLowerCase()===source.placementId.toLowerCase())!.id);}
+    else setOverview(plaque.source.kind==='exhibition'?"opening":{roomId:plaque.roomId});
+  };
+  const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{});
   return (
     <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
@@ -190,6 +198,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
+          {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
           <section aria-label="관람 방식과 접근성 설정">
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
             <p>글·목록 관람에서는 3D 공간·작품 이미지·음성을 불러오지 않습니다. 설명, 대본, 치수와 권리를 읽을 수 있습니다.</p>
@@ -212,7 +221,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           {mode === "3d" && <button className="publication-text-route" onClick={showTextArtworks}>텍스트로 관람</button>}
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId}
+            <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
@@ -258,6 +267,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
               })}
             </ul>
           </section>
+          {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
           {benchesFor(value.exhibition).length>0&&<section aria-label="벤치 감상 지점"><h2>벤치 감상 지점</h2><p>공간 관람에서 벤치를 직접 선택해 앉거나 이전 위치로 돌아갈 수 있어요. 작품 설명은 이 목록에서 계속 읽을 수 있어요.</p><ul>{benchesFor(value.exhibition).map(bench=><li key={bench.id}>{bench.name} · {presentationFor(value.exhibition).viewpoints.find(v=>v.id.toLowerCase()===bench.viewpointId.toLowerCase())?.name}</li>)}</ul></section>}
           <p className="cms-note">공간 이동이 어렵다면 작품 목록에서 작품을 선택해 감상할 수 있어요. 소리 없이도 설명을 읽을 수 있어요.</p>
           <details className="publication-record">
@@ -280,7 +290,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
 }
 
 function ExhibitionOverview({ publication, mode, textMode, onClose }: {
-  publication: PublicResponse; mode: "opening" | "credits"; textMode: boolean; onClose(): void;
+  publication: PublicResponse; mode: "opening" | "credits" | {roomId:string}; textMode: boolean; onClose(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -288,10 +298,11 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
     element?.showModal();
     return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, []);
+  const room=typeof mode==='object'?publication.exhibition.rooms.find(r=>r.id.toLowerCase()===mode.roomId.toLowerCase()):undefined;
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
-    <header><h2 id="exhibition-overview-title">{mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
-    <h3>{publication.exhibition.title}</h3>
-    {mode === "opening" ? <>{entranceFor(publication.exhibition).introduction && <p className="detail-text">{entranceFor(publication.exhibition).introduction}</p>}{textMode && <p>현재 텍스트로 관람하고 있어요. 작품 목록에서 설명과 대본을 읽을 수 있어요. 공간을 보려면 소개를 닫고 입장하기를 선택하세요.</p>}<h3>관람 방법</h3><p>걷기를 선택한 뒤 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 소개를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
+    <header><h2 id="exhibition-overview-title">{room?"공간 안내":mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
+    <h3>{room?room.name:publication.exhibition.title}</h3>
+    {room?<p>작품 목록에서 이 공간의 작품 설명과 권리 정보를 읽을 수 있어요.</p>:mode === "opening" ? <>{entranceFor(publication.exhibition).introduction && <p className="detail-text">{entranceFor(publication.exhibition).introduction}</p>}{textMode && <p>현재 텍스트로 관람하고 있어요. 작품 목록에서 설명과 대본을 읽을 수 있어요. 공간을 보려면 소개를 닫고 입장하기를 선택하세요.</p>}<h3>관람 방법</h3><p>걷기를 선택한 뒤 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 소개를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
       <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
       <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
       <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>

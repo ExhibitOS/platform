@@ -1,3 +1,4 @@
+import type {PlaqueInspectorRequest} from './native-plaque-inspector';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,it,vi} from 'vitest';
 import {newDraft} from './drafts/example';
@@ -69,4 +70,21 @@ it('light details wired pending intent excludes legacy light, bench, placement a
 });
 it('light details late frame results are fenced and release the new optional intent',async()=>{
  const s=await sample();let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.lightDetails(detailsRequest(s)),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
+});
+
+function plaqueRequest(s:Awaited<ReturnType<typeof sample>>):PlaqueInspectorRequest{
+ const roomId=s.frame.draft.candidate.rooms[0]!.id;
+ return {version:1,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,principalId:s.frame.principalId,requestId:crypto.randomUUID(),type:'add-plaque',plaque:{id:crypto.randomUUID(),roomId,source:{kind:'exhibition'},position:[0,1.5,0],rotation:[0,0,0,1],dimensions:{width:1,height:.6},visible:true}};
+}
+it('wired plaque intent excludes placement/light/ordinary changes, authenticates twice, and releases after reply',async()=>{
+ const s=await sample(),request=plaqueRequest(s);let resolve!:(response:Response)=>void;
+ s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.plaqueInspector(request);
+ expect(()=>s.vm.placement(s.begin)).toThrow('PLAQUE_INSPECTOR_INTENT_ACTIVE');await expect(s.vm.lightInspector(s.request)).rejects.toThrow('PLAQUE_INSPECTOR_INTENT_ACTIVE');
+ await expect(s.vm.benchInspector(benchRequest(s))).rejects.toThrow('PLAQUE_INSPECTOR_INTENT_ACTIVE');await expect(s.vm.lightDetails(detailsRequest(s))).rejects.toThrow('PLAQUE_INSPECTOR_INTENT_ACTIVE');await expect(s.vm.plaqueInspector({...request,requestId:crypto.randomUUID()})).rejects.toThrow('PLAQUE_INSPECTOR_INTENT_ACTIVE');expect(()=>s.vm.action({type:'add-light',roomId:s.begin.roomId})).toThrow('PLAQUE_INSPECTOR_INTENT_ACTIVE');
+ resolve(s.session());const reply=await pending;expect(reply).toMatchObject({requestId:request.requestId,plaqueId:request.type==='remove-plaque'?request.plaqueId:request.plaque.id});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.frame.draft.candidate.extensions?.['org.exhibitos.studio/plaques']).toBeUndefined();expect(s.accepted.capabilities).toContain('plaque-inspector-v1');
+ expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');await expect(s.vm.plaqueInspector(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+});
+it('late plaque results are rejected after a new frame and release the optional intent',async()=>{
+ const s=await sample(),request=plaqueRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.plaqueInspector(request),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });
