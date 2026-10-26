@@ -94,9 +94,13 @@ export function settleAssetGeneration(pending:Map<string,string>,artId:string,ke
  if(pending.get(artId)!==key)return false;
  pending.delete(artId);return true;
 }
+/** A memory retry delay does not grant detail work priority over an eligible missing minimum. */
+export function minimumDetailPending(items:ReadonlyArray<{visible:boolean;eligible:boolean;active:boolean;pending:boolean;budgetBlocked:boolean}>){
+ return items.some(v=>(v.visible||v.eligible)&&!v.active&&(v.pending||v.budgetBlocked));
+}
 /** Pressure may reclaim one old displayed detail, never the attended object.
  * Prefer a real coarse replacement even offscreen, preserving a quick turn back. */
-export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;visible:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){
+export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;visible:boolean;minimumRequired?:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){
  if(!current)return undefined;
  for(const item of [...items].sort((a,b)=>Number(a.visible)-Number(b.visible)||a.lastAttended-b.lastAttended||a.id.localeCompare(b.id))){
   if(item.id===current||now-item.lastAttended<1800)continue;
@@ -106,7 +110,7 @@ export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwor
    const coarse=selectAssetVariant(item.artwork,Infinity,budget);
    if(coarse.id.toLowerCase()!==item.assetId.toLowerCase())return {id:item.id,evict:false as const,assetId:coarse.id};
   }catch{/* No real supported replacement: retain the visible object. */}
-  if(!item.visible)return {id:item.id,evict:true as const};
+  if(!item.visible&&!item.minimumRequired)return {id:item.id,evict:true as const};
  }
  return undefined;
 }
