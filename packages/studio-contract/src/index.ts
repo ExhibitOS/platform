@@ -252,3 +252,6 @@ export * from './bench-geometry.js';
 export * from './light-details.js';
 
 export * from './plaques.js';
+
+export * from './surface-panels.js';
+export * from './architectural-finishes.js';

@@ -1,3 +1,4 @@
+import {architecturalSolids} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from '@exhibitos/spec';
 import { resolveInstallations,benchSolids,artifactCorners,artifactHullHit,artifactSweptCapsuleHit,validateArtworkWalkingProfile,presentationFor } from '@exhibitos/studio-contract';
@@ -23,7 +24,7 @@ export function createPresenceGeometry(exhibition:Exhibition){
   return {placement,corners:artifactCorners(art.dimensions,[art.transform,placement.transform,room.transform],true)};
  });
  // World Euclidean capsule radius against the same affine assertion hull used by Rapier, including shear.
- const installation=[...resolveInstallations(exhibition).flatMap(r=>r.solids),...benchSolids(exhibition)];
+ const installation=[...resolveInstallations(exhibition).flatMap(r=>r.solids),...benchSolids(exhibition),...architecturalSolids(exhibition)];
  const boxHit=(box:typeof boxes[number],a:V,b:V)=>artifactHullHit(box.corners,a,b,radius);
  const surfaces=[...exhibition.surfaces];
  for(const room of exhibition.rooms)if(!surfaces.some(s=>s.roomId===room.id&&s.type==='floor'))surfaces.push({id:`implicit-floor:${room.id}`,roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}});

@@ -1,3 +1,5 @@
+import type {ArchitecturalFinishRequest} from './native-architectural-finishes';
+import {whiteCubeSurfaces} from './geometry/model';
 import type {PlaqueInspectorRequest} from './native-plaque-inspector';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,it,vi} from 'vitest';
@@ -12,10 +14,10 @@ vi.mock('react-dom/client',()=>({createRoot:()=>({render:()=>{}})}));
 vi.mock('./GeometryPreview',()=>({GeometryPreview:()=>null}));
 vi.mock('./StudioFloorPlan',()=>({StudioFloorPlan:()=>null}));
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
-async function sample(){
+async function sample(withWalls=false){
  vi.resetModules();const browser=new EventTarget() as unknown as Window;
  vi.stubGlobal('window',browser);vi.stubGlobal('document',{getElementById:()=>({})});
- const draft=newDraft(),light=newLight(draft.candidate.rooms[0]!.id);draft.candidate.lights=[light];
+ const draft=newDraft(),light=newLight(draft.candidate.rooms[0]!.id);draft.candidate.lights=[light];if(withWalls)draft.candidate.surfaces=whiteCubeSurfaces(draft.candidate.rooms[0]!);
  const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false};
  const session=()=>Response.json({tenantId:frame.tenantId,userId:frame.principalId,role:'admin'}),fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>session());vi.stubGlobal('fetch',fetcher);
  await import('./native-viewport');const vm=browser.exhibitosViewport!;const accepted=await vm.accept(frame);fetcher.mockClear();
@@ -88,3 +90,12 @@ it('late plaque results are rejected after a new frame and release the optional 
  const s=await sample(),request=plaqueRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.plaqueInspector(request),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
  await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });
+
+function architecturalRequest(s:Awaited<ReturnType<typeof sample>>):ArchitecturalFinishRequest{return {version:1,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,principalId:s.frame.principalId,requestId:crypto.randomUUID(),type:'set-wall-finish',wall:{surfaceId:s.frame.draft.candidate.surfaces[0]!.id,depth:.12,preset:'painted-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}};}
+it('architectural finish wired intent excludes all editing intents, rechecks auth and keeps source unchanged',async()=>{
+ const s=await sample(true),request=architecturalRequest(s),before=structuredClone(s.frame);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.architecturalFinishes(request);
+ expect(()=>s.vm.placement(s.begin)).toThrow('ARCHITECTURAL_FINISH_INTENT_ACTIVE');expect(()=>s.vm.action({type:'add-light',roomId:s.begin.roomId})).toThrow('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
+ for(const call of [()=>s.vm.lightInspector(s.request),()=>s.vm.lightDetails(detailsRequest(s)),()=>s.vm.benchInspector(benchRequest(s)),()=>s.vm.plaqueInspector(plaqueRequest(s)),()=>s.vm.architecturalFinishes({...request,requestId:crypto.randomUUID()})])await expect(call()).rejects.toThrow('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
+ resolve(s.session());expect(await pending).toMatchObject({requestId:request.requestId,surfaceId:request.type==='set-wall-finish'?request.wall.surfaceId:request.surfaceId});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.frame).toEqual(before);expect(s.accepted.capabilities).toContain('architectural-finishes-v1');await expect(s.vm.architecturalFinishes(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+});
+it('architectural finish late frame result is rejected and releases its intent',async()=>{const s=await sample(true);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.architecturalFinishes(architecturalRequest(s)),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');});
