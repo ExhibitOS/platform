@@ -48,6 +48,12 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(html).toContain(annotation.text);
   expect(html).toContain('(0, 0, 0) m');
   expect(html).not.toContain('좌표 미등록');
+  expect(html).toContain('aria-label="작품 설명"');
+  expect(html).toContain('음성 설명 · 대본');
+  expect(html).toContain('등록된 음성 설명이 없습니다.');
+  expect(html).not.toContain('작가 원문');
+  expect(html).not.toContain('작가 음성');
+  expect(html).not.toContain('아래 대본으로 같은 설명');
   expect(html).not.toContain('<canvas');
   const preview = renderToStaticMarkup(<ArtworkDetailPreview publication={publication} artwork={artwork} anchors={[]} />);
   expect(preview).toContain('tabindex="0"');
