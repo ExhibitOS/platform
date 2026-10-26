@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { WalkingPauseReason } from "./navigation-input";
 
-// A panel may return only the active walking session it paused. Focus alone
+// Only an already-active walking session can accept a later resume gesture. Focus alone
 // never resumes movement, and a drag remains a drag even if it returns to start.
 export function createPanelResumeGate() {
-  let active = false, eligible = false;
+  let active = false, eligible = false, panelRequired = true;
   let gesture: { id: number; x: number; y: number; released: boolean } | undefined;
   const cancel = () => { gesture = undefined; };
   return {
     mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
-      eligible = walking && paused && ((reason === "panel" && (active || eligible)) || (reason === "settings" && eligible));
+      const explicitPause = reason === "escape" || reason === "pointerlock" || reason === "user";
+      const retained = active || eligible;
+      eligible = walking && paused && ((explicitPause || reason === "panel") && retained || reason === "settings" && eligible);
+      if (explicitPause && eligible) panelRequired = false;
+      else if (reason === "panel" && active) panelRequired = true;
       active = walking && !paused;
       cancel();
     },
     invalidate() { eligible = false; cancel(); },
     cancel,
     canResume: () => eligible,
+    requiresPanel: () => panelRequired,
     movement(allowed: boolean) {
       const result = eligible && allowed;
       if (result) { eligible = false; cancel(); }
@@ -60,7 +65,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void,
       focusTimer = setTimeout(() => { panelFocus = false; }, 0);
       pause();
     } else if (event.target === canvas) {
-      gate.begin(event.pointerId, event.clientX, event.clientY, open());
+      gate.begin(event.pointerId, event.clientX, event.clientY, canResume());
     }
   };
   const move = (event: PointerEvent) => {
@@ -73,10 +78,16 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void,
   };
   const cancel = () => gate.cancel();
   const invalid = () => { gate.invalidate(); pointers.clear(); panelFocus = false; availabilityChanged(false); };
-  const key = (event: KeyboardEvent) => { if (event.key === "Escape") invalid(); };
+  const key = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    // The input listener pauses the current session. A repeated Escape must not
+    // erase that explicit resume choice; closing a mandatory dialog still does.
+    if (root?.querySelector('dialog[open], [aria-modal="true"]')) invalid();
+    else gate.cancel();
+  };
   const hidden = () => { if (document.hidden) invalid(); };
   const cancelled = (event: PointerEvent) => { pointers.delete(event.pointerId); cancel(); };
-  const toggle = () => { if (!open()) gate.invalidate(); availabilityChanged(canResume()); };
+  const toggle = () => { if (gate.requiresPanel() && !open()) gate.invalidate(); availabilityChanged(canResume()); };
   document.addEventListener("pointerdown", down, true);
   document.addEventListener("pointermove", move, true);
   document.addEventListener("pointerup", up, true);
@@ -88,7 +99,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void,
   document.addEventListener("contextmenu", cancel, true);
   root?.addEventListener("toggle", toggle, true);
   window.addEventListener("blur", invalid);
-  const canResume = () => gate.canResume() && open() && !document.hidden &&
+  const canResume = () => gate.canResume() && (!gate.requiresPanel() || open()) && !document.hidden &&
     !root?.querySelector('dialog[open], [aria-modal="true"], [inert] canvas');
   return {
     mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
@@ -103,7 +114,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: () => void,
     },
     isPanelFocus: (target: EventTarget | null) => panelFocus || owns(target),
     blank(event: MouseEvent, allowed: boolean) {
-      if (!gate.consume(event.clientX, event.clientY, allowed && event.isTrusted && event.button === 0 && open())) return;
+      if (!gate.consume(event.clientX, event.clientY, allowed && event.isTrusted && event.button === 0 && canResume())) return;
       for (const panel of panels()) panel.open = false;
       // Existing start clears held input and velocity; no pointer-lock request.
       resume();

@@ -287,3 +287,13 @@ test('focused controls and editable event targets retain their keys without resu
  f.doc.activeElement=new Control();window.dispatchEvent(Object.assign(new Event('keydown'),{code:'KeyW'}));
  expect(resume).not.toHaveBeenCalled();f.input.dispose();
 });
+
+test('a fresh mapped key after Esc resumes in the same event without native recapture',()=>{
+ let f:ReturnType<typeof fixture>;const resume=vi.fn(()=>{f.input.enable();return true;});f=fixture(resume);
+ f.input.press('forward',1);window.dispatchEvent(Object.assign(new Event('keydown'),{code:'Escape'}));
+ expect(f.input.sample(.1).forward).toBe(0);expect(resume).not.toHaveBeenCalled();
+ window.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyD'}));
+ expect(resume).toHaveBeenCalledOnce();expect(f.input.sample(.1).right).toBe(1);
+ expect(f.canvas.requestPointerLock).not.toHaveBeenCalled();
+ window.dispatchEvent(Object.assign(new Event('keyup'),{code:'KeyD'}));expect(f.input.sample(.1).right).toBe(0);f.input.dispose();
+});
