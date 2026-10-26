@@ -94,6 +94,8 @@ export function GeometryPreview({
   placementPreview,
   placementPreviewVersion,
   spaceTransparency,
+  fillHost = false,
+  compactControls = false,
   referenceTone = DEFAULT_REFERENCE_TONE,
   immersive = false,
   controlsHost,
@@ -111,6 +113,8 @@ export function GeometryPreview({
   placementPreviewVersion?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
+  fillHost?: boolean;
+  compactControls?: boolean;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
@@ -707,12 +711,12 @@ export function GeometryPreview({
       const resize = () => {
         if (!host.current) return;
         const width = Math.max(host.current.clientWidth, 1),
-          height = immersive ? Math.max(host.current.clientHeight, 1) : 360;
+          height = immersive || fillHost ? Math.max(host.current.clientHeight, 1) : 360;
         const preferredRatio = Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2);
         // Desktop gets a bounded full-HD buffer; compact keeps its former cost.
         const {pixelBudget,ratio} = visitingBuffer(width,height,preferredRatio,compactQuality);
-        framePixelBudget = immersive ? pixelBudget : undefined;
-        renderer.setPixelRatio(immersive ? ratio : preferredRatio);
+        framePixelBudget = immersive || fillHost ? pixelBudget : undefined;
+        renderer.setPixelRatio(immersive || fillHost ? ratio : preferredRatio);
         renderer.setSize(width, height);
         camera.aspect = width / height;
         applyProjection();
@@ -1801,8 +1805,9 @@ export function GeometryPreview({
     transparentSpace,
     editingEnabled,
     immersive,
+    fillHost,
   ]);
-  const ControlsFrame = immersive ? "details" : "div";
+  const ControlsFrame = immersive || compactControls ? "details" : "div";
   return (
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
@@ -1821,7 +1826,7 @@ export function GeometryPreview({
       </div>
       <figcaption hidden={immersive && ready && assetReport.loaded===document.placements.length && assetReport.failed===0} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
-      {immersive && <summary>공간 조작</summary>}
+      {(immersive || compactControls) && <summary>공간 조작</summary>}
       {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·화면 버튼</option></select></label><p>터치 기기는 화면 버튼, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 전환 뒤 걷기는 직접 재개하세요.</p></>}
       {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       <ViewControls className={publicSource ? "viewer-options" : undefined}>
