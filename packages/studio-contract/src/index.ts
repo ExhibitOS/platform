@@ -250,3 +250,5 @@ export * from './display-policy.js';
 export * from './benches.js';
 export * from './bench-geometry.js';
 export * from './light-details.js';
+
+export * from './plaques.js';

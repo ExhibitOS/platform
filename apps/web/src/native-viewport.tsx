@@ -1,3 +1,4 @@
+import {NATIVE_PLAQUE_INSPECTOR_CAPABILITY,checkedPlaqueInspectorRequest,nativePlaqueInspectorCandidate,type PlaqueInspectorRequest} from './native-plaque-inspector';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createRoot} from 'react-dom/client';
 import {useEffect,useMemo,useState} from 'react';
@@ -18,11 +19,12 @@ import {NATIVE_LIGHT_INSPECTOR_CAPABILITY,checkedLightInspectorRequest,nativeLig
 import {NATIVE_BENCH_INSPECTOR_CAPABILITY,checkedBenchInspectorRequest,nativeBenchInspectorCandidate,type BenchInspectorRequest} from './native-bench-inspector';
 import {NATIVE_LIGHT_DETAILS_CAPABILITY,checkedLightDetailsRequest,nativeLightDetailsCandidate,type LightDetailsRequest} from './native-light-details';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
  accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES}>;
  action:(v:NativeGeometryAction|NativeInstallationAction)=>unknown;
  lightDetails:(v:LightDetailsRequest)=>Promise<ReturnType<typeof catalogBinding>&{lightId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
+ plaqueInspector:(v:PlaqueInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{plaqueId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  benchInspector:(v:BenchInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{benchId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  lightInspector:(v:LightInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{lightId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  placement:(v:PlacementRequest)=>ReturnType<NativePlacement['request']>;
@@ -50,6 +52,7 @@ let viewportChanged:(()=>void)|undefined;
 let placementRendererReady=false;
 let lightPending=false;
 let benchPending=false;
+let plaquePending=false;
 let lightDetailsPending=false;
 const placement=new NativePlacement({frame:()=>current,notify:()=>viewportChanged?.(),
  authenticate:async(frame,signal)=>{
@@ -79,8 +82,9 @@ window.exhibitosViewport={
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
   return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:NATIVE_CAPABILITIES};
  },
- placement:value=>{if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
+ placement:value=>{if(value?.phase==='begin'&&plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
  lightDetails:async value=>{
+  if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');
   if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');
   if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');
@@ -89,7 +93,18 @@ window.exhibitosViewport={
   try{await catalogSession(frame!,signal);const candidate=nativeLightDetailsCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),lightId:request.lightId,candidate};}
   finally{lightDetailsPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
+ plaqueInspector:async value=>{
+  if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
+  if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
+  if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');
+  if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');
+  if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');
+  const frame=current,request=checkedPlaqueInspectorRequest(value,frame),{abort,signal}=beginCatalogRequest(request);plaquePending=true;viewportChanged?.();
+  try{await catalogSession(frame!,signal);const candidate=nativePlaqueInspectorCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),plaqueId:request.type==='remove-plaque'?request.plaqueId:request.plaque.id,candidate};}
+  finally{plaquePending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
+ },
  benchInspector:async value=>{
+  if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
   if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');
   if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');
@@ -99,6 +114,7 @@ window.exhibitosViewport={
   finally{benchPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  lightInspector:async value=>{
+  if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
   if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');
   if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');
@@ -116,6 +132,7 @@ window.exhibitosViewport={
   }),cancelled]);}finally{catalogRequests.delete(abort);abort.abort();}
  },
  findSelection:async value=>{
+  if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
   if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');
   if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');
@@ -123,7 +140,7 @@ window.exhibitosViewport={
   try{await catalogSession(frame!,signal);const finder=findCurrentSelection;if(!finder||finder.frame!==frame||!finder.action(request.selection.id))throw Error('VIEWPORT_SELECTION_NOT_READY');return {...catalogBinding(request),selection:request.selection,accepted:true};}
   finally{catalogRequests.delete(abort);abort.abort();}
  },
- action:action=>{if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(!current)throw Error('VIEWPORT_NOT_READY');if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');return action?.type==='installation-command'?nativeInstallationAction(current,action):nativeGeometryAction(current,action);},
+ action:action=>{if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(!current)throw Error('VIEWPORT_NOT_READY');if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');return action?.type==='installation-command'?nativeInstallationAction(current,action):nativeGeometryAction(current,action);},
 };
 function Viewport(){
  const [state,setState]=useState<{frame:NativeViewportFrame;session:Session}>();
@@ -138,21 +155,21 @@ function Viewport(){
  if(!state)return <p role="status">네이티브 전시를 기다리고 있습니다.</p>;
  const {frame,session}=state;
  const plan=frame.presentation==='plan';
- const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:frame.disabled||plan||placement.active||lightPending||benchPending||lightDetailsPending,preview:null,
-  select:selection=>{if(!frame.disabled&&!placement.active&&!lightPending&&!benchPending&&!lightDetailsPending)post(frame,'selection',selection);},previewChange:()=>{},
-  commit:command=>{try{if(lightPending||benchPending||lightDetailsPending||placement.active)return;post(frame,'candidate',geometryProposal(frame,command));}catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}},
+ const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:frame.disabled||plan||placement.active||lightPending||plaquePending||benchPending||lightDetailsPending,preview:null,
+  select:selection=>{if(!frame.disabled&&!placement.active&&!lightPending&&!plaquePending&&!benchPending&&!lightDetailsPending)post(frame,'selection',selection);},previewChange:()=>{},
+  commit:command=>{try{if(lightPending||plaquePending||benchPending||lightDetailsPending||placement.active)return;post(frame,'candidate',geometryProposal(frame,command));}catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}},
   error:()=>post(frame,'error',{code:'VIEWPORT_EDIT_REJECTED'}),};
- const shownPreview=!lightPending&&!benchPending&&!lightDetailsPending&&planPreview&&nativePlanPreviewCurrent(planPreview,frame)?planPreview:null;
- const planEditor:EditorBridge={...editing,view:frame.view+':'+(plan?'plan':'3d'),disabled:frame.disabled||!plan||lightPending||benchPending||lightDetailsPending,preview:shownPreview?.command??null,
-  select:selection=>{if(current===frame&&!frame.disabled&&plan&&!lightPending&&!benchPending&&!lightDetailsPending)post(frame,'selection',selection);},
+ const shownPreview=!lightPending&&!plaquePending&&!benchPending&&!lightDetailsPending&&planPreview&&nativePlanPreviewCurrent(planPreview,frame)?planPreview:null;
+ const planEditor:EditorBridge={...editing,view:frame.view+':'+(plan?'plan':'3d'),disabled:frame.disabled||!plan||lightPending||plaquePending||benchPending||lightDetailsPending,preview:shownPreview?.command??null,
+  select:selection=>{if(current===frame&&!frame.disabled&&plan&&!lightPending&&!plaquePending&&!benchPending&&!lightDetailsPending)post(frame,'selection',selection);},
   previewChange:command=>{
-   if(lightPending||benchPending||lightDetailsPending||!command){setPlanPreview(null);return;}
+   if(lightPending||plaquePending||benchPending||lightDetailsPending||!command){setPlanPreview(null);return;}
    try{if(current!==frame)throw Error('VIEWPORT_FRAME_STALE');const candidate=nativePlanProposal(frame,command);setPlanPreview({frame,command,candidate});}
    catch{setPlanPreview(null);post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}
   },
   commit:command=>{
    setPlanPreview(null);
-   if(lightPending||benchPending||lightDetailsPending)return;
+   if(lightPending||plaquePending||benchPending||lightDetailsPending)return;
    try{if(current!==frame)throw Error('VIEWPORT_FRAME_STALE');const candidate=nativePlanProposal(frame,command);
     if(frame.selection&&JSON.stringify(selectedItem(frame.draft.candidate,frame.selection))!==JSON.stringify(selectedItem(candidate,frame.selection)))post(frame,'candidate',candidate);
    }catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}
