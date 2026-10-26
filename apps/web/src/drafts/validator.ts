@@ -1,3 +1,4 @@
+import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import { validateStudioInstallation } from '@exhibitos/studio-contract';
 import { validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -24,6 +25,8 @@ export function validateDraft(document: unknown): ValidationResult {
   if (!materials.valid) return materials;
   const presentation=validateStudioPresentation((document as Draft).candidate);
   if(!presentation.valid)return presentation;
+  const benches=validateStudioBenches((document as Draft).candidate);
+  if(!benches.valid)return benches;
   const installation=validateStudioInstallation((document as Draft).candidate);
   if(!installation.valid)return installation;
   const errors=(document as Draft).candidate.artworks.flatMap((a,i)=>[...validateViewerLod(a).errors,...validateArtworkDisplayPolicy(a).errors].map(e=>({...e,path:`/candidate/artworks/${i}${e.path}`})));

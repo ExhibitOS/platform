@@ -247,3 +247,5 @@ export * from "./installation-commands.js";
 
 export * from "./pbr-texture-profile.js";
 export * from './display-policy.js';
+export * from './benches.js';
+export * from './bench-geometry.js';

@@ -10,6 +10,8 @@ export interface WalkingActions {
   canResumeInput?: () => boolean;
   resumeInput?: () => boolean;
   teleport?: (viewpointId: string) => void;
+  sit?: (benchId:string) => void;
+  stand?: () => void;
   pause: (reason?: WalkingPauseReason) => void;
   stationary: () => void;
   capture: () => void;
