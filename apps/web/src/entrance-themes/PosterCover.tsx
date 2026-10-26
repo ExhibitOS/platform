@@ -38,7 +38,7 @@ export function CoverImage({image,content,interactive,onImageLoad,onImageError,o
   if(image.status==='absent')return null;
   const failed=image.status==='failed',busy=image.status==='loading'||image.status==='decoded';
   return <figure className="entrance-theme-image" data-image-state={image.status} aria-busy={busy}>
-    {image.url&&!failed&&<img src={image.url} width={image.width} height={image.height} alt={content.imageAlt} decoding="async" onLoad={onImageLoad} onError={onImageError}/>}
+    {image.url&&!failed&&<img key={image.url} src={image.url} width={image.width} height={image.height} alt={content.imageAlt} decoding="async" onLoad={onImageLoad} onError={onImageError}/>}
     {failed&&<div className="entrance-theme-image-message"><p>표지를 불러오지 못했어요. 입장과 텍스트 관람은 이용할 수 있어요.</p>{interactive&&<button type="button" onClick={onRetryImage}>표지 다시 불러오기</button>}</div>}
     {!image.url&&!failed&&<div className="entrance-theme-image-message">표지 이미지를 준비하고 있어요.</div>}
   </figure>;
