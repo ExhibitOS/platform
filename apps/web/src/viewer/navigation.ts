@@ -1,5 +1,6 @@
+import {surfacePanels as wallCollisionPanels,wallFinishesFor,architecturalSolids} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,presentationFor} from "@exhibitos/studio-contract";
+import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchSolids,presentationFor} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -68,6 +69,7 @@ export interface NavigationController {
     readonly walkableRegions: readonly WalkableRegion[];
     readonly physicsVersion: string;
     isWalkable: (position: Vec3) => boolean;
+    seatedClear: (eye:Vec3, floor:Vec3, seatTop:number, benchId?:string, footprint?:readonly Vec3[]) => boolean;
     readonly navigationMesh: NavigationMesh;
     pathBetween: (fromEye: Vec3, toEye: Vec3) => Vec3[] | undefined;
 }
@@ -84,32 +86,7 @@ function rigid(p: Exhibition["rooms"][number]["transform"]) {
         throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
 }
 /** Exact wall-local rectangle partition: apertures remove colliders, including their true head/sill clearance. */
-export function wallCollisionPanels(surface: Exhibition["surfaces"][number], openings: Exhibition["openings"]) {
-    const w = surface.dimensions.width, h = surface.dimensions.height;
-    if (!finite([w, h]) || w <= 0 || h <= 0 || w > 10000 || h > 10000)
-        throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
-    const holes = openings.filter(o => o.surfaceId.toLowerCase() === surface.id.toLowerCase()).map(o => ({ l: o.offset[0] - o.dimensions.width / 2, r: o.offset[0] + o.dimensions.width / 2, b: o.offset[1] - o.dimensions.height / 2, t: o.offset[1] + o.dimensions.height / 2 }));
-    if (holes.some(o => !finite([o.l, o.r, o.b, o.t]) || o.r <= o.l || o.t <= o.b || o.l < -w / 2 || o.r > w / 2 || o.b < -h / 2 || o.t > h / 2))
-        throw Error("NAVIGATION_OPENING_INVALID");
-    const xs = [...new Set([-w / 2, w / 2, ...holes.flatMap(o => [o.l, o.r])])].sort((a, b) => a - b), panels: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    }[] = [];
-    for (let i = 0; i < xs.length - 1; i++) {
-        const l = xs[i]!, r = xs[i + 1]!, mid = (l + r) / 2;
-        let bottom = -h / 2;
-        for (const o of holes.filter(o => mid > o.l && mid < o.r).sort((a, b) => a.b - b.b)) {
-            if (o.b > bottom)
-                panels.push({ x: mid, y: (o.b + bottom) / 2, width: r - l, height: o.b - bottom });
-            bottom = Math.max(bottom, o.t);
-        }
-        if (bottom < h / 2)
-            panels.push({ x: mid, y: (bottom + h / 2) / 2, width: r - l, height: h / 2 - bottom });
-    }
-    return panels;
-}
+export {surfacePanels as wallCollisionPanels} from '@exhibitos/studio-contract';
 export async function createNavigationController(doc: Exhibition, options: {
     position?: Vec3;
     yaw?: number;
@@ -132,6 +109,7 @@ export async function createNavigationController(doc: Exhibition, options: {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const rooms = new Map(doc.rooms.map(r => [r.id.toLowerCase(), r]));
     let colliderCount = 0;
+    const benchColliders=new Map<string,Set<number>>();
     function box(position: Vec3, rotation: Quat, half: Vec3, kind: "floor" | "solid") {
         if (++colliderCount > 8192 || !finite(half) || half.some(n => n <= 0 || n > 10000))
             throw Error("NAVIGATION_COMPLEXITY");
@@ -140,6 +118,7 @@ export async function createNavigationController(doc: Exhibition, options: {
         if (kind === "solid")
             solids.push({ center: position, rotation, halfExtents: half });
     }
+    const styledWalls=new Set(wallFinishesFor(doc).map(w=>w.surfaceId.toLowerCase()));
     function surface(s: Exhibition["surfaces"][number]) {
         const room = rooms.get(s.roomId.toLowerCase());
         if (!room)
@@ -147,6 +126,7 @@ export async function createNavigationController(doc: Exhibition, options: {
         rigid(s.transform);
         const rot = multiply(room.transform.rotation, s.transform.rotation), origin = add(room.transform.position, rotate(s.transform.position, room.transform.rotation));
         const floor = s.type === "floor";
+        if(styledWalls.has(s.id.toLowerCase()))return;
         for (const p of wallCollisionPanels(s, doc.openings)) {
             if (floor) {
                 if (++colliderCount > 8192)
@@ -193,10 +173,11 @@ export async function createNavigationController(doc: Exhibition, options: {
             const min=[0,1,2].map(i=>Math.min(...corners.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...corners.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,affineCorners:corners});
         }
-        for(const record of resolveInstallations(doc))for(const solid of record.solids){
+        for(const solid of [...resolveInstallations(doc).flatMap(record=>record.solids),...benchSolids(doc),...architecturalSolids(doc)]){
             if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
             const collider=world.createCollider(desc);kinds.set(collider.handle,'solid');
+            if('benchId' in solid&&typeof solid.benchId==='string'){const key=solid.benchId.toLowerCase(),handles=benchColliders.get(key)??new Set<number>();handles.add(collider.handle);benchColliders.set(key,handles);}
             const min=[0,1,2].map(i=>Math.min(...solid.vertices.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...solid.vertices.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,convexVertices:solid.vertices});
         }
@@ -241,6 +222,16 @@ export async function createNavigationController(doc: Exhibition, options: {
                 return false;
             const next = standingAt(eye);
             return !!next && supported(next) && !world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character);
+        }
+        function seatedClear(eye:Vec3,floor:Vec3,seatTop:number,benchId?:string,footprint:readonly Vec3[]=[]){
+            ensure();
+            if(!finite([...eye,...floor,seatTop])||eye[1]-seatTop<.5||eye[1]-seatTop>1.1||!inside(eye)||!inside([eye[0],eye[1]+.15,eye[2]]))return false;
+            for(const point of [floor,...footprint]){const ground=support(point[0],point[2],point[1]);if(!inside(point)||ground===undefined||Math.abs(ground-point[1])>.05)return false;}
+            const own=benchId?benchColliders.get(benchId.toLowerCase()):undefined;
+            if(benchId&&!own)return false;
+            for(const handle of own??[]){const collider=world.getCollider(handle);if(world.intersectionWithShape(v([0,0,0]),q([0,0,0,1]),collider.shape,undefined,undefined,character,undefined,c=>kinds.get(c.handle)==='solid'&&!own!.has(c.handle)))return false;}
+            const bottom=seatTop+.03,top=eye[1]+.15,center:Vec3=[eye[0],(bottom+top)/2,eye[2]];
+            return !world.intersectionWithShape(v(center),q([0,0,0,1]),new RAPIER.Cuboid(.2,(top-bottom)/2,.2),undefined,undefined,character,undefined,c=>kinds.get(c.handle)==='solid');
         }
         function reset(pose: {
             position?: Vec3;
@@ -425,7 +416,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             if (!initial) throw Error("NAVIGATION_SPAWN_UNSAFE");
         }
         reset();
-        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
+        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
                 if (!disposed) {
                     disposed = true;
                     world.free();

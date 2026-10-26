@@ -17,6 +17,9 @@ test('compact and insufficient reserve allocate no shadow and retain material me
     expect(h.reports[0]?.mode).toBe(mode);expect(h.light.shadow.map).toBeNull();expect(h.light.castShadow).toBe(false);expect(h.mesh.material).toBe(material);expect(h.renderer.shadowMap.enabled).toBe(false);h.pass.dispose();
   }
 });
+test('light fixture bodies do not consume or cast the existing bounded shadow pass',()=>{
+  const h=setup(),fixture=new three.Mesh(new three.BoxGeometry(.1,.1,.2),new three.MeshStandardMaterial());fixture.userData.exhibitosLightFixture=true;h.room.add(fixture);h.pass.flush();expect(h.reports.at(-1)?.casters).toBe(1);expect(fixture.castShadow).toBe(false);expect(fixture.receiveShadow).toBe(false);h.pass.dispose();fixture.geometry.dispose();(fixture.material as three.Material).dispose();
+});
 test('PCF receiver bias follows fitted world footprint without changing map budget or caster policy',()=>{
   const h=setup();h.mesh.geometry=new three.PlaneGeometry(8,8);h.mesh.rotation.x=-Math.PI/2;h.mesh.material.side=three.DoubleSide;
   const material=h.mesh.material,geometry=h.mesh.geometry,authored=h.light.position.clone();h.pass.flush();
@@ -134,3 +137,4 @@ test('excess caster triangles and transparent shells omit shadows without droppi
   h.mesh.material.transparent=false;h.mesh.geometry.setIndex(new three.BufferAttribute(new Uint32Array(300003),1));h.pass.invalidate();h.pass.flush();
   expect(h.reports.at(-1)?.mode).toBe('unavailable');expect(h.room.children).toContain(h.mesh);expect(h.mesh.geometry.index?.count).toBe(300003);h.pass.dispose();
 });
+test('architectural instances retain existing total shadow triangle budget',()=>{const h=setup(),mesh=new three.InstancedMesh(new three.BoxGeometry(1,1,1),h.mesh.material,9000),identity=new three.Matrix4();for(let i=0;i<9000;i++)mesh.setMatrixAt(i,identity);mesh.computeBoundingBox();mesh.computeBoundingSphere();h.room.add(mesh);h.pass.flush();expect(h.reports.at(-1)?.mode).toBe('unavailable');expect(h.room.children).toContain(mesh);h.pass.dispose();mesh.dispose();mesh.geometry.dispose();});

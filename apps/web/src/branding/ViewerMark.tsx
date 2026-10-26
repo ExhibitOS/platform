@@ -1,12 +1,5 @@
-// Generated from canonical/viewer.svg (8b41482e75dc9eb0ebe97793fbd253eb4b2e79ae87a53ee0284f622dc5014455).
+// Generated from canonical/viewer.svg (3c9f493b41f73257f75ebd271365968939ac7da8c60bba978a664b5fb9f96319).
 // Regenerate with node scripts/generate-brand-marks.mjs.
 export function ViewerMark() {
-  return (
-    <svg viewBox="0 0 128 128" width="32" height="32" aria-hidden="true" focusable="false" style={{ verticalAlign: "middle", marginRight: 8 }}>
-  <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M26 102V30H102V102" strokeWidth="12" strokeLinecap="butt"/>
-    <g><path d="M42 72C48 60 55 55 64 55S80 60 86 72C80 84 73 89 64 89S48 84 42 72Z" strokeWidth="5.5"/><circle cx="64" cy="72" r="6.8" fill="currentColor" stroke="none"/></g>
-  </g>
-    </svg>
-  );
+  return <svg viewBox="0 0 256 256" width="32" height="32" aria-hidden="true" focusable="false"><g><path d="M52 202V64Q52 54 62 54H194Q204 54 204 64V202" fill="none" stroke="currentColor" strokeWidth="24" strokeLinecap="round" strokeLinejoin="round" /><g fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round"><rect x="95" y="100" width="66" height="60" rx="5" /><path d="m104 147 13-15q3-3 6 0l9 9 9-9q3-3 6 1l6 9" strokeWidth="7" /></g></g></svg>;
 }

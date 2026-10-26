@@ -38,7 +38,7 @@ export function installPreviewEditing({scene,camera,renderer,model,targets,orbit
  const onDown=(e:PointerEvent)=>{down={x:e.clientX,y:e.clientY,pointerId:e.pointerId};};
  const onClick=(e:MouseEvent)=>{
   if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5||control.axis)return;
-  const b=bridge();if(!b)return;const rect=renderer.domElement.getBoundingClientRect(),ray=new Raycaster();ray.setFromCamera(new Vector2((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1),camera);
+  const b=bridge();if(!b||b.disabled)return;const rect=renderer.domElement.getBoundingClientRect(),ray=new Raycaster();ray.setFromCamera(new Vector2((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1),camera);
   const hits=ray.intersectObject(model,true),selections=hits.flatMap(hit=>{let node:Object3D|null=hit.object;while(node){if(node.userData.editorSelection)return [{distance:hit.distance,selection:node.userData.editorSelection as EditorSelection}];node=node.parent;}return [];});
   const picked=closestEditorSelection(selections);if(picked)b.select(picked);
  };

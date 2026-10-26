@@ -1,3 +1,6 @@
+import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
+import {installArchitecturalFinishes} from './architectural-finishes-renderer';
+import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -6,6 +9,10 @@ import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
+import type {PlacementPreviewInstaller} from './geometry/placement-preview';
+import {installLightDetails} from './light-details-renderer';
+import {installBenches} from './bench-renderer';
+import {benchesFor} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {basisLoader} from './basis-loader.js';
@@ -53,61 +60,6 @@ export interface DetailEntryActions {
 }
 export type GeometrySelection=EditorSelection;
 
-// Partition centered XY rectangles instead of triangulating holes that touch a
-// wall edge. A floor-level door is an actual empty region in the rendered wall.
-function panels(
-  surface: Document["surfaces"][number],
-  openings: Document["openings"],
-) {
-  const width = surface.dimensions.width,
-    height = surface.dimensions.height;
-  const rectangles = openings
-    .filter((item) => item.surfaceId.toLowerCase() === surface.id.toLowerCase())
-    .map((item) => ({
-      left: item.offset[0] - item.dimensions.width / 2,
-      right: item.offset[0] + item.dimensions.width / 2,
-      bottom: item.offset[1] - item.dimensions.height / 2,
-      top: item.offset[1] + item.dimensions.height / 2,
-    }));
-  const xs = [
-    ...new Set([
-      -width / 2,
-      width / 2,
-      ...rectangles.flatMap((item) => [item.left, item.right]),
-    ]),
-  ].sort((a, b) => a - b);
-  const result: Array<{ x: number; y: number; width: number; height: number }> =
-    [];
-  for (let i = 0; i < xs.length - 1; i++) {
-    const left = xs[i]!,
-      right = xs[i + 1]!,
-      mid = (left + right) / 2;
-    if (right <= left) continue;
-    const blocked = rectangles
-      .filter((item) => mid > item.left && mid < item.right)
-      .sort((a, b) => a.bottom - b.bottom);
-    let bottom = -height / 2;
-    for (const item of blocked) {
-      if (item.bottom > bottom)
-        result.push({
-          x: mid,
-          y: (bottom + item.bottom) / 2,
-          width: right - left,
-          height: item.bottom - bottom,
-        });
-      bottom = Math.max(bottom, item.top);
-    }
-    if (bottom < height / 2)
-      result.push({
-        x: mid,
-        y: (bottom + height / 2) / 2,
-        width: right - left,
-        height: height / 2 - bottom,
-      });
-  }
-  return result;
-}
-
 export function GeometryPreview({
   document,
   selection,
@@ -121,6 +73,7 @@ export function GeometryPreview({
   onCameraPose,
   onNavigationMode,
   onArtworkSelect,
+  onPlaqueSelect,
   proximityDetail = false,
   focusedPlacementId,
   onDetailEntryReady,
@@ -138,6 +91,8 @@ export function GeometryPreview({
   onRenderState,
   cameraRequest,
   onSelectionFindReady,
+  placementPreview,
+  placementPreviewVersion,
   spaceTransparency,
   referenceTone = DEFAULT_REFERENCE_TONE,
   immersive = false,
@@ -152,6 +107,8 @@ export function GeometryPreview({
   controlsHost?: HTMLElement|null;
   viewFov?: number;
   onSelectionFindReady?: (action:((id:string)=>boolean)|null)=>void;
+  placementPreview?: PlacementPreviewInstaller;
+  placementPreviewVersion?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
@@ -166,6 +123,7 @@ export function GeometryPreview({
   onCameraPose?: (position: [number,number,number],yaw: number) => void;
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
+  onPlaqueSelect?: (id:string)=>void;
   proximityDetail?: boolean;
   focusedPlacementId?: string | null;
   onDetailEntryReady?: (actions: DetailEntryActions | null) => void;
@@ -201,6 +159,9 @@ export function GeometryPreview({
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
   const editingSync=useRef<(()=>void)|null>(null);
+  const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
+  const placementSync=useRef<(()=>void)|null>(null);
+  useEffect(()=>{placementSync.current?.();},[placementPreviewVersion]);
   useEffect(()=>{editingSync.current?.();},[editing,selection]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
@@ -218,13 +179,17 @@ export function GeometryPreview({
     >(null);
   const selectionFindAction=useRef<{document:typeof document;find:(id:string)=>boolean}|null>(null),selectionFindDocument=useRef(document);selectionFindDocument.current=document;
   useEffect(()=>{onSelectionFindReady?.(id=>selectionFindAction.current?.document===selectionFindDocument.current?selectionFindAction.current.find(id):false);return()=>onSelectionFindReady?.(null);},[onSelectionFindReady]);
-  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
-  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
+  const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
+  navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
   const suspendedWasWalking = useRef(false);
   const orbitEnabled = useRef<((enabled: boolean) => void) | null>(null);
+  const seatedBenchRef=useRef<string|null>(null);
+  const benchReturnButton=useRef<HTMLButtonElement|null>(null);
+  const [seatedBenchId,setSeatedBenchId]=useState<string|null>(null);
+  useEffect(()=>{if(seatedBenchId)benchReturnButton.current?.focus({preventScroll:true});},[seatedBenchId]);
   const currentWalkMode = useRef({ walking: false, paused: true });
   const preparedEntry = useRef<boolean | null>(null);
   const committedEntry = useRef<boolean | null>(null);
@@ -300,8 +265,10 @@ export function GeometryPreview({
     let disposed = false,
       release = () => {};
     let walkingRelease = () => {};
+    let placementRelease = () => {};
     let nearPlacement: string | undefined;
     walkingActions.current = null;
+    seatedBenchRef.current=null;setSeatedBenchId(null);
     xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
     setWalkPaused(true);
@@ -360,7 +327,8 @@ export function GeometryPreview({
       const compactQuality=(viewerBudget?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
-      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve);
+      const plaqueReserve=plaqueTextureReserve(document,compactQuality);
+      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
@@ -413,6 +381,7 @@ export function GeometryPreview({
         group.add(outline);
         owned.push(box, edges, material);
       }
+      const styledWalls=new Set(wallFinishesFor(document).map(w=>w.surfaceId.toLowerCase())),surfaceMaterials=new Map<string,InstanceType<typeof three.MeshStandardMaterial>>();
       document.surfaces.forEach((surface, index) => {
         const group = new three.Group();
         pose(group, surface.transform);
@@ -430,7 +399,8 @@ export function GeometryPreview({
             side: three.DoubleSide,
             transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace,
           });
-        owned.push(material);
+        owned.push(material);surfaceMaterials.set(surface.id.toLowerCase(),material);
+        if(styledWalls.has(surface.id.toLowerCase()))return;
         for (const rectangle of rectangles[index]!) {
           const geometry = new three.PlaneGeometry(
               rectangle.width,
@@ -443,6 +413,8 @@ export function GeometryPreview({
         }
 
       });
+      const architecturalFinishes=installArchitecturalFinishes(three,document,surfaces,surfaceMaterials);owned.push(architecturalFinishes);
+      if(architecturalFinishes.records.length)renderer.domElement.dataset.architecturalFinishes=JSON.stringify(architecturalFinishes.records);
       for (const opening of document.openings) {
         const geometry = new three.PlaneGeometry(
             opening.dimensions.width,
@@ -488,6 +460,8 @@ export function GeometryPreview({
         const assertionPose=new three.Group();pose(assertionPose,artwork.transform);assertionPose.add(bounds);group.add(assertionPose);
         owned.push(geometry, edges, material);
       }
+      const plaques=installPlaques(three,document,rooms,compactQuality);owned.push(plaques);
+      const benches=installBenches(three,document,rooms);owned.push(benches);
       const installation=installDecor(three,document,rooms);owned.push(installation);setInstallationIssueCount(installation.issues.length);
       const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
       for (const item of document.lights) {
@@ -530,6 +504,8 @@ export function GeometryPreview({
           }
         }
       }
+      const lightDetails=installLightDetails(three,document,rooms,scriptLights,editingEnabled);owned.push(lightDetails);
+      if(lightDetails.records.length)renderer.domElement.dataset.lightDetails=JSON.stringify(lightDetails.records);
       model.updateMatrixWorld(true);
       const bounds = new three.Box3().setFromObject(model),
         center = bounds.getCenter(new three.Vector3()),
@@ -562,12 +538,12 @@ export function GeometryPreview({
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
-        if (xrActive.current || suspendedRef.current || (!panelResume && !navigationCallbacks.current.onArtworkSelect && !navigationCallbacks.current.onScriptClick)) return;
+        if (xrActive.current || suspendedRef.current || (!panelResume && !navigationCallbacks.current.onArtworkSelect && !navigationCallbacks.current.onPlaqueSelect && !navigationCallbacks.current.onScriptClick)) return;
         const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
         const hit=ray.intersectObject(model,true)[0];
         let object=hit?.object;
-        while(object) { if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
+        while(object) { if(typeof object.userData.plaqueId === "string") {if(navigationCallbacks.current.onPlaqueSelect){detailEntry.current.prepare();detailEntry.current.commit(true);navigationCallbacks.current.onPlaqueSelect(object.userData.plaqueId);}return;} if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
         panelResume?.blank(event, currentWalkMode.current.walking && currentWalkMode.current.paused && !gpuLost);
       };
       renderer.domElement.addEventListener("click",pick);
@@ -586,6 +562,7 @@ export function GeometryPreview({
         if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
+          camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
@@ -643,7 +620,7 @@ export function GeometryPreview({
         kind:
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
       ) => {
-        if(xrActive.current)return;
+        if(xrActive.current||seatedBenchRef.current)return;
         camera.near=extent/1000;camera.far=extent*100;camera.updateProjectionMatrix();
         camera.up.set(0, 1, 0);
         controls.target.copy(center);
@@ -765,7 +742,7 @@ export function GeometryPreview({
       observer.observe(host.current);
       controls.addEventListener("change", render);
       guideAction.current=(routeId,index)=>{
-        if(suspendedRef.current||xrActive.current)return;
+        if(suspendedRef.current||xrActive.current||seatedBenchRef.current)return;
         const waypoint=document.navigation.find(r=>r.id===routeId)?.waypoints[index];
         if(!waypoint)return;
         const room=rooms.get(waypoint.roomId.toLowerCase());if(!room)return;
@@ -813,6 +790,7 @@ export function GeometryPreview({
       release = () => {
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
+        placementRelease();placementSync.current=null;
         editor?.dispose();editingSync.current=null;
         walkingRelease();
         panelResume?.dispose();
@@ -847,7 +825,7 @@ export function GeometryPreview({
         renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
       }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
-      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current; };
+      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
         renderer.domElement.tabIndex = 0;
@@ -905,6 +883,7 @@ export function GeometryPreview({
                     else if (!placement) nearPlacement = undefined;
                   }
                 },
+                onSeat:id=>{if(!disposed){seatedBenchRef.current=id;setSeatedBenchId(id);}},
                 onMode: (walking, paused, reason) => {
                   panelResume?.mode(walking, paused, reason);
                   currentWalkMode.current = { walking, paused };
@@ -966,6 +945,8 @@ export function GeometryPreview({
                 walkingActions.current?.teleport?.(viewpointId);
             });
           },
+          sit: benchId => {void initialize().then(()=>{if(!disposed&&!xrActive.current&&!suspendedRef.current&&walkingActions.current!==pending)walkingActions.current?.sit?.(benchId);});},
+          stand:()=>{},
           pause: () => {},
           stationary: () => {},
           reset: () => {},
@@ -1033,13 +1014,14 @@ export function GeometryPreview({
             typeof binding.artworkId !== "string"
           )
             throw Error("DERIVATIVE_UNAVAILABLE");
+          const expectedRevision=Number.isSafeInteger(binding.revision)&&Number(binding.revision)>0?Number(binding.revision):artwork.revision;
           const base = `/api/v1/tenants/${session.tenantId}`;
           const meta = await fetch(
             `${base}/studio/artworks/${encodeURIComponent(binding.artworkId)}`,
             {
               credentials: "same-origin",
               cache: "no-store",
-              signal: abort.signal,
+              signal,
             },
           );
           if (!meta.ok) throw Error("DERIVATIVE_UNAUTHORIZED");
@@ -1054,17 +1036,17 @@ export function GeometryPreview({
           )
             throw Error("DERIVATIVE_REVISION_CHANGED");
           response = await fetch(
-            `${bridge.previewUrl}?expectedRevision=${artwork.revision}`,
+            `${bridge.previewUrl}?expectedRevision=${expectedRevision}`,
             {
               credentials: "same-origin",
               cache: "no-store",
-              signal: abort.signal,
+              signal,
             },
           );
           if (
             !response.ok ||
             response.headers.get("x-exhibitos-artwork-revision") !==
-              String(artwork.revision)
+              String(expectedRevision)
           )
             throw Error("DERIVATIVE_UNAVAILABLE");
         }
@@ -1255,6 +1237,18 @@ export function GeometryPreview({
           throw error;
         }
       };
+      if(!publicSource&&editingEnabled&&placementInstaller.current){
+        const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,render,
+          load:async(artwork,signal)=>{
+            const shared=sources.get(artwork.revisionId);
+            if(shared){const object=await shared;signal.throwIfAborted();return {object,release:()=>{}};}
+            const object=await loadArtwork(artwork,undefined,signal);
+            const resources=decodedResources.get(object)??[];decodedResources.delete(object);
+            let released=false;return {object,release:()=>{if(released)return;released=true;for(const r of resources)r.dispose();}};
+          },
+        });
+        placementSync.current=preview.sync;placementRelease=preview.dispose;
+      }
       if (viewerBudget && publicSource) {
         const start = presentationFor(document).startCamera;
         const ordered = prioritizePlacements(
@@ -1767,6 +1761,7 @@ export function GeometryPreview({
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
+      {seatedBenchId&&<button ref={benchReturnButton} className="bench-return" disabled={suspendNavigation} onClick={()=>walkingActions.current?.stand?.()}>일어서서 이전 위치로 돌아가기</button>}
       <div className="geometry-stage">
         <div className="geometry-render-host" ref={host} />
         {viewerBudget && walkingMode && (
@@ -1838,7 +1833,7 @@ export function GeometryPreview({
       {viewerBudget && (
         <WalkingControls
           allowPointerCapture={!immersive || inputMode==="pointer"}
-          available={ready && !xrRunning && !walkLoading && !suspendNavigation}
+          available={ready && !xrRunning && !walkLoading && !suspendNavigation && !seatedBenchId}
           walking={walkingMode}
           paused={walkPaused}
           settings={walkSettings}
@@ -1852,11 +1847,16 @@ export function GeometryPreview({
           message={walkMessage}
         />
       )}
+      {viewerBudget && benchesFor(document).length>0 && (
+        <section aria-label="앉아서 감상" className="viewer-options">
+          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 돌아온 뒤 걷기는 직접 재개하세요.</p>{benchesFor(document).map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
+        </section>
+      )}
       {viewerBudget && presentationFor(document).viewpoints.length>0 && (
         <details className="viewer-options"><summary>다른 관람 위치</summary>
         <section aria-label="검증된 viewpoint 순간 이동">
           <p>직접 선택한 위치의 바닥·몸 여유 공간을 검사하고 움직임 없이 이동합니다. 안전하지 않은 위치는 거부하며 정지 상태를 유지합니다.</p>
-          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
+          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation||!!seatedBenchId} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
         </section></details>
       )}
       {viewerBudget && (

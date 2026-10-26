@@ -43,7 +43,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
     <p>{artwork.metadata.artist}</p>
     {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} />}
-    <section aria-label="작가 원문"><h3>작가 원문 {artwork.metadata.language && `(${artwork.metadata.language})`}</h3><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></section>
+    <section aria-label="작품 설명"><h3>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</h3><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></section>
     <dl>
       <dt>실제 치수 (너비 × 높이 × 깊이)</dt><dd>{artwork.dimensions.width} × {artwork.dimensions.height} × {artwork.dimensions.depth ?? "미기록"} m</dd>
       <dt>재료·기법</dt><dd>{artwork.metadata.medium ?? "미기록"}</dd>
@@ -53,17 +53,17 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     </dl>
 
     {experience.translations.filter(t => sameId(t.placementId, placementId)).map(t => <section key={t.locale} aria-label={`번역 ${t.locale}`} lang={t.locale}>
-      <h3>번역 ({t.locale}) · {t.title}</h3><p className="detail-text">{t.description}</p><p>작가 원문과 구분된 번역문입니다.</p>
+      <h3>번역 ({t.locale}) · {t.title}</h3><p className="detail-text">{t.description}</p><p>작품 설명과 구분된 번역문입니다.</p>
     </section>)}
-    <section aria-label="작가 음성 및 대본"><h3>작가 음성 · 원문 대본</h3>
-      {!renderPreview && <p>글·목록 관람에서는 음성을 요청하지 않습니다. 아래 대본으로 같은 설명을 읽을 수 있습니다.</p>}
+    <section aria-label="음성 설명 및 대본"><h3>음성 설명 · 대본</h3>
+      {!renderPreview && <p>글·목록 관람에서는 음성을 요청하지 않습니다. 작품 설명은 위에서 읽을 수 있습니다.</p>}
       {experience.voices.filter(v => sameId(v.placementId, placementId)).map(v => <div key={`${v.assetId}-${v.locale}`}>
-        {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작가 음성 듣기 ({v.locale})</button>
+        {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("음성을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("음성을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>음성 설명 듣기 ({v.locale})</button>
         <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("음성을 정지했습니다."); }}>음성 정지</button></>}
-        <p lang={v.locale} className="detail-text">원문 대본 ({v.locale}): {v.transcript}</p>
+        <p lang={v.locale} className="detail-text">대본 ({v.locale}): {v.transcript}</p>
         {curation.transcripts.filter(t=>sameId(t.placementId,placementId)&&t.locale===v.locale).map(t=><TimedTranscript key={t.locale} transcript={t} assetId={v.assetId} playback={voicePlayback} />)}
       </div>)}
-      {!experience.voices.some(v => sameId(v.placementId, placementId)) && <p>등록된 작가 음성이 없습니다. 위 설명을 읽어주세요.</p>}
+      {!experience.voices.some(v => sameId(v.placementId, placementId)) && <p>등록된 음성 설명이 없습니다. 위 설명을 읽어주세요.</p>}
       <p role="status">{voiceStatus}</p>
     </section>
     <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>{renderPreview ? "금색 점을 설명하는 글이에요. 정확한 위치 정보는 아래에서 확인할 수 있어요." : "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다."}</p>

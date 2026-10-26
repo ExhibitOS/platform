@@ -1,0 +1,10 @@
+import {expect,test} from 'vitest';
+import {applyArchitecturalFinishCommand,wallFinishesFor,validateArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {newDraft} from '../../web/src/drafts/example.ts';
+import {whiteCubeSurfaces} from '../../web/src/geometry/model.ts';
+import {validateDraft} from '../../web/src/drafts/validator.ts';
+import {checkOexProfile,remapOex} from './oex.ts';
+import {projectPublication} from './publication.ts';
+function fixture(){const draft=newDraft();draft.candidate.surfaces=whiteCubeSurfaces(draft.candidate.rooms[0]!);draft.candidate=applyArchitecturalFinishCommand(draft.candidate,{type:'set-wall-finish',wall:{surfaceId:draft.candidate.surfaces[0]!.id,depth:.12,preset:'painted-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}});return draft;}
+test('finish namespace admits normal draft/OEX and refuses deleted selected walls without dropping settings',()=>{const draft=fixture(),before=structuredClone(draft);expect(validateDraft(draft).valid).toBe(true);expect(()=>checkOexProfile(draft.candidate)).not.toThrow();const bad=structuredClone(draft);bad.candidate.surfaces=[];expect(validateDraft(bad).valid).toBe(false);expect(()=>checkOexProfile(bad.candidate)).toThrow('OEX_PROFILE_INVALID');expect(()=>projectPublication(bad.candidate,[],'2026-10-26T00:00:00.000Z')).toThrow();expect(draft).toEqual(before);});
+test('finish OEX/public surface remap preserves structure and source settings without private leakage',()=>{const d=fixture().candidate,before=structuredClone(d),source=wallFinishesFor(d)[0]!;for(const projected of [remapOex(d).exhibition,projectPublication(d,[],'2026-10-26T00:00:00.000Z').snapshot]){const w=wallFinishesFor(projected)[0]!;expect(validateArchitecturalFinishes(projected).valid).toBe(true);expect(w.surfaceId).not.toBe(source.surfaceId);expect(w.surfaceId).toBe(projected.surfaces[0]!.id);expect({...w,surfaceId:source.surfaceId}).toEqual(source);expect(projected.surfaces[0]!.transform).toEqual(d.surfaces[0]!.transform);}expect(d).toEqual(before);});

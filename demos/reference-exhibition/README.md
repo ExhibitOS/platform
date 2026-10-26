@@ -3,16 +3,43 @@
 These are the exact public, approved display derivatives from the existing
 reference exhibition, not original photographs or private production material.
 The publication revision and static index hashes are pinned in `publication.json`.
-The index, publication metadata, and six PNG display derivatives are Git inputs;
-the Viewer JavaScript and CSS are rebuilt from this repository.
+The index, publication metadata, six PNG display derivatives, and one GLB display
+model are Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository.
 
-The three works are provided by The Metropolitan Museum of Art, New York under
+The three paintings are provided by The Metropolitan Museum of Art, New York under
 CC0-1.0. Their original credit lines, rights, provenance, full and coarse display
 asset hashes remain in the publication metadata:
 
 - Vincent van Gogh, *Wheat Field with Cypresses*, 1889 — https://www.metmuseum.org/art/collection/search/436535
 - Rembrandt, *Aristotle with a Bust of Homer*, 1653 — https://www.metmuseum.org/art/collection/search/437394
 - Paul Cézanne, *Still Life with Apples and Pears*, ca. 1891–92 — https://www.metmuseum.org/art/collection/search/435883
+
+The fourth work is Edmonia Lewis, *Old Arrow Maker*, modeled 1866, marble,
+Smithsonian American Art Museum, Gift of Mr. and Mrs. Norman Robbins, 1983.95.179.
+The Smithsonian 3D display model is supplied under CC0-1.0:
+
+- Work record: https://americanart.si.edu/artwork/old-arrow-maker-14629
+- Model record: https://www.si.edu/object/3d/old-arrow-maker%3A99ca3d6f-6d54-45a5-9b95-f8c245a662c2
+
+The approved GLB retains the provider geometry, scale and integral oval base.
+The exhibition's separate plain box pedestal and placement are authored metadata.
+One simple bench in the sculpture room and its explicit seated viewpoint use the
+same editable exhibition metadata; returning restores the prior view with walking
+stopped. One authored spot fixture aims at a painting, with a directional
+light providing the base fill. Their simple project geometry and visual colour
+temperature are not a calibrated luminaire or lux measurement. Artwork files,
+transforms, descriptions and rights are preserved. One painting-room plaque
+references the existing exhibition title and introduction; selecting it opens
+the same accessible reading panel as its menu and text-list buttons. Its small
+derived near text is not the only reading route. One existing painting-room
+door wall has explicit .12m depth and restrained jamb/floor/ceiling bands.
+The original 2.4m opening passes through the whole depth; the same solid boxes
+are used for visible geometry and walking collision, without a threshold.
+Reported institutional dimensions and the digital model bounds are distinguished
+in the description; physical scale has not been independently calibrated.
+The approved four-artist introduction, descriptions, rights, credits and display
+policy remain in the generated publication metadata. This independent exhibition
+does not imply institutional sponsorship, affiliation or endorsement.
 
 Use Node 24.21.0 and npm 11.19.0, then `npm ci` and
 `npm run build:reference-demo` from the repository root. The output is a new

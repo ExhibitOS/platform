@@ -122,11 +122,12 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(!selected){renderer.shadowMap.enabled=false;emit('unavailable');return;}
     const meshes:THREE.Mesh[]=[];let triangles=0;
     selected.room.traverseVisible(node=>{
-      if(!(node instanceof three.Mesh)||!capture?.intersectsBox(new three.Box3().setFromObject(node)))return;
+      if(!(node instanceof three.Mesh)||node.userData.exhibitosLightFixture===true||node.userData.exhibitosPlaque===true||!capture?.intersectsBox(new three.Box3().setFromObject(node)))return;
       const materials=Array.isArray(node.material)?node.material:[node.material];
       // Transparent editor shells and annotation overlays must not become opaque blockers.
       if(materials.some(material=>material.transparent||!material.depthTest))return;
-      meshes.push(node);triangles+=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3;
+      const instances=node instanceof three.InstancedMesh?(Number.isSafeInteger(node.count)&&node.count>=0?node.count:Infinity):1;
+      meshes.push(node);triangles+=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
     });
     if(meshes.length>64||triangles>100000){releaseMap(selected.light);renderer.shadowMap.enabled=false;emit('unavailable');return;}
     for(const mesh of meshes){flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=true;mesh.receiveShadow=true;installPlanarDepth(mesh);}

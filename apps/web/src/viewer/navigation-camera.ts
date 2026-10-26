@@ -2,7 +2,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import type { PerspectiveCamera } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { presentationFor } from "@exhibitos/studio-contract";
+import { artifactPoint, presentationFor, benchSeat } from "@exhibitos/studio-contract";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
@@ -21,6 +21,7 @@ export async function createWalkingCamera({
   onState,
   isPanelFocus,
   resumeMovement,
+  onSeat,
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
@@ -34,6 +35,7 @@ export async function createWalkingCamera({
   onState?: (state: NavigationState) => void;
   isPanelFocus?: (target: EventTarget | null) => boolean;
   resumeMovement?: () => boolean;
+  onSeat?: (benchId:string|null) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
   const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
@@ -76,8 +78,10 @@ export async function createWalkingCamera({
     captureMessage = "",
     frame = 0,
     last = 0;
+  let seated: {benchId:string;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;returnPaused:boolean}|undefined;
   const publish = () => {
-    const state = controller.state();
+    const raw = controller.state();
+    const state:NavigationState=seated?{...raw,eyePosition:[...seated.eye],yaw:seated.yaw,velocity:[0,0,0],grounded:false,paused:true}:raw;
     canvas.dataset.navigationState = JSON.stringify({
       ...state,
       walking,
@@ -142,7 +146,7 @@ export async function createWalkingCamera({
     frame = requestAnimationFrame(tick);
   };
   const start = () => {
-    if (disposed) return;
+    if (disposed || seated) return;
     walking = true;
     captureMessage = "";
     paused = false;
@@ -157,7 +161,34 @@ export async function createWalkingCamera({
   };
   const actions: WalkingActions = {
     start,
+    sit: benchId => {
+      if(disposed||seated)return;
+      try {
+        const {bench,floor,top,floorCorners}=benchSeat(document,benchId), destination=presentationFor(document).viewpoints.find(v=>v.id.toLowerCase()===bench.viewpointId.toLowerCase());
+        if(!destination)throw Error('BENCH_REFERENCE');
+        const room=document.rooms.find(r=>r.id.toLowerCase()===bench.roomId.toLowerCase())!;
+        const eye=artifactPoint(destination.position,room.transform),target=artifactPoint(destination.target,room.transform);
+        if(!controller.seatedClear(eye,floor,top[1],bench.id,floorCorners))throw Error('BENCH_SEAT_UNSAFE');
+        const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
+        const snapshot={benchId:bench.id,eye,yaw,pitch:seatPitch,fov:destination.fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,returnPaused:paused};
+        input.pause();seated=snapshot;walking=false;paused=true;controls.enabled=false;
+        pitch=seatPitch;targetPitch=pitch;targetYaw=yaw;
+        camera.fov=destination.fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
+        onMessage('앉아서 감상 중입니다. 일어서서 돌아가기를 선택하면 이전 위치로 돌아갑니다.');
+      } catch {onMessage('이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');}
+    },
+    stand: () => {
+      if(!seated||disposed)return;
+      const saved=seated;input.pause();seated=undefined;
+      pitch=saved.returnPitch;targetPitch=pitch;targetYaw=controller.state().yaw;walking=saved.returnWalking;paused=true;
+      camera.position.fromArray(saved.returnPosition);camera.quaternion.fromArray(saved.returnQuaternion);camera.fov=saved.returnFov;camera.updateProjectionMatrix();
+      controls.target.fromArray(saved.returnTarget);controls.enabled=!walking;canvas.style.touchAction=walking?'none':previousTouchAction;
+      onMode(walking,true);onSeat?.(null);publish();render();
+      canvas.focus({preventScroll:true});
+      onMessage('이전 위치와 시점으로 돌아왔습니다. 걷기는 직접 재개하세요.');
+    },
     teleport: (viewpointId) => {
+      if(seated)return;
       input.pause();
       try {
         const result=teleportToViewpoint(controller,document,viewpointId);
@@ -181,6 +212,7 @@ export async function createWalkingCamera({
     },
     pause: (reason) => input.pause(reason),
     stationary: () => {
+      if(seated)return;
       input.pause();
       walking = false;
       controls.enabled = true;
@@ -198,6 +230,7 @@ export async function createWalkingCamera({
       void input.capture();
     },
     reset: () => {
+      if(seated)return;
       input.pause();
       try {
         controller.reset();
@@ -213,6 +246,7 @@ export async function createWalkingCamera({
       }
     },
     settings: (value) => {
+      if(seated)return;
       input.pause("settings");
       try {
         controller.setSettings(value);

@@ -1,3 +1,9 @@
+import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
+import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
+import {validateStudioPlaques} from '@exhibitos/studio-contract';
+import {validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails} from '@exhibitos/studio-contract';
+import {validateStudioBenches,BENCH_NAMESPACE,remapStudioBenches,type StudioBenches} from '@exhibitos/studio-contract';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
@@ -35,13 +41,13 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  }
 
 
- if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioInstallation(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,ENTRANCE_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,ENTRANCE_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -55,13 +61,23 @@ export function remapOex(e:Exhibition){
  const ids=new Map<string,string>();
  const collect=(v:unknown)=>{if(Array.isArray(v))for(const x of v)collect(x);else if(object(v))for(const[k,x]of Object.entries(v)){if((k==='id'||k==='revisionId')&&typeof x==='string'){uuid(x);if(!ids.has(x.toLowerCase()))ids.set(x.toLowerCase(),randomUUID());}else if(k!=='extensions')collect(x);}};
  collect(e);
+ const finishes=e.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
+ const plaques=e.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;
+ for(const p of plaques?.plaques??[])if(!ids.has(p.id.toLowerCase()))ids.set(p.id.toLowerCase(),randomUUID());
+ const benches=e.extensions?.[BENCH_NAMESPACE] as unknown as StudioBenches|undefined;
+ for(const b of benches?.benches??[])if(!ids.has(b.id.toLowerCase()))ids.set(b.id.toLowerCase(),randomUUID());
  const presentation=e.extensions?.[PRESENTATION_NAMESPACE] as {viewpoints?:{id:string}[]}|undefined;
  for(const v of presentation?.viewpoints??[])if(!ids.has(v.id.toLowerCase()))ids.set(v.id.toLowerCase(),randomUUID());
  const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(REFERENCE_FIELDS.has(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[field==='surfaces'?(ids.get(k.toLowerCase())??k):k,visit(x,k)])):v;
  const source=structuredClone(e),spatial=source.extensions?.[SPATIAL_NAMESPACE] as unknown as SpatialProgram|undefined;
+ const lightDetails=source.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
- if(source.extensions){delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ if(source.extensions){delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
  const exhibition=visit(source)as Exhibition;
+ if(lightDetails)exhibition.extensions={...exhibition.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ if(finishes)exhibition.extensions={...exhibition.extensions,[ARCHITECTURAL_FINISH_NAMESPACE]:remapArchitecturalFinishes(finishes,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ if(plaques)exhibition.extensions={...exhibition.extensions,[PLAQUE_NAMESPACE]:remapStudioPlaques(plaques,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ if(benches)exhibition.extensions={...exhibition.extensions,[BENCH_NAMESPACE]:remapStudioBenches(benches,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(installation)exhibition.extensions={...exhibition.extensions,[INSTALLATION_NAMESPACE]:remapStudioInstallation(installation,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(spatial)exhibition.extensions={...exhibition.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,id=>ids.get(id.toLowerCase())??id) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
