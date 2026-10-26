@@ -135,3 +135,12 @@ test('nearest magnification keeps min wrap closed sampler and exact pair corresp
  }
  assert.throws(()=>qualifyApprovedTexturedPair(full,pair.coarse,8,2));
 });
+
+test('approved model pair counts indices separately from the unchanged triangle limit',()=>{
+ const {full,coarse}=publicTexturedLODPair({fullGridSize:256});
+ // 65,536 vertices / 130,050 faces / 390,150 UInt32 indices: within the
+ // pre-existing vertex+triangle limits, but beyond the old mistaken index cap.
+ assert.equal(qualifyApprovedTexturedPair(full,coarse,130050,2).full.triangles,130050);
+ for(const count of [393219,Number.MAX_SAFE_INTEGER])assert.throws(()=>qualifyApprovedTexturedPair(changeTextureGLB(full,d=>{d.accessors[3].count=count;}),coarse,130050,2),{message:'APPROVED_LOD_UNSUPPORTED'});
+ assert.throws(()=>qualifyApprovedTexturedPair(changeTextureGLB(full,d=>{d.accessors[0].count=131073;}),coarse,130050,2),{message:'APPROVED_LOD_UNSUPPORTED'});
+});

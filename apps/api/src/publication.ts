@@ -2,6 +2,7 @@ import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type Architect
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
+import {SPACE_LIGHTING_NAMESPACE} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails} from '@exhibitos/studio-contract';
 import {validateStudioBenches,BENCH_NAMESPACE,remapStudioBenches,type StudioBenches} from '@exhibitos/studio-contract';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
@@ -98,7 +99,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
                 collect(x);
         } };
     // Unknown namespaces are retained privately but never implicitly published.
-    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, ENTRANCE_NAMESPACE, EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
+    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
     const lightDetails=doc.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
     const finishes=doc.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
     const plaques=doc.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;

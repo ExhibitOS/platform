@@ -109,7 +109,9 @@ export async function createWalkingCamera({
     cancelAnimationFrame(frame);
     onMode(walking, true, reason);
     publish();
-    onMessage("걷기가 일시 정지되었습니다. 다시 걷기는 직접 선택하세요.");
+    onMessage(reason === "escape" || reason === "pointerlock" || reason === "user"
+      ? "걷기가 멈췄습니다. W/A/S/D 또는 빈 공간 클릭으로 다시 걸을 수 있어요."
+      : "걷기가 일시 정지되었습니다. 다시 걷기는 직접 선택하세요.");
   };
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;

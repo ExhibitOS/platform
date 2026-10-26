@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MaterialValidation } from './index.js';
+import {validateSpaceLighting} from './space-lighting.js';
 export const DAYLIGHT_NAMESPACE='org.exhibitos.studio/daylight';
 export const TEMPLATE_NAMESPACE='org.exhibitos.studio/template';
 export interface Daylight {version:1;date:string;hour:number;latitude:number;northDegrees:number;intensity:number;enabled:boolean}
@@ -9,7 +10,7 @@ const exact=(x:Record<string,unknown>,keys:string[])=>Object.keys(x).length===ke
 const bounded=(x:unknown,min:number,max:number)=>typeof x==='number'&&Number.isFinite(x)&&x>=min&&x<=max;
 function safeSource(x:unknown):boolean {if(typeof x!=='string')return false;if(/^bundled:[a-z0-9-]+$/.test(x))return true;try{const url=new URL(x);return url.protocol==='https:'&&!!url.hostname&&!url.username&&!url.password&&!url.search&&!url.hash;}catch{return false;}}
 export function validateArchitecture(candidate:unknown,redistribute=false):MaterialValidation {
- const errors:MaterialValidation['errors']=[];
+ const errors:MaterialValidation['errors']=[...validateSpaceLighting(candidate).errors];
  const add=(namespace:string,message:string)=>errors.push({code:'STUDIO_ARCHITECTURE_INVALID',path:'/candidate/extensions/'+namespace.replaceAll('/','~1'),message});
  if(!obj(candidate))return {valid:true,errors};
  if(Array.isArray(candidate.lights))candidate.lights.forEach((light,i)=>{if(!obj(light))return;const dimensions=light.dimensions;const transform=light.transform;const position=obj(transform)?transform.position:undefined;if(!bounded(light.intensity,0,1000000)||!Array.isArray(position)||position.some(n=>!bounded(n,-10000,10000))||(light.type==='area'&&(!obj(dimensions)||!bounded(dimensions.width,.01,100)||!bounded(dimensions.height,.01,100))))errors.push({code:'STUDIO_LIGHT_RANGE',path:'/candidate/lights/'+i,message:'Renderer light profile requires finite intensity0..1e6, positions within10000m and area dimensions0.01..100m'});});

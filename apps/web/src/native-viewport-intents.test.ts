@@ -10,6 +10,7 @@ import type {LightInspectorRequest} from './native-light-inspector';
 import type {PlacementBegin} from './native-placement-protocol';
 import type {BenchInspectorRequest} from './native-bench-inspector';
 import type {LightDetailsRequest} from './native-light-details';
+import type {SpaceSettingsRequest} from './native-space-settings';
 vi.mock('react-dom/client',()=>({createRoot:()=>({render:()=>{}})}));
 vi.mock('./GeometryPreview',()=>({GeometryPreview:()=>null}));
 vi.mock('./StudioFloorPlan',()=>({StudioFloorPlan:()=>null}));
@@ -99,3 +100,17 @@ it('architectural finish wired intent excludes all editing intents, rechecks aut
  resolve(s.session());expect(await pending).toMatchObject({requestId:request.requestId,surfaceId:request.type==='set-wall-finish'?request.wall.surfaceId:request.surfaceId});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.frame).toEqual(before);expect(s.accepted.capabilities).toContain('architectural-finishes-v1');await expect(s.vm.architecturalFinishes(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
 });
 it('architectural finish late frame result is rejected and releases its intent',async()=>{const s=await sample(true);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.architecturalFinishes(architecturalRequest(s)),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');});
+
+function spaceRequest(s:Awaited<ReturnType<typeof sample>>):SpaceSettingsRequest{return {version:1,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,principalId:s.frame.principalId,requestId:crypto.randomUUID(),type:'set-space-lighting',settings:{version:1,baselineIntensity:0,reflectionIntensity:0}};}
+it('space settings excludes conflicting edits, checks its reply and releases on stale frame',async()=>{
+ const s=await sample(),request=spaceRequest(s),before=structuredClone(s.frame);let resolve!:(response:Response)=>void;
+ s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.spaceSettings(request);
+ expect(()=>s.vm.placement(s.begin)).toThrow('SPACE_SETTINGS_INTENT_ACTIVE');
+ await expect(s.vm.lightInspector(s.request)).rejects.toThrow('SPACE_SETTINGS_INTENT_ACTIVE');
+ await expect(s.vm.spaceSettings({...request,requestId:crypto.randomUUID()})).rejects.toThrow('SPACE_SETTINGS_INTENT_ACTIVE');
+ expect(()=>s.vm.action({type:'add-light',roomId:s.begin.roomId})).toThrow('SPACE_SETTINGS_INTENT_ACTIVE');
+ resolve(s.session());expect(await pending).toMatchObject({requestId:request.requestId,candidate:{extensions:{'org.exhibitos.studio/space-lighting':request.settings}}});expect(s.frame).toEqual(before);expect(s.accepted.capabilities).toContain('space-settings-v1');
+ await expect(s.vm.spaceSettings(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+ s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const late=s.vm.spaceSettings({...request,requestId:crypto.randomUUID()}),rejected=expect(late).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement({...s.begin,sequence:2})).toThrow('PLACEMENT_RENDERER_NOT_READY');
+});
