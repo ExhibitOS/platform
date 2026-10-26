@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
@@ -227,6 +227,8 @@ describe('displayed detail pressure and generation isolation',()=>{
   expect(displayedDetailReclamation([item],'current',2000,DEVICE_BUDGETS.desktop)).toBeUndefined();
   expect(displayedDetailReclamation([{...item,visible:false}],'current',1799,DEVICE_BUDGETS.desktop)).toBeUndefined();
   expect(displayedDetailReclamation([{...item,visible:false}],'current',1800,DEVICE_BUDGETS.desktop)).toEqual({id:'full-only',evict:true});
+  // Turning away inside the current/connected room does not make its only real representation expendable.
+  expect(displayedDetailReclamation([{...item,visible:false,minimumRequired:true}],'current',5000,DEVICE_BUDGETS.desktop)).toBeUndefined();
   expect(displayedDetailReclamation([{...item,visible:false}],'full-only',5000,DEVICE_BUDGETS.desktop)).toBeUndefined();
  });
  it('downgrades an offscreen authored pair without discarding its renderable work on a quick turn back',()=>{
@@ -241,4 +243,16 @@ describe('displayed detail pressure and generation isolation',()=>{
   reject('old-key');expect(pending.get('art')).toBe('new-key');expect(retryAfter.size).toBe(0);expect(failed.size).toBe(0);
   reject('new-key');expect(pending.has('art')).toBe(false);expect(retryAfter.get('art')).toBe(Infinity);expect(failed.has('art')).toBe(true);
  });
+});
+
+it('keeps detail behind a memory-blocked minimum throughout retry grace, then releases only after admission or leaving its rooms',()=>{
+ const minimum={visible:true,eligible:true,active:false,pending:true,budgetBlocked:false};
+ expect(minimumDetailPending([minimum])).toBe(true);
+ const waiting={...minimum,pending:false,budgetBlocked:true};
+ expect(minimumDetailPending([waiting])).toBe(true);
+ expect(minimumDetailPending([{...waiting,visible:false}])).toBe(true);
+ expect(minimumDetailPending([{...waiting,active:true}])).toBe(false);
+ expect(minimumDetailPending([{...waiting,visible:false,eligible:false}])).toBe(false);
+ // A failed asset without a memory reservation is isolated rather than blocking independent detail forever.
+ expect(minimumDetailPending([{...waiting,budgetBlocked:false}])).toBe(false);
 });
