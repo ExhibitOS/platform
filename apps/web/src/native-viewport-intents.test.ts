@@ -5,6 +5,7 @@ import {newLight} from './placement/model';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import type {LightInspectorRequest} from './native-light-inspector';
 import type {PlacementBegin} from './native-placement-protocol';
+import type {BenchInspectorRequest} from './native-bench-inspector';
 vi.mock('react-dom/client',()=>({createRoot:()=>({render:()=>{}})}));
 vi.mock('./GeometryPreview',()=>({GeometryPreview:()=>null}));
 vi.mock('./StudioFloorPlan',()=>({StudioFloorPlan:()=>null}));
@@ -42,4 +43,20 @@ it('a frame change fences a late light result and its finally releases the pendi
  s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.lightInspector(s.request),rejection=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
  await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejection;
  expect(()=>s.vm.placement({...s.begin,sequence:2})).toThrow('PLACEMENT_RENDERER_NOT_READY');expect(s.frame.draft.candidate.lights[0]!.intensity).toBe(100);
+});
+function benchRequest(s:Awaited<ReturnType<typeof sample>>):BenchInspectorRequest{
+ const roomId=s.frame.draft.candidate.rooms[0]!.id,viewpointId=crypto.randomUUID();
+ return {version:1,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,principalId:s.frame.principalId,requestId:crypto.randomUUID(),type:'add-bench',bench:{id:crypto.randomUUID(),name:'Bench',roomId,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:1.5,depth:.6,height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId},viewpoint:{id:viewpointId,name:'Seat',roomId,position:[0,1.15,0],target:[0,1,-2],fov:50}};
+}
+it('wired bench intent excludes placement/light/ordinary changes, authenticates twice, and releases after reply',async()=>{
+ const s=await sample(),request=benchRequest(s);let resolve!:(response:Response)=>void;
+ s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.benchInspector(request);
+ expect(()=>s.vm.placement(s.begin)).toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');await expect(s.vm.lightInspector(s.request)).rejects.toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');
+ await expect(s.vm.benchInspector({...request,requestId:crypto.randomUUID()})).rejects.toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');expect(()=>s.vm.action({type:'add-light',roomId:s.begin.roomId})).toThrow('BENCH_INSPECTOR_INTENT_ACTIVE');
+ resolve(s.session());const reply=await pending;expect(reply).toMatchObject({requestId:request.requestId,benchId:request.type==='remove-bench'?request.benchId:request.bench.id});expect(s.fetcher).toHaveBeenCalledTimes(2);expect(s.frame.draft.candidate.extensions?.['org.exhibitos.studio/benches']).toBeUndefined();expect(s.accepted.capabilities).toContain('bench-inspector-v1');
+ expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');await expect(s.vm.benchInspector(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+});
+it('late bench results are rejected after a new frame and release the optional intent',async()=>{
+ const s=await sample(),request=benchRequest(s);let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.benchInspector(request),rejected=expect(pending).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement(s.begin)).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });

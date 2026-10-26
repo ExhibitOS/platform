@@ -1,7 +1,7 @@
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { entranceFor, entryPresentationFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, benchesFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -258,6 +258,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
               })}
             </ul>
           </section>
+          {benchesFor(value.exhibition).length>0&&<section aria-label="벤치 감상 지점"><h2>벤치 감상 지점</h2><p>공간 관람에서 벤치를 직접 선택해 앉거나 이전 위치로 돌아갈 수 있어요. 작품 설명은 이 목록에서 계속 읽을 수 있어요.</p><ul>{benchesFor(value.exhibition).map(bench=><li key={bench.id}>{bench.name} · {presentationFor(value.exhibition).viewpoints.find(v=>v.id.toLowerCase()===bench.viewpointId.toLowerCase())?.name}</li>)}</ul></section>}
           <p className="cms-note">공간 이동이 어렵다면 작품 목록에서 작품을 선택해 감상할 수 있어요. 소리 없이도 설명을 읽을 수 있어요.</p>
           <details className="publication-record">
             <summary>전시 공개 정보</summary>

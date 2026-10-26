@@ -7,6 +7,8 @@ import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
+import {installBenches} from './bench-renderer';
+import {benchesFor} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {basisLoader} from './basis-loader.js';
@@ -233,6 +235,10 @@ export function GeometryPreview({
   suspendedRef.current = suspendNavigation;
   const suspendedWasWalking = useRef(false);
   const orbitEnabled = useRef<((enabled: boolean) => void) | null>(null);
+  const seatedBenchRef=useRef<string|null>(null);
+  const benchReturnButton=useRef<HTMLButtonElement|null>(null);
+  const [seatedBenchId,setSeatedBenchId]=useState<string|null>(null);
+  useEffect(()=>{if(seatedBenchId)benchReturnButton.current?.focus({preventScroll:true});},[seatedBenchId]);
   const currentWalkMode = useRef({ walking: false, paused: true });
   const preparedEntry = useRef<boolean | null>(null);
   const committedEntry = useRef<boolean | null>(null);
@@ -311,6 +317,7 @@ export function GeometryPreview({
     let placementRelease = () => {};
     let nearPlacement: string | undefined;
     walkingActions.current = null;
+    seatedBenchRef.current=null;setSeatedBenchId(null);
     xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
     setWalkPaused(true);
@@ -497,6 +504,7 @@ export function GeometryPreview({
         const assertionPose=new three.Group();pose(assertionPose,artwork.transform);assertionPose.add(bounds);group.add(assertionPose);
         owned.push(geometry, edges, material);
       }
+      const benches=installBenches(three,document,rooms);owned.push(benches);
       const installation=installDecor(three,document,rooms);owned.push(installation);setInstallationIssueCount(installation.issues.length);
       const scriptLights=new Map<string,{light:InstanceType<typeof three.Light>;original:number}>();
       for (const item of document.lights) {
@@ -652,7 +660,7 @@ export function GeometryPreview({
         kind:
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
       ) => {
-        if(xrActive.current)return;
+        if(xrActive.current||seatedBenchRef.current)return;
         camera.near=extent/1000;camera.far=extent*100;camera.updateProjectionMatrix();
         camera.up.set(0, 1, 0);
         controls.target.copy(center);
@@ -774,7 +782,7 @@ export function GeometryPreview({
       observer.observe(host.current);
       controls.addEventListener("change", render);
       guideAction.current=(routeId,index)=>{
-        if(suspendedRef.current||xrActive.current)return;
+        if(suspendedRef.current||xrActive.current||seatedBenchRef.current)return;
         const waypoint=document.navigation.find(r=>r.id===routeId)?.waypoints[index];
         if(!waypoint)return;
         const room=rooms.get(waypoint.roomId.toLowerCase());if(!room)return;
@@ -857,7 +865,7 @@ export function GeometryPreview({
         renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
       }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
-      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current; };
+      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
         renderer.domElement.tabIndex = 0;
@@ -915,6 +923,7 @@ export function GeometryPreview({
                     else if (!placement) nearPlacement = undefined;
                   }
                 },
+                onSeat:id=>{if(!disposed){seatedBenchRef.current=id;setSeatedBenchId(id);}},
                 onMode: (walking, paused, reason) => {
                   panelResume?.mode(walking, paused, reason);
                   currentWalkMode.current = { walking, paused };
@@ -976,6 +985,8 @@ export function GeometryPreview({
                 walkingActions.current?.teleport?.(viewpointId);
             });
           },
+          sit: benchId => {void initialize().then(()=>{if(!disposed&&!xrActive.current&&!suspendedRef.current&&walkingActions.current!==pending)walkingActions.current?.sit?.(benchId);});},
+          stand:()=>{},
           pause: () => {},
           stationary: () => {},
           reset: () => {},
@@ -1790,6 +1801,7 @@ export function GeometryPreview({
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
+      {seatedBenchId&&<button ref={benchReturnButton} className="bench-return" disabled={suspendNavigation} onClick={()=>walkingActions.current?.stand?.()}>일어서서 이전 위치로 돌아가기</button>}
       <div className="geometry-stage">
         <div className="geometry-render-host" ref={host} />
         {viewerBudget && walkingMode && (
@@ -1861,7 +1873,7 @@ export function GeometryPreview({
       {viewerBudget && (
         <WalkingControls
           allowPointerCapture={!immersive || inputMode==="pointer"}
-          available={ready && !xrRunning && !walkLoading && !suspendNavigation}
+          available={ready && !xrRunning && !walkLoading && !suspendNavigation && !seatedBenchId}
           walking={walkingMode}
           paused={walkPaused}
           settings={walkSettings}
@@ -1875,11 +1887,16 @@ export function GeometryPreview({
           message={walkMessage}
         />
       )}
+      {viewerBudget && benchesFor(document).length>0 && (
+        <section aria-label="앉아서 감상" className="viewer-options">
+          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 돌아온 뒤 걷기는 직접 재개하세요.</p>{benchesFor(document).map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
+        </section>
+      )}
       {viewerBudget && presentationFor(document).viewpoints.length>0 && (
         <details className="viewer-options"><summary>다른 관람 위치</summary>
         <section aria-label="검증된 viewpoint 순간 이동">
           <p>직접 선택한 위치의 바닥·몸 여유 공간을 검사하고 움직임 없이 이동합니다. 안전하지 않은 위치는 거부하며 정지 상태를 유지합니다.</p>
-          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
+          {presentationFor(document).viewpoints.map(viewpoint=><button key={viewpoint.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation||!!seatedBenchId} onClick={()=>walkingActions.current?.teleport?.(viewpoint.id)}>안전한 viewpoint로 이동 {viewpoint.name}</button>)}
         </section></details>
       )}
       {viewerBudget && (

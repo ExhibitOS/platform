@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,presentationFor} from "@exhibitos/studio-contract";
+import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchSolids,presentationFor} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -68,6 +68,7 @@ export interface NavigationController {
     readonly walkableRegions: readonly WalkableRegion[];
     readonly physicsVersion: string;
     isWalkable: (position: Vec3) => boolean;
+    seatedClear: (eye:Vec3, floor:Vec3, seatTop:number, benchId?:string, footprint?:readonly Vec3[]) => boolean;
     readonly navigationMesh: NavigationMesh;
     pathBetween: (fromEye: Vec3, toEye: Vec3) => Vec3[] | undefined;
 }
@@ -132,6 +133,7 @@ export async function createNavigationController(doc: Exhibition, options: {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const rooms = new Map(doc.rooms.map(r => [r.id.toLowerCase(), r]));
     let colliderCount = 0;
+    const benchColliders=new Map<string,Set<number>>();
     function box(position: Vec3, rotation: Quat, half: Vec3, kind: "floor" | "solid") {
         if (++colliderCount > 8192 || !finite(half) || half.some(n => n <= 0 || n > 10000))
             throw Error("NAVIGATION_COMPLEXITY");
@@ -193,10 +195,11 @@ export async function createNavigationController(doc: Exhibition, options: {
             const min=[0,1,2].map(i=>Math.min(...corners.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...corners.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,affineCorners:corners});
         }
-        for(const record of resolveInstallations(doc))for(const solid of record.solids){
+        for(const solid of [...resolveInstallations(doc).flatMap(record=>record.solids),...benchSolids(doc)]){
             if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
             const collider=world.createCollider(desc);kinds.set(collider.handle,'solid');
+            if('benchId' in solid&&typeof solid.benchId==='string'){const key=solid.benchId.toLowerCase(),handles=benchColliders.get(key)??new Set<number>();handles.add(collider.handle);benchColliders.set(key,handles);}
             const min=[0,1,2].map(i=>Math.min(...solid.vertices.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...solid.vertices.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,convexVertices:solid.vertices});
         }
@@ -241,6 +244,16 @@ export async function createNavigationController(doc: Exhibition, options: {
                 return false;
             const next = standingAt(eye);
             return !!next && supported(next) && !world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character);
+        }
+        function seatedClear(eye:Vec3,floor:Vec3,seatTop:number,benchId?:string,footprint:readonly Vec3[]=[]){
+            ensure();
+            if(!finite([...eye,...floor,seatTop])||eye[1]-seatTop<.5||eye[1]-seatTop>1.1||!inside(eye)||!inside([eye[0],eye[1]+.15,eye[2]]))return false;
+            for(const point of [floor,...footprint]){const ground=support(point[0],point[2],point[1]);if(!inside(point)||ground===undefined||Math.abs(ground-point[1])>.05)return false;}
+            const own=benchId?benchColliders.get(benchId.toLowerCase()):undefined;
+            if(benchId&&!own)return false;
+            for(const handle of own??[]){const collider=world.getCollider(handle);if(world.intersectionWithShape(v([0,0,0]),q([0,0,0,1]),collider.shape,undefined,undefined,character,undefined,c=>kinds.get(c.handle)==='solid'&&!own!.has(c.handle)))return false;}
+            const bottom=seatTop+.03,top=eye[1]+.15,center:Vec3=[eye[0],(bottom+top)/2,eye[2]];
+            return !world.intersectionWithShape(v(center),q([0,0,0,1]),new RAPIER.Cuboid(.2,(top-bottom)/2,.2),undefined,undefined,character,undefined,c=>kinds.get(c.handle)==='solid');
         }
         function reset(pose: {
             position?: Vec3;
@@ -425,7 +438,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             if (!initial) throw Error("NAVIGATION_SPAWN_UNSAFE");
         }
         reset();
-        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
+        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
                 if (!disposed) {
                     disposed = true;
                     world.free();

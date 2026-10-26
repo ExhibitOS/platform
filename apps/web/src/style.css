@@ -134,3 +134,7 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 
 
 /* SVG native auto outlines can scale with the plan's viewBox. Keep explicit keyboard strokes. */
+
+/* Seat exit stays outside the collapsible viewing controls. */
+.geometry-preview .bench-return { position: absolute; z-index: 5; top: 1rem; left: 50%; transform: translateX(-50%); min-height: 44px; max-width: calc(100% - 20rem); }
+@media (max-width: 600px) { .geometry-preview .bench-return { top: 5rem; left: 1rem; right: 1rem; transform: none; max-width: none; } }
