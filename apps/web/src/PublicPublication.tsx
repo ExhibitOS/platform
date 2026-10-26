@@ -1,4 +1,5 @@
 import { ViewerMark } from "./branding/ViewerMark";
+import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { entranceFor, entryPresentationFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
@@ -270,7 +271,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
         </article>
       )}
       <footer>
-        <span className="publication-brand"><ViewerMark />ExhibitOS</span>
+        <span className="publication-brand" role="img" aria-label="ExhibitOS"><ViewerMark /><ExhibitOSWordmark /></span>
         <a href="/THIRD_PARTY_NOTICES.txt">제3자 고지</a>
       </footer>
     </main>

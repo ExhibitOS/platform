@@ -1,16 +1,21 @@
 {
   "format": "exhibitos-brand-consumer-provenance-v1",
-  "canonicalVersion": "draft-1",
+  "canonicalVersion": "Legacy Studio draft-1; approved Viewer and outlined wordmark 2026-10-25",
   "sourceManifestSHA256": "39e8645c8eb10683802d6ccc16dfdc2e49054fe7a32f9d5b56eca0585478efe0",
   "sourceRevision": "b245316",
   "inputs": {
     "canonical/studio.svg": "39f9fd1b44ff2cb2ba32a5bc3c5b9f645dcc6c6f2c2aa30842d40cfb686912d4",
-    "canonical/viewer.svg": "8b41482e75dc9eb0ebe97793fbd253eb4b2e79ae87a53ee0284f622dc5014455"
+    "canonical/viewer.svg": "3c9f493b41f73257f75ebd271365968939ac7da8c60bba978a664b5fb9f96319",
+    "canonical/exhibitos-wordmark.svg": "487208ff2c4cbf60f188225c08fe38b217c1115f7becc76fc13f89b7c91526b6",
+    "../../public/viewer-favicon.svg": "c2d259310843e6c9f676ef8e3ecde72edf5305a94fb87afcea44b4657d558263"
   },
   "mapping": {
     "StudioMark": "Studio and CMS existing header links",
-    "ViewerMark": "PublicPublication existing header link, including static Viewer"
+    "ViewerMark": "Existing PublicPublication footer only; approved artwork-frame role mark",
+    "ExhibitOSWordmark": "Existing PublicPublication footer ExhibitOS text location; outlined Manrope, no font dependency",
+    "viewer-favicon.svg": "Static Viewer document icon"
   },
-  "transformation": "Copy canonical bytes; derive inline paths without IDs/title; decorative aria-hidden SVG inherits currentColor. Existing link text and accessible names remain authoritative.",
-  "publicLicenseDecision": "No independent brand reuse license or new license grant is introduced. Existing destination asset policy applies; canonical authorship and provenance are retained."
+  "transformation": "Copy exact approved SVG bytes; inline generator removes title/namespace/IDs and converts React attribute names without changing path geometry, viewBox or approved colours. Inline marks are decorative inside one labelled footer brand. Existing Studio source remains unchanged.",
+  "publicLicenseDecision": "No independent brand reuse license or new license grant is introduced. Existing destination asset policy applies; canonical authorship and provenance are retained.",
+  "adoptedManifestSHA256": "f323102428271c20952d75e2cfa54786028665fdd85f24090536036c97dc39e4"
 }
