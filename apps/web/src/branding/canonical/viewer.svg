@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" color="#07382F" role="img" aria-labelledby="title-viewer">
-  <title id="title-viewer">ExhibitOS viewer</title>
-  <!-- Original editable vector. Common open-bottom gallery frame, no font/SF Symbol/bitmap. -->
-  <g id="mark" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-    <path id="gallery-frame" d="M26 102V30H102V102" stroke-width="12" stroke-linecap="butt"/>
-    <g id="role-symbol"><path d="M42 72C48 60 55 55 64 55S80 60 86 72C80 84 73 89 64 89S48 84 42 72Z" stroke-width="5.5"/><circle cx="64" cy="72" r="6.8" fill="currentColor" stroke="none"/></g>
-  </g>
-</svg>
+<ns0:svg xmlns:ns0="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" width="256" height="256"><ns0:title>ExhibitOS Viewer</ns0:title><ns0:g><ns0:path d="M52 202V64Q52 54 62 54H194Q204 54 204 64V202" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" /><ns0:g fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><ns0:rect x="95" y="100" width="66" height="60" rx="5" /><ns0:path d="m104 147 13-15q3-3 6 0l9 9 9-9q3-3 6 1l6 9" stroke-width="7" /></ns0:g></ns0:g></ns0:svg>

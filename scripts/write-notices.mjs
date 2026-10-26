@@ -27,7 +27,11 @@ if(createHash("sha256").update(ltcNotice).digest("hex")!==ltcProvenance.sha256)t
 const basisNotice=await readFile(new URL("../vendor/notices/basis-LICENSE.txt",import.meta.url),"utf8");
 const basisPins=JSON.parse(await readFile(new URL("../vendor/notices/basis-provenance.json",import.meta.url),"utf8"));
 if(createHash("sha256").update(basisNotice).digest("hex")!==basisPins.licenseSha256)throw Error("BASIS_LICENSE_INTEGRITY");
+const wordmarkNotice=await readFile(new URL("../vendor/notices/wordmark-NOTICE.txt",import.meta.url),"utf8");
+const manropeLicense=await readFile(new URL("../vendor/notices/Manrope-OFL.txt",import.meta.url),"utf8");
+if(createHash("sha256").update(manropeLicense).digest("hex")!=="58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b")throw Error("MANROPE_LICENSE_INTEGRITY");
 const notices = [
+  wordmarkNotice+"\n"+manropeLicense+"\n",
   "Basis Universal transcoder bundled by Three.js (https://github.com/BinomialLLC/basis_universal), Apache-2.0. Original license follows.\n"+basisNotice+"\n",
   "LTC BRDF data bundled through Three.js RectAreaLightTexturesLib. Original source: https://github.com/selfshadow/ltc_code/\n"+ltcNotice+"\n",
   "Third-party implementations included in the ExhibitOS web bundle.\nTheir original licenses apply independently of the project AGPL license.\n",

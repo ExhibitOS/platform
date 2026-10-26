@@ -1,0 +1,1 @@
+Wordmark: Manrope, SIL Open Font License 1.1 (license included). Outlined at weight650 with custom spacing. Original font remains a build input only, not required by deployed SVG.

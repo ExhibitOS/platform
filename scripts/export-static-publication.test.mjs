@@ -8,6 +8,17 @@ import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
 const sha=b=>createHash("sha256").update(b).digest("hex");
+test('approved Viewer favicon exports exact bytes and rejects a changed SVG',async t=>{
+ const {runtime,options,directory}=await setup(t);
+ const icon=await readFile(new URL('../apps/web/public/viewer-favicon.svg',import.meta.url));
+ await writeFile(join(runtime,'viewer-favicon.svg'),icon);
+ const result=await exportStaticPublication(options);
+ assert.deepEqual(await readFile(join(result.output,'viewer-favicon.svg')),icon);
+ const manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json')));
+ assert.equal(manifest.files.find(f=>f.path==='viewer-favicon.svg').sha256,'c2d259310843e6c9f676ef8e3ecde72edf5305a94fb87afcea44b4657d558263');
+ await writeFile(join(runtime,'viewer-favicon.svg'),'<svg xmlns="http://www.w3.org/2000/svg"><script>unexpected()</script></svg>');
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'changed-icon')}),/STATIC_RUNTIME_FAVICON/);
+});
 export async function staticFixture(){
  const decoded=await readOex(await readFile(fixtureURL("oex/v1/examples/synthetic-media.oex"))),id=randomUUID(),exhibition=decoded.exhibition;
  const raw={publication:{id,revisionSha256:revisionHash(exhibition),publishedAt:new Date().toISOString(),status:"published"},exhibition,assets:decoded.manifest.assets.map(a=>({assetId:a.id,mime:a.mime,url:`/api/v1/publications/${id}/assets/${a.id}`})),privateAdminToken:"must-never-export"};
