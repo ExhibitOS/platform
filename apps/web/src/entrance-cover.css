@@ -3,7 +3,8 @@
 .entrance-cover-spread{position:relative;display:grid;grid-template-columns:minmax(0,1fr);perspective:1800px;isolation:isolate}
 .entrance-cover[data-has-image=true] .entrance-cover-spread{grid-template-columns:repeat(2,minmax(0,1fr))}
 .entrance-cover-copy{min-width:0;padding:clamp(1.25rem,3vw,3rem);background:var(--publication-paper,#f8fbfc)}
-.entrance-paper-left{border:1px solid #182d3220;box-shadow:0 8px 24px #182d320c}
+.entrance-paper-left{display:flex;flex-direction:column;border:1px solid #182d3220;box-shadow:0 8px 24px #182d320c}
+.entrance-cover-prose{min-width:0}.entrance-paper-ticket-slot{margin-top:auto;padding-top:2rem;min-height:8rem;box-sizing:content-box}
 .entrance-cover h1{margin:0 0 1.25rem;font-size:clamp(2rem,3.8vw,4rem);line-height:1.17;letter-spacing:-.04em;font-weight:650;word-break:keep-all;overflow-wrap:anywhere;text-wrap:balance}
 .entrance-cover-artist{margin:.75rem 0;font-size:clamp(1rem,1.4vw,1.25rem);line-height:1.6;overflow-wrap:anywhere}
 .entrance-cover-introduction{margin:1rem 0 0;white-space:pre-wrap;line-height:1.75;color:var(--publication-muted,#51656a);overflow-wrap:anywhere}
@@ -19,27 +20,25 @@
 .entrance-cover-image[data-image-state=ready] img{visibility:visible}
 .entrance-cover-image-failure{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.5rem;padding:1rem;color:var(--publication-muted,#51656a)}
 .entrance-cover-actions{margin-top:1.5rem;width:min(100%,34rem)}
-.entrance-cover .publication-entry-actions{display:flex;align-items:flex-start;flex-direction:column;gap:1rem;min-height:10rem;margin:0}
+.entrance-cover .publication-entry-actions{display:flex;align-items:flex-start;flex-direction:column;gap:1rem;margin:0}
 .entrance-cover .publication-entry-actions a{display:inline-flex;align-items:center;min-height:44px;padding-block:.25rem;font-size:1.05rem}
 /* Grid track boundary owns the seam, both notch centres, and the departing stub. */
-.publication-shell .publication-entry-ticket{--ticket-stub:6rem;--ticket-notch:.65rem;--ticket-rule:1px;position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--ticket-stub);align-items:stretch;gap:0;width:min(100%,32rem);min-height:6rem;padding:0;font-size:1.05rem;border:0;border-radius:0;background:transparent;color:var(--publication-ink,#182d32);box-shadow:none;text-align:left;isolation:isolate}
-.publication-entry-ticket-body{border:1px solid currentColor;border-right:0;background:var(--publication-paper,#f8fbfc);box-shadow:0 4px 12px #0000000d;display:grid;gap:.3rem;min-width:0;padding:1rem 1.25rem}
-.publication-entry-ticket-label{font-size:.875rem;letter-spacing:.12em}
+.publication-shell .publication-entry-ticket{--ticket-stub:6rem;--ticket-notch:.65rem;--ticket-rule:1px;position:relative;display:grid;grid-template-columns:minmax(0,1fr) var(--ticket-stub);align-items:stretch;gap:0;width:100%;min-height:8rem;padding:0;font-size:1.05rem;border:0;border-radius:0;background:transparent;color:var(--publication-ink,#182d32);box-shadow:none;text-align:left;isolation:isolate}
+.publication-entry-ticket-body{border:1px solid currentColor;border-right:0;background:var(--publication-paper,#f8fbfc);display:grid;gap:.3rem;min-width:0;padding:1rem 1.25rem}
 .publication-entry-ticket strong{font-size:1.125rem;line-height:1.5;overflow-wrap:anywhere;white-space:normal}
-.publication-entry-ticket-detail{font-size:.9375rem;font-weight:400;line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap}
+.publication-entry-ticket-time{display:flex;flex-wrap:wrap;gap:.25rem .75rem;font-size:.875rem;font-weight:400;line-height:1.5;font-variant-numeric:tabular-nums}.publication-entry-ticket-time>span{white-space:nowrap}
 .publication-entry-ticket-stub{position:relative;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:.4rem;min-width:0;padding:1rem .65rem;border:1px solid currentColor;border-left:var(--ticket-rule) dashed currentColor;line-height:1.5;overflow-wrap:anywhere;background:var(--publication-paper,#f8fbfc);transform-origin:left center}
-.publication-entry-ticket-stub::before,.publication-entry-ticket-stub::after{content:"";position:absolute;left:calc(-.5 * var(--ticket-rule));transform:translateX(-50%);width:calc(2 * var(--ticket-notch));height:var(--ticket-notch);border:1px solid currentColor;background:var(--publication-paper,#f8fbfc);pointer-events:none;box-sizing:border-box}
-.publication-entry-ticket-stub::before{top:-1px;border-top:0;border-radius:0 0 100% 100%}
-.publication-entry-ticket-stub::after{bottom:-1px;border-bottom:0;border-radius:100% 100% 0 0}
-.publication-entry-ticket-stub>span{font-size:1.25rem}
+/* Each half cuts away the same radius at its shared grid edge; no painted fake holes. */
+.publication-entry-ticket-body,.publication-entry-ticket-stub{--ticket-cut-edge:100%;mask:radial-gradient(circle var(--ticket-notch) at var(--ticket-cut-edge) 0,transparent 98%,#000 100%) top/100% 51% no-repeat,radial-gradient(circle var(--ticket-notch) at var(--ticket-cut-edge) 100%,transparent 98%,#000 100%) bottom/100% 51% no-repeat}
+.publication-entry-ticket-stub{--ticket-cut-edge:0%;}
 .publication-entry-ticket[data-entering=true][data-ticket-animation=true] .publication-entry-ticket-stub{animation:entry-ticket-tear 340ms ease-out both}
-.publication-entry-ticket[data-entering=true][data-ticket-animation=true]{animation:entry-ticket-away 420ms ease-out both;z-index:42}
+.publication-entry-ticket[data-entering=true][data-ticket-animation=true]{animation:entry-ticket-away 420ms ease-out both}
 @keyframes entry-ticket-tear{0%{transform:none;opacity:1}35%{transform:rotate(8deg) translateX(.2rem)}75%{opacity:1}100%{transform:translate(3rem,1rem) rotate(14deg);opacity:0}}
 @keyframes entry-ticket-away{0%,65%{opacity:1}100%{opacity:0}}
-.publication-cover-surface[data-entering=true]{position:absolute;inset:0;pointer-events:none}
-.publication-cover-surface[data-entering=true] .publication-entry-ticket{position:fixed;left:var(--entry-ticket-left);top:var(--entry-ticket-top);width:var(--entry-ticket-width)}
+.publication-cover-surface[data-entering=true]{position:absolute;inset:0;pointer-events:none;z-index:42}
+.publication-cover-surface[data-entering=true] .publication-entry-ticket{position:fixed;left:var(--entry-ticket-left);top:var(--entry-ticket-top);width:var(--entry-ticket-width);height:var(--entry-ticket-height);visibility:visible}
 .publication-cover-surface[data-entering=true] .entrance-cover{background:transparent}
-.publication-cover-surface[data-entering=true] .entrance-cover-spread{visibility:hidden}
+.publication-cover-surface[data-entering=true] .entrance-cover-spread{visibility:hidden;perspective:none}
 .publication-cover-surface[data-entering=true] .publication-entry-ticket[data-ticket-animation=false]{visibility:hidden}
 /* Full-size closed doors conceal the preparing canvas. Ready opens inward into that same canvas. */
 .publication-entry-overlay{position:absolute;inset:0;background:var(--publication-paper,#f8fbfc)}
