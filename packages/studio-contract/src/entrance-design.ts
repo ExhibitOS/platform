@@ -45,10 +45,11 @@ export function validateEntranceDesign(value:unknown):MaterialValidation{
  if(errors.length===0&&new TextEncoder().encode(JSON.stringify(value)).byteLength>100*1024)fail('Entrance design exceeds its metadata budget');
  return {valid:errors.length===0,errors};
 }
+const supplied=<T extends object>(value:T|undefined):Partial<T>=>Object.fromEntries(Object.entries(value??{}).filter(([,v])=>v!==undefined)) as Partial<T>;
 /** Resolve into a fresh runtime object; never mutate or persist defaults into authored data. */
 export function resolveEntranceDesign(value?:ViewerEntranceDesign):ResolvedEntranceDesign{
  if(value!==undefined&&!validateEntranceDesign(value).valid)throw Error('VIEWER_ENTRANCE_DESIGN_INVALID');
  const theme=value?.theme??'catalogue',t=ENTRANCE_THEMES.find(t=>t.id===theme)!;
  const layout={catalogue:[.5,32,1],poster:[.35,24,1.25],artwork:[.3,16,.85],invitation:[.5,48,1],threshold:[.3,16,.85]}[theme]!;
- return {version:1,theme,image:{fit:theme==='threshold'?'cover':'contain',focus:[.5,.5],...structuredClone(value?.image)},palette:value?.palette??(theme==='threshold'?'dark':theme==='catalogue'||theme==='invitation'?'paper':'light'),type:value?.type??(theme==='invitation'?'serif':'system'),ticket:{showDate:true,showTime:true,...value?.ticket},layout:{copyRatio:layout[0]!,margin:layout[1]!,titleScale:layout[2]!,...value?.layout},effects:{enabled:true,cover:t.cover,response:t.response,transition:t.transition,strength:.75,speed:1,mobile:'simple',...value?.effects},translations:structuredClone(value?.translations??[])};
+ return {version:1,theme,image:{fit:theme==='threshold'?'cover':'contain',focus:[.5,.5],...structuredClone(supplied(value?.image))},palette:value?.palette??(theme==='threshold'?'dark':theme==='catalogue'||theme==='invitation'?'paper':'light'),type:value?.type??(theme==='invitation'?'serif':'system'),ticket:{showDate:true,showTime:true,...supplied(value?.ticket)},layout:{copyRatio:layout[0]!,margin:layout[1]!,titleScale:layout[2]!,...supplied(value?.layout)},effects:{enabled:true,cover:t.cover,response:t.response,transition:t.transition,strength:.75,speed:1,mobile:'simple',...supplied(value?.effects)},translations:structuredClone(value?.translations??[])};
 }

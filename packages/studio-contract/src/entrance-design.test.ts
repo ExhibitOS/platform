@@ -22,3 +22,8 @@ it('bounds locale content and refuses duplicates while preserving authored local
  const translations=[{locale:'ko-KR',title:'전시',shortTitle:'짧은 제목',artist:'작가',introduction:'소개'}];expect(resolveEntranceDesign({version:1,theme:'invitation',translations}).translations).toEqual(translations);
  for(const variants of [[...translations,{locale:'KO-kr'}],[{locale:'bad locale'}],[{locale:'en',shortTitle:'x'.repeat(161)}],Array.from({length:17},(_,i)=>({locale:'en-'+String(i+10)}))])expect(validateEntranceDesign({version:1,theme:'invitation',translations:variants}).valid).toBe(false);
 });
+
+it('does not erase resolved defaults with explicitly undefined optional fields and preserves zero or false',()=>{
+ const input:ViewerEntranceDesign={version:1,theme:'poster',image:{fit:undefined,focus:undefined},ticket:{showDate:undefined,showTime:false},layout:{copyRatio:undefined,margin:0,titleScale:undefined},effects:{enabled:false,cover:undefined,response:undefined,transition:undefined,strength:0,speed:undefined,mobile:undefined}},before=structuredClone(input),resolved=resolveEntranceDesign(input);
+ expect(validateEntranceDesign(input).valid).toBe(true);expect(resolved).toMatchObject({image:{fit:'contain',focus:[.5,.5]},ticket:{showDate:true,showTime:false},layout:{copyRatio:.35,margin:0,titleScale:1.25},effects:{enabled:false,cover:'mask',response:'press',transition:'fade',strength:0,speed:1,mobile:'simple'}});expect(input).toEqual(before);
+});
