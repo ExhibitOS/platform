@@ -172,7 +172,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
         <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
       </nav>
-      {(loading||error)&&<EntranceReadingShell exhibition={initial?.exhibition} title={initial?.exhibition.title??"전시"} artist={initial&&entranceFor(initial.exhibition).artist} introduction={initial&&entranceFor(initial.exhibition).introduction} hasImage={Boolean(!error&&initial&&entranceFor(initial.exhibition).imageAssetId)} folded={!reducedMotion&&entryPresentation.coverUnfold} ratio={initial?coverAspectRatio(initial):4/3} status={<p className={loading?'publication-entry-status-quiet':undefined} role={loading?'status':'alert'} data-testid="public-state">{loading?"전시 정보를 확인하고 있어요.":error}</p>}/>}
+      {(loading||error)&&<EntranceReadingShell motion={!reducedMotion} exhibition={initial?.exhibition} title={initial?.exhibition.title??"전시"} artist={initial&&entranceFor(initial.exhibition).artist} introduction={initial&&entranceFor(initial.exhibition).introduction} hasImage={Boolean(!error&&initial&&entranceFor(initial.exhibition).imageAssetId)} folded={!reducedMotion&&entryPresentation.coverUnfold} ratio={initial?coverAspectRatio(initial):4/3} status={<p className={loading?'publication-entry-status-quiet':undefined} role={loading?'status':'alert'} data-testid="public-state">{loading?"전시 정보를 확인하고 있어요.":error}</p>}/>}
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>

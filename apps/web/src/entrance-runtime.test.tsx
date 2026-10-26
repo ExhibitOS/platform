@@ -5,6 +5,7 @@ import {ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {entranceRuntime,entranceContent} from './entrance-runtime';
 import {EntranceCover} from './EntranceCover';
+import {EntranceReadingShell} from './EntranceReadingShell';
 import {EntryTicket} from './EntryTicket';
 import type {PublicPublication} from './publication-client';
 const fixture=()=>{const doc=newDraft('Original title').candidate;doc.extensions={[ENTRANCE_NAMESPACE]:{version:1,artist:'Artist',introduction:'Original copy',imageAlt:'',mobilePosition:'center'}};return doc;};
@@ -29,4 +30,11 @@ it.each([['poster','strip'],['artwork','minimal'],['invitation','confirm'],['thr
 it('date/time switches hide only requested local-minute fields and retain a single entry action',()=>{
  const hidden=renderToStaticMarkup(<EntryTicket title="Title" active={false} animate={false} unavailable={false} showDate={false} showTime={false} buttonRef={null} onEnter={()=>{}}/>);expect(hidden).not.toContain('<time');expect(hidden.match(/<button\b/g)).toHaveLength(1);
  const time=renderToStaticMarkup(<EntryTicket title="Title" active={false} animate={false} unavailable={false} variant="minimal" showDate={false} buttonRef={null} onEnter={()=>{}}/>);expect(time).toContain('<time');expect(time).not.toContain('publication-entry-ticket-body');
+});
+
+it('bootstraps catalogue from resolved effects and visitor motion rather than legacy flags',()=>{
+ const doc=fixture(),raw=doc.extensions![ENTRANCE_NAMESPACE] as Record<string,unknown>;
+ const render=(motion=true)=>renderToStaticMarkup(<EntranceReadingShell exhibition={doc} title={doc.title} hasImage folded={false} motion={motion} status="Preparing"/>);
+ for(const effects of [{cover:'none'},{enabled:false},{strength:0}]){raw.design={version:1,theme:'catalogue',effects};expect(render()).toContain('data-paper-state="flat"');}
+ raw.presentation={ticketTitle:'',ticketDetail:'',ticketAnimation:true,coverUnfold:false,doorEffect:true};raw.design={version:1,theme:'catalogue',effects:{cover:'fold'}};expect(render()).toContain('data-paper-state="folded"');expect(render(false)).toContain('data-paper-state="flat"');
 });

@@ -83,7 +83,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
     const status:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
     const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
-    return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component key={image?.url??'pending'} {...props}/></div>;
+    return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component {...props}/></div>;
   }
   const style=catalogueStyle(design,authored,effects);
   const copy=<><h1>{content.title}</h1>
