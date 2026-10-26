@@ -31,7 +31,7 @@ import {
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
+import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -334,19 +334,22 @@ export function GeometryPreview({
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
       scene.add(model);
+      const spaceLighting=spaceLightingFor(document);
       const hemisphere = new three.HemisphereLight(
           0xffffff,
           0x71806a,
-          document.lights.length ? 0.4 : 2.5,
+          spaceLighting?.baselineIntensity ?? (document.lights.length ? 0.4 : 2.5),
         );
       scene.add(hemisphere);
       const sun = new three.DirectionalLight(
         0xffffff,
-        document.lights.length ? 0 : 3,
+        spaceLighting || document.lights.length ? 0 : 3,
       );
       const daylight=daylightFor(document);
       if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100) as [number,number,number]);sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20, 30, 25);
       renderer.domElement.dataset.daylight=JSON.stringify(daylight?{...daylight,direction:daylightDirection(daylight),effectiveIntensity:sun.intensity}:null);
+      const reportSpaceLighting=()=>{renderer.domElement.dataset.spaceLighting=JSON.stringify({settings:spaceLighting??null,baselineIntensity:hemisphere.intensity,reflectionIntensity:scene.environment?scene.environmentIntensity:0,environmentReady:!!scene.environment,solarIntensity:sun.intensity});};
+      reportSpaceLighting();
       scene.add(sun);
       const editTargets=new Map<string,InstanceType<typeof three.Object3D>>();
       const rooms = new Map<string, InstanceType<typeof three.Group>>(),
@@ -819,9 +822,10 @@ export function GeometryPreview({
       void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
         if(!environment)return;
         if(disposed||gpuLost){environment.dispose();return;}
-        owned.push(environment);scene.environmentIntensity=.45;
-        hemisphere.intensity=document.lights.length ? .2 : .6;
-        if(!daylight&&!document.lights.length)sun.intensity=2;
+        owned.push(environment);scene.environmentIntensity=spaceLighting?.reflectionIntensity ?? .45;
+        hemisphere.intensity=spaceLighting?.baselineIntensity ?? (document.lights.length ? .2 : .6);
+        if(!spaceLighting&&!daylight&&!document.lights.length)sun.intensity=2;
+        reportSpaceLighting();
         renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
       }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
@@ -1116,10 +1120,10 @@ export function GeometryPreview({
               artwork.dimensions.width,
               artwork.dimensions.height,
             );
-            const material = new three.MeshBasicMaterial({
+            const material = new three.MeshStandardMaterial({
               map: texture,
               side: three.DoubleSide,
-              toneMapped: false,
+              roughness:1,metalness:0,
             });
             resources.push(geometry, material);
             object = new three.Mesh(geometry, material);
