@@ -8,12 +8,15 @@ import type {Session} from './cms-client';
 import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
 import {nativeInstallationAction,type NativeInstallationAction} from './native-installation-action';
-import {checkedCatalogRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,type ThumbnailRequest,type FindRequest} from './native-catalog-protocol';
+import {checkedCatalogRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail} from './native-artwork-thumbnail';
+import {NATIVE_LIGHT_INSPECTOR_CAPABILITY,checkedLightInspectorRequest,nativeLightInspectorCandidate,type LightInspectorRequest} from './native-light-inspector';
 import './native-viewport.css';
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_LIGHT_INSPECTOR_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
- accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CATALOG_CAPABILITIES}>;
+ accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES}>;
  action:(v:NativeGeometryAction|NativeInstallationAction)=>unknown;
+ lightInspector:(v:LightInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{lightId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  thumbnail:(v:ThumbnailRequest)=>Promise<ReturnType<typeof catalogBinding>&{artworkId:string;revision:number;pngBase64:string;width:number;height:number}>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
@@ -28,7 +31,7 @@ async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
  if(!response.ok)throw Error('VIEWPORT_SESSION_REQUIRED');const session=await response.json() as Session;
  if(current!==frame||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
 }
-function beginCatalogRequest(request:ThumbnailRequest|FindRequest){
+function beginCatalogRequest(request:CatalogBinding){
  if(seenCatalogRequests.has(request.requestId))throw Error('CATALOG_REQUEST_REPLAY');
  seenCatalogRequests.add(request.requestId);if(seenCatalogRequests.size>128)seenCatalogRequests.delete(seenCatalogRequests.values().next().value!);
  const abort=new AbortController();catalogRequests.add(abort);return {abort,signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])};
@@ -47,7 +50,12 @@ window.exhibitosViewport={
   if(currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt)receive?.(frame,currentSession);
   else {currentSession=session;receive?.(frame,session);}
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
-  current=frame;return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:NATIVE_CATALOG_CAPABILITIES};
+  current=frame;return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:NATIVE_CAPABILITIES};
+ },
+ lightInspector:async value=>{
+  const frame=current,request=checkedLightInspectorRequest(value,frame),{abort,signal}=beginCatalogRequest(request);
+  try{await catalogSession(frame!,signal);const candidate=nativeLightInspectorCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),lightId:request.lightId,candidate};}
+  finally{catalogRequests.delete(abort);abort.abort();}
  },
  thumbnail:async value=>{
   const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');const {abort,signal}=beginCatalogRequest(request);
