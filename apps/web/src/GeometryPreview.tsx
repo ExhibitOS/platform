@@ -6,6 +6,7 @@ import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {installPreviewEditing} from './geometry/preview-editing';
+import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {basisLoader} from './basis-loader.js';
@@ -138,6 +139,8 @@ export function GeometryPreview({
   onRenderState,
   cameraRequest,
   onSelectionFindReady,
+  placementPreview,
+  placementPreviewVersion,
   spaceTransparency,
   referenceTone = DEFAULT_REFERENCE_TONE,
   immersive = false,
@@ -152,6 +155,8 @@ export function GeometryPreview({
   controlsHost?: HTMLElement|null;
   viewFov?: number;
   onSelectionFindReady?: (action:((id:string)=>boolean)|null)=>void;
+  placementPreview?: PlacementPreviewInstaller;
+  placementPreviewVersion?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
   spaceTransparency?: boolean;
   onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
@@ -201,6 +206,9 @@ export function GeometryPreview({
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
   const editingSync=useRef<(()=>void)|null>(null);
+  const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
+  const placementSync=useRef<(()=>void)|null>(null);
+  useEffect(()=>{placementSync.current?.();},[placementPreviewVersion]);
   useEffect(()=>{editingSync.current?.();},[editing,selection]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
@@ -300,6 +308,7 @@ export function GeometryPreview({
     let disposed = false,
       release = () => {};
     let walkingRelease = () => {};
+    let placementRelease = () => {};
     let nearPlacement: string | undefined;
     walkingActions.current = null;
     xrActive.current=false;setXrRunning(false);
@@ -813,6 +822,7 @@ export function GeometryPreview({
       release = () => {
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
+        placementRelease();placementSync.current=null;
         editor?.dispose();editingSync.current=null;
         walkingRelease();
         panelResume?.dispose();
@@ -1033,13 +1043,14 @@ export function GeometryPreview({
             typeof binding.artworkId !== "string"
           )
             throw Error("DERIVATIVE_UNAVAILABLE");
+          const expectedRevision=Number.isSafeInteger(binding.revision)&&Number(binding.revision)>0?Number(binding.revision):artwork.revision;
           const base = `/api/v1/tenants/${session.tenantId}`;
           const meta = await fetch(
             `${base}/studio/artworks/${encodeURIComponent(binding.artworkId)}`,
             {
               credentials: "same-origin",
               cache: "no-store",
-              signal: abort.signal,
+              signal,
             },
           );
           if (!meta.ok) throw Error("DERIVATIVE_UNAUTHORIZED");
@@ -1054,17 +1065,17 @@ export function GeometryPreview({
           )
             throw Error("DERIVATIVE_REVISION_CHANGED");
           response = await fetch(
-            `${bridge.previewUrl}?expectedRevision=${artwork.revision}`,
+            `${bridge.previewUrl}?expectedRevision=${expectedRevision}`,
             {
               credentials: "same-origin",
               cache: "no-store",
-              signal: abort.signal,
+              signal,
             },
           );
           if (
             !response.ok ||
             response.headers.get("x-exhibitos-artwork-revision") !==
-              String(artwork.revision)
+              String(expectedRevision)
           )
             throw Error("DERIVATIVE_UNAVAILABLE");
         }
@@ -1255,6 +1266,18 @@ export function GeometryPreview({
           throw error;
         }
       };
+      if(!publicSource&&editingEnabled&&placementInstaller.current){
+        const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,render,
+          load:async(artwork,signal)=>{
+            const shared=sources.get(artwork.revisionId);
+            if(shared){const object=await shared;signal.throwIfAborted();return {object,release:()=>{}};}
+            const object=await loadArtwork(artwork,undefined,signal);
+            const resources=decodedResources.get(object)??[];decodedResources.delete(object);
+            let released=false;return {object,release:()=>{if(released)return;released=true;for(const r of resources)r.dispose();}};
+          },
+        });
+        placementSync.current=preview.sync;placementRelease=preview.dispose;
+      }
       if (viewerBudget && publicSource) {
         const start = presentationFor(document).startCamera;
         const ordered = prioritizePlacements(
