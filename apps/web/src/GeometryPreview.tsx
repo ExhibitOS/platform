@@ -23,7 +23,7 @@ import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AssetScheduler,
+  AssetScheduler, minimumDetailPending,
   MemoryAssetCache,
   fetchVerifiedAsset,
   checkImageDecode,
@@ -1291,15 +1291,17 @@ export function GeometryPreview({
         };
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
-        const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>();
+        const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
+        const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
-        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
+        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(assetBudgetBytes,resident);
         const reserve=(key:string,bytes:number)=>{
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=assetBudgetBytes)break;byteCache.delete(asset.id);}
           if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=assetBudgetBytes)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
+          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=assetBudgetBytes)break;if(observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           peak.reserve(key,bytes);
         };
         const tasks = new Map<
@@ -1310,14 +1312,33 @@ export function GeometryPreview({
             prepareOnly:boolean; downloadOnly:boolean;
           }
         >();
-        const scheduler = new AssetScheduler<
-          {object?:InstanceType<typeof three.Object3D>;key:string}
-        >({
+        type LoadResult={object?:InstanceType<typeof three.Object3D>;key:string;borrowedMinimum?:{artId:string;assetId:string}};
+        const discardResult=(result:LoadResult)=>{
+          const {object,borrowedMinimum:borrowed}=result;if(!object)return;
+          if(borrowed){
+            if(objects.get(borrowed.artId)===object)return;
+            if(!disposed&&(observedVisible.get(borrowed.artId)!==false||observedEligible.get(borrowed.artId)!==false)){
+              const prior=minimumObjects.get(borrowed.artId);
+              if(!prior){minimumObjects.set(borrowed.artId,{assetId:borrowed.assetId,object});return;}
+              if(prior.object===object)return;
+            }
+          }
+          destroy(object);
+        };
+        const scheduler = new AssetScheduler<LoadResult>({
           // Fetch, decode/parse and texture/shader preparation share this serial slot.
           concurrency: 1,
           load: async (key, signal) => {
             const t = tasks.get(key)!;
             try {
+              const minimum=minimumObjects.get(t.art.revisionId);
+              if(minimum?.assetId===t.inventory.id&&!t.prepareOnly){
+                // Transfer ownership synchronously before awaiting rights: offroom eviction cannot dispose a borrowed object.
+                const result:LoadResult={object:minimum.object,key,borrowedMinimum:{artId:t.art.revisionId,assetId:minimum.assetId}};
+                minimumObjects.delete(t.art.revisionId);
+                try{reserve(key,minimum.object.userData.viewer?.decodedBytes??0);await checkPublicAvailability(signal);signal.throwIfAborted();minimum.object.userData.loadKey=key;return result;}
+                catch(error){discardResult(result);throw error;}
+              }
               const ready=prepared.get(t.inventory.id);
               if(ready&&!t.prepareOnly){
                 // Recheck current rights/revision before displaying a retained object.
@@ -1353,11 +1374,11 @@ export function GeometryPreview({
               peak.release(key);tasks.delete(key);throw error;
             }
           },
-          onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled');peak.release(result.key);tasks.delete(result.key);if(result.object)destroy(result.object);},
+          onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled');peak.release(result.key);tasks.delete(result.key);discardResult(result);},
         });
         const update = () => {
           if (disposed || gpuLost) return;
-          const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object)].reduce(
+          const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             0,
           );
@@ -1388,13 +1409,14 @@ export function GeometryPreview({
             budgetTotalBytes: decodedTotal + byteCache.stats().bytes,
             transitionPeakBytes: peak.total(),
             automaticDetail:automatic,
+            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumBudgetBlocked:[...minimumBlocked],minimumBudgetBytes:assetBudgetBytes,
             currentArtwork, preparedAssetIds:[...prepared.keys()], preparationStages:[...stages].map(([assetId,value])=>({assetId,...value})),
             allocationEstimateOnly:true,
             cache: byteCache.stats(),
             scheduler: scheduler.stats(),
             assetIds: [...active.values()],
             pixelRatio: renderer.getPixelRatio(),
-            decodedBytes: [...objects.values(),...[...prepared.values()].map(v=>v.object)].reduce(
+            decodedBytes: [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
               (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
               0,
             ),
@@ -1405,7 +1427,7 @@ export function GeometryPreview({
             geometry: renderer.info.memory.geometries,
             textures: renderer.info.memory.textures,
           });
-          setPublicMessage(failed.size > 0
+          setPublicMessage(minimumBlocked.size>0?"표시할 메모리가 부족해 일부 작품을 아직 준비하지 못했어요. 작품 목록에서도 감상할 수 있어요.":failed.size > 0
             ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요."
             : "공간에서 관람할 수 있어요. 작품 목록에서도 감상할 수 있어요.");
           setMessage(
@@ -1426,6 +1448,7 @@ export function GeometryPreview({
             update();
             return;
           }
+          if(prepareOnly&&minimumObjects.get(art.revisionId)?.assetId===inventory.id)return;
           if (active.get(art.revisionId) === inventory.id) {
             const prior=pending.get(art.revisionId);
             if(prior&&desired.get(art.revisionId)!==inventory.id){desired.set(art.revisionId,inventory.id);scheduler.cancel(prior);pending.delete(art.revisionId);}
@@ -1467,17 +1490,18 @@ export function GeometryPreview({
           tasks.set(key,task);
           void scheduler
             .request(key, art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art))
-            .then(({object}) => {
+            .then(result => {
+              const {object}=result;
               peak.release(key);
               const current=settleAssetGeneration(pending,art.revisionId,key);
               tasks.delete(key);
               if(!object){update();return;}
               if (disposed || !current || desired.get(art.revisionId) !== inventory.id) {
-                destroy(object);
+                discardResult(result);
                 return;
               }
               if(peak.total()+(object.userData.viewer?.decodedBytes??0)>assetBudgetBytes){
-                destroy(object);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
+                discardResult(result);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
                 if(preparing.has(art.revisionId)){prepared.set(inventory.id,{artId:art.revisionId,object,lastUseful:performance.now()});stage(inventory.id,'prepared-resident');}
@@ -1494,7 +1518,14 @@ export function GeometryPreview({
                   group.add(object.clone(true));
                 }
               }
-              if (old && old !== object){xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);destroy(old);}
+              if (old && old !== object){
+                xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
+                // Preserve the qualified textured/silhouette minimum through a full-detail swap.
+                const oldId=active.get(art.revisionId);let minimumId:string|undefined;
+                try{minimumId=selectAssetVariant(art,Infinity,viewerBudget).id;}catch{/* No unsupported minimum identity is inferred. */}
+                if(oldId===minimumId){const prior=minimumObjects.get(art.revisionId);if(prior&&prior.object!==old)destroy(prior.object);minimumObjects.set(art.revisionId,{assetId:oldId!,object:old});}
+                else destroy(old);
+              }
               objects.set(art.revisionId, object);
               const oldId=active.get(art.revisionId);
               active.set(art.revisionId, inventory.id);
@@ -1502,7 +1533,7 @@ export function GeometryPreview({
               stage(inventory.id,'attached-awaiting-draw');
               if(oldId&&oldId!==inventory.id)byteCache.delete(oldId);
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
-              failed.delete(art.revisionId);retryAfter.delete(art.revisionId);
+              failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);retryAfter.delete(art.revisionId);
               shadowPass.invalidate();
               render();
               stage(inventory.id,'display-attached-render-requested');
@@ -1515,7 +1546,7 @@ export function GeometryPreview({
               if (!disposed) {
                 if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
                 retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===currentArtwork?500:5000):Infinity);
-                if(error?.message==='ASSET_TRANSITION_PEAK'&&art.revisionId===currentArtwork)reclaimForCurrent();
+                if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===currentArtwork)reclaimForCurrent();}
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
@@ -1538,7 +1569,7 @@ export function GeometryPreview({
           // Let one ready-before-swap downgrade settle before reclaiming another.
           if([...reclaiming].some(id=>pending.has(id)))return;
           const candidate=displayedDetailReclamation(arts.filter(art=>active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
-            id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
+            id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,minimumRequired:observedEligible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
           })),currentArtwork,performance.now(),viewerBudget);
           if(!candidate)return;
           const art=arts.find(v=>v.revisionId===candidate.id)!;
@@ -1635,7 +1666,7 @@ export function GeometryPreview({
           const candidates=observations.map(v=>({id:v.art.revisionId,demand:v.demand||(v.art.revisionId===attention.current()&&v.want),occupancy:v.occupancy,focused:v.focused,gazeDistance:v.gazeDistance,distance:v.distance,eligible:v.eligible}));
           currentArtwork=attention.update(candidates,now);
           if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
-          for(const observation of observations)observedVisible.set(observation.art.revisionId,observation.visible);
+          for(const observation of observations){observedVisible.set(observation.art.revisionId,observation.visible);observedEligible.set(observation.art.revisionId,observation.eligible);if(!observation.visible&&!observation.eligible)minimumBlocked.delete(observation.art.revisionId);}
           preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
           // Cancel obsolete preparation without releasing its unsettled reservation.
           for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&artId!==currentArtwork&&!preparing.has(artId)){scheduler.cancel(key);pending.delete(artId);}}
@@ -1644,21 +1675,25 @@ export function GeometryPreview({
             else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
           }
           const sorted=[...observations].sort((a,b)=>Number(b.art.revisionId===currentArtwork)-Number(a.art.revisionId===currentArtwork));
-          for(const {art,visible,distance,focused,want} of sorted){
-            if(!visible&&!focused&&distance>12){
+          // Current/connected-room minima get the serial slot before speculative or attended detail.
+          for(const {art,visible,eligible}of sorted)if((visible||eligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
+          const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.eligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)})));
+          for(const {art,visible,eligible,distance,focused,want} of sorted){
+            if(!visible&&!eligible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
                 desired.delete(art.revisionId);
                 const old=objects.get(art.revisionId);if(old){
                   for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){const group=placements.get(p.id.toLowerCase());if(group){group.clear();for(const bound of placeholders.get(p.id.toLowerCase())??[])group.add(bound);}}
+                  const retained=minimumObjects.get(art.revisionId);if(retained){minimumObjects.delete(art.revisionId);destroy(retained.object);}
                   objects.delete(art.revisionId);const id=active.get(art.revisionId);active.delete(art.revisionId);requested.delete(art.revisionId);xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);destroy(old);if(id)byteCache.delete(id);shadowPass.invalidate();render();
                 }
                 continue;
               }
             }else awaySince.delete(art.revisionId);
             const isCurrent=art.revisionId===currentArtwork,neighbor=preparing.has(art.revisionId);
-            const wantFull=isCurrent&&want;
+            const wantFull=isCurrent&&want&&!minimumOutstanding;
             if((retryAfter.get(art.revisionId)??0)>now)continue;
             if(isCurrent)request(art,wantFull);
             else if(reclaiming.has(art.revisionId)){
@@ -1666,7 +1701,7 @@ export function GeometryPreview({
             }
             else if(neighbor){
               if(visible&&!active.has(art.revisionId))request(art,false);
-              else request(art,true,true);
+              else if(!minimumOutstanding)request(art,true,true);
             }
             else if(requested.has(art.revisionId)||visible)request(art,false);
 
@@ -1681,6 +1716,7 @@ export function GeometryPreview({
           for (const object of objects.values()) destroy(object);
           for(const value of prepared.values())destroy(value.object);
           prepared.clear();
+          for(const value of minimumObjects.values())destroy(value.object);minimumObjects.clear();minimumBlocked.clear();
           byteCache.clear();
           renderer.domElement.dataset.disposed = "true";
         };
