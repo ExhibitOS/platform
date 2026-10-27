@@ -74,6 +74,7 @@ export function GeometryPreview({
   session,
   publicSource,
   viewerBudget,
+  resourceBudget,
   suspendNavigation = false,
   onNavigationState,
   onCameraPose,
@@ -130,6 +131,8 @@ export function GeometryPreview({
   document: Document;
   editing?:EditorBridge;
   viewerBudget?: DeviceBudget;
+  /** Editor host resource accounting; does not enable visitor navigation. */
+  resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'>;
   suspendNavigation?: boolean;
   onNavigationState?: (state: NavigationState) => void;
   onCameraPose?: (position: [number,number,number],yaw: number) => void;
@@ -341,17 +344,18 @@ export function GeometryPreview({
         Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2),
       );
       applyReferenceOutput(three,renderer,referenceTone);
-      const compactQuality=(viewerBudget?.maxTextureSize??2048)<=512;
+      const resources=viewerBudget??resourceBudget;
+      const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
-      const availableAssetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
-      const floorPlan=floorTexturePlan(document,viewerBudget?.maxTextureSize??2048,availableAssetBytes);
+      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
+      const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
-      const surfacePlan=surfaceTexturePlan(document,viewerBudget?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
+      const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
-      const transitionBudgetBytes=Math.max(assetBudgetBytes,(viewerBudget?.maxTransitionBytes??viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      const transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
@@ -1871,6 +1875,7 @@ export function GeometryPreview({
     session,
     publicSource,
     viewerBudget,
+    resourceBudget,
     restart,
     transparentSpace,
     editingEnabled,

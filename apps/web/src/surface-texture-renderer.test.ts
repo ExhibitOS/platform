@@ -7,12 +7,22 @@ import {newDraft} from './drafts/example';
 import {whiteCubeSurfaces} from './geometry/model';
 import {texturedWallGeometry} from './architectural-finishes-renderer';
 import {surfaceTexturePlan} from './surface-texture-renderer';
+import {DEVICE_BUDGETS} from './viewer/loading';
 const id='aaaaaaaa-0000-4000-8000-000000000001';
 test('actual2K roles reserve source decode cost, select independent scalar size, and never silently drop a role',()=>{
  const doc={surfaces:[{id,type:'wall'}],extensions:{[MATERIAL_NAMESPACE]:{version:1,surfaces:{},surfaceTextures:{[id]:surfaceTextureDefaults('museum-matte-paint').texture}}}} as unknown as Exhibition;
  const plan=surfaceTexturePlan(doc,2048,96*1024*1024),pack=plan.packs[0]!;
  expect(pack.maps.color.width).toBe(2048);expect(plan.sizeFor(pack.maps.color)).toBe(plan.sizeFor(pack.maps.normal));expect(plan.sizeFor(pack.maps.roughness)).toBe(plan.sizeFor(pack.maps.normal)/2);expect(plan.reserveBytes).toBeLessThanOrEqual(96*1024*1024*.65);
  const small=surfaceTexturePlan(doc,512,24*1024*1024);expect(small.packs).toEqual([]);expect(small.blocked).toEqual(['museum-matte-paint']);
+});
+test('one2K editor pack needs the existing desktop resource budget after overhead',()=>{
+ const doc={surfaces:[{id,type:'wall'}],extensions:{[MATERIAL_NAMESPACE]:{version:1,surfaces:{},surfaceTextures:{[id]:surfaceTextureDefaults('museum-matte-paint').texture}}}} as unknown as Exhibition;
+ // Reserve the same existing environment and shadow costs before material planning.
+ const overhead=3932160+2097152,budget=DEVICE_BUDGETS.desktop;
+ expect(surfaceTexturePlan(doc,2048,32*1024*1024-overhead).blocked).toEqual(['museum-matte-paint']);
+ const plan=surfaceTexturePlan(doc,budget.maxTextureSize,budget.maxCacheBytes-overhead);
+ expect(plan.blocked).toEqual([]);expect(plan.packs.map(p=>p.id)).toEqual(['museum-matte-paint']);
+ expect(plan.reserveBytes).toBeGreaterThan(plan.residentBytes);
 });
 test('opening-split wall structures retain metric front/reveal UVs and one combined mesh geometry',()=>{
  const parent=new three.Group();parent.scale.set(2,3,4);
