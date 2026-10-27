@@ -33,16 +33,17 @@ export function NativeEntranceHost({intent,owner,authenticate,stage}:{intent:Ent
  const exhibition=useMemo(()=>previewExhibition(intent),[intent]),publication=useMemo(()=>({exhibition}),[exhibition]);
  const [systemReduced,setSystemReduced]=useState(()=>matchMedia('(prefers-reduced-motion:reduce)').matches);
  const reduced=intent.request.reducedMotion||systemReduced,compact=intent.request.device==='mobile',runtime=entranceRuntime(exhibition,reduced,compact),content=entranceContent(exhibition,intent.request.locale??undefined,compact);
+ const still=spaceStillFor(exhibition),selectedStill=!!still&&runtime.settings.imageAssetId?.toLowerCase()===still.id.toLowerCase();
  const [imageStatus,setImageStatus]=useState<ThemeProps['image']['status']>(()=>runtime.settings.imageAssetId?'loading':'absent'),[enteredScene,setEnteredScene]=useState(false);
  const source=useMemo(()=>{
   const approved=nativeEntranceCoverSource(intent.frame,signal=>authenticate(intent.frame,signal));
   return {image:async(assetId:string,signal:AbortSignal)=>{
    if(intent.request.scenario==='image-failed')throw Error('ENTRANCE_PREVIEW_IMAGE_SCENARIO');
    // E cannot substitute an artwork for the still-open qualified space-media path.
-   if(entranceRuntime(exhibition).design.theme==='threshold'&&!spaceStillFor(exhibition))throw Error('ENTRANCE_PREVIEW_SPACE_IMAGE_REQUIRED');
+   if(runtime.design.theme==='threshold'&&(!selectedStill||assetId.toLowerCase()!==still?.id.toLowerCase()))throw Error('ENTRANCE_PREVIEW_SPACE_IMAGE_REQUIRED');
    if(intent.request.scenario==='slow')await previewDelay(signal);return approved.image(assetId,signal);
   }};
- },[intent,authenticate,exhibition]);
+ },[intent,authenticate,runtime.design.theme,selectedStill,still?.id]);
  const observed=useRef({mode:entry.mode,ready:entry.stageReady,imageStatus,reduced});observed.current={mode:entry.mode,ready:entry.stageReady,imageStatus,reduced};
  useEffect(()=>{
   const html=root.current?.ownerDocument.documentElement;if(!html)return;
@@ -81,7 +82,6 @@ export function NativeEntranceHost({intent,owner,authenticate,stage}:{intent:Ent
    <EntranceCover publication={publication} source={source} locale={intent.request.locale??undefined} showImage={entry.mode!=='text'&&!entry.stageReady} interactive={entry.mode==='cover'} motion={!reduced} onImageState={setImageStatus}
     ticket={<EntryTicket title={runtime.settings.presentation?.ticketTitle||content.title} active={entry.mode==='3d'} animate={runtime.effects.response!=='none'} unavailable={false} variant={runtime.variant} showDate={runtime.design.ticket.showDate} showTime={runtime.design.ticket.showTime} buttonRef={entry.entryButton} onEnter={()=>entry.begin()}/>}>
     <a href="#native-preview-text" onClick={event=>{event.preventDefault();showText();}}>텍스트로 관람</a>
-    {runtime.design.theme==='threshold'&&!spaceStillFor(exhibition)&&<p role="status">표지에 사용할 공간 이미지를 연결하세요.</p>}
    </EntranceCover>
   </div>
   {entry.mode==='3d'&&<EntranceEntryOverlay key={entry.entryAttempt} entry={entry} transition={runtime.effects.transition} speed={runtime.effects.speed} statusRef={status} onCancel={cancel} onText={showText}/>}

@@ -28,7 +28,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;
 }) {
   const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
-  const still=spaceStillFor(publication.exhibition),hasUsableImage=!!settings.imageAssetId&&(design.theme!=='threshold'||!!still);
+  const still=spaceStillFor(publication.exhibition),hasUsableImage=!!settings.imageAssetId&&(design.theme!=='threshold'||!!still&&settings.imageAssetId.toLowerCase()===still.id.toLowerCase());
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
   const [layoutReady,setLayoutReady]=useState(false);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
@@ -93,7 +93,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   if(design.theme!=='catalogue'){
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
     const status=displayedImageState;
-    const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
+    const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children:<>{children}{design.theme==='threshold'&&!hasUsableImage&&<p role="status">공간의 문턱에는 승인된 공간 이미지를 표지로 선택하세요.</p>}</>,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
     return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component {...props}/></div>;
   }
   const style=catalogueStyle(design,authored,effects);
