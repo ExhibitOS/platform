@@ -368,6 +368,8 @@ export function GeometryPreview({
         assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes);
         transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,assetBudgetBytes,transitionBudgetBytes});
+        const quality=renderer.domElement.dataset.renderQuality;
+        if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
         growAssetLimits();
       };
       const scene = new three.Scene();
