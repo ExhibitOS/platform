@@ -29,7 +29,7 @@ function documentFor(bindings:FloorBinding[],authoredFloor=true){return {rooms:[
 test('only active referenced packs reserve memory; all four fit by shared bounded downsampling without loading inactive bases',()=>{
  const presets=['wood','marble','tile','carpet'] as const;
  const rooms=presets.map((_,i)=>`11111111-1111-4111-8111-11111111111${i}`);
- const doc={rooms:rooms.map(id=>({id})),surfaces:[],mediaAssets:[],extensions:{[FLOOR_NAMESPACE]:{version:1,bindings:presets.map((p,i)=>({...floorPresetDefaults(p),target:{kind:'room-base',roomId:rooms[i]!}}))}} as unknown as Exhibition;
+ const doc={rooms:rooms.map(id=>({id})),surfaces:[],mediaAssets:[],extensions:{[FLOOR_NAMESPACE]:{version:1,bindings:presets.map((p,i)=>({...floorPresetDefaults(p),target:{kind:'room-base',roomId:rooms[i]!}}))}}} as unknown as Exhibition;
  for(const budget of [24*1024*1024,90*1024*1024]){const plan=floorTexturePlan(doc,budget<30*1024*1024?512:2048,budget);expect(plan.packs).toHaveLength(4);expect(plan.reserveBytes).toBeLessThanOrEqual(Math.floor(budget*.65));expect(plan.maxSize).toBeGreaterThanOrEqual(128);}
  const inactive=floorTexturePlan(documentFor([{...binding,target:{kind:'room-base',roomId:room}}]),512,32*1024*1024);expect(inactive.reserveBytes).toBe(0);expect(inactive.packs).toEqual([]);
  const blocked=floorTexturePlan(documentFor([binding]),512,1);expect(blocked.packs).toEqual([]);expect(blocked.blocked).toEqual(['WoodFloor051']);
