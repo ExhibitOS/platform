@@ -37,7 +37,16 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  case 'asset_derivatives':if(obj(row.metadata)&&row.metadata.objectKey!==undefined)add(row.metadata.objectKey,true,row.metadata.bytes,row.metadata.sha256,':derivative');break;
  case 'publication_assets':case 'publication_media':case 'publication_cover_images':case 'studio_floor_resources':case 'studio_furnishing_resources':case 'studio_surface_material_resources':add(row.object_key,true,row.bytes,row.sha256);break;
  case 'studio_audio':case 'studio_cover_images':add(row.object_key,row.state!=='uploading',row.bytes,row.sha256);break;
- case 'import_jobs':add(row.object_key,row.state==='queued'||row.state==='processing'||row.state==='approved',row.expected_bytes,row.expected_hash,':source');add(row.approved_key,row.state==='approved',row.expected_bytes,row.expected_hash,':approved');break;
+ case 'import_jobs':{
+  const required=row.state==='queued'||row.state==='processing'||row.state==='approved';
+  add(row.object_key,required,row.expected_bytes,row.expected_hash,':source');
+  const prepared=row.derived;
+  if(prepared!==undefined&&prepared!==null){
+   if(!obj(prepared)||row.mime!=='image/jpeg'||prepared.mime!=='image/png'||!bytes(prepared.bytes)||!hex(prepared.sha256))issues.push({code:'INVALID_PREPARED_IMPORT',binding});
+   else{add(row.derived_object_key,required,prepared.bytes,prepared.sha256,':prepared');add(row.approved_key,row.state==='approved',prepared.bytes,prepared.sha256,':approved');break;}
+  }else if(row.mime==='image/jpeg')issues.push({code:'INVALID_PREPARED_IMPORT',binding});
+  add(row.approved_key,row.state==='approved',row.expected_bytes,row.expected_hash,':approved');break;
+ }
  case 'oex_import_jobs':{
   const required=row.state==='queued'||row.state==='processing';
   keys(row.staging_keys,required,':staging',required?{bytes:row.expected_bytes,sha256:row.payload_sha256}:undefined);
