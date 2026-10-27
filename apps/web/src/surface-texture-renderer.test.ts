@@ -31,6 +31,6 @@ test('styled material geometry reserves both actual CPU and GPU buffers even on 
  d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:wall.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}});
  const binding=surfaceTextureDefaults('museum-matte-paint').texture;d.extensions={...d.extensions,[MATERIAL_NAMESPACE]:{version:1,surfaces:{},surfaceTextures:{[wall.id]:binding}}} as Exhibition['extensions'];
  const boxes=architecturalWallBoxes(wall,d.openings,wallFinishesFor(d)[0]!).filter(b=>b.kind==='structure'),geometry=texturedWallGeometry(three,boxes,new three.Group(),binding),plan=surfaceTexturePlan(d,512,1);
- const cpu=Object.values(geometry.attributes).reduce((sum,a)=>sum+a.array.byteLength,0)+geometry.index!.array.byteLength;
+ const cpu=Object.values(geometry.attributes).reduce((sum,a)=>sum+(a instanceof three.InterleavedBufferAttribute?a.data.array:a.array).byteLength,0)+geometry.index!.array.byteLength;
  expect(plan.geometryReserve).toBeGreaterThanOrEqual(2*cpu);expect(plan.reserveBytes).toBe(plan.geometryReserve);expect(plan.packs).toEqual([]);geometry.dispose();
 });
