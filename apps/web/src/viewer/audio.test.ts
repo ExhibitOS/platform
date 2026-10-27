@@ -300,7 +300,7 @@ function voicePriorityRuntime() {
  let impulseBuffers=0,convolvers=0;
  const context={state:'running',currentTime:2,sampleRate:48000,destination:node(),resume:async()=>{},close:async()=>{},
   listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},
-  createGain:node,createConvolver:()=>{convolvers++;return node();},createBuffer:(channels:number,length:number,rate:number)=>{impulseBuffers++;return {length,numberOfChannels:channels,sampleRate:rate,duration:length/rate,getChannelData:()=>new Float32Array(length)} as AudioBuffer;},createPanner:node,createBufferSource:()=>{const s=node();sources.push(s);return s;}};
+  createGain:node,createConvolver:()=>{convolvers++;return node();},createBuffer:(channels:number,length:number,rate:number)=>{impulseBuffers++;return {length,numberOfChannels:channels,sampleRate:rate,duration:length/rate,getChannelData:()=>new Float32Array(length),copyFromChannel:()=>{},copyToChannel:()=>{}};},createPanner:node,createBufferSource:()=>{const s=node();sources.push(s);return s;}};
  const internal=runtime as unknown as {context:AudioContext;master:ReturnType<typeof node>;background:ReturnType<typeof node>;wet:ReturnType<typeof node>;convolver:ReturnType<typeof node>;
   load:(id:string)=>Promise<AudioBuffer>;checkAvailability:()=>Promise<void>;room:string;
   buffers:Map<string,AudioBuffer>;experience:{footsteps:unknown[]};publication:import('../publication-client').PublicPublication};
