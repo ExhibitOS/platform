@@ -3,10 +3,13 @@
 export const MATERIAL_NAMESPACE = "org.exhibitos.studio/materials";
 export const MAX_MATERIALS = 64;
 import { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
+import {surfaceTextureFor,surfaceTextureDefaults,validateSurfaceTextures,type SurfaceTextureBinding} from './surface-textures.js';
+export * from './surface-textures.js';
 export { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
 export interface StudioMaterials {
   version: 1;
   surfaces: Record<string, PbrMaterial>;
+  surfaceTextures?: Record<string,SurfaceTextureBinding>;
 }
 export interface MaterialIssue {
   code: string;
@@ -49,7 +52,7 @@ export function validateStudioMaterials(
     );
     return { valid: false, errors };
   }
-  if (!exact(value, ["version", "surfaces"]) || !object(value.surfaces)) {
+  if (!(exact(value, ["version", "surfaces"]) || exact(value,["version","surfaces","surfaceTextures"])) || !object(value.surfaces)) {
     add(
       "STUDIO_MATERIAL_SCHEMA",
       "",
@@ -105,6 +108,7 @@ export function validateStudioMaterials(
       "Only JSON material metadata is accepted",
     );
   }
+  errors.push(...validateSurfaceTextures(candidate,value));
   return { valid: errors.length === 0, errors };
 }
 /** Caller validates complete draft before using this projection. Returns a fresh value. */
@@ -122,7 +126,8 @@ export function materialFor(
           ([id]) => id.toLowerCase() === surfaceId.toLowerCase(),
         )?.[1]
       : undefined;
-  return { ...(entry ?? DEFAULT_MATERIAL) };
+  const texture=surfaceTextureFor(candidate,surfaceId);
+  return { ...(entry ?? (texture?surfaceTextureDefaults(texture.pack.id).material:DEFAULT_MATERIAL)) };
 }
 
 export const PRESENTATION_NAMESPACE = "org.exhibitos.studio/presentation";
