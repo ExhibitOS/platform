@@ -36,7 +36,10 @@ export type UserAssetCatalogueEntry = {
   readonly triangles: number;
   readonly bounds: Bounds;
   readonly rights: { readonly licenseId: 'CC0-1.0'; readonly noticePath: string; readonly noticeBytes: number; readonly noticeSha256: string };
-  readonly provenance: { readonly sourceSha256: string; readonly recipe: 'original-v1' };
+  readonly provenance:
+    | { readonly sourceSha256: string; readonly recipe: 'original-v1' }
+    | { readonly sourceSha256: 'd85d9d1823c49bef412a23a59e238104f5b8ad342d8e8149efaf8d1110dc3290';
+        readonly recipe: 'omit-unused-tangent-v1' };
   readonly functional?: Functional;
 };
 
@@ -1209,6 +1212,68 @@ export const USER_ASSET_CATALOGUE = [
     "provenance": {
       "sourceSha256": "50b1caa7c100150f9872236e5866dec072ea2fa86747ce38e1cd3204aa6c5072",
       "recipe": "original-v1"
+    }
+  },
+  {
+    "id": "museum-wallwasher",
+    "version": 1,
+    "mime": "model/gltf-binary",
+    "path": "assets/furnishings/user-authored-20261027/museum-wallwasher/model.glb",
+    "bytes": 201724,
+    "sha256": "a4b66294c77e206a574905e12680148129f914d368add947f1c8831c64bf3f4d",
+    "triangles": 2504,
+    "bounds": {
+      "min": [
+        -0.12099999934434891,
+        -0.15000000596046448,
+        -0.052999999141320586
+      ],
+      "max": [
+        0.12099999934434891,
+        0,
+        0.05000000074505806
+      ]
+    },
+    "rights": {
+      "licenseId": "CC0-1.0",
+      "noticePath": "assets/furnishings/user-authored-20261027/museum-wallwasher/LICENSE-NOTICE.txt",
+      "noticeBytes": 2282,
+      "noticeSha256": "00a460485cc970027ce17ddb1e2fe9ea050b8809142487c594935038e5b6fc96"
+    },
+    "provenance": {
+      "sourceSha256": "d85d9d1823c49bef412a23a59e238104f5b8ad342d8e8149efaf8d1110dc3290",
+      "recipe": "omit-unused-tangent-v1"
+    },
+    "functional": {
+      "evidence": "authored-reference-and-actual-glb",
+      "consumerBehavior": "unverified",
+      "kind": "light",
+      "apertureCentre": [
+        0,
+        -0.106,
+        -0.05
+      ],
+      "apertureDesignation": "authored-reference",
+      "aim": [
+        0,
+        0,
+        -1
+      ],
+      "pivot": [
+        0,
+        -0.084,
+        0
+      ],
+      "pivotAxis": [
+        1,
+        0,
+        0
+      ],
+      "opaqueLensContact": [
+        0,
+        -0.106,
+        -0.015000000479631126
+      ]
     }
   }
 ] as const satisfies readonly UserAssetCatalogueEntry[];

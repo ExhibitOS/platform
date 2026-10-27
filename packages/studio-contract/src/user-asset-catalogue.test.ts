@@ -25,7 +25,13 @@ describe('user asset distribution source', () => {
       const payload = readFileSync(file(item.path));
       expect(payload.length).toBe(item.bytes);
       expect(createHash('sha256').update(payload).digest('hex')).toBe(item.sha256);
-      expect(item.provenance).toEqual({ sourceSha256: item.sha256, recipe: 'original-v1' });
+      if (item.provenance.recipe === 'original-v1') {
+        expect(item.provenance.sourceSha256).toBe(item.sha256);
+      } else {
+        expect(item.id).toBe('museum-wallwasher');
+        expect(item.provenance.recipe).toBe('omit-unused-tangent-v1');
+        expect(item.provenance.sourceSha256).toBe('d85d9d1823c49bef412a23a59e238104f5b8ad342d8e8149efaf8d1110dc3290');
+      }
       expect(item.triangles).toBeGreaterThan(0);
       expect(item.rights.licenseId).toBe('CC0-1.0');
       const noticeBytes = readFileSync(file(item.rights.noticePath));
@@ -45,9 +51,16 @@ describe('user asset distribution source', () => {
     expect(JSON.stringify(entries)).not.toMatch(/(?:\/Users\/|\/Volumes\/|\.blend|build\.py|verification\.json)/);
   });
 
-  it('selects only the nineteen byte-qualified originals and keeps the malformed wallwasher out', () => {
-    expect(entries).toHaveLength(19);
-    expect(entries.find(item => item.id === 'museum-wallwasher')).toBeUndefined();
+  it('selects nineteen originals and the reviewed wallwasher derivative without admitting its malformed original', () => {
+    expect(entries).toHaveLength(20);
+    const wallwasher = entry('museum-wallwasher');
+    expect(wallwasher).toMatchObject({ bytes: 201724, sha256: 'a4b66294c77e206a574905e12680148129f914d368add947f1c8831c64bf3f4d', provenance: { recipe: 'omit-unused-tangent-v1' } });
+    expect(wallwasher.sha256).not.toBe(wallwasher.provenance.sourceSha256);
+    expect(entries.filter(item => item.provenance.recipe === 'omit-unused-tangent-v1')).toHaveLength(1);
+    const derivativeNotice = readFileSync(file(wallwasher.rights.noticePath), 'utf8');
+    expect(derivativeNotice).toContain('omitted only the unused TANGENT attribute binding on mesh 0, primitive 0');
+    expect(derivativeNotice).toContain(wallwasher.provenance.sourceSha256);
+    expect(derivativeNotice).toContain(wallwasher.sha256);
     const cylinder = entry('cylindrical-plinth').functional;
     if (cylinder?.kind !== 'plinth') throw Error('Missing cylindrical support metadata');
     expect(cylinder.verifiedInset).toEqual({ shape: 'disk', radius: 0.322 });
