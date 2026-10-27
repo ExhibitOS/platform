@@ -1,4 +1,4 @@
-import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
+import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
@@ -86,7 +86,7 @@ export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha
 }
 /** Only complete public fields and known presentation/material extensions cross the anonymous boundary. */
 export function projectPublication(candidate: Exhibition, prepared: PreparedAsset[], at: string, media: PreparedMedia[] = [],cover?:PreparedCover) {
-    if(!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     const doc = structuredClone(candidate), ids = new Map<string, string>(), assets: {
         id: string;
         prepared: PreparedAsset;
@@ -114,8 +114,9 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     for(const b of benches?.benches??[])map(b.id);
     const spatial=doc.extensions?.[SPATIAL_NAMESPACE] as unknown as SpatialProgram|undefined;
     const floors=doc.extensions?.[FLOOR_NAMESPACE] as unknown as StudioFloors|undefined;
+    const materials=doc.extensions?.[MATERIAL_NAMESPACE] as unknown as StudioMaterials|undefined;
     const installation=doc.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
-    if(doc.extensions){delete doc.extensions[FLOOR_NAMESPACE];delete doc.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete doc.extensions[PLAQUE_NAMESPACE];delete doc.extensions[LIGHT_DETAILS_NAMESPACE];delete doc.extensions[BENCH_NAMESPACE];delete doc.extensions[SPATIAL_NAMESPACE];delete doc.extensions[INSTALLATION_NAMESPACE];}
+    if(doc.extensions){delete doc.extensions[MATERIAL_NAMESPACE];delete doc.extensions[FLOOR_NAMESPACE];delete doc.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete doc.extensions[PLAQUE_NAMESPACE];delete doc.extensions[LIGHT_DETAILS_NAMESPACE];delete doc.extensions[BENCH_NAMESPACE];delete doc.extensions[SPATIAL_NAMESPACE];delete doc.extensions[INSTALLATION_NAMESPACE];}
     collect(doc);
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
@@ -144,6 +145,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     if(still&&doc.extensions)doc.extensions[SPACE_STILL_NAMESPACE]={version:1,asset:{...structuredClone(still),path:`space-still/${map(still.id)}/image.png`}};
     const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (PUBLIC_REFERENCE_FIELDS.has(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [field === 'surfaces' ? ids.get(k.toLowerCase()) ?? k : k, remap(x,k)])) : v;
     const snapshot = remap(doc) as Exhibition;
+    if(materials)snapshot.extensions={...snapshot.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(floors)snapshot.extensions={...snapshot.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(lightDetails)snapshot.extensions={...snapshot.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(finishes)snapshot.extensions={...snapshot.extensions,[ARCHITECTURAL_FINISH_NAMESPACE]:remapArchitecturalFinishes(finishes,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -153,7 +155,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     if(spatial)snapshot.extensions={...snapshot.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,map) as unknown as {[key:string]:import("@exhibitos/spec").JsonValue}};
     snapshot.createdAt = at;
     snapshot.revision = 1;
-    if(!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(!validateStudioMaterials(snapshot).valid||!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined };
 }
 /** Optional read-only approved Pages projection for the selected hosted profile.
