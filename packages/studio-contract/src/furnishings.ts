@@ -2,7 +2,7 @@
 import type {Exhibition} from '@exhibitos/spec';
 import {USER_ASSET_CATALOGUE,type UserAssetCatalogueEntry} from './user-asset-catalogue.js';
 import {artifactPoint,type AffinePoint,type ArtifactPose} from './artifact-affine.js';
-import {BENCH_NAMESPACE,benchesFor,type StudioBenches} from './benches.js';
+import {BENCH_NAMESPACE,benchesFor,validateStudioBenches,type StudioBenches} from './benches.js';
 import {INSTALLATION_NAMESPACE,installationFor,type StudioInstallation} from './installation.js';
 import {lightDetailsFor,lightDetailsOrientation} from './light-details.js';
 import {TEMPLATE_NAMESPACE} from './architecture.js';
@@ -67,7 +67,7 @@ export function resolveFurnishing(e:Exhibition,b:FurnishingBinding,asset:Furnish
  }else if(b.hostKind==='light'){
   const light=e.lights.find(v=>same(v.id,b.hostId)),f=source.functional;
   if(!light||light.type!=='spot'||f?.kind!=='light'||!near(b.pose.yaw,0)||!b.pose.position.every((n,i)=>near(n,-f.apertureCentre[i]!*b.pose.scale)))throw Error('FURNISHING_FUNCTION');
-  const details=lightDetailsFor(e).find(v=>same(v.lightId,light.id));parent={...light.transform,rotation:details?lightDetailsOrientation(e,light,details):light.transform.rotation};roomId=light.roomId;
+  const details=lightDetailsFor(e).find(v=>same(v.lightId,light.id))??{lightId:light.id,fixture:'none' as const};parent={...light.transform,rotation:lightDetailsOrientation(e,light,details)};roomId=light.roomId;
  }else{
   const opening=e.openings.find(v=>same(v.id,b.hostId)),surface=opening&&e.surfaces.find(v=>same(v.id,opening.surfaceId)),f=source.functional;
   if(!opening||opening.type!=='door'||!surface||surface.type!=='wall'||f?.kind!=='portal'||!near(b.pose.yaw,0)||!near(opening.dimensions.width,f.clearOpening.width*b.pose.scale)||!near(opening.dimensions.height,f.clearOpening.height*b.pose.scale)||!near(b.pose.position[0],opening.offset[0])||!near(b.pose.position[1],opening.offset[1]-opening.dimensions.height/2)||!near(b.pose.position[2],0))throw Error('FURNISHING_FUNCTION');
@@ -91,7 +91,7 @@ export function validateFurnishings(candidate:unknown){
   if(!closed(value,['version','assets','bindings'])||!object(value)||value.version!==1||!Array.isArray(value.assets)||value.assets.length<1||value.assets.length>8||!Array.isArray(value.bindings)||value.bindings.length<1||value.bindings.length>32||new TextEncoder().encode(JSON.stringify(value)).length>32768)throw Error('FURNISHING_SCHEMA');
   const assets=value.assets as FurnishingAsset[],bindings=value.bindings as FurnishingBinding[],used=new Set<string>(),hosts=new Set<string>(),ids=new Set<string>(),recipes=new Set<string>();
   const existing=new Set(['rooms','surfaces','openings','placements','lights','mediaAssets','artworks'].flatMap(k=>(Array.isArray(candidate[k])?candidate[k] as Record<string,unknown>[]:[]).flatMap(v=>[v.id,v.revisionId,...(Array.isArray(v.assets)?v.assets.map(a=>object(a)?a.id:undefined):[])])).filter((v):v is string=>typeof v==='string').map(v=>v.toLowerCase()));
-  const e=candidate as unknown as Exhibition;for(const b of benchesFor(e))existing.add(b.id.toLowerCase());const still=candidate.extensions['org.exhibitos.viewer/space-still'];if(object(still)&&object(still.asset)&&typeof still.asset.id==='string')existing.add(still.asset.id.toLowerCase());
+  const e=candidate as unknown as Exhibition;if(bindings.some(b=>b.hostKind==='bench')&&!validateStudioBenches(e).valid)throw Error('FURNISHING_FUNCTION');for(const b of benchesFor(e))existing.add(b.id.toLowerCase());const still=candidate.extensions['org.exhibitos.viewer/space-still'];if(object(still)&&object(still.asset)&&typeof still.asset.id==='string')existing.add(still.asset.id.toLowerCase());
   for(const a of assets){if(!object(a)||!uuid(a.id)||!equal(a,furnishingAsset(a.id,a.catalogId)))throw Error('FURNISHING_ASSET');const id=a.id.toLowerCase(),recipe=a.catalogId+':'+a.catalogVersion;if(ids.has(id)||existing.has(id)||recipes.has(recipe))throw Error('FURNISHING_REFERENCE');ids.add(id);recipes.add(recipe);}
   for(const b of bindings){
    if(!closed(b,['hostKind','hostId','assetId','pose'])||!uuid(b.hostId)||!uuid(b.assetId)||!validPose(b.pose))throw Error('FURNISHING_SCHEMA');const asset=assets.find(a=>same(a.id,b.assetId));if(!asset||SUPPORTED_FURNISHINGS[asset.catalogId]!==b.hostKind)throw Error('FURNISHING_REFERENCE');
@@ -115,7 +115,7 @@ export function applyFurnishingCommand(candidate:Exhibition,input:FurnishingComm
   }else if(input.hostKind==='bench'){
    const benches=next.extensions?.[BENCH_NAMESPACE] as unknown as StudioBenches|undefined,bench=benches?.benches.find(b=>same(b.id,input.hostId)),f=source.functional;if(!bench||f?.kind!=='bench')throw Error('FURNISHING_REFERENCE');bench.position=[...pose.position];bench.yaw=pose.yaw;bench.kind='slab';bench.dimensions={...dimensions(source,pose.scale),height:f.seatEnvelopeY*pose.scale};
   }else if(input.hostKind==='opening'){
-   const opening=next.openings.find(v=>same(v.id,input.hostId)),f=source.functional;if(!opening||f?.kind!=='portal')throw Error('FURNISHING_REFERENCE');opening.dimensions={width:f.clearOpening.width*pose.scale,height:f.clearOpening.height*pose.scale};
+   const opening=next.openings.find(v=>same(v.id,input.hostId)),f=source.functional;if(!opening||f?.kind!=='portal')throw Error('FURNISHING_REFERENCE');const dimensions={width:f.clearOpening.width*pose.scale,height:f.clearOpening.height*pose.scale};if(opening.connectsToOpeningId&&(!near(opening.dimensions.width,dimensions.width)||!near(opening.dimensions.height,dimensions.height)))throw Error('FURNISHING_CONNECTED_APERTURE');opening.dimensions=dimensions;
   }
   const binding:FurnishingBinding={hostKind:input.hostKind,hostId:input.hostId,assetId:asset.id,pose:structuredClone(pose)},index=value.bindings.findIndex(b=>b.hostKind===input.hostKind&&same(b.hostId,input.hostId));if(index<0)value.bindings.push(binding);else value.bindings[index]=binding;
  }

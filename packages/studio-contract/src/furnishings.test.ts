@@ -38,3 +38,17 @@ test('remove and typed remap preserve exact notice lineage and leave an empty le
  const mapped=remapFurnishings(value,ids);expect(mapped.assets[0]!.rights.notice.path).toBe(`furnishings/${ids.get(value.assets[0]!.id)}/LICENSE-NOTICE.txt`);expect(mapped.assets[0]!.provenance).toEqual(value.assets[0]!.provenance);
  expect(furnishingsFor(applyFurnishingCommand(next,{type:'remove-furnishing-visual',hostKind:'bench',hostId:benchId}))).toBeUndefined();expect(furnishingsFor(source)).toBeUndefined();
 });
+
+test('bench pose changes that detach the seated viewpoint and connected aperture resizing reject atomically',()=>{
+ const e=fixture(),before=structuredClone(e),bench=commands(e)[0]!;if(bench.type!=='set-furnishing-visual')throw Error('fixture');
+ expect(()=>applyFurnishingCommand(e,{...bench,pose:{...bench.pose,position:[2,0,0]}})).toThrow('FURNISHING_INVALID');expect(e).toEqual(before);
+ const portal=commands(e)[2]!;e.openings[0]!.connectsToOpeningId=e.openings[1]?.id??viewId;e.openings[0]!.dimensions.width=1.2;const connected=structuredClone(e);
+ expect(()=>applyFurnishingCommand(e,portal)).toThrow('FURNISHING_CONNECTED_APERTURE');expect(e).toEqual(connected);
+});
+
+test('a visual spot follows the existing legacy placement target when no light-details binding is present',()=>{
+ const e=fixture(),light=e.lights[0]!,placement=e.placements[0]!;light.targetPlacementId=placement.id;placement.transform.position=[2,1,0];
+ const next=applyFurnishingCommand(e,commands(e)[1]!),value=furnishingsFor(next)!,binding=value.bindings[0]!,resolved=resolveFurnishing(next,binding,value.assets[0]!);
+ const start=artifactPoint([0,0,0],resolved.parent),end=artifactPoint([0,0,-1],resolved.parent),direction=end.map((n,i)=>n-start[i]!),target=placement.transform.position.map((n,i)=>n-start[i]!),norm=Math.hypot(...target);
+ direction.forEach((n,i)=>expect(n).toBeCloseTo(target[i]!/norm,6));
+});

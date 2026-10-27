@@ -13,7 +13,7 @@ export function furnishingPreviewPng(input){
  while(at<bytes.length){
   if(++count>512||at+12>bytes.length||ended)throw Error('PREVIEW_PNG_LAYOUT');
   const size=bytes.readUInt32BE(at),end=at+size+12;if(end>bytes.length)throw Error('PREVIEW_PNG_LAYOUT');
-  const kind=bytes.toString('ascii',at+4,at+8),chunk=bytes.subarray(at,end);
+  const kind=bytes.toString('latin1',at+4,at+8),chunk=bytes.subarray(at,end);
   if(!/^[A-Za-z]{4}$/.test(kind)||bytes.readUInt32BE(end-4)!==textureCRC(bytes.subarray(at+4,end-4)))throw Error('PREVIEW_PNG_CRC');
   if(count===1){if(kind!=='IHDR'||size!==13)throw Error('PREVIEW_PNG_LAYOUT');width=bytes.readUInt32BE(at+8);height=bytes.readUInt32BE(at+12);if(width<1||height<1||width>1024||height>1024||width*height>1048576||bytes[at+16]!==8||![2,6].includes(bytes[at+17])||bytes[at+18]!==0||bytes[at+19]!==0||bytes[at+20]!==0)throw Error('PREVIEW_PNG_HEADER');}
   else if(kind==='IHDR')throw Error('PREVIEW_PNG_LAYOUT');
