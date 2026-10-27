@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
-import {materialMapPlan,type MaterialMapCost} from './material-texture-plan';
+import {materialMapPlan,materialPhaseBytes,type MaterialMapCost} from './material-texture-plan';
 const files:MaterialMapCost[]=[{role:'color',bytes:1810870,width:2048,height:2048},{role:'normal',bytes:2397933,width:2048,height:2048},{role:'roughness',bytes:700000,width:2048,height:2048}];
+test('only completed map loading releases transient bytes and retains styled geometry',()=>{
+ const plan={...materialMapPlan(files,2048,96*1024*1024),geometryReserve:1824};plan.reserveBytes+=1824;
+ expect(materialPhaseBytes(plan,false)).toBe(plan.reserveBytes);
+ expect(materialPhaseBytes(plan,true)).toBe(plan.residentBytes+1824);
+ expect(materialPhaseBytes(plan,true)).toBeLessThan(materialPhaseBytes(plan,false));
+});
 test('desktop reserves full original decoding and all roles with separate scalar resolution',()=>{
  const plan=materialMapPlan(files,2048,96*1024*1024);
  expect(plan.blocked).toBe(false);expect(plan.sizes).toHaveLength(3);

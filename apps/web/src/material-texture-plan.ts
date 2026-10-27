@@ -5,6 +5,11 @@ export interface MaterialMapCost {
  role:'color'|'normal'|'roughness'|'ao';
  bytes:number;width:number;height:number;
 }
+/** Planning includes temporary source decode/copies; completion releases only
+ * that hold. The retained bitmap/GPU and styled geometry remain charged. */
+export function materialPhaseBytes(plan:{reserveBytes:number;residentBytes:number;geometryReserve?:number},settled:boolean){
+ return settled?plan.residentBytes+(plan.geometryReserve??0):plan.reserveBytes;
+}
 /** Preserve every authored role while allocating resolution independently.
  * Colour and normals retain detail ahead of the low-frequency scalar map.
  * Full encoded/decode cost is reserved even when the GPU image is resized.

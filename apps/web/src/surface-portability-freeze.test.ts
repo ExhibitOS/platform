@@ -19,6 +19,10 @@ test('selected wall and ceiling maps survive a real portable archive and use aut
  await expect(decodeFreezeOex(archive,hash,'1.0.0-draft.5')).rejects.toThrow('OEX_VERSION_UNSUPPORTED');
  const bundle={manifest:{id:randomUUID(),source:{exhibitionHash:hash},createdAt:original.manifest.createdAt}} as FreezeBundle;
  let checks=0;const publication=frozenPublication(bundle,decoded,async()=>{checks++;}),fetcher=publication.local!.floorFetcher!;
+ expect(publication.local!.retainedMaterialBytes).toBeGreaterThan(0);
+ const firstResource=decoded.materialResources!.values().next().value!;decoded.materialResources!.set('shared-buffer-test',firstResource);
+ expect(frozenPublication(bundle,decoded,async()=>{}).local!.retainedMaterialBytes).toBe(publication.local!.retainedMaterialBytes);
+ decoded.materialResources!.delete('shared-buffer-test');
  for(const file of SURFACE_TEXTURE_FILES){const bytes=await fetchRegisteredMaterialTexture(file,SURFACE_TEXTURE_FILES,new AbortController().signal,fetcher);expect(Buffer.from(bytes).equals(Buffer.from(files.get(file.path)!))).toBe(true);}
  expect(checks).toBeGreaterThanOrEqual(12);await expect(fetcher('/surface-material-textures/../private')).rejects.toThrow('OFFLINE_FLOOR_URL');
  const file=SURFACE_TEXTURE_FILES[0]!,data=decoded.materialResources!.get(file.path)!;data.bytes[0]=data.bytes[0]!^1;

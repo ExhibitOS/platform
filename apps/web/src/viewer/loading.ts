@@ -147,6 +147,8 @@ export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwor
 export class AssetPeakBudget {
  private reservations=new Map<string,number>();
  constructor(private maxBytes:number,private resident:()=>number){}
+ /** Release a completed external load hold without clearing live reservations. */
+ raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.maxBytes)throw Error('ASSET_BUDGET_INVALID');this.maxBytes=bytes;}
  reserve(key:string,bytes:number){
   if(!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>this.maxBytes)throw Error('ASSET_TRANSITION_PEAK');
   this.reservations.set(key,bytes);
@@ -245,7 +247,9 @@ export class AssetScheduler<T> {
 interface Cached<T> {value:T;bytes:number;pins:number;order:number}
 export class MemoryAssetCache<T> {
  private entries=new Map<string,Cached<T>>();private used=0;private order=0;private evictions=0;
- constructor(readonly maxBytes:number,private readonly onDispose:(value:T)=>void=()=>{}){if(!Number.isSafeInteger(maxBytes)||maxBytes<1)throw Error("CACHE_BUDGET_INVALID");}
+ constructor(private limitBytes:number,private readonly onDispose:(value:T)=>void=()=>{}){if(!Number.isSafeInteger(limitBytes)||limitBytes<1)throw Error("CACHE_BUDGET_INVALID");}
+ get maxBytes(){return this.limitBytes;}
+ raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.limitBytes)throw Error('CACHE_BUDGET_INVALID');this.limitBytes=bytes;}
  get(key:string):T|undefined{const entry=this.entries.get(key);if(!entry)return;entry.order=this.order++;return entry.value;}
  acquire(key:string):T|undefined{const value=this.get(key);if(value!==undefined)this.entries.get(key)!.pins++;return value;}
  release(key:string){const entry=this.entries.get(key);if(entry&&entry.pins>0)entry.pins--;}
