@@ -1,15 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
 import {BufferAttribute,InterleavedBuffer,InterleavedBufferAttribute} from 'three';
-import {selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget} from './loading';
+import {deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget} from './loading';
 
-test('near geometry is an explicit existing desktop choice with unchanged auto/mobile/known-low-memory fallback',()=>{
+test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('auto',{viewportWidth:1400,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toEqual(DEVICE_BUDGETS.compact);
- expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toEqual(DEVICE_BUDGETS.desktop);
+ expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toEqual(DESKTOP_NEAR_BUDGET);
  expect(selectedDeviceBudget('desktop',{viewportWidth:1400,deviceMemory:4})).toEqual(DEVICE_BUDGETS.desktop);
  const near=selectedDeviceBudget('desktop',{viewportWidth:1400});expect(near.maxTriangles).toBe(250000);expect(near.maxTextureSize).toBe(2048);expect(near.maxCacheBytes).toBe(96*1024*1024);expect(near.maxTransitionBytes).toBe(128*1024*1024);
+});
+test('a narrow canvas cannot classify the same capacity as a lower-memory device',()=>{
+ for(const deviceMemory of [undefined,2,4,8]){
+  const wide={viewportWidth:1280,deviceMemory},narrow={viewportWidth:461,deviceMemory};
+  expect(deviceBudget(narrow)).toEqual(deviceBudget(wide));
+  expect(selectedDeviceBudget('desktop',narrow)).toEqual(selectedDeviceBudget('desktop',wide));
+ }
+ expect(deviceBudget({deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
+ expect(deviceBudget({})).toEqual(DEVICE_BUDGETS.desktop);
+ expect(selectedDeviceBudget('compact',{deviceMemory:8})).toEqual(DEVICE_BUDGETS.compact);
 });
 
 // Header/cost observations only. This does not qualify the retained Old Arrow

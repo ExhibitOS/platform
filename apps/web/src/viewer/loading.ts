@@ -6,13 +6,16 @@ export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
 };
-export function deviceBudget(input:{viewportWidth:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.viewportWidth<768||(input.deviceMemory!==undefined&&input.deviceMemory<=4)?"compact":"desktop"]};}
+/** Canvas width is a resolution/layout input, not a device capacity signal.
+ * Keep the existing standard default and constrained-memory preset; neither
+ * preset is a measured hardware guarantee. */
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"]};}
 /** Explicit existing high-quality choice only. Auto and known constrained devices
  * retain their previous triangle/resident limits; this is not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxTransitionBytes:128*1024*1024});
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  if(profile==='auto')return deviceBudget(input);
- if(profile==='desktop'&&input.viewportWidth>=768&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};
+ if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};
  return {...DEVICE_BUDGETS[profile]};
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
