@@ -122,6 +122,15 @@ describe('automatic detail transitions',()=>{
   // Commit accounts new and old together before releasing the old decoded asset.
   peak.release('replacement');resident+=45;expect(peak.total()).toBe(85);resident-=40;expect(peak.total()).toBe(45);
  });
+ it('releases an external load hold without dropping pinned bytes or in-flight reservations',()=>{
+  const cache=new MemoryAssetCache<string>(10);cache.set('visible','visible',8);cache.acquire('visible');
+  const peak=new AssetPeakBudget(15,()=>cache.stats().bytes);peak.reserve('replacement',5);
+  expect(()=>peak.reserve('other',3)).toThrow('ASSET_TRANSITION_PEAK');
+  cache.raiseLimit(20);peak.raiseLimit(25);peak.reserve('other',10);
+  expect(peak.total()).toBe(23);expect(cache.get('visible')).toBe('visible');expect(cache.delete('visible')).toBe(false);
+  expect(()=>cache.raiseLimit(19)).toThrow('CACHE_BUDGET_INVALID');expect(()=>peak.raiseLimit(24)).toThrow('ASSET_BUDGET_INVALID');
+  expect(()=>peak.reserve('too-large',3)).toThrow('ASSET_TRANSITION_PEAK');
+ });
  it('reserves source bitmap and resized mipmaps separately for bounded paintings',()=>{
   const a=syntheticArtwork('image'),asset=a.assets[0]!;asset.bytes=1000;
   const b=new ArrayBuffer(33),v=new DataView(b);v.setUint32(16,1401);v.setUint32(20,1098);

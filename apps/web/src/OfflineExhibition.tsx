@@ -52,7 +52,11 @@ export function frozenPublication(b:FreezeBundle,oex:FrozenOex,check:()=>Promise
   const data=entry[1],bytes=new Uint8Array(data.bytes);if(await freezeHash(bytes)!==data.sha256)throw Error('OFFLINE_FLOOR_INTEGRITY');
   await check();init?.signal?.throwIfAborted();return new Response(bytes,{headers:{'content-type':data.mime,'content-length':String(bytes.length)}});
  };
- return {publication:{id,revisionSha256:revision,publishedAt:b.manifest.createdAt,status:'published'},exhibition:oex.exhibition,assets:[...oex.assets].map(([assetId,data])=>({assetId,mime:data.mime,url:`/api/v1/publications/${id}/assets/${assetId}`})),local:{fetcher,floorFetcher,check}};
+ // The verified offline maps stay owned by this source after image decoding.
+ // Charge each real backing buffer once, including shared views and notices.
+ const retainedBuffers=new Set([...oex.floorResources?.values()??[],...oex.materialResources?.values()??[]].map(data=>data.bytes.buffer));
+ const retainedMaterialBytes=[...retainedBuffers].reduce((sum,buffer)=>sum+buffer.byteLength,0);
+ return {publication:{id,revisionSha256:revision,publishedAt:b.manifest.createdAt,status:'published'},exhibition:oex.exhibition,assets:[...oex.assets].map(([assetId,data])=>({assetId,mime:data.mime,url:`/api/v1/publications/${id}/assets/${assetId}`})),local:{fetcher,floorFetcher,retainedMaterialBytes,check}};
 }
 export function OfflineExhibition(){
  const [authority,setAuthority]=useState<OfflineAuthority>(),[records,setRecords]=useState<FreezeRecord[]>([]),[active,setActive]=useState<{value:PublicResponse;deadline:string}|null>(null),[message,setMessage]=useState('온라인에서 신뢰할 표시 계정과 서명 키를 먼저 준비하세요.'),[busy,setBusy]=useState(false),[portable,setPortable]=useState(false),[validating,setValidating]=useState(false),[shell,setShell]=useState('오프라인 앱 재시작을 준비하지 않았습니다.'),[shellWaiting,setShellWaiting]=useState(false);

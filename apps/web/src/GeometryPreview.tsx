@@ -1,5 +1,6 @@
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
+import {materialPhaseBytes} from './material-texture-plan';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
@@ -158,6 +159,7 @@ export function GeometryPreview({
     assets: PublicAsset[];
     fetcher?: typeof fetch;
     floorFetcher?: typeof fetch;
+    retainedMaterialBytes?:number;
     check?: () => Promise<void>;
   };
   selection: GeometrySelection | null;
@@ -349,13 +351,27 @@ export function GeometryPreview({
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
-      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
+      const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
+      if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
+      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes);
       const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
-      const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
-      const transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
+      const releaseMaterialLoadHold=(kind:'floor'|'surface')=>{
+        if(disposed||gpuLost)return;
+        if(kind==='floor')floorSettled=true;else surfaceSettled=true;
+        const materialBytes=materialPhaseBytes(floorPlan,floorSettled)+materialPhaseBytes(surfacePlan,surfaceSettled);
+        assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes);
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes-materialBytes);
+        renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,assetBudgetBytes,transitionBudgetBytes});
+        const quality=renderer.domElement.dataset.renderQuality;
+        if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
+        growAssetLimits();
+      };
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
@@ -862,8 +878,8 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
-      void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes});});
-      void surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}});
+      void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});}).finally(()=>releaseMaterialLoadHold('floor'));
+      void surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}}).finally(()=>releaseMaterialLoadHold('surface'));
       // Async environment setup starts only AFTER scene teardown is registered.
       // Failed/cancelled generation keeps the existing lighting and text/navigation.
       void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
@@ -1376,6 +1392,8 @@ export function GeometryPreview({
         let sequence=0, automatic=true, manualFull=false;
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
+        growAssetLimits=()=>{byteCache.raiseLimit(assetBudgetBytes);peak.raiseLimit(transitionBudgetBytes);};
+        growAssetLimits();
         const reserve=(key:string,bytes:number)=>{
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=transitionBudgetBytes)break;byteCache.delete(asset.id);}
