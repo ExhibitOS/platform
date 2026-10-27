@@ -63,10 +63,11 @@ export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<ty
 export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch){
  type Target={material:Three.MeshStandardMaterial;binding:B;pack:MaterialTexturePack};
  const targets:Target[]=[],cache=new MemoryAssetCache<TextureValue>(Math.max(1,plan.residentBytes),value=>{value.texture.dispose();value.bitmap.close();});
+ const key=(file:MaterialTextureFile)=>file.sha256+':'+file.colorSpace;
  let disposed=false;const inactive=()=>disposed||signal.aborted||unavailable();
  const add=(material:Three.MeshStandardMaterial,binding:B)=>{const pack=packFor(binding);if(pack&&plan.packs.includes(pack))targets.push({material,binding,pack});};
  async function load(file:MaterialTextureFile){
-  const known=cache.get(file.sha256);if(known)return known;
+  const known=cache.get(key(file));if(known)return known;
   const maxSize=plan.sizeFor(file);if(!Number.isSafeInteger(maxSize)||maxSize<1||maxSize>Math.max(file.width,file.height))throw Error('FLOOR_TEXTURE_BUDGET');
   const bytes=await fetchRegisteredMaterialTexture(file,registry,signal,fetcher);if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
   let bitmap:ImageBitmap|undefined,texture:Three.Texture|undefined;
@@ -79,8 +80,8 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
    texture=new three.Texture(bitmap);texture.flipY=false;texture.colorSpace=file.colorSpace==='srgb'?three.SRGBColorSpace:three.NoColorSpace;
    texture.wrapS=texture.wrapT=three.RepeatWrapping;texture.minFilter=three.LinearMipmapLinearFilter;texture.magFilter=three.LinearFilter;texture.generateMipmaps=true;texture.needsUpdate=true;
    const value={texture,bitmap};texture=undefined;bitmap=undefined;
-   if(!cache.set(file.sha256,value,textureResidentBytes(value.bitmap.width,value.bitmap.height)))throw Error('FLOOR_TEXTURE_BUDGET');
-   cache.acquire(file.sha256);return value;
+   if(!cache.set(key(file),value,textureResidentBytes(value.bitmap.width,value.bitmap.height)))throw Error('FLOOR_TEXTURE_BUDGET');
+   cache.acquire(key(file));return value;
   }finally{texture?.dispose();bitmap?.close();}
  }
  return {add,async start(changed:()=>void){
@@ -96,7 +97,7 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
      target.material.normalScale.setScalar(target.binding.normalScale??1);target.material.aoMap=maps.ao??null;target.material.aoMapIntensity=target.binding.aoStrength??1;target.material.needsUpdate=true;
     }
     status[pack.id]='ready';changed();
-   }catch{status[pack.id]=inactive()?'cancelled':'fallback';for(const file of Object.values(pack.maps)){if(file){cache.release(file.sha256);cache.delete(file.sha256);}}}
+   }catch{status[pack.id]=inactive()?'cancelled':'fallback';for(const file of Object.values(pack.maps)){if(file){cache.release(key(file));cache.delete(key(file));}}}
   }
   return status;
  },dispose(){if(disposed)return;disposed=true;for(const {material}of targets){material.map=null;material.roughnessMap=null;material.normalMap=null;material.aoMap=null;}cache.clear();targets.length=0;}};
