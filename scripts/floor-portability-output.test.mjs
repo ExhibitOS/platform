@@ -75,7 +75,7 @@ try{
   const frozen=await json(request('POST',`/studio/exhibitions/${id}/freezes`,{requestId:randomUUID()},{'if-match':saved.etag}),201);
   assert.equal(frozen.manifest.formats.oex,OEX_FLOOR_RESOURCE_VERSION);assert.equal(frozen.manifest.formats.specPackage,'0.1.0-draft.7');assert.equal(frozen.manifest.formats.specSha256,'29bb5b084788d13e57cc52541585b0bb8da26611e9a46e297a693f9dbc674cd2');
   assert(frozen.manifest.formats.migrations.includes('018_floor_resources.sql:'+sha256(await readFile(new URL('../database/migrations/018_floor_resources.sql',import.meta.url)))));
-  const bundle=await json(request('POST',`/freezes/${frozen.id}/offline`,{seconds:300}));
+  const bundle=await json(request('POST',`/studio/exhibitions/${id}/freezes/${frozen.id}/offline`,{seconds:300}));
   await verifyFreezeBundle(Buffer.from(JSON.stringify(bundle)),{trustedKeys:[sha256(keys.publicKey.export({format:'der',type:'spki'}))]});
   const frozenArchive=await readOex(Buffer.from(bundle.oex,'base64'));assert.deepEqual(frozenArchive.manifest.floorResources,expectedResources);for(const resource of expectedResources)assert.deepEqual(frozenArchive.files.get(resource.path),files.get(resource.artifactPath));
   assert.equal((await pool.query("SELECT count(*)::int AS count FROM oex_import_jobs WHERE tenant_id=$1 AND (cleanup_pending OR state<>'complete')",[workspace.tenantId])).rows[0].count,0);
