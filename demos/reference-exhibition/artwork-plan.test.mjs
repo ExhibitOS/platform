@@ -50,7 +50,7 @@ test('five room identities, actual transforms and reciprocal door pairs are reta
 });
 
 test('each entry is a distinct existing admitted public work and exact pinned asset/pose', () => {
-  assert.equal(plan.entries.length, 6);
+  assert.equal(plan.entries.length, 7);
   for (const key of ['planId', 'sourceKey', 'officialObjectIdOrURL', 'artworkId', 'artworkRevisionId'])
     assert.equal(new Set(plan.entries.map(entry => entry[key])).size, plan.entries.length);
   for (const entry of plan.entries) {
@@ -93,7 +93,7 @@ test('unresolved slots exactly account for the stated room targets, without cand
     const missing = plan.unresolved.filter(entry => entry.roomRole === role && entry.artworkType === type).reduce((sum, entry) => sum + entry.count, 0);
     assert.equal(admitted + missing, target, `${role}/${type}`);
   }
-  assert.equal(plan.unresolved.filter(item => item.artworkType === 'painting').reduce((n, item) => n + item.count, 0), 9);
+  assert.equal(plan.unresolved.filter(item => item.artworkType === 'painting').reduce((n, item) => n + item.count, 0), 8);
   assert.equal(plan.unresolved.filter(item => item.artworkType === 'sculpture').reduce((n, item) => n + item.count, 0), 4);
   assert(plan.unresolved.every(item => Number.isInteger(item.count) && item.count > 0 && item.reason.length > 0));
 });
@@ -101,7 +101,7 @@ test('unresolved slots exactly account for the stated room targets, without cand
 test('painting envelopes fit their actual walls, openings and authored wall thickness', () => {
   const room = plan.base.rooms.find(item => item.role === 'painting');assert(room);
   const paintings = plan.entries.filter(item => item.roomId === room.id && item.artworkType === 'painting');
-  assert.equal(paintings.length, 5);
+  assert.equal(paintings.length, 6);
   const grouped = new Map();
   for (const painting of paintings) {
     const [x,y,z] = painting.placement.position;
