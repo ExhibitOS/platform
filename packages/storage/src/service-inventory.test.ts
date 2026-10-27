@@ -13,6 +13,14 @@ describe('service inventory typed references',()=>{
  it('includes retained/deleted assets and marks unwritten outbox destination optional',()=>{const r=rowObjectReferences('assets',{...row,state:'quarantine',deleted_at:'2020-01-01'});expect(r.references.map(v=>[v.key,v.required])).toEqual([[key,true],[row.target_key,false]]);expect(r.references[0].expectedSha256).toBe(sha);});
  it('uses derivative expectations and refuses foreign tenant keys',()=>{expect(rowObjectReferences('asset_derivatives',{...row,metadata:{objectKey:key,bytes:42,sha256:sha}}).references[0].expectedBytes).toBe(42);expect(rowObjectReferences('assets',{...row,object_key:'another/objects/x',state:'approved'}).issues[0].code).toBe('INVALID_REFERENCE');});
  it('retains optional pending and required committed imports/audio',()=>{const source={...row,approved_key:row.target_key,expected_bytes:123,expected_hash:sha};expect(rowObjectReferences('import_jobs',{...source,state:'uploading'}).references.every(v=>!v.required)).toBe(true);expect(rowObjectReferences('import_jobs',{...source,state:'approved'}).references.every(v=>v.required)).toBe(true);expect(rowObjectReferences('studio_audio',{...row,state:'approved',revoked:true}).references[0].required).toBe(true);});
+ it('keeps original JPEG and prepared PNG custody references distinct through approval',()=>{
+  const preparedHash='b'.repeat(64),source={...row,mime:'image/jpeg',approved_key:row.target_key,expected_bytes:123,expected_hash:sha,derived:{mime:'image/png',bytes:17,sha256:preparedHash},derived_object_key:tenant+'/quarantine/import/prepared.png'};
+  const approved=rowObjectReferences('import_jobs',{...source,state:'approved'});expect(approved.issues).toEqual([]);expect(approved.references).toHaveLength(3);expect(approved.references.every(v=>v.required)).toBe(true);
+  expect(approved.references.find(v=>v.binding.endsWith(':source'))).toMatchObject({expectedBytes:123,expectedSha256:sha});
+  for(const suffix of [':prepared',':approved'])expect(approved.references.find(v=>v.binding.endsWith(suffix))).toMatchObject({expectedBytes:17,expectedSha256:preparedHash});
+  expect(rowObjectReferences('import_jobs',{...source,state:'uploading'}).references.every(v=>!v.required)).toBe(true);
+  expect(rowObjectReferences('import_jobs',{...source,derived:null}).issues).toContainEqual(expect.objectContaining({code:'INVALID_PREPARED_IMPORT'}));
+ });
  it('retains approved or revoked independent stills and immutable public copies without scanning arbitrary JSON',()=>{
   for(const state of ['validated','approved'])expect(rowObjectReferences('studio_cover_images',{...row,state,revoked:true}).references[0]).toMatchObject({key,required:true,expectedBytes:123,expectedSha256:sha});
   expect(rowObjectReferences('studio_cover_images',{...row,state:'uploading'}).references[0].required).toBe(false);
