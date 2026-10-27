@@ -50,7 +50,7 @@ test('five room identities, actual transforms and reciprocal door pairs are reta
 });
 
 test('each entry is a distinct existing admitted public work and exact pinned asset/pose', () => {
-  assert.equal(plan.entries.length, 4);
+  assert.equal(plan.entries.length, 6);
   for (const key of ['planId', 'sourceKey', 'officialObjectIdOrURL', 'artworkId', 'artworkRevisionId'])
     assert.equal(new Set(plan.entries.map(entry => entry[key])).size, plan.entries.length);
   for (const entry of plan.entries) {
@@ -93,34 +93,43 @@ test('unresolved slots exactly account for the stated room targets, without cand
     const missing = plan.unresolved.filter(entry => entry.roomRole === role && entry.artworkType === type).reduce((sum, entry) => sum + entry.count, 0);
     assert.equal(admitted + missing, target, `${role}/${type}`);
   }
-  assert.equal(plan.unresolved.filter(item => item.artworkType === 'painting').reduce((n, item) => n + item.count, 0), 11);
+  assert.equal(plan.unresolved.filter(item => item.artworkType === 'painting').reduce((n, item) => n + item.count, 0), 9);
   assert.equal(plan.unresolved.filter(item => item.artworkType === 'sculpture').reduce((n, item) => n + item.count, 0), 4);
   assert(plan.unresolved.every(item => Number.isInteger(item.count) && item.count > 0 && item.reason.length > 0));
 });
 
-test('existing painting extents fit their unbroken wall without overlap or occluding a door', () => {
-  const paintingRoom = plan.base.rooms.find(room => room.role === 'painting');assert(paintingRoom);
-  const paintings = plan.entries.filter(entry => entry.roomId === paintingRoom.id && entry.artworkType === 'painting')
-    .toSorted((a, b) => a.placement.position[0] - b.placement.position[0]);
-  assert.equal(paintings.length, 3);
-  const [first] = paintings;
-  assert(first);
-  const wall = exhibition.surfaces.find(surface => surface.roomId === paintingRoom.id && surface.type === 'wall'
-    && Math.abs(surface.transform.position[2] - (first.placement.position[2] - 0.05)) < 1e-9);
-  assert(wall);
-  assert(!exhibition.openings.some(opening => opening.surfaceId === wall.id));
+test('painting envelopes fit their actual walls, openings and authored wall thickness', () => {
+  const room = plan.base.rooms.find(item => item.role === 'painting');assert(room);
+  const paintings = plan.entries.filter(item => item.roomId === room.id && item.artworkType === 'painting');
+  assert.equal(paintings.length, 5);
+  const grouped = new Map();
   for (const painting of paintings) {
-    const [x, y, z] = painting.placement.position;
-    assert.equal(z, first.placement.position[2]);
-    assert(Math.abs(x) + painting.dimensions.width / 2 < wall.dimensions.width / 2);
-    assert(y - painting.dimensions.height / 2 > 0);
-    assert(y + painting.dimensions.height / 2 < wall.dimensions.height);
+    const [x,y,z] = painting.placement.position;
+    const wall = exhibition.surfaces.find(surface => {
+      if (surface.roomId !== room.id || surface.type !== 'wall') return false;
+      const q=surface.transform.rotation;
+      if (!q.every((v,i) => Math.abs(v-painting.placement.rotation[i])<1e-9)) return false;
+      const nx=2*q[1]*q[3], nz=1-2*q[1]*q[1];
+      return Math.abs((x-surface.transform.position[0])*nx+(z-surface.transform.position[2])*nz)<0.1;
+    });
+    assert(wall);
+    const q=wall.transform.rotation, tx=1-2*q[1]*q[1], tz=-2*q[1]*q[3], nx=2*q[1]*q[3], nz=1-2*q[1]*q[1];
+    const dx=x-wall.transform.position[0],dz=z-wall.transform.position[2];
+    const along=dx*tx+dz*tz, distance=dx*nx+dz*nz;
+    assert(Math.abs(along)+painting.dimensions.width/2 < wall.dimensions.width/2);
+    assert(y-painting.dimensions.height/2 > 0 && y+painting.dimensions.height/2 < wall.dimensions.height);
+    for (const opening of exhibition.openings.filter(item => item.surfaceId===wall.id)) {
+      const openingY=wall.transform.position[1]+opening.offset[1];
+      const overlapX=Math.abs(along-opening.offset[0]) < (painting.dimensions.width+opening.dimensions.width)/2;
+      const overlapY=Math.abs(y-openingY) < (painting.dimensions.height+opening.dimensions.height)/2;
+      assert(!(overlapX && overlapY));
+    }
+    const finish=exhibition.extensions['org.exhibitos.studio/architectural-finishes']?.walls.find(item=>item.surfaceId===wall.id);
+    if (finish) assert(distance > finish.depth/2 + 0.01);
+    const group=grouped.get(wall.id)??[];group.push({along,half:painting.dimensions.width/2});grouped.set(wall.id,group);
   }
-  for (let i = 1; i < paintings.length; i++) {
-    const left = paintings[i - 1], right = paintings[i];
-    assert(left.placement.position[0] + left.dimensions.width / 2 < right.placement.position[0] - right.dimensions.width / 2);
-  }
-  // This is an unframed, source-local static geometry check; it does not certify runtime routing.
+  for (const group of grouped.values()) { group.sort((a,b)=>a.along-b.along);for(let i=1;i<group.length;i++) assert(group[i-1].along+group[i-1].half < group[i].along-group[i].half); }
+  // Source-space unframed bounds only; actual frame, sightline and runtime remain separate.
 });
 
 test('existing sculpture keeps the published scale, base envelope and room clearance', () => {
