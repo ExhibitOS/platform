@@ -10,7 +10,7 @@ import {NATIVE_ENTRANCE_PREVIEW_CAPABILITY,type EntrancePreviewReply} from './na
 import type {EntranceStage} from './entrance-entry';
 import {waitForCoverLayout} from './cover-ready';
 import {StudioFloorPlan} from './StudioFloorPlan';
-import {freezeCanonical,materialFor} from '@exhibitos/studio-contract';
+import {freezeCanonical,materialFor,SURFACE_MATERIAL_TEXTURE_CAPABILITY} from '@exhibitos/studio-contract';
 import type {Session} from './cms-client';
 import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
@@ -26,7 +26,7 @@ import {NATIVE_BENCH_INSPECTOR_CAPABILITY,checkedBenchInspectorRequest,nativeBen
 import {NATIVE_LIGHT_DETAILS_CAPABILITY,checkedLightDetailsRequest,nativeLightDetailsCandidate,type LightDetailsRequest} from './native-light-details';
 import {NATIVE_SPACE_SETTINGS_CAPABILITY,checkedSpaceSettingsRequest,nativeSpaceSettingsCandidate,type SpaceSettingsRequest} from './native-space-settings';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
  accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES}>;
  entrancePreview:(v:unknown)=>Promise<EntrancePreviewReply>;
