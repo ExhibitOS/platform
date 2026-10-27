@@ -2,13 +2,13 @@
 // Synthetic API/SQL/output boundary proof, never a rendered-space or GUI claim.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID,generateKeyPairSync} from 'node:crypto';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
 import {fixtureURL,readOex,writeOex} from '@exhibitos/spec';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
-import {FLOOR_NAMESPACE as N,floorPresetDefaults} from '@exhibitos/studio-contract';
+import {FLOOR_NAMESPACE as N,floorPresetDefaults,verifyFreezeBundle} from '@exhibitos/studio-contract';
 import {OEX_FLOOR_RESOURCE_VERSION,packageFloorResourceManifest} from '@exhibitos/spec/floor-resources';
 import {migrate,FileBlobStore,sha256,transaction,collectServiceInventory,inventoryCanonical} from '../packages/storage/dist/index.js';
 import {openLocalWorkspace} from '../apps/api/dist/local-workspace.js';
@@ -22,10 +22,11 @@ const output=resolve(process.env.EXHIBITOS_TEST_OUTPUT),pool=new Pool({connectio
 await mkdir(output,{recursive:true,mode:0o700});
 const workspace={format:1,workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),ownerUid:process.getuid(),sessionToken:randomBytes(32).toString('base64url'),csrfToken:randomBytes(32).toString('base64url')};
 const origin='http://127.0.0.1:3000',headers={host:'127.0.0.1:3000',origin,cookie:`exhibitos_local_session=${workspace.sessionToken}`,'x-csrf-token':workspace.csrfToken};
+const keys=generateKeyPairSync('ed25519');
 let app;
 try{
  await migrate(pool,new URL('../database/migrations/',import.meta.url).pathname);await openLocalWorkspace(pool,workspace,'native');
- const blobs=new FileBlobStore(join(output,'blobs'));app=buildApp({pool,blobs,auth:{mode:'local',origin,bindHost:'127.0.0.1'}});const worker=new Oex(pool,blobs),prefix=`/api/v1/tenants/${workspace.tenantId}`;
+ const blobs=new FileBlobStore(join(output,'blobs'));app=buildApp({pool,blobs,auth:{mode:'local',origin,bindHost:'127.0.0.1'},freeze:{runtimeRoot:resolve('apps/web/dist'),signingKey:keys.privateKey,origin}});const worker=new Oex(pool,blobs),prefix=`/api/v1/tenants/${workspace.tenantId}`;
  const request=(method,path,payload,extra={})=>app.inject({method,url:prefix+path,headers:{...headers,...(Buffer.isBuffer(payload)?{'content-type':'application/octet-stream'}:{}),...extra},...(payload===undefined?{}:{payload})});
  const expected=async(promise,status)=>{const response=await promise;let code='';if(response.statusCode!==status){try{code=response.json().code??'';}catch{/* Non-JSON error bodies still report their actual HTTP status. */}}assert.equal(response.statusCode,status,'HTTP boundary '+code);return response;};
  const json=async(promise,status=200)=>(await expected(promise,status)).json();
@@ -71,6 +72,12 @@ try{
   const manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'),'utf8')),maps=expectedResources.filter(f=>f.role!=='notice');assert.deepEqual(manifest.files.filter(f=>f.path.startsWith('floor-textures/')).map(f=>f.path).sort(),maps.map(f=>f.artifactPath).sort());
   for(const resource of maps)assert.deepEqual(await readFile(join(result.output,resource.artifactPath)),files.get(resource.artifactPath));
   assert((await readFile(join(result.output,'floor-texture-notices.txt'),'utf8')).includes('WoodFloor051'));
+  const frozen=await json(request('POST',`/studio/exhibitions/${id}/freezes`,{requestId:randomUUID()},{'if-match':saved.etag}),201);
+  assert.equal(frozen.manifest.formats.oex,OEX_FLOOR_RESOURCE_VERSION);assert.equal(frozen.manifest.formats.specPackage,'0.1.0-draft.7');assert.equal(frozen.manifest.formats.specSha256,'29bb5b084788d13e57cc52541585b0bb8da26611e9a46e297a693f9dbc674cd2');
+  assert(frozen.manifest.formats.migrations.includes('018_floor_resources.sql:'+sha256(await readFile(new URL('../database/migrations/018_floor_resources.sql',import.meta.url)))));
+  const bundle=await json(request('POST',`/freezes/${frozen.id}/offline`,{seconds:300}));
+  await verifyFreezeBundle(Buffer.from(JSON.stringify(bundle)),{trustedKeys:[sha256(keys.publicKey.export({format:'der',type:'spki'}))]});
+  const frozenArchive=await readOex(Buffer.from(bundle.oex,'base64'));assert.deepEqual(frozenArchive.manifest.floorResources,expectedResources);for(const resource of expectedResources)assert.deepEqual(frozenArchive.files.get(resource.path),files.get(resource.artifactPath));
   assert.equal((await pool.query("SELECT count(*)::int AS count FROM oex_import_jobs WHERE tenant_id=$1 AND (cleanup_pending OR state<>'complete')",[workspace.tenantId])).rows[0].count,0);
  });
 }finally{if(app)await app.close();await pool.end();}

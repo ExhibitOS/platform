@@ -20,10 +20,10 @@ export function floorTexturePlan(document:Exhibition,maxTextureSize:number,avail
 
 /** Registry identity, same-origin root path and exact bytes only. These are
  * built-in assets, not artwork UUIDs or provider network resources. */
-export async function fetchFloorTexture(file:FloorTextureFile,signal:AbortSignal){
+export async function fetchFloorTexture(file:FloorTextureFile,signal:AbortSignal,fetcher:typeof fetch=fetch){
  if(!FLOOR_TEXTURE_FILES.includes(file))throw Error('FLOOR_TEXTURE_DESCRIPTOR');
  const boundedSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]);
- const response=await fetch('/'+file.path,{signal:boundedSignal,credentials:'omit',redirect:'error',cache:'force-cache'});
+ const response=await fetcher('/'+file.path,{signal:boundedSignal,credentials:'omit',redirect:'error',cache:'force-cache'});
  if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!==file.mime){await response.body?.cancel().catch(()=>{});throw Error('FLOOR_TEXTURE_RESPONSE');}
  const length=response.headers.get('content-length');if(length!==null&&Number(length)!==file.bytes){await response.body.cancel().catch(()=>{});throw Error('FLOOR_TEXTURE_SIZE');}
  const bytes=new Uint8Array(file.bytes),reader=response.body.getReader();let offset=0;
@@ -47,13 +47,13 @@ export function floorUvs(three:typeof Three,geometry:Three.PlaneGeometry,parent:
 
 type TextureValue={texture:Three.Texture;bitmap:ImageBitmap};
 type Target={material:Three.MeshStandardMaterial;binding:FloorBinding;pack:FloorTexturePackDescriptor};
-export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<typeof floorTexturePlan>,signal:AbortSignal,unavailable:()=>boolean){
+export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<typeof floorTexturePlan>,signal:AbortSignal,unavailable:()=>boolean,floorFetcher?:typeof fetch){
  const targets:Target[]=[],cache=new MemoryAssetCache<TextureValue>(Math.max(1,plan.residentBytes),value=>{value.texture.dispose();value.bitmap.close();});
  let disposed=false;const inactive=()=>disposed||signal.aborted||unavailable();
  const add=(material:Three.MeshStandardMaterial,binding:FloorBinding)=>{const pack=floorTexturePack(binding);if(pack&&plan.packs.includes(pack))targets.push({material,binding,pack});};
  async function load(file:FloorTextureFile){
   const known=cache.get(file.sha256);if(known)return known;
-  const bytes=await fetchFloorTexture(file,signal);if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
+  const bytes=await fetchFloorTexture(file,signal,floorFetcher);if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
   let bitmap:ImageBitmap|undefined,texture:Three.Texture|undefined;
   try{
    bitmap=await createImageBitmap(new Blob([bytes],{type:file.mime}),{imageOrientation:'flipY',colorSpaceConversion:'none',premultiplyAlpha:'none'});
