@@ -67,7 +67,7 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
  let disposed=false;const inactive=()=>disposed||signal.aborted||unavailable();
  const add=(material:Three.MeshStandardMaterial,binding:B)=>{const pack=packFor(binding);if(pack&&plan.packs.includes(pack))targets.push({material,binding,pack});};
  async function load(file:MaterialTextureFile){
-  const known=cache.get(key(file));if(known)return known;
+  const known=cache.acquire(key(file));if(known)return known;
   const maxSize=plan.sizeFor(file);if(!Number.isSafeInteger(maxSize)||maxSize<1||maxSize>Math.max(file.width,file.height))throw Error('FLOOR_TEXTURE_BUDGET');
   const bytes=await fetchRegisteredMaterialTexture(file,registry,signal,fetcher);if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
   let bitmap:ImageBitmap|undefined,texture:Three.Texture|undefined;
@@ -89,15 +89,15 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
   const status:Record<string,string>=Object.fromEntries(plan.blocked.map(id=>[id,'budget-fallback']));
   for(const pack of plan.packs){
    if(inactive())break;
-   const maps:Partial<Record<FloorMapRole,Three.Texture>>={};
-   try{for(const [role,file]of Object.entries(pack.maps)){if(file)maps[role as FloorMapRole]=(await load(file)).texture;}
+   const maps:Partial<Record<FloorMapRole,Three.Texture>>={},loadedFiles:MaterialTextureFile[]=[];
+   try{for(const [role,file]of Object.entries(pack.maps)){if(file){maps[role as FloorMapRole]=(await load(file)).texture;loadedFiles.push(file);}}
     if(inactive())break;
     for(const target of targets.filter(t=>t.pack===pack)){
      target.material.map=maps.color??null;target.material.roughnessMap=maps.roughness??null;target.material.normalMap=maps.normal??null;
      target.material.normalScale.setScalar(target.binding.normalScale??1);target.material.aoMap=maps.ao??null;target.material.aoMapIntensity=target.binding.aoStrength??1;target.material.needsUpdate=true;
     }
     status[pack.id]='ready';changed();
-   }catch{status[pack.id]=inactive()?'cancelled':'fallback';for(const file of Object.values(pack.maps)){if(file){cache.release(key(file));cache.delete(key(file));}}}
+   }catch{status[pack.id]=inactive()?'cancelled':'fallback';for(const file of loadedFiles){cache.release(key(file));cache.delete(key(file));}}
   }
   return status;
  },dispose(){if(disposed)return;disposed=true;for(const {material}of targets){material.map=null;material.roughnessMap=null;material.normalMap=null;material.aoMap=null;}cache.clear();targets.length=0;}};

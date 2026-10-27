@@ -53,3 +53,12 @@ test('identical PNG bytes used for color and a scalar map retain distinct GPU co
  finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
  expect(closed).toHaveBeenCalledTimes(2);expect(material.map).toBeNull();expect(material.roughnessMap).toBeNull();
 });
+test('a failed pack releases only its own leases on an already displayed shared texture',async()=>{
+ const bytes=new Uint8Array([1,2,3]),closed=vi.fn(),shared:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256:createHash('sha256').update(bytes).digest('hex'),width:1,height:1},bad:MaterialTextureFile={...shared,path:'material-test/missing.png',sha256:'0'.repeat(64)};
+ const ready={id:'ready',maps:{color:shared}},failed={id:'failed',maps:{color:shared,normal:bad}},a=new three.MeshStandardMaterial(),b=new three.MeshStandardMaterial();
+ vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close:closed}));
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[ready,failed],blocked:[],residentBytes:128,sizeFor:()=>1},[shared,bad],(binding:{normalScale:number;pack:typeof ready|typeof failed})=>binding.pack,new AbortController().signal,()=>false,(async(path)=>String(path).includes('missing')?new Response(null,{status:404}):new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ try{loader.add(a,{normalScale:1,pack:ready});loader.add(b,{normalScale:1,pack:failed});expect(await loader.start(()=>{})).toEqual({ready:'ready',failed:'fallback'});expect(a.map).not.toBeNull();expect(b.map).toBeNull();expect(closed).not.toHaveBeenCalled();}
+ finally{loader.dispose();a.dispose();b.dispose();vi.unstubAllGlobals();}
+ expect(closed).toHaveBeenCalledTimes(1);
+});
