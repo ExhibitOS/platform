@@ -15,7 +15,7 @@ export class Integrities {
   let report:ServiceInventory;try{report=await collectServiceInventory(c,this.store,{...this.config,tenantId:s.tenantId});}catch{throw new ApiError(503,'INTEGRITY_UNAVAILABLE');}
   if(report.objects.length>10000||report.references.length>50000||report.issues.length>50000)throw new ApiError(503,'INTEGRITY_LIMIT');
   const rights={total:0,displayDenied:0,exportDenied:0,downloadDenied:0},now=Date.now();
-  for(const table of ['rights','studio_audio']){
+  for(const table of ['rights','studio_audio','studio_cover_images']){
    const column=table==='rights'?'metadata':'rights';
    for(const row of (await c.query(`SELECT ${column} AS rights FROM ${table} WHERE tenant_id=$1`,[s.tenantId])).rows){rights.total++;if(!allowedRights(row.rights,'display',now))rights.displayDenied++;if(!allowedRights(row.rights,'export',now))rights.exportDenied++;if(!allowedRights(row.rights,'download',now))rights.downloadDenied++;}
   }

@@ -17,6 +17,8 @@ import {execFile} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {transaction,sha256,type BlobStore} from '@exhibitos/storage';
 import {writeOex,validateExhibition,type Exhibition} from '@exhibitos/spec';
+import {SPACE_STILL_NAMESPACE,spaceStillFor} from '@exhibitos/spec/space-still';
+import {CoverImages,coverImageAsset,validateCoverImage} from './cover-images.ts';
 import {DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,curationDurationValid,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails,creationYearFor} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {Studio,etag,type Draft} from './studio.ts';
@@ -48,7 +50,7 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -62,6 +64,7 @@ export function remapOex(e:Exhibition){
  const ids=new Map<string,string>();
  const collect=(v:unknown)=>{if(Array.isArray(v))for(const x of v)collect(x);else if(object(v))for(const[k,x]of Object.entries(v)){if((k==='id'||k==='revisionId')&&typeof x==='string'){uuid(x);if(!ids.has(x.toLowerCase()))ids.set(x.toLowerCase(),randomUUID());}else if(k!=='extensions')collect(x);}};
  collect(e);
+ const still=spaceStillFor(e);if(still&&!ids.has(still.id.toLowerCase()))ids.set(still.id.toLowerCase(),randomUUID());
  const finishes=e.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
  const plaques=e.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;
  for(const p of plaques?.plaques??[])if(!ids.has(p.id.toLowerCase()))ids.set(p.id.toLowerCase(),randomUUID());
@@ -168,6 +171,12 @@ export class Oex {
    if(!allowedRights(source.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');rights.push(source.rights);
    const bytes=Buffer.from(await this.blobs.get(source.object_key));if(bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!curationDurationValid(e,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');total+=bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');files.set(m.path,bytes);
   }
+  const still=spaceStillFor(e);
+  if(still){
+   const source=await new CoverImages(this.blobs).approvedBytes(c,s,id,still.id,'export');
+   if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   rights.push(still.rights,source.row.rights);total+=source.bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');files.set(still.path,source.bytes);
+  }
   let bytes:Buffer;try{bytes=Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));}catch{throw new ApiError(422,'OEX_INVALID');}
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');return bytes;
  }
@@ -190,6 +199,7 @@ export class Oex {
    for(const asset of a.assets){const live=(await c.query("SELECT a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];if(!live||live.sha256!==asset.sha256||Number(live.bytes)!==asset.bytes||live.mime!==asset.mime)throw new ApiError(409,'OEX_SOURCE_CHANGED');require(live.rights);}
   }
   for(const m of candidate.mediaAssets){const live=(await c.query("SELECT * FROM studio_audio WHERE tenant_id=$1 AND exhibition_id=$2 AND id=$3 AND state='approved' AND NOT revoked",[s.tenantId,exhibitionId,m.id])).rows[0]as AudioRow|undefined;const approval=(await c.query('SELECT snapshot FROM audio_approvals WHERE tenant_id=$1 AND audio_id=$2',[s.tenantId,m.id])).rows[0]?.snapshot;if(!live||!approval||!equal(approval,audioMedia(live))||!equal(approval,m))throw new ApiError(409,'OEX_SOURCE_CHANGED');require(live.rights);require(m.rights);}
+  const still=spaceStillFor(candidate);if(still){const source=await new CoverImages(this.blobs).approved(c,s,exhibitionId,still.id);if(!equal(coverImageAsset(source),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');require(source.rights);require(still.rights);}
   return {rights};
  }
  private async remove(key:string){try{await this.blobs.remove(key);}catch(error){if(!object(error)||(error.code!=='ENOENT'&&error.name!=='NoSuchKey'))throw error;}}
@@ -225,15 +235,18 @@ export class Oex {
   try{
    const parsed=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');const bytes=await this.uploaded(row);try{return await decodeOex(bytes);}catch{throw new ApiError(422,'OEX_INVALID');}});
    checkOexProfile(parsed.exhibition);
-   const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights)];
+   const sourceStill=spaceStillFor(parsed.exhibition);
+   const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
    const qualified=new Map<string,Buffer>();
    for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path))await decode(bytes,asset.mime);qualified.set(asset.path,bytes);}
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
+   if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
    const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
    for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
    for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
    for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
+   const mappedStill=spaceStillFor(e);if(mappedStill){keys.set(mappedStill.path,sourceKeys.get(mappedStill.path)!);restoredBytes.set(mappedStill.path,qualified.get(mappedStill.path)!);}
    const storedBytes=new Map([...sourceKeys].map(([path,key])=>[key,qualified.get(path)!]));
    // Commit the cleanup inventory before any destination byte write, including process death.
    const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...storedBytes.keys()])])).rowCount;});
@@ -262,12 +275,19 @@ export class Oex {
     const draft:Draft={schemaVersion:'1.0.0-draft.1',kind:'exhibition-draft',id:randomUUID(),exhibitionId:e.id,editVersion:1,createdAt:at,updatedAt:at,candidate:e};
     const mediaSources=new Map(e.mediaAssets.map(m=>[m.id,{key:keys.get(m.path)!,bytes:restoredBytes.get(m.path)!}]));
     for(const m of e.mediaAssets)m.path=`media/${m.id}/audio.wav`;
+    const still=spaceStillFor(e),stillKey=still?keys.get(still.path):undefined;
+    if(still){still.path=`space-still/${still.id}/image.png`;const inventory=e.extensions![SPACE_STILL_NAMESPACE] as unknown as {asset:typeof still};inventory.asset=still;}
     const response=await this.studio.create(c,s,{draft,requestId:randomUUID()});
     for(const m of e.mediaAssets){
      const source=mediaSources.get(m.id)!,key=source.key,pcm=validatePcmWav(source.bytes);
      await c.query("INSERT INTO studio_audio(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state,duration_seconds) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'audio/wav',$9,$10,'approved',$11)",[s.tenantId,e.id,m.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(m)))),m.sha256,m.bytes,m.rights,key,pcm.durationSeconds]);
      // Match the local Audio serializer exactly, including its deterministic inventory path.
      await c.query('INSERT INTO audio_approvals(tenant_id,audio_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,m.id,m,s.userId]);
+    }
+    if(still){
+     if(!stillKey)throw new ApiError(422,'ASSET_INTEGRITY');
+     await c.query("INSERT INTO studio_cover_images(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'image/png',$9,$10,'approved')",[s.tenantId,e.id,still.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(still)))),still.sha256,still.bytes,still.rights,stillKey]);
+     await c.query('INSERT INTO cover_image_approvals(tenant_id,image_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,still.id,still,s.userId]);
     }
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');

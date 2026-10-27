@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {MAX_COVER_BYTES} from '@exhibitos/studio-contract';
+import {MAX_COVER_BYTES,SPACE_STILL_NAMESPACE,ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {syntheticArtwork} from './placement/model';
 import type {NativeViewportFrame} from './native-viewport-protocol';
@@ -32,4 +32,24 @@ it('cancels an oversized derivative stream and refuses an aborted owner',async()
  const fetcher=vi.fn(async(input:RequestInfo|URL)=>String(input).includes('/studio/')?Response.json({artwork}):new Response(new ReadableStream({pull(controller){if(!sent){sent=true;controller.enqueue(new Uint8Array(MAX_COVER_BYTES+1));}},cancel}),{headers}));
  await expect(nativeEntranceCoverSource(frame,check,fetcher).image(artwork.primaryAssetId,abort.signal)).rejects.toThrow('ENTRANCE_PREVIEW_IMAGE_LIMIT');expect(cancel).toHaveBeenCalledOnce();
  abort.abort();fetcher.mockClear();await expect(nativeEntranceCoverSource(frame,check,fetcher).image(artwork.primaryAssetId,abort.signal)).rejects.toThrow();expect(fetcher).not.toHaveBeenCalled();
+});
+
+it('checks independent still current display rights after transfer and the final authentication await',async()=>{
+ vi.useFakeTimers({toFake:['Date']});
+ try{for(const phase of ['ready','metadata','auth'] as const){
+  vi.setSystemTime(new Date('2026-10-27T05:00:00Z'));
+  const {frame}=fixture(),id=crypto.randomUUID(),asset={id,path:`space-still/${id}/image.png`,mime:'image/png',bytes:100,sha256:'a'.repeat(64),rights:{holder:'Synthetic creator',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic room',expiresAt:'2026-10-27T05:00:01Z'}};
+  frame.draft.candidate.extensions={...frame.draft.candidate.extensions,[SPACE_STILL_NAMESPACE]:{version:1,asset},[ENTRANCE_NAMESPACE]:{version:1,artist:'Creator',introduction:'Space',imageAssetId:id,imageAlt:'Empty room',mobilePosition:'center'}};
+  let metadataCalls=0,authCalls=0;
+  const check=vi.fn(async(signal:AbortSignal)=>{signal.throwIfAborted();if(++authCalls===2&&phase==='auth')vi.setSystemTime(new Date(asset.rights.expiresAt));});
+  const fetcher=vi.fn(async(input:RequestInfo|URL)=>{
+   if(String(input).includes('/preview?'))return new Response(new Uint8Array([1,2,3]),{headers:{'content-type':'image/png','x-exhibitos-watermarked':'true','x-exhibitos-cover-sha256':asset.sha256}});
+   if(++metadataCalls===2&&phase==='metadata')vi.setSystemTime(new Date(asset.rights.expiresAt));
+   return Response.json({id,revision:1,state:'approved',revoked:false,asset});
+  });
+  const result=nativeEntranceCoverSource(frame,check,fetcher).image(id,new AbortController().signal);
+  if(phase==='ready')expect([...new Uint8Array(await result)]).toEqual([1,2,3]);
+  else await expect(result).rejects.toThrow('ENTRANCE_PREVIEW_IMAGE_RIGHTS');
+  expect(metadataCalls).toBe(2);expect(authCalls).toBe(2);
+ }}finally{vi.useRealTimers();}
 });

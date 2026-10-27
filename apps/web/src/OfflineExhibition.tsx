@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {useEffect,useRef,useState} from 'react';
-import {MAX_FREEZE_BYTES,verifyFreezeBundle,freezeCanonical,type FreezeBundle} from '@exhibitos/studio-contract';
+import {MAX_FREEZE_BYTES,verifyFreezeBundle,freezeCanonical,spaceStillFor,type FreezeBundle} from '@exhibitos/studio-contract';
 import {PublicPublication} from './PublicPublication';
 import {prepareStudioShell} from './studio-shell';
 import type {PublicPublication as PublicResponse} from './publication-client';
@@ -42,7 +42,7 @@ export function frozenPublication(b:FreezeBundle,oex:FrozenOex,check:()=>Promise
   init?.signal?.throwIfAborted();await check();const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
   const asset=[...oex.assets].find(([assetId])=>url===`/api/v1/publications/${id}/assets/${assetId}`);
   if(!asset||init?.method&&init.method!=='GET')throw Error('OFFLINE_ASSET_URL');
-  const [assetId,data]=asset;const inventory=[...oex.exhibition.artworks.flatMap(a=>a.assets),...oex.exhibition.mediaAssets].find(a=>a.id===assetId);
+  const [assetId,data]=asset,still=spaceStillFor(oex.exhibition);const inventory=[...oex.exhibition.artworks.flatMap(a=>a.assets),...oex.exhibition.mediaAssets,...(still?[still]:[])].find(a=>a.id===assetId);
   if(!inventory||data.bytes.length!==inventory.bytes||await freezeHash(data.bytes)!==inventory.sha256)throw Error('OFFLINE_ASSET_INTEGRITY');
   await check();init?.signal?.throwIfAborted();return new Response(new Uint8Array(data.bytes),{headers:{'content-type':data.mime,'content-length':String(data.bytes.length),'x-exhibitos-publication-revision':revision}});
  };

@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { fixtureURL,readOex,revisionHash,validateArtworkFiles,validateExhibition } from "@exhibitos/spec";
 import { checkOexProfile } from "../apps/api/dist/oex.js";
+import {validateCoverImage} from '../apps/api/dist/cover-images.js';
+import {spaceStillFor} from '@exhibitos/spec/space-still';
 /** Inert public text only; actionable entry waits for verified index/document data. */
 export function staticCoverShell(title,artist="",introduction="",hasImage=false,unfold=true,ratio=4/3){
  const escape=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -28,9 +30,10 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  const raw=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString("utf8"));
  if(raw.publication?.id!==publicationId||raw.publication?.status!=="published"||!Number.isFinite(Date.parse(raw.publication.publishedAt)))fail("STATIC_NOT_PUBLISHED",publicationId);
  if(revisionHash(raw.exhibition)!==raw.publication.revisionSha256)fail("STATIC_REVISION",publicationId);
- if(studioDemo&&(![SAMPLE_REVISION,WALKING_SAMPLE_REVISION].includes(raw.publication.revisionSha256)||[...raw.exhibition.artworks,...raw.exhibition.mediaAssets].some(a=>a.rights.licenseId!=="CC0-1.0")))fail("STATIC_DEMO_SAMPLE",publicationId);
- if(privateEditor&&[...raw.exhibition.artworks,...raw.exhibition.mediaAssets].some(a=>a.rights.licenseId!=="CC0-1.0"||!a.rights.permissions.display||!a.rights.permissions.export))fail("STATIC_PRIVATE_EDITOR_RIGHTS",publicationId);
- const inventory=[...raw.exhibition.artworks.flatMap(a=>a.assets),...raw.exhibition.mediaAssets],byId=new Map();
+ const still=spaceStillFor(raw.exhibition),rightsSources=[...raw.exhibition.artworks,...raw.exhibition.mediaAssets,...(still?[still]:[])];
+ if(studioDemo&&(![SAMPLE_REVISION,WALKING_SAMPLE_REVISION].includes(raw.publication.revisionSha256)||rightsSources.some(a=>a.rights.licenseId!=="CC0-1.0")))fail("STATIC_DEMO_SAMPLE",publicationId);
+ if(privateEditor&&rightsSources.some(a=>a.rights.licenseId!=="CC0-1.0"||!a.rights.permissions.display||!a.rights.permissions.export))fail("STATIC_PRIVATE_EDITOR_RIGHTS",publicationId);
+ const inventory=[...raw.exhibition.artworks.flatMap(a=>a.assets),...raw.exhibition.mediaAssets,...(still?[still]:[])],byId=new Map();
  for(const asset of inventory){if(!safeStaticPath(asset.path))fail("STATIC_ASSET_PATH",asset.path);const prior=byId.get(asset.id);if(prior&&JSON.stringify(prior)!==JSON.stringify(asset))fail("STATIC_ASSET_ALIAS",asset.path);byId.set(asset.id,asset);}
  checkOexProfile(raw.exhibition);if(!validateExhibition(raw.exhibition,{publicationTime:new Date().toISOString()}).valid)fail("STATIC_DISPLAY_RIGHTS","publication.json");
  if(!Array.isArray(raw.assets)||raw.assets.length!==byId.size||new Set(raw.assets.map(a=>a.assetId)).size!==byId.size)fail("STATIC_INVENTORY","publication.json");
@@ -42,6 +45,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  for(const asset of raw.assets){const item=byId.get(asset.assetId);if(!item||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||item.mime!==asset.mime)fail("STATIC_ASSET_URL",asset.url);if(item.bytes>MAX)fail("STATIC_FILE_TOO_LARGE",item.path);
  const response=await request(asset.url);if(response.headers.get("x-exhibitos-publication-revision")!==raw.publication.revisionSha256||response.headers.get("content-type")?.split(";")[0]!==item.mime)fail("STATIC_ASSET_RESPONSE",item.path);
  const data=await bounded(response,Math.min(MAX,item.bytes),item.path);if(data.length!==item.bytes||sha(data)!==item.sha256)fail("STATIC_ASSET_HASH",item.path);
+ if(still?.id===item.id)await validateCoverImage(data);
  const path=`data/${item.sha256}.bin`;if(!files.has(path))await put(path,data);assetIndex.push({assetId:asset.assetId,path,bytes:item.bytes,sha256:item.sha256,mime:item.mime});}
  for(const artwork of raw.exhibition.artworks){const validation=await mkdtemp(join(tmpdir(),"exhibitos-static-validation-"));try{for(const asset of artwork.assets){const path=join(validation,asset.path);await mkdir(dirname(path),{recursive:true});await copyFile(join(temporary,`data/${asset.sha256}.bin`),path);}const result=await validateArtworkFiles(artwork,validation);if(!result.valid)fail("STATIC_ARTWORK_INVALID",artwork.id);}finally{await rm(validation,{recursive:true,force:true});}}
  const publication={publication:{id:publicationId,revisionSha256:raw.publication.revisionSha256,publishedAt:raw.publication.publishedAt,status:"published"},exhibition:raw.exhibition,assets:raw.assets.map(a=>({assetId:a.assetId,url:a.url,mime:a.mime}))};

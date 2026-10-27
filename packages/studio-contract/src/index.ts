@@ -258,3 +258,4 @@ export * from './surface-panels.js';
 export * from './architectural-finishes.js';
 
 export * from './entrance-design.js';
+export {SPACE_STILL_NAMESPACE,MAX_SPACE_STILL_BYTES,MAX_SPACE_STILL_PIXELS,MAX_SPACE_STILL_DIMENSION,validateSpaceStillInventory,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
