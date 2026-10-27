@@ -59,6 +59,8 @@ export interface DetailEntryActions {
   commit: (pointer: boolean) => void;
 }
 export type GeometrySelection=EditorSelection;
+export interface EntranceSceneScope {enter(signal:AbortSignal):Promise<void>;cancelEntry():void;close():void}
+export interface EntranceScenePreview {begin():EntranceSceneScope}
 
 export function GeometryPreview({
   document,
@@ -89,6 +91,7 @@ export function GeometryPreview({
   onXrReady,
   onXrArtworks,
   onRenderState,
+  onEntranceSceneReady,
   cameraRequest,
   onSelectionFindReady,
   placementPreview,
@@ -109,6 +112,7 @@ export function GeometryPreview({
   controlsHost?: HTMLElement|null;
   viewFov?: number;
   onSelectionFindReady?: (action:((id:string)=>boolean)|null)=>void;
+  onEntranceSceneReady?:(preview:EntranceScenePreview|null)=>void;
   placementPreview?: PlacementPreviewInstaller;
   placementPreviewVersion?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
@@ -162,6 +166,8 @@ export function GeometryPreview({
   const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
+  const entranceSceneCallback=useRef(onEntranceSceneReady);entranceSceneCallback.current=onEntranceSceneReady;
+  const entranceScope=useRef<EntranceSceneScope|null>(null),[entranceWalking,setEntranceWalking]=useState(false);
   const editingSync=useRef<(()=>void)|null>(null);
   const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
   const placementSync=useRef<(()=>void)|null>(null);
@@ -244,7 +250,7 @@ export function GeometryPreview({
   useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive||(walkPreparation==='ready'&&walkingMode),navigationFailed:immersive&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,walkPreparation,walkingMode]);
+  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&walkingMode),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -795,6 +801,7 @@ export function GeometryPreview({
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
       editingSync.current=()=>editor?.sync();
       release = () => {
+        entranceScope.current?.close();entranceSceneCallback.current?.(null);
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
@@ -963,6 +970,52 @@ export function GeometryPreview({
           release: () => {},
         };
         walkingActions.current = pending;
+      }
+      // A native preview borrows this exact scene/camera. It never changes the
+      // renderer effect's document, budget, immersive or editing dependencies.
+      if(entranceSceneCallback.current&&!viewerBudget){
+        let preparing=false;
+        const preview:EntranceScenePreview={begin:()=>{
+          if(disposed||gpuLost||xrActive.current||entranceScope.current||preparing||currentWalkMode.current.walking)throw Error('ENTRANCE_SCENE_BUSY');
+          const saved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone(),fov:camera.fov,zoom:camera.zoom,near:camera.near,far:camera.far,enabled:controls.enabled,actions:walkingActions.current,tabIndex:renderer.domElement.getAttribute('tabindex'),focus:renderer.domElement.ownerDocument.activeElement};
+          const abortPreview=new AbortController();let abortEntry=new AbortController(),adapter:{actions:WalkingActions;dispose:()=>void}|undefined,entered=false,closed=false;
+          controls.enabled=false;
+          const restore=(enabled:boolean)=>{
+            camera.position.copy(saved.position);camera.quaternion.copy(saved.quaternion);camera.up.copy(saved.up);controls.target.copy(saved.target);camera.fov=saved.fov;camera.zoom=saved.zoom;camera.near=saved.near;camera.far=saved.far;camera.updateProjectionMatrix();controls.enabled=enabled;controls.update();if(!disposed&&!gpuLost)render();
+          };
+          const scope:EntranceSceneScope={
+            enter:async externalSignal=>{
+              if(entered||closed)throw Error('ENTRANCE_SCENE_STALE');if(preparing)throw Error('ENTRANCE_SCENE_BUSY');entered=true;
+              const signal=AbortSignal.any([abortPreview.signal,abortEntry.signal,externalSignal]);signal.throwIfAborted();
+              preparing=true;setEntranceWalking(true);setWalkPreparation('pending');setWalkLoading(true);view('start');controls.enabled=false;renderer.domElement.tabIndex=0;
+              try{
+                const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
+                const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,
+                  resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
+                  onState:state=>{if(!closed&&!signal.aborted)navigationCallbacks.current.onNavigationState?.(state);},
+                  onMode:(walking,paused)=>{if(!closed&&!signal.aborted){currentWalkMode.current={walking,paused};setWalkingMode(walking);setWalkPaused(paused);}},
+                  onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
+                });
+                if(closed||disposed||signal.aborted){created.dispose();signal.throwIfAborted();throw Error('ENTRANCE_SCENE_STALE');}
+                adapter=created;walkingActions.current=created.actions;setWalkPreparation('ready');created.actions.start();
+              }catch(error){if(!closed&&!signal.aborted)setWalkPreparation('failed');throw error;}
+              finally{preparing=false;if(!closed)setWalkLoading(false);}
+            },
+            cancelEntry:()=>{
+              if(closed)return;abortEntry.abort();abortEntry=new AbortController();adapter?.dispose();adapter=undefined;entered=false;walkingActions.current=saved.actions;
+              currentWalkMode.current={walking:false,paused:true};setWalkingMode(false);setWalkPaused(true);setWalkLoading(false);setWalkPreparation('pending');setEntranceWalking(false);restore(false);
+            },
+            close:()=>{
+              if(closed)return;closed=true;abortPreview.abort();adapter?.dispose();walkingActions.current=saved.actions;
+              currentWalkMode.current={walking:false,paused:true};setWalkingMode(false);setWalkPaused(true);setWalkLoading(false);setWalkPreparation('pending');setEntranceWalking(false);
+              if(entranceScope.current===scope)entranceScope.current=null;restore(saved.enabled);
+              if(saved.tabIndex===null)renderer.domElement.removeAttribute('tabindex');else renderer.domElement.setAttribute('tabindex',saved.tabIndex);
+              if(saved.focus instanceof HTMLElement&&saved.focus.isConnected&&saved.focus!==renderer.domElement.ownerDocument.body)saved.focus.focus({preventScroll:true});
+            },
+          };
+          entranceScope.current=scope;return scope;
+        }};
+        entranceSceneCallback.current(preview);
       }
       let rendered = 0,
         unavailable = 0;

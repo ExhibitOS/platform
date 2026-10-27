@@ -13,20 +13,28 @@ import type {ThemeProps} from './entrance-themes/types';
 import './entrance-cover.css';
 import './entrance-host.css';
 
-export function coverAspectRatio(publication:PublicPublication){
+export function coverAspectRatio(publication:Pick<PublicPublication,'exhibition'>){
  const id=entranceFor(publication.exhibition).imageAssetId;
  const work=publication.exhibition.artworks.find(a=>a.assets.some(asset=>asset.id.toLowerCase()===id?.toLowerCase()));
  return work&&work.dimensions.height>0?work.dimensions.width/work.dimensions.height:4/3;
 }
 /** One verified poster stays mounted across the entry request. It never gates entry. */
-export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale }: {
-  publication: PublicPublication; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;locale?:string;
+export interface EntranceCoverSource {
+ /** Host-only authenticated display derivative, never supplied through publication JSON. */
+ image(assetId:string,signal:AbortSignal):Promise<ArrayBuffer>;
+}
+export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale,source,onImageState }: {
+  publication: PublicPublication|Pick<PublicPublication,'exhibition'>; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;locale?:string;
+  source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;
 }) {
   const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
   const [layoutReady,setLayoutReady]=useState(false);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
   const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&settings.imageAssetId&&motion&&canReveal?'folded':'flat');
+  const imageStateCallback=useRef(onImageState);imageStateCallback.current=onImageState;
+  const displayedImageState:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+  useEffect(()=>{imageStateCallback.current?.(displayedImageState);},[displayedImageState]);
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
     if(!interactive||!showImage||!settings.imageAssetId||failed||!motion||!canReveal)setPaper('flat');
@@ -53,12 +61,14 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     if (!showImage || !settings.imageAssetId) return;
     const id = settings.imageAssetId.toLowerCase();
     const inventory = publication.exhibition.artworks.flatMap(a => a.assets).find(a => a.id.toLowerCase() === id);
-    const asset = publication.assets.find(a => a.assetId.toLowerCase() === id);
-    if (!inventory || !asset) { setFailed(true); return; }
+    const asset = 'assets' in publication?publication.assets.find(a => a.assetId.toLowerCase() === id):undefined;
+    if (!inventory || !source&&(!asset||!('publication' in publication))) { setFailed(true); return; }
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]);
-    void fetchVerifiedAsset({ publicationId: publication.publication.id, revisionSha256: publication.publication.revisionSha256,
-      inventory, asset, signal, ...publication.local, maxBytes: MAX_COVER_BYTES }).then(async bytes => {
+    const bytesPromise=source?source.image(id,signal):'publication' in publication&&asset?fetchVerifiedAsset({ publicationId: publication.publication.id, revisionSha256: publication.publication.revisionSha256,
+      inventory, asset, signal, ...publication.local, maxBytes: MAX_COVER_BYTES }):Promise.reject(Error('COVER_SOURCE_UNAVAILABLE'));
+    void bytesPromise.then(async bytes => {
       signal.throwIfAborted();
+      if(bytes.byteLength>MAX_COVER_BYTES)throw Error('COVER_PNG_LIMIT');
       const view = new DataView(bytes), signature = [137, 80, 78, 71, 13, 10, 26, 10];
       if (bytes.byteLength < 33 || signature.some((n, i) => view.getUint8(i) !== n) || view.getUint32(8) !== 13 ||
           view.getUint32(12) !== 0x49484452 || view.getUint32(16) < 1 || view.getUint32(20) < 1 ||
@@ -75,13 +85,13 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
       setImage({url:objectURL,width:view.getUint32(16),height:view.getUint32(20),generation:current});
     }).catch(() => { if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
     return () => { abort.abort(); if(current===generation.current)generation.current++;if (objectURL) URL.revokeObjectURL(objectURL); };
-  }, [publication, showImage, settings.imageAssetId, retry]);
+  }, [publication, showImage, settings.imageAssetId, retry,source]);
   const displayed=()=>{if(image?.generation===generation.current)requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});};
   const imageFailed=()=>{if(image?.generation===generation.current)setFailed(true);};
   const phase=paper==='folded'&&layoutReady?'opening':paper;
   if(design.theme!=='catalogue'){
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
-    const status:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+    const status=displayedImageState;
     const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
     return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component {...props}/></div>;
   }

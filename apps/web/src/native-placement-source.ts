@@ -3,9 +3,9 @@ import type {Artwork} from '@exhibitos/spec';
 import {validateArtwork} from './drafts/artwork-validation.mjs';
 import type {PlacementBegin} from './native-placement-protocol';
 /** Server-owned approved snapshot: no caller-supplied artwork, asset, or URL. */
-export async function approvedPlacementArtwork(request:PlacementBegin,signal:AbortSignal):Promise<Artwork> {
- const response=await fetch(`/api/v1/tenants/${request.tenantId}/studio/artworks/${request.artworkId}`,{credentials:'same-origin',redirect:'error',cache:'no-store',signal});
- if(!response.ok||!response.body)throw Error('PLACEMENT_APPROVAL_UNAVAILABLE');
+export async function approvedPlacementArtwork(request:Pick<PlacementBegin,'tenantId'|'artworkId'|'expectedRevision'>,signal:AbortSignal,fetcher:typeof fetch=fetch):Promise<Artwork> {
+ const response=await fetcher(`/api/v1/tenants/${request.tenantId}/studio/artworks/${request.artworkId}`,{credentials:'same-origin',redirect:'error',cache:'no-store',signal});
+ if(!response.ok||!response.body){await response.body?.cancel().catch(()=>{});throw Error('PLACEMENT_APPROVAL_UNAVAILABLE');}
  const reader=response.body.getReader(),parts:Uint8Array[]=[];let count=0;
  try{for(;;){signal.throwIfAborted();const {done,value}=await reader.read();if(done)break;count+=value.length;if(count>1100000)throw Error('PLACEMENT_SNAPSHOT_LIMIT');parts.push(value);}}
  catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}
