@@ -55,3 +55,33 @@ export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput,
     return { workspaceId: v.workspaceId, tenantId: v.tenantId, principalId: v.principalId };
   });
 }
+
+export interface LocalWorkspaceRenewal extends LocalWorkspaceInput {previousSessionToken:string}
+/** Expiry-only recovery of an already authorized native workspace. This never
+ * bootstraps, regrants membership, extends a row, or revives a revoked session. */
+export function validateLocalWorkspaceRenewal(value:unknown,runtimeMode:string|undefined):LocalWorkspaceRenewal {
+ if(!value||typeof value!=='object'||Array.isArray(value)||!Object.hasOwn(value,'previousSessionToken'))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
+ const {previousSessionToken,...candidate}=value as Record<string,unknown>;
+ const current=validateLocalWorkspace(candidate,runtimeMode);
+ if(typeof previousSessionToken!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(previousSessionToken)||Buffer.from(previousSessionToken,'base64url').length!==32||Buffer.from(previousSessionToken,'base64url').toString('base64url')!==previousSessionToken||previousSessionToken===current.sessionToken||previousSessionToken===current.csrfToken)throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
+ return {...current,previousSessionToken};
+}
+export async function renewLocalWorkspace(pool:Pool,input:unknown,runtimeMode:string|undefined){
+ const v=validateLocalWorkspaceRenewal(input,runtimeMode);
+ return transaction(pool,async c=>{
+  await c.query('SELECT pg_advisory_xact_lock(82003)');
+  await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+  const workspace=(await c.query('SELECT * FROM local_workspaces WHERE id=$1 FOR UPDATE',[v.workspaceId])).rows[0];
+  if(!workspace||workspace.tenant_id!==v.tenantId||workspace.user_id!==v.principalId||Number(workspace.mac_uid)!==v.ownerUid)throw new ApiError(403,'LOCAL_WORKSPACE_OWNER_MISMATCH');
+  const owner=await c.query("SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.role='admin' AND NOT u.disabled AND t.deleted_at IS NULL",[v.tenantId,v.principalId]);
+  if(!owner.rowCount)throw new ApiError(403,'LOCAL_WORKSPACE_OWNER_UNAVAILABLE');
+  const previous=(await c.query('SELECT id,tenant_id,user_id,revoked FROM auth_sessions WHERE token_hash=$1 FOR UPDATE',[digest(v.previousSessionToken)])).rows[0];
+  // Deliberately no expiry requirement: only expiry is recoverable; revocation,
+  // removed authority and another tenant/principal are permanent refusals.
+  if(!previous||previous.revoked||previous.tenant_id!==v.tenantId||previous.user_id!==v.principalId)throw new ApiError(403,'LOCAL_WORKSPACE_SESSION_UNAVAILABLE');
+  const rotated=await c.query('UPDATE auth_sessions SET revoked=true WHERE id=$1 AND NOT revoked RETURNING id',[previous.id]);
+  if(rotated.rowCount!==1)throw new ApiError(409,'LOCAL_WORKSPACE_SESSION_CHANGED');
+  await c.query("INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '8 hours')",[randomUUID(),digest(v.sessionToken),digest(v.csrfToken),v.csrfToken,v.tenantId,v.principalId]);
+  return {workspaceId:v.workspaceId,tenantId:v.tenantId,principalId:v.principalId};
+ });
+}

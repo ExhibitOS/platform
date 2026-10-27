@@ -145,6 +145,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   for (const name of ['database','contracts','vendor']) await copyTrackedTree(name,platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
+  await copy(join(source,'scripts/native-workspace-session.mjs'),join(platform,'scripts/native-workspace-session.mjs'));
   // Reuse the authenticated service-backup codec and PostgreSQL adapter. The
   // native controller supplies admitted pg_dump/pg_restore absolute paths;
   // maintenance must never depend on the user's PATH or a container engine.
