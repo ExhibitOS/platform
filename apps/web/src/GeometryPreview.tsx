@@ -1257,7 +1257,7 @@ export function GeometryPreview({
                 (node.geometry.index?.count ??
                   node.geometry.attributes.position?.count ??
                   0) / 3;
-              geometryAttributes.push(...Object.values(node.geometry.attributes));
+              geometryAttributes.push(...Object.values(node.geometry.attributes) as Array<InstanceType<typeof three.BufferAttribute>|InstanceType<typeof three.InterleavedBufferAttribute>>);
               if(node.geometry.index)geometryAttributes.push(node.geometry.index);
               for (const material of Array.isArray(node.material)
                 ? node.material
