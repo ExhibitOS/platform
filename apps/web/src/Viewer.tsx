@@ -180,7 +180,6 @@ export function Viewer({
   const budget = useMemo(
     () =>
       selectedDeviceBudget(profile,{
-        viewportWidth:innerWidth,
         deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory,
         pixelRatio:devicePixelRatio,
       }),

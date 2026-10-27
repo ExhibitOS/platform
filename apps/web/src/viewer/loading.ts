@@ -6,13 +6,16 @@ export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
 };
-export function deviceBudget(input:{viewportWidth:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.viewportWidth<768||(input.deviceMemory!==undefined&&input.deviceMemory<=4)?"compact":"desktop"]};}
+/** Canvas width is a resolution/layout input, not a device capacity signal.
+ * Keep the existing standard default and constrained-memory preset; neither
+ * preset is a measured hardware guarantee. */
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"]};}
 /** Explicit existing high-quality choice only. Auto and known constrained devices
  * retain their previous triangle/resident limits; this is not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxTransitionBytes:128*1024*1024});
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  if(profile==='auto')return deviceBudget(input);
- if(profile==='desktop'&&input.viewportWidth>=768&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};
+ if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};
  return {...DEVICE_BUDGETS[profile]};
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
@@ -147,6 +150,8 @@ export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwor
 export class AssetPeakBudget {
  private reservations=new Map<string,number>();
  constructor(private maxBytes:number,private resident:()=>number){}
+ /** Release a completed external load hold without clearing live reservations. */
+ raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.maxBytes)throw Error('ASSET_BUDGET_INVALID');this.maxBytes=bytes;}
  reserve(key:string,bytes:number){
   if(!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>this.maxBytes)throw Error('ASSET_TRANSITION_PEAK');
   this.reservations.set(key,bytes);
@@ -245,7 +250,9 @@ export class AssetScheduler<T> {
 interface Cached<T> {value:T;bytes:number;pins:number;order:number}
 export class MemoryAssetCache<T> {
  private entries=new Map<string,Cached<T>>();private used=0;private order=0;private evictions=0;
- constructor(readonly maxBytes:number,private readonly onDispose:(value:T)=>void=()=>{}){if(!Number.isSafeInteger(maxBytes)||maxBytes<1)throw Error("CACHE_BUDGET_INVALID");}
+ constructor(private limitBytes:number,private readonly onDispose:(value:T)=>void=()=>{}){if(!Number.isSafeInteger(limitBytes)||limitBytes<1)throw Error("CACHE_BUDGET_INVALID");}
+ get maxBytes(){return this.limitBytes;}
+ raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.limitBytes)throw Error('CACHE_BUDGET_INVALID');this.limitBytes=bytes;}
  get(key:string):T|undefined{const entry=this.entries.get(key);if(!entry)return;entry.order=this.order++;return entry.value;}
  acquire(key:string):T|undefined{const value=this.get(key);if(value!==undefined)this.entries.get(key)!.pins++;return value;}
  release(key:string){const entry=this.entries.get(key);if(entry&&entry.pins>0)entry.pins--;}
