@@ -1,4 +1,6 @@
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
+import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
+import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
@@ -72,6 +74,7 @@ export function GeometryPreview({
   session,
   publicSource,
   viewerBudget,
+  resourceBudget,
   suspendNavigation = false,
   onNavigationState,
   onCameraPose,
@@ -128,6 +131,8 @@ export function GeometryPreview({
   document: Document;
   editing?:EditorBridge;
   viewerBudget?: DeviceBudget;
+  /** Editor host resource accounting; does not enable visitor navigation. */
+  resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'>;
   suspendNavigation?: boolean;
   onNavigationState?: (state: NavigationState) => void;
   onCameraPose?: (position: [number,number,number],yaw: number) => void;
@@ -166,6 +171,7 @@ export function GeometryPreview({
   const transparentSpace=spaceTransparency??localTransparentSpace;
   const consumedCameraRequest=useRef<number|undefined>(undefined);
   const [installationIssueCount,setInstallationIssueCount]=useState(0);
+  const [materialIssueCount,setMaterialIssueCount]=useState(0);
   const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
@@ -291,6 +297,7 @@ export function GeometryPreview({
     setReady(false);
     setAssetReport({loaded:0,failed:0});
     setMessage("공간 미리보기를 준비합니다.");
+    setMaterialIssueCount(0);
     setPublicMessage("전시를 준비하고 있어요.");
     const build = async () => {
       if (
@@ -337,20 +344,23 @@ export function GeometryPreview({
         Math.min(devicePixelRatio, viewerBudget?.maxPixelRatio ?? 2),
       );
       applyReferenceOutput(three,renderer,referenceTone);
-      const compactQuality=(viewerBudget?.maxTextureSize??2048)<=512;
+      const resources=viewerBudget??resourceBudget;
+      const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
-      const availableAssetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
-      const floorPlan=floorTexturePlan(document,viewerBudget?.maxTextureSize??2048,availableAssetBytes);
+      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
+      const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
-      const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes);
-      const transitionBudgetBytes=Math.max(assetBudgetBytes,(viewerBudget?.maxTransitionBytes??viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-floorPlan.reserveBytes);
+      const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
+      const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
+      const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      const transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
-      scene.add(model);owned.push(floorTextures);
+      scene.add(model);owned.push(floorTextures,surfaceTextures);
       const spaceLighting=spaceLightingFor(document);
       const hemisphere = new three.HemisphereLight(
           0xffffff,
@@ -432,6 +442,8 @@ export function GeometryPreview({
           });
         const floorBinding=surface.type==='floor'?floorFor(document,{roomId:surface.roomId,surfaceId:surface.id}):undefined;
         if(floorBinding){const looks=floorAppearance(floorBinding,surface.id);material.color.copy(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;floorTextures.add(material,floorBinding);}
+        const surfaceBinding=surfaceTextureFor(document,surface.id);
+        if(surfaceBinding){const looks=materialFor(document,surface.id);material.color.set(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;surfaceTextures.add(material,surfaceBinding);}
         owned.push(material);surfaceMaterials.set(surface.id.toLowerCase(),material);
         if(styledWalls.has(surface.id.toLowerCase()))return;
         for (const rectangle of rectangles[index]!) {
@@ -441,6 +453,7 @@ export function GeometryPreview({
             ),
             mesh = new three.Mesh(geometry, material);
           if(floorBinding)floorUvs(three,geometry,group,floorBinding,rectangle);
+          if(surfaceBinding)floorUvs(three,geometry,group,surfaceBinding,rectangle);
           mesh.position.set(rectangle.x, rectangle.y, 0);
           group.add(mesh);
           owned.push(geometry);
@@ -850,6 +863,7 @@ export function GeometryPreview({
         renderer.domElement.remove();
       };
       void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes});});
+      void surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}});
       // Async environment setup starts only AFTER scene teardown is registered.
       // Failed/cancelled generation keeps the existing lighting and text/navigation.
       void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
@@ -1861,6 +1875,7 @@ export function GeometryPreview({
     session,
     publicSource,
     viewerBudget,
+    resourceBudget,
     restart,
     transparentSpace,
     editingEnabled,
@@ -1872,6 +1887,7 @@ export function GeometryPreview({
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
+      {materialIssueCount>0&&<p role="status">마감 텍스처 {materialIssueCount}종의 표시를 완료하지 못했어요. 저장된 재질 설정은 유지됩니다.</p>}
       {seatedBenchId&&<button ref={benchReturnButton} className="bench-return" disabled={suspendNavigation} onClick={()=>walkingActions.current?.stand?.()}>일어서서 이전 위치로 돌아가기</button>}
       <div className="geometry-stage">
         <div className="geometry-render-host" ref={host} />

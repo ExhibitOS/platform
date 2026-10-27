@@ -4,13 +4,14 @@ import {NATIVE_PLAQUE_INSPECTOR_CAPABILITY,checkedPlaqueInspectorRequest,nativeP
 import {createRoot} from 'react-dom/client';
 import {useEffect,useMemo,useState} from 'react';
 import {GeometryPreview,type EntranceScenePreview} from './GeometryPreview';
+import {DEVICE_BUDGETS} from './viewer/loading';
 import {NativeEntranceHost} from './NativeEntranceHost';
 import {NativeEntrancePreview} from './native-entrance-preview';
 import {NATIVE_ENTRANCE_PREVIEW_CAPABILITY,type EntrancePreviewReply} from './native-entrance-preview-protocol';
 import type {EntranceStage} from './entrance-entry';
 import {waitForCoverLayout} from './cover-ready';
 import {StudioFloorPlan} from './StudioFloorPlan';
-import {freezeCanonical,materialFor} from '@exhibitos/studio-contract';
+import {freezeCanonical,materialFor,SURFACE_MATERIAL_TEXTURE_CAPABILITY} from '@exhibitos/studio-contract';
 import type {Session} from './cms-client';
 import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
@@ -26,7 +27,7 @@ import {NATIVE_BENCH_INSPECTOR_CAPABILITY,checkedBenchInspectorRequest,nativeBen
 import {NATIVE_LIGHT_DETAILS_CAPABILITY,checkedLightDetailsRequest,nativeLightDetailsCandidate,type LightDetailsRequest} from './native-light-details';
 import {NATIVE_SPACE_SETTINGS_CAPABILITY,checkedSpaceSettingsRequest,nativeSpaceSettingsCandidate,type SpaceSettingsRequest} from './native-space-settings';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
  accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES}>;
  entrancePreview:(v:unknown)=>Promise<EntrancePreviewReply>;
@@ -240,7 +241,7 @@ function Viewport(){
   },
  };
  return <><div className="native-viewport-surface" hidden={plan} inert={plan}>
-  <GeometryPreview fillHost document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
+  <GeometryPreview fillHost resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
    placementPreview={placementInstaller} placementPreviewVersion={placementVersion} appearance={appearance} onEntranceSceneReady={scene=>{entranceScene=scene??undefined;if(!scene)entrancePreview.invalidate();}} onRenderState={report=>{post(frame,'status',report);const placed=new Set(frame.draft.candidate.placements.map(p=>p.artworkRevisionId));setEntranceStage({ready:report.ready&&report.navigationReady&&(report.loaded>0||placed.size===0),error:report.navigationFailed||(report.loaded===0&&report.failed>0&&report.failed>=placed.size),message:report.message,phase:!report.ready?'space':report.loaded===0&&placed.size>0?'artwork':'navigation'});}}/>
  </div><div className="native-viewport-surface native-viewport-plan" hidden={!plan} inert={!plan}>
   <StudioFloorPlan document={shownPreview?.candidate??frame.draft.candidate} editor={planEditor}/>

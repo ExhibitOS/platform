@@ -1,5 +1,5 @@
 import { AdvancedArchitectureEditor } from "./AdvancedArchitectureEditor";
-import { materialFor } from "@exhibitos/studio-contract";
+import { materialFor,surfaceTextureFor,surfaceTextureDefaults,SURFACE_TEXTURE_PACK_IDS,type SurfaceTexturePackId } from "@exhibitos/studio-contract";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Draft } from "./drafts/store";
 import type { ComponentProps } from "react";
@@ -158,6 +158,7 @@ export function GeometryEditor({
     [roughness, setRoughness] = useState("0.8"),
     [metalness, setMetalness] = useState("0"),
     [secondDoor, setSecondDoor] = useState("");
+  const [texturePack,setTexturePack]=useState<SurfaceTexturePackId|''>('');
   const document = state.present;
   useEffect(() => {
     if (
@@ -214,6 +215,7 @@ export function GeometryEditor({
       setColor(material.color);
       setRoughness(String(material.roughness));
       setMetalness(String(material.metalness));
+      setTexturePack(surfaceTextureFor(document,surface.id)?.pack.id??'');
     }
     if (selection.kind === "opening") {
       const opening = selected as Document["openings"][number];
@@ -675,6 +677,11 @@ export function GeometryEditor({
           {selectedSurface && (
             <fieldset>
               <legend>표면 PBR 재질</legend>
+              {(selectedSurface.type==='wall'||selectedSurface.type==='ceiling')&&<label>표면 마감
+                <select aria-label="표면 마감" value={texturePack} onChange={event=>{const id=event.target.value;if(id===''){setTexturePack('');return;}if(!SURFACE_TEXTURE_PACK_IDS.includes(id as SurfaceTexturePackId))return;const value=surfaceTextureDefaults(id as SurfaceTexturePackId);setTexturePack(id as SurfaceTexturePackId);setColor(value.material.color);setRoughness(String(value.material.roughness));setMetalness(String(value.material.metalness));}}>
+                  <option value="">단색</option><option value="museum-matte-paint">무광 페인트</option><option value="fine-lime-plaster">고운 석회 미장</option>
+                </select>
+              </label>}
               <label>
                 표면 색상
                 <input
@@ -714,32 +721,23 @@ export function GeometryEditor({
                         roughness,
                         metalness,
                       ]);
-                      execute({
-                        type: "set-material",
-                        surfaceId: selectedSurface.id,
-                        material: { color, roughness: r, metalness: m },
-                      });
+                      if(selectedSurface.type==='wall'||selectedSurface.type==='ceiling'){
+                        const current=surfaceTextureFor(document,selectedSurface.id),texture=texturePack?(current?.pack.id===texturePack?current:surfaceTextureDefaults(texturePack).texture):null;
+                        execute({type:'set-material-texture',surfaceId:selectedSurface.id,material:{color,roughness:r,metalness:m},texture});
+                      }else execute({type:'set-material',surfaceId:selectedSurface.id,material:{color,roughness:r,metalness:m}});
                     })
                   }
                 >
                   표면 재질 적용
                 </button>
                 <button
-                  onClick={() =>
-                    execute({
-                      type: "set-material",
-                      surfaceId: selectedSurface.id,
-                      material: null,
-                    })
-                  }
+                  onClick={() => execute(selectedSurface.type==='wall'||selectedSurface.type==='ceiling'?{type:'set-material-texture',surfaceId:selectedSurface.id,material:null,texture:null}:{type:'set-material',surfaceId:selectedSurface.id,material:null})}
                 >
                   표면 재질 기본값
                 </button>
               </div>
               <p className="cms-note">
-                색상·거칠기·금속성을 로컬 3D 미리보기에 적용합니다. 텍스처·외부
-                URL을 불러오지 않습니다. 재질은 version 1의
-                org.exhibitos.studio/materials 확장에 저장됩니다.
+                선택한 마감과 색상·거칠기·금속성을 미리보기에 적용합니다. 적용 전에는 현재 마감을 유지합니다.
               </p>
             </fieldset>
           )}

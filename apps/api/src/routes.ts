@@ -1,3 +1,6 @@
+import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
+import {surfaceMaterialCatalog} from './surface-materials.ts';
+import {furnishingAsset,type FurnishingCatalogId} from '@exhibitos/studio-contract';
 import { OperationalMetrics } from './operational-metrics.ts';
 import { Privacy } from './privacy.ts';
 import { Preservation } from './preservation.ts';
@@ -65,6 +68,17 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ const furnishingRole=(s:Session)=>{if(!['admin','artist','curator'].includes(s.role))throw new ApiError(403,'FORBIDDEN');};
+ app.get(`${prefix}/studio/materials`,call(false,async(_c,s)=>{furnishingRole(s);return surfaceMaterialCatalog();}));
+ app.get(`${prefix}/studio/materials/:id/:version/preview`,call(false,async(_c,s)=>{furnishingRole(s);throw new ApiError(404,'MATERIAL_PREVIEW_UNAVAILABLE');}));
+ app.get(`${prefix}/studio/furnishings`,call(false,async(_c,s)=>{furnishingRole(s);return furnishingCatalog();}));
+ app.get(`${prefix}/studio/furnishings/:catalogId/:catalogVersion/:role`,call(false,async(_c,s,req,reply)=>{
+  furnishingRole(s);const p=req.params as {catalogId:string;catalogVersion:string;role:string};
+  if(p.catalogVersion!=='1'||!['model','notice'].includes(p.role))throw new ApiError(404,'FURNISHING_UNAVAILABLE');
+  let asset;try{asset=furnishingAsset('10000000-0000-4000-8000-000000000001',p.catalogId as FurnishingCatalogId);}catch{throw new ApiError(404,'FURNISHING_UNAVAILABLE');}
+  const bytes=await readFurnishingBytes(asset,p.role as 'model'|'notice');return reply.header('content-type',p.role==='model'?'model/gltf-binary':'text/plain; charset=utf-8').send(bytes);
+ }));
+
  const operationalMetrics=new OperationalMetrics(store);
  app.get(`${prefix}/operations/metrics`,call(false,async(c,s,_req,reply)=>{reply.header('cache-control','no-store');return operationalMetrics.observe(c,s);}));
 

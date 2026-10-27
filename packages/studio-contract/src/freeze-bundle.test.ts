@@ -37,7 +37,9 @@ describe('freeze Spec provenance compatibility',()=>{
  });
 });
 
-it('binds new floor and still OEX formats only to the exact qualified Spec7 artifact',()=>{
+it('binds portable resource formats only to exact qualified artifacts',()=>{
  for(const oex of ['1.0.0-draft.2','1.0.0-draft.4','1.0.0-draft.5']){const m=manifest();m.formats.specPackage='0.1.0-draft.7';m.formats.specSha256='29bb5b084788d13e57cc52541585b0bb8da26611e9a46e297a693f9dbc674cd2';m.formats.oex=oex;expect(()=>validateFreezeManifest(m)).not.toThrow();}
+ for(const oex of ['1.0.0-draft.2','1.0.0-draft.4','1.0.0-draft.5','1.0.0-draft.7']){const m=manifest();m.formats.specPackage='0.1.0-draft.9';m.formats.specSha256='dbaacc7c16d82b10992fe95ac35f0aca35d2781a65a0ee1a1af69dae1f838d5a';m.formats.oex=oex;expect(()=>validateFreezeManifest(m)).not.toThrow();}
+ for(const patch of [{specSha256:hash},{oex:'1.0.0-draft.6'},{oex:['1.0.0-draft.7']}]){const m=manifest();Object.assign(m.formats,{specPackage:'0.1.0-draft.9',specSha256:'dbaacc7c16d82b10992fe95ac35f0aca35d2781a65a0ee1a1af69dae1f838d5a',oex:'1.0.0-draft.7'},patch);expect(()=>validateFreezeManifest(m)).toThrow('FREEZE_FORMAT_UNSUPPORTED');}
  for(const patch of [{specPackage:'0.1.0-draft.7',specSha256:'29bb5b084788d13e57cc52541585b0bb8da26611e9a46e297a693f9dbc674cd2',oex:['1.0.0-draft.5']},{oex:'1.0.0-draft.5'},{specPackage:'0.1.0-draft.7',specSha256:hash,oex:'1.0.0-draft.5'},{specPackage:'0.1.0-draft.7',specSha256:'29bb5b084788d13e57cc52541585b0bb8da26611e9a46e297a693f9dbc674cd2',oex:'1.0.0-draft.99'}]){const m=manifest();Object.assign(m.formats,patch);expect(()=>validateFreezeManifest(m)).toThrow('FREEZE_FORMAT_UNSUPPORTED');}
 });

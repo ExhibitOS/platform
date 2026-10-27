@@ -35,7 +35,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  switch(table){
  case 'assets':add(row.object_key,true,row.bytes,row.sha256,':source');add(row.target_key,row.state==='stored'||row.state==='approved',row.bytes,row.sha256,':target');break;
  case 'asset_derivatives':if(obj(row.metadata)&&row.metadata.objectKey!==undefined)add(row.metadata.objectKey,true,row.metadata.bytes,row.metadata.sha256,':derivative');break;
- case 'publication_assets':case 'publication_media':case 'publication_cover_images':case 'studio_floor_resources':add(row.object_key,true,row.bytes,row.sha256);break;
+ case 'publication_assets':case 'publication_media':case 'publication_cover_images':case 'studio_floor_resources':case 'studio_furnishing_resources':case 'studio_surface_material_resources':add(row.object_key,true,row.bytes,row.sha256);break;
  case 'studio_audio':case 'studio_cover_images':add(row.object_key,row.state!=='uploading',row.bytes,row.sha256);break;
  case 'import_jobs':add(row.object_key,row.state==='queued'||row.state==='processing'||row.state==='approved',row.expected_bytes,row.expected_hash,':source');add(row.approved_key,row.state==='approved',row.expected_bytes,row.expected_hash,':approved');break;
  case 'oex_import_jobs':{
@@ -61,7 +61,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  return {references,issues};
 }
 const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
-const referencedTables=new Set(['assets','asset_derivatives','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','import_jobs','oex_import_jobs','freeze_requests','exhibition_freezes']);
+const referencedTables=new Set(['assets','asset_derivatives','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','import_jobs','oex_import_jobs','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
 export type MigrationCatalogEntry = {name:string;sha256:string};

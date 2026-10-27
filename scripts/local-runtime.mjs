@@ -15,7 +15,7 @@ import { buildApp } from "../apps/api/dist/app.js";
 import { loadFreezeConfig } from "../apps/api/dist/freeze.js";
 import { Imports } from "../apps/api/dist/imports.js";
 
-import {FLOOR_TEXTURE_FILES} from "@exhibitos/studio-contract";
+import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
 
 const MAX_BODY = 65 * 1024 * 1024;
 // Native execution has no container port mapping. Bind both listeners to
@@ -35,7 +35,7 @@ export function localRuntimeNetwork(environment) {
   return { mode, port, apiPort, proxyPort: port, proxyHost: "127.0.0.1" };
 }
 const hop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto"]);
-const mime = path => path.endsWith(".html") ? "text/html; charset=utf-8" : path.endsWith(".js") || path.endsWith(".mjs") ? "application/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".json") ? "application/json" : FLOOR_TEXTURE_FILES.some(file=>file.path===path) ? "image/png" : "text/plain; charset=utf-8";
+const mime = path => path.endsWith(".html") ? "text/html; charset=utf-8" : path.endsWith(".js") || path.endsWith(".mjs") ? "application/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".json") ? "application/json" : [...FLOOR_TEXTURE_FILES,...SURFACE_TEXTURE_FILES].some(file=>file.path===path) ? "image/png" : "text/plain; charset=utf-8";
 async function safeStatic(root, path) {
   let current = root;
   for (const segment of path.split("/")) { current = join(current, segment); if ((await lstat(current)).isSymbolicLink()) throw Error("STATIC_PATH_INVALID"); }
@@ -45,7 +45,7 @@ async function safeStatic(root, path) {
 }
 export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
   const root = await realpath(webRoot), allowed = new Set(["basis/basis_transcoder.js", "basis/basis_transcoder.wasm", "basis/exhibitos-basis-worker.js","index.html", "native-viewport.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
-  for(const file of FLOOR_TEXTURE_FILES)allowed.add(file.path);
+  for(const file of [...FLOOR_TEXTURE_FILES,...SURFACE_TEXTURE_FILES])allowed.add(file.path);
   for (const name of await readdir(join(root, "assets"))) if (/^[-\w.]+\.(?:js|css)$/.test(name)) allowed.add(`assets/${name}`);
   const expectedHost = new URL(origin).host;
   const server = createServer(async (req, reply) => {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {test,expect} from 'vitest';
+import {test,expect,vi} from 'vitest';
+import {createHash} from 'node:crypto';
 import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {FLOOR_NAMESPACE,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
-import {floorUvs,floorTexturePlan} from './floor-texture-renderer';
+import {FLOOR_NAMESPACE,FLOOR_TEXTURE_FILES,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
+import {floorUvs,floorTexturePlan,fetchFloorTexture,createRegisteredMaterialTextureRenderer,type MaterialTextureFile} from './floor-texture-renderer';
 const room='11111111-1111-4111-8111-111111111111',surface='22222222-2222-4222-8222-222222222222';
 const binding:FloorBinding={...floorPresetDefaults('wood'),target:{kind:'surface',surfaceId:surface},repeatMeters:[2,4],rotation:0};
 test('separate panels keep continuous meter UVs through room/surface scale and room rotation',()=>{
@@ -33,4 +34,40 @@ test('only active referenced packs reserve memory; all four fit by shared bounde
  for(const budget of [24*1024*1024,90*1024*1024]){const plan=floorTexturePlan(doc,budget<30*1024*1024?512:2048,budget);expect(plan.packs).toHaveLength(4);expect(plan.reserveBytes).toBeLessThanOrEqual(Math.floor(budget*.65));expect(plan.maxSize).toBeGreaterThanOrEqual(128);}
  const inactive=floorTexturePlan(documentFor([{...binding,target:{kind:'room-base',roomId:room}}]),512,32*1024*1024);expect(inactive.reserveBytes).toBe(0);expect(inactive.packs).toEqual([]);
  const blocked=floorTexturePlan(documentFor([binding]),512,1);expect(blocked.packs).toEqual([]);expect(blocked.blocked).toEqual(['WoodFloor051']);
+});
+test('the shared reader retains registered legacy floor paths and rejects copied descriptors',async()=>{
+ const file=FLOOR_TEXTURE_FILES[0]!,signal=new AbortController().signal,paths:string[]=[];
+ const fetcher=(async(path:string|URL|Request)=>{paths.push(String(path));return new Response(null,{status:404});}) as typeof fetch;
+ await expect(fetchFloorTexture(file,signal,fetcher)).rejects.toThrow('FLOOR_TEXTURE_RESPONSE');
+ expect(paths).toEqual(['/'+file.path]);
+ await expect(fetchFloorTexture({...file},signal,fetcher)).rejects.toThrow('FLOOR_TEXTURE_DESCRIPTOR');
+ expect(paths).toHaveLength(1);
+});
+test('identical PNG bytes used for color and a scalar map retain distinct GPU color spaces',async()=>{
+ const bytes=new Uint8Array([1,2,3]),sha256=createHash('sha256').update(bytes).digest('hex'),closed=vi.fn();
+ const color:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256,width:1,height:1,colorSpace:'srgb'},roughness:MaterialTextureFile={...color,colorSpace:'linear'};
+ const pack={id:'test',maps:{color,roughness}},material=new three.MeshStandardMaterial(),binding={normalScale:1};
+ vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close:closed}));
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:64,sizeFor:()=>1},[color,roughness],()=>pack,new AbortController().signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ try{loader.add(material,binding);expect(await loader.start(()=>{})).toEqual({test:'ready'});expect(material.map).not.toBe(material.roughnessMap);expect(material.map!.colorSpace).toBe(three.SRGBColorSpace);expect(material.roughnessMap!.colorSpace).toBe(three.NoColorSpace);}
+ finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+ expect(closed).toHaveBeenCalledTimes(2);expect(material.map).toBeNull();expect(material.roughnessMap).toBeNull();
+});
+test('a failed pack releases only its own leases on an already displayed shared texture',async()=>{
+ const bytes=new Uint8Array([1,2,3]),closed=vi.fn(),shared:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256:createHash('sha256').update(bytes).digest('hex'),width:1,height:1},bad:MaterialTextureFile={...shared,path:'material-test/missing.png',sha256:'0'.repeat(64)};
+ const ready={id:'ready',maps:{color:shared}},failed={id:'failed',maps:{color:shared,normal:bad}},a=new three.MeshStandardMaterial(),b=new three.MeshStandardMaterial();
+ vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close:closed}));
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[ready,failed],blocked:[],residentBytes:128,sizeFor:()=>1},[shared,bad],(binding:{normalScale:number;pack:typeof ready|typeof failed})=>binding.pack,new AbortController().signal,()=>false,(async(path)=>String(path).includes('missing')?new Response(null,{status:404}):new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ try{loader.add(a,{normalScale:1,pack:ready});loader.add(b,{normalScale:1,pack:failed});expect(await loader.start(()=>{})).toEqual({ready:'ready',failed:'fallback'});expect(a.map).not.toBeNull();expect(b.map).toBeNull();expect(closed).not.toHaveBeenCalled();}
+ finally{loader.dispose();a.dispose();b.dispose();vi.unstubAllGlobals();}
+ expect(closed).toHaveBeenCalledTimes(1);
+});
+test('linear map output sizes stay distinct and notification failure keeps published textures alive',async()=>{
+ const bytes=new Uint8Array([1,2,3]),closed=vi.fn(),normal:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256:createHash('sha256').update(bytes).digest('hex'),width:4,height:4,colorSpace:'linear'},roughness={...normal};
+ const pack={id:'test',maps:{roughness,normal}},material=new three.MeshStandardMaterial();
+ vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number;resizeHeight?:number})=>({width:options?.resizeWidth??4,height:options?.resizeHeight??4,close:closed}));
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:256,sizeFor:f=>f===roughness?2:4},[normal,roughness],()=>pack,new AbortController().signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ try{loader.add(material,{normalScale:1});expect(await loader.start(()=>{throw Error('render failed');})).toEqual({test:'render-failed'});expect(material.normalMap).not.toBe(material.roughnessMap);expect(material.normalMap!.image).toMatchObject({width:4});expect(material.roughnessMap!.image).toMatchObject({width:2});expect(closed).toHaveBeenCalledTimes(1);}
+ finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+ expect(closed).toHaveBeenCalledTimes(3);
 });
