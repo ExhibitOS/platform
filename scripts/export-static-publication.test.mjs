@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile,mkdtemp,mkdir,writeFile,lstat,readdir,rm,symlink,truncate } from "node:fs/promises";
+import { readFile,mkdtemp,mkdir,writeFile,lstat,readdir,rm,symlink,truncate,copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join,dirname } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
+import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles} from '@exhibitos/studio-contract';
 const sha=b=>createHash("sha256").update(b).digest("hex");
 test('approved Viewer favicon exports exact bytes and rejects a changed SVG',async t=>{
  const {runtime,options,directory}=await setup(t);
@@ -105,14 +106,24 @@ test("static bootstrap insertion preserves literal dollar title through the actu
  assert(html.includes('<h1>$&amp; title $` $&#39;</h1>'));assert(!html.includes('STATIC_COVER_SHELL'));assert(html.includes('<title>$&amp; title $` $&#39;</title>'));
 });
 
-test('floor metadata survives static export without invented media or sound',async t=>{
- const {fixture,options}=await setup(t),e=fixture.raw.exhibition,namespace='org.exhibitos.studio/floors';
+test('selected floor maps and notices survive static export with integrity and no invented artwork or sound',async t=>{
+ const {fixture,options,runtime,directory}=await setup(t),e=fixture.raw.exhibition,namespace='org.exhibitos.studio/floors';
  const room=e.rooms[0],floor={id:'50000000-0000-4000-8000-000000000021',roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}};
  e.surfaces.push(floor);
  const floors={version:1,bindings:[{target:{kind:'surface',surfaceId:floor.id},preset:'wood',repeatMeters:[1.8,1.8],rotation:0,normalScale:0,aoStrength:0}]};
  e.extensions={...e.extensions,[namespace]:floors};fixture.raw.publication.revisionSha256=revisionHash(e);
+ // Simulate a complete app runtime; export must include only the selected pack.
+ for(const file of FLOOR_TEXTURE_FILES){const target=join(runtime,file.path);await mkdir(dirname(target),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),target);}
  const result=await exportStaticPublication(options),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'))),published=JSON.parse(await readFile(join(result.output,index.publication.path)));
  assert.deepEqual(published.exhibition.extensions[namespace],floors);assert.equal(index.assets.length,3);
+ const selected=floorTextureFiles(FLOOR_TEXTURE_PACKS.find(p=>p.id==='WoodFloor051'));
+ const manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'))),maps=manifest.files.filter(f=>f.path.startsWith('floor-textures/'));
+ assert.deepEqual(maps.map(f=>f.path).sort(),selected.map(f=>f.path).sort());
+ for(const file of selected){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ const notices=await readFile(join(result.output,'floor-texture-notices.txt'),'utf8');assert(notices.includes('WoodFloor051'));assert(!notices.includes('Marble006'));assert(!notices.includes('/Volumes/'));
+ const first=selected[0],bad=await readFile(join(runtime,first.path));bad[bad.length-1]^=1;await writeFile(join(runtime,first.path),bad);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt-floor')}),/STATIC_FLOOR_INTEGRITY/);
+ await rm(join(runtime,first.path));await assert.rejects(exportStaticPublication({...options,output:join(directory,'missing-floor')}),/STATIC_FLOOR_MISSING/);
 });
 test('invalid floor references cannot bypass static profile admission',async t=>{
  const {fixture,options}=await setup(t),e=fixture.raw.exhibition;
