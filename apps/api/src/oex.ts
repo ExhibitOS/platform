@@ -1,4 +1,5 @@
 import {floorResourceBytes} from './floor-resources.ts';
+import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {OEX_FLOOR_RESOURCE_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
 import type {FloorResourceEntry} from '@exhibitos/spec/floor-resources';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
@@ -78,11 +79,13 @@ export function remapOex(e:Exhibition){
  for(const v of presentation?.viewpoints??[])if(!ids.has(v.id.toLowerCase()))ids.set(v.id.toLowerCase(),randomUUID());
  const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(REFERENCE_FIELDS.has(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[field==='surfaces'?(ids.get(k.toLowerCase())??k):k,visit(x,k)])):v;
  const source=structuredClone(e),spatial=source.extensions?.[SPATIAL_NAMESPACE] as unknown as SpatialProgram|undefined;
+ const materials=source.extensions?.[MATERIAL_NAMESPACE] as unknown as StudioMaterials|undefined;
  const floors=source.extensions?.[FLOOR_NAMESPACE] as unknown as StudioFloors|undefined;
  const lightDetails=source.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
- if(source.extensions){delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ if(source.extensions){delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
  const exhibition=visit(source)as Exhibition;
+ if(materials)exhibition.extensions={...exhibition.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(floors)exhibition.extensions={...exhibition.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(lightDetails)exhibition.extensions={...exhibition.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(finishes)exhibition.extensions={...exhibition.extensions,[ARCHITECTURAL_FINISH_NAMESPACE]:remapArchitecturalFinishes(finishes,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};

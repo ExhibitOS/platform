@@ -62,3 +62,11 @@ export function surfaceTextureMaterialMap(candidate:Exhibition,command:SurfaceMa
  if(validateSurfaceTextures(candidate,map as unknown as Record<string,unknown>).length||new TextEncoder().encode(JSON.stringify(map)).length>16384)throw Error('SURFACE_TEXTURE_INVALID');
  return map;
 }
+/** Only typed material surface keys are identities. Pack IDs, sample settings
+ * and unrelated namespace content are not rewritten during an OEX fork. */
+export function remapStudioMaterials(materials:StudioMaterials,ids:ReadonlyMap<string,string>):StudioMaterials {
+ const copy=structuredClone(materials),remap=(id:string)=>ids.get(id.toLowerCase())??id;
+ copy.surfaces=Object.fromEntries(Object.entries(copy.surfaces).map(([id,value])=>[remap(id),value]));
+ if(copy.surfaceTextures)copy.surfaceTextures=Object.fromEntries(Object.entries(copy.surfaceTextures).map(([id,value])=>[remap(id),value]));
+ return copy;
+}

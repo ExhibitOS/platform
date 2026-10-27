@@ -2,7 +2,7 @@
 import {test,expect} from 'vitest';
 import type {Exhibition} from '@exhibitos/spec';
 import {materialFor,validateStudioMaterials,MATERIAL_NAMESPACE,type StudioMaterials} from './index.js';
-import {surfaceTextureDefaults,surfaceTextureMaterialMap,surfaceTextureFor,type SurfaceMaterialTextureCommand} from './surface-textures.js';
+import {surfaceTextureDefaults,surfaceTextureMaterialMap,surfaceTextureFor,remapStudioMaterials,type SurfaceMaterialTextureCommand} from './surface-textures.js';
 const id='aaaaaaaa-0000-4000-8000-000000000001',other='aaaaaaaa-0000-4000-8000-000000000002';
 const fixture=()=>({surfaces:[{id,type:'wall'},{id:other,type:'ceiling'}],extensions:{'org.example/opaque':{text:id}}}) as unknown as Exhibition;
 const command=():SurfaceMaterialTextureCommand=>({type:'set-material-texture',surfaceId:id,material:null,texture:surfaceTextureDefaults('museum-matte-paint').texture});
@@ -25,4 +25,10 @@ test('unknown roles, paths, versions, floor targets, nonfinite or out-of-budget 
  const e=fixture();e.surfaces[0]!.type='floor';expect(()=>apply(e)).toThrow('SURFACE_TEXTURE_REFERENCE');
  const malformed=apply(fixture());malformed.surfaces[0]!.type=['wall'] as never;expect(validateStudioMaterials(malformed).valid).toBe(false);
  const valid=apply(fixture()),map=valid.extensions![MATERIAL_NAMESPACE] as unknown as StudioMaterials;map.surfaceTextures![id.toUpperCase()]=structuredClone(map.surfaceTextures![id]!);expect(validateStudioMaterials(valid).valid).toBe(false);
+});
+test('OEX forks remap both typed surface maps while preserving catalogue identity, settings and optional empty maps',()=>{
+ const e=apply(fixture(),{...command(),material:{color:'#aabbcc',roughness:.4,metalness:.1}}),map=e.extensions![MATERIAL_NAMESPACE] as unknown as StudioMaterials,before=structuredClone(map),target='bbbbbbbb-0000-4000-8000-000000000001';
+ const remapped=remapStudioMaterials(map,new Map([[id.toLowerCase(),target]]));
+ expect(remapped.surfaces[target]).toEqual(map.surfaces[id]);expect(remapped.surfaceTextures![target]).toEqual(map.surfaceTextures![id]);expect(remapped.surfaceTextures![id]).toBeUndefined();expect(map).toEqual(before);
+ expect(remapStudioMaterials({version:1,surfaces:{},surfaceTextures:{}},new Map())).toEqual({version:1,surfaces:{},surfaceTextures:{}});
 });
