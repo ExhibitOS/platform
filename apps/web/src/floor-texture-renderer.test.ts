@@ -2,8 +2,8 @@
 import {test,expect} from 'vitest';
 import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {FLOOR_NAMESPACE,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
-import {floorUvs,floorTexturePlan} from './floor-texture-renderer';
+import {FLOOR_NAMESPACE,FLOOR_TEXTURE_FILES,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
+import {floorUvs,floorTexturePlan,fetchFloorTexture} from './floor-texture-renderer';
 const room='11111111-1111-4111-8111-111111111111',surface='22222222-2222-4222-8222-222222222222';
 const binding:FloorBinding={...floorPresetDefaults('wood'),target:{kind:'surface',surfaceId:surface},repeatMeters:[2,4],rotation:0};
 test('separate panels keep continuous meter UVs through room/surface scale and room rotation',()=>{
@@ -33,4 +33,12 @@ test('only active referenced packs reserve memory; all four fit by shared bounde
  for(const budget of [24*1024*1024,90*1024*1024]){const plan=floorTexturePlan(doc,budget<30*1024*1024?512:2048,budget);expect(plan.packs).toHaveLength(4);expect(plan.reserveBytes).toBeLessThanOrEqual(Math.floor(budget*.65));expect(plan.maxSize).toBeGreaterThanOrEqual(128);}
  const inactive=floorTexturePlan(documentFor([{...binding,target:{kind:'room-base',roomId:room}}]),512,32*1024*1024);expect(inactive.reserveBytes).toBe(0);expect(inactive.packs).toEqual([]);
  const blocked=floorTexturePlan(documentFor([binding]),512,1);expect(blocked.packs).toEqual([]);expect(blocked.blocked).toEqual(['WoodFloor051']);
+});
+test('the shared reader retains registered legacy floor paths and rejects copied descriptors',async()=>{
+ const file=FLOOR_TEXTURE_FILES[0]!,signal=new AbortController().signal,paths:string[]=[];
+ const fetcher=(async(path:string|URL|Request)=>{paths.push(String(path));return new Response(null,{status:404});}) as typeof fetch;
+ await expect(fetchFloorTexture(file,signal,fetcher)).rejects.toThrow('FLOOR_TEXTURE_RESPONSE');
+ expect(paths).toEqual(['/'+file.path]);
+ await expect(fetchFloorTexture({...file},signal,fetcher)).rejects.toThrow('FLOOR_TEXTURE_DESCRIPTOR');
+ expect(paths).toHaveLength(1);
 });

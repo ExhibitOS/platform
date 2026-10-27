@@ -4,6 +4,10 @@ import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTexturePack,type FloorBinding,type FloorMapRole,type FloorTextureFile,type FloorTexturePackDescriptor} from '@exhibitos/studio-contract';
 import {MemoryAssetCache,textureResidentBytes} from './viewer/loading';
 
+export interface MaterialTextureFile extends Omit<FloorTextureFile,'width'|'height'> {readonly width:number;readonly height:number}
+export interface MaterialTexturePack {readonly id:string;readonly maps:Readonly<Partial<Record<FloorMapRole,MaterialTextureFile>>>}
+interface TextureBinding {normalScale?:number;aoStrength?:number}
+
 /** Same scene budget as artwork. Encoded, full decode, resized bitmap and GPU
  * residency are separate; only referenced packs are considered. */
 export function floorTexturePlan(document:Exhibition,maxTextureSize:number,availableBytes:number){
@@ -21,7 +25,13 @@ export function floorTexturePlan(document:Exhibition,maxTextureSize:number,avail
 /** Registry identity, same-origin root path and exact bytes only. These are
  * built-in assets, not artwork UUIDs or provider network resources. */
 export async function fetchFloorTexture(file:FloorTextureFile,signal:AbortSignal,fetcher:typeof fetch=fetch){
- if(!FLOOR_TEXTURE_FILES.includes(file))throw Error('FLOOR_TEXTURE_DESCRIPTOR');
+ return fetchRegisteredMaterialTexture(file,FLOOR_TEXTURE_FILES,signal,fetcher);
+}
+
+/** The registry is compiled product data, never an exhibition-provided path.
+ * Floor and wall materials share the same bounded, verified byte reader. */
+export async function fetchRegisteredMaterialTexture(file:MaterialTextureFile,registry:readonly MaterialTextureFile[],signal:AbortSignal,fetcher:typeof fetch=fetch){
+ if(!registry.includes(file)||!/^(?:[a-zA-Z0-9_-]+\/)+[a-zA-Z0-9_-]+\.png$/.test(file.path))throw Error('FLOOR_TEXTURE_DESCRIPTOR');
  const boundedSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]);
  const response=await fetcher('/'+file.path,{signal:boundedSignal,credentials:'omit',redirect:'error',cache:'force-cache'});
  if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!==file.mime){await response.body?.cancel().catch(()=>{});throw Error('FLOOR_TEXTURE_RESPONSE');}
@@ -46,20 +56,25 @@ export function floorUvs(three:typeof Three,geometry:Three.PlaneGeometry,parent:
 }
 
 type TextureValue={texture:Three.Texture;bitmap:ImageBitmap};
-type Target={material:Three.MeshStandardMaterial;binding:FloorBinding;pack:FloorTexturePackDescriptor};
 export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<typeof floorTexturePlan>,signal:AbortSignal,unavailable:()=>boolean,floorFetcher?:typeof fetch){
+ return createRegisteredMaterialTextureRenderer(three,{packs:plan.packs,blocked:plan.blocked,residentBytes:plan.residentBytes,sizeFor:()=>plan.maxSize},FLOOR_TEXTURE_FILES,floorTexturePack,signal,unavailable,floorFetcher);
+}
+
+export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch){
+ type Target={material:Three.MeshStandardMaterial;binding:B;pack:MaterialTexturePack};
  const targets:Target[]=[],cache=new MemoryAssetCache<TextureValue>(Math.max(1,plan.residentBytes),value=>{value.texture.dispose();value.bitmap.close();});
  let disposed=false;const inactive=()=>disposed||signal.aborted||unavailable();
- const add=(material:Three.MeshStandardMaterial,binding:FloorBinding)=>{const pack=floorTexturePack(binding);if(pack&&plan.packs.includes(pack))targets.push({material,binding,pack});};
- async function load(file:FloorTextureFile){
+ const add=(material:Three.MeshStandardMaterial,binding:B)=>{const pack=packFor(binding);if(pack&&plan.packs.includes(pack))targets.push({material,binding,pack});};
+ async function load(file:MaterialTextureFile){
   const known=cache.get(file.sha256);if(known)return known;
-  const bytes=await fetchFloorTexture(file,signal,floorFetcher);if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
+  const maxSize=plan.sizeFor(file);if(!Number.isSafeInteger(maxSize)||maxSize<1||maxSize>Math.max(file.width,file.height))throw Error('FLOOR_TEXTURE_BUDGET');
+  const bytes=await fetchRegisteredMaterialTexture(file,registry,signal,fetcher);if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
   let bitmap:ImageBitmap|undefined,texture:Three.Texture|undefined;
   try{
    bitmap=await createImageBitmap(new Blob([bytes],{type:file.mime}),{imageOrientation:'flipY',colorSpaceConversion:'none',premultiplyAlpha:'none'});
    if(bitmap.width!==file.width||bitmap.height!==file.height)throw Error('FLOOR_TEXTURE_DIMENSIONS');
    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
-   if(bitmap.width>plan.maxSize||bitmap.height>plan.maxSize){const original=bitmap;bitmap=undefined;try{bitmap=await createImageBitmap(original,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:plan.maxSize,resizeHeight:plan.maxSize,resizeQuality:'high'});}finally{original.close();}}
+   if(bitmap.width>maxSize||bitmap.height>maxSize){const original=bitmap;bitmap=undefined;try{bitmap=await createImageBitmap(original,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:maxSize,resizeHeight:maxSize,resizeQuality:'high'});}finally{original.close();}}
    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
    texture=new three.Texture(bitmap);texture.flipY=false;texture.colorSpace=file.colorSpace==='srgb'?three.SRGBColorSpace:three.NoColorSpace;
    texture.wrapS=texture.wrapT=three.RepeatWrapping;texture.minFilter=three.LinearMipmapLinearFilter;texture.magFilter=three.LinearFilter;texture.generateMipmaps=true;texture.needsUpdate=true;
@@ -81,7 +96,7 @@ export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<ty
      target.material.normalScale.setScalar(target.binding.normalScale??1);target.material.aoMap=maps.ao??null;target.material.aoMapIntensity=target.binding.aoStrength??1;target.material.needsUpdate=true;
     }
     status[pack.id]='ready';changed();
-   }catch{status[pack.id]=inactive()?'cancelled':'fallback';for(const file of floorTextureFiles(pack)){cache.release(file.sha256);cache.delete(file.sha256);}}
+   }catch{status[pack.id]=inactive()?'cancelled':'fallback';for(const file of Object.values(pack.maps)){if(file){cache.release(file.sha256);cache.delete(file.sha256);}}}
   }
   return status;
  },dispose(){if(disposed)return;disposed=true;for(const {material}of targets){material.map=null;material.roughnessMap=null;material.normalMap=null;material.aoMap=null;}cache.clear();targets.length=0;}};
