@@ -25,7 +25,7 @@ const uuid =
 export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(false);
+    [loading, setLoading] = useState(Boolean(initial));
   const generation = useRef(0);
   const entry=useEntranceEntry(),{mode,modeRef,stageReady,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState}=entry;
   const [viewerUnavailable, setViewerUnavailable] = useState(false);

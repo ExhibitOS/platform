@@ -2,12 +2,14 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import schema from '@exhibitos/spec/schemas/oex-media.json' with {type:'json'};
-import type {Exhibition,OexMediaManifest} from '@exhibitos/spec';
-import {freezeCanonical,validateViewerExperience,validateArtworkDetails} from '@exhibitos/studio-contract';
+import stillSchema from '@exhibitos/spec/schemas/oex-space-still.json' with {type:'json'};
+import type {Exhibition,OexMediaManifest,OexSpaceStillManifest} from '@exhibitos/spec';
+import {freezeCanonical,validateViewerExperience,validateArtworkDetails,spaceStillFor} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {validateDraft} from './drafts/validator';
 const ajv=new Ajv2020({strict:true,allErrors:false});addFormats(ajv,['uuid','date-time']);
 const validateManifest=ajv.compile(schema);
+const validateStillManifest=ajv.compile(stillSchema);
 export const MAX_OEX_BYTES=64*1024*1024;
 export async function freezeHash(bytes:Uint8Array):Promise<string>{return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes)))].map(x=>x.toString(16).padStart(2,'0')).join('');}
 const safe=(path:string)=>path.length<=240&&/^(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(path)&&path.split('/').every(p=>!p.endsWith('.')&&!/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p));
@@ -36,19 +38,22 @@ export interface FrozenOex {exhibition:Exhibition;assets:Map<string,{bytes:Uint8
 /** Call only after the signed outer envelope has verified the OEX digest and trusted authority. */
 export async function decodeFreezeOex(bytes:Uint8Array,expectedHash:string):Promise<FrozenOex>{
  const files=readFreezeZip(bytes),raw=json(files.get('manifest.json'));
- if([...files.keys()][0]!=='manifest.json'||!validateManifest(raw))throw Error('OEX_MANIFEST');const m=raw as OexMediaManifest;
+ const version=(raw as {formatVersion?:unknown}|null)?.formatVersion;if(version!=='1.0.0-draft.2'&&version!=='1.0.0-draft.4')throw Error('OEX_VERSION_UNSUPPORTED');
+ if([...files.keys()][0]!=='manifest.json'||!(version==='1.0.0-draft.4'?validateStillManifest(raw):validateManifest(raw)))throw Error('OEX_MANIFEST');const m=raw as OexMediaManifest|OexSpaceStillManifest;
  const eb=files.get('exhibition.json');if(!eb||eb.length!==m.exhibition.bytes||await freezeHash(eb)!==m.exhibition.sha256)throw Error('OEX_EXHIBITION_HASH');
  const exhibition=json(eb) as Exhibition,draft=newDraft();draft.exhibitionId=exhibition.id;draft.candidate=exhibition;
  if(!validateDraft(draft).valid||!validateViewerExperience(exhibition).valid||exhibition.artworks.some(a=>!validateArtworkDetails(a).valid))throw Error('OEX_EXHIBITION');
  const hash=await freezeHash(new TextEncoder().encode(freezeCanonical(exhibition)));
  if(hash!==expectedHash||hash!==m.exhibition.revisionSha256||exhibition.id!==m.exhibition.id||exhibition.revisionId!==m.exhibition.revisionId)throw Error('OEX_REVISION');
- const inventory=new Map<string,OexMediaManifest['assets'][number]>();
+ const still=spaceStillFor(exhibition);if(!!still!==(version==='1.0.0-draft.4'))throw Error('OEX_SPACE_STILL_PROFILE');
+ const inventory=new Map<string,OexSpaceStillManifest['assets'][number]>();
  exhibition.artworks.forEach((artwork,i)=>artwork.assets.forEach(asset=>{
   const id=asset.id.toLowerCase(),prior=inventory.get(id),rights=`exhibition.json#/artworks/${i}/rights`,provenance=`exhibition.json#/artworks/${i}/provenance`;
   if(prior){if(prior.artifactPath!==asset.path||prior.mime!==asset.mime||prior.sha256!==asset.sha256||prior.bytes!==asset.bytes)throw Error('OEX_ALIAS');if(!prior.rightsReferences.includes(rights))prior.rightsReferences.push(rights);if(!prior.provenanceReferences.includes(provenance))prior.provenanceReferences.push(provenance);}
   else inventory.set(id,{...asset,id:asset.id,kind:'artwork',path:'assets/'+asset.path,artifactPath:asset.path,rightsReferences:[rights],provenanceReferences:[provenance]});
  }));
  exhibition.mediaAssets.forEach((asset,i)=>{if(asset.mime!=='audio/wav')throw Error('OEX_MEDIA');const id=asset.id.toLowerCase();if(inventory.has(id))throw Error('OEX_ALIAS');inventory.set(id,{id:asset.id,kind:'media',path:'assets/'+asset.path,artifactPath:asset.path,mime:asset.mime,bytes:asset.bytes,sha256:asset.sha256,rightsReferences:[`exhibition.json#/mediaAssets/${i}/rights`],provenanceReferences:[]});});
+ if(still){if(inventory.has(still.id.toLowerCase()))throw Error('OEX_ALIAS');inventory.set(still.id.toLowerCase(),{id:still.id,kind:'space-still',path:'assets/'+still.path,artifactPath:still.path,mime:still.mime,bytes:still.bytes,sha256:still.sha256,rightsReferences:['exhibition.json#/extensions/org.exhibitos.viewer~1space-still/asset/rights'],provenanceReferences:[]});}
  // Artwork asset objects contain role and optional dimensions; package inventories deliberately do not.
  const expected=[...inventory.values()].map(a=>({id:a.id,kind:a.kind,path:a.path,artifactPath:a.artifactPath,mime:a.mime,bytes:a.bytes,sha256:a.sha256,rightsReferences:a.rightsReferences,provenanceReferences:a.provenanceReferences})).sort((a,b)=>a.id.toLowerCase().localeCompare(b.id.toLowerCase()));
  if(freezeCanonical(expected)!==freezeCanonical(m.assets)||files.size!==m.assets.length+2)throw Error('OEX_INVENTORY');

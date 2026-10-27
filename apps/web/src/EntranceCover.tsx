@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { entranceFor, MAX_COVER_BYTES } from '@exhibitos/studio-contract';
+import { entranceFor, MAX_COVER_BYTES,spaceStillFor } from '@exhibitos/studio-contract';
 import type { PublicPublication } from './publication-client';
 import { fetchVerifiedAsset } from './viewer/loading';
 import { waitForCoverLayout } from './cover-ready';
@@ -28,18 +28,19 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;
 }) {
   const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
+  const still=spaceStillFor(publication.exhibition),hasUsableImage=!!settings.imageAssetId&&(design.theme!=='threshold'||!!still);
   const [image, setImage] = useState<{url:string;width:number;height:number;generation:number}|null>(null);
   const [layoutReady,setLayoutReady]=useState(false);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
-  const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&settings.imageAssetId&&motion&&canReveal?'folded':'flat');
+  const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&hasUsableImage&&motion&&canReveal?'folded':'flat');
   const imageStateCallback=useRef(onImageState);imageStateCallback.current=onImageState;
-  const displayedImageState:ThemeProps['image']['status']=!showImage||!settings.imageAssetId?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+  const displayedImageState:ThemeProps['image']['status']=!showImage||!hasUsableImage?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
   useEffect(()=>{imageStateCallback.current?.(displayedImageState);},[displayedImageState]);
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
-    if(!interactive||!showImage||!settings.imageAssetId||failed||!motion||!canReveal)setPaper('flat');
+    if(!interactive||!showImage||!hasUsableImage||failed||!motion||!canReveal)setPaper('flat');
     else if(layoutReady)setPaper(state=>state==='folded'?'opening':state);
-  },[interactive,showImage,settings.imageAssetId,failed,motion,canReveal,layoutReady]);
+  },[interactive,showImage,hasUsableImage,failed,motion,canReveal,layoutReady]);
   useEffect(()=>{
     const compact=window.matchMedia('(max-width:700px)'),reduced=window.matchMedia('(prefers-reduced-motion:reduce)');
     const flatten=()=>setPaper('flat'),preference=()=>{if((compact.matches&&(design.theme==='catalogue'||design.effects.mobile==='none'))||reduced.matches)flatten();};
@@ -58,9 +59,9 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     const current=++generation.current, abort = new AbortController();
     let objectURL = '';
     setImage(null); setLoaded(false); setFailed(false);
-    if (!showImage || !settings.imageAssetId) return;
+    if (!showImage || !hasUsableImage || !settings.imageAssetId) return;
     const id = settings.imageAssetId.toLowerCase();
-    const inventory = publication.exhibition.artworks.flatMap(a => a.assets).find(a => a.id.toLowerCase() === id);
+    const inventory = publication.exhibition.artworks.flatMap(a => a.assets).find(a => a.id.toLowerCase() === id)??(still?.id.toLowerCase()===id?still:undefined);
     const asset = 'assets' in publication?publication.assets.find(a => a.assetId.toLowerCase() === id):undefined;
     if (!inventory || !source&&(!asset||!('publication' in publication))) { setFailed(true); return; }
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]);
@@ -85,7 +86,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
       setImage({url:objectURL,width:view.getUint32(16),height:view.getUint32(20),generation:current});
     }).catch(() => { if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
     return () => { abort.abort(); if(current===generation.current)generation.current++;if (objectURL) URL.revokeObjectURL(objectURL); };
-  }, [publication, showImage, settings.imageAssetId, retry,source]);
+  }, [publication, showImage, settings.imageAssetId, hasUsableImage,retry,source]);
   const displayed=()=>{if(image?.generation===generation.current)requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});};
   const imageFailed=()=>{if(image?.generation===generation.current)setFailed(true);};
   const phase=paper==='folded'&&layoutReady?'opening':paper;

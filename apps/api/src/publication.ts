@@ -23,6 +23,8 @@ import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
 import { qualifyApprovedTexturedPair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
 import { Audio, audioMedia, validatePcmWav, type MediaAsset } from "./audio.ts";
+import {CoverImages,coverImageAsset} from './cover-images.ts';
+import {SPACE_STILL_NAMESPACE,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
 import { allowedRights } from "./rights.ts";
 export interface PublicationIssue {
     code: string;
@@ -40,6 +42,7 @@ interface PreparedAsset {
     coarseSource?: {id:string;sha256:string};
 }
 interface PreparedMedia { source:MediaAsset; bytes:Buffer }
+interface PreparedCover {source:SpaceStillAsset;bytes:Buffer}
 interface PublicationRow {
     tenant_id: string;
     id: string;
@@ -81,12 +84,14 @@ export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha
     return low?.assetId===source.id&&asset?.sha256===source.sha256&&asset.bytes===source.bytes&&asset.mime===source.mime;
 }
 /** Only complete public fields and known presentation/material extensions cross the anonymous boundary. */
-export function projectPublication(candidate: Exhibition, prepared: PreparedAsset[], at: string, media: PreparedMedia[] = []) {
+export function projectPublication(candidate: Exhibition, prepared: PreparedAsset[], at: string, media: PreparedMedia[] = [],cover?:PreparedCover) {
     if(!validateStudioLightDetails(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     const doc = structuredClone(candidate), ids = new Map<string, string>(), assets: {
         id: string;
         prepared: PreparedAsset;
     }[] = [];
+    const still=spaceStillFor(candidate);
+    if(!!still!==!!cover||still&&cover&&(!equal(still,cover.source)||cover.bytes.length!==still.bytes||sha256(cover.bytes)!==still.sha256))throw new ApiError(422,'PUBLICATION_NOT_READY');
     const map = (id: string) => { const key = id.toLowerCase(); if (!ids.has(key))
         ids.set(key, randomUUID()); return ids.get(key)!; };
     const collect = (v: unknown): void => { if (Array.isArray(v))
@@ -99,7 +104,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
                 collect(x);
         } };
     // Unknown namespaces are retained privately but never implicitly published.
-    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
+    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
     const lightDetails=doc.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
     const finishes=doc.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
     const plaques=doc.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;
@@ -134,6 +139,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         return a;
     });
     doc.mediaAssets=media.map(p=>({...structuredClone(p.source),path:`media/${map(p.source.id)}/audio.wav`}));
+    if(still&&doc.extensions)doc.extensions[SPACE_STILL_NAMESPACE]={version:1,asset:{...structuredClone(still),path:`space-still/${map(still.id)}/image.png`}};
     const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (PUBLIC_REFERENCE_FIELDS.has(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [field === 'surfaces' ? ids.get(k.toLowerCase()) ?? k : k, remap(x,k)])) : v;
     const snapshot = remap(doc) as Exhibition;
     if(lightDetails)snapshot.extensions={...snapshot.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -144,7 +150,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     if(spatial)snapshot.extensions={...snapshot.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,map) as unknown as {[key:string]:import("@exhibitos/spec").JsonValue}};
     snapshot.createdAt = at;
     snapshot.revision = 1;
-    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})) };
+    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined };
 }
 /** Optional read-only approved Pages projection for the selected hosted profile.
  * This never supplies private roles or opening host authority. */
@@ -161,6 +167,7 @@ export class Publications {
     private summary(row: PublicationRow) { return { publicationId: row.id, publicUrl: `/p/${row.id}`, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: row.status }; }
     private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string) {
         const errors: PublicationIssue[] = [], prepared: PreparedAsset[] = [], media:PreparedMedia[]=[];
+        let cover:PreparedCover|undefined;
         let totalBytes = 0;
         const at = new Date().toISOString();
         for(const e of [...validateStudioLightDetails(candidate).errors,...validateArchitecturalFinishes(candidate).errors,...validateStudioPlaques(candidate).errors,...validateStudioBenches(candidate).errors,...validateStudioInstallation(candidate).errors,...validateViewerEntrance(candidate).errors,...validateArchitecture(candidate,true).errors,...validateSpatialProfile(candidate).errors,...validateViewerCuration(candidate).errors])errors.push(issue(e.code,e.path,e.message,"Correct template licensing, architecture or curation controls before publishing."));
@@ -173,7 +180,7 @@ export class Publications {
         if (candidate.artworks.length > 64)
             errors.push(issue("PUBLICATION_LIMIT", "/candidate/artworks", "At most 64 artworks per bounded publication.", "Split the exhibition into smaller publication drafts."));
         if (errors.length)
-            return { issues: errors, prepared, media, at };
+            return { issues: errors, prepared, media, cover,at };
         for(const [i,asset] of candidate.mediaAssets.entries()) {
             try {
                 const row=await new Audio(this.blobs).approved(c,s,exhibitionId,asset.id);
@@ -185,6 +192,12 @@ export class Publications {
                 media.push({source:asset,bytes});
             }catch(error){errors.push(issue(error instanceof ApiError?error.code:"AUDIO_UNAVAILABLE",`/candidate/mediaAssets/${i}`,"Current approved audio, bytes or display rights unavailable.","Upload and approve exact PCM16 WAV for this exhibition; correct current rights or restore its availability."));}
         }
+        const still=spaceStillFor(candidate);
+        if(still){try{
+            const source=await new CoverImages(this.blobs).approvedBytes(c,s,exhibitionId,still.id);
+            if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'COVER_IMAGE_APPROVAL_CHANGED');
+            totalBytes+=source.bytes.length;if(totalBytes>67108864)throw new ApiError(422,'PUBLICATION_LIMIT');cover={source:still,bytes:source.bytes};
+        }catch(error){errors.push(issue(error instanceof ApiError?error.code:'COVER_IMAGE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1space-still','Current approved space PNG, exact bytes or display rights unavailable.','Approve the exact separate PNG for this exhibition and restore its current display grant.'));}}
         for (const [i, artwork] of candidate.artworks.entries()) {
             const path = `/candidate/artworks/${i}`;
             const binding = artwork.extensions?.["org.exhibitos.studio/cms"];
@@ -267,7 +280,7 @@ export class Publications {
                 errors.push(issue(code, path, "Current approved artwork, display rights or qualified derivative is unavailable.", "Review current CMS approval, ownership/assignment and artwork/asset display grants; reimport after correcting them."));
             }
         }
-        return { issues: errors, prepared, media, at };
+        return { issues: errors, prepared, media, cover,at };
     }
     async ready(c: PoolClient, s: Session, id: string) {
         const row = await this.studio.access(c, s, id), report = await this.prepare(c, s, row.metadata.candidate, id);
@@ -310,7 +323,7 @@ export class Publications {
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
-        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media } = projectPublication(row.metadata.candidate, report.prepared, publishedAt, report.media);
+        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover } = projectPublication(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover);
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
@@ -327,6 +340,7 @@ export class Publications {
             await this.blobs.put(key,p.bytes);
             await c.query("INSERT INTO publication_media(tenant_id,publication_id,id,source_audio_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)",[s.tenantId,publicationId,mediaId,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);
         }
+        if(cover){const p=cover.prepared,key=`${s.tenantId}/publications/${publicationId}/${cover.id}/${p.source.sha256}`;await this.blobs.put(key,p.bytes);await c.query('INSERT INTO publication_cover_images(tenant_id,publication_id,id,source_image_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)',[s.tenantId,publicationId,cover.id,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);}
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
@@ -363,7 +377,10 @@ export class Publications {
             const inventory=row.snapshot.mediaAssets.find(a=>a.id===r.id);
             if(!inventory||r.state!=="approved"||r.revoked||r.current_sha256!==r.source_sha256||r.source_sha256!==r.sha256||Number(r.current_bytes)!==Number(r.bytes)||!allowedRights(r.rights,"display",now)||!equal(r.rights,inventory.rights)||r.approval.sha256!==r.source_sha256||r.approval.bytes!==Number(r.bytes)||!equal(r.approval.rights,r.rights)||inventory.sha256!==r.sha256||inventory.bytes!==Number(r.bytes)||inventory.mime!==r.mime)throw new ApiError(404,"PUBLICATION_UNAVAILABLE");
         }
-        return [...records,...media];
+        const still=spaceStillFor(row.snapshot),covers=(await c.query('SELECT p.*,a.state,a.revoked,a.sha256 AS current_sha256,a.bytes AS current_bytes,a.rights,ap.snapshot AS approval FROM publication_cover_images p JOIN studio_cover_images a ON (a.tenant_id,a.id)=(p.tenant_id,p.source_image_id) JOIN cover_image_approvals ap ON (ap.tenant_id,ap.image_id)=(a.tenant_id,a.id) WHERE p.publication_id=$1 AND a.exhibition_id=$2',[row.id,row.exhibition_id])).rows;
+        if(covers.length!==(still?1:0))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+        for(const r of covers)if(!still||r.id!==still.id||r.state!=='approved'||r.revoked||r.current_sha256!==r.source_sha256||r.source_sha256!==r.sha256||Number(r.current_bytes)!==Number(r.bytes)||!allowedRights(r.rights,'display',now)||!equal(r.rights,still.rights)||!equal(r.approval,{id:r.source_image_id,path:`space-still/${r.source_image_id}/image.png`,mime:'image/png',bytes:Number(r.bytes),sha256:r.source_sha256,rights:r.rights})||still.sha256!==r.sha256||still.bytes!==Number(r.bytes)||still.mime!==r.mime)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+        return [...records,...media,...covers];
     }
     /** Reuse the current public gate inside the caller's policy-fenced transaction. */
     async discoveryMetadata(c: PoolClient, ids: string[]) {

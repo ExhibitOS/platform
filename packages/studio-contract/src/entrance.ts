@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MaterialValidation } from './index.js';
 import {validateEntranceDesign,type ViewerEntranceDesign} from './entrance-design.js';
+import {validateSpaceStillInventory} from '@exhibitos/spec/space-still';
 
 export const ENTRANCE_NAMESPACE = 'org.exhibitos.viewer/entrance';
 export const MAX_COVER_BYTES = 8 * 1024 * 1024;
@@ -31,7 +32,8 @@ const defaults: ViewerEntrance = { version: 1, artist: '', introduction: '', ima
 export function validateViewerEntrance(candidate: unknown): MaterialValidation {
   const errors: MaterialValidation['errors'] = [];
   const fail = (message: string) => errors.push({ code: 'VIEWER_ENTRANCE_INVALID', path: '/candidate/extensions/org.exhibitos.viewer~1entrance', message });
-  if (!object(candidate) || !object(candidate.extensions) || !Object.hasOwn(candidate.extensions, ENTRANCE_NAMESPACE)) return { valid: true, errors };
+  const still=validateSpaceStillInventory(candidate);errors.push(...still.errors.map(error=>({...error,path:'/candidate'+error.path})));
+  if (!object(candidate) || !object(candidate.extensions) || !Object.hasOwn(candidate.extensions, ENTRANCE_NAMESPACE)) return { valid: errors.length===0, errors };
   const value = candidate.extensions[ENTRANCE_NAMESPACE];
   if (!object(value)) { fail('Expected entrance version 1'); return { valid: false, errors }; }
   const keys = ['version', 'artist', 'introduction', 'imageAlt', 'mobilePosition', ...(value.imageAssetId === undefined ? [] : ['imageAssetId']), ...(value.presentation === undefined ? [] : ['presentation']), ...(value.design === undefined ? [] : ['design'])];
@@ -60,11 +62,12 @@ export function validateViewerEntrance(candidate: unknown): MaterialValidation {
       .filter(asset => typeof id === 'string' && typeof asset.id === 'string' && asset.id.toLowerCase() === id.toLowerCase())
       .map(asset => ({ artwork, asset })));
     const selected = matches[0];
-    if (typeof id !== 'string' || !uuid.test(id) || !value.imageAlt.trim() || matches.length !== 1 ||
+    const selectedStill=still.valid&&still.asset&&typeof id==='string'&&still.asset.id.toLowerCase()===id.toLowerCase();
+    if (!selectedStill&&(typeof id !== 'string' || !uuid.test(id) || !value.imageAlt.trim() || matches.length !== 1 ||
         !selected || selected.artwork.artworkType !== 'image' || typeof selected.artwork.primaryAssetId !== 'string' ||
         selected.artwork.primaryAssetId.toLowerCase() !== id.toLowerCase() || selected.asset.role !== 'image' || selected.asset.mime !== 'image/png' ||
-        !Number.isSafeInteger(selected.asset.bytes) || Number(selected.asset.bytes) < 1 || Number(selected.asset.bytes) > MAX_COVER_BYTES) {
-      fail('Cover must uniquely reference a primary PNG artwork asset up to 8 MiB with a nonempty description');
+        !Number.isSafeInteger(selected.asset.bytes) || Number(selected.asset.bytes) < 1 || Number(selected.asset.bytes) > MAX_COVER_BYTES)) {
+      fail('Cover must uniquely reference a primary PNG artwork or qualified independent space still up to 8 MiB with a nonempty description');
     }
   }
   return { valid: errors.length === 0, errors };
