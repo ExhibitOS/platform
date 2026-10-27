@@ -23,5 +23,6 @@ test('clear removes only the selected texture and scalar, preserving advanced va
 test('unknown roles, paths, versions, floor targets, nonfinite or out-of-budget settings reject before mutation',()=>{
  for(const patch of [{pack:{id:'unknown',version:1}},{pack:{id:'museum-matte-paint',version:2}},{repeatMeters:[0,1]},{rotation:NaN},{normalScale:3},{height:1},{url:'https://example.test/map.png'}]){const e=fixture(),c=command();c.texture={...c.texture,...patch} as never;expect(()=>surfaceTextureMaterialMap(e,c)).toThrow();expect(e.extensions![MATERIAL_NAMESPACE]).toBeUndefined();}
  const e=fixture();e.surfaces[0]!.type='floor';expect(()=>apply(e)).toThrow('SURFACE_TEXTURE_REFERENCE');
+ const malformed=apply(fixture());malformed.surfaces[0]!.type=['wall'] as never;expect(validateStudioMaterials(malformed).valid).toBe(false);
  const valid=apply(fixture()),map=valid.extensions![MATERIAL_NAMESPACE] as unknown as StudioMaterials;map.surfaceTextures![id.toUpperCase()]=structuredClone(map.surfaceTextures![id]!);expect(validateStudioMaterials(valid).valid).toBe(false);
 });

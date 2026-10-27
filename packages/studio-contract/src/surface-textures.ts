@@ -41,7 +41,7 @@ export function validateSurfaceTextures(candidate:unknown,materials:Record<strin
  const surfaces=object(candidate)&&Array.isArray(candidate.surfaces)?candidate.surfaces.filter(object):[],seen=new Set<string>(),all=new Set(object(materials.surfaces)?Object.keys(materials.surfaces).map(id=>id.toLowerCase()):[]);
  for(const [id,value]of Object.entries(textures)){
   const surface=surfaces.find(s=>typeof s.id==='string'&&same(s.id,id));
-  if(!uuid(id)||seen.has(id.toLowerCase())||!surface||!['wall','ceiling'].includes(String(surface.type))||!isSurfaceTextureBinding(value))fail('/surfaceTextures/'+id,'Expected one known versioned material on an existing wall or ceiling');
+  if(!uuid(id)||seen.has(id.toLowerCase())||!surface||(surface.type!=='wall'&&surface.type!=='ceiling')||!isSurfaceTextureBinding(value))fail('/surfaceTextures/'+id,'Expected one known versioned material on an existing wall or ceiling');
   seen.add(id.toLowerCase());all.add(id.toLowerCase());
  }
  if(all.size>64)fail('/surfaceTextures','Maximum64 distinct material surfaces across both maps');
