@@ -3,17 +3,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID} from 'node:crypto';
-import {readFile,mkdir} from 'node:fs/promises';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
 import {fixtureURL,readOex,writeOex} from '@exhibitos/spec';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {FLOOR_NAMESPACE as N,floorPresetDefaults} from '@exhibitos/studio-contract';
 import {OEX_FLOOR_RESOURCE_VERSION,packageFloorResourceManifest} from '@exhibitos/spec/floor-resources';
-import {migrate,FileBlobStore,sha256} from '../packages/storage/dist/index.js';
+import {migrate,FileBlobStore,sha256,transaction,collectServiceInventory,inventoryCanonical} from '../packages/storage/dist/index.js';
 import {openLocalWorkspace} from '../apps/api/dist/local-workspace.js';
 import {buildApp} from '../apps/api/dist/app.js';
 import {Oex} from '../apps/api/dist/oex.js';
+import {Privacy} from '../apps/api/dist/privacy.js';
 import {exportStaticPublication} from './export-static-publication.mjs';
 const database=new URL(process.env.EXHIBITOS_TEST_DATABASE_URL??'invalid://missing');
 if(database.hostname!=='127.0.0.1'||!database.pathname.startsWith('/exhibitos_native_session_test_')||!process.env.EXHIBITOS_TEST_OUTPUT)throw Error('ISOLATED_FLOOR_RESOURCE_FIXTURE_REQUIRED');
@@ -53,6 +54,17 @@ try{
   assert.deepEqual(roundtrip.manifest.floorResources,expectedResources);for(const resource of expectedResources)assert.deepEqual(roundtrip.files.get(resource.path),files.get(resource.artifactPath));
   assert.equal(spaceStillFor(roundtrip.exhibition).sha256,spaceStillFor(e).sha256);
   const restored=await imported(exported.rawPayload);assert.notEqual(restored.exhibitionId,id);assert.equal((await pool.query('SELECT count(*)::int AS count FROM studio_floor_resources WHERE tenant_id=$1 AND exhibition_id=$2',[workspace.tenantId,restored.exhibitionId])).rows[0].count,4);
+  const inventory=await transaction(pool,async c=>{
+   await c.query('SELECT pg_advisory_xact_lock(82002)');
+   const report=await collectServiceInventory(c,blobs,{migrationDirectory:resolve('database/migrations')});assert.deepEqual(report.issues,[]);assert.match(report.schemaDigest,/^[a-f0-9]{64}$/);
+   assert(report.migrations.some(m=>m.name==='016_local_workspaces.sql'));assert(report.migrations.some(m=>m.name==='017_cover_images.sql'));assert(report.migrations.some(m=>m.name==='018_floor_resources.sql'));
+   assert.equal(report.tables.find(t=>t.name==='studio_floor_resources').rowCount,8);
+   for(const row of rows){assert(report.references.some(r=>r.key===row.object_key&&r.required&&r.expectedSha256===row.sha256));assert.equal(await new Privacy(pool,blobs).referenced(c,row.object_key),true);}
+   const oldCatalog=report.migrations.filter(m=>m.name!=='018_floor_resources.sql'),oldTarget=await collectServiceInventory(c,blobs,{migrationCatalog:oldCatalog});assert(oldTarget.issues.some(i=>i.code==='MIGRATION_UNKNOWN'&&i.binding==='018_floor_resources.sql'));
+   return report;
+  });
+  const catalog={schemaVersion:inventory.schemaVersion,schemaDigest:inventory.schemaDigest,migrations:inventory.migrations};
+  await writeFile(join(output,'floor-runtime-schema-observation.json'),JSON.stringify({...catalog,targetSchemaSha256:sha256(Buffer.from(inventoryCanonical(catalog))),source:'Actual isolated SQL/imported-resource inventory, not a signed native runtime',artifactAuthenticated:false,compatibilityQualified:false,updateExecuted:false},null,2));
   const publication=await json(request('POST',`/studio/exhibitions/${id}/publications`,{requestId:randomUUID()},{'if-match':saved.etag}),201);
   const fetcher=async input=>{const url=new URL(input),result=await app.inject({method:'GET',url:url.pathname+url.search,headers:{host:headers.host}});return new Response(new Uint8Array(result.rawPayload),{status:result.statusCode,headers:result.headers});};
   const result=await exportStaticPublication({origin,publicationId:publication.publicationId,runtimeRoot:resolve('apps/web/dist-static'),output:join(output,'static-floor'),fetcher});
