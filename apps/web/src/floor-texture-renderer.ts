@@ -47,7 +47,7 @@ export async function fetchRegisteredMaterialTexture(file:MaterialTextureFile,re
 
 /** Bake meters/rotation into each geometry, so texture objects can be shared
  * without mutating repeat/rotation for another floor. Run before model fit. */
-export function floorUvs(three:typeof Three,geometry:Three.PlaneGeometry,parent:Three.Object3D,binding:FloorBinding,offset:{x:number;y:number}={x:0,y:0}){
+export function floorUvs(three:typeof Three,geometry:Three.PlaneGeometry,parent:Three.Object3D,binding:Pick<FloorBinding,'repeatMeters'|'rotation'>,offset:{x:number;y:number}={x:0,y:0}){
  parent.updateWorldMatrix(true,false);
  const scaleX=new three.Vector3().setFromMatrixColumn(parent.matrixWorld,0).length(),scaleY=new three.Vector3().setFromMatrixColumn(parent.matrixWorld,1).length();
  const matrix=new three.Matrix3().setUvTransform(0,0,1/binding.repeatMeters[0],1/binding.repeatMeters[1],binding.rotation,0,0);

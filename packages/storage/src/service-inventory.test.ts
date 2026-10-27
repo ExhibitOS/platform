@@ -70,8 +70,10 @@ describe('retained migration catalog inventory',()=>{
  });
 });
 
-it('retains immutable imported floor map and notice object references for backup and privacy',()=>{
+it('retains immutable imported floor and surface material resources for backup and privacy',()=>{
  const row={tenant_id:'11111111-1111-4111-8111-111111111111',exhibition_id:'22222222-2222-4222-8222-222222222222',object_key:'11111111-1111-4111-8111-111111111111/oex-import/job/lease/map',bytes:123,sha256:'a'.repeat(64)};
- for(const role of ['color','notice']){const result=rowObjectReferences('studio_floor_resources',{...row,role});expect(result.issues).toEqual([]);expect(result.references[0]).toMatchObject({key:row.object_key,required:true,expectedBytes:123,expectedSha256:row.sha256});}
- expect(rowObjectReferences('studio_floor_resources',{...row,object_key:'another-tenant/oex-import/job/map'}).issues[0]?.code).toBe('INVALID_REFERENCE');
+ for(const table of ['studio_floor_resources','studio_surface_material_resources']){
+  for(const role of ['color','notice']){const result=rowObjectReferences(table,{...row,role});expect(result.issues).toEqual([]);expect(result.references[0]).toMatchObject({key:row.object_key,required:true,expectedBytes:123,expectedSha256:row.sha256});}
+  expect(rowObjectReferences(table,{...row,object_key:'another-tenant/oex-import/job/map'}).issues[0]?.code).toBe('INVALID_REFERENCE');
+ }
 });

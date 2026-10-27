@@ -256,3 +256,4 @@ export * from "./floor-commands.js";
 export * from "./floor-textures.js";
 
 export * from './furnishings.js';
+export * from './surface-texture-resources.js';

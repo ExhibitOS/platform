@@ -1,0 +1,7 @@
+museum-matte-paint — current distribution notice
+User-authored ExhibitOS asset.
+CC0 1.0 Universal, pursuant to the user standing authorization dated 2026-10-27 for personally-created AND rights-owned models, textures, materials, previews, production originals, authoring scripts and asset derivatives, including future ExhibitOS deliveries unless separately instructed.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Commercial use, modification, conversion, LOD, texture optimization and app/public repository/OEX/static redistribution are permitted; attribution is not mandatory. Original historical unselected license notes remain unchanged. No original asset bytes were modified during intake.
+Third-party components retain their own licenses; unknown-rights components require separate review. This notice does not relabel product code or grant trademark, patent or personality rights.

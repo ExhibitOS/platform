@@ -48,7 +48,7 @@ export function frozenPublication(b:FreezeBundle,oex:FrozenOex,check:()=>Promise
  };
  const floorFetcher:typeof fetch=async(input,init)=>{
   init?.signal?.throwIfAborted();await check();const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
-  const entry=[...(oex.floorResources?.entries()??[])].find(([path])=>url==='/'+path);if(!entry||entry[1].mime!=='image/png'||init?.method&&init.method!=='GET')throw Error('OFFLINE_FLOOR_URL');
+  const entry=[...(oex.floorResources?.entries()??[]),...(oex.materialResources?.entries()??[])].find(([path])=>url==='/'+path);if(!entry||entry[1].mime!=='image/png'||init?.method&&init.method!=='GET')throw Error('OFFLINE_FLOOR_URL');
   const data=entry[1],bytes=new Uint8Array(data.bytes);if(await freezeHash(bytes)!==data.sha256)throw Error('OFFLINE_FLOOR_INTEGRITY');
   await check();init?.signal?.throwIfAborted();return new Response(bytes,{headers:{'content-type':data.mime,'content-length':String(bytes.length)}});
  };

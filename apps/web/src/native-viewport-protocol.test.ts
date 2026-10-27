@@ -3,7 +3,7 @@ import {describe,it,expect} from 'vitest';
 import {newDraft} from './drafts/example';
 import {checkedFrame,nativeGeometryAction,geometryProposal,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
 import {newDoor,applyGeometryCommand,createGeometryState,undoGeometry} from './geometry/model';
-import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL} from '@exhibitos/studio-contract';
+import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL,surfaceTextureDefaults,surfaceTextureFor} from '@exhibitos/studio-contract';
 const uuid=()=>crypto.randomUUID();
 const frame=():NativeViewportFrame=>({version:1,epoch:uuid(),sequence:1,tenantId:uuid(),principalId:uuid(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
 function selectedArchitecture() {
@@ -36,6 +36,14 @@ describe('native viewport frame and shared geometry proposal boundary',()=>{
   const removed=nativeGeometryAction({...selected,draft:{...f.draft,candidate:result}},{...command,material:null});
   expected.extensions![MATERIAL_NAMESPACE]={version:1,surfaces:{[otherId]:other}};
   expect(removed).toEqual(expected);expect(materialFor(removed,surfaceId)).toEqual(DEFAULT_MATERIAL);expect(selected).toEqual(original);
+ });
+ it('atomically applies a selected texture and scalars, preserves hidden settings through legacy edits, and rejects foreign actions',()=>{
+  const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces.find(s=>s.type==='wall')!.id,selected:NativeViewportFrame={...f,selection:{kind:'surface',id:surfaceId}},before=structuredClone(selected),defaults=surfaceTextureDefaults('fine-lime-plaster'),texture={...defaults.texture,rotation:.7,normalScale:.6},command={type:'set-material-texture' as const,surfaceId,material:defaults.material,texture};
+  const result=nativeGeometryAction(selected,command);expect(surfaceTextureFor(result,surfaceId)).toEqual(texture);expect(materialFor(result,surfaceId)).toEqual(defaults.material);expect(selected).toEqual(before);
+  const current={...selected,draft:{...f.draft,candidate:result}},scalar=nativeGeometryAction(current,{type:'set-material',surfaceId,material:{color:'#aabbcc',roughness:.4,metalness:0}});expect(surfaceTextureFor(scalar,surfaceId)).toEqual(texture);
+  const clear=nativeGeometryAction(current,{...command,material:null,texture:null});expect(clear.extensions![MATERIAL_NAMESPACE]).toEqual({version:1,surfaces:{}});
+  for(const action of [{...command,surfaceId:uuid()},{...command,extra:true},{...command,texture:{...texture,normalScale:3}}])expect(()=>nativeGeometryAction(selected,action as NativeGeometryAction)).toThrow('VIEWPORT_COMMAND_DENIED');
+  expect(()=>nativeGeometryAction({...selected,disabled:true},command)).toThrow('VIEWPORT_COMMAND_DENIED');expect(selected).toEqual(before);
  });
  it('denies material edits outside the enabled current selected surface and closed action envelope',()=>{
   const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces[0]!.id;

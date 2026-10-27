@@ -1,4 +1,5 @@
 import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
+import {surfaceMaterialCatalog} from './surface-materials.ts';
 import {furnishingAsset,type FurnishingCatalogId} from '@exhibitos/studio-contract';
 import { OperationalMetrics } from './operational-metrics.ts';
 import { Privacy } from './privacy.ts';
@@ -68,6 +69,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }));
  const prefix='/api/v1/tenants/:tenantId';
  const furnishingRole=(s:Session)=>{if(!['admin','artist','curator'].includes(s.role))throw new ApiError(403,'FORBIDDEN');};
+ app.get(`${prefix}/studio/materials`,call(false,async(_c,s)=>{furnishingRole(s);return surfaceMaterialCatalog();}));
+ app.get(`${prefix}/studio/materials/:id/:version/preview`,call(false,async(_c,s)=>{furnishingRole(s);throw new ApiError(404,'MATERIAL_PREVIEW_UNAVAILABLE');}));
  app.get(`${prefix}/studio/furnishings`,call(false,async(_c,s)=>{furnishingRole(s);return furnishingCatalog();}));
  app.get(`${prefix}/studio/furnishings/:catalogId/:catalogVersion/:role`,call(false,async(_c,s,req,reply)=>{
   furnishingRole(s);const p=req.params as {catalogId:string;catalogVersion:string;role:string};

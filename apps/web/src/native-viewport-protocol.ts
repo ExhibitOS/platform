@@ -5,6 +5,7 @@ import {applyGeometryCommand,createGeometryState,newRoom} from './geometry/model
 import {newLight} from './placement/model';
 import type {EditorSelection,EditMode} from './geometry/direct-edit';
 import type {GeometryCommand} from './geometry/model';
+import {isPbrMaterial,isSurfaceTextureBinding} from '@exhibitos/studio-contract';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const NATIVE_VIEWPORT_PRESENTATIONS=['3d','plan'] as const;
 export interface NativeViewportFrame {
@@ -20,14 +21,18 @@ export function checkedFrame(value:unknown,previous?:NativeViewportFrame):Native
  if(v.selection!==null){const s=v.selection;if(Object.keys(s).sort().join(',')!=='id,kind'||!uuid.test(s.id)||!['room','surface','opening','placement'].includes(s.kind))throw Error('VIEWPORT_SELECTION_INVALID');const rows={room:v.draft.candidate.rooms,surface:v.draft.candidate.surfaces,opening:v.draft.candidate.openings,placement:v.draft.candidate.placements}[s.kind];if(!rows.some(r=>r.id===s.id))throw Error('VIEWPORT_SELECTION_INVALID');}
  return structuredClone(v);
 }
-const commands=new Set(['set-room','set-surface','set-opening','set-material','set-placement','align-placement','white-cube','add-room','add-light']);
+const commands=new Set(['set-room','set-surface','set-opening','set-material','set-material-texture','set-placement','align-placement','white-cube','add-room','add-light']);
 export function geometryProposal(frame:NativeViewportFrame,command:GeometryCommand):Draft['candidate'] {
  if(frame.disabled||!commands.has(command.type))throw Error('VIEWPORT_COMMAND_DENIED');
  return applyGeometryCommand(createGeometryState(frame.draft.candidate),command).present;
 }
-export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room';name:string}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'}>;
+export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room';name:string}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'|'set-material-texture'}>;
 export function nativeGeometryAction(frame:NativeViewportFrame,action:NativeGeometryAction):Draft['candidate'] {
  if(frame.disabled)throw Error('VIEWPORT_COMMAND_DENIED');
+ if(action.type==='set-material-texture'){
+  if(Object.keys(action).sort().join(',')!=='material,surfaceId,texture,type'||!uuid.test(action.surfaceId)||frame.selection?.kind!=='surface'||frame.selection.id!==action.surfaceId||action.material!==null&&!isPbrMaterial(action.material)||action.texture!==null&&!isSurfaceTextureBinding(action.texture)||!frame.draft.candidate.surfaces.some(s=>s.id===action.surfaceId&&(s.type==='wall'||s.type==='ceiling')))throw Error('VIEWPORT_COMMAND_DENIED');
+  return geometryProposal(frame,action);
+ }
  if(action.type==='set-material'&&Object.keys(action).sort().join(',')==='material,surfaceId,type'&&uuid.test(action.surfaceId)&&frame.selection?.kind==='surface'&&frame.selection.id===action.surfaceId&&(action.material===null||(!!action.material&&typeof action.material==='object'&&!Array.isArray(action.material))))return geometryProposal(frame,action);
  if(action.type==='set-room'&&Object.keys(action).sort().join(',')==='id,room,type'&&uuid.test(action.id)&&frame.selection?.kind==='room'&&frame.selection.id===action.id)return geometryProposal(frame,action);
  if(action.type==='set-surface'&&Object.keys(action).sort().join(',')==='id,surface,type'&&uuid.test(action.id)&&frame.selection?.kind==='surface'&&frame.selection.id===action.id)return geometryProposal(frame,action);
