@@ -240,7 +240,7 @@ function Viewport(){
   },
  };
  return <><div className="native-viewport-surface" hidden={plan} inert={plan}>
-  <GeometryPreview document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
+  <GeometryPreview fillHost document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
    placementPreview={placementInstaller} placementPreviewVersion={placementVersion} appearance={appearance} onEntranceSceneReady={scene=>{entranceScene=scene??undefined;if(!scene)entrancePreview.invalidate();}} onRenderState={report=>{post(frame,'status',report);const placed=new Set(frame.draft.candidate.placements.map(p=>p.artworkRevisionId));setEntranceStage({ready:report.ready&&report.navigationReady&&(report.loaded>0||placed.size===0),error:report.navigationFailed||(report.loaded===0&&report.failed>0&&report.failed>=placed.size),message:report.message,phase:!report.ready?'space':report.loaded===0&&placed.size>0?'artwork':'navigation'});}}/>
  </div><div className="native-viewport-surface native-viewport-plan" hidden={!plan} inert={!plan}>
   <StudioFloorPlan document={shownPreview?.candidate??frame.draft.candidate} editor={planEditor}/>
