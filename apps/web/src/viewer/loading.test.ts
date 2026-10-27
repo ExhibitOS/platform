@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import {readFileSync} from "node:fs";
 import * as Three from "three";
 import type {Exhibition} from "@exhibitos/spec";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
@@ -306,4 +306,14 @@ it('admits a partial sculpture footprint through the real two-jamb geometry whil
  let probes=0;expect(minimumFootprintVisible(corners,true,()=>{probes++;return false;})).toBe(true);expect(probes).toBe(0);
  minimumFootprintVisible([...corners,...corners],false,()=>{probes++;return false;});expect(probes).toBe(8);
  for(const wall of walls){wall.geometry.dispose();(wall.material as Three.Material).dispose();}
+});
+
+it('retained decoder backing remains charged across cache eviction without counting an identical pinned allocation twice',()=>{
+ const cache=new MemoryAssetCache<ArrayBuffer>(8),original=new ArrayBuffer(4),rewritten=new ArrayBuffer(4);
+ cache.set('original',original,4);const same=retainEncodedBuffer(cache,'original',original);expect(same.retainedBytes+cache.stats().bytes).toBe(4);expect(cache.delete('original')).toBe(false);
+ // Two live owners share the exact pinned allocation; releasing one twice
+ // must not unpin the second owner or permit an eviction underneath it.
+ const second=retainEncodedBuffer(cache,'original',original);same.dispose();same.dispose();expect(cache.delete('original')).toBe(false);second.dispose();expect(cache.delete('original')).toBe(true);
+ const uncached=retainEncodedBuffer(cache,'original',original);expect(uncached.retainedBytes+cache.stats().bytes).toBe(4);uncached.dispose();
+ cache.set('original',original,4);const independent=retainEncodedBuffer(cache,'original',rewritten);expect(independent.retainedBytes+cache.stats().bytes).toBe(8);expect(cache.delete('original')).toBe(true);expect(independent.retainedBytes+cache.stats().bytes).toBe(4);independent.dispose();
 });
