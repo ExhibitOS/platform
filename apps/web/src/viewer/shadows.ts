@@ -9,7 +9,7 @@ export function directionalNormalBias(width:number,height:number,radius:number){
   return Math.max(.01,Math.max(width,height)/512*(Math.sqrt(.9)*radius+Math.SQRT2));
 }
 type Candidate = {light: THREE.DirectionalLight | THREE.SpotLight; room: THREE.Object3D};
-export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number};
+export type ShadowReport = {mode:'bounded'|'compact'|'budget'|'unavailable';mapSize:number;casters:number;triangles:number;updates:number;omittedCasters:number};
 
 /** Inspect referenced positions, including arbitrarily oriented planes. No welding,
  * geometry edits or per-frame scan. Degenerate/deformed surfaces keep native policy. */
@@ -51,7 +51,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   const restoreDepth=(material:THREE.Material)=>{const side=depthSides.get(material);if(side!==undefined){material.side=side;depthSides.delete(material);}};
   const afterRender=()=>{for(const [material]of depthSides)restoreDepth(material);};
   const poses=new Map<THREE.DirectionalLight,{original:THREE.DirectionalLight['shadow']['updateMatrices'];proxy:THREE.DirectionalLight}>();
-  const emit=(mode:ShadowReport['mode'],casters=0,triangles=0)=>report({mode,mapSize:mode==='bounded'?512:0,casters,triangles,updates});
+  const emit=(mode:ShadowReport['mode'],casters=0,triangles=0,omittedCasters=0)=>report({mode,mapSize:mode==='bounded'?512:0,casters,triangles,updates,omittedCasters});
   const releaseMap=(light:Candidate['light'])=>{light.castShadow=false;light.shadow.dispose();light.shadow.map=null;light.shadow.mapPass=null;if(light instanceof three.DirectionalLight){const pose=poses.get(light);if(pose){light.shadow.updateMatrices=pose.original;poses.delete(light);}}};
   const disabled=compact?'compact':availableBytes<SHADOW_RESERVE_BYTES?'budget':undefined;
   const restoreFlags=()=>{
@@ -120,23 +120,26 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     const previous=selected;selected=candidates.find(candidate=>candidate.light.intensity>0&&fit(candidate));
     if(previous&&previous.light!==selected?.light)releaseMap(previous.light);
     if(!selected){renderer.shadowMap.enabled=false;emit('unavailable');return;}
-    const meshes:THREE.Mesh[]=[];let triangles=0;
+    const meshes:THREE.Mesh[]=[],receivers:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
     selected.room.traverseVisible(node=>{
       if(!(node instanceof three.Mesh)||node.userData.exhibitosLightFixture===true||node.userData.exhibitosPlaque===true||!capture?.intersectsBox(new three.Box3().setFromObject(node)))return;
       const materials=Array.isArray(node.material)?node.material:[node.material];
       // Transparent editor shells and annotation overlays must not become opaque blockers.
       if(materials.some(material=>material.transparent||!material.depthTest))return;
       const instances=node instanceof three.InstancedMesh?(Number.isSafeInteger(node.count)&&node.count>=0?node.count:Infinity):1;
-      meshes.push(node);triangles+=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
+      receivers.push(node);const cost=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
+      if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000){omittedCasters++;return;}
+      meshes.push(node);triangles+=cost;
     });
-    if(meshes.length>64||triangles>100000){releaseMap(selected.light);renderer.shadowMap.enabled=false;emit('unavailable');return;}
-    for(const mesh of meshes){flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=true;mesh.receiveShadow=true;installPlanarDepth(mesh);}
+    if(!meshes.length){releaseMap(selected.light);renderer.shadowMap.enabled=false;emit('unavailable',0,0,omittedCasters);return;}
+    for(const mesh of receivers){flags.set(mesh,{cast:mesh.castShadow,receive:mesh.receiveShadow});mesh.castShadow=false;mesh.receiveShadow=true;}
+    for(const mesh of meshes){mesh.castShadow=true;installPlanarDepth(mesh);}
     const shadow=selected.light.shadow;shadow.mapSize.set(512,512);shadow.bias=-.0001;
     shadow.normalBias=shadow.camera instanceof three.OrthographicCamera
       ?directionalNormalBias(shadow.camera.right-shadow.camera.left,shadow.camera.top-shadow.camera.bottom,shadow.radius):.01;
     shadow.autoUpdate=false;shadow.needsUpdate=true;
     selected.light.castShadow=true;renderer.shadowMap.enabled=true;renderer.shadowMap.type=three.PCFShadowMap;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
-    updates++;emit('bounded',meshes.length,triangles);
+    updates++;emit('bounded',meshes.length,triangles,omittedCasters);
   };
   // Source lights belong to this scene and are not shared outside this renderer lifetime.
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
