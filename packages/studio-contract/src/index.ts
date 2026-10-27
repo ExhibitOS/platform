@@ -248,3 +248,4 @@ export {SPACE_STILL_NAMESPACE,MAX_SPACE_STILL_BYTES,MAX_SPACE_STILL_PIXELS,MAX_S
 
 export * from "./floors.js";
 export * from "./floor-commands.js";
+export * from "./floor-textures.js";

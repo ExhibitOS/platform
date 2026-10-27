@@ -824,3 +824,27 @@ Third-party dependencies retain their respective licenses.
 License texts were obtained without modification from:
 https://www.apache.org/licenses/LICENSE-2.0.txt
 https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Wood Floor 051, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=WoodFloor051
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Metadata-free RGB8 encoding; color samples preserved, grayscale roughness copied equally to RGB. OpenGL normal16 to8-bit high-byte quantization (q=u16>>8; maximum encoded-channel error0.0038910505836575737), no green inversion/gamma/resize/sharpening/tint/displacement or invented AO. Authored1.8m patch repeat is editable, not a physical measurement guarantee.
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Marble006, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Marble006
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. Authored1m repeat; providerphysicalsizeunknown, notmeasured.
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Tiles074, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Tiles074
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. ProviderapproximateWHOLE texturepatch2.1m; notindividualtilemeasurement orphysicalguarantee.
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Carpet004, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Carpet004
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. Authored1m repeat; providerphysicalsizeunknown, notmeasured.
