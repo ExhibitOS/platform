@@ -1,3 +1,5 @@
+import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
+import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
@@ -319,7 +321,7 @@ export function GeometryPreview({
       );
       if (rectangles.reduce((total, items) => total + items.length, 0) > 8192)
         throw Error("PREVIEW_COMPLEXITY");
-      if(!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
+      if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -338,12 +340,15 @@ export function GeometryPreview({
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
-      const assetBudgetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
+      const availableAssetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
+      const floorPlan=floorTexturePlan(document,viewerBudget?.maxTextureSize??2048,availableAssetBytes);
+      const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost);
+      const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
-      scene.add(model);
+      scene.add(model);owned.push(floorTextures);
       const spaceLighting=spaceLightingFor(document);
       const hemisphere = new three.HemisphereLight(
           0xffffff,
@@ -372,6 +377,11 @@ export function GeometryPreview({
         target.quaternion.fromArray(transform.rotation);
         target.scale.fromArray(transform.scale);
       };
+      const legacyMaterials=(document.extensions?.[MATERIAL_NAMESPACE] as StudioMaterials|undefined)?.surfaces;
+      const floorAppearance=(binding:Parameters<typeof floorMaterial>[0],surfaceId?:string)=>{
+        const legacy=surfaceId?Object.entries(legacyMaterials??{}).find(([id])=>id.toLowerCase()===surfaceId.toLowerCase())?.[1]:undefined;
+        const value=floorMaterial(binding,legacy);return {color:new three.Color(value.color),roughness:value.roughness,metalness:value.metalness};
+      };
       for (const room of document.rooms) {
         const group = new three.Group();
         pose(group, room.transform);
@@ -393,6 +403,12 @@ export function GeometryPreview({
         outline.userData.dimensionReference={...room.dimensions};group.userData.dimensionOutline=outline;
         group.add(outline);
         owned.push(box, edges, material);
+        const binding=floorFor(document,{roomId:room.id});
+        if(binding){
+          const geometry=new three.PlaneGeometry(room.dimensions.width,room.dimensions.depth),floorMaterial=new three.MeshStandardMaterial({...floorAppearance(binding),side:three.DoubleSide,transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace});
+          const floor=new three.Mesh(geometry,floorMaterial);floor.rotation.x=-Math.PI/2;floor.userData.editorSelection={kind:'room',id:room.id};group.add(floor);
+          floorUvs(three,geometry,floor,binding);floorTextures.add(floorMaterial,binding);owned.push(geometry,floorMaterial);
+        }
       }
       const styledWalls=new Set(wallFinishesFor(document).map(w=>w.surfaceId.toLowerCase())),surfaceMaterials=new Map<string,InstanceType<typeof three.MeshStandardMaterial>>();
       document.surfaces.forEach((surface, index) => {
@@ -412,6 +428,8 @@ export function GeometryPreview({
             side: three.DoubleSide,
             transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace,
           });
+        const floorBinding=surface.type==='floor'?floorFor(document,{roomId:surface.roomId,surfaceId:surface.id}):undefined;
+        if(floorBinding){const looks=floorAppearance(floorBinding,surface.id);material.color.copy(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;floorTextures.add(material,floorBinding);}
         owned.push(material);surfaceMaterials.set(surface.id.toLowerCase(),material);
         if(styledWalls.has(surface.id.toLowerCase()))return;
         for (const rectangle of rectangles[index]!) {
@@ -420,6 +438,7 @@ export function GeometryPreview({
               rectangle.height,
             ),
             mesh = new three.Mesh(geometry, material);
+          if(floorBinding)floorUvs(three,geometry,group,floorBinding,rectangle);
           mesh.position.set(rectangle.x, rectangle.y, 0);
           group.add(mesh);
           owned.push(geometry);
@@ -828,6 +847,7 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes});});
       // Async environment setup starts only AFTER scene teardown is registered.
       // Failed/cancelled generation keeps the existing lighting and text/navigation.
       void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{

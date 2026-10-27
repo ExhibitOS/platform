@@ -2,11 +2,8 @@
 /** Platform-owned optional OES extension; not a change to the public base OES schema. */
 export const MATERIAL_NAMESPACE = "org.exhibitos.studio/materials";
 export const MAX_MATERIALS = 64;
-export interface PbrMaterial {
-  color: string;
-  roughness: number;
-  metalness: number;
-}
+import { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
+export { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
 export interface StudioMaterials {
   version: 1;
   surfaces: Record<string, PbrMaterial>;
@@ -20,11 +17,6 @@ export interface MaterialValidation {
   valid: boolean;
   errors: MaterialIssue[];
 }
-export const DEFAULT_MATERIAL: Readonly<PbrMaterial> = Object.freeze({
-  color: "#f4f1e8",
-  roughness: 0.8,
-  metalness: 0,
-});
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 const exact = (v: Record<string, unknown>, keys: string[]) =>
@@ -95,13 +87,7 @@ export function validateStudioMaterials(
       );
     seen.add(id.toLowerCase());
     if (
-      !object(material) ||
-      !exact(material, ["color", "roughness", "metalness"]) ||
-      typeof material.color !== "string" ||
-      !/^#[0-9a-f]{6}$/.test(material.color) ||
-      ![material.roughness, material.metalness].every(
-        (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1,
-      )
+      !isPbrMaterial(material)
     )
       add(
         "STUDIO_MATERIAL_SCHEMA",
@@ -259,3 +245,7 @@ export * from './architectural-finishes.js';
 
 export * from './entrance-design.js';
 export {SPACE_STILL_NAMESPACE,MAX_SPACE_STILL_BYTES,MAX_SPACE_STILL_PIXELS,MAX_SPACE_STILL_DIMENSION,validateSpaceStillInventory,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
+
+export * from "./floors.js";
+export * from "./floor-commands.js";
+export * from "./floor-textures.js";

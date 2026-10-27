@@ -1,0 +1,4 @@
+Carpet004, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Carpet004
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. Authored1m repeat; providerphysicalsizeunknown, notmeasured.
