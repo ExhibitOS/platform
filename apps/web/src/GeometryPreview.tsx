@@ -33,7 +33,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -1183,6 +1183,7 @@ export function GeometryPreview({
         const resources: Array<{ dispose: () => void }> = [];
         try {
           let object: InstanceType<typeof three.Object3D>;
+          let retainedModelBytes=0;
           if (artwork.artworkType === "image") {
             const sourceSize=viewerBudget?checkImageDecode(bytes!,artwork,inventory,viewerBudget):undefined;
             let bitmap = await createImageBitmap(
@@ -1244,6 +1245,10 @@ export function GeometryPreview({
             if(disposed||signal.aborted){basis?.dispose();throw new DOMException('Aborted','AbortError');}
             const protectedBytes = embeddedPNGManager(manager, bytes!,basis);
             resources.push(protectedBytes);
+            // Pin an identical cached allocation; independently retained bytes
+            // stay charged even when the original encoded entry is evicted.
+            const backing=retainEncodedBuffer(byteCache,inventory.id,protectedBytes.bytes);
+            resources.push(backing);retainedModelBytes=backing.retainedBytes;
             const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
             let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
@@ -1278,7 +1283,7 @@ export function GeometryPreview({
 
           }
           let triangles = 0,
-            decodedBytes = 0;
+            decodedBytes = retainedModelBytes;
           const geometryAttributes:Array<InstanceType<typeof three.BufferAttribute>|InstanceType<typeof three.InterleavedBufferAttribute>>=[],
             textures = new Set<InstanceType<typeof three.Texture>>();
           object.traverse((node) => {
@@ -1321,6 +1326,7 @@ export function GeometryPreview({
           object.userData.viewer = {
             triangles,
             decodedBytes,
+            retainedModelBytes,
             measuredGeometry:object.userData.metricGeometry,
             artifactGeometry:object.userData.artifactGeometry,
             textureSizes: [...textures].map((t) => {

@@ -264,6 +264,14 @@ export class MemoryAssetCache<T> {
  clear(){for(const entry of this.entries.values())this.onDispose(entry.value);this.entries.clear();this.used=0;}
  stats(){return {entries:this.entries.size,bytes:this.used,maxBytes:this.maxBytes,pinned:[...this.entries.values()].filter(e=>e.pins>0).length,evictions:this.evictions};}
 }
+/** A decoder scope owns its backing after an encoded-cache entry can evict.
+ * Reuse the existing cache pin only for the identical retained allocation. */
+export function retainEncodedBuffer(cache:MemoryAssetCache<ArrayBuffer>,key:string,retained:ArrayBuffer){
+ const cached=cache.acquire(key);
+ if(cached===retained){let released=false;return {retainedBytes:0,dispose(){if(released)return;released=true;cache.release(key);}};}
+ if(cached!==undefined)cache.release(key);
+ return {retainedBytes:retained.byteLength,dispose(){}};
+}
 export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;check?:()=>Promise<void>;maxBytes?:number}):Promise<ArrayBuffer> {
  const {publicationId,revisionSha256,asset,inventory,signal}=input,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
  if(!uuid.test(publicationId)||!uuid.test(asset.assetId)||asset.assetId!==inventory.id||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||asset.mime!==inventory.mime||!/^[a-f0-9]{64}$/.test(revisionSha256)||!/^[a-f0-9]{64}$/.test(inventory.sha256)||!Number.isSafeInteger(inventory.bytes)||inventory.bytes<1||inventory.bytes>Math.min(input.maxBytes??33554432,33554432))throw Error("ASSET_CONTRACT_INVALID");
