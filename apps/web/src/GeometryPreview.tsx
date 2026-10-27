@@ -30,7 +30,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -345,6 +345,7 @@ export function GeometryPreview({
       const floorPlan=floorTexturePlan(document,viewerBudget?.maxTextureSize??2048,availableAssetBytes);
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes);
+      const transitionBudgetBytes=Math.max(assetBudgetBytes,(viewerBudget?.maxTransitionBytes??viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-floorPlan.reserveBytes);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
@@ -1248,7 +1249,7 @@ export function GeometryPreview({
           }
           let triangles = 0,
             decodedBytes = 0;
-          const buffers = new Set<ArrayBufferLike>(),
+          const geometryAttributes:Array<InstanceType<typeof three.BufferAttribute>|InstanceType<typeof three.InterleavedBufferAttribute>>=[],
             textures = new Set<InstanceType<typeof three.Texture>>();
           object.traverse((node) => {
             if (node instanceof three.Mesh) {
@@ -1256,24 +1257,8 @@ export function GeometryPreview({
                 (node.geometry.index?.count ??
                   node.geometry.attributes.position?.count ??
                   0) / 3;
-              for (const attribute of Object.values(
-                node.geometry.attributes,
-              ) as Array<InstanceType<typeof three.BufferAttribute>>) {
-                if ("array" in attribute) {
-                  const data = attribute.array;
-                  if (!buffers.has(data.buffer)) {
-                    buffers.add(data.buffer);
-                    decodedBytes += data.buffer.byteLength*2;
-                  }
-                }
-              }
-              if (node.geometry.index) {
-                const data = node.geometry.index.array;
-                if (!buffers.has(data.buffer)) {
-                  buffers.add(data.buffer);
-                  decodedBytes += data.buffer.byteLength*2;
-                }
-              }
+              geometryAttributes.push(...Object.values(node.geometry.attributes) as Array<InstanceType<typeof three.BufferAttribute>|InstanceType<typeof three.InterleavedBufferAttribute>>);
+              if(node.geometry.index)geometryAttributes.push(node.geometry.index);
               for (const material of Array.isArray(node.material)
                 ? node.material
                 : [node.material])
@@ -1288,6 +1273,7 @@ export function GeometryPreview({
                   }
             }
           });
+          decodedBytes+=geometryResidentBytes(geometryAttributes);
           if (
             signal.aborted ||
             disposed ||
@@ -1375,12 +1361,12 @@ export function GeometryPreview({
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
-        const peak=new AssetPeakBudget(assetBudgetBytes,resident);
+        const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
         const reserve=(key:string,bytes:number)=>{
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
-          for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=assetBudgetBytes)break;byteCache.delete(asset.id);}
-          if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=assetBudgetBytes)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
-          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=assetBudgetBytes)break;if(observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
+          for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=transitionBudgetBytes)break;byteCache.delete(asset.id);}
+          if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=transitionBudgetBytes)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
+          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=transitionBudgetBytes)break;if(observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           peak.reserve(key,bytes);
         };
         const tasks = new Map<
@@ -1436,7 +1422,7 @@ export function GeometryPreview({
                 stage(t.inventory.id,'verified-download');
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,viewerBudget,bytes)),value=>stage(t.inventory.id,value));
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...viewerBudget,maxCacheBytes:assetBudgetBytes},bytes)),value=>stage(t.inventory.id,value));
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
@@ -1488,7 +1474,7 @@ export function GeometryPreview({
             budgetTotalBytes: decodedTotal + byteCache.stats().bytes,
             transitionPeakBytes: peak.total(),
             automaticDetail:automatic,
-            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...minimumRooms],minimumBudgetBlocked:[...minimumBlocked],minimumBudgetBytes:assetBudgetBytes,
+            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...minimumRooms],minimumBudgetBlocked:[...minimumBlocked],minimumBudgetBytes:assetBudgetBytes,transitionBudgetBytes,
             currentArtwork, preparedAssetIds:[...prepared.keys()], preparationStages:[...stages].map(([assetId,value])=>({assetId,...value})),
             allocationEstimateOnly:true,
             cache: byteCache.stats(),

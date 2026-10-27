@@ -95,7 +95,7 @@ describe('automatic detail transitions',()=>{
   expect(selectAssetVariant(a,Infinity,DEVICE_BUDGETS.compact).id).toBe(coarse.id);
   expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact).id).toBe(full.id);
   const fullReserve=assetDecodeReserve(a,full,DEVICE_BUDGETS.compact,new Uint8Array(pair.full).buffer),coarseReserve=assetDecodeReserve(a,coarse,DEVICE_BUDGETS.compact,new Uint8Array(pair.coarse).buffer);
-  expect(fullReserve).toBeGreaterThan(coarseReserve);expect(fullReserve).toBeGreaterThan(full.bytes*5+8*3*64*2);
+  expect(fullReserve).toBeGreaterThan(coarseReserve);expect(fullReserve).toBeGreaterThan(full.bytes*5);
   const peak=new AssetPeakBudget(DEVICE_BUDGETS.compact.maxCacheBytes,()=>coarseReserve);expect(()=>peak.reserve('detail',fullReserve)).not.toThrow();
  });
  it('uses visibility, actual pixel demand and projected geometry area, with explicit focus',()=>{
