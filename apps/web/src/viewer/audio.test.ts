@@ -444,6 +444,7 @@ test('footsteps require their own opt-in and off drains active steps and old wet
  try{
   const {runtime,internal,id}=f;await f.enable();
   internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];
+  internal.publication.exhibition.surfaces=[{id,roomId:id}] as typeof internal.publication.exhibition.surfaces;
   internal.buffers.set(id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
   runtime.footstepsEnabled(true);runtime.reverbEnabled(true);runtime.lifecycle(true);
   runtime.update(state(0,{roomId:id,floorSurfaceId:id}));runtime.update(state(.3,{roomId:id,floorSurfaceId:id}));runtime.update(state(.6,{roomId:id,floorSurfaceId:id}));
@@ -475,4 +476,34 @@ test('audio settings render optional effects unchecked when no state exists',asy
  const {AudioControls}=await import('./AudioControls');
  const html=renderToStaticMarkup(createElement(AudioControls,{audio:null,state:null,zones:[]}));
  assert(!html.includes('checked='));assert.match(html,/걷는 동안 발소리/);assert.match(html,/방 잔향/);
+});
+
+
+test('same-room footsteps lazily restore opted-in reverb after mute or visibility suspension',async()=>{
+ vi.useFakeTimers();
+ try{for(const action of ['mute','visibility']){
+  const f=voicePriorityRuntime();
+  try{
+   const {runtime,internal,id}=f;await f.enable();
+   internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];
+   internal.publication.exhibition.surfaces=[{id,roomId:id}] as typeof internal.publication.exhibition.surfaces;
+   internal.buffers.set(id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
+   runtime.footstepsEnabled(true);runtime.reverbEnabled(true);runtime.lifecycle(true);
+   const move=(x:number)=>runtime.update(state(x,{roomId:id,floorSurfaceId:id}));
+   move(0);move(.3);move(.6);const old=internal.convolver;
+   assert.equal(runtime.snapshot().footsteps,1);
+   if(action==='mute')runtime.mute(true);else runtime.visibility(false);
+   assert.equal(runtime.snapshot().reverbEnabled,true);assert.equal(runtime.snapshot().reverbSeconds,0);
+   assert.equal((old as unknown as {buffer:AudioBuffer|null}).buffer,null);
+   const count=f.impulseBuffers();
+   if(action==='mute')runtime.mute(false);else runtime.visibility(true);
+   // Merely returning visibility or clearing mute is not a new audio gesture/source.
+   assert.equal(f.impulseBuffers(),count);
+   move(.7);move(1);move(1.3);
+   assert.equal(runtime.snapshot().footsteps,2);assert.equal(f.impulseBuffers(),count+1);
+   assert.notEqual(internal.convolver,old);assert(runtime.snapshot().reverbSeconds>0);
+   const gain=f.sources.at(-1)!.connections[0] as typeof internal.background;
+   assert(gain.connections.includes(internal.convolver));assert.equal(runtime.snapshot().zoneTransitions,false);
+  }finally{f.runtime.dispose();}
+ }}finally{vi.useRealTimers();}
 });

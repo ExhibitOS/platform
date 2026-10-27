@@ -292,6 +292,7 @@ export class ExhibitionAudio implements AudioApi {
     if(!this.state.footstepsEnabled)return;
     this.audible=true;this.updateMaster();
     const context = this.context!;
+    this.applyRoomReverb();
     const entry=this.experience.footsteps.find(f=>f.surfaceId===state.floorSurfaceId),custom=entry?.assetId;
     const samples:VerifiedStepSample[]=entry?.bank?entry.bank.flatMap(({assetId})=>{
       const b=this.buffers.get(assetId);if(!b)return [];
