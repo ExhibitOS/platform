@@ -30,3 +30,12 @@ it('compressed decoder receives only owned bytes, refuses incomplete/failing tex
  let deliver:((t:Texture)=>void)|undefined;const late=embeddedPNGManager(new LoadingManager(),basisFixture(),{parse:(_b,cb)=>{deliver=cb;}}),failed=vi.fn();late.ktx2Loader!.load('exhibitos-embedded-ktx2-1',()=>{throw Error('LATE_SUCCESS');},undefined,failed);late.dispose();const texture=new Texture(),closed=vi.spyOn(texture,'dispose');deliver!(texture);expect(closed).toHaveBeenCalledOnce();expect(failed).toHaveBeenCalledOnce();
  const close=vi.fn();vi.stubGlobal('createImageBitmap',async()=>({width:8,height:8,close}));try{const fallbackManager=new LoadingManager(),fallback=embeddedPNGManager(fallbackManager,basisFixture());expect(fallback.ktx2Loader).toBeUndefined();await new Promise((resolve,reject)=>fallbackManager.getHandler('exhibitos-embedded-png-0')!.load('exhibitos-embedded-png-0',resolve,undefined,reject));fallback.assertLoaded();fallback.dispose();expect(close).toHaveBeenCalledOnce();}finally{vi.unstubAllGlobals();}
 });
+
+function ordinaryThreeRoleFixture(width=2048,colourType=2,alias=false){
+ const bin=new Uint8Array(108);for(let i=0;i<3;i++){const at=i*36,v=new DataView(bin.buffer,at,36);bin.set([137,80,78,71,13,10,26,10],at);v.setUint32(8,13);bin.set(new TextEncoder().encode('IHDR'),at+12);v.setUint32(16,width);v.setUint32(20,width);bin[at+24]=8;bin[at+25]=colourType;}
+ return fixture({asset:{version:'2.0'},buffers:[{byteLength:108}],bufferViews:[0,1,2].map(i=>({buffer:0,byteOffset:i*36,byteLength:36})),images:[0,1,2].map(bufferView=>({bufferView,mimeType:'image/png'})),textures:[0,1,2].map(source=>({source})),materials:[{pbrMetallicRoughness:{baseColorTexture:{index:0}},normalTexture:{index:alias?0:1},occlusionTexture:{index:2}}],meshes:[{primitives:[{material:0}]}]},bin);
+}
+it('permits bounded RGB three-role full resources with omitted native glTF samplers; other models retain legacy aggregate limits',()=>{
+ const input=ordinaryThreeRoleFixture(),scope=embeddedPNGManager(new LoadingManager(),input);expect(scope.bytes.byteLength).toBeGreaterThan(108);scope.dispose();
+ for(const input of [ordinaryThreeRoleFixture(2049),ordinaryThreeRoleFixture(2048,6),ordinaryThreeRoleFixture(2048,2,true)])expect(()=>embeddedPNGManager(new LoadingManager(),input)).toThrow('EXTERNAL_RESOURCE_REJECTED');
+});
