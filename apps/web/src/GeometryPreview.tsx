@@ -152,6 +152,7 @@ export function GeometryPreview({
     revisionSha256: string;
     assets: PublicAsset[];
     fetcher?: typeof fetch;
+    floorFetcher?: typeof fetch;
     check?: () => Promise<void>;
   };
   selection: GeometrySelection | null;
@@ -342,7 +343,7 @@ export function GeometryPreview({
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
       const availableAssetBytes=Math.max(1,(viewerBudget?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve);
       const floorPlan=floorTexturePlan(document,viewerBudget?.maxTextureSize??2048,availableAssetBytes);
-      const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost);
+      const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes);
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");

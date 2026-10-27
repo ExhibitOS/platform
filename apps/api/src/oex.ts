@@ -1,3 +1,6 @@
+import {floorResourceBytes} from './floor-resources.ts';
+import {OEX_FLOOR_RESOURCE_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
+import type {FloorResourceEntry} from '@exhibitos/spec/floor-resources';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -108,12 +111,12 @@ export function remapOex(e:Exhibition){
  for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
  return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
-export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>}>{
+export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[]}>{
  return new Promise((resolve,reject)=>{
   const url=new URL('./oex-validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
   const child=execFile(process.execPath,['--max-old-space-size=512',fileURLToPath(url)],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
    if(error){reject(new ApiError(422,'OEX_INVALID'));return;}
-   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}resolve({exhibition:parsed.exhibition,files});}catch{reject(new ApiError(422,'OEX_INVALID'));}
+   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=parsed.manifest.formatVersion===OEX_FLOOR_RESOURCE_VERSION?parsed.manifest.floorResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
   });child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -180,6 +183,9 @@ export class Oex {
    if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    rights.push(still.rights,source.row.rights);total+=source.bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');files.set(still.path,source.bytes);
   }
+  for(const resource of packageFloorResourceManifest(e)){
+   const data=await floorResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
+  }
   let bytes:Buffer;try{bytes=Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));}catch{throw new ApiError(422,'OEX_INVALID');}
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');return bytes;
  }
@@ -245,11 +251,13 @@ export class Oex {
    for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path))await decode(bytes,asset.mime);qualified.set(asset.path,bytes);}
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
+   for(const resource of parsed.floorResources){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
    const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
    for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
    for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
    for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
    const mappedStill=spaceStillFor(e);if(mappedStill){keys.set(mappedStill.path,sourceKeys.get(mappedStill.path)!);restoredBytes.set(mappedStill.path,qualified.get(mappedStill.path)!);}
+   for(const resource of parsed.floorResources){keys.set(resource.artifactPath,sourceKeys.get(resource.artifactPath)!);restoredBytes.set(resource.artifactPath,qualified.get(resource.artifactPath)!);}
    const storedBytes=new Map([...sourceKeys].map(([path,key])=>[key,qualified.get(path)!]));
    // Commit the cleanup inventory before any destination byte write, including process death.
    const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...storedBytes.keys()])])).rowCount;});
@@ -291,6 +299,9 @@ export class Oex {
      if(!stillKey)throw new ApiError(422,'ASSET_INTEGRITY');
      await c.query("INSERT INTO studio_cover_images(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'image/png',$9,$10,'approved')",[s.tenantId,e.id,still.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(still)))),still.sha256,still.bytes,still.rights,stillKey]);
      await c.query('INSERT INTO cover_image_approvals(tenant_id,image_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,still.id,still,s.userId]);
+    }
+    for(const resource of parsed.floorResources){
+     await c.query('INSERT INTO studio_floor_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
