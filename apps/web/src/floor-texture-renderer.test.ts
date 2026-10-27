@@ -67,7 +67,7 @@ test('linear map output sizes stay distinct and notification failure keeps publi
  const pack={id:'test',maps:{roughness,normal}},material=new three.MeshStandardMaterial();
  vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number;resizeHeight?:number})=>({width:options?.resizeWidth??4,height:options?.resizeHeight??4,close:closed}));
  const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:256,sizeFor:f=>f===roughness?2:4},[normal,roughness],()=>pack,new AbortController().signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
- try{loader.add(material,{normalScale:1});expect(await loader.start(()=>{throw Error('render failed');})).toEqual({test:'render-failed'});expect(material.normalMap).not.toBe(material.roughnessMap);expect(material.normalMap!.image.width).toBe(4);expect(material.roughnessMap!.image.width).toBe(2);expect(closed).toHaveBeenCalledTimes(1);}
+ try{loader.add(material,{normalScale:1});expect(await loader.start(()=>{throw Error('render failed');})).toEqual({test:'render-failed'});expect(material.normalMap).not.toBe(material.roughnessMap);expect(material.normalMap!.image).toMatchObject({width:4});expect(material.roughnessMap!.image).toMatchObject({width:2});expect(closed).toHaveBeenCalledTimes(1);}
  finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
  expect(closed).toHaveBeenCalledTimes(3);
 });
