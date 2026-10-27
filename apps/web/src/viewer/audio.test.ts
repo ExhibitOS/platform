@@ -135,7 +135,7 @@ test("displacement-triggered footsteps cap long custom WAV playback and retain s
     internal.experience.footsteps=[{surfaceId:id,material:"stone",...(custom?{assetId:id}:{})}];
     const buffer={duration:custom?60:0.19,length:custom?2880000:9120,numberOfChannels:1} as AudioBuffer;
     if(custom)internal.buffers.set(id,buffer);else internal.steps.set("stone",buffer);
-    runtime.lifecycle(true);
+    runtime.footstepsEnabled(true);runtime.lifecycle(true);
     runtime.update(state(0,{floorSurfaceId:id}));
     for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{floorSurfaceId:id}));
     assert.equal(runtime.snapshot().footsteps,1);
@@ -239,7 +239,7 @@ function preparedShortStep(duration=.7){
  const internal=runtime as unknown as {state:{enabled:boolean};context:AudioContext;master:GainNode;convolver:ConvolverNode;experience:{footsteps:unknown[]};buffers:Map<string,AudioBuffer>;publication:import('../publication-client').PublicPublication};
  internal.context={state:'running',currentTime:2,close:async()=>{},listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},createGain:()=>({...node(),gain:parameter()}),createBufferSource:()=>{const source={...node(),playbackRate:{value:1},stopped:false,onended:null,start:(...args:number[])=>calls.push(args),stop:()=>{source.stopped=true;}};sources.push(source);return source;}} as unknown as AudioContext;
  internal.master={...node(),gain:parameter()} as unknown as GainNode;internal.convolver={disconnect:()=>{}} as ConvolverNode;internal.state.enabled=true;
- internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];internal.buffers.set(id,{duration,length:Math.round(duration*48000),numberOfChannels:1} as AudioBuffer);
+ internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];internal.buffers.set(id,{duration,length:Math.round(duration*48000),numberOfChannels:1} as AudioBuffer);runtime.footstepsEnabled(true);
  const stride=()=>{runtime.update(state(0,{floorSurfaceId:id}));for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{floorSurfaceId:id}));};
  return {id,runtime,internal,calls,envelope,sources,stride};
 }
@@ -294,25 +294,29 @@ function voicePriorityRuntime() {
  const node=()=>({connections:[] as object[],disconnected:false,gain:parameter(),playbackRate:{value:1},
   positionX:parameter(),positionY:parameter(),positionZ:parameter(),onended:null as ((event:Event)=>void)|null,
   stopped:false,connect(target:object){this.connections.push(target);return target;},
-  disconnect(){this.disconnected=true;},stop(){this.stopped=true;},start(){if(failStart)throw Error('SYNTHETIC_START_FAILURE');}});
+  disconnect(target?:object){if(target)this.connections=this.connections.filter(value=>value!==target);else{this.connections=[];this.disconnected=true;}},stop(){this.stopped=true;},start(){if(failStart)throw Error('SYNTHETIC_START_FAILURE');}});
  let failStart=false;
  const sources:ReturnType<typeof node>[]=[];
+ let impulseBuffers=0,convolvers=0;
  const context={state:'running',currentTime:2,sampleRate:48000,destination:node(),resume:async()=>{},close:async()=>{},
   listener:{positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()},
-  createGain:node,createConvolver:node,createPanner:node,createBufferSource:()=>{const s=node();sources.push(s);return s;}};
+  createGain:node,createConvolver:()=>{convolvers++;return node();},createBuffer:(channels:number,length:number,rate:number)=>{impulseBuffers++;return {length,numberOfChannels:channels,sampleRate:rate,duration:length/rate,getChannelData:()=>new Float32Array(length),copyFromChannel:()=>{},copyToChannel:()=>{}};},createPanner:node,createBufferSource:()=>{const s=node();sources.push(s);return s;}};
  const internal=runtime as unknown as {context:AudioContext;master:ReturnType<typeof node>;background:ReturnType<typeof node>;wet:ReturnType<typeof node>;convolver:ReturnType<typeof node>;
   load:(id:string)=>Promise<AudioBuffer>;checkAvailability:()=>Promise<void>;room:string;
   buffers:Map<string,AudioBuffer>;experience:{footsteps:unknown[]};publication:import('../publication-client').PublicPublication};
  internal.context=context as unknown as AudioContext;
  internal.checkAvailability=async()=>{};internal.load=async()=>({duration:.7} as AudioBuffer);
  internal.publication.exhibition.audioZones=[];
- const enable=async()=>{await runtime.enable();internal.room=id;};
- return {id,runtime,internal,context,sources,enable,failStart:()=>{failStart=true;}};
+ internal.publication.exhibition.surfaces=[];internal.publication.exhibition.placements=[];
+ internal.publication.exhibition.rooms=[{id,dimensions:{width:4,height:3,depth:4},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]}}] as import('@exhibitos/spec').Exhibition['rooms'];
+ const enable=async()=>{internal.room=id;await runtime.enable();};
+ return {id,runtime,internal,context,sources,enable,impulseBuffers:()=>impulseBuffers,convolvers:()=>convolvers,failStart:()=>{failStart=true;}};
 }
 
 test('voice priority routes active dry steps, zones and wet tails through one bus while voice bypasses it',async()=>{
  vi.useFakeTimers();const f=voicePriorityRuntime();const random=vi.spyOn(Math,'random').mockReturnValue(.5);
  try{
+  f.runtime.footstepsEnabled(true);f.runtime.reverbEnabled(true);
   await f.enable();const {internal,runtime,id,sources}=f;
   assert.deepEqual(internal.background.connections,[internal.master]);
   assert.deepEqual(internal.convolver.connections,[internal.wet]);assert.deepEqual(internal.wet.connections,[internal.background]);
@@ -385,4 +389,121 @@ test('voice priority cancelled pending load never ducks and lifecycle controls r
   await assert.rejects(request,/AUDIO_CANCELLED/);assert(!f.internal.background.gain.targets.some(([value])=>value===.35));assert.equal(f.sources.length,0);
  }finally{f.runtime.dispose();}
  }finally{vi.useRealTimers();}
+});
+
+
+test('global sound enable leaves optional footsteps, room reverb and zone automation off without idle FX loading',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  const {runtime,internal,id}=f,doc=internal.publication.exhibition;
+  const step='step-only',zone='zone-only',loads:string[]=[];
+  doc.surfaces=[{id:'floor',roomId:id}] as typeof doc.surfaces;
+  doc.placements=[{id,roomId:id}] as typeof doc.placements;
+  doc.audioZones=[{id:'zone',roomId:id,assetId:zone,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:'Synthetic zone'}];
+  internal.experience.footsteps=[{surfaceId:'floor',material:'wood',assetId:step}];
+  const rooms=(internal as unknown as {experience:{rooms:{roomId:string;reverb:number}[]}}).experience.rooms;
+  rooms.push({roomId:id,reverb:.7});const authored=JSON.stringify({rooms,footsteps:internal.experience.footsteps});
+  internal.load=async assetId=>{loads.push(assetId);return {duration:.7} as AudioBuffer;};
+  assert.equal(runtime.snapshot().footstepsEnabled,false);assert.equal(runtime.snapshot().reverbEnabled,false);
+  await f.enable();runtime.lifecycle(true);runtime.update(state(0,{roomId:id,floorSurfaceId:'floor'}));
+  for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{roomId:id,floorSurfaceId:'floor'}));
+  assert.equal(runtime.snapshot().footsteps,0);assert.equal(runtime.snapshot().zoneTransitions,false);
+  assert.equal(runtime.snapshot().reverbSeconds,0);assert.equal(f.impulseBuffers(),0);assert.equal(f.convolvers(),0);
+  assert(loads.includes(id));assert(!loads.includes(step));assert(!loads.includes(zone));
+  assert.equal(JSON.stringify({rooms,footsteps:internal.experience.footsteps}),authored);
+  assert.doesNotMatch(runtime.snapshot().message,/걷기에서 발소리/);
+  await runtime.playVoice(id);assert.equal(runtime.voicePlayback().status,'playing');
+  assert.deepEqual(f.sources.at(-1)!.connections,[internal.master]);assert.equal(runtime.snapshot().footstepsEnabled,false);
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
+test('visitor reverb opt-in is independent, lazy and clears wet tails without stopping required narration',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  const {runtime,internal,id}=f;
+  runtime.reverbEnabled(true);assert.equal(f.impulseBuffers(),0);assert.equal(runtime.snapshot().enabled,false);
+  await f.enable();assert.equal(f.impulseBuffers(),1);assert.equal(runtime.snapshot().footstepsEnabled,false);
+  internal.publication.exhibition.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:'Synthetic zone'}];
+  await runtime.playZone(id);await runtime.playVoice(id);
+  const voice=f.sources.at(-1)!,zone=f.sources[0]!,panner=zone.connections[0] as typeof internal.background;
+  const gain=panner.connections[0] as typeof internal.background,convolver=internal.convolver,wet=internal.wet;
+  assert(gain.connections.includes(convolver));assert.equal(voice.stopped,false);
+  runtime.reverbEnabled(false);assert.equal(runtime.snapshot().reverbSeconds,0);
+  assert.equal(wet.gain.value,0);assert.equal((convolver as unknown as {buffer:AudioBuffer|null}).buffer,null);
+  assert.deepEqual(gain.connections,[internal.background]);assert.equal(voice.stopped,false);assert.equal(zone.stopped,false);
+  assert.equal(runtime.voicePlayback().status,'playing');assert.equal(runtime.snapshot().zoneTransitions,false);
+  assert.deepEqual(internal.background.gain.targets.at(-1),[.35,2,.03]);
+  const count=f.impulseBuffers();runtime.update(state(0,{roomId:id}));assert.equal(f.impulseBuffers(),count);
+  runtime.reverbEnabled(true);assert.equal(f.impulseBuffers(),count+1);assert.notEqual(internal.convolver,convolver);
+  assert(gain.connections.includes(internal.convolver));assert.equal(voice.stopped,false);
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
+test('footsteps require their own opt-in and off drains active steps and old wet tails while preserving voice',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  const {runtime,internal,id}=f;await f.enable();
+  internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];
+  internal.publication.exhibition.surfaces=[{id,roomId:id}] as typeof internal.publication.exhibition.surfaces;
+  internal.buffers.set(id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
+  runtime.footstepsEnabled(true);runtime.reverbEnabled(true);runtime.lifecycle(true);
+  runtime.update(state(0,{roomId:id,floorSurfaceId:id}));runtime.update(state(.3,{roomId:id,floorSurfaceId:id}));runtime.update(state(.6,{roomId:id,floorSurfaceId:id}));
+  assert.equal(runtime.snapshot().footsteps,1);const step=f.sources[0]!,oldConvolver=internal.convolver,oldWet=internal.wet;
+  await runtime.playVoice(id);const voice=f.sources.at(-1)!;
+  runtime.footstepsEnabled(false);assert.equal(step.stopped,true);assert.equal(voice.stopped,false);
+  assert.equal(oldWet.gain.value,0);assert.equal((oldConvolver as unknown as {buffer:AudioBuffer|null}).buffer,null);
+  assert.equal(runtime.voicePlayback().status,'playing');assert.equal(runtime.snapshot().reverbEnabled,true);
+  runtime.update(state(.9,{roomId:id,floorSurfaceId:id}));assert.equal(runtime.snapshot().footsteps,1);
+  runtime.reverbEnabled(false);runtime.lifecycle(false);assert.equal(runtime.snapshot().active,0);
+  assert.equal(runtime.snapshot().reverbSeconds,0);
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
+test('footstep opt-out invalidates queued preloads before any request or decode',async()=>{
+ const {runtime,internal,id}=preparedShortStep();
+ const audio=runtime as unknown as {loadQueue:Promise<unknown>;load:(id:string,preload:boolean)=>Promise<AudioBuffer>;setRoom:(id:string)=>void};
+ internal.publication.exhibition.rooms=[{id:'room'}] as import('@exhibitos/spec').Exhibition['rooms'];
+ internal.publication.exhibition.surfaces=[{id,roomId:'room'}] as import('@exhibitos/spec').Exhibition['surfaces'];
+ internal.publication.exhibition.audioZones=[];internal.publication.exhibition.placements=[];
+ internal.state.enabled=false;audio.setRoom('room');internal.state.enabled=true;
+ internal.buffers.clear();let finish:()=>void=()=>{};audio.loadQueue=new Promise(resolve=>{finish=()=>resolve(undefined);});
+ const pending=audio.load(id,true);runtime.footstepsEnabled(false);finish();
+ await assert.rejects(pending,/AUDIO_PRELOAD_STALE/);assert.equal(runtime.snapshot().requests,0);runtime.dispose();
+});
+
+test('audio settings render optional effects unchecked when no state exists',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');const {createElement}=await import('react');
+ const {AudioControls}=await import('./AudioControls');
+ const html=renderToStaticMarkup(createElement(AudioControls,{audio:null,state:null,zones:[]}));
+ assert(!html.includes('checked='));assert.match(html,/걷는 동안 발소리/);assert.match(html,/방 잔향/);
+});
+
+
+test('same-room footsteps lazily restore opted-in reverb after mute or visibility suspension',async()=>{
+ vi.useFakeTimers();
+ try{for(const action of ['mute','visibility']){
+  const f=voicePriorityRuntime();
+  try{
+   const {runtime,internal,id}=f;await f.enable();
+   internal.experience.footsteps=[{surfaceId:id,material:'wood',assetId:id}];
+   internal.publication.exhibition.surfaces=[{id,roomId:id}] as typeof internal.publication.exhibition.surfaces;
+   internal.buffers.set(id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
+   runtime.footstepsEnabled(true);runtime.reverbEnabled(true);runtime.lifecycle(true);
+   const move=(x:number)=>runtime.update(state(x,{roomId:id,floorSurfaceId:id}));
+   move(0);move(.3);move(.6);const old=internal.convolver;
+   assert.equal(runtime.snapshot().footsteps,1);
+   if(action==='mute')runtime.mute(true);else runtime.visibility(false);
+   assert.equal(runtime.snapshot().reverbEnabled,true);assert.equal(runtime.snapshot().reverbSeconds,0);
+   assert.equal((old as unknown as {buffer:AudioBuffer|null}).buffer,null);
+   const count=f.impulseBuffers();
+   if(action==='mute')runtime.mute(false);else runtime.visibility(true);
+   // Merely returning visibility or clearing mute is not a new audio gesture/source.
+   assert.equal(f.impulseBuffers(),count);
+   move(.7);move(1);move(1.3);
+   assert.equal(runtime.snapshot().footsteps,2);assert.equal(f.impulseBuffers(),count+1);
+   assert.notEqual(internal.convolver,old);assert(runtime.snapshot().reverbSeconds>0);
+   const gain=f.sources.at(-1)!.connections[0] as typeof internal.background;
+   assert(gain.connections.includes(internal.convolver));assert.equal(runtime.snapshot().zoneTransitions,false);
+  }finally{f.runtime.dispose();}
+ }}finally{vi.useRealTimers();}
 });
