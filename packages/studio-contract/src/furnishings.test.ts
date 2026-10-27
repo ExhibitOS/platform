@@ -47,7 +47,7 @@ test('bench pose changes that detach the seated viewpoint and connected aperture
 });
 
 test('a visual spot follows the existing legacy placement target when no light-details binding is present',()=>{
- const e=fixture(),light=e.lights[0]!,placement=e.placements[0]!;light.targetPlacementId=placement.id;placement.transform.position=[2,1,0];
+ const e=fixture(),light=e.lights[0]!,placement=e.placements[0]!;light.transform.position[1]=2.5;light.targetPlacementId=placement.id;placement.transform.position=[2,1,0];
  const next=applyFurnishingCommand(e,commands(e)[1]!),value=furnishingsFor(next)!,binding=value.bindings[0]!,resolved=resolveFurnishing(next,binding,value.assets[0]!);
  const start=artifactPoint([0,0,0],resolved.parent),end=artifactPoint([0,0,-1],resolved.parent),direction=end.map((n,i)=>n-start[i]!),target=placement.transform.position.map((n,i)=>n-start[i]!),norm=Math.hypot(...target);
  direction.forEach((n,i)=>expect(n).toBeCloseTo(target[i]!/norm,6));
