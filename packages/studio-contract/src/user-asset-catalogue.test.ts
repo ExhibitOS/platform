@@ -42,6 +42,19 @@ describe('user asset distribution source', () => {
     expect(JSON.stringify(entries)).not.toMatch(/(?:\/Users\/|\/Volumes\/|\.blend|build\.py|verification\.json)/);
   });
 
+  it('selects only the nineteen byte-qualified originals and keeps the malformed wallwasher out', () => {
+    expect(entries).toHaveLength(19);
+    expect(entries.find(item => item.id === 'museum-wallwasher')).toBeUndefined();
+    const cylinder = entry('cylindrical-plinth').functional;
+    if (cylinder?.kind !== 'plinth') throw Error('Missing cylindrical support metadata');
+    expect(cylinder.verifiedInset).toEqual({ shape: 'disk', radius: 0.322 });
+    expect(cylinder.supportPlaneY).toBeCloseTo(0.85, 6);
+    expect(cylinder.coplanarUpwardTriangles).toBe(128);
+    const upholstered = entry('upholstered-gallery-bench').functional;
+    if (upholstered?.kind !== 'bench') throw Error('Missing upholstered seat references');
+    expect(upholstered.seats.every(seat => seat.directSurfaceContactVerified)).toBe(true);
+  });
+
   it('preserves the first four exact source identities from the preservation handoff', () => {
     for (const [id, bytes, sha256] of [
       ['backless-oak-bench', 205668, '364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b'],
