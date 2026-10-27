@@ -15,6 +15,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@exhibitos/spec": "0.1.0-draft.7"
+    "@exhibitos/spec": "0.1.0-draft.8"
   }
 }
