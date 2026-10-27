@@ -35,7 +35,7 @@ export type UserAssetCatalogueEntry = {
   readonly sha256: string;
   readonly triangles: number;
   readonly bounds: Bounds;
-  readonly rights: { readonly licenseId: 'CC0-1.0'; readonly noticePath: string };
+  readonly rights: { readonly licenseId: 'CC0-1.0'; readonly noticePath: string; readonly noticeBytes: number; readonly noticeSha256: string };
   readonly provenance: { readonly sourceSha256: string; readonly recipe: 'original-v1' };
   readonly functional?: Functional;
 };
@@ -65,7 +65,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/backless-oak-bench/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/backless-oak-bench/LICENSE-NOTICE.txt",
+      "noticeBytes": 1569,
+      "noticeSha256": "aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5"
     },
     "provenance": {
       "sourceSha256": "364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b",
@@ -127,7 +129,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/museum-track-spot/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/museum-track-spot/LICENSE-NOTICE.txt",
+      "noticeBytes": 1568,
+      "noticeSha256": "dc091044c4c102c72b23cf334224fd131b54018d7bf78f84c3bc1d080208953e"
     },
     "provenance": {
       "sourceSha256": "4385cd058231a400b0e1bffd1f107ca3b0c7281a41671a8858f8fa7ed3721f90",
@@ -187,7 +191,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/gallery-open-portal/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/gallery-open-portal/LICENSE-NOTICE.txt",
+      "noticeBytes": 1570,
+      "noticeSha256": "1742a70e169067b643abda76877788f1b1816fba3036dfb1cabd6d23fd57ef73"
     },
     "provenance": {
       "sourceSha256": "b4117f9d48416feaf52f17889208050e49e984f79d6cf89c1e1de70432b6e432",
@@ -370,7 +376,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/rectangular-plinth/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/rectangular-plinth/LICENSE-NOTICE.txt",
+      "noticeBytes": 1569,
+      "noticeSha256": "3aeee5cc3a90033b182872c4944ca8b6985c09a7016d3782a85a868642e19e03"
     },
     "provenance": {
       "sourceSha256": "67db8564375294bf9dcd867d94fa5754c6cbcefb67c5e2a5563aed876f79c02b",
@@ -423,7 +431,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/cylindrical-plinth/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/cylindrical-plinth/LICENSE-NOTICE.txt",
+      "noticeBytes": 1569,
+      "noticeSha256": "e3a1c601e244794dfb06a6d2ee4554c9460cd474a1efb1fdfbdf4bbd8ed220d7"
     },
     "provenance": {
       "sourceSha256": "1dfcaad91f9b4c2370c157e101df6cc136eb44a108959aab3deb74851b45f392",
@@ -475,7 +485,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/low-wide-plinth/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/low-wide-plinth/LICENSE-NOTICE.txt",
+      "noticeBytes": 1566,
+      "noticeSha256": "1d7037ce6f765b6846cfd87a0f7eab1777c2fc871247eeb1d6aadf0f5783661c"
     },
     "provenance": {
       "sourceSha256": "e9cc627463599a73d5364ab6bd005b44d64e30d0c458df0c4c026a7e70859947",
@@ -528,7 +540,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/upholstered-gallery-bench/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/upholstered-gallery-bench/LICENSE-NOTICE.txt",
+      "noticeBytes": 1576,
+      "noticeSha256": "0b0738aec291f2961bb283df29b017f0c4c2d41ffdb3d90e0b05df61ec6845f3"
     },
     "provenance": {
       "sourceSha256": "6924041a37702eb8233bf39da973f2235ff951f4b1f31ab564d4ad125542b3de",
@@ -590,7 +604,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/gallery-stool/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/gallery-stool/LICENSE-NOTICE.txt",
+      "noticeBytes": 1564,
+      "noticeSha256": "888c78514e01388c85189557cc48ff063808e75c6ea0c4af977b5e1db63231bb"
     },
     "provenance": {
       "sourceSha256": "6caca94361b540fb007c6fc605e519e436462eda43f2ec5f99da6a63108bfc60",
@@ -642,7 +658,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/double-width-portal/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/double-width-portal/LICENSE-NOTICE.txt",
+      "noticeBytes": 1570,
+      "noticeSha256": "cec35a0e3c1ad0ff78f65bfecbb92315cd8a23b4041d0bbad987237dc7338f27"
     },
     "provenance": {
       "sourceSha256": "385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b",
@@ -825,7 +843,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/straight-gallery-partition/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/straight-gallery-partition/LICENSE-NOTICE.txt",
+      "noticeBytes": 1577,
+      "noticeSha256": "617b6cbc74e6fbe1e133ba188243e3b86c95368f85af61de21925aa3129026a7"
     },
     "provenance": {
       "sourceSha256": "c040bf79e0faa4cf7f316c689cd74ddc7e3aeede321c4e7d949406c5d9758470",
@@ -874,7 +894,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/corner-gallery-partition/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/corner-gallery-partition/LICENSE-NOTICE.txt",
+      "noticeBytes": 1575,
+      "noticeSha256": "873efaab8093e9d1b8fe35a16e309a14fc57cd829036af8c0d206b2f4152f7fb"
     },
     "provenance": {
       "sourceSha256": "244ca85cd1403062674a0caa3e9c03267eaf81257594581f936896f81b6c541a",
@@ -935,7 +957,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/minimal-barrier/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/minimal-barrier/LICENSE-NOTICE.txt",
+      "noticeBytes": 1566,
+      "noticeSha256": "771a2bd88a1d2adc2c7088598d966d911b800110f94555ab5f37ebb777783816"
     },
     "provenance": {
       "sourceSha256": "6794ce62cae8ab7e7b4432bc6f4c0c98a9a867a2f8174508337c85a7b43c3327",
@@ -971,7 +995,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/linear-track/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/linear-track/LICENSE-NOTICE.txt",
+      "noticeBytes": 1563,
+      "noticeSha256": "d1e955d10f9ef3f655d07e300282fbe27e201e12b7a2cf2c9994cbeb9dfc8081"
     },
     "provenance": {
       "sourceSha256": "1ba64842de525166018e941074852a3e041d07adf605674c7d7fadb02693a09e",
@@ -1000,7 +1026,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/recessed-downlight/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/recessed-downlight/LICENSE-NOTICE.txt",
+      "noticeBytes": 1569,
+      "noticeSha256": "b878f7873013dd45d32bfd7d8003dfb7f57d5680d69e3ed3f24d461692bf7b8e"
     },
     "provenance": {
       "sourceSha256": "041c6c2c340a039f1eb82f70d925c1ecbe913276deaba5b447e540d67fc2e7bf",
@@ -1050,7 +1078,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/tall-display-vitrine/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/tall-display-vitrine/LICENSE-NOTICE.txt",
+      "noticeBytes": 1571,
+      "noticeSha256": "f2723d04546707fd78fb903abed6ea3fd572cc6255a651a718eb21e2d01fed98"
     },
     "provenance": {
       "sourceSha256": "c191b4d18cc0a7a6942b1bd67e3e9658de3df41c7a2a56ccd88a84c814494e2c",
@@ -1079,7 +1109,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/tabletop-display-case/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/tabletop-display-case/LICENSE-NOTICE.txt",
+      "noticeBytes": 1572,
+      "noticeSha256": "4c6ccbc3fa494802a44f095a9b81655c15d3d01459cd387a425ce2f0355b85c9"
     },
     "provenance": {
       "sourceSha256": "4bee8dd06fea65990a08b3cb4633d8c81cdaa7d6c3f575f5748adec8538a19a6",
@@ -1108,7 +1140,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/freestanding-info-stand/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/freestanding-info-stand/LICENSE-NOTICE.txt",
+      "noticeBytes": 1574,
+      "noticeSha256": "dc4c49efa5aaa95f76cc519c824c8c1b6eb1752d8653910b12572b5e93642d9c"
     },
     "provenance": {
       "sourceSha256": "4e26824b897af85e781c102cf7f01e404e4266b4d5299088c2b29940facaccba",
@@ -1137,7 +1171,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/wall-title-panel/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/wall-title-panel/LICENSE-NOTICE.txt",
+      "noticeBytes": 1567,
+      "noticeSha256": "98606e64f813a13f17e6db359aab0a2f2b8c8928bce2ac5c3f6a2b9763959f60"
     },
     "provenance": {
       "sourceSha256": "6295491bb93c90921bffabdf1d16f0697491c3be014e8ad8c2a7130a7de66c3e",
@@ -1166,7 +1202,9 @@ export const USER_ASSET_CATALOGUE = [
     },
     "rights": {
       "licenseId": "CC0-1.0",
-      "noticePath": "assets/furnishings/user-authored-20261027/gallery-frame/LICENSE-NOTICE.txt"
+      "noticePath": "assets/furnishings/user-authored-20261027/gallery-frame/LICENSE-NOTICE.txt",
+      "noticeBytes": 1564,
+      "noticeSha256": "67cf943f2e25e55a775b8de742c39fe00e86b26e1100664740b5a5389eea6cf8"
     },
     "provenance": {
       "sourceSha256": "50b1caa7c100150f9872236e5866dec072ea2fa86747ce38e1cd3204aa6c5072",

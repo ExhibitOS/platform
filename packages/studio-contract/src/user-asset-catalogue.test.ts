@@ -28,7 +28,10 @@ describe('user asset distribution source', () => {
       expect(item.provenance).toEqual({ sourceSha256: item.sha256, recipe: 'original-v1' });
       expect(item.triangles).toBeGreaterThan(0);
       expect(item.rights.licenseId).toBe('CC0-1.0');
-      const notice = readFileSync(file(item.rights.noticePath), 'utf8');
+      const noticeBytes = readFileSync(file(item.rights.noticePath));
+      expect(noticeBytes.length).toBe(item.rights.noticeBytes);
+      expect(createHash('sha256').update(noticeBytes).digest('hex')).toBe(item.rights.noticeSha256);
+      const notice = noticeBytes.toString('utf8');
       expect(notice).toContain('https://creativecommons.org/publicdomain/zero/1.0/');
       expect(notice).not.toContain('See CC0-1.0.txt');
       expect(readdirSync(file(prefix)).sort()).toEqual(['LICENSE-NOTICE.txt', 'model.glb']);
