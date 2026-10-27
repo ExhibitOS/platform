@@ -62,3 +62,12 @@ test('a failed pack releases only its own leases on an already displayed shared 
  finally{loader.dispose();a.dispose();b.dispose();vi.unstubAllGlobals();}
  expect(closed).toHaveBeenCalledTimes(1);
 });
+test('linear map output sizes stay distinct and notification failure keeps published textures alive',async()=>{
+ const bytes=new Uint8Array([1,2,3]),closed=vi.fn(),normal:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256:createHash('sha256').update(bytes).digest('hex'),width:4,height:4,colorSpace:'linear'},roughness={...normal};
+ const pack={id:'test',maps:{roughness,normal}},material=new three.MeshStandardMaterial();
+ vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number;resizeHeight?:number})=>({width:options?.resizeWidth??4,height:options?.resizeHeight??4,close:closed}));
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:256,sizeFor:f=>f===roughness?2:4},[normal,roughness],()=>pack,new AbortController().signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ try{loader.add(material,{normalScale:1});expect(await loader.start(()=>{throw Error('render failed');})).toEqual({test:'render-failed'});expect(material.normalMap).not.toBe(material.roughnessMap);expect(material.normalMap!.image.width).toBe(4);expect(material.roughnessMap!.image.width).toBe(2);expect(closed).toHaveBeenCalledTimes(1);}
+ finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+ expect(closed).toHaveBeenCalledTimes(3);
+});
