@@ -87,7 +87,7 @@ export class Imports {
   });if(!row)return false;
   try{
    const bytes=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return Buffer.from(await this.blobs.get(row.object_key));});if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
-   const derived=this.prepared(row);let display=bytes;
+   const derived=this.prepared(row);let display:Buffer=bytes;
    if(derived){
     // Bounded private original custody, not server JPEG codec or pixel-equivalence certification.
     if(bytes.length<4||bytes[0]!==255||bytes[1]!==216)throw new ApiError(422,'FORMAT_REJECTED');
