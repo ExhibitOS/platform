@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {test,expect} from 'vitest';
+import {test,expect,vi} from 'vitest';
+import {createHash} from 'node:crypto';
 import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_NAMESPACE,FLOOR_TEXTURE_FILES,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
-import {floorUvs,floorTexturePlan,fetchFloorTexture} from './floor-texture-renderer';
+import {floorUvs,floorTexturePlan,fetchFloorTexture,createRegisteredMaterialTextureRenderer,type MaterialTextureFile} from './floor-texture-renderer';
 const room='11111111-1111-4111-8111-111111111111',surface='22222222-2222-4222-8222-222222222222';
 const binding:FloorBinding={...floorPresetDefaults('wood'),target:{kind:'surface',surfaceId:surface},repeatMeters:[2,4],rotation:0};
 test('separate panels keep continuous meter UVs through room/surface scale and room rotation',()=>{
@@ -41,4 +42,14 @@ test('the shared reader retains registered legacy floor paths and rejects copied
  expect(paths).toEqual(['/'+file.path]);
  await expect(fetchFloorTexture({...file},signal,fetcher)).rejects.toThrow('FLOOR_TEXTURE_DESCRIPTOR');
  expect(paths).toHaveLength(1);
+});
+test('identical PNG bytes used for color and a scalar map retain distinct GPU color spaces',async()=>{
+ const bytes=new Uint8Array([1,2,3]),sha256=createHash('sha256').update(bytes).digest('hex'),closed=vi.fn();
+ const color:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256,width:1,height:1,colorSpace:'srgb'},roughness:MaterialTextureFile={...color,colorSpace:'linear'};
+ const pack={id:'test',maps:{color,roughness}},material=new three.MeshStandardMaterial(),binding={normalScale:1};
+ vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close:closed}));
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:64,sizeFor:()=>1},[color,roughness],()=>pack,new AbortController().signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+ try{loader.add(material,binding);expect(await loader.start(()=>{})).toEqual({test:'ready'});expect(material.map).not.toBe(material.roughnessMap);expect(material.map!.colorSpace).toBe(three.SRGBColorSpace);expect(material.roughnessMap!.colorSpace).toBe(three.NoColorSpace);}
+ finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+ expect(closed).toHaveBeenCalledTimes(2);expect(material.map).toBeNull();expect(material.roughnessMap).toBeNull();
 });
