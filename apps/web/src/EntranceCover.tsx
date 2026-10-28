@@ -89,7 +89,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   }, [publication, showImage, settings.imageAssetId, hasUsableImage,retry,source]);
   const displayed=()=>{if(image?.generation===generation.current)requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});};
   const imageFailed=()=>{if(image?.generation===generation.current)setFailed(true);};
-  const phase=paper==='folded'&&layoutReady?'opening':paper;
+  const phase=paper;
   if(design.theme!=='catalogue'){
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
     const status=displayedImageState;
