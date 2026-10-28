@@ -2,6 +2,7 @@ import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-text
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
+import {borrowedDetailPreview,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
@@ -63,6 +64,7 @@ export interface SurfaceAppearance {
 export interface DetailEntryActions {
   prepare: () => void;
   commit: (pointer: boolean) => void;
+  mountPreview?:SharedDetailPreview;
 }
 export type GeometrySelection=EditorSelection;
 export interface EntranceSceneScope {enter(signal:AbortSignal):Promise<void>;cancelEntry():void;close():void}
@@ -277,7 +279,7 @@ export function GeometryPreview({
       // Active walking returns focus to its canvas; focusing the opener would
       // trigger the input blur safety stop immediately after resuming.
       // Paused/stationary modes leave focus restoration to the detail dialog.
-      if (suspendedWasWalking.current) walkingActions.current?.start();
+      if (suspendedWasWalking.current) walkingActions.current?.pause();
       suspendedWasWalking.current = false;
     }
   }, [suspendNavigation]);
@@ -289,6 +291,9 @@ export function GeometryPreview({
     let walkingRelease = () => {};
     let placementRelease = () => {};
     let nearPlacement: string | undefined;
+    let sharedDetail:ReturnType<typeof borrowedDetailPreview>|undefined;
+    let sharedDetailUnavailable:((reason:'rights'|'graphics')=>void)|undefined;
+    let cancelSharedDetail=()=>{};
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);
     xrActive.current=false;setXrRunning(false);
@@ -622,6 +627,7 @@ export function GeometryPreview({
       } = { started: 0, samples: [], frame: 0 };
       let projectionStamp = "", framePixelBudget:number|undefined;
       const render = () => {
+        if(sharedDetail){if(!disposed&&!gpuLost)sharedDetail.render();return;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
         if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
@@ -766,6 +772,7 @@ export function GeometryPreview({
         render();
       };
       const resize = () => {
+        if(sharedDetail){sharedDetail.render();return;}
         if (!host.current) return;
         const width = Math.max(host.current.clientWidth, 1),
           height = immersive || fillHost ? Math.max(host.current.clientHeight, 1) : 360;
@@ -785,6 +792,9 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        cancelSharedDetail();
+        sharedDetailUnavailable?.('graphics');
+        sharedDetail?.dispose();
         xrCallbacks.current.onXrReady?.(null);renderer.setAnimationLoop(null);
         cancelAnimationFrame(trace.frame);
         walkingActions.current?.pause();
@@ -852,6 +862,7 @@ export function GeometryPreview({
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
       editingSync.current=()=>editor?.sync();
       release = () => {
+        sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
@@ -1092,6 +1103,10 @@ export function GeometryPreview({
           if(!current.ok||(await current.json()).publication.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLIC_DERIVATIVE_UNAVAILABLE');
         }
         signal.throwIfAborted();
+      };
+      const stopPublicDisplay=()=>{
+        sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
+        setReady(false);setPublicMessage('공개 상태를 확인할 수 없어 작품 표시를 중단했습니다. 작품 목록을 이용해 주세요.');
       };
       const readArtworkBytes = async (
         artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal,
@@ -1372,7 +1387,10 @@ export function GeometryPreview({
               a && all.findIndex((b) => b.revisionId === a.revisionId) === i,
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
+        let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
+        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined;
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
+          if(object===detailPinned){detailRetired=true;return;}
           for (const resource of decodedResources.get(object) ?? [])
             resource.dispose();
           decodedResources.delete(object);
@@ -1397,7 +1415,8 @@ export function GeometryPreview({
         let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
-        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
+        const detailBytes=()=>detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0;
+        const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
         growAssetLimits=()=>{
           const increased=assetBudgetBytes>byteCache.stats().maxBytes;
@@ -1488,7 +1507,7 @@ export function GeometryPreview({
           if (disposed || gpuLost) return;
           const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
-            0,
+            detailBytes(),
           );
           for (const key of tasks.keys()) {
             if (
@@ -1541,8 +1560,10 @@ export function GeometryPreview({
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
+          settleDetail?.();
         };
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false):void => {
+          if(art.revisionId===detailPinnedArtwork)return;
           requested.add(art.revisionId);
           let inventory: (typeof art.assets)[number];
           try {
@@ -1681,7 +1702,7 @@ export function GeometryPreview({
         const reclaimForCurrent=()=>{
           // Let one ready-before-swap downgrade settle before reclaiming another.
           if([...reclaiming].some(id=>pending.has(id)))return;
-          const candidate=displayedDetailReclamation(arts.filter(art=>active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
+          const candidate=displayedDetailReclamation(arts.filter(art=>art.revisionId!==detailPinnedArtwork&&active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
             id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,minimumRequired:observedEligible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
           })),currentArtwork,performance.now(),viewerBudget);
           if(!candidate)return;
@@ -1812,7 +1833,7 @@ export function GeometryPreview({
           for(const {art,visible,minimumEligible}of sorted)if((visible||minimumEligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
           const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)})));
           for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
-            if(!visible&&!minimumEligible&&!focused&&distance>12){
+            if(art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
@@ -1840,9 +1861,78 @@ export function GeometryPreview({
 
           }
         };
+        const mountSharedDetail:SharedDetailPreview=async input=>{
+          const signal=AbortSignal.any([abort.signal,input.signal]);
+          signal.throwIfAborted();
+          if(disposed||gpuLost||xrActive.current||sharedDetail||!suspendedRef.current)throw Error('DETAIL_MAIN_VIEWER_UNAVAILABLE');
+          const placement=document.placements.find(p=>p.id.toLowerCase()===input.placementId.toLowerCase());
+          const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
+          if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
+          cancelDetail?.();
+          try{await checkPublicAvailability(signal);}catch(error){if(!signal.aborted&&!disposed){stopPublicDisplay();input.unavailable('rights');}throw error;}
+          signal.throwIfAborted();
+          if(!objects.has(art.revisionId))await new Promise<void>((resolve,reject)=>{
+            const deadline=performance.now()+10000;let settled=false;
+            const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;if(error)reject(error);else resolve();};
+            const cancel=()=>finish(Error('DETAIL_CANCELLED'));
+            const check=()=>{
+              if(signal.aborted||disposed||gpuLost){cancel();return;}
+              if(objects.has(art.revisionId)){finish();return;}
+              if(performance.now()>deadline||failed.has(art.revisionId)&&!pending.has(art.revisionId))finish(Error('DETAIL_NOT_READY'));
+            };
+            settleDetail=check;cancelDetail=cancel;signal.addEventListener('abort',cancel,{once:true});request(art,false);check();
+          });
+          signal.throwIfAborted();
+          const object=objects.get(art.revisionId);
+          if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
+          const markerBytes=input.anchors.length?16384+input.anchors.length*512:0,detailKey='shared-detail-annotations';
+          // Verified downloads can outlive a deferred full-image promotion.
+          // Spend no extra residency on the borrowed view until unpinned bytes
+          // have yielded to the already displayed object and annotations.
+          for(const work of arts)for(const asset of work.assets){
+            if(resident()+markerBytes<=assetBudgetBytes)break;
+            byteCache.delete(asset.id);
+          }
+          if(resident()+markerBytes>assetBudgetBytes)throw Error('DETAIL_MEMORY_BUDGET');
+          reserve(detailKey,markerBytes);
+          // Freeze this admitted identity while it is borrowed. A pending peer
+          // replacement can be requested again after the detail scope returns.
+          const loading=pending.get(art.revisionId);if(loading){pending.delete(art.revisionId);scheduler.cancel(loading);}
+          desired.set(art.revisionId,active.get(art.revisionId)!);
+          detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;
+          sharedDetailUnavailable=input.unavailable;
+          let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
+          const visible=()=>{if(globalThis.document.visibilityState==='visible')void check();};
+          const restore=()=>{
+            if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            peak.release(detailKey);
+            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
+            if(!disposed&&!gpuLost){
+              resize();update();
+              // Dialog teardown may run before the borrowed canvas is returned.
+              // Keep a restored opener's focus; otherwise return it to the stage.
+              if(!suspendedRef.current&&renderer.domElement.isConnected&&globalThis.document.activeElement===globalThis.document.body)renderer.domElement.focus({preventScroll:true});
+            }
+          };
+          const check=async()=>{
+            if(!alive||checking)return;checking=true;
+            try{await checkPublicAvailability(signal);}catch{
+              if(alive&&!signal.aborted&&!disposed)stopPublicDisplay();
+            }finally{checking=false;}
+          };
+          try{
+            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
+            if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
+            sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);update();return scope;
+          }catch(error){restore();throw error;}
+        };
+        detailEntry.current.mountPreview=mountSharedDetail;
+        cancelSharedDetail=()=>cancelDetail?.();
         const statsTimer = setInterval(()=>{automaticDemand();update();}, 200);
         const originalRelease = release;
         release = () => {
+          cancelDetail?.();sharedDetail?.dispose();
+          if(detailEntry.current.mountPreview===mountSharedDetail)delete detailEntry.current.mountPreview;
           clearInterval(statsTimer);
           scheduler.dispose();
           originalRelease();
