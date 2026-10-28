@@ -24,6 +24,7 @@ test('typed remapping retains orbit and only rewrites both declared identities',
 test('explicit setter changes only its own profile and preserves absent versus empty containers',async()=>{
  const {setViewingPlan}=await import('./viewing-plan');
  const source=fixture() as unknown as import('@exhibitos/spec').Exhibition,before=structuredClone(source),plan={version:1 as const,stops:[]};
+ expect(()=>setViewingPlan(source,{version:1,stops:[{placementId:crypto.randomUUID(),viewpointId:view}]})).toThrow('VIEWING_PLAN_INVALID');
  const next=setViewingPlan(source,plan);expect(source).toEqual(before);expect(next).toEqual({...source,extensions:{...source.extensions,[N]:plan}});
  const removed=setViewingPlan(next,null),expected=structuredClone(source);delete expected.extensions![N];expect(removed).toEqual(expected);
  const absent=structuredClone(source);delete absent.extensions;expect(setViewingPlan(absent,null)).toEqual(absent);
