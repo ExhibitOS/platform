@@ -42,7 +42,9 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(html).not.toContain('작품 상세 보기 오류');
   expect(html).toContain(artwork.metadata.title);
   expect(html).toContain('Accessible synthetic original description');
-  expect(html).toContain('실제 치수');
+  expect(html).toContain('기록된 크기');
+  expect(html).toContain('너비 ');
+  expect(html).toContain(' cm');
   expect(html).toContain(artwork.rights.creditLine);
   expect(html).toContain('Separate synthetic translation');
   expect(html).toContain(annotation.text);
@@ -50,7 +52,7 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(html).not.toContain('좌표 미등록');
   expect(html).toContain('aria-label="작품 설명"');
   expect(html).toContain('음성 설명 · 대본');
-  expect(html).toContain('등록된 음성 설명이 없습니다.');
+  expect(html).toContain('등록된 작품 음성 설명이 없습니다.');
   expect(html).not.toContain('작가 원문');
   expect(html).not.toContain('작가 음성');
   expect(html).not.toContain('아래 대본으로 같은 설명');

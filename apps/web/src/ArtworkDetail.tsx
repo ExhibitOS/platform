@@ -45,7 +45,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
     <p>{artwork.metadata.artist}</p>
     {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} placementId={placementId} sharedPreview={sharedPreview} />}
-    <details className="artwork-detail-record" open={!renderPreview}><summary>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</summary><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></details>
+    <details className="artwork-detail-record" aria-label="작품 설명" open={!renderPreview}><summary>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</summary><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></details>
     <dl>
       <dt>기록된 크기</dt><dd>{formatArtworkDimensions(artwork.dimensions)}</dd>
       <dt>재료·기법</dt><dd>{artwork.metadata.medium ?? "미기록"}</dd>
