@@ -11,8 +11,10 @@ export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  * preset is a measured hardware guarantee. */
 export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"]};}
 /** Explicit existing high-quality choice only. Auto and known constrained devices
- * retain their previous triangle/resident limits; this is not a hardware promise. */
-export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxTransitionBytes:128*1024*1024});
+ * retain their previous triangle/resident limits. Explicit desktop uses the
+ * development starting budget (192 MiB steady / 256 MiB transition); actual
+ * allocations and coexistence still have to pass, not a hardware promise. */
+export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  if(profile==='auto')return deviceBudget(input);
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};

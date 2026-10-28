@@ -5,6 +5,7 @@ import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_NAMESPACE,FLOOR_TEXTURE_FILES,floorPresetDefaults,type FloorBinding} from '@exhibitos/studio-contract';
 import {floorUvs,floorTexturePlan,fetchFloorTexture,createRegisteredMaterialTextureRenderer,type MaterialTextureFile} from './floor-texture-renderer';
+import {textureResidentBytes} from './viewer/loading';
 const room='11111111-1111-4111-8111-111111111111',surface='22222222-2222-4222-8222-222222222222';
 const binding:FloorBinding={...floorPresetDefaults('wood'),target:{kind:'surface',surfaceId:surface},repeatMeters:[2,4],rotation:0};
 test('separate panels keep continuous meter UVs through room/surface scale and room rotation',()=>{
@@ -70,4 +71,37 @@ test('linear map output sizes stay distinct and notification failure keeps publi
  try{loader.add(material,{normalScale:1});expect(await loader.start(()=>{throw Error('render failed');})).toEqual({test:'render-failed'});expect(material.normalMap).not.toBe(material.roughnessMap);expect(material.normalMap!.image).toMatchObject({width:4});expect(material.roughnessMap!.image).toMatchObject({width:2});expect(closed).toHaveBeenCalledTimes(1);}
  finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
  expect(closed).toHaveBeenCalledTimes(3);
+});
+
+test('artwork pressure reserves before resize and atomically retains every material role until uploaded',async()=>{
+ const bytes=new Uint8Array([1,2,3]),hash=createHash('sha256').update(bytes).digest('hex');
+ const color:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256:hash,width:1024,height:1024,colorSpace:'srgb'},normal={...color,colorSpace:'linear' as const},roughness={...normal};
+ const pack={id:'pressure',maps:{color,normal,roughness}},material=new three.MeshStandardMaterial(),abort=new AbortController(),bitmaps:{width:number;height:number;close:ReturnType<typeof vi.fn>}[]=[],fetcher=vi.fn(async()=>new Response(bytes,{headers:{'content-type':'image/png'}}));
+ vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number;resizeHeight?:number})=>{const value={width:options?.resizeWidth??1024,height:options?.resizeHeight??1024,close:vi.fn()};bitmaps.push(value);return value;});
+ const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:32*1024*1024,sizeFor:f=>f===roughness?512:1024},[color,normal,roughness],()=>pack,abort.signal,()=>false,fetcher as typeof fetch);
+ try{
+  loader.add(material,{normalScale:.7});await loader.start(()=>{});
+  const old=[material.map!,material.normalMap!,material.roughnessMap!],disposed=old.map(t=>vi.spyOn(t,'dispose')),oldImages=old.map(t=>t.image as typeof bitmaps[number]);
+  const release=vi.fn(),newResident=2*textureResidentBytes(512,512)+textureResidentBytes(256,256),reserve=vi.fn((size:number)=>{expect(size).toBe(newResident+1024*1024*4);expect(bitmaps).toHaveLength(4);return release;}),prepare=vi.fn(()=>{expect(material.map).toBe(old[0]);expect(material.normalMap).toBe(old[1]);expect(material.roughnessMap).toBe(old[2]);for(const image of oldImages)expect(image.close).not.toHaveBeenCalled();});
+  expect(await loader.reduceForArtwork(reserve,prepare)).toBe(newResident);
+  expect(prepare).toHaveBeenCalledTimes(3);expect(release).toHaveBeenCalledTimes(1);expect(fetcher).toHaveBeenCalledTimes(3);
+  expect((material.map!.image as {width:number}).width).toBe(512);expect((material.normalMap!.image as {width:number}).width).toBe(512);expect((material.roughnessMap!.image as {width:number}).width).toBe(256);expect(material.map!.colorSpace).toBe(three.SRGBColorSpace);expect(material.normalMap!.colorSpace).toBe(three.NoColorSpace);expect(material.normalScale.x).toBe(.7);
+  for(const image of oldImages)expect(image.close).toHaveBeenCalledTimes(1);for(const dispose of disposed)expect(dispose).toHaveBeenCalledTimes(1);
+  expect(await loader.reduceForArtwork(reserve,prepare)).toBeUndefined();expect(reserve).toHaveBeenCalledTimes(1);
+ }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+ for(const bitmap of bitmaps)expect(bitmap.close).toHaveBeenCalledTimes(1);
+});
+
+test('failed or revoked material reduction preserves old roles and releases only new allocations',async()=>{
+ for(const outcome of ['upload-failed','revoked','reserve-failed'] as const){
+  const bytes=new Uint8Array([1,2,3]),file:MaterialTextureFile={...FLOOR_TEXTURE_FILES[0]!,path:'material-test/shared.png',bytes:3,sha256:createHash('sha256').update(bytes).digest('hex'),width:512,height:512},pack={id:'pressure',maps:{color:file,normal:file}},material=new three.MeshStandardMaterial(),abort=new AbortController(),bitmaps:{width:number;height:number;close:ReturnType<typeof vi.fn>}[]=[];
+  vi.stubGlobal('createImageBitmap',async(_source:unknown,options?:{resizeWidth?:number;resizeHeight?:number})=>{const value={width:options?.resizeWidth??512,height:options?.resizeHeight??512,close:vi.fn()};bitmaps.push(value);if(options?.resizeWidth&&outcome==='revoked')abort.abort();return value;});
+  const loader=createRegisteredMaterialTextureRenderer(three,{packs:[pack],blocked:[],residentBytes:8*1024*1024,sizeFor:()=>512},[file],()=>pack,abort.signal,()=>false,(async()=>new Response(bytes,{headers:{'content-type':'image/png'}})) as typeof fetch);
+  try{
+   loader.add(material,{normalScale:1});await loader.start(()=>{});const old=material.map!,image=old.image as typeof bitmaps[number],release=vi.fn();
+   await expect(loader.reduceForArtwork(()=>{if(outcome==='reserve-failed')throw Error('NO_TRANSITION_ROOM');return release;},()=>{throw Error('UPLOAD_FAILED');})).rejects.toThrow();
+   expect(material.map).toBe(old);expect(material.normalMap).toBe(old);expect(image.close).not.toHaveBeenCalled();expect(release).toHaveBeenCalledTimes(outcome==='reserve-failed'?0:1);expect(bitmaps).toHaveLength(outcome==='reserve-failed'?1:2);if(bitmaps[1])expect(bitmaps[1].close).toHaveBeenCalledTimes(1);
+  }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
+  for(const bitmap of bitmaps)expect(bitmap.close).toHaveBeenCalledTimes(1);
+ }
 });
