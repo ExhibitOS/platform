@@ -9,7 +9,7 @@ function image(role:number,reduced:boolean,corrupt=false,intent=0){
  for(let y=0;y<edge;y++)for(let x=0;x<edge;x++)for(let c=0;c<3;c++){
   const sx=Math.floor((2*x+1)*1024/(2*edge)),sy=Math.floor((2*y+1)*1024/(2*edge));raw[y*(edge*3+1)+1+x*3+c]=(sx*17+sy*11+role*53+c*71)%256;
  }
- if(corrupt)raw[1]^=1;
+ if(corrupt)raw[1]=raw[1]!^1;
  const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(edge);ihdr.writeUInt32BE(edge,4);ihdr[8]=8;ihdr[9]=2;
  return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',ihdr),chunk('sRGB',Buffer.from([intent])),chunk('IDAT',deflateSync(raw)),chunk('IEND',Buffer.alloc(0))]);
 }
