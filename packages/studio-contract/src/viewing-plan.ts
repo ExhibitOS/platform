@@ -35,6 +35,7 @@ export function validateViewingPlan(candidate: unknown) {
    if(!object(orbit)||!closed(orbit,['minYaw','maxYaw'])||typeof orbit.minYaw!=='number'||typeof orbit.maxYaw!=='number'||!Number.isFinite(orbit.minYaw)||!Number.isFinite(orbit.maxYaw)||orbit.minYaw< -Math.PI||orbit.minYaw>0||orbit.maxYaw<0||orbit.maxYaw>Math.PI||orbit.minYaw>=orbit.maxYaw||artwork?.artworkType!=='sculpture')fail(path+'/orbit','Only sculpture stops support finite relative yaw bounds -PI..0..PI');
   }
  }
+ if(errors.length)return {valid:false,errors};
  try{if(new TextEncoder().encode(JSON.stringify(value)).length>VIEWING_PLAN_LIMITS.bytes)fail('','Maximum32KiB viewing plan');}catch{fail('','JSON metadata required');}
  return {valid:errors.length===0,errors};
 }
@@ -52,6 +53,7 @@ export function remapViewingPlan(value:ViewingPlan,ids:ReadonlyMap<string,string
 
 /** Explicit profile-only edit. Loading never invokes this setter. */
 export function setViewingPlan(candidate:Exhibition,plan:ViewingPlan|null):Exhibition {
+ if(plan!==null&&!validateViewingPlan({...candidate,extensions:{...candidate.extensions,[VIEWING_PLAN_NAMESPACE]:plan}}).valid)throw Error('VIEWING_PLAN_INVALID');
  const next=structuredClone(candidate);
  if(plan===null){if(next.extensions)delete next.extensions[VIEWING_PLAN_NAMESPACE];return next;}
  const value=structuredClone(plan);
