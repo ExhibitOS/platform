@@ -1,3 +1,4 @@
+import "./viewer/input-surface.css";
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
@@ -608,6 +609,8 @@ export function GeometryPreview({
       let resumeFrame = 0;
       const down = (event: PointerEvent) => { pointerStart=event.isPrimary === false ? undefined : [event.clientX,event.clientY]; };
       const cancelPick = () => { pointerStart=undefined; };
+      const canvasMenu = (event: MouseEvent) => { if (immersive) event.preventDefault(); };
+      renderer.domElement.addEventListener("contextmenu",canvasMenu);
       const movePick = (event: PointerEvent) => {
         for (const sample of event.getCoalescedEvents?.() ?? [event]) {
           if (pointerStart && Math.hypot(sample.clientX-pointerStart[0],sample.clientY-pointerStart[1])>5) cancelPick();
@@ -893,6 +896,7 @@ export function GeometryPreview({
         renderer.domElement.removeEventListener("pointerdown",down);
         renderer.domElement.removeEventListener("pointermove",movePick);
         renderer.domElement.removeEventListener("pointercancel",cancelPick);
+        renderer.domElement.removeEventListener("contextmenu",canvasMenu);
         walkingActions.current = null;
         action.current = null;selectionFindAction.current=null;
         guideAction.current=null;

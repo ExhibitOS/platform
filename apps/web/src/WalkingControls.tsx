@@ -151,9 +151,9 @@ export function WalkingTouch({
     </button>
   );
   return (
-    <div className="walking-touch" aria-label="터치 이동">
+    <div className="walking-touch" aria-label="터치 이동" onContextMenu={event => event.preventDefault()}>
       <div className="walking-touch-group" role="group" aria-label="이동">
-        <span className="walking-touch-label">이동</span>
+        <span className="walking-touch-label" onPointerDown={event => event.preventDefault()}>이동</span>
         <div className="walking-direction-pad">
           {move("forward", "앞으로 이동", "up", "↑")}
           {move("left", "왼쪽 이동", "left", "←")}
@@ -162,7 +162,7 @@ export function WalkingTouch({
         </div>
       </div>
       <div className="walking-touch-group" role="group" aria-label="시점">
-        <span className="walking-touch-label">시점</span>
+        <span className="walking-touch-label" onPointerDown={event => event.preventDefault()}>시점</span>
         <div className="walking-direction-pad">
           {move("look-up", "위쪽 시점", "up", "↑")}
           {move("turn-left", "왼쪽 시점", "left", "←")}
