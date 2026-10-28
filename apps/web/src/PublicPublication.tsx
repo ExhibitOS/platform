@@ -57,6 +57,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
+  const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
@@ -211,6 +212,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <Suspense fallback={null}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
+              guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
+              onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary></div>}

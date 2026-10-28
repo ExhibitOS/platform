@@ -23,7 +23,7 @@ it.each([
   expect(html).toContain('aria-label="짧은 관람 안내"');
   expect(html).toContain('tabindex="-1"');
   expect(html).toContain("안내 건너뛰기");
-  expect(html).toContain("걷기 재개·조작 방식·소리·텍스트 관람");
+  expect(html).toContain("메뉴에서 조작·소리·텍스트 관람을 바꾸거나 안내를 다시 볼 수 있어요.");
   expect(html).not.toContain("<dialog");
 });
 
