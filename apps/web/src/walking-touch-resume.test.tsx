@@ -2,9 +2,10 @@
 import {expect,it,vi} from 'vitest';
 import type {ReactElement} from 'react';
 import {WalkingTouch,type WalkingActions} from './WalkingControls';
-function buttons(node:unknown):ReactElement<Record<string,any>>[]{
+type TestProps={children?:unknown;disabled?:boolean;className?:string;onPointerDown:(event:unknown)=>void;onPointerCancel:(event:unknown)=>void;onContextMenu:(event:unknown)=>void};
+function buttons(node:unknown):ReactElement<TestProps>[]{
  if(!node||typeof node!=="object")return [];
- const element=node as ReactElement<Record<string,any>>;
+ const element=node as ReactElement<TestProps>;
  return [...(element.type==='button'?[element]:[]),...[element.props?.children].flat().flatMap(buttons)];
 }
 it('first resumable touch starts the same movement pointer before later release',()=>{
@@ -27,9 +28,9 @@ it('an explicit stop keeps touch disabled and cannot capture or move',()=>{
 it('movement and look labels own their touch without starting a world or button action',()=>{
  const actions={resumeInput:vi.fn(()=>true),press:vi.fn(),release:vi.fn()} as unknown as WalkingActions;
  const root=WalkingTouch({available:true,paused:true,resumable:true,actions});
- const descendants=(node:unknown):ReactElement<Record<string,any>>[]=>{
+ const descendants=(node:unknown):ReactElement<TestProps>[]=>{
   if(!node||typeof node!=="object")return [];
-  const el=node as ReactElement<Record<string,any>>;return [el,...[el.props?.children].flat().flatMap(descendants)];
+  const el=node as ReactElement<TestProps>;return [el,...[el.props?.children].flat().flatMap(descendants)];
  };
  const labels=descendants(root).filter(el=>el.props.className==='walking-touch-label');expect(labels).toHaveLength(2);
  for(const label of labels){const event={preventDefault:vi.fn()};label.props.onPointerDown(event);expect(event.preventDefault).toHaveBeenCalledOnce();}
