@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {prepareTextureDerivative} from './approved-lod-pair.ts';
 import {decodePngPixels as png,pngCrc as crc} from "./png-pixels.ts";
 import {verifyBasisPayload} from './basis-payload.ts';
 import {embeddedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
@@ -159,22 +161,22 @@ function pngChunk(name: string, body: Buffer) {
   tail.writeUInt32BE(crc(Buffer.concat([header.subarray(4), body])));
   return Buffer.concat([header, body, tail]);
 }
-function markPng(data: Buffer) {
-  const limit=Number(process.argv[4]??512);
-  if(![512,2048].includes(limit))fail();
-  const raw=process.argv[5];if(raw!==undefined&&raw.length>2048)fail();
+function markPng(data: Buffer,roleLimit?:512|256) {
+  const limit=roleLimit??Number(process.argv[4]??512);
+  if(!(roleLimit?[256,512]:[512,2048]).includes(limit))fail();
+  const raw=roleLimit?undefined:process.argv[5];if(raw!==undefined&&raw.length>2048)fail();
   const watermark=normalizeDisplayWatermark(raw===undefined?undefined:JSON.parse(raw));
-  const decoded = png(data),
+  const decoded = roleLimit?png(data,4194304,2048,1024):png(data),
     ratio = Math.min(1, limit/Math.max(decoded.width,decoded.height)),
-    w = Math.max(1, Math.round(decoded.width*ratio)),
-    h = Math.max(1, Math.round(decoded.height*ratio));
+    w = Math.max(1, (roleLimit?Math.floor:Math.round)(decoded.width*ratio)),
+    h = Math.max(1, (roleLimit?Math.floor:Math.round)(decoded.height*ratio));
   if(watermark.mode!=='embedded'&&ratio===1)return data;
   const ink=watermark.mode==='embedded'?embeddedLabelMask(w,h,watermark):undefined;
   const channels=decoded.channels,out = Buffer.alloc((w * channels + 1) * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const sx = Math.floor((x * decoded.width) / w),
-        sy = Math.floor((y * decoded.height) / h),
+      const sx = Math.floor(((roleLimit?x+.5:x) * decoded.width) / w),
+        sy = Math.floor(((roleLimit?y+.5:y) * decoded.height) / h),
         src =
           sy * (decoded.width * decoded.channels + 1) +
           1 +
@@ -293,7 +295,15 @@ function checkDisplayModel(data: Buffer) {
 }
 
 try {
-  if (process.argv[3] === "derivative") {
+  if(process.argv[3]==='texture-pair'){
+    if(process.argv[2]!=='model/gltf-binary'||!process.argv[4]||process.argv[4].length>2048)fail();
+    const binding=JSON.parse(process.argv[4]),hash=(data:Buffer)=>createHash('sha256').update(data).digest('hex');
+    if(binding.sourceSha256!==hash(bytes)||binding.settingsSha256!=='da9039b67435883255f723fd3b37b0fc395ba2acce3ab26706aeaa17d90f73bf'||binding.toolVersion!=='public-near-texture-v1')fail();
+    await glb(bytes);checkDisplayModel(bytes);
+    const result=prepareTextureDerivative(bytes,(image,edge)=>markPng(image,edge));await glb(result.bytes);
+    const receipt=Buffer.from(JSON.stringify({version:1,toolName:'ExhibitOS validation-worker',toolVersion:'public-near-texture-v1',profileId:'exhibitos-near-texture-pair-v1',binding,full:{sha256:hash(bytes),bytes:bytes.length,reusedExactBytes:true,...result.metrics.full},reduced:{sha256:hash(result.bytes),bytes:result.bytes.length,...result.metrics.coarse},sampling:'nearest-centre-from-full',geometryChanged:false,normalRemapped:false,qualityApproved:false,requiresCurrentRegistration:true}));
+    if(receipt.length>65536)fail();const header=Buffer.alloc(8);header.write('ETEX');header.writeUInt32LE(receipt.length,4);process.stdout.write(Buffer.concat([header,receipt,result.bytes]));
+  } else if (process.argv[3] === "derivative") {
     if (process.argv[2] === "image/png") {
       process.stdout.write(markPng(bytes));
     } else if (process.argv[2] === "model/gltf-binary") {
@@ -306,7 +316,7 @@ try {
   } else if (process.argv[2] === "image/png") png(bytes);
   else if (process.argv[2] === "model/gltf-binary") await glb(bytes);
   else fail();
-  if (process.argv[3] !== "derivative") process.stdout.write("VALID\n");
+  if (!["derivative","texture-pair"].includes(process.argv[3]??"")) process.stdout.write("VALID\n");
 } catch {
   process.exitCode = 1;
 }

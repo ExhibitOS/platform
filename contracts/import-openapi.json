@@ -3,7 +3,7 @@
   "info": {
     "title": "ExhibitOS primary asset imports",
     "version": "0.1.0",
-    "description": "Authenticated existing-artwork GLB/PNG import candidate. Quarantine is never public; approved profile is separate from publication rights. No URL fetch, OEX archive, JPEG/WebP or complete OES directory import."
+    "description": "Authenticated existing-artwork GLB/PNG import candidate. Quarantine is never public; approved profile is separate from publication rights. No URL fetch, OEX archive, JPEG/WebP or complete OES directory import. Optional modelDerivation uses the existing bounded public worker and model-only schema022 metadata. It is separate from prepared JPEG inputs. operationID equals idempotencyKey. Optional derivative failure preserves the approved original and exposes failed derivative status; no partial pair is registered. Cancellation publication is immediate but workerDrained becomes true only after actual worker close. Existing immutable source SHA, current artwork revision, rights and active lease fence atomic registration."
   },
   "paths": {
     "/api/v1/tenants/{tenantId}/imports": {
@@ -182,6 +182,9 @@
                   "rights": {
                     "type": "object",
                     "description": "Full public OES artwork rights schema; legacy flat grants fail closed."
+                  },
+                  "modelDerivation": {
+                    "$ref": "#/components/schemas/ModelDerivation"
                   }
                 },
                 "required": [
@@ -1034,6 +1037,113 @@
             "type": "string",
             "format": "date-time",
             "description": "Available-at UTC timestamp; explicit retry before the deadline is rejected."
+          },
+          "modelDerivation": {
+            "type": "object",
+            "required": [
+              "operationID",
+              "generation",
+              "profileId",
+              "status",
+              "workerDrained"
+            ],
+            "properties": {
+              "operationID": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              },
+              "generation": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              },
+              "profileId": {
+                "const": "exhibitos-near-texture-pair-v1"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "ready",
+                  "failed"
+                ]
+              },
+              "workerDrained": {
+                "type": "boolean"
+              },
+              "fullAssetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "reducedAssetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "errorCode": {
+                "type": "string"
+              },
+              "full": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 33554432
+                  },
+                  "triangles": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 250000
+                  },
+                  "textureSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2048
+                  },
+                  "reusedExactBytes": {
+                    "const": true
+                  }
+                }
+              },
+              "reduced": {
+                "type": "object",
+                "properties": {
+                  "assetId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 33554432
+                  },
+                  "triangles": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 250000
+                  },
+                  "textureSize": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2048
+                  },
+                  "reusedExactBytes": {
+                    "const": true
+                  }
+                }
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [
@@ -1045,6 +1155,46 @@
           "assetId",
           "retryAt"
         ]
+      },
+      "ModelDerivation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "profileId",
+          "settingsSha256",
+          "toolVersion",
+          "operationID",
+          "generation",
+          "artworkRevision"
+        ],
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "profileId": {
+            "const": "exhibitos-near-texture-pair-v1"
+          },
+          "settingsSha256": {
+            "const": "da9039b67435883255f723fd3b37b0fc395ba2acce3ab26706aeaa17d90f73bf"
+          },
+          "toolVersion": {
+            "const": "public-near-texture-v1"
+          },
+          "operationID": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "artworkRevision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        }
       }
     }
   }

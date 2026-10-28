@@ -71,7 +71,7 @@ function model(bytes:Buffer,textureDerivative=false){
 
   return {min,max,tuples,streams:[pos.b,normal.b,uv.b,ix.b,...(tangent?[tangent.b]:[])],triangles:ix.a.count/3,material:p.material,tangentPresent:tangent!==null};
  });
- if(usedMaterials.size!==materials.length)fail();return {images,documentIdentity:Object.fromEntries(Object.entries(d).filter(([key])=>!["buffers","bufferViews","images"].includes(key))),colourImages,linearImages,parts,triangles,bindings:{materials,textures,samplers}};
+ if(usedMaterials.size!==materials.length)fail();return {document:d,images,documentIdentity:Object.fromEntries(Object.entries(d).filter(([key])=>!["buffers","bufferViews","images"].includes(key))),colourImages,linearImages,parts,triangles,bindings:{materials,textures,samplers}};
 }
 export function qualifyApprovedTexturedPair(full:Buffer,coarse:Buffer,declaredFull:number,declaredCoarse:number){
  const invalid=():never=>{throw Error('APPROVED_LOD_INVALID');};
@@ -105,4 +105,24 @@ export function qualifyApprovedTextureDerivativePair(full:Buffer,reduced:Buffer,
  }
  if(!changed||fullEdge!==declared.fullTextureSize||reducedEdge!==declared.reducedTextureSize||fullEdge<1024)fail();
  return {full:measureFullVariant(full,'model/gltf-binary'),coarse:measureFullVariant(reduced,'model/gltf-binary')};
+}
+
+/** Existing strict ordinary subset; replace only embedded image payloads. */
+export function prepareTextureDerivative(full:Buffer,resample:(png:Buffer,edge:512|256)=>Buffer){
+ const observed=model(full,true),doc=structuredClone(observed.document),n=full.readUInt32LE(12),bin=full.subarray(28+n);
+ if(observed.parts.length!==1||!ordinaryPngRoleSet(doc))fail();
+ const replacements=new Map<number,Buffer>();
+ for(let i=0;i<doc.images.length;i++)replacements.set(doc.images[i].bufferView,resample(observed.images[i]!,observed.colourImages.has(i)?512:256));
+ const pieces:Buffer[]=[];let offset=0;
+ for(const [index,view] of doc.bufferViews.entries()){
+  const data=replacements.get(index)??bin.subarray(view.byteOffset??0,(view.byteOffset??0)+view.byteLength);
+  view.byteOffset=offset;view.byteLength=data.length;pieces.push(data,Buffer.alloc((4-data.length%4)%4));offset+=Math.ceil(data.length/4)*4;
+ }
+ doc.buffers[0].byteLength=offset;
+ const raw=Buffer.from(JSON.stringify(doc)),json=Buffer.concat([raw,Buffer.alloc((4-raw.length%4)%4,32)]),body=Buffer.concat(pieces),header=Buffer.alloc(20),bh=Buffer.alloc(8);
+ if(json.length>1048576||body.length+json.length+28>33554432)fail();
+ header.write('glTF');header.writeUInt32LE(2,4);header.writeUInt32LE(28+json.length+body.length,8);header.writeUInt32LE(json.length,12);header.writeUInt32LE(0x4e4f534a,16);bh.writeUInt32LE(body.length);bh.writeUInt32LE(0x004e4942,4);
+ const reduced=Buffer.concat([header,json,bh,body]),high=measureFullVariant(full,'model/gltf-binary'),low=measureFullVariant(reduced,'model/gltf-binary');
+ const metrics=qualifyApprovedTextureDerivativePair(full,reduced,{triangles:high.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
+ return {bytes:reduced,metrics};
 }

@@ -1,3 +1,4 @@
+import {loadModelPairApproval,applyModelPairApproval} from './approved-model-pair.ts';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import { ARTWORK_DETAILS_NAMESPACE, LOD_NAMESPACE, validateViewerLod, validateArtworkDetails, creationYearFor } from '@exhibitos/studio-contract';
@@ -404,6 +405,7 @@ export class Cms {
       throw new ApiError(409, "ASSET_INTEGRITY");
     if(importedArtwork)qualifyDemoDisplay(importedArtwork,bytes);
     await derivative(bytes, asset.mime);
+    const modelPair=!importedArtwork&&asset.mime==='model/gltf-binary'?await loadModelPairApproval(c,s,id,{...asset,bytes:Number(asset.bytes)},bytes,a.metadata.rights,this.blobs):undefined;
     const snapshot = {
       metadata: a.metadata,
       asset: {
@@ -414,6 +416,7 @@ export class Cms {
         rightsRevision: asset.rights_revision,
       },
       ...(importedArtwork?{importedArtwork}:{}),
+      ...(modelPair?{modelPair}:{}),
     };
     const prior = await c.query(
       "SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3",
@@ -469,6 +472,7 @@ export class Cms {
     // Snapshot IDs are stable across repeat requests; URI is only a relative inventory name.
     const revisionId=revisionIdentity(s,id,approval.revision);
     const artwork: Artwork={schemaVersion:"1.0.0-draft.1",kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:"meter",coordinates:"right-handed-y-up",dimensions:{width:m.dimensions.width,height:m.dimensions.height,...(m.dimensions.depth===undefined?{}:{depth:m.dimensions.depth})},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}})}};
+    if(approval.snapshot.modelPair!==undefined)await applyModelPairApproval(c,s,id,artwork,approval.snapshot.modelPair);
     if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
   }
