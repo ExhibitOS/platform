@@ -22,7 +22,8 @@ const fail=():never=>{throw Error('APPROVED_LOD_UNSUPPORTED');};
 const closed=(v:unknown,required:string[],optional:string[]=[])=>!!v&&typeof v==='object'&&!Array.isArray(v)&&required.every(k=>Object.hasOwn(v,k))&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k));
 const integer=(v:unknown):v is number=>Number.isSafeInteger(v)&&(v as number)>=0;
 const same=(a:unknown,b:unknown):boolean=>{const sort=(v:unknown):unknown=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,sort(x)])):v;return JSON.stringify(sort(a))===JSON.stringify(sort(b));};
-function model(bytes:Buffer,textureDerivative=false){
+function model(bytes:Buffer,options:{exactTopologyTextureOnly?:true}={}){
+ const textureDerivative=options.exactTopologyTextureOnly===true;
  if(bytes.length<28||bytes.length>(textureDerivative?32:8)*1024*1024||bytes.toString('ascii',0,4)!=='glTF'||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length||bytes.readUInt32LE(16)!==0x4e4f534a)fail();
  const n=bytes.readUInt32LE(12),at=20+n;if(!n||n>1048576||n%4||at+8>bytes.length||bytes.readUInt32LE(at+4)!==0x004e4942||bytes.readUInt32LE(at)%4||at+8+bytes.readUInt32LE(at)!==bytes.length)fail();
  const d=(()=>{try{return JSON.parse(bytes.toString('utf8',20,at));}catch{return fail();}})(),bin=bytes.subarray(at+8);
@@ -67,7 +68,8 @@ function model(bytes:Buffer,textureDerivative=false){
   for(let i=0;i<pos.a.count;i++){let norm=0;for(let c=0;c<3;c++){const x=pos.b.readFloatLE(i*12+c*4),y=normal.b.readFloatLE(i*12+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000||!Number.isFinite(y))fail();min[c]=Math.min(min[c]!,x);max[c]=Math.max(max[c]!,x);norm+=y*y;}if(norm<1e-12||Math.abs(Math.sqrt(norm)-1)>1e-4)fail();for(let c=0;c<2;c++){const x=uv.b.readFloatLE(i*8+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000)fail();}if(tangent){for(let k=0;k<4;k++){const v=tangent.b.readFloatLE(i*16+k*4);if(!Number.isFinite(v)||k===3&&v!==1&&v!==-1)fail();}const length=Math.hypot(...[0,1,2].map(k=>tangent.b.readFloatLE(i*16+k*4)));const dot=[0,1,2].reduce((sum,k)=>sum+tangent.b.readFloatLE(i*16+k*4)*normal.b.readFloatLE(i*12+k*4),0);if(Math.abs(length-1)>1e-4||Math.abs(dot)>1e-4)fail();}tuples.add(Buffer.concat([pos.b.subarray(i*12,i*12+12),normal.b.subarray(i*12,i*12+12),uv.b.subarray(i*8,i*8+8),...(tangent?[tangent.b.subarray(i*16,i*16+16)]:[])]).toString('hex'));}
   if(textureDerivative?(!Array.isArray(pos.a.min)||!Array.isArray(pos.a.max)||pos.a.min.length!==3||pos.a.max.length!==3||[0,1,2].some(k=>!Number.isFinite(pos.a.min[k])||!Number.isFinite(pos.a.max[k])||Math.abs(pos.a.min[k]-min[k]!)>1e-5||Math.abs(pos.a.max[k]-max[k]!)>1e-5)):!same(pos.a.min,min)||!same(pos.a.max,max))fail();for(let i=0;i<ix.a.count;i++)if(ix.b.readUInt32LE(i*4)>=pos.a.count)fail();
   const seen=new Set<string>();
-  for(let i=0;i<ix.a.count;i+=3){const ids=[0,1,2].map(k=>ix.b.readUInt32LE((i+k)*4));if(new Set(ids).size!==3)fail();const key=[ids.join(','),[ids[1],ids[2],ids[0]].join(','),[ids[2],ids[0],ids[1]].join(',')].sort()[0]!;if(seen.has(key))fail();seen.add(key);const point=(j:number)=>[0,1,2].map(k=>pos.b.readFloatLE(ids[j]!*12+k*4)),a=point(0),b=point(1),c=point(2),ab=b.map((v,k)=>v-a[k]!),ac=c.map((v,k)=>v-a[k]!),n=[ab[1]!*ac[2]!-ab[2]!*ac[1]!,ab[2]!*ac[0]!-ab[0]!*ac[2]!,ab[0]!*ac[1]!-ab[1]!*ac[0]!];if(!n.every(Number.isFinite)||Math.hypot(...n)<1e-12)fail();let dot=0;for(const id of ids)for(let k=0;k<3;k++)dot+=n[k]!*normal.b.readFloatLE(id!*12+k*4);if(!Number.isFinite(dot)||dot<=0)fail();}
+  for(let i=0;i<ix.a.count;i+=3){const ids=[0,1,2].map(k=>ix.b.readUInt32LE((i+k)*4));if(new Set(ids).size!==3)fail();const key=[ids.join(','),[ids[1],ids[2],ids[0]].join(','),[ids[2],ids[0],ids[1]].join(',')].sort()[0]!;if(seen.has(key))fail();seen.add(key);const point=(j:number)=>[0,1,2].map(k=>pos.b.readFloatLE(ids[j]!*12+k*4)),a=point(0),b=point(1),c=point(2),ab=b.map((v,k)=>v-a[k]!),ac=c.map((v,k)=>v-a[k]!),n=[ab[1]!*ac[2]!-ab[2]!*ac[1]!,ab[2]!*ac[0]!-ab[0]!*ac[2]!,ab[0]!*ac[1]!-ab[1]!*ac[0]!];if(!n.every(Number.isFinite)||Math.hypot(...n)<1e-12)fail();let dot=0;for(const id of ids)for(let k=0;k<3;k++)dot+=n[k]!*normal.b.readFloatLE(id!*12+k*4);// Texture-only copies cannot introduce a new face or alter an authored normal.
+  if(!Number.isFinite(dot)||!textureDerivative&&dot<=0)fail();}
 
   return {min,max,tuples,streams:[pos.b,normal.b,uv.b,ix.b,...(tangent?[tangent.b]:[])],triangles:ix.a.count/3,material:p.material,tangentPresent:tangent!==null};
  });
@@ -85,7 +87,7 @@ export function qualifyApprovedTexturedPair(full:Buffer,coarse:Buffer,declaredFu
  * This proves exact geometry and channel sampling, never visual equivalence,
  * source authorship, physical units, or a device residency guarantee. */
 export function qualifyApprovedTextureDerivativePair(full:Buffer,reduced:Buffer,declared:{triangles:number;fullTextureSize:number;reducedTextureSize:number}){
- const f=model(full,true),c=model(reduced,true);
+ const f=model(full,{exactTopologyTextureOnly:true}),c=model(reduced,{exactTopologyTextureOnly:true});
  if(full.length<=reduced.length||f.triangles!==declared.triangles||c.triangles!==f.triangles||f.parts.length!==1||c.parts.length!==1||!same(f.bindings,c.bindings)||!same(f.documentIdentity,c.documentIdentity)||f.images.length!==3||c.images.length!==3)fail();
  const a=f.parts[0]!,b=c.parts[0]!;
  if(!same(a.min,b.min)||!same(a.max,b.max)||a.material!==b.material||a.streams.length!==b.streams.length||!a.streams.every((bytes:Buffer,i:number)=>bytes.equals(b.streams[i]!)))fail();
@@ -109,7 +111,7 @@ export function qualifyApprovedTextureDerivativePair(full:Buffer,reduced:Buffer,
 
 /** Existing strict ordinary subset; replace only embedded image payloads. */
 export function prepareTextureDerivative(full:Buffer,resample:(png:Buffer,edge:512|256)=>Buffer){
- const observed=model(full,true),doc=structuredClone(observed.document),n=full.readUInt32LE(12),bin=full.subarray(28+n);
+ const observed=model(full,{exactTopologyTextureOnly:true}),doc=structuredClone(observed.document),n=full.readUInt32LE(12),bin=full.subarray(28+n);
  if(observed.parts.length!==1||!ordinaryPngRoleSet(doc))fail();
  const replacements=new Map<number,Buffer>();
  for(let i=0;i<doc.images.length;i++)replacements.set(doc.images[i].bufferView,resample(observed.images[i]!,observed.colourImages.has(i)?512:256));

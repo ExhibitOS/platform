@@ -25,3 +25,12 @@ test('optional derivative failure and legacy prepared-image view remain distinct
  expect(view.state).toBe('approved');expect(view.assetId).toBe('full');expect(modelView(view)).toMatchObject({status:'failed',workerDrained:true,fullAssetId:'full'});expect(view).not.toHaveProperty('originalAssetId');
  const legacy=importer.view({state:'approved',asset_id:'png',original_asset_id:'jpeg',mime:'image/jpeg',derived:{mime:'image/png'},model_derivation:null});expect(legacy).toHaveProperty('originalAssetId','jpeg');expect(legacy).not.toHaveProperty('modelDerivation');
 });
+
+test('retry queues only the failed optional derivative and retains the approved original identity',async()=>{
+ const importer=new Imports({} as Pool,{} as BlobStore),row:Record<string,unknown>={id:'job',mime:'model/gltf-binary',state:'approved',asset_id:'preserved-full',attempts:1,available_at:'2026-01-01T00:00:00Z',lease_id:null,model_derivation:{kind:'model-texture-pair',request:plan,result:{status:'failed',fullAssetId:'preserved-full',errorCode:'MODEL_DERIVATIVE_UNSUPPORTED'}},derived:null};
+ vi.spyOn(importer,'access').mockImplementation(async()=>row);
+ const query=vi.fn(async(sql:string,p:unknown[])=>{if(sql.startsWith('UPDATE import_jobs SET model_derivation='))row.model_derivation=p[2];if(sql.startsWith("UPDATE import_jobs SET state='queued'"))row.state='queued';return {rows:[row]};}),c={query} as unknown as PoolClient;
+ const view=await importer.action(c,{} as Session,'job','retry');expect(view.assetId).toBe('preserved-full');expect(view.state).toBe('queued');expect(modelView(view)).toMatchObject({status:'pending',generation:plan.generation,workerDrained:true});
+ row.state='approved';row.model_derivation={kind:'model-texture-pair',request:plan,result:{status:'ready',fullAssetId:'preserved-full'}};
+ await expect(importer.action(c,{} as Session,'job','retry')).rejects.toMatchObject({code:'JOB_STATE'});
+});

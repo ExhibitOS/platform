@@ -1,3 +1,4 @@
+import {isDeepStrictEqual} from 'node:util';
 import {modelDerivationInput,prepareModelPair,type ModelDerivation,type ModelPairResult} from './model-derivation.ts';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
@@ -5,7 +6,7 @@ import { execFile } from 'node:child_process';
 import type { Pool, PoolClient } from 'pg';
 import { artworkAccess, transaction, type BlobStore, sha256 } from '@exhibitos/storage';
 import { ApiError, type Session } from './auth.ts';
-import { validRights } from './rights.ts';
+import { validRights,allowedRights } from './rights.ts';
 import {preparedImageInput,preparedImageHeader,type PreparedImage} from './prepared-image.ts';
 export const MAX_UPLOAD=32*1024*1024;
 export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; }
@@ -86,7 +87,10 @@ export class Imports {
    if(this.model(row)&&row.lease_id!=null)await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
    else await c.query("UPDATE import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }else{
-   if(row.state!=='failed'||row.attempts>=5||new Date(row.available_at).getTime()>Date.now())throw new ApiError(409,'JOB_STATE');
+   const model=this.model(row),value=row.model_derivation as {result?:Record<string,unknown>}|null;
+   const optionalRetry=!!model&&row.state==='approved'&&row.asset_id!=null&&value?.result?.status==='failed'&&row.lease_id==null;
+   if(!optionalRetry&&row.state!=='failed'||row.attempts>=5||new Date(row.available_at).getTime()>Date.now())throw new ApiError(409,'JOB_STATE');
+   if(model){const result={...(value?.result??{}),status:'pending'} as Record<string,unknown>;delete result.errorCode;await c.query('UPDATE import_jobs SET model_derivation=$3 WHERE tenant_id=$1 AND id=$2',[s.tenantId,id,{kind:'model-texture-pair',request:model,result}]);}
    await c.query("UPDATE import_jobs SET state='queued',error_code=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }
   return this.view((await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);
@@ -118,15 +122,20 @@ export class Imports {
     // Recheck current membership and ownership, including revocation during decoding.
     const artwork=await artworkAccess(c,{tenantId:row.tenant_id,userId:row.user_id},row.artwork_id,true);
     if(model&&artwork.revision!==model.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');
-    await this.blobs.put(row.approved_key,display);await hooks?.afterCopy?.();
+    const existing=model&&row.asset_id?(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[row.tenant_id,row.artwork_id,row.asset_id])).rows[0]:undefined;
+    if(model&&row.asset_id){
+     if(!existing||existing.mime!=='model/gltf-binary'||existing.sha256!==row.expected_hash||Number(existing.bytes)!==row.expected_bytes||existing.object_key!==row.approved_key||!isDeepStrictEqual(existing.rights,row.rights)||!allowedRights(existing.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+     if(!Buffer.from(await this.blobs.get(existing.object_key)).equals(display))throw new ApiError(409,'ASSET_INTEGRITY');
+    }else await this.blobs.put(row.approved_key,display);
+    await hooks?.afterCopy?.();
     const deadline=await c.query('SELECT lease_until>clock_timestamp() AS valid FROM import_jobs WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id]);if(!deadline.rows[0]?.valid)throw new ApiError(409,'LEASE_EXPIRED');
-    const asset=randomUUID(),rights=randomUUID();await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[row.tenant_id,rights,row.rights]);
+    const asset=existing?.id??randomUUID(),rights=existing?.rights_id??randomUUID();if(!existing)await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[row.tenant_id,rights,row.rights]);
     let originalAsset:string|null=null;
     if(derived){
      originalAsset=randomUUID();
      await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'quarantine')",[row.tenant_id,originalAsset,row.artwork_id,rights,row.object_key,row.expected_hash,row.expected_bytes,row.mime,row.scale_meters]);
     }
-    await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'approved')",[row.tenant_id,asset,row.artwork_id,rights,row.approved_key,derived?.sha256??row.expected_hash,derived?.bytes??row.expected_bytes,derived?'image/png':row.mime,row.scale_meters]);
+    if(!existing)await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'approved')",[row.tenant_id,asset,row.artwork_id,rights,row.approved_key,derived?.sha256??row.expected_hash,derived?.bytes??row.expected_bytes,derived?'image/png':row.mime,row.scale_meters]);
     if(derived)await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),originalAsset,{version:1,kind:'image-preparation',originalAssetId:originalAsset,derivedAssetId:asset,original:{mime:row.mime,sha256:row.expected_hash,bytes:row.expected_bytes},derived:{mime:derived.mime,sha256:derived.sha256,bytes:derived.bytes},recipe:derived.recipe,provenance:'client-declared'}]);
     if(model){
      let reducedAsset:string|undefined;
