@@ -85,7 +85,7 @@ test('artwork pressure reserves before resize and atomically retains every mater
   const release=vi.fn(),newResident=2*textureResidentBytes(512,512)+textureResidentBytes(256,256),reserve=vi.fn((size:number)=>{expect(size).toBe(newResident+1024*1024*4);expect(bitmaps).toHaveLength(4);return release;}),prepare=vi.fn(()=>{expect(material.map).toBe(old[0]);expect(material.normalMap).toBe(old[1]);expect(material.roughnessMap).toBe(old[2]);for(const image of oldImages)expect(image.close).not.toHaveBeenCalled();});
   expect(await loader.reduceForArtwork(reserve,prepare)).toBe(newResident);
   expect(prepare).toHaveBeenCalledTimes(3);expect(release).toHaveBeenCalledTimes(1);expect(fetcher).toHaveBeenCalledTimes(3);
-  expect(material.map!.image.width).toBe(512);expect(material.normalMap!.image.width).toBe(512);expect(material.roughnessMap!.image.width).toBe(256);expect(material.map!.colorSpace).toBe(three.SRGBColorSpace);expect(material.normalMap!.colorSpace).toBe(three.NoColorSpace);expect(material.normalScale.x).toBe(.7);
+  expect((material.map!.image as {width:number}).width).toBe(512);expect((material.normalMap!.image as {width:number}).width).toBe(512);expect((material.roughnessMap!.image as {width:number}).width).toBe(256);expect(material.map!.colorSpace).toBe(three.SRGBColorSpace);expect(material.normalMap!.colorSpace).toBe(three.NoColorSpace);expect(material.normalScale.x).toBe(.7);
   for(const image of oldImages)expect(image.close).toHaveBeenCalledTimes(1);for(const dispose of disposed)expect(dispose).toHaveBeenCalledTimes(1);
   expect(await loader.reduceForArtwork(reserve,prepare)).toBeUndefined();expect(reserve).toHaveBeenCalledTimes(1);
  }finally{loader.dispose();material.dispose();vi.unstubAllGlobals();}
