@@ -15,7 +15,8 @@ test('public snapshot keeps both model metrics/profile and exact approved reduce
  const projected=projectPublication(exhibition,[{artwork:a,sourceAssetId:full.id,sourceSha256:full.sha256,bytes:Buffer.alloc(100),mime:'model/gltf-binary',coarseSource:{id:low.id,sha256:low.sha256},variants:{profile:NEAR_TEXTURE_PAIR_PROFILE,full:{triangles:150000,textureSize:2048},coarse:{triangles:150000,textureSize:512},bytes:Buffer.alloc(50)}}],'2026-10-28T00:00:00Z');
  const output=projected.snapshot.artworks[0]!;
  const schema=JSON.parse(await readFile(new URL('../../../contracts/viewer-lod.schema.json',import.meta.url),'utf8'));
- const ajv=new Ajv2020({strict:false});addFormats(ajv);const validate=ajv.compile(schema);
+ const Ajv=Ajv2020 as unknown as typeof import('ajv/dist/2020.js').default;
+ const ajv=new Ajv({strict:false});const formats=addFormats as unknown as (a:typeof ajv)=>void;formats(ajv);const validate=ajv.compile(schema);
  expect(validate(output.extensions?.[LOD_NAMESPACE])).toBe(true);
  const legacy={version:1,variants:[{assetId:full.id,detail:'full',triangles:150000}]};expect(validate(legacy)).toBe(true);
  expect(validate({...legacy,profile:NEAR_TEXTURE_PAIR_PROFILE})).toBe(false);
