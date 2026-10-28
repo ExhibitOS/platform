@@ -28,12 +28,12 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
   const changeView = (next: typeof view) => { controls.current = next;sharedSession.current?.update(next); setView(next); };
   useEffect(()=>{
     if(!sharedPreview||!placementId||!host.current)return;
-    const abort=new AbortController();let session:SharedDetailSession|undefined;
+    const abort=new AbortController();let session:SharedDetailSession|undefined,unavailableReported=false;
     setError('');
-    const unavailable=()=>{if(!abort.signal.aborted)setError('공개 상태를 확인할 수 없어 상세 표시를 중단했습니다. 설명은 아래에서 읽을 수 있어요.');};
+    const unavailable=(reason:'rights'|'graphics')=>{unavailableReported=true;if(!abort.signal.aborted)setError(reason==='graphics'?'3D 연결이 끊겨 상세 표시를 중단했어요. 전시로 돌아가 3D를 다시 시작하거나 아래 설명을 읽어 주세요.':'공개 상태를 확인할 수 없어 상세 표시를 중단했습니다. 설명은 아래에서 읽을 수 있어요.');};
     void sharedPreview({placementId,host:host.current,signal:abort.signal,view:controls.current,anchors,unavailable}).then(value=>{
       if(abort.signal.aborted){value.dispose();return;}session=value;sharedSession.current=value;value.update(controls.current);
-    }).catch(()=>{if(!abort.signal.aborted)setError('현재 준비된 작품 표시를 사용할 수 없어요. 전시로 돌아가 작품이 준비된 뒤 다시 열거나 아래 설명을 읽어 주세요.');});
+    }).catch(()=>{if(!abort.signal.aborted&&!unavailableReported)setError('현재 준비된 작품 표시를 사용할 수 없어요. 전시로 돌아가 작품이 준비된 뒤 다시 열거나 아래 설명을 읽어 주세요.');});
     return()=>{abort.abort();session?.dispose();if(sharedSession.current===session)sharedSession.current=null;};
   },[sharedPreview,placementId,anchors]);
   useEffect(() => {

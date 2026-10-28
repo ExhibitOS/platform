@@ -7,7 +7,7 @@ export interface SharedDetailSession {update(view:DetailView):void;dispose():voi
 export interface SharedDetailRequest {
  placementId:string;host:HTMLElement;signal:AbortSignal;view:DetailView;
  anchors:readonly {id:string;position:[number,number,number];text:string}[];
- unavailable():void;
+ unavailable(reason:'rights'|'graphics'):void;
 }
 export type SharedDetailPreview=(request:SharedDetailRequest)=>Promise<SharedDetailSession>;
 

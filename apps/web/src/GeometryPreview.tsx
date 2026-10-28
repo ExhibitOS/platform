@@ -292,6 +292,7 @@ export function GeometryPreview({
     let placementRelease = () => {};
     let nearPlacement: string | undefined;
     let sharedDetail:ReturnType<typeof borrowedDetailPreview>|undefined;
+    let sharedDetailUnavailable:((reason:'rights'|'graphics')=>void)|undefined;
     let cancelSharedDetail=()=>{};
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);
@@ -792,6 +793,7 @@ export function GeometryPreview({
         event.preventDefault();
         gpuLost = true;
         cancelSharedDetail();
+        sharedDetailUnavailable?.('graphics');
         sharedDetail?.dispose();
         xrCallbacks.current.onXrReady?.(null);renderer.setAnimationLoop(null);
         cancelAnimationFrame(trace.frame);
@@ -1101,6 +1103,10 @@ export function GeometryPreview({
           if(!current.ok||(await current.json()).publication.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLIC_DERIVATIVE_UNAVAILABLE');
         }
         signal.throwIfAborted();
+      };
+      const stopPublicDisplay=()=>{
+        sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
+        setReady(false);setPublicMessage('공개 상태를 확인할 수 없어 작품 표시를 중단했습니다. 작품 목록을 이용해 주세요.');
       };
       const readArtworkBytes = async (
         artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal,
@@ -1863,7 +1869,8 @@ export function GeometryPreview({
           const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
           cancelDetail?.();
-          await checkPublicAvailability(signal);signal.throwIfAborted();
+          try{await checkPublicAvailability(signal);}catch(error){if(!signal.aborted&&!disposed){stopPublicDisplay();input.unavailable('rights');}throw error;}
+          signal.throwIfAborted();
           if(!objects.has(art.revisionId))await new Promise<void>((resolve,reject)=>{
             const deadline=performance.now()+10000;let settled=false;
             const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;error?reject(error):resolve();};
@@ -1886,18 +1893,19 @@ export function GeometryPreview({
           const loading=pending.get(art.revisionId);if(loading){pending.delete(art.revisionId);scheduler.cancel(loading);}
           desired.set(art.revisionId,active.get(art.revisionId)!);
           detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;
+          sharedDetailUnavailable=input.unavailable;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
           const visible=()=>{if(globalThis.document.visibilityState==='visible')void check();};
           const restore=()=>{
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             peak.release(detailKey);
-            sharedDetail=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
+            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
             if(!disposed&&!gpuLost){resize();update();}
           };
           const check=async()=>{
             if(!alive||checking)return;checking=true;
             try{await checkPublicAvailability(signal);}catch{
-              if(alive&&!signal.aborted&&!disposed){sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';setReady(false);setPublicMessage('공개 상태를 확인할 수 없어 작품 표시를 중단했습니다. 작품 목록을 이용해 주세요.');input.unavailable();}
+              if(alive&&!signal.aborted&&!disposed)stopPublicDisplay();
             }finally{checking=false;}
           };
           try{
