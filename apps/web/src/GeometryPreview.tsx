@@ -1427,7 +1427,7 @@ export function GeometryPreview({
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined;
-        const viewingWaiters=new Set<()=>void>(),viewingPins=new Set<string>();
+        const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
@@ -1908,8 +1908,9 @@ export function GeometryPreview({
             const placement=document.placements.find(p=>p.id.toLowerCase()===stop.placementId.toLowerCase());
             const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
             if(!art)throw Error('VIEWING_REFERENCE');
-            viewingPins.add(art.revisionId);let released=false;
-            const releasePin=()=>{if(released)return;released=true;viewingPins.delete(art.revisionId);};
+            viewingPins.set(art.revisionId,(viewingPins.get(art.revisionId)??0)+1);let released=false;
+            const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else viewingPins.delete(art.revisionId);};
+            signal.addEventListener('abort',releasePin,{once:true});
             try{
               await new Promise<void>((resolve,reject)=>{
                 let ended=false;

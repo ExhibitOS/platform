@@ -180,7 +180,7 @@ export async function createWalkingCamera({
       camera.position.fromArray(state.eyePosition);camera.rotation.set(pitch,state.yaw,0,'YXZ');controls.target.fromArray(destination.target);
       onMode(walking,true,'panel');apply();return true;
     },
-    freeViewing:()=>{if(disposed||seated)return false;orderedViewing=false;walking=true;controls.enabled=false;canvas.style.touchAction='none';onMode(true,true,'settings');publish();return true;},
+    freeViewing:()=>{if(disposed||seated)return false;if(!orderedViewing)return true;orderedViewing=false;walking=true;controls.enabled=false;canvas.style.touchAction='none';onMode(true,true,'settings');publish();return true;},
     sit: benchId => {
       if(disposed||seated||orderedViewing)return;
       try {
