@@ -74,3 +74,12 @@ export function borrowedDetailPreview(input:{
  }catch(error){dispose();throw error;}
  return {render,replaceImage(object:Three.Object3D){if(!flat)return;const rollback=flat.replace(object);try{render();}catch(error){rollback();throw error;}},update(nextView){view=nextView;render();},dispose};
 }
+
+/** Callback for the existing viewer statistics tick; owns no timer or admission. */
+export function createFlatDetailRetry(input:{valid():boolean;pending():boolean;retryAfter():number;now():number;ready():boolean;request():void}){
+ return ()=>{
+  if(!input.valid()||input.pending()||input.retryAfter()>input.now())return;
+  try{if(input.ready())return;}catch{return;}
+  input.request();
+ };
+}
