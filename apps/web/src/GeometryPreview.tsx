@@ -1900,7 +1900,12 @@ export function GeometryPreview({
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             peak.release(detailKey);
             sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
-            if(!disposed&&!gpuLost){resize();update();}
+            if(!disposed&&!gpuLost){
+              resize();update();
+              // Dialog teardown may run before the borrowed canvas is returned.
+              // Keep a restored opener's focus; otherwise return it to the stage.
+              if(!suspendedRef.current&&renderer.domElement.isConnected&&globalThis.document.activeElement===globalThis.document.body)renderer.domElement.focus({preventScroll:true});
+            }
           };
           const check=async()=>{
             if(!alive||checking)return;checking=true;
