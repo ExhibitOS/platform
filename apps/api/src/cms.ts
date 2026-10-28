@@ -564,6 +564,7 @@ export class Cms {
       throw new ApiError(409, "ASSET_INTEGRITY");
     const bytes = await cachedDisplayDerivative(original,asset.mime,{watermark:displayWatermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256});
     if(!allowedRights(m.rights,'display')||!allowedRights(asset.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
-    return { bytes, mime: asset.mime, revision: a.revision };
+    const embedded=displayWatermark.mode==='embedded'&&asset.mime==='image/png';
+    return { bytes, mime: asset.mime, revision: a.revision,watermarked:embedded,watermarkMode:embedded?'embedded' as const:'none' as const };
   }
 }
