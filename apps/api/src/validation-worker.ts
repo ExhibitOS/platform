@@ -2,6 +2,8 @@ import {verifyBasisPayload} from './basis-payload.ts';
 import {embeddedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
 import { deflateSync, inflateSync } from "node:zlib";
 import { validateBytes } from "gltf-validator";
+import {normalizeDisplayWatermark} from '@exhibitos/studio-contract';
+import {embeddedLabelMask} from './watermark-label.ts';
 const LIMIT = 32 * 1024 * 1024,
   PIXELS = 4 * 1024 * 1024;
 let count = 0;
@@ -37,7 +39,7 @@ function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192, chunkLimi
     ended = false,
     seenIdat = false,
     closedIdat = false,
-    seenSrgb = false;
+    seenSrgb = false,srgbIntent:number|undefined;
   const compressed: Buffer[] = [];
   let chunkCount = 0;
   while (offset < data.length) {
@@ -72,6 +74,7 @@ function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192, chunkLimi
       // One bounded color-space intent byte; no text, profiles or external data.
       if (seenSrgb || seenIdat || size !== 1 || body[0]! > 3) fail();
       seenSrgb = true;
+      srgbIntent=body[0]!;
     } else if (kind === "IDAT") {
       if (closedIdat) fail();
       seenIdat = true;
@@ -129,7 +132,7 @@ function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192, chunkLimi
       result.buffer[index] = (result.buffer[index]! + add) & 255;
     }
   }
-  return { pixels: result.buffer, width, height, channels };
+  return { pixels: result.buffer, width, height, channels,srgbIntent };
 }
 function closed(value: unknown, required: string[], optional: string[] = []) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -276,11 +279,15 @@ function pngChunk(name: string, body: Buffer) {
 function markPng(data: Buffer) {
   const limit=Number(process.argv[4]??512);
   if(![512,2048].includes(limit))fail();
+  const raw=process.argv[5];if(raw!==undefined&&raw.length>2048)fail();
+  const watermark=normalizeDisplayWatermark(raw===undefined?undefined:JSON.parse(raw));
   const decoded = png(data),
     ratio = Math.min(1, limit/Math.max(decoded.width,decoded.height)),
     w = Math.max(1, Math.round(decoded.width*ratio)),
-    h = Math.max(1, Math.round(decoded.height*ratio)),
-    out = Buffer.alloc((w * 4 + 1) * h);
+    h = Math.max(1, Math.round(decoded.height*ratio));
+  if(watermark.mode!=='embedded'&&ratio===1)return data;
+  const ink=watermark.mode==='embedded'?embeddedLabelMask(w,h,watermark):undefined;
+  const channels=decoded.channels,out = Buffer.alloc((w * channels + 1) * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const sx = Math.floor((x * decoded.width) / w),
@@ -289,15 +296,13 @@ function markPng(data: Buffer) {
           sy * (decoded.width * decoded.channels + 1) +
           1 +
           sx * decoded.channels,
-        index = y * (w * 4 + 1) + 1 + x * 4;
+        index = y * (w * channels + 1) + 1 + x * channels;
       for (let n = 0; n < 3; n++) out[index + n] = decoded.pixels[src + n]!;
-      out[index + 3] = decoded.channels === 4 ? decoded.pixels[src + 3]! : 255;
-      // Visible diagonal display-copy stripes; source bytes are never changed.
-      if ((x + y) % 32 < 6) {
-        out[index] = Math.round(out[index]! * 0.35 + 220 * 0.65);
-        out[index + 1] = Math.round(out[index + 1]! * 0.35);
-        out[index + 2] = Math.round(out[index + 2]! * 0.35);
-        out[index + 3] = 255;
+      if(channels===4)out[index + 3] = decoded.pixels[src + 3]!;
+      if (ink?.(x,y)) {
+        const alpha=watermark.opacity??.25,sourceAlpha=channels===4?out[index+3]!/255:1,resultAlpha=alpha+sourceAlpha*(1-alpha);
+        for(let n=0;n<3;n++)out[index+n]=Math.round((32*alpha+out[index+n]!*sourceAlpha*(1-alpha))/resultAlpha);
+        if(channels===4)out[index+3]=Math.round(resultAlpha*255);
       }
     }
   }
@@ -305,15 +310,16 @@ function markPng(data: Buffer) {
   header.writeUInt32BE(w, 0);
   header.writeUInt32BE(h, 4);
   header[8] = 8;
-  header[9] = 6;
+  header[9] = channels===4?6:2;
   return Buffer.concat([
     data.subarray(0, 8),
     pngChunk("IHDR", header),
+    ...(decoded.srgbIntent===undefined?[]:[pngChunk('sRGB',Buffer.from([decoded.srgbIntent]))]),
     pngChunk("IDAT", deflateSync(out)),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
 }
-function markGlb(data: Buffer) {
+function checkDisplayModel(data: Buffer) {
   const size = data.readUInt32LE(12),
     doc = JSON.parse(
       new TextDecoder("utf-8", { fatal: true }).decode(
@@ -401,120 +407,18 @@ function markGlb(data: Buffer) {
   if (!min.every(Number.isFinite) || !max.every(Number.isFinite)) fail();
   const span = Math.max(...max.map((x: number, i: number) => x - min[i]!));
   if (span <= 0) fail();
-  const positions: number[] = [];
-  const quad = (
-    x: number,
-    y: number,
-    z: number,
-    width: number,
-    height: number,
-  ) =>
-    positions.push(
-      x,
-      y,
-      z,
-      x + width,
-      y,
-      z,
-      x,
-      y + height,
-      z,
-      x,
-      y + height,
-      z,
-      x + width,
-      y,
-      z,
-      x + width,
-      y + height,
-      z,
-    );
-  // Three opaque red geometry stripes across model bounds, visibly distinct display derivative.
-  const w = max[0]! - min[0]! || span,
-    h = max[1]! - min[1]! || span,
-    z = max[2]! + span * 0.02;
-  for (let i = 1; i <= 3; i++)
-    quad(min[0]!, min[1]! + (h * i) / 4, z, w, h * 0.025);
-  const originalBinStart = 20 + size,
-    originalBin =
-      originalBinStart < data.length
-        ? data.subarray(originalBinStart + 8)
-        : Buffer.alloc(0),
-    offset = Math.ceil(originalBin.length / 4) * 4,
-    extra = Buffer.alloc(positions.length * 4);
-  positions.forEach((x, i) => extra.writeFloatLE(x, i * 4));
-  const bin = Buffer.concat([
-    originalBin,
-    Buffer.alloc(offset - originalBin.length),
-    extra,
-  ]);
-  const vi = (doc.bufferViews ??= []).length;
-  doc.bufferViews.push({
-    buffer: 0,
-    byteOffset: offset,
-    byteLength: extra.length,
-    target: 34962,
-  });
-  const ai = (doc.accessors ??= []).length;
-  doc.accessors.push({
-    bufferView: vi,
-    componentType: 5126,
-    count: positions.length / 3,
-    type: "VEC3",
-    min: [min[0], min[1]! + h / 4, z],
-    max: [min[0]! + w, min[1]! + (h * 3) / 4 + h * 0.025, z],
-  });
-  const mi = (doc.materials ??= []).length;
-  doc.materials.push({
-    name: "ExhibitOS display watermark",
-    pbrMetallicRoughness: {
-      baseColorFactor: [0.9, 0.05, 0.05, 1],
-      metallicFactor: 0,
-      roughnessFactor: 1,
-    },
-    doubleSided: true,
-  });
-  const mesh = (doc.meshes ??= []).length;
-  doc.meshes.push({
-    name: "DISPLAY COPY watermark",
-    primitives: [{ attributes: { POSITION: ai }, material: mi, mode: 4 }],
-  });
-  const node = (doc.nodes ??= []).length;
-  doc.nodes.push({ name: "ExhibitOS display copy watermark", mesh });
-  for (const scene of doc.scenes ?? []) (scene.nodes ??= []).push(node);
-  doc.asset.extras = {
-    exhibitos: {
-      watermarked: true,
-      policy: "display-copy",
-      label: "ExhibitOS display copy",
-    },
-  };
-  doc.buffers = [{ byteLength: bin.length }];
-  const json = Buffer.from(JSON.stringify(doc)),
-    padded = Buffer.concat([
-      json,
-      Buffer.alloc((4 - (json.length % 4)) % 4, 32),
-    ]),
-    header = Buffer.alloc(20),
-    bh = Buffer.alloc(8);
-  header.write("glTF");
-  header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(28 + padded.length + bin.length, 8);
-  header.writeUInt32LE(padded.length, 12);
-  header.writeUInt32LE(0x4e4f534a, 16);
-  bh.writeUInt32LE(bin.length, 0);
-  bh.writeUInt32LE(0x004e4942, 4);
-  return Buffer.concat([header, padded, bh, bin]);
 }
+
 try {
   if (process.argv[3] === "derivative") {
     if (process.argv[2] === "image/png") {
       process.stdout.write(markPng(bytes));
     } else if (process.argv[2] === "model/gltf-binary") {
       await glb(bytes);
-      const output = markGlb(bytes);
-      await glb(output);
-      process.stdout.write(output);
+      checkDisplayModel(bytes);
+      // Validated clean GLB bytes keep geometry, material, UV, bounds and LOD.
+      // Embedded model marking is not a supported capability.
+      process.stdout.write(bytes);
     } else fail();
   } else if (process.argv[2] === "image/png") png(bytes);
   else if (process.argv[2] === "model/gltf-binary") await glb(bytes);
