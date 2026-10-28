@@ -22,9 +22,9 @@ it('the ready map boundary uses real floor/capsule clearance, preserves a refuse
  const adapter=await createWalkingCamera({document,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion:true},render(){},onMode:mode,onMessage(){},onState:state=>states.push(state)});
  try{
   const position=camera.position.clone(),rotation=camera.quaternion.clone(),fov=camera.fov;
-  expect(adapter.actions.visitViewpoint!(unsafe)).toBe(false);expect(camera.position.toArray()).toEqual(position.toArray());expect(camera.quaternion.toArray()).toEqual(rotation.toArray());expect(camera.fov).toBe(fov);
+  expect(adapter.actions.visitViewpoint!(unsafe,false)).toBe(false);expect(camera.position.toArray()).toEqual(position.toArray());expect(camera.quaternion.toArray()).toEqual(rotation.toArray());expect(camera.fov).toBe(fov);
   adapter.actions.start();adapter.actions.press('forward',7);
-  expect(adapter.actions.visitViewpoint!(safe)).toBe(true);expect(camera.position.x).toBeCloseTo(1);expect(camera.position.z).toBeCloseTo(1);expect(camera.fov).toBe(50);expect(mode.mock.lastCall).toEqual([false,true]);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});
+  expect(adapter.actions.visitViewpoint!(safe,false)).toBe(true);expect(camera.position.x).toBeCloseTo(1);expect(camera.position.z).toBeCloseTo(1);expect(camera.fov).toBe(50);expect(mode.mock.lastCall).toEqual([true,true,'panel']);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});
  }finally{adapter.dispose();}
- const stopped=camera.position.toArray();expect(adapter.actions.visitViewpoint!(safe)).toBe(false);expect(camera.position.toArray()).toEqual(stopped);
+ const stopped=camera.position.toArray();expect(adapter.actions.visitViewpoint!(safe,false)).toBe(false);expect(camera.position.toArray()).toEqual(stopped);
 });

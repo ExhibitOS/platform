@@ -145,6 +145,10 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
         resume(); availabilityChanged(canResume()); return true;
       };
     },
+    resumeTemporary() {
+      if(open()||!safe()||!gate.panelClosed())return false;
+      resume();availabilityChanged(canResume());return true;
+    },
     isPanelFocus: (target: EventTarget | null) => panelFocus || owns(target),
     blank(event: MouseEvent, allowed: boolean) {
       if (!gate.consume(event.clientX, event.clientY, allowed && event.isTrusted && event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && canResume())) return;

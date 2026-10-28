@@ -27,6 +27,7 @@ import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "
 import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap,visitorMapPose} from './viewer/visitor-map';
 import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
+import type {ViewingRenderer} from './viewer/viewing-session';
 export function Viewer({
   publication,
   appearance,
@@ -44,9 +45,15 @@ export function Viewer({
   controlsHost,
   onNavigationActive,
   onStageState,
+  onViewingRendererReady,
+  mapEnabled = true,
+  onMapAction,
   guideDismissed,
   onGuideDismissedChange,
 }: {
+  mapEnabled?:boolean;
+  onMapAction?:()=>void;
+  onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
   publication: PublicPublication;
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
@@ -82,7 +89,7 @@ export function Viewer({
     window.addEventListener('blur',cancel);document.addEventListener('visibilitychange',hidden);
     return()=>{mapTravel?.dispose();window.removeEventListener('blur',cancel);document.removeEventListener('visibilitychange',hidden);};
   },[mapTravel]);
-  useEffect(()=>{if(suspendNavigation)mapTravel?.cancel();},[suspendNavigation,mapTravel]);
+  useEffect(()=>{if(suspendNavigation||!mapEnabled)mapTravel?.cancel();},[suspendNavigation,mapEnabled,mapTravel]);
   const registerMap=useCallback((bridge:MapTravelBridge|null)=>{if(mapBridge.current&&mapBridge.current!==bridge)mapTravel?.cancel();mapBridge.current=bridge;setMapAvailable(!!bridge);if(!bridge){setMapPose(undefined);setMapStageReady(false);}},[mapTravel]);
   const reportMapPose=useCallback((position:[number,number,number],yaw:number)=>{
     const next=visitorMapPose(position,yaw);
@@ -229,9 +236,10 @@ export function Viewer({
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
       {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>{setIntroDismissed(true);viewingEntry.current?.resumeViewing?.();}} />}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
-      {immersive&&map&&<div className="viewer-map-host" inert={suspendNavigation||undefined} aria-hidden={suspendNavigation||undefined}><VisitorMap map={map} worldPose={mapPose} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation} travel={mapTravelState} onDetails={id=>{mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>mapTravel?.go(target,id)??Promise.resolve(false)} onCancel={()=>mapTravel?.cancel()}/></div>}
+      {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} worldPose={mapPose} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
         immersive={immersive}
+        onViewingReady={onViewingRendererReady}
         controlsHost={controlsHost}
         inputMode={inputMode}
         onInputModeChange={setInputMode}

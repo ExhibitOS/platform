@@ -1,4 +1,5 @@
 import "./viewer/input-surface.css";
+import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
@@ -120,7 +121,9 @@ export function GeometryPreview({
   viewFov,
   inputMode = "auto",
   onInputModeChange,
+  onViewingReady,
 }: {
+  onViewingReady?:(renderer:ViewingRenderer|null)=>void;
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
   immersive?: boolean;
@@ -269,6 +272,9 @@ export function GeometryPreview({
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  const viewingCallback=useRef(onViewingReady);viewingCallback.current=onViewingReady;
+  const viewingStyleRef=useRef<ViewingStyle>('free');
+  const [viewingStyle,setViewingStyle]=useState<ViewingStyle>('free');
   const enteredWalking=useRef(false);
   useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
@@ -295,6 +301,7 @@ export function GeometryPreview({
   }, [suspendNavigation]);
   useEffect(() => {
     const abort = new AbortController();
+    viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
     let gpuLost = false;
     let disposed = false,
       release = () => {};
@@ -833,7 +840,7 @@ export function GeometryPreview({
       host.current.replaceChildren(renderer.domElement);
       // Panel scope requires the attached public canvas; before attachment its
       // closest publication shell is null.
-      if (immersive) panelResume = installPanelResume(renderer.domElement, (reason = "panel") => walkingActions.current?.pause(reason), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); }, () => !disposed && !gpuLost && !suspendedRef.current && !xrActive.current);
+      if (immersive) panelResume = installPanelResume(renderer.domElement, (reason = "panel") => walkingActions.current?.pause(reason), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); }, () => !disposed && !gpuLost && !suspendedRef.current && !xrActive.current&&viewingStyleRef.current==='free');
       detailEntry.current.resumeViewing = () => {
         const intent = panelResume?.intent();
         cancelAnimationFrame(resumeFrame);
@@ -936,7 +943,7 @@ export function GeometryPreview({
         renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
       }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
-      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current; };
+      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current&&viewingStyleRef.current==='free'; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
         renderer.domElement.tabIndex = 0;
@@ -945,7 +952,7 @@ export function GeometryPreview({
           "walking-instructions",
         );
         let initialization: Promise<void> | undefined;
-        const initialize = async (teleportViewpointId?: string) => {
+        const initialize = async (teleportViewpointId?: string, preserveCurrent=false) => {
           if (disposed || xrActive.current) return;
           if (!initialization) {
             setWalkLoading(true);
@@ -953,7 +960,8 @@ export function GeometryPreview({
               "걷기와 안전한 충돌을 준비합니다. 작품 목록은 계속 사용할 수 있습니다.",
             );
             let initialCamera: InstanceType<typeof three.PerspectiveCamera> | undefined;
-            if(teleportViewpointId) {
+            if(preserveCurrent)initialCamera=camera.clone();
+            else if(teleportViewpointId) {
               try {
                 const destination=viewpointPose(document,teleportViewpointId);
                 initialCamera=camera.clone();
@@ -963,7 +971,7 @@ export function GeometryPreview({
                 setWalkLoading(false);setWalkMessage("이 viewpoint의 참조나 시점 방향을 지원하지 않습니다. 기존 위치와 정지 관람을 유지합니다.");return;
               }
             } else view("start");
-            controls.enabled = false;
+            if(!preserveCurrent)controls.enabled = false;
             initialization = (async () => {
               const { createWalkingCamera } =
                 await import("./viewer/navigation-camera");
@@ -978,7 +986,7 @@ export function GeometryPreview({
                 // report null relatedTarget. The existing committed entry still
                 // identifies this temporary obstruction without erasing its base stop.
                 isPanelFocus: target => committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
-                resumeMovement: () => panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false,
+                resumeMovement: () => viewingStyleRef.current==='free'&&(panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 settings: { ...walkSettingsRef.current },
                 render,
                 onState: (state) => {
@@ -1019,15 +1027,15 @@ export function GeometryPreview({
               adapter.actions.settings({ ...walkSettingsRef.current });
               walkingRelease = adapter.dispose;
               walkingActions.current = { ...adapter.actions,
-                  canResumeInput: () => !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
-                  resumeInput: () => panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false,
+                  canResumeInput: () => viewingStyleRef.current==='free' && !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
+                  resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 };
               setWalkPreparation('ready');
             })()
               .catch(() => {
                 if (!disposed) {
                   setWalkPreparation('failed');
-                  controls.enabled = true;
+                  if(!preserveCurrent)controls.enabled = true;
                   setWalkMessage(
                     "이 전시의 시작 위치나 바닥에서 안전한 걷기를 준비할 수 없습니다. 정지 관람과 작품 목록을 사용할 수 있습니다.",
                   );
@@ -1059,6 +1067,9 @@ export function GeometryPreview({
                 walkingActions.current?.teleport?.(viewpointId);
             });
           },
+          prepareViewpoint:async id=>{await initialize(undefined,true);return walkingActions.current!==pending?walkingActions.current?.prepareViewpoint?.(id):undefined;},
+          visitViewpoint:(id,ordered)=>walkingActions.current!==pending?(walkingActions.current?.visitViewpoint?.(id,ordered)??false):false,
+          freeViewing:()=>walkingActions.current!==pending?(walkingActions.current?.freeViewing?.()??false):false,
           sit: benchId => {void initialize().then(()=>{if(!disposed&&!xrActive.current&&!suspendedRef.current&&walkingActions.current!==pending)walkingActions.current?.sit?.(benchId);});},
           stand:()=>{},
           pause: () => {},
@@ -1425,6 +1436,8 @@ export function GeometryPreview({
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
+        const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
+        let viewingCurrentArt:string|undefined;
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
           for (const resource of decodedResources.get(object) ?? [])
@@ -1464,7 +1477,7 @@ export function GeometryPreview({
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=transitionBudgetBytes)break;byteCache.delete(asset.id);}
           if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=transitionBudgetBytes)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
-          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=transitionBudgetBytes)break;if(mapPins.has(id)||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
+          for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=transitionBudgetBytes)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           peak.reserve(key,bytes);
         };
         const tasks = new Map<
@@ -1596,7 +1609,7 @@ export function GeometryPreview({
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
-          settleDetail?.();
+          settleDetail?.();for(const check of [...viewingWaiters])check();
         };
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false):void => {
           if(art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
@@ -1738,7 +1751,7 @@ export function GeometryPreview({
         const reclaimForCurrent=()=>{
           // Let one ready-before-swap downgrade settle before reclaiming another.
           if([...reclaiming].some(id=>pending.has(id)))return;
-          const candidate=displayedDetailReclamation(arts.filter(art=>!mapPins.has(art.revisionId)&&art.revisionId!==detailPinnedArtwork&&active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
+          const candidate=displayedDetailReclamation(arts.filter(art=>!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
             id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,minimumRequired:observedEligible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
           })),currentArtwork,performance.now(),viewerBudget);
           if(!candidate)return;
@@ -1869,7 +1882,7 @@ export function GeometryPreview({
           for(const {art,visible,minimumEligible}of sorted)if((visible||minimumEligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
           const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)})));
           for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
-            if(!mapPins.has(art.revisionId)&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!focused&&distance>12){
+            if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
@@ -1899,7 +1912,7 @@ export function GeometryPreview({
         };
         const mapBridge:MapTravelBridge={visit:async(input,externalSignal)=>{
           const signal=AbortSignal.any([abort.signal,externalSignal]);signal.throwIfAborted();
-          if(disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current||!walkingActions.current?.visitViewpoint)return false;
+          if(viewingStyleRef.current!=='free'||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current||!walkingActions.current?.visitViewpoint)return false;
           const destination=presentationFor(document).viewpoints.find(v=>v.id.toLowerCase()===input.viewpointId.toLowerCase()&&v.roomId.toLowerCase()===input.roomId.toLowerCase());
           if(!destination)return false;
           const selected=input.placementId?document.placements.find(p=>p.id.toLowerCase()===input.placementId!.toLowerCase()&&p.roomId.toLowerCase()===destination.roomId.toLowerCase()):undefined;
@@ -1913,11 +1926,61 @@ export function GeometryPreview({
             signal.throwIfAborted();
             if(art)releaseMinimum=await retainMapMinimum({id:art.revisionId,signal,pins:mapPins,waiters:mapWaiters,ready:()=>objects.has(art.revisionId)&&active.has(art.revisionId),failed:()=>!pending.has(art.revisionId)&&(failed.has(art.revisionId)||minimumBlocked.has(art.revisionId)),request:()=>request(art,false)});
             signal.throwIfAborted();
-            if(disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current||renderer.domElement.ownerDocument.hidden||!camera.position.equals(position)||!camera.quaternion.equals(quaternion))return false;
-            return walkingActions.current?.visitViewpoint?.(destination.id)===true;
+            if(viewingStyleRef.current!=='free'||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current||renderer.domElement.ownerDocument.hidden||!camera.position.equals(position)||!camera.quaternion.equals(quaternion))return false;
+            return walkingActions.current?.visitViewpoint?.(destination.id,false)===true;
           }finally{releaseMinimum?.();}
         }};
         mapCallbacks.current.onMapReady?.(mapBridge);
+        const viewingBridge:ViewingRenderer={
+          async prepare(stop,externalSignal){
+            const signal=AbortSignal.any([abort.signal,externalSignal]);signal.throwIfAborted();
+            if(disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current)throw Error('VIEWING_UNAVAILABLE');
+            const placement=document.placements.find(p=>p.id.toLowerCase()===stop.placementId.toLowerCase());
+            const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
+            if(!art)throw Error('VIEWING_REFERENCE');
+            viewingPins.set(art.revisionId,(viewingPins.get(art.revisionId)??0)+1);let released=false;
+            const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else viewingPins.delete(art.revisionId);};
+            signal.addEventListener('abort',releasePin,{once:true});
+            try{
+              await new Promise<void>((resolve,reject)=>{
+                let ended=false;
+                const finish=(error?:Error)=>{if(ended)return;ended=true;clearTimeout(timer);signal.removeEventListener('abort',cancel);viewingWaiters.delete(check);if(error)reject(error);else resolve();};
+                const cancel=()=>finish(Error('VIEWING_CANCELLED'));
+                const check=()=>{if(signal.aborted||disposed||gpuLost){cancel();return;}if(objects.has(art.revisionId)&&active.has(art.revisionId)){finish();return;}if(!pending.has(art.revisionId)&&(failed.has(art.revisionId)||minimumBlocked.has(art.revisionId)))finish(Error('VIEWING_MINIMUM_UNAVAILABLE'));};
+                const timer=setTimeout(()=>finish(Error('VIEWING_MINIMUM_TIMEOUT')),10000);
+                signal.addEventListener('abort',cancel,{once:true});viewingWaiters.add(check);request(art,false);check();
+              });
+              signal.throwIfAborted();
+              const destination=await walkingActions.current?.prepareViewpoint?.(stop.viewpointId);
+              signal.throwIfAborted();if(!destination)throw Error('VIEWING_UNSAFE_POSITION');
+              const group=placements.get(placement!.id.toLowerCase());if(!group)throw Error('VIEWING_REFERENCE');
+              group.updateMatrixWorld(true);const box=new three.Box3().setFromObject(group,true);
+              if(box.isEmpty()||box.distanceToPoint(new three.Vector3(...destination.target))>.05)throw Error('VIEWING_TARGET_OUTSIDE_ARTWORK');
+              if(art.artworkType==='image'){
+                let plane:InstanceType<typeof three.Mesh>|undefined;
+                group.traverse(node=>{if(!plane&&node instanceof three.Mesh&&(Array.isArray(node.material)?node.material:[node.material]).some(m=>(m as InstanceType<typeof three.MeshBasicMaterial>).map))plane=node;});
+                if(!plane)throw Error('VIEWING_IMAGE_FRONT');
+                const determinant=plane.matrixWorld.determinant();if(!Number.isFinite(determinant)||determinant===0)throw Error('VIEWING_IMAGE_FRONT');
+                const normal=new three.Vector3(0,0,1).applyNormalMatrix(new three.Matrix3().getNormalMatrix(plane.matrixWorld));
+                if(!normal.toArray().every(Number.isFinite)||normal.lengthSq()===0)throw Error('VIEWING_IMAGE_FRONT');
+                const eye=new three.Vector3(...destination.position),centre=box.getCenter(new three.Vector3());
+                if(normal.dot(eye.sub(centre).normalize())<Math.cos(Math.PI/6))throw Error('VIEWING_IMAGE_FRONT');
+              }
+              return {commit(style){
+                if(released||signal.aborted||disposed||gpuLost||sharedDetail||suspendedRef.current||xrActive.current||!objects.has(art.revisionId))return false;
+                if(!walkingActions.current?.visitViewpoint?.(stop.viewpointId,style==='ordered'))return false;
+                viewingCurrentArt=art.revisionId;viewingStyleRef.current=style;setViewingStyle(style);controls.enabled=false;currentArtwork=art.revisionId;
+                if(style==='free')panelResume?.resumeTemporary();
+                render();update();return true;
+              },release:releasePin};
+            }catch(error){releasePin();throw error;}
+          },
+          free(){
+            if(disposed||gpuLost||sharedDetail||suspendedRef.current||xrActive.current||!walkingActions.current?.freeViewing?.())return false;
+            viewingStyleRef.current='free';setViewingStyle('free');viewingCurrentArt=undefined;panelResume?.resumeTemporary();render();return true;
+          },
+        };
+        viewingCallback.current?.(viewingBridge);
         const mountSharedDetail:SharedDetailPreview=async input=>{
           const signal=AbortSignal.any([abort.signal,input.signal]);
           signal.throwIfAborted();
@@ -2011,6 +2074,7 @@ export function GeometryPreview({
         const originalRelease = release;
         release = () => {
           mapCallbacks.current.onMapReady?.(null);mapPins.clear();
+          viewingCallback.current?.(null);for(const check of [...viewingWaiters])check();viewingPins.clear();
           cancelDetail?.();sharedDetail?.dispose();
           if(detailEntry.current.mountPreview===mountSharedDetail)delete detailEntry.current.mountPreview;
           clearInterval(statsTimer);
@@ -2111,7 +2175,7 @@ export function GeometryPreview({
       <div className="geometry-stage watermark-display-stage">
         <div className="geometry-render-host" ref={host} />
         <WatermarkOverlay candidate={document}/>
-        {viewerBudget && walkingMode && (
+        {viewerBudget && walkingMode && viewingStyle==='free' && (
           <WalkingTouch
             available={ready && !xrRunning && !suspendNavigation}
             paused={walkPaused}
@@ -2125,7 +2189,7 @@ export function GeometryPreview({
       {(immersive || compactControls) && <summary>공간 조작</summary>}
       {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·화면 버튼</option></select></label><p>터치 기기는 화면 버튼, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 설정을 닫으면 새 이동·시점 조작을 바로 사용할 수 있어요.</p></>}
       {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
-      <ViewControls className={publicSource ? "viewer-options" : undefined}>
+      <ViewControls hidden={viewingStyle==='ordered'} className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
       <div className="cms-actions">
         <button
@@ -2177,7 +2241,7 @@ export function GeometryPreview({
         </button>
       </div>
       </ViewControls>
-      {viewerBudget && (
+      {viewerBudget && viewingStyle==='free' && (
         <WalkingControls
           allowPointerCapture={!immersive || inputMode==="pointer"}
           available={ready && !xrRunning && !walkLoading && !suspendNavigation && !seatedBenchId}
@@ -2194,12 +2258,12 @@ export function GeometryPreview({
           message={walkMessage}
         />
       )}
-      {viewerBudget && benchesFor(document).length>0 && (
+      {viewerBudget && viewingStyle==='free' && benchesFor(document).length>0 && (
         <section aria-label="앉아서 감상" className="viewer-options">
           {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 돌아온 뒤 걷기는 직접 재개하세요.</p>{benchesFor(document).map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
         </section>
       )}
-      {viewerBudget && presentationFor(document).viewpoints.length>0 && (
+      {viewerBudget && viewingStyle==='free' && presentationFor(document).viewpoints.length>0 && (
         <details className="viewer-options"><summary>다른 관람 위치</summary>
         <section aria-label="검증된 viewpoint 순간 이동">
           <p>직접 선택한 위치의 바닥·몸 여유 공간을 검사하고 움직임 없이 이동합니다. 안전하지 않은 위치는 거부하며 정지 상태를 유지합니다.</p>
