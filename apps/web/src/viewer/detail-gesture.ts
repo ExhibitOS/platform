@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-export interface DetailView { yaw: number; pitch: number; zoom: number }
+export interface DetailView { yaw: number; pitch: number; zoom: number; panX?:number; panY?:number }
 export const INITIAL_DETAIL_VIEW: DetailView = { yaw: 0, pitch: 0, zoom: 1 };
 export function detailView(view: DetailView): DetailView {
   return { yaw: ((view.yaw + 180) % 360 + 360) % 360 - 180,

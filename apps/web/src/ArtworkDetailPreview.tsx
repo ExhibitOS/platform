@@ -10,6 +10,8 @@ import type { PublicPublication } from "./publication-client";
 import { checkImageDecode, deviceBudget, fetchVerifiedAsset, selectAssetVariant } from "./viewer/loading";
 import type * as THREE from "three";
 
+import {FlatImageGesture,flatImageView,imageFit,zoomImage,type ImageViewport} from './viewer/flat-image-view';
+import {flatImagePreview} from './viewer/flat-image-preview';
 import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
 import type {SharedDetailPreview,SharedDetailSession} from './viewer/borrowed-detail-preview';
 
@@ -21,28 +23,38 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [view, setView] = useState(INITIAL_DETAIL_VIEW), [error, setError] = useState("");
+  const flat=artwork.artworkType==='image';
+  const [maxZoom,setMaxZoom]=useState(1);
+  const viewport=useRef<ImageViewport>({width:1,height:1,imageWidth:1,imageHeight:1,pixelRatio:1});
+  const acceptViewport=(next:ImageViewport)=>{
+    const old=viewport.current;if(Object.keys(next).every(key=>next[key as keyof ImageViewport]===old[key as keyof ImageViewport]))return;
+    viewport.current=next;setMaxZoom(imageFit(next).maxZoom);
+    controls.current=flatImageView(controls.current,next);setView(controls.current);
+  };
   const { yaw, pitch, zoom } = view;
   const controls = useRef(view);
   const sharedSession=useRef<SharedDetailSession|null>(null);
   const hint = useId();
-  const changeView = (next: typeof view) => { controls.current = next;sharedSession.current?.update(next); setView(next); };
+  const changeView = (next: typeof view) => { next=flat?flatImageView(next,viewport.current):detailView(next); controls.current = next;sharedSession.current?.update(next); setView(next); };
   useEffect(()=>{
     if(!sharedPreview||!placementId||!host.current)return;
     const abort=new AbortController();let session:SharedDetailSession|undefined,unavailableReported=false;
     setError('');
     const unavailable=(reason:'rights'|'graphics')=>{unavailableReported=true;if(!abort.signal.aborted)setError(reason==='graphics'?'3D 연결이 끊겨 상세 표시를 중단했어요. 전시로 돌아가 3D를 다시 시작하거나 아래 설명을 읽어 주세요.':'공개 상태를 확인할 수 없어 상세 표시를 중단했습니다. 설명은 아래에서 읽을 수 있어요.');};
-    void sharedPreview({placementId,host:host.current,signal:abort.signal,view:controls.current,anchors,unavailable}).then(value=>{
+    void sharedPreview({placementId,host:host.current,signal:abort.signal,view:controls.current,anchors,unavailable,flatImage:flat,imageViewport:flat?acceptViewport:undefined}).then(value=>{
       if(abort.signal.aborted){value.dispose();return;}session=value;sharedSession.current=value;value.update(controls.current);
     }).catch(()=>{if(!abort.signal.aborted&&!unavailableReported)setError('현재 준비된 작품 표시를 사용할 수 없어요. 전시로 돌아가 작품이 준비된 뒤 다시 열거나 아래 설명을 읽어 주세요.');});
     return()=>{abort.abort();session?.dispose();if(sharedSession.current===session)sharedSession.current=null;};
-  },[sharedPreview,placementId,anchors]);
+  },[sharedPreview,placementId,anchors,flat]);
   useEffect(() => {
     const target = host.current;
     if (!target) return;
-    const gesture = new DetailGesture();
+    const gesture = new DetailGesture(),imageGesture=new FlatImageGesture();
+    let tap:{time:number;x:number;y:number}|undefined,start:{x:number;y:number}|undefined,moved=false,multiple=false;
+    const point=(event:{clientX:number;clientY:number})=>{const box=target.getBoundingClientRect();return {x:event.clientX-box.left-box.width/2,y:event.clientY-box.top-box.height/2};};
     const captured = new Set<number>();
     const clear = () => {
-      gesture.clear(); delete target.dataset.dragging;
+      gesture.clear();imageGesture.clear();tap=undefined;start=undefined; delete target.dataset.dragging;
       for (const id of captured) if (target.hasPointerCapture(id)) target.releasePointerCapture(id);
       captured.clear();
     };
@@ -51,28 +63,43 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       if (captured.size >= 2 || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
       target.focus({ preventScroll: true });
       try { target.setPointerCapture(event.pointerId); } catch { return; }
-      captured.add(event.pointerId); gesture.begin(event.pointerId, { x: event.clientX, y: event.clientY });
+      captured.add(event.pointerId);
+      if(captured.size===1){start={x:event.clientX,y:event.clientY};moved=false;multiple=false;}else{multiple=true;tap=undefined;}
+      if(flat)imageGesture.begin(event.pointerId,point(event));else gesture.begin(event.pointerId,{x:event.clientX,y:event.clientY});
       target.dataset.dragging = "true"; event.preventDefault();
     };
     const move = (event: PointerEvent) => {
       if (!captured.has(event.pointerId)) return;
-      changeView(gesture.move(event.pointerId, { x: event.clientX, y: event.clientY }, controls.current));
+      if(start&&Math.hypot(event.clientX-start.x,event.clientY-start.y)>8){moved=true;tap=undefined;}
+      changeView(flat?imageGesture.move(event.pointerId,point(event),controls.current,viewport.current):gesture.move(event.pointerId,{x:event.clientX,y:event.clientY},controls.current));
       event.preventDefault();
     };
     const end = (event: PointerEvent) => {
-      gesture.end(event.pointerId); captured.delete(event.pointerId);
+      const owned=captured.has(event.pointerId);if(owned&&event.type!=='pointerup')tap=undefined;
+      gesture.end(event.pointerId);imageGesture.end(event.pointerId);captured.delete(event.pointerId);
+      if(flat&&owned&&event.type==='pointerup'&&!moved&&!multiple){
+        const now=performance.now(),p=point(event);
+        if(tap&&now-tap.time<350&&Math.hypot(event.clientX-tap.x,event.clientY-tap.y)<32){
+          changeView(controls.current.zoom>1?{...INITIAL_DETAIL_VIEW}:zoomImage(controls.current,Math.min(2,imageFit(viewport.current).maxZoom),p.x,p.y,viewport.current));tap=undefined;
+        }else tap={time:now,x:event.clientX,y:event.clientY};
+      }
       if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
       if (!captured.size) delete target.dataset.dragging;
     };
     const wheel = (event: WheelEvent) => {
-      if (document.activeElement !== target || event.ctrlKey || event.metaKey) return;
+      if (document.activeElement !== target || (!flat&&(event.ctrlKey || event.metaKey))) return;
       event.preventDefault();
       const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? target.clientHeight : 1);
-      changeView(detailView({ ...controls.current, zoom: controls.current.zoom * Math.exp(-Math.max(-300, Math.min(300, pixels)) * .002) }));
+      const zoom=controls.current.zoom*Math.exp(-Math.max(-300,Math.min(300,pixels))*.002),p=point(event);
+      changeView(flat?zoomImage(controls.current,zoom,p.x,p.y,viewport.current):detailView({...controls.current,zoom}));
     };
     const key = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const next = { ...controls.current };
+      if(flat){
+        switch(event.key){case 'ArrowLeft':next.panX=(next.panX??0)+32;break;case 'ArrowRight':next.panX=(next.panX??0)-32;break;case 'ArrowUp':next.panY=(next.panY??0)+32;break;case 'ArrowDown':next.panY=(next.panY??0)-32;break;case '+':case '=':next.zoom*=1.25;break;case '-':next.zoom/=1.25;break;case 'Home':Object.assign(next,INITIAL_DETAIL_VIEW,{panX:0,panY:0});break;default:return;}
+        event.preventDefault();event.stopPropagation();changeView(next);return;
+      }
       switch (event.key) {
         case "ArrowLeft": next.yaw -= 5; break;
         case "ArrowRight": next.yaw += 5; break;
@@ -97,7 +124,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       target.removeEventListener("blur", clear); window.removeEventListener("blur", clear);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, []);
+  }, [flat]);
   useEffect(() => {
     if(sharedPreview)return;
     const target = host.current;
@@ -178,6 +205,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
           const centered=centerMetricModel(three,object);object=centered.object;modelExtent=centered.extent;metric=centered.measured;
         }
         if (disposed || abort.signal.aborted) { release(); return; }
+        const imagePreview=flat?flatImagePreview(three,object):undefined;if(imagePreview)resources.add(imagePreview);
         const scene = new three.Scene(); scene.background = new three.Color("#181a20");
         const artifact=artifactMetricModel(three,object,artwork.transform);object=artifact.object;modelExtent=artifact.extent;const centre=artifact.center;
         const model = new three.Group();model.position.copy(centre);const contents=new three.Group();contents.position.copy(centre).negate();contents.add(object);model.add(contents);scene.add(model);
@@ -195,13 +223,15 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
         const extent = modelExtent;
         const resize = () => { const w = Math.max(1,target!.clientWidth), h = Math.max(1,target!.clientHeight); renderer!.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
         observer = new ResizeObserver(resize); observer.observe(target!); resize();
-        const render = () => { if (disposed) return; model.rotation.set(controls.current.pitch * Math.PI / 180, controls.current.yaw * Math.PI / 180, 0, "YXZ");
+        const render = () => { if (disposed) return;
+          if(imagePreview){const state=imagePreview.render(renderer!,Math.max(1,target!.clientWidth),Math.max(1,target!.clientHeight),controls.current);acceptViewport(state.viewport);renderer!.domElement.dataset.detailState=JSON.stringify({flatImage:true,...state});frame=requestAnimationFrame(render);return;}
+          model.rotation.set(controls.current.pitch * Math.PI / 180, controls.current.yaw * Math.PI / 180, 0, "YXZ");
           const fit=metricCameraFit(extent,camera.aspect,controls.current.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
           renderer!.render(scene, camera);
           renderer!.domElement.dataset.detailState = JSON.stringify({ rotationX: model.rotation.x, rotationY: model.rotation.y, cameraPosition: camera.position.toArray(), clipping:[camera.near,camera.far], zoom: controls.current.zoom, dimensions: artwork.dimensions, measuredGeometry:metric,artifactGeometry:artifact.measured, anchors: anchors.map(a => a.position),anchorWorld:object.children.filter(n=>n.renderOrder===1).map(n=>n.getWorldPosition(new three.Vector3()).toArray()) });
           frame = requestAnimationFrame(render); };
         render();
-        void installReferenceEnvironment(three,renderer,scene,environmentReserve,budget.maxTextureSize<=512,()=>disposed||abort.signal.aborted).then(environment=>{
+        if(!flat)void installReferenceEnvironment(three,renderer,scene,environmentReserve,budget.maxTextureSize<=512,()=>disposed||abort.signal.aborted).then(environment=>{
           if(!environment)return;if(disposed||abort.signal.aborted){environment.dispose();return;}
           resources.add(environment);scene.environmentIntensity=.45;hemisphere.intensity=.6;light.intensity=2;
           renderer!.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,assetBudgetBytes:budget.maxCacheBytes-environmentReserve});
@@ -220,15 +250,22 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
     void start();
     return () => { disposed = true; abort.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", visible);
       cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); };
-  }, [publication, artwork, anchors, referenceTone,sharedPreview]);
-  return <section aria-label="작품 확대 및 회전">
-    <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label="작품 회전 및 확대 조작" aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
-    <p id={hint} className="detail-gesture-hint">드래그하여 상하·좌우 회전 · 두 손가락으로 확대. 키보드는 방향키·+/−, Home으로 초기화합니다.</p>
+  }, [publication, artwork, anchors, referenceTone,sharedPreview,flat]);
+  return <section aria-label={flat?'작품 정면 이미지 확대':'작품 확대 및 회전'}>
+    <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label={flat?'작품 이미지 확대 및 이동 조작':'작품 회전 및 확대 조작'} aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
+    <p id={hint} className="detail-gesture-hint">{flat?'두 번 누르거나 +/− 버튼으로 확대 · 확대한 뒤 드래그하여 이동합니다. 두 손가락 확대, 휠·트랙패드, 방향키도 사용할 수 있습니다.':'드래그하여 상하·좌우 회전 · 두 손가락으로 확대. 키보드는 방향키·+/−, Home으로 초기화합니다.'}</p>
     {error && <p role="status">{error}</p>}
-    <label>작품 회전 {Math.round(yaw)}° <input aria-label="작품 회전" type="range" min="-180" max="180" step="5" value={yaw} onChange={e => changeView(detailView({ ...controls.current, yaw: Number(e.target.value) }))} /></label>
-    <label>작품 상하 회전 {Math.round(pitch)}° <input aria-label="작품 상하 회전" type="range" min="-90" max="90" step="5" value={pitch} onChange={e => changeView(detailView({ ...controls.current, pitch: Number(e.target.value) }))} /></label>
-    <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => changeView(detailView({ ...controls.current, zoom: Number(e.target.value) }))} /></label>
-    <button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })}>상세 시점 초기화</button>
-    <p>작품의 미터 단위 좌표를 유지하는 디지털 미리보기입니다. 화면의 물리적 크기와는 다릅니다. 회전·확대 슬라이더는 방향키로도 조작할 수 있습니다.</p>
+    {flat?<div className="detail-image-controls" aria-label="이미지 확대">
+      <button disabled={zoom<=1} onClick={()=>changeView({...controls.current,zoom:zoom/1.25})} aria-label="작품 이미지 축소">축소</button>
+      <output aria-live="off">{Math.round(zoom*100)}%</output>
+      <button disabled={zoom>=maxZoom} onClick={()=>changeView({...controls.current,zoom:zoom*1.25})} aria-label="작품 이미지 확대">확대</button>
+      <button onClick={()=>changeView({...INITIAL_DETAIL_VIEW,panX:0,panY:0})}>전체 보기</button>
+    </div>:<>
+      <label>작품 회전 {Math.round(yaw)}° <input aria-label="작품 회전" type="range" min="-180" max="180" step="5" value={yaw} onChange={e => changeView({ ...controls.current, yaw: Number(e.target.value) })} /></label>
+      <label>작품 상하 회전 {Math.round(pitch)}° <input aria-label="작품 상하 회전" type="range" min="-90" max="90" step="5" value={pitch} onChange={e => changeView({ ...controls.current, pitch: Number(e.target.value) })} /></label>
+      <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => changeView({ ...controls.current, zoom: Number(e.target.value) })} /></label>
+      <button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })}>상세 시점 초기화</button>
+    </>}
+    <p>{flat?'이미지 비율을 유지하며 표시합니다. 확대 한도는 현재 준비된 이미지의 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'작품의 미터 단위 좌표를 유지하는 디지털 미리보기입니다. 화면의 물리적 크기와는 다릅니다. 회전·확대 슬라이더는 방향키로도 조작할 수 있습니다.'}</p>
   </section>;
 }

@@ -1589,8 +1589,8 @@ export function GeometryPreview({
           );
           settleDetail?.();
         };
-        const request = (art: (typeof arts)[number], full = false, prepareOnly=false):void => {
-          if(art.revisionId===detailPinnedArtwork)return;
+        const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false):void => {
+          if(art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
           requested.add(art.revisionId);
           let inventory: (typeof art.assets)[number];
           try {
@@ -1910,9 +1910,9 @@ export function GeometryPreview({
             settleDetail=check;cancelDetail=cancel;signal.addEventListener('abort',cancel,{once:true});request(art,false);check();
           });
           signal.throwIfAborted();
-          const object=objects.get(art.revisionId);
+          let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
-          const markerBytes=input.anchors.length?16384+input.anchors.length*512:0,detailKey='shared-detail-annotations';
+          const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
           // Spend no extra residency on the borrowed view until unpinned bytes
           // have yielded to the already displayed object and annotations.
@@ -1928,12 +1928,14 @@ export function GeometryPreview({
           desired.set(art.revisionId,active.get(art.revisionId)!);
           detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;
           sharedDetailUnavailable=input.unavailable;
+          let promoteImage:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
           const visible=()=>{if(globalThis.document.visibilityState==='visible')void check();};
           const restore=()=>{
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            if(settleDetail===promoteImage)settleDetail=undefined;
             peak.release(detailKey);
-            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
+            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
             if(!disposed&&!gpuLost){
               resize();update();
               // Dialog teardown may run before the borrowed canvas is returned.
@@ -1950,7 +1952,19 @@ export function GeometryPreview({
           try{
             const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
-            sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);update();return scope;
+            sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
+            if(input.flatImage){
+              // The existing scheduler owns verification, decode and peak admission.
+              // Keep the borrowed old texture until the replacement has drawn successfully.
+              promoteImage=()=>{
+                const next=objects.get(art.revisionId);if(!alive||signal.aborted||!next||next===object)return;
+                try{scope.replaceImage(next);}catch{return;}
+                const previous=object,retired=detailRetired;object=next;detailPinned=next;detailRetired=false;
+                if(retired&&previous)destroy(previous);
+              };
+              settleDetail=promoteImage;request(art,true,false,true);
+            }
+            update();return scope;
           }catch(error){restore();throw error;}
         };
         detailEntry.current.mountPreview=mountSharedDetail;

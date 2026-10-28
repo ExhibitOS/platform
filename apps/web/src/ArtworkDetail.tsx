@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useMemo, useRef, useState } from "react";
-import { creationYearFor, experienceFor, curationFor } from "@exhibitos/studio-contract";
+import { creationYearFor, experienceFor, curationFor, formatArtworkDimensions } from "@exhibitos/studio-contract";
 import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
@@ -45,9 +45,9 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
     <p>{artwork.metadata.artist}</p>
     {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} placementId={placementId} sharedPreview={sharedPreview} />}
-    <section aria-label="작품 설명"><h3>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</h3><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></section>
+    <details className="artwork-detail-record" aria-label="작품 설명" open={!renderPreview}><summary>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</summary><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></details>
     <dl>
-      <dt>실제 치수 (너비 × 높이 × 깊이)</dt><dd>{artwork.dimensions.width} × {artwork.dimensions.height} × {artwork.dimensions.depth ?? "미기록"} m</dd>
+      <dt>기록된 크기</dt><dd>{formatArtworkDimensions(artwork.dimensions)}</dd>
       <dt>재료·기법</dt><dd>{artwork.metadata.medium ?? "미기록"}</dd>
       <dt>제작 연도 (공개 제작 기록)</dt><dd data-testid="artwork-creation-year">{creationYear ?? "미기록"}</dd>
       <dt>권리자</dt><dd>{artwork.rights.holder}</dd><dt>권리·출처 표기</dt><dd>{artwork.rights.creditLine}</dd>
@@ -57,7 +57,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     {experience.translations.filter(t => sameId(t.placementId, placementId)).map(t => <section key={t.locale} aria-label={`번역 ${t.locale}`} lang={t.locale}>
       <h3>번역 ({t.locale}) · {t.title}</h3><p className="detail-text">{t.description}</p><p>작품 설명과 구분된 번역문입니다.</p>
     </section>)}
-    <section aria-label="작품 음성 설명 및 대본"><h3>작품 음성 설명 · 대본</h3>
+    <details className="artwork-detail-record" open={!renderPreview}><summary>작품 음성 설명 · 대본</summary>
       {!renderPreview && <p>글·목록 관람에서는 음성을 요청하지 않습니다. 작품 설명은 위에서 읽을 수 있습니다.</p>}
       {experience.voices.filter(v => sameId(v.placementId, placementId)).map(v => <div key={`${v.assetId}-${v.locale}`}>
         {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("작품 음성 설명을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("작품 음성 설명을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("작품 음성 설명을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작품 음성 설명 듣기 ({v.locale})</button>
@@ -67,7 +67,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
       </div>)}
       {!experience.voices.some(v => sameId(v.placementId, placementId)) && <p>등록된 작품 음성 설명이 없습니다. 위 설명을 읽어주세요.</p>}
       <p role="status">{voiceStatus}</p>
-    </section>
+    </details>
     <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>{renderPreview ? "금색 점을 설명하는 글이에요. 정확한 위치 정보는 아래에서 확인할 수 있어요." : "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다."}</p>
       <ol>{annotations.map(a => { const anchor = anchors.find(p => sameId(p.id, a.id)); return <li key={a.id}>{a.text} {anchor ? <details className="artwork-annotation-position"><summary>작품 안의 위치</summary><span>작품 중심에서 ({anchor.position.join(", ")}) m</span></details> : <span> · 좌표 미등록</span>}{curation.annotationTranslations.filter(t=>sameId(t.annotationId,a.id)).map(t=><p key={t.locale} lang={t.locale}>별도 주석 번역 ({t.locale}): {t.text}</p>)}</li>; })}</ol>
     </section>
