@@ -962,7 +962,10 @@ export function GeometryPreview({
                 initialCamera,
                 controls,
                 canvas: renderer.domElement,
-                isPanelFocus: panelResume?.isPanelFocus,
+                // A dialog may focus before the suspension effect, and Safari can
+                // report null relatedTarget. The existing committed entry still
+                // identifies this temporary obstruction without erasing its base stop.
+                isPanelFocus: target => committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
                 resumeMovement: () => panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false,
                 settings: { ...walkSettingsRef.current },
                 render,
