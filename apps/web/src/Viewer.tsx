@@ -244,17 +244,17 @@ export function Viewer({
       {immersive && <button onClick={()=>{setIntroDismissed(false);setGuideSequence(n=>n+1);}}>조작 안내 다시 보기</button>}
       <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
         {immersive && <label>시야<select aria-label="시야" value={viewFov} onChange={event=>setViewFov(event.target.value==="authored"?"authored":Number(event.target.value))}><option value={42}>좁게</option><option value={48}>기본</option><option value={54}>넓게</option><option value="authored">제작자가 저장한 시야</option></select></label>}
-        <p>기기에 맞는 설정을 자동으로 사용해요. 화면이 느리거나 선명도를 바꾸고 싶을 때 조정하세요.</p>
+        <p>자동은 기기 정보를 기준으로 선택해요. 가벼운 표현은 화면 부담을 줄이고, 상세 표현은 지원하는 작품의 표현 범위를 넓혀요. 기기와 작품에 따라 차이가 있어요.</p>
       <label>
-        Viewer 품질
+        화질
         <select
-          aria-label="Viewer 품질"
+          aria-label="화질"
           value={profile}
           onChange={(e) => setProfile(e.target.value as typeof profile)}
         >
-          <option value="auto">기기 예산 자동 선택</option>
-          <option value="compact">절약 · 낮은 해상도</option>
-          <option value="desktop">균형 · 높은 해상도</option>
+          <option value="auto">자동</option>
+          <option value="compact">가벼운 표현</option>
+          <option value="desktop">상세 표현</option>
         </select>
       </label>
       </ViewerDisclosure>

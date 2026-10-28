@@ -192,7 +192,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <p>글·목록 관람에서는 3D 공간·작품 이미지·음성을 불러오지 않습니다. 설명, 대본, 치수와 권리를 읽을 수 있습니다.</p>
             <label><input type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} />움직임 줄이기</label>
             <label><input type="checkbox" checked={highContrast} onChange={e => setHighContrast(e.target.checked)} />높은 대비</label>
-            <p>처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.</p>
+            <p>처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 움직임 줄이기는 입장·화면 전환의 움직임을 줄여요. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.</p>
             {mode === "3d" && <>
               <button onClick={showTextArtworks}>텍스트로 관람</button>
               <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>

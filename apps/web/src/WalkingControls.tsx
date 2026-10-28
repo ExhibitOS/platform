@@ -47,7 +47,7 @@ export function WalkingControls({
           disabled={!available || (walking && !paused)}
           onClick={() => actions?.start()}
         >
-          {walking ? "걷기 재개" : "걷기 시작"}
+          {walking ? "이동·시점 조작 재개" : "걷기 시작"}
         </button>
         <button
           disabled={!available || paused}

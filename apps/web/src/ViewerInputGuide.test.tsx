@@ -31,7 +31,7 @@ it("keeps explicit capture optional while retaining walking and safe-stop contro
   const props = { available:true, walking:true, paused:true, settings:{ speed:1.3 as const, eyeHeight:1.6, reducedMotion:true }, onSettings:()=>{}, actions:null, message:"일시 정지" };
   const drag = renderToStaticMarkup(<WalkingControls {...props} allowPointerCapture={false} />);
   expect(drag).not.toContain("마우스 시점 잡기</button>");
-  expect(drag).toContain("걷기 재개");
+  expect(drag).toContain("이동·시점 조작 재개");
   expect(drag).toContain("정지 관람으로 전환");
   expect(drag).toContain("움직임 효과 줄이기");
   const mouse = renderToStaticMarkup(<WalkingControls {...props} allowPointerCapture />);
