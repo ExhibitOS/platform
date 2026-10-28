@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {Exhibition} from '@exhibitos/spec';
 import { presentationFor, validateStudioPresentation } from './index.js';
 
 export const VIEWING_PLAN_NAMESPACE = 'org.exhibitos.viewer/viewing-plan';
@@ -47,4 +48,14 @@ export function remapViewingPlan(value:ViewingPlan,ids:ReadonlyMap<string,string
  const normalized=new Map([...ids].map(([a,b])=>[a.toLowerCase(),b]));
  const map=(id:string)=>{const next=normalized.get(id.toLowerCase());if(!uuid(next))throw Error('VIEWING_PLAN_REFERENCE');return next;};
  return {version:1,stops:value.stops.map(s=>({...structuredClone(s),placementId:map(s.placementId),viewpointId:map(s.viewpointId)}))};
+}
+
+/** Explicit profile-only edit. Loading never invokes this setter. */
+export function setViewingPlan(candidate:Exhibition,plan:ViewingPlan|null):Exhibition {
+ const next=structuredClone(candidate);
+ if(plan===null){if(next.extensions)delete next.extensions[VIEWING_PLAN_NAMESPACE];return next;}
+ const value=structuredClone(plan);
+ next.extensions={...next.extensions,[VIEWING_PLAN_NAMESPACE]:value as unknown as NonNullable<Exhibition['extensions']>[string]};
+ if(!validateViewingPlan(next).valid)throw Error('VIEWING_PLAN_INVALID');
+ return next;
 }
