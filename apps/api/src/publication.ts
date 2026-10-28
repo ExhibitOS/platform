@@ -8,7 +8,7 @@ import {validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,remapStudioLightDetai
 import {validateStudioBenches,BENCH_NAMESPACE,remapStudioBenches,type StudioBenches} from '@exhibitos/studio-contract';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {publicationImageDerivative,publicationModelDerivative} from './demo-display-derivative.ts';
-import {watermarkFor,watermarkLabel,presentationFor,validateStudioPresentation} from '@exhibitos/studio-contract';
+import {watermarkFor,watermarkLabel,presentationFor} from '@exhibitos/studio-contract';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
 import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';

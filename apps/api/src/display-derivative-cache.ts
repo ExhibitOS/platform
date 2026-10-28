@@ -13,8 +13,11 @@ export async function cachedDisplayDerivative(original:Buffer,mime:string,option
  if(sha256(original)!==cache.sourceSha256)throw new ApiError(409,'ASSET_INTEGRITY');
  let watermark:DisplayWatermark=normalizeDisplayWatermark(options.watermark);
  if(mime==='model/gltf-binary'||watermark.mode!=='embedded')watermark={version:1,mode:'none'};
- else watermark={...watermark,text:(watermark.text??'EXHIBITOS').toUpperCase()};
- if(watermark.mode==='embedded'&&!embeddedWatermarkTextSupported(watermark.text!))throw new ApiError(422,'WATERMARK_TEXT_UNSUPPORTED');
+ else{
+  const label=watermark.text??'EXHIBITOS';
+  if(!embeddedWatermarkTextSupported(label))throw new ApiError(422,'WATERMARK_TEXT_UNSUPPORTED');
+  watermark={...watermark,text:label.toUpperCase()};
+ }
  const recipe={version:2,mime,quality:{maxTextureSize:options.maxTextureSize??512},watermark},recipeSha256=sha256(Buffer.from(JSON.stringify(recipe)));
  const identity=createHash('sha256').update(`${cache.tenantId}:${cache.assetId}:${cache.sourceSha256}:${recipeSha256}`).digest('hex'),id=`${identity.slice(0,8)}-${identity.slice(8,12)}-4${identity.slice(13,16)}-8${identity.slice(17,20)}-${identity.slice(20,32)}`;
  const prefix=`${cache.tenantId}/derivatives/${cache.sourceSha256}-display-v2/${recipeSha256}/`;

@@ -20,5 +20,6 @@ test('recipe reuse shares clean none/overlay bytes, distinguishes quality/embed,
   objects.set(String(ordinary.metadata.objectKey),Buffer.from('corrupt'));
   await expect(cachedDisplayDerivative(source,'image/png',{},cache)).rejects.toMatchObject({code:'DERIVATIVE_INTEGRITY'});expect(generate).toHaveBeenCalledTimes(3);
   const before=query.mock.calls.length;await expect(cachedDisplayDerivative(source,'image/png',{}, {...cache,sourceSha256:'0'.repeat(64)})).rejects.toMatchObject({code:'ASSET_INTEGRITY'});expect(query).toHaveBeenCalledTimes(before);
+  await expect(cachedDisplayDerivative(source,'image/png',{watermark:{version:1,mode:'embedded',text:'ß'}},cache)).rejects.toMatchObject({code:'WATERMARK_TEXT_UNSUPPORTED'});expect(query).toHaveBeenCalledTimes(before);expect(generate).toHaveBeenCalledTimes(3);
  }finally{generate.mockRestore();}
 });

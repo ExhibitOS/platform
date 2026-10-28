@@ -3,6 +3,7 @@ import {basisLoader} from './basis-loader.js';
 import {embeddedPNGManager} from './embedded-glb.js';
 import {centerMetricModel,metricCameraFit} from './viewer/metric-model.js';
 import type {ThumbnailRequest} from './native-catalog-protocol';
+import {approvedDisplayCopyResponse} from './approved-display-response';
 const maxBytes=16*1024*1024;
 async function bounded(response:Response,signal:AbortSignal){
  if(!response.ok||!response.body)throw Error('THUMBNAIL_UNAVAILABLE');
@@ -19,7 +20,7 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
  const artwork=await metadataResponse.json() as {id:string;revision:number;approvedRevision:number|null;approvedAssetId:string|null;archived:boolean};
  if(artwork.id!==request.artworkId||artwork.archived||artwork.revision!==request.expectedRevision||artwork.approvedRevision!==request.expectedRevision||!artwork.approvedAssetId)throw Error('THUMBNAIL_REVISION');
  const response=await fetch(`${path}/preview?expectedRevision=${request.expectedRevision}`,options);
- if(response.headers.get('x-exhibitos-artwork-revision')!==String(request.expectedRevision)||response.headers.get('x-exhibitos-watermarked')!=='true')throw Error('THUMBNAIL_REVISION');
+ if(response.headers.get('x-exhibitos-artwork-revision')!==String(request.expectedRevision)||!approvedDisplayCopyResponse(response.headers))throw Error('THUMBNAIL_REVISION');
  const mime=response.headers.get('content-type')?.split(';')[0];if(mime!=='image/png'&&mime!=='model/gltf-binary')throw Error('THUMBNAIL_TYPE');
  const bytes=await bounded(response,signal);signal.throwIfAborted();
  const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
