@@ -77,6 +77,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   },[value]);
   const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;setCoverViewingStyle(style);};
   const viewingActions:ViewingActions={setStyle(style){chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>viewingSession.current?.actions.step(direction),select:placementId=>viewingSession.current?.actions.select(placementId),cancel:()=>viewingSession.current?.actions.cancel()};
+  const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
@@ -236,6 +237,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <Suspense fallback={null}>
             <Viewer publication={value} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
+              guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
+              onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary></div>}
