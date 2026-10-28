@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://exhibitos.org/contracts/viewer-viewing-plan-v1",
+  "title": "Optional authored viewing-plan v1",
+  "description": "Separate from the closed presentation and curation profiles. References existing placements and authored presentation viewpoints. Runtime safety/readiness is independently rechecked; orbit limits are metadata, not safe-arc certification. Maximum serialized UTF8 size32768 bytes. Missing or empty plan retains legacy free viewing/list order.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "stops"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "stops": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "placementId",
+          "viewpointId"
+        ],
+        "properties": {
+          "placementId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "viewpointId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orbit": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "minYaw",
+              "maxYaw"
+            ],
+            "properties": {
+              "minYaw": {
+                "type": "number",
+                "minimum": -3.141592653589793,
+                "maximum": 0
+              },
+              "maxYaw": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3.141592653589793
+              }
+            },
+            "description": "Sculptures only. minYaw<maxYaw, relative radians around authored world-space target; initial angle0, radius/eye height/FOV derive from the authored viewpoint after room-to-world projection."
+          }
+        }
+      }
+    }
+  }
+}

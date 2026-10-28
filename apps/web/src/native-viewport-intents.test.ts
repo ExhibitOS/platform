@@ -114,3 +114,13 @@ it('space settings excludes conflicting edits, checks its reply and releases on 
  s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const late=s.vm.spaceSettings({...request,requestId:crypto.randomUUID()}),rejected=expect(late).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
  await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;expect(()=>s.vm.placement({...s.begin,sequence:2})).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });
+
+it('viewing plan is an authenticated profile-only proposal with replay/exclusion and stale-result fences',async()=>{
+ const s=await sample(),before=structuredClone(s.frame),request={version:1 as const,epoch:s.frame.epoch,sequence:s.frame.sequence,tenantId:s.frame.tenantId,principalId:s.frame.principalId,requestId:crypto.randomUUID(),type:'set-viewing-plan' as const,plan:{version:1 as const,stops:[]}};
+ let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.viewingPlan(request);
+ await expect(s.vm.viewingPlan({...request,requestId:crypto.randomUUID()})).rejects.toThrow('VIEWING_PLAN_INTENT_ACTIVE');
+ resolve(s.session());const reply=await pending;expect(Object.keys(reply).sort()).toEqual(['candidate','epoch','principalId','requestId','sequence','tenantId','version']);
+ expect(reply.candidate).toEqual({...s.frame.draft.candidate,extensions:{...s.frame.draft.candidate.extensions,'org.exhibitos.viewer/viewing-plan':request.plan}});expect(s.frame).toEqual(before);expect(s.accepted.capabilities).toContain('viewing-plan-v1');
+ await expect(s.vm.viewingPlan(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+ s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const late=s.vm.viewingPlan({...request,requestId:crypto.randomUUID()}),rejected=expect(late).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;
+});

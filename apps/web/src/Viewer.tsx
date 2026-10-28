@@ -24,6 +24,7 @@ import { AudioControls } from "./viewer/AudioControls";
 import { selectedDeviceBudget } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "./ViewerInputGuide";
+import type {ViewingRenderer} from './viewer/viewing-session';
 export function Viewer({
   publication,
   appearance,
@@ -41,9 +42,11 @@ export function Viewer({
   controlsHost,
   onNavigationActive,
   onStageState,
+  onViewingRendererReady,
   guideDismissed,
   onGuideDismissedChange,
 }: {
+  onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
   publication: PublicPublication;
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
@@ -208,6 +211,7 @@ export function Viewer({
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       <GeometryPreview
         immersive={immersive}
+        onViewingReady={onViewingRendererReady}
         controlsHost={controlsHost}
         inputMode={inputMode}
         onInputModeChange={setInputMode}

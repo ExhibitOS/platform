@@ -2,7 +2,7 @@ import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -21,6 +21,8 @@ import { EntryTicket } from './EntryTicket';
 import {entranceRuntime,entranceContent} from './entrance-runtime';
 import "./publication-novice.css";
 import "./publication-immersive.css";
+import {ViewingStyles} from './viewer/ViewingStyles';
+import {createViewingSession,type ViewingRenderer,type ViewingState,type ViewingStyle,type ViewingActions,type ViewingItem} from './viewer/viewing-session';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
@@ -57,6 +59,24 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
+  const [coverViewingStyle,setCoverViewingStyle]=useState<ViewingStyle>('free');
+  const preferredViewingStyle=useRef<ViewingStyle>('free');
+  const viewingSession=useRef<ReturnType<typeof createViewingSession>|null>(null);
+  const [viewingState,setViewingState]=useState<ViewingState>({style:'free',status:'idle',message:''});
+  const [viewingReady,setViewingReady]=useState(false);
+  useEffect(()=>{
+    preferredViewingStyle.current='free';setCoverViewingStyle('free');setViewingState({style:'free',status:'idle',message:''});
+    return()=>{viewingSession.current?.dispose();viewingSession.current=null;};
+  },[value?.publication.id,value?.publication.revisionSha256]);
+  const registerViewing=useCallback((renderer:ViewingRenderer|null)=>{
+    viewingSession.current?.dispose();viewingSession.current=null;setViewingReady(!!renderer);
+    if(!renderer||!value)return;
+    const current=createViewingSession({stops:viewingPlanFor(value.exhibition).stops,prepare:(stop,signal)=>renderer.prepare(stop,signal),free:()=>renderer.free(),changed:state=>{if(viewingSession.current===current)setViewingState(state);}});
+    viewingSession.current=current;setViewingState(current.state());
+    if(preferredViewingStyle.current==='ordered')current.actions.setStyle('ordered');
+  },[value]);
+  const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;setCoverViewingStyle(style);};
+  const viewingActions:ViewingActions={setStyle(style){chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>viewingSession.current?.actions.step(direction),select:placementId=>viewingSession.current?.actions.select(placementId),cancel:()=>viewingSession.current?.actions.cancel()};
   const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
@@ -157,6 +177,9 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     if(plaque.source.kind==='artwork'){const source=plaque.source;setSelectedId(value.exhibition.placements.find(p=>p.id.toLowerCase()===source.placementId.toLowerCase())!.id);}
     else setOverview(plaque.source.kind==='exhibition'?"opening":{roomId:plaque.roomId});
   };
+  const viewingPlan=value?viewingPlanFor(value.exhibition):{version:1 as const,stops:[]};
+  const viewingPlacements=value?(viewingPlan.stops.length?viewingPlan.stops.map(stop=>value.exhibition.placements.find(p=>p.id.toLowerCase()===stop.placementId.toLowerCase())!).filter(Boolean):value.exhibition.placements):[];
+  const viewingItems:ViewingItem[]=value?viewingPlacements.map(p=>({placementId:p.id,title:value.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.title??'작품',roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간'})):[];
   const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
   return (
@@ -174,6 +197,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
 
             <div className="publication-entry-actions">
+              {mode==='cover'&&<ViewingStyles variant="cover" state={{style:coverViewingStyle,status:'idle',message:''}} items={viewingItems} available={viewingPlan.stops.length>0} actions={{...viewingActions,setStyle:chooseViewingStyle}}/>}
               {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
             </div>
           </EntranceCover></div>
@@ -182,6 +206,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <details data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
           <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
           <div className="publication-menu-panel">
+          {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
@@ -210,7 +235,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           {mode === "3d" && <button className="publication-text-route" onClick={showTextArtworks}>텍스트로 관람</button>}
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer publication={value} appearance={appearance} onArtworkSelect={setSelectedId} onPlaqueSelect={requestPlaque}
+            <Viewer publication={value} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
               onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}
