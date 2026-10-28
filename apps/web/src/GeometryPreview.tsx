@@ -1886,6 +1886,13 @@ export function GeometryPreview({
           const object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
           const markerBytes=input.anchors.length?16384+input.anchors.length*512:0,detailKey='shared-detail-annotations';
+          // Verified downloads can outlive a deferred full-image promotion.
+          // Spend no extra residency on the borrowed view until unpinned bytes
+          // have yielded to the already displayed object and annotations.
+          for(const work of arts)for(const asset of work.assets){
+            if(resident()+markerBytes<=assetBudgetBytes)break;
+            byteCache.delete(asset.id);
+          }
           if(resident()+markerBytes>assetBudgetBytes)throw Error('DETAIL_MEMORY_BUDGET');
           reserve(detailKey,markerBytes);
           // Freeze this admitted identity while it is borrowed. A pending peer
