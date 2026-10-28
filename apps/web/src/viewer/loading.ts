@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { lodVariantsFor } from "@exhibitos/studio-contract";
-export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;entranceAssets:number }
+export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
 };
-export function deviceBudget(input:{viewportWidth:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.viewportWidth<768||(input.deviceMemory!==undefined&&input.deviceMemory<=4)?"compact":"desktop"]};}
+/** Canvas width is a resolution/layout input, not a device capacity signal.
+ * Keep the existing standard default and constrained-memory preset; neither
+ * preset is a measured hardware guarantee. */
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"]};}
+/** Explicit existing high-quality choice only. Auto and known constrained devices
+ * retain their previous triangle/resident limits. Explicit desktop uses the
+ * development starting budget (192 MiB steady / 256 MiB transition); actual
+ * allocations and coexistence still have to pass, not a hardware promise. */
+export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
+export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
+ if(profile==='auto')return deviceBudget(input);
+ if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};
+ return {...DEVICE_BUDGETS[profile]};
+}
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==="full"),coarse=variants.find(v=>v.detail==="coarse");
@@ -139,6 +152,8 @@ export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwor
 export class AssetPeakBudget {
  private reservations=new Map<string,number>();
  constructor(private maxBytes:number,private resident:()=>number){}
+ /** Release a completed external load hold without clearing live reservations. */
+ raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.maxBytes)throw Error('ASSET_BUDGET_INVALID');this.maxBytes=bytes;}
  reserve(key:string,bytes:number){
   if(!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>this.maxBytes)throw Error('ASSET_TRANSITION_PEAK');
   this.reservations.set(key,bytes);
@@ -150,6 +165,29 @@ export class AssetPeakBudget {
  * prepared object's later reservation uses the same conservative byte unit. */
 export function textureResidentBytes(width:number,height:number){
  return Math.ceil(width*height*4*(1+4/3));
+}
+/** Postdecode CPU backing storage and GPU upload identities differ: two plain
+ * attributes may alias CPU bytes while uploading separately. Interleaved data
+ * shares both. Use the same cost for committed objects and future reservations. */
+export function geometryResidentBytes(attributes:ReadonlyArray<{array?:ArrayBufferView;data?:{array:ArrayBufferView}}>){
+ const cpu=new Set<ArrayBufferLike>(),gpu=new Set<object>();let bytes=0;
+ for(const attribute of attributes){const upload=attribute.data??attribute,array=upload.array;if(!array)throw Error('DECODE_BUDGET_EXCEEDED');if(!cpu.has(array.buffer)){cpu.add(array.buffer);bytes+=array.buffer.byteLength;}if(!gpu.has(upload)){gpu.add(upload);bytes+=array.byteLength;}}
+ if(!Number.isSafeInteger(bytes))throw Error('DECODE_BUDGET_EXCEEDED');return bytes;
+}
+/** Bounded header accounting, never a substitute for the isolated GLB profile.
+ * CPU backing views and possible GPU attribute copies are charged separately. */
+export function modelGeometryResidentBytes(doc:{accessors?:Array<{bufferView?:number;count:number;type:string;componentType:number;sparse?:unknown;byteOffset?:number}>;bufferViews?:Array<{byteOffset?:number;byteLength:number;byteStride?:number}>;meshes?:Array<{primitives:Array<{attributes:Record<string,number>;indices?:number}>}>},binBytes:number){
+ const accessors=new Set<number>(),views=new Set<number>();let cpu=0,gpu=0;
+ for(const mesh of doc.meshes??[])for(const primitive of mesh.primitives??[])for(const index of [...Object.values(primitive.attributes),...(primitive.indices===undefined?[]:[primitive.indices])]){
+  if(!Number.isSafeInteger(index)||index<0)throw Error('DECODE_BUDGET_EXCEEDED');if(accessors.has(index))continue;accessors.add(index);
+  const a=doc.accessors?.[index],v=a?.bufferView===undefined?undefined:doc.bufferViews?.[a.bufferView],width=a&&({5120:1,5121:1,5122:2,5123:2,5125:4,5126:4} as Record<number,number>)[a.componentType],components=a&&({SCALAR:1,VEC2:2,VEC3:3,VEC4:4} as Record<string,number>)[a.type];
+  if(!a||!v||!width||!components||a.sparse!==undefined||!Number.isSafeInteger(a.count)||a.count<1||!Number.isSafeInteger(v.byteLength)||v.byteLength<1||!Number.isSafeInteger(v.byteOffset??0)||(v.byteOffset??0)<0||(v.byteOffset??0)+v.byteLength>binBytes||!Number.isSafeInteger(a.byteOffset??0)||(a.byteOffset??0)<0)throw Error('DECODE_BUDGET_EXCEEDED');
+  const stride=v.byteStride??width*components;if(!Number.isSafeInteger(stride)||stride<width*components||(a.byteOffset??0)+(a.count-1)*stride+width*components>v.byteLength)throw Error('DECODE_BUDGET_EXCEEDED');
+  if(!views.has(a.bufferView!)){views.add(a.bufferView!);cpu+=v.byteLength;}
+  // Separate accessors can upload independently even when their CPU views alias.
+  gpu+=v.byteLength;
+ }
+ if(!accessors.size||!Number.isSafeInteger(cpu+gpu))throw Error('DECODE_BUDGET_EXCEEDED');return cpu+gpu;
 }
 /** Conservative additional fetch/decode peak; resident old/new assets are separate. */
 export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer):number {
@@ -163,7 +201,8 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
  }
  const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
  const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
- const glb=JSON.parse(new TextDecoder().decode(new Uint8Array(bytes,20,length))) as {images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source:number}>;bufferViews?:Array<{byteOffset?:number;byteLength:number}>};
+ const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source:number}>};
+ const binBytes=bytes.byteLength-28-length;if(binBytes<0)throw Error('DECODE_BUDGET_EXCEEDED');const geometryBytes=modelGeometryResidentBytes(glb,binBytes);
  let textureBytes=0;
  for(const [index,image] of (glb.images??[]).entries()){
   const view=image.bufferView===undefined?undefined:glb.bufferViews?.[image.bufferView];
@@ -175,8 +214,10 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
   const copies=Math.max(1,(glb.textures??[]).filter(t=>t.source===index).length);
   textureBytes+=copies*w*h*4*(1+4/3);
  }
- // Include encoded/parsed and geometry CPU/GPU copies, every embedded image's CPU/GPU allocation.
- return Math.ceil(inventory.bytes*5+(variant?.triangles??budget.maxTriangles)*3*64*2+textureBytes);
+ // An individually oversized resident can never fit after a ready-before-swap transition.
+ if(geometryBytes+textureBytes>budget.maxCacheBytes)throw Error('MODEL_RESIDENT_BUDGET');
+ // All encoded/parsed copies, indexed CPU/GPU geometry and actual texture bindings.
+ return Math.ceil(inventory.bytes*5+geometryBytes+textureBytes);
 }
 /** Header allocation guard before the browser decoder; hash/profile admission is separate. */
 export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
@@ -211,7 +252,9 @@ export class AssetScheduler<T> {
 interface Cached<T> {value:T;bytes:number;pins:number;order:number}
 export class MemoryAssetCache<T> {
  private entries=new Map<string,Cached<T>>();private used=0;private order=0;private evictions=0;
- constructor(readonly maxBytes:number,private readonly onDispose:(value:T)=>void=()=>{}){if(!Number.isSafeInteger(maxBytes)||maxBytes<1)throw Error("CACHE_BUDGET_INVALID");}
+ constructor(private limitBytes:number,private readonly onDispose:(value:T)=>void=()=>{}){if(!Number.isSafeInteger(limitBytes)||limitBytes<1)throw Error("CACHE_BUDGET_INVALID");}
+ get maxBytes(){return this.limitBytes;}
+ raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.limitBytes)throw Error('CACHE_BUDGET_INVALID');this.limitBytes=bytes;}
  get(key:string):T|undefined{const entry=this.entries.get(key);if(!entry)return;entry.order=this.order++;return entry.value;}
  acquire(key:string):T|undefined{const value=this.get(key);if(value!==undefined)this.entries.get(key)!.pins++;return value;}
  release(key:string){const entry=this.entries.get(key);if(entry&&entry.pins>0)entry.pins--;}
@@ -222,6 +265,14 @@ export class MemoryAssetCache<T> {
  /** Teardown only: detach active GPU resources and cancel loaders before clearing pinned entries. */
  clear(){for(const entry of this.entries.values())this.onDispose(entry.value);this.entries.clear();this.used=0;}
  stats(){return {entries:this.entries.size,bytes:this.used,maxBytes:this.maxBytes,pinned:[...this.entries.values()].filter(e=>e.pins>0).length,evictions:this.evictions};}
+}
+/** A decoder scope owns its backing after an encoded-cache entry can evict.
+ * Reuse the existing cache pin only for the identical retained allocation. */
+export function retainEncodedBuffer(cache:MemoryAssetCache<ArrayBuffer>,key:string,retained:ArrayBuffer){
+ const cached=cache.acquire(key);
+ if(cached===retained){let released=false;return {retainedBytes:0,dispose(){if(released)return;released=true;cache.release(key);}};}
+ if(cached!==undefined)cache.release(key);
+ return {retainedBytes:retained.byteLength,dispose(){}};
 }
 export async function fetchVerifiedAsset(input:{publicationId:string;revisionSha256:string;asset:{assetId:string;url:string;mime:string};inventory:{id:string;mime:string;sha256:string;bytes:number};signal:AbortSignal;fetcher?:typeof fetch;check?:()=>Promise<void>;maxBytes?:number}):Promise<ArrayBuffer> {
  const {publicationId,revisionSha256,asset,inventory,signal}=input,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;

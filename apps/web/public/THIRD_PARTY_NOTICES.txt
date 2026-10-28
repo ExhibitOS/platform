@@ -801,7 +801,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
---- @exhibitos/spec 0.1.0-draft.3 browser document validators/schemas (Apache-2.0) ---
+--- @exhibitos/spec 0.1.0-draft.9 browser document validators/schemas (Apache-2.0) ---
 Copyright 2026 ExhibitOS contributors
 Document-only browser adaptation; original package bytes are pinned in vendor/.
 ExhibitOS spec licensing
@@ -824,3 +824,51 @@ Third-party dependencies retain their respective licenses.
 License texts were obtained without modification from:
 https://www.apache.org/licenses/LICENSE-2.0.txt
 https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt
+
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Wood Floor 051, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=WoodFloor051
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Metadata-free RGB8 encoding; color samples preserved, grayscale roughness copied equally to RGB. OpenGL normal16 to8-bit high-byte quantization (q=u16>>8; maximum encoded-channel error0.0038910505836575737), no green inversion/gamma/resize/sharpening/tint/displacement or invented AO. Authored1.8m patch repeat is editable, not a physical measurement guarantee.
+
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Marble006, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Marble006
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. Authored1m repeat; providerphysicalsizeunknown, notmeasured.
+
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Tiles074, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Tiles074
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. ProviderapproximateWHOLE texturepatch2.1m; notindividualtilemeasurement orphysicalguarantee.
+
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Carpet004, ambientCG.com, CC0 1.0
+Source: https://ambientcg.com/view?id=Carpet004
+License: CC0-1.0 (https://docs.ambientcg.com/license/)
+Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. Authored1m repeat; providerphysicalsizeunknown, notmeasured.
+
+
+--- Built-in surface texture asset (independent CC0 license) ---
+museum-matte-paint — current distribution notice
+User-authored ExhibitOS asset.
+CC0 1.0 Universal, pursuant to the user standing authorization dated 2026-10-27 for personally-created AND rights-owned models, textures, materials, previews, production originals, authoring scripts and asset derivatives, including future ExhibitOS deliveries unless separately instructed.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Commercial use, modification, conversion, LOD, texture optimization and app/public repository/OEX/static redistribution are permitted; attribution is not mandatory. Original historical unselected license notes remain unchanged. No original asset bytes were modified during intake.
+Third-party components retain their own licenses; unknown-rights components require separate review. This notice does not relabel product code or grant trademark, patent or personality rights.
+
+
+--- Built-in surface texture asset (independent CC0 license) ---
+fine-lime-plaster — current distribution notice
+User-authored ExhibitOS asset.
+CC0 1.0 Universal, pursuant to the user standing authorization dated 2026-10-27 for personally-created AND rights-owned models, textures, materials, previews, production originals, authoring scripts and asset derivatives, including future ExhibitOS deliveries unless separately instructed.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://creativecommons.org/publicdomain/zero/1.0/legalcode
+Commercial use, modification, conversion, LOD, texture optimization and app/public repository/OEX/static redistribution are permitted; attribution is not mandatory. Original historical unselected license notes remain unchanged. No original asset bytes were modified during intake.
+Third-party components retain their own licenses; unknown-rights components require separate review. This notice does not relabel product code or grant trademark, patent or personality rights.

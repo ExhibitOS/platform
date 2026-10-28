@@ -59,9 +59,11 @@ for (const name of packages) {
   );
 }
 notices.push(
-  "\n--- @exhibitos/spec 0.1.0-draft.3 browser document validators/schemas (Apache-2.0) ---\nCopyright 2026 ExhibitOS contributors\nDocument-only browser adaptation; original package bytes are pinned in vendor/.\n" +
+  "\n--- @exhibitos/spec 0.1.0-draft.9 browser document validators/schemas (Apache-2.0) ---\nCopyright 2026 ExhibitOS contributors\nDocument-only browser adaptation; original package bytes are pinned in vendor/.\n" +
     (await readFile("node_modules/@exhibitos/spec/LICENSE", "utf8")),
 );
+for(const id of ['WoodFloor051','Marble006','Tiles074','Carpet004'])notices.push('\n--- Built-in floor texture asset (independent CC0 license) ---\n'+await readFile(`vendor/notices/${id}-CC0-1.0.txt`,'utf8'));
+for(const id of ['museum-matte-paint','fine-lime-plaster'])notices.push('\n--- Built-in surface texture asset (independent CC0 license) ---\n'+await readFile(`apps/web/public/surface-material-notices/${id}-1.txt`,'utf8'));
 await mkdir("apps/web/public", { recursive: true });
 await writeFile("apps/web/public/THIRD_PARTY_NOTICES.txt", notices.join("\n"));
 console.log(

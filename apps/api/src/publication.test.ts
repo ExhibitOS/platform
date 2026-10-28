@@ -20,6 +20,22 @@ it('preserves authored PNG coarse/full through public projection and typed OEX i
  const lod=remapped.artworks[0]!.extensions![LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]};expect(lod.variants.find(v=>v.detail==='full')!.assetId).toBe(remapped.artworks[0]!.primaryAssetId);expect(lod.variants.every(v=>remapped.artworks[0]!.assets.some(a=>a.id===v.assetId))).toBe(true);
 });
 describe("immutable anonymous publication projection", () => {
+    it('remaps scalar and textured surface identities together without changing authored sampling',async()=>{
+        const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+        const surface=candidate.surfaces[0]!;surface.type='wall';
+        const texture={pack:{id:'museum-matte-paint',version:1},repeatMeters:[1.3,2.1],rotation:.2,normalScale:.6};
+        candidate.extensions={[MATERIAL_NAMESPACE]:{version:1,surfaces:{[surface.id.toUpperCase()]:{color:'#abcdef',roughness:.41,metalness:.1}},surfaceTextures:{[surface.id.toUpperCase()]:texture}}};
+        const before=structuredClone(candidate);
+        const {snapshot}=projectPublication(candidate,[],'2026-10-27T00:00:00Z');
+        const published=snapshot.extensions![MATERIAL_NAMESPACE] as unknown as {surfaces:Record<string,unknown>;surfaceTextures:Record<string,unknown>};
+        expect(snapshot.surfaces[0]!.id).not.toBe(surface.id);
+        expect(Object.keys(published.surfaces)).toEqual([snapshot.surfaces[0]!.id]);
+        expect(published.surfaceTextures).toEqual({[snapshot.surfaces[0]!.id]:texture});
+        expect(validateStudioMaterials(snapshot)).toEqual({valid:true,errors:[]});
+        expect(candidate).toEqual(before);
+        surface.type='floor';
+        expect(()=>projectPublication(candidate,[],'2026-10-27T00:00:00Z')).toThrow('PUBLICATION_NOT_READY');
+    });
     it('recorded step bank follows typed OEX and public media IDs without mutating the authored binding',async()=>{
         const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
         e.surfaces[0]!.type='floor';

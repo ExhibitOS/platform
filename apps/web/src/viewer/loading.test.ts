@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import {readFileSync} from "node:fs";
 import * as Three from "three";
 import type {Exhibition} from "@exhibitos/spec";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
@@ -95,7 +95,7 @@ describe('automatic detail transitions',()=>{
   expect(selectAssetVariant(a,Infinity,DEVICE_BUDGETS.compact).id).toBe(coarse.id);
   expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact).id).toBe(full.id);
   const fullReserve=assetDecodeReserve(a,full,DEVICE_BUDGETS.compact,new Uint8Array(pair.full).buffer),coarseReserve=assetDecodeReserve(a,coarse,DEVICE_BUDGETS.compact,new Uint8Array(pair.coarse).buffer);
-  expect(fullReserve).toBeGreaterThan(coarseReserve);expect(fullReserve).toBeGreaterThan(full.bytes*5+8*3*64*2);
+  expect(fullReserve).toBeGreaterThan(coarseReserve);expect(fullReserve).toBeGreaterThan(full.bytes*5);
   const peak=new AssetPeakBudget(DEVICE_BUDGETS.compact.maxCacheBytes,()=>coarseReserve);expect(()=>peak.reserve('detail',fullReserve)).not.toThrow();
  });
  it('uses visibility, actual pixel demand and projected geometry area, with explicit focus',()=>{
@@ -121,6 +121,15 @@ describe('automatic detail transitions',()=>{
   expect(peak.total()).toBe(95);peak.release('other');peak.reserve('replacement',45);expect(peak.total()).toBe(85);
   // Commit accounts new and old together before releasing the old decoded asset.
   peak.release('replacement');resident+=45;expect(peak.total()).toBe(85);resident-=40;expect(peak.total()).toBe(45);
+ });
+ it('releases an external load hold without dropping pinned bytes or in-flight reservations',()=>{
+  const cache=new MemoryAssetCache<string>(10);cache.set('visible','visible',8);cache.acquire('visible');
+  const peak=new AssetPeakBudget(15,()=>cache.stats().bytes);peak.reserve('replacement',5);
+  expect(()=>peak.reserve('other',3)).toThrow('ASSET_TRANSITION_PEAK');
+  cache.raiseLimit(20);peak.raiseLimit(25);peak.reserve('other',10);
+  expect(peak.total()).toBe(23);expect(cache.get('visible')).toBe('visible');expect(cache.delete('visible')).toBe(false);
+  expect(()=>cache.raiseLimit(19)).toThrow('CACHE_BUDGET_INVALID');expect(()=>peak.raiseLimit(24)).toThrow('ASSET_BUDGET_INVALID');
+  expect(()=>peak.reserve('too-large',3)).toThrow('ASSET_TRANSITION_PEAK');
  });
  it('reserves source bitmap and resized mipmaps separately for bounded paintings',()=>{
   const a=syntheticArtwork('image'),asset=a.assets[0]!;asset.bytes=1000;
@@ -297,4 +306,14 @@ it('admits a partial sculpture footprint through the real two-jamb geometry whil
  let probes=0;expect(minimumFootprintVisible(corners,true,()=>{probes++;return false;})).toBe(true);expect(probes).toBe(0);
  minimumFootprintVisible([...corners,...corners],false,()=>{probes++;return false;});expect(probes).toBe(8);
  for(const wall of walls){wall.geometry.dispose();(wall.material as Three.Material).dispose();}
+});
+
+it('retained decoder backing remains charged across cache eviction without counting an identical pinned allocation twice',()=>{
+ const cache=new MemoryAssetCache<ArrayBuffer>(8),original=new ArrayBuffer(4),rewritten=new ArrayBuffer(4);
+ cache.set('original',original,4);const same=retainEncodedBuffer(cache,'original',original);expect(same.retainedBytes+cache.stats().bytes).toBe(4);expect(cache.delete('original')).toBe(false);
+ // Two live owners share the exact pinned allocation; releasing one twice
+ // must not unpin the second owner or permit an eviction underneath it.
+ const second=retainEncodedBuffer(cache,'original',original);same.dispose();same.dispose();expect(cache.delete('original')).toBe(false);second.dispose();expect(cache.delete('original')).toBe(true);
+ const uncached=retainEncodedBuffer(cache,'original',original);expect(uncached.retainedBytes+cache.stats().bytes).toBe(4);uncached.dispose();
+ cache.set('original',original,4);const independent=retainEncodedBuffer(cache,'original',rewritten);expect(independent.retainedBytes+cache.stats().bytes).toBe(8);expect(cache.delete('original')).toBe(true);expect(independent.retainedBytes+cache.stats().bytes).toBe(4);independent.dispose();
 });

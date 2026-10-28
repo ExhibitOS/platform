@@ -13,6 +13,20 @@ describe('service inventory typed references',()=>{
  it('includes retained/deleted assets and marks unwritten outbox destination optional',()=>{const r=rowObjectReferences('assets',{...row,state:'quarantine',deleted_at:'2020-01-01'});expect(r.references.map(v=>[v.key,v.required])).toEqual([[key,true],[row.target_key,false]]);expect(r.references[0].expectedSha256).toBe(sha);});
  it('uses derivative expectations and refuses foreign tenant keys',()=>{expect(rowObjectReferences('asset_derivatives',{...row,metadata:{objectKey:key,bytes:42,sha256:sha}}).references[0].expectedBytes).toBe(42);expect(rowObjectReferences('assets',{...row,object_key:'another/objects/x',state:'approved'}).issues[0].code).toBe('INVALID_REFERENCE');});
  it('retains optional pending and required committed imports/audio',()=>{const source={...row,approved_key:row.target_key,expected_bytes:123,expected_hash:sha};expect(rowObjectReferences('import_jobs',{...source,state:'uploading'}).references.every(v=>!v.required)).toBe(true);expect(rowObjectReferences('import_jobs',{...source,state:'approved'}).references.every(v=>v.required)).toBe(true);expect(rowObjectReferences('studio_audio',{...row,state:'approved',revoked:true}).references[0].required).toBe(true);});
+ it('keeps original JPEG and prepared PNG custody references distinct through approval',()=>{
+  const preparedHash='b'.repeat(64),source={...row,mime:'image/jpeg',approved_key:row.target_key,expected_bytes:123,expected_hash:sha,derived:{mime:'image/png',bytes:17,sha256:preparedHash},derived_object_key:tenant+'/quarantine/import/prepared.png'};
+  const approved=rowObjectReferences('import_jobs',{...source,state:'approved'});expect(approved.issues).toEqual([]);expect(approved.references).toHaveLength(3);expect(approved.references.every(v=>v.required)).toBe(true);
+  expect(approved.references.find(v=>v.binding.endsWith(':source'))).toMatchObject({expectedBytes:123,expectedSha256:sha});
+  for(const suffix of [':prepared',':approved'])expect(approved.references.find(v=>v.binding.endsWith(suffix))).toMatchObject({expectedBytes:17,expectedSha256:preparedHash});
+  expect(rowObjectReferences('import_jobs',{...source,state:'uploading'}).references.every(v=>!v.required)).toBe(true);
+  expect(rowObjectReferences('import_jobs',{...source,derived:null}).issues).toContainEqual(expect.objectContaining({code:'INVALID_PREPARED_IMPORT'}));
+ });
+ it('retains approved or revoked independent stills and immutable public copies without scanning arbitrary JSON',()=>{
+  for(const state of ['validated','approved'])expect(rowObjectReferences('studio_cover_images',{...row,state,revoked:true}).references[0]).toMatchObject({key,required:true,expectedBytes:123,expectedSha256:sha});
+  expect(rowObjectReferences('studio_cover_images',{...row,state:'uploading'}).references[0].required).toBe(false);
+  expect(rowObjectReferences('publication_cover_images',row).references[0]).toMatchObject({key,required:true,expectedBytes:123,expectedSha256:sha});
+  expect(rowObjectReferences('cover_image_approvals',{snapshot:{object_key:key}}).references).toEqual([]);
+ });
  it('records chunk aggregate hashes only for fully received OEX archive',()=>{const source={...row,staging_keys:[key,row.target_key],cleanup_keys:[tenant+'/oex/job/model.glb'],expected_bytes:123,payload_sha256:sha};const r=rowObjectReferences('oex_import_jobs',{...source,state:'queued'});expect(r.references[1].aggregate).toMatchObject({index:1,count:2,bytes:123,sha256:sha});expect(r.references[2].required).toBe(false);expect(rowObjectReferences('oex_import_jobs',{...source,state:'complete'}).references.every(v=>!v.required)).toBe(true);});
  it('rejects unsafe keys and malformed hashes, without treating arbitrary metadata strings as references',()=>{expect(rowObjectReferences('publication_assets',{...row,object_key:tenant+'/../outside'}).issues[0].code).toBe('INVALID_REFERENCE');expect(rowObjectReferences('assets',{...row,sha256:'invalid'}).issues[0].code).toBe('INVALID_EXPECTED_HASH');expect(rowObjectReferences('artworks',{...row,metadata:{url:key}}).references).toEqual([]);});
  it('freezes include revoked historical runtime and ordered full OEX archive',()=>{const manifest={oex:{bytes:123,sha256:sha},runtime:{files:[{path:'index.html',bytes:1,sha256:sha}]}},inventory={oex:[key],runtime:[{path:'index.html',key:row.target_key}]};const r=rowObjectReferences('exhibition_freezes',{...row,manifest,inventory});expect(r.references).toHaveLength(2);expect(r.references[0].aggregate?.sha256).toBe(sha);expect(r.references[1].expectedBytes).toBe(1);expect(rowObjectReferences('freeze_requests',{...row,object_keys:[key],state:'creating'}).references[0].required).toBe(false);expect(rowObjectReferences('freeze_requests',{...row,object_keys:[key],state:'complete'}).references[0].required).toBe(true);});
@@ -62,4 +76,12 @@ describe('retained migration catalog inventory',()=>{
   if(kind==='empty')catalog=[];if(kind==='duplicate')catalog=[entry,entry];if(kind==='unsorted')catalog=[second,entry];if(kind==='escape')catalog=[{...entry,name:'../escape.sql'}];if(kind==='hash')catalog=[{...entry,sha256:'invalid'}];if(kind==='unknown')catalog=[{...entry,verified:true}];if(kind==='both')extra.migrationDirectory='/unused';if(kind==='tenant')extra.tenantId=tenant;
   await expect(collectServiceInventory(client([],()=>{queried=true;}),blobs,{migrationCatalog:catalog,...extra} as never)).rejects.toThrow('MIGRATION_CATALOG_INVALID');expect(queried).toBe(false);
  });
+});
+
+it('retains immutable imported floor and surface material resources for backup and privacy',()=>{
+ const row={tenant_id:'11111111-1111-4111-8111-111111111111',exhibition_id:'22222222-2222-4222-8222-222222222222',object_key:'11111111-1111-4111-8111-111111111111/oex-import/job/lease/map',bytes:123,sha256:'a'.repeat(64)};
+ for(const table of ['studio_floor_resources','studio_surface_material_resources']){
+  for(const role of ['color','notice']){const result=rowObjectReferences(table,{...row,role});expect(result.issues).toEqual([]);expect(result.references[0]).toMatchObject({key:row.object_key,required:true,expectedBytes:123,expectedSha256:row.sha256});}
+  expect(rowObjectReferences(table,{...row,object_key:'another-tenant/oex-import/job/map'}).issues[0]?.code).toBe('INVALID_REFERENCE');
+ }
 });

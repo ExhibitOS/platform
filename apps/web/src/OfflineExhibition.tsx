@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {useEffect,useRef,useState} from 'react';
-import {MAX_FREEZE_BYTES,verifyFreezeBundle,freezeCanonical,type FreezeBundle} from '@exhibitos/studio-contract';
+import {MAX_FREEZE_BYTES,verifyFreezeBundle,freezeCanonical,spaceStillFor,type FreezeBundle} from '@exhibitos/studio-contract';
 import {PublicPublication} from './PublicPublication';
 import {prepareStudioShell} from './studio-shell';
 import type {PublicPublication as PublicResponse} from './publication-client';
@@ -42,11 +42,21 @@ export function frozenPublication(b:FreezeBundle,oex:FrozenOex,check:()=>Promise
   init?.signal?.throwIfAborted();await check();const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
   const asset=[...oex.assets].find(([assetId])=>url===`/api/v1/publications/${id}/assets/${assetId}`);
   if(!asset||init?.method&&init.method!=='GET')throw Error('OFFLINE_ASSET_URL');
-  const [assetId,data]=asset;const inventory=[...oex.exhibition.artworks.flatMap(a=>a.assets),...oex.exhibition.mediaAssets].find(a=>a.id===assetId);
+  const [assetId,data]=asset,still=spaceStillFor(oex.exhibition);const inventory=[...oex.exhibition.artworks.flatMap(a=>a.assets),...oex.exhibition.mediaAssets,...(still?[still]:[])].find(a=>a.id===assetId);
   if(!inventory||data.bytes.length!==inventory.bytes||await freezeHash(data.bytes)!==inventory.sha256)throw Error('OFFLINE_ASSET_INTEGRITY');
   await check();init?.signal?.throwIfAborted();return new Response(new Uint8Array(data.bytes),{headers:{'content-type':data.mime,'content-length':String(data.bytes.length),'x-exhibitos-publication-revision':revision}});
  };
- return {publication:{id,revisionSha256:revision,publishedAt:b.manifest.createdAt,status:'published'},exhibition:oex.exhibition,assets:[...oex.assets].map(([assetId,data])=>({assetId,mime:data.mime,url:`/api/v1/publications/${id}/assets/${assetId}`})),local:{fetcher,check}};
+ const floorFetcher:typeof fetch=async(input,init)=>{
+  init?.signal?.throwIfAborted();await check();const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
+  const entry=[...(oex.floorResources?.entries()??[]),...(oex.materialResources?.entries()??[])].find(([path])=>url==='/'+path);if(!entry||entry[1].mime!=='image/png'||init?.method&&init.method!=='GET')throw Error('OFFLINE_FLOOR_URL');
+  const data=entry[1],bytes=new Uint8Array(data.bytes);if(await freezeHash(bytes)!==data.sha256)throw Error('OFFLINE_FLOOR_INTEGRITY');
+  await check();init?.signal?.throwIfAborted();return new Response(bytes,{headers:{'content-type':data.mime,'content-length':String(bytes.length)}});
+ };
+ // The verified offline maps stay owned by this source after image decoding.
+ // Charge each real backing buffer once, including shared views and notices.
+ const retainedBuffers=new Set([...oex.floorResources?.values()??[],...oex.materialResources?.values()??[]].map(data=>data.bytes.buffer));
+ const retainedMaterialBytes=[...retainedBuffers].reduce((sum,buffer)=>sum+buffer.byteLength,0);
+ return {publication:{id,revisionSha256:revision,publishedAt:b.manifest.createdAt,status:'published'},exhibition:oex.exhibition,assets:[...oex.assets].map(([assetId,data])=>({assetId,mime:data.mime,url:`/api/v1/publications/${id}/assets/${assetId}`})),local:{fetcher,floorFetcher,retainedMaterialBytes,check}};
 }
 export function OfflineExhibition(){
  const [authority,setAuthority]=useState<OfflineAuthority>(),[records,setRecords]=useState<FreezeRecord[]>([]),[active,setActive]=useState<{value:PublicResponse;deadline:string}|null>(null),[message,setMessage]=useState('온라인에서 신뢰할 표시 계정과 서명 키를 먼저 준비하세요.'),[busy,setBusy]=useState(false),[portable,setPortable]=useState(false),[validating,setValidating]=useState(false),[shell,setShell]=useState('오프라인 앱 재시작을 준비하지 않았습니다.'),[shellWaiting,setShellWaiting]=useState(false);
@@ -62,7 +72,7 @@ export function OfflineExhibition(){
   operation.assert();if(bytes.length>MAX_FREEZE_BYTES)throw Error('OFFLINE_SIZE');
   const verified=await operation.wait(verifyFreezeBundle(bytes,{trustedKeys:[a.authority.keyId]}));const b=verified.bundle;matchOfflineAuthority(a,b);
   await operation.wait(assertFreezeRuntime(b));await operation.wait(assertFreezeOnline(a,b));
-  const oex=await operation.wait(decodeFreezeOex(verified.oexBytes,b.manifest.source.exhibitionHash));if(!await operation.wait(observeOfflineTime()))throw Error('OFFLINE_CLOCK');
+  const oex=await operation.wait(decodeFreezeOex(verified.oexBytes,b.manifest.source.exhibitionHash,b.manifest.formats.oex));if(!await operation.wait(observeOfflineTime()))throw Error('OFFLINE_CLOCK');
   const record:FreezeRecord={key:freezeRecordKey(a,b),scope:authorityScope(a),freezeId:b.manifest.id,title:oex.exhibition.title,bytes:new Uint8Array(bytes),authority:a,expiresAt:b.authorization.grant.expiresAt,preparedAt:new Date().toISOString()};
   const cached=await stageFreezeRecord(record,operation);operation.assert();setRecords(cached);setMessage('서명·전체 파일·계정·현재 권리를 검사하고 별도 사본으로 저장했습니다.');
  }
@@ -85,7 +95,7 @@ export function OfflineExhibition(){
   if(!authority||record.scope!==authorityScope(authority))throw Error('OFFLINE_PROFILE');
   const verified=await operation.wait(verifyFreezeBundle(record.bytes,{trustedKeys:[authority.authority.keyId]}));const b=verified.bundle;matchOfflineAuthority(authority,b);
   await operation.wait(assertFreezeRuntime(b));await operation.wait(assertFreezeOnline(authority,b));
-  const oex=await operation.wait(decodeFreezeOex(verified.oexBytes,b.manifest.source.exhibitionHash)),deadline=b.authorization.grant.expiresAt;
+  const oex=await operation.wait(decodeFreezeOex(verified.oexBytes,b.manifest.source.exhibitionHash,b.manifest.formats.oex)),deadline=b.authorization.grant.expiresAt;
   const check=async()=>{operation.assert();if(Date.now()>=Date.parse(deadline)||!await operation.wait(observeOfflineTime()))throw Error('OFFLINE_EXPIRED');};
   await operation.wait(check());operation.assert();activeCheck.current=async()=>{await check();await assertFreezeOnline(authority,b);await check();};
   setActive({value:frozenPublication(b,oex,async()=>{await gate.current;await check();}),deadline});setMessage('고정 전시를 열었습니다.');

@@ -21,7 +21,7 @@ import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
 import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio";
 import { AudioControls } from "./viewer/AudioControls";
-import { DEVICE_BUDGETS, deviceBudget } from "./viewer/loading";
+import { selectedDeviceBudget } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "./ViewerInputGuide";
 export function Viewer({
@@ -179,14 +179,10 @@ export function Viewer({
   );
   const budget = useMemo(
     () =>
-      profile === "auto"
-        ? deviceBudget({
-            viewportWidth: innerWidth,
-            deviceMemory: (navigator as Navigator & { deviceMemory?: number })
-              .deviceMemory,
-            pixelRatio: devicePixelRatio,
-          })
-        : DEVICE_BUDGETS[profile],
+      selectedDeviceBudget(profile,{
+        deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory,
+        pixelRatio:devicePixelRatio,
+      }),
     [profile],
   );
   const source = useMemo(

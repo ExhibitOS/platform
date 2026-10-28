@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {freezeCanonical,presentationFor} from '@exhibitos/studio-contract';
+import {freezeCanonical,presentationFor,spaceStillFor} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {PublicPublication} from '../publication-client';
 import {newDraft} from '../drafts/example';
@@ -10,11 +10,11 @@ export interface PrivateSeed {source:PublicPublication;indexSha256:string;storeN
 /** The verified loader remains the sole source authority; edited metadata never grants asset access. */
 export function privateSeed(source:PublicPublication,indexSha256:string):PrivateSeed {
  if(!source.local||source.publication.status!=='published'||! /^[a-f0-9]{64}$/.test(indexSha256)||! /^[a-f0-9]{64}$/.test(source.publication.revisionSha256))throw Error('편집 원본의 검증 정보를 확인할 수 없어요.');
- if([...source.exhibition.artworks,...source.exhibition.mediaAssets].some(a=>a.rights.licenseId!=='CC0-1.0'||!a.rights.permissions.display||!a.rights.permissions.export))throw Error('편집 사본에 사용할 수 있는 공개 자산이 아니에요.');
+ const still=spaceStillFor(source.exhibition);if([...source.exhibition.artworks,...source.exhibition.mediaAssets,...(still?[still]:[])].some(a=>a.rights.licenseId!=='CC0-1.0'||!a.rights.permissions.display||!a.rights.permissions.export))throw Error('편집 사본에 사용할 수 있는 공개 자산이 아니에요.');
  return {source,indexSha256,storeName:`exhibitos-private-editor-v1-${source.publication.id}-${source.publication.revisionSha256}-${indexSha256}`};
 }
 export function checkPrivateCandidate(seed:PrivateSeed,candidate:Exhibition){
- if(freezeCanonical(candidate.artworks)!==freezeCanonical(seed.source.exhibition.artworks)||freezeCanonical(candidate.mediaAssets)!==freezeCanonical(seed.source.exhibition.mediaAssets))throw Error('원본 작품·파일·권리 정보는 이 체험에서 변경할 수 없어요.');
+ if(freezeCanonical(candidate.artworks)!==freezeCanonical(seed.source.exhibition.artworks)||freezeCanonical(candidate.mediaAssets)!==freezeCanonical(seed.source.exhibition.mediaAssets)||freezeCanonical(spaceStillFor(candidate)??null)!==freezeCanonical(spaceStillFor(seed.source.exhibition)??null))throw Error('원본 작품·파일·권리 정보는 이 체험에서 변경할 수 없어요.');
  createGeometryState(candidate);
 }
 /** Add one complete room to a private clone; keep every original room, reference and unknown extension. */

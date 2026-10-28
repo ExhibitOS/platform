@@ -13,5 +13,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@exhibitos/spec": "0.1.0-draft.9"
   }
 }

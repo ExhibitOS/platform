@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+.watermark-display-stage{position:relative}
+.watermark-display-stage .walking-touch{z-index:3}
+.display-watermark{position:absolute;z-index:2;pointer-events:none;max-width:min(36ch,calc(100% - 2rem));max-height:25%;overflow:hidden;overflow-wrap:anywhere;line-height:1.35;color:#fff;text-shadow:0 1px 3px #000;font-family:system-ui,sans-serif;padding:.25rem .4rem;background:#0008;border-radius:.2rem}
+.display-watermark[data-position$="left"]{left:max(.75rem,env(safe-area-inset-left))}
+.display-watermark[data-position$="right"]{right:max(.75rem,env(safe-area-inset-right))}
+.display-watermark[data-position^="top"]{top:max(4.5rem,env(safe-area-inset-top))}
+.display-watermark[data-position^="bottom"]{bottom:max(.75rem,env(safe-area-inset-bottom))}
+@media(max-width:367px){.geometry-preview:not(.geometry-immersive) .watermark-display-stage .walking-touch{position:relative;inset:auto}}

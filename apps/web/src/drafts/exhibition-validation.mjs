@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ExhibitOS contributors
 import {revisionSchema,lifecycleSchema,utcSchema} from "./schema-standalone.mjs";
+import {spaceStillFor,validateSpaceStillInventory} from '@exhibitos/spec/space-still';
 import {
   validateArtwork,
   validateRights,
@@ -189,9 +190,11 @@ function registry(items, path, errors) {
 }
 export function assetInventory(revision) {
   const map = new Map();
+  const still=spaceStillFor(revision);
   for (const asset of [
     ...revision.artworks.flatMap((artwork) => artwork.assets),
     ...revision.mediaAssets,
+    ...(still?[still]:[]),
   ])
     map.set(key(asset.id), {
       id: asset.id,
@@ -215,6 +218,7 @@ export function validateExhibition(revision, { publicationTime } = {}) {
       ),
     ]);
   if (!revisionSchema(revision)) return result(schemaErrors(revisionSchema));
+  const still=validateSpaceStillInventory(revision,{publicationTime});if(!still.valid)return result(still.errors);
   if (utf8Length(sortedJson(revision)) > 1048576)
     return result([issue("DOCUMENT_LIMIT", "", "Revision exceeds 1MiB")]);
   const errors = [];

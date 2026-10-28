@@ -2,14 +2,16 @@
 /** Platform-owned optional OES extension; not a change to the public base OES schema. */
 export const MATERIAL_NAMESPACE = "org.exhibitos.studio/materials";
 export const MAX_MATERIALS = 64;
-export interface PbrMaterial {
-  color: string;
-  roughness: number;
-  metalness: number;
-}
+import { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
+import {validDisplayWatermark} from './watermark.js';
+export * from './watermark.js';
+import {surfaceTextureFor,surfaceTextureDefaults,validateSurfaceTextures,type SurfaceTextureBinding} from './surface-textures.js';
+export * from './surface-textures.js';
+export { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
 export interface StudioMaterials {
   version: 1;
   surfaces: Record<string, PbrMaterial>;
+  surfaceTextures?: Record<string,SurfaceTextureBinding>;
 }
 export interface MaterialIssue {
   code: string;
@@ -20,11 +22,6 @@ export interface MaterialValidation {
   valid: boolean;
   errors: MaterialIssue[];
 }
-export const DEFAULT_MATERIAL: Readonly<PbrMaterial> = Object.freeze({
-  color: "#f4f1e8",
-  roughness: 0.8,
-  metalness: 0,
-});
 const object = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 const exact = (v: Record<string, unknown>, keys: string[]) =>
@@ -57,7 +54,7 @@ export function validateStudioMaterials(
     );
     return { valid: false, errors };
   }
-  if (!exact(value, ["version", "surfaces"]) || !object(value.surfaces)) {
+  if (!(exact(value, ["version", "surfaces"]) || exact(value,["version","surfaces","surfaceTextures"])) || !object(value.surfaces)) {
     add(
       "STUDIO_MATERIAL_SCHEMA",
       "",
@@ -95,13 +92,7 @@ export function validateStudioMaterials(
       );
     seen.add(id.toLowerCase());
     if (
-      !object(material) ||
-      !exact(material, ["color", "roughness", "metalness"]) ||
-      typeof material.color !== "string" ||
-      !/^#[0-9a-f]{6}$/.test(material.color) ||
-      ![material.roughness, material.metalness].every(
-        (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1,
-      )
+      !isPbrMaterial(material)
     )
       add(
         "STUDIO_MATERIAL_SCHEMA",
@@ -119,6 +110,7 @@ export function validateStudioMaterials(
       "Only JSON material metadata is accepted",
     );
   }
+  errors.push(...validateSurfaceTextures(candidate,value));
   return { valid: errors.length === 0, errors };
 }
 /** Caller validates complete draft before using this projection. Returns a fresh value. */
@@ -136,7 +128,8 @@ export function materialFor(
           ([id]) => id.toLowerCase() === surfaceId.toLowerCase(),
         )?.[1]
       : undefined;
-  return { ...(entry ?? DEFAULT_MATERIAL) };
+  const texture=surfaceTextureFor(candidate,surfaceId);
+  return { ...(entry ?? (texture?surfaceTextureDefaults(texture.pack.id).material:DEFAULT_MATERIAL)) };
 }
 
 export const PRESENTATION_NAMESPACE = "org.exhibitos.studio/presentation";
@@ -162,6 +155,7 @@ export interface StudioPresentation {
         name: string;
     })[];
     credits: string;
+    watermark?: import('./watermark.js').DisplayWatermark;
 }
 /** Bounded metadata only; routes remain optional public OES navigation. */
 export function validateStudioPresentation(candidate: unknown): MaterialValidation {
@@ -174,11 +168,12 @@ export function validateStudioPresentation(candidate: unknown): MaterialValidati
         add("STUDIO_PRESENTATION_VERSION", "", "Only presentation version 1 is supported");
         return { valid: false, errors };
     }
-    const keys = value.startCamera === undefined ? ["version", "viewpoints", "credits"] : ["version", "startCamera", "viewpoints", "credits"];
+    const keys = ["version", "viewpoints", "credits",...(value.startCamera===undefined?[]:["startCamera"]),...(value.watermark===undefined?[]:["watermark"])];
     if (!exact(value, keys) || !Array.isArray(value.viewpoints) || value.viewpoints.length > 64 || typeof value.credits !== "string" || value.credits.length > 4096) {
         add("STUDIO_PRESENTATION_SCHEMA", "", "Expected at most 64 viewpoints and bounded credits");
         return { valid: false, errors };
     }
+    if(value.watermark!==undefined&&!validDisplayWatermark(value.watermark))add('STUDIO_WATERMARK_INVALID','/watermark','Expected a bounded optional display watermark; rights and original access remain independent');
     const rooms = Array.isArray(candidate.rooms) ? candidate.rooms.filter(object) : [];
     const seen = new Set<string>();
     const vector = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3 && v.every(n => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 10000);
@@ -258,3 +253,11 @@ export * from './surface-panels.js';
 export * from './architectural-finishes.js';
 
 export * from './entrance-design.js';
+export {SPACE_STILL_NAMESPACE,MAX_SPACE_STILL_BYTES,MAX_SPACE_STILL_PIXELS,MAX_SPACE_STILL_DIMENSION,validateSpaceStillInventory,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
+
+export * from "./floors.js";
+export * from "./floor-commands.js";
+export * from "./floor-textures.js";
+
+export * from './furnishings.js';
+export * from './surface-texture-resources.js';

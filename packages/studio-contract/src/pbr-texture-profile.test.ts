@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { pbrTextureBinding, pbrTextureIsLinear } from './pbr-texture-profile.js';
+import { ordinaryPngRoleSet,pbrTextureBinding, pbrTextureIsLinear } from './pbr-texture-profile.js';
 describe('bounded standard PBR texture-info contract', () => {
   it('retains zero normal and AO strength and accepts the agreed endpoints', () => {
     expect(pbrTextureBinding({ index: 0, scale: 0 }, 'normal', 1).scale).toBe(0);
@@ -31,4 +31,15 @@ describe('bounded standard PBR texture-info contract', () => {
       { index: 0, extensions: {} }, { index: 0, scale: 1 }])
       expect(() => pbrTextureBinding(value, 'metallicRoughness', 1)).toThrow();
   });
+});
+
+const ordinaryRoles=()=>({images:[0,1,2].map(bufferView=>({bufferView,mimeType:'image/png'})),textures:[0,1,2].map(source=>({source})),materials:[{pbrMetallicRoughness:{baseColorTexture:{index:0},metallicFactor:.1,roughnessFactor:.8},normalTexture:{index:1},occlusionTexture:{index:2}}],meshes:[{primitives:[{material:0}]}]});
+it('ordinary three-role resource bound requires distinct fully used image roles, without a provenance marker',()=>{
+ expect(ordinaryPngRoleSet(ordinaryRoles())).toBe(true);
+ const alias=ordinaryRoles();alias.materials[0]!.normalTexture.index=0;expect(ordinaryPngRoleSet(alias)).toBe(false);
+ const shared=ordinaryRoles();shared.textures[2]!.source=1;expect(ordinaryPngRoleSet(shared)).toBe(false);
+ const unused=ordinaryRoles();unused.meshes[0]!.primitives[0]!.material=1;expect(ordinaryPngRoleSet(unused)).toBe(false);
+ const jpeg=ordinaryRoles();jpeg.images[0]!.mimeType='image/jpeg';expect(ordinaryPngRoleSet(jpeg)).toBe(false);
+ expect(ordinaryPngRoleSet({...ordinaryRoles(),images:[...ordinaryRoles().images,{bufferView:3,mimeType:'image/png'}]})).toBe(false);
+ expect(ordinaryPngRoleSet({images:[],authority:'Processing'})).toBe(false);
 });

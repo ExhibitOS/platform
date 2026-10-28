@@ -1,4 +1,4 @@
-import {embeddedBasisPairs} from '@exhibitos/studio-contract';
+import {embeddedBasisPairs,ordinaryPngRoleSet} from '@exhibitos/studio-contract';
 import type { LoadingManager, Texture } from 'three';
 /** Each GLB image is served from a predeclared immutable embedded buffer, never a URL supplied by the model. */
 export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}) {
@@ -18,16 +18,17 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
     if (!Array.isArray(doc.images) || doc.images.length > 16 || !doc.images.length || view.getUint32(24+size,true) !== 0x004e4942 || view.getUint32(20+size,true) + start !== bytes.length || doc.buffers?.length !== 1 || Object.keys(doc.buffers[0]).some(k=>k!=='byteLength') || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength<1 || doc.buffers[0].byteLength>bytes.length-start || bytes.length-start-doc.buffers[0].byteLength>3) reject();
     const basis=pairs(doc,(i)=>{const im=doc.images[i],bv=doc.bufferViews?.[im?.bufferView],o=bv?.byteOffset??0,n=bv?.byteLength;if(!bv||bv.buffer!==0||!Number.isSafeInteger(o)||o<0||!Number.isSafeInteger(n)||n<1||o+n>doc.buffers[0].byteLength)reject();return bytes.subarray(start+o,start+o+n);});
     expectedTextures=doc.textures===undefined?doc.images.length:new Set(doc.textures.map((t: {source:number;extensions?:{KHR_texture_basisu?:{source:number}}})=>compressed&&t.extensions?.KHR_texture_basisu?t.extensions.KHR_texture_basisu.source:t.source)).size;
+    const ordinary=ordinaryPngRoleSet(doc),pixelLimit=(ordinary?12:2)*1024*1024,byteLimit=(ordinary?24:8)*1024*1024;
     let pixels = 0, totalBytes = 0;
     for (const image of doc.images) {
       if (Object.keys(image).some(k=>!['bufferView','mimeType','name'].includes(k)) || !['image/png','image/ktx2'].includes(image.mimeType) || !Number.isSafeInteger(image.bufferView)) reject();
       const buffer = doc.bufferViews?.[image.bufferView], offset = buffer?.byteOffset ?? 0, length = buffer?.byteLength;
-      if (!buffer || buffer.buffer !== 0 || buffer.byteStride !== undefined || buffer.target !== undefined || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 33 || length > 8388608 || totalBytes+length > 8388608 || offset+length > doc.buffers[0].byteLength) reject();
+      if (!buffer || buffer.buffer !== 0 || buffer.byteStride !== undefined || buffer.target !== undefined || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 33 || length > 8388608 || totalBytes+length > byteLimit || offset+length > doc.buffers[0].byteLength) reject();
       const png = bytes.slice(start+offset,start+offset+length), p = new DataView(png.buffer);
       if(image.mimeType==='image/ktx2'){if(!basis.has(doc.images.indexOf(image)))reject();totalBytes+=length;if(totalBytes>8388608)reject();const key='exhibitos-embedded-ktx2-'+doc.images.indexOf(image);owned.add(key);image.uri=key;delete image.bufferView;compressedImages.set(key,png);continue;}
       if (![137,80,78,71,13,10,26,10].every((b,i)=>png[i]===b) || p.getUint32(8)!==13 || new TextDecoder().decode(png.subarray(12,16))!=='IHDR') reject();
       const w=p.getUint32(16),h=p.getUint32(20);pixels+=w*h;totalBytes+=length;
-      if (!w||!h||w>2048||h>2048||pixels>2097152||totalBytes>8388608) reject();
+      if (!w||!h||w>2048||h>2048||pixels>pixelLimit||totalBytes>byteLimit||ordinary&&(png[24]!==8||png[25]!==2)) reject();
       // Loader handler matches an opaque model-local key; no general blob/data/http resource is allowed.
       const key = 'exhibitos-embedded-png-'+owned.size;
       owned.add(key);

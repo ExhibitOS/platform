@@ -101,13 +101,13 @@ export class Freezes {
   const authorization=await this.authorize(c,s,id,seconds);
   return {schemaVersion:FREEZE_VERSION,kind:'exhibitos-offline',manifest:row.manifest,signature:row.signature,authorization,oex:oex.toString('base64'),runtimeFiles};
  }
- private async formats(){
+ private async formats(oexVersion:string){
   const artifact=JSON.parse(await readFile(new URL('../../../contracts/artifact.json',import.meta.url),'utf8'))as {packageVersion:string;sha256:string};
   if(!supportedFreezeSpec(artifact.packageVersion,artifact.sha256))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
   const migrations=(await this.pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
   if(!migrations.some(x=>x.name==='010_freeze.sql'))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
   for(const migration of migrations){if(!/^\d{3}_[a-z_]+\.sql$/.test(migration.name)||!/^[a-f0-9]{64}$/.test(migration.sha256)||sha256(await readFile(new URL(`../../../database/migrations/${migration.name}`,import.meta.url)))!==migration.sha256)throw new ApiError(503,'FREEZE_FORMAT_INVALID');}
-  return {oes:'1.0.0-draft.1',oex:'1.0.0-draft.2',specPackage:artifact.packageVersion,specSha256:artifact.sha256,migrations:migrations.map(x=>`${x.name}:${x.sha256}`)};
+  return {oes:'1.0.0-draft.1',oex:oexVersion,specPackage:artifact.packageVersion,specSha256:artifact.sha256,migrations:migrations.map(x=>`${x.name}:${x.sha256}`)};
  }
  async create(c:PoolClient,s:Session,exhibitionId:string,requestId:string,match:string):Promise<FreezeSummary>{
   uuid(requestId);const source=await this.studio.get(c,s,exhibitionId),payload=hash({exhibitionId,match});
@@ -115,7 +115,7 @@ export class Freezes {
   if(prior){if(prior.payload_sha256!==payload)throw new ApiError(409,'REQUEST_CONFLICT');if(prior.state==='complete')return this.summary(await this.access(c,s,prior.id));}
   if(source.etag!==match)throw new ApiError(412,'REMOTE_CONFLICT');
   await this.oex.authorizeSnapshot(c,s,exhibitionId,source.draft.candidate);
-  const archive=await this.oex.export(c,s,exhibitionId,match),parsed=await decodeOex(archive),runtime=await loadFreezeRuntime(this.config.runtimeRoot),formats=await this.formats();
+  const archive=await this.oex.export(c,s,exhibitionId,match),parsed=await decodeOex(archive),runtime=await loadFreezeRuntime(this.config.runtimeRoot),formats=await this.formats(parsed.oexVersion);
   const id=prior?.id??randomUUID(),lease=randomUUID();
   const oexKeys=Array.from({length:Math.ceil(archive.length/CHUNK)},(_,i)=>`${s.tenantId}/freezes/${id}/${lease}/oex-${i}`),runtimeKeys=runtime.runtime.files.map((file,i)=>({path:file.path,key:`${s.tenantId}/freezes/${id}/${lease}/runtime-${i}`}));
   const inventory={oex:oexKeys,runtime:runtimeKeys},objectKeys=[...oexKeys,...runtimeKeys.map(x=>x.key)];

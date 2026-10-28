@@ -1,3 +1,6 @@
+import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
+import {surfaceMaterialCatalog} from './surface-materials.ts';
+import {furnishingAsset,type FurnishingCatalogId} from '@exhibitos/studio-contract';
 import { OperationalMetrics } from './operational-metrics.ts';
 import { Privacy } from './privacy.ts';
 import { Preservation } from './preservation.ts';
@@ -7,6 +10,8 @@ import { transaction } from '@exhibitos/storage';
 import { Institution, type InstitutionPrincipal } from './institution.ts';
 import { authorizeProcessingInput } from './processing-authorization.ts';
 import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
+import {CoverImages,type CoverImageInput} from './cover-images.ts';
+import {MAX_SPACE_STILL_BYTES} from '@exhibitos/spec/space-still';
 import { Publications } from './publication.ts';
 import { registerRealtime } from './realtime.ts';
 import { registerOpening } from './opening.ts';
@@ -14,6 +19,7 @@ import { openingHostAuthority } from './opening-authority.ts';
 import { Studio, requiredMatch, type StudioInput } from './studio.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
+import {MAX_PREPARED_IMAGE_BYTES,PREPARED_IMAGE_SCHEMA} from './prepared-image.ts';
 import { Freezes, type FreezeConfig } from './freeze.ts';
 import { Integrities } from './integrity.ts';
 import { fileURLToPath } from 'node:url';
@@ -63,6 +69,17 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ const furnishingRole=(s:Session)=>{if(!['admin','artist','curator'].includes(s.role))throw new ApiError(403,'FORBIDDEN');};
+ app.get(`${prefix}/studio/materials`,call(false,async(_c,s)=>{furnishingRole(s);return surfaceMaterialCatalog();}));
+ app.get(`${prefix}/studio/materials/:id/:version/preview`,call(false,async(_c,s)=>{furnishingRole(s);throw new ApiError(404,'MATERIAL_PREVIEW_UNAVAILABLE');}));
+ app.get(`${prefix}/studio/furnishings`,call(false,async(_c,s)=>{furnishingRole(s);return furnishingCatalog();}));
+ app.get(`${prefix}/studio/furnishings/:catalogId/:catalogVersion/:role`,call(false,async(_c,s,req,reply)=>{
+  furnishingRole(s);const p=req.params as {catalogId:string;catalogVersion:string;role:string};
+  if(p.catalogVersion!=='1'||!['model','notice'].includes(p.role))throw new ApiError(404,'FURNISHING_UNAVAILABLE');
+  let asset;try{asset=furnishingAsset('10000000-0000-4000-8000-000000000001',p.catalogId as FurnishingCatalogId);}catch{throw new ApiError(404,'FURNISHING_UNAVAILABLE');}
+  const bytes=await readFurnishingBytes(asset,p.role as 'model'|'notice');return reply.header('content-type',p.role==='model'?'model/gltf-binary':'text/plain; charset=utf-8').send(bytes);
+ }));
+
  const operationalMetrics=new OperationalMetrics(store);
  app.get(`${prefix}/operations/metrics`,call(false,async(c,s,_req,reply)=>{reply.header('cache-control','no-store');return operationalMetrics.observe(c,s);}));
 
@@ -159,6 +176,14 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.put(`${ap}/:audioId/bytes`,{bodyLimit:MAX_AUDIO},call(true,async(c,s,req)=>{const p=audioParams(req);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return audio.upload(c,s,p.id,p.audioId,req.body);}));
  app.post(`${ap}/:audioId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.approve(c,s,p.id,p.audioId,(req.body as {revision:number}).revision);}));
  for(const action of ['revoke','restore'] as const)app.post(`${ap}/:audioId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=audioParams(req);return audio.availability(c,s,p.id,p.audioId,action==='restore');}));
+ const covers=new CoverImages(store),coverPath=`${sp}/:id/cover-images`,coverParams=(req:FastifyRequest)=>req.params as {id:string;imageId:string};
+ app.get(coverPath,call(false,async(c,s,req)=>covers.list(c,s,coverParams(req).id)));
+ app.post(coverPath,{schema:{body:object({requestId:id,mime:{const:'image/png'},bytes:{type:'integer',minimum:33,maximum:MAX_SPACE_STILL_BYTES},sha256:{...str,pattern:'^[a-f0-9]{64}$'},rights:{type:'object'}})}},call(true,async(c,s,req,reply)=>{reply.code(201);return covers.create(c,s,coverParams(req).id,req.body as CoverImageInput);}));
+ app.get(`${coverPath}/:imageId`,call(false,async(c,s,req)=>{const p=coverParams(req);return covers.view(await covers.access(c,s,p.id,p.imageId));}));
+ app.put(`${coverPath}/:imageId/bytes`,{bodyLimit:MAX_SPACE_STILL_BYTES},call(true,async(c,s,req)=>{const p=coverParams(req);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return covers.upload(c,s,p.id,p.imageId,req.body);}));
+ app.post(`${coverPath}/:imageId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.approve(c,s,p.id,p.imageId,(req.body as {revision:number}).revision);}));
+ app.get(`${coverPath}/:imageId/preview`,{schema:{querystring:object({expectedSha256:{...str,pattern:'^[a-f0-9]{64}$'}})}},call(false,async(c,s,req,reply)=>{const p=coverParams(req),result=await covers.preview(c,s,p.id,p.imageId,(req.query as {expectedSha256:string}).expectedSha256);reply.header('content-type','image/png').header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode','none').header('x-exhibitos-watermarked','false').header('x-exhibitos-cover-sha256',result.sourceSha256);return result.bytes;}));
+ for(const action of ['revoke','restore'] as const)app.post(`${coverPath}/:imageId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.availability(c,s,p.id,p.imageId,action==='restore');}));
  const publications=new Publications(pool,store);
  app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
  const readPublic=(id:string,assetId?:string)=>publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId);
@@ -226,13 +251,14 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }
  app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string})));
  app.get(`${cp}/artworks/:id/display`,call(false,async(c,s,req)=>cms.display(c,s,cmsId(req))));
- app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}},[])}},call(false,async(c,s,req,reply)=>{const q=req.query as {expectedRevision?:string};const result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as {bytes:Buffer;mime:string;revision:number};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-watermarked','true').header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;}));
+ app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}},[])}},call(false,async(c,s,req,reply)=>{const q=req.query as {expectedRevision?:string};const result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as {bytes:Buffer;mime:string;revision:number;watermarked:boolean;watermarkMode:'none'|'embedded'};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode',result.watermarkMode).header('x-exhibitos-watermarked',String(result.watermarked)).header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;}));
  const imports=store?new Imports(pool,store):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));
- app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'}})}},call(true,async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
+ app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
  app.get(`${prefix}/imports/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().view(await importer().access(c,s,p.id));}));
  app.put(`${prefix}/imports/:id/bytes`,{bodyLimit:MAX_UPLOAD},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().upload(c,s,p.id,req.body);}));
+ app.put(`${prefix}/imports/:id/derived-bytes`,{bodyLimit:MAX_PREPARED_IMAGE_BYTES},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().uploadDerived(c,s,p.id,req.body);}));
  app.post(`${prefix}/imports/:id/complete`,call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().complete(c,s,p.id);}));
  for(const action of ['cancel','retry'] as const)app.post(`${prefix}/imports/:id/${action}`,call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().action(c,s,p.id,action);}));
 

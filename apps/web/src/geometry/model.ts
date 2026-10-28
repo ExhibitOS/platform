@@ -6,6 +6,8 @@ import {
   MATERIAL_NAMESPACE,
   type PbrMaterial,
   type StudioMaterials,
+  surfaceTextureMaterialMap,
+  type SurfaceMaterialTextureCommand,
 } from "@exhibitos/studio-contract";
 import { alignPlacement, type Placement, type Light } from "../placement/model";
 import { PRESENTATION_NAMESPACE, type StudioPresentation } from "@exhibitos/studio-contract";
@@ -21,6 +23,7 @@ export interface GeometryState {
   future: Exhibition[];
 }
 export type GeometryCommand =
+  | SurfaceMaterialTextureCommand
   | { type: "replace-architecture"; candidate: Exhibition }
   | { type: "add-artwork"; artwork: Artwork }
   | { type: "add-placement"; placement: Placement }
@@ -214,6 +217,10 @@ export function applyGeometryCommand(
     case "set-opening":
       replace(doc.openings, command.id, command.opening);
       break;
+    case "set-material-texture": {
+      setMap(doc,surfaceTextureMaterialMap(doc,command));
+      break;
+    }
     case "set-material": {
       const surface = find(doc.surfaces, command.surfaceId),
         map = materialMap(doc);
@@ -235,6 +242,10 @@ export function applyGeometryCommand(
         const map = materialMap(doc);
         for (const key of Object.keys(map.surfaces))
           if (same(key, command.id)) delete map.surfaces[key];
+        if(map.surfaceTextures){
+          for(const key of Object.keys(map.surfaceTextures))if(same(key,command.id))delete map.surfaceTextures[key];
+          if(!Object.keys(map.surfaceTextures).length)delete map.surfaceTextures;
+        }
         setMap(doc, map);
       }
       break;
