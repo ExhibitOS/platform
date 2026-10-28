@@ -1704,6 +1704,8 @@ export function GeometryPreview({
             if(disposed||gpuLost||residentBytes===undefined)return;
             // Only retired material ownership returns bytes to artwork admission.
             surfacePlan.residentBytes=residentBytes;releaseMaterialLoadHold('surface');
+            const surfaceState=renderer.domElement.dataset.surfaceTextures;
+            if(surfaceState)renderer.domElement.dataset.surfaceTextures=JSON.stringify({...JSON.parse(surfaceState),residentBytes});
             retryAfter.delete(artId);failed.delete(artId);minimumBlocked.delete(artId);
             shadowPass.invalidate();render();update();
           }).catch(()=>{/* Old complete material stays valid; no retry loop. */}).finally(()=>{materialReductionPending=false;});
