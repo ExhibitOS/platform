@@ -2,7 +2,7 @@ import {boundedKtx2} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { execFile } from "node:child_process";
 export interface VariantMetric {triangles?:number;textureSize?:number}
-export interface GeneratedVariants {full:VariantMetric;coarse?:VariantMetric;bytes?:Buffer}
+export interface GeneratedVariants {full:VariantMetric;coarse?:VariantMetric;bytes?:Buffer;profile?:"exhibitos-near-texture-pair-v1"}
 export function viewerVariants(bytes:Buffer,mime:string,options:{timeoutMs?:number}={}):Promise<GeneratedVariants>{return new Promise((resolve,reject)=>{const url=new URL("./viewer-variant-worker.js",import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');const child=execFile(process.execPath,["--max-old-space-size=128",url.pathname,mime],{timeout:Math.min(8000,Math.max(1,options.timeoutMs??8000)),maxBuffer:33555456,encoding:"buffer",env:{PATH:process.env.PATH},killSignal:"SIGKILL"},(error,out)=>{if(error||out.length<8||out.toString("ascii",0,4)!=="ELOD"){reject(Error("COARSE_UNAVAILABLE"));return;}try{const length=out.readUInt32LE(4);if(length>1024||8+length>out.length)throw Error("VARIANT_METADATA");const info=JSON.parse(out.toString("utf8",8,8+length)) as GeneratedVariants;resolve({...info,...(info.coarse?{bytes:out.subarray(8+length)}:{})});}catch{reject(Error("COARSE_UNAVAILABLE"));}});child.stdin?.on("error",()=>{});child.stdin?.end(bytes);});}
 
 /** Qualified full display bytes have already passed the isolated format/profile decoder.

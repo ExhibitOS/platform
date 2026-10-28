@@ -1,3 +1,4 @@
+import "./viewer/input-surface.css";
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
@@ -65,6 +66,7 @@ export interface DetailEntryActions {
   prepare: () => void;
   commit: (pointer: boolean) => void;
   mountPreview?:SharedDetailPreview;
+  resumeViewing?: () => void;
 }
 export type GeometrySelection=EditorSelection;
 export interface EntranceSceneScope {enter(signal:AbortSignal):Promise<void>;cancelEntry():void;close():void}
@@ -272,14 +274,15 @@ export function GeometryPreview({
       suspendedWasWalking.current = committedEntry.current ?? (currentWalkMode.current.walking && !currentWalkMode.current.paused);
       committedEntry.current = null;
       preparedEntry.current = null;
-      walkingActions.current?.pause();
+      walkingActions.current?.pause("panel");
       orbitEnabled.current?.(false);
     } else {
       orbitEnabled.current?.(!currentWalkMode.current.walking);
       // Active walking returns focus to its canvas; focusing the opener would
       // trigger the input blur safety stop immediately after resuming.
       // Paused/stationary modes leave focus restoration to the detail dialog.
-      if (suspendedWasWalking.current) walkingActions.current?.pause();
+      // Closing the obstruction does not create a new user stop. Its explicit
+      // return action may resume through the same gate after this commit.
       suspendedWasWalking.current = false;
     }
   }, [suspendNavigation]);
@@ -603,7 +606,18 @@ export function GeometryPreview({
       };
       let pointerStart: [number,number] | undefined;
       let panelResume: ReturnType<typeof installPanelResume> | undefined;
-      const down = (event: PointerEvent) => { pointerStart=[event.clientX,event.clientY]; };
+      let resumeFrame = 0;
+      const down = (event: PointerEvent) => { pointerStart=event.isPrimary === false ? undefined : [event.clientX,event.clientY]; };
+      const cancelPick = () => { pointerStart=undefined; };
+      const canvasMenu = (event: MouseEvent) => { if (immersive) event.preventDefault(); };
+      renderer.domElement.addEventListener("contextmenu",canvasMenu);
+      const movePick = (event: PointerEvent) => {
+        for (const sample of event.getCoalescedEvents?.() ?? [event]) {
+          if (pointerStart && Math.hypot(sample.clientX-pointerStart[0],sample.clientY-pointerStart[1])>5) cancelPick();
+        }
+      };
+      renderer.domElement.addEventListener("pointermove",movePick);
+      renderer.domElement.addEventListener("pointercancel",cancelPick);
       renderer.domElement.addEventListener("pointerdown",down);
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
@@ -811,7 +825,12 @@ export function GeometryPreview({
       host.current.replaceChildren(renderer.domElement);
       // Panel scope requires the attached public canvas; before attachment its
       // closest publication shell is null.
-      if (immersive) panelResume = installPanelResume(renderer.domElement, () => walkingActions.current?.pause("panel"), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); });
+      if (immersive) panelResume = installPanelResume(renderer.domElement, (reason = "panel") => walkingActions.current?.pause(reason), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); }, () => !disposed && !gpuLost && !suspendedRef.current && !xrActive.current);
+      detailEntry.current.resumeViewing = () => {
+        const intent = panelResume?.intent();
+        cancelAnimationFrame(resumeFrame);
+        resumeFrame = requestAnimationFrame(() => { resumeFrame = 0; if (!disposed) intent?.(); });
+      };
       const observer = new ResizeObserver(resize);
       observer.observe(host.current);
       controls.addEventListener("change", render);
@@ -869,10 +888,15 @@ export function GeometryPreview({
         placementRelease();placementSync.current=null;
         editor?.dispose();editingSync.current=null;
         walkingRelease();
+        cancelAnimationFrame(resumeFrame);
+        detailEntry.current.resumeViewing = undefined;
         panelResume?.dispose();
         orbitEnabled.current = null;
         renderer.domElement.removeEventListener("click",pick);
         renderer.domElement.removeEventListener("pointerdown",down);
+        renderer.domElement.removeEventListener("pointermove",movePick);
+        renderer.domElement.removeEventListener("pointercancel",cancelPick);
+        renderer.domElement.removeEventListener("contextmenu",canvasMenu);
         walkingActions.current = null;
         action.current = null;selectionFindAction.current=null;
         guideAction.current=null;
@@ -942,7 +966,10 @@ export function GeometryPreview({
                 initialCamera,
                 controls,
                 canvas: renderer.domElement,
-                isPanelFocus: panelResume?.isPanelFocus,
+                // A dialog may focus before the suspension effect, and Safari can
+                // report null relatedTarget. The existing committed entry still
+                // identifies this temporary obstruction without erasing its base stop.
+                isPanelFocus: target => committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
                 resumeMovement: () => panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false,
                 settings: { ...walkSettingsRef.current },
                 render,
@@ -2043,7 +2070,7 @@ export function GeometryPreview({
       <figcaption hidden={immersive && ready && assetReport.loaded===document.placements.length && assetReport.failed===0} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
       {(immersive || compactControls) && <summary>공간 조작</summary>}
-      {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·화면 버튼</option></select></label><p>터치 기기는 화면 버튼, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 전환 뒤 걷기는 직접 재개하세요.</p></>}
+      {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·화면 버튼</option></select></label><p>터치 기기는 화면 버튼, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 설정을 닫으면 새 이동·시점 조작을 바로 사용할 수 있어요.</p></>}
       {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       <ViewControls className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
