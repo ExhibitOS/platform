@@ -18,7 +18,9 @@ Studio에서 명시적으로 공개한 전시 URL을 열면 공개 snapshot의 �
 
 ## Variant 계약과 권리
 
-선택적 Artwork extension `org.exhibitos.viewer/lod` version1은 primaryAssetId에 대응하는 full 하나와 선택적 coarse 하나를 참조한다. 각 variant는 공개 asset inventory의 UUID와 detail, GLB의 triangles 또는 PNG의 textureSize를 가진다. Coarse는 full보다 metric과 실제 bytes가 모두 작아야 한다. 구조 schema는 [viewer-lod.schema.json](../contracts/viewer-lod.schema.json)에 있으며, inventory 참조·primary·MIME·role·크기 비교는 추가 domain 검사다. 이 extension이 없는 이전 snapshot도 유지하되 renderer는 실제 decoded resource 예산을 검사한다.
+선택적 Artwork extension `org.exhibitos.viewer/lod` version1은 primaryAssetId에 대응하는 full 하나와 선택적 coarse 하나를 참조한다. 각 variant는 공개 asset inventory의 UUID와 detail, GLB의 triangles 또는 PNG의 textureSize를 가진다. 기본 쌍의 coarse는 full보다 metric과 실제 bytes가 모두 작아야 한다. 구조 schema는 [viewer-lod.schema.json](../contracts/viewer-lod.schema.json)에 있으며, inventory 참조·primary·MIME·role·크기 비교는 추가 domain 검사다. 이 extension이 없는 이전 snapshot도 유지하되 renderer는 실제 decoded resource 예산을 검사한다.
+
+명시적 `profile: "exhibitos-near-texture-pair-v1"`은 별도의 텍스처 전용 GLB 쌍이다. 각 full/coarse는 triangles와 textureSize를 모두 기록하며 형상 수는 같고 텍스처 크기·파일 bytes만 줄어든다. 지원된 단일 primitive의 RGB base/normal/AO, 형상·UV·법선·탄젠트·인덱스와 재질·sampler 문서는 그대로 유지한다. Full의 각 맵은 1024–2048, 작은 쪽은 base512·normal/AO256 이하이며 실제 중심 최근접 채널 샘플을 검사한다. 형상 축소 전용의 추가 면/법선 명암 조건은 이 형상 불변 경로에 적용하지 않지만, 유한·단위 법선, 유효 인덱스·면, 엄격한 파일/PNG 검사와 기존 자원 예산은 유지한다. 작은 텍스처가 15만 삼각형을 compact20k 형상으로 만들지는 않는다. 이전 쌍·워터마크·권리 정책과 실제 기기/사람 품질 수락은 독립이다.
 
 PNG는 전시용 watermark가 적용된 qualified bytes에서 만들고, GLB coarse는 static geometry를 실제로 단순화한다. 원본 다운로드·export 권한은 이 공개 표시 권한과 별개다. 서버는 full/coarse 각각의 현재 승인·작품/asset 표시 권리·만료·공개 상태를 검사한다. 수신한 bytes의 원격 삭제나 DRM을 보장하지 않는다.
 
