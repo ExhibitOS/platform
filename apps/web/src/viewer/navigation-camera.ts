@@ -163,7 +163,7 @@ export async function createWalkingCamera({
   };
   const prepareViewpoint = (id:string) => {
     if(disposed||seated)return undefined;
-    try{const authored=viewpointPose(document,id),position=controller.qualifiedStandingEye(authored.position);return position?{...authored,position}:undefined;}catch{return undefined;}
+    try{const authored=viewpointPose(document,id),position=controller.qualifiedStandingEye(authored.position);if(!position)return undefined;const angle=Math.atan2(authored.target[1]-position[1],Math.hypot(authored.target[0]-position[0],authored.target[2]-position[2]));return Math.abs(angle)<=1.396?{...authored,position}:undefined;}catch{return undefined;}
   };
   const actions: WalkingActions = {
     start,
@@ -172,7 +172,7 @@ export async function createWalkingCamera({
       const destination=prepareViewpoint(id);if(!destination)return false;
       input.pause();
       const state=controller.reset({position:destination.position,yaw:destination.yaw});
-      pitch=Math.max(-1.396,Math.min(1.396,Math.atan2(destination.target[1]-state.eyePosition[1],Math.hypot(destination.target[0]-state.eyePosition[0],destination.target[2]-state.eyePosition[2]))));
+      pitch=Math.atan2(destination.target[1]-state.eyePosition[1],Math.hypot(destination.target[0]-state.eyePosition[0],destination.target[2]-state.eyePosition[2]));
       targetPitch=pitch;targetYaw=state.yaw;walking=!ordered;paused=true;
       controls.enabled=false;canvas.style.touchAction=ordered?'manipulation':previousTouchAction;
       camera.fov=destination.fov;camera.updateProjectionMatrix();
