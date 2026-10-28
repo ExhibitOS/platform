@@ -10,6 +10,8 @@ export interface WalkingActions {
   canResumeInput?: () => boolean;
   resumeInput?: () => boolean;
   teleport?: (viewpointId: string) => void;
+  /** Ready camera owner only; no deferred initialization or fabricated pose. */
+  visitViewpoint?: (viewpointId: string) => boolean;
   sit?: (benchId:string) => void;
   stand?: () => void;
   pause: (reason?: WalkingPauseReason) => void;

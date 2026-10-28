@@ -161,8 +161,34 @@ export async function createWalkingCamera({
     frame = requestAnimationFrame(tick);
     onMessage("걷기를 시작했습니다. 화면에 초점이 있습니다.");
   };
+  const visitViewpoint = (viewpointId:string):boolean => {
+    if(disposed||seated)return false;
+    input.pause();
+    try {
+      const result=teleportToViewpoint(controller,document,viewpointId);
+      pitch=result.pitch;targetPitch=pitch;targetYaw=result.state.yaw;
+      walking=false;
+      controls.enabled=true;
+      canvas.style.touchAction=previousTouchAction;
+      camera.fov=result.fov;
+      camera.updateProjectionMatrix();
+      camera.position.fromArray(result.state.eyePosition);
+      camera.rotation.set(pitch,result.state.yaw,0,"YXZ");
+      controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
+      controls.update();
+      onMode(false,true);
+      apply();
+      onMessage("검증된 viewpoint의 바닥과 눈높이로 즉시 이동했습니다. 정지 관람 중이며 걷기는 직접 선택하세요.");
+      return true;
+    } catch {
+      if(!walking)controls.enabled=true;
+      onMessage("이 viewpoint는 몸의 여유 공간·바닥·시점 조건을 만족하지 않습니다. 기존 위치에서 정지했습니다. 작품 목록을 사용할 수 있습니다.");
+      return false;
+    }
+  };
   const actions: WalkingActions = {
     start,
+    visitViewpoint,
     sit: benchId => {
       if(disposed||seated)return;
       try {
@@ -189,29 +215,7 @@ export async function createWalkingCamera({
       canvas.focus({preventScroll:true});
       onMessage('이전 위치와 시점으로 돌아왔습니다. 걷기는 직접 재개하세요.');
     },
-    teleport: (viewpointId) => {
-      if(seated)return;
-      input.pause();
-      try {
-        const result=teleportToViewpoint(controller,document,viewpointId);
-        pitch=result.pitch;targetPitch=pitch;targetYaw=result.state.yaw;
-        walking=false;
-        controls.enabled=true;
-        canvas.style.touchAction=previousTouchAction;
-        camera.fov=result.fov;
-        camera.updateProjectionMatrix();
-        camera.position.fromArray(result.state.eyePosition);
-        camera.rotation.set(pitch,result.state.yaw,0,"YXZ");
-        controls.target.copy(camera.position).add(new Vector3(0,0,-2).applyQuaternion(camera.quaternion));
-        controls.update();
-        onMode(false,true);
-        apply();
-        onMessage("검증된 viewpoint의 바닥과 눈높이로 즉시 이동했습니다. 정지 관람 중이며 걷기는 직접 선택하세요.");
-      } catch {
-        if(!walking)controls.enabled=true;
-        onMessage("이 viewpoint는 몸의 여유 공간·바닥·시점 조건을 만족하지 않습니다. 기존 위치에서 정지했습니다. 작품 목록을 사용할 수 있습니다.");
-      }
-    },
+    teleport: visitViewpoint,
     pause: (reason) => input.pause(reason),
     stationary: () => {
       if(seated)return;
