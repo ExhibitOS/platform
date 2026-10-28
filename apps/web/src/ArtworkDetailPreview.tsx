@@ -2,6 +2,7 @@ import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,
 import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
+import {WatermarkOverlay} from './WatermarkOverlay';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
@@ -207,7 +208,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, referenceT
       cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); };
   }, [publication, artwork, anchors, referenceTone]);
   return <section aria-label="작품 확대 및 회전">
-    <div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label="작품 회전 및 확대 조작" aria-describedby={hint} />
+    <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label="작품 회전 및 확대 조작" aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
     <p id={hint} className="detail-gesture-hint">드래그하여 상하·좌우 회전 · 두 손가락으로 확대. 키보드는 방향키·+/−, Home으로 초기화합니다.</p>
     {error && <p role="status">{error}</p>}
     <label>작품 회전 {Math.round(yaw)}° <input aria-label="작품 회전" type="range" min="-180" max="180" step="5" value={yaw} onChange={e => changeView(detailView({ ...controls.current, yaw: Number(e.target.value) }))} /></label>

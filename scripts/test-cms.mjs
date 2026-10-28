@@ -114,16 +114,10 @@ function translated(data, scale = false) {
   return Buffer.concat([header, padded, tail]);
 }
 try {
-  await test("actual bounded GLB display derivative changes bytes, validates, rejects translated/scaled models", async () => {
+  await test("actual bounded clean GLB display copy preserves bytes, validates, rejects translated/scaled models", async () => {
     const output = await derivative(glb, "model/gltf-binary");
     await decode(output, "model/gltf-binary");
-    assert.notEqual(sha256(output), sha256(glb));
-    const doc = JSON.parse(
-      output.toString("utf8", 20, 20 + output.readUInt32LE(12)),
-    );
-    assert.ok(
-      doc.nodes.some((n) => n.name === "ExhibitOS display copy watermark"),
-    );
+    assert.equal(sha256(output), sha256(glb));
     for (const bytes of [
       translated(glb),
       translated(glb, true),
@@ -505,9 +499,11 @@ try {
       request(artist, "GET", `/cms/artworks/${artwork.id}/preview`),
       200,
     );
-    assert.equal(preview.headers["x-exhibitos-watermarked"], "true");
+    assert.equal(preview.headers["x-exhibitos-watermarked"], "false");
+    assert.equal(preview.headers["x-exhibitos-display-copy"], "true");
+    assert.equal(preview.headers["x-exhibitos-watermark-mode"], "none");
     await decode(preview.rawPayload, "model/gltf-binary");
-    assert.notEqual(sha256(preview.rawPayload), sha256(glb));
+    assert.equal(sha256(preview.rawPayload), sha256(glb));
     assert.deepEqual(
       await new Storage(pool, blobs).reconcile(
         { tenantId: tenant, userId: admin.userId },

@@ -3,6 +3,8 @@
 export const MATERIAL_NAMESPACE = "org.exhibitos.studio/materials";
 export const MAX_MATERIALS = 64;
 import { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
+import {validDisplayWatermark} from './watermark.js';
+export * from './watermark.js';
 import {surfaceTextureFor,surfaceTextureDefaults,validateSurfaceTextures,type SurfaceTextureBinding} from './surface-textures.js';
 export * from './surface-textures.js';
 export { DEFAULT_MATERIAL, isPbrMaterial, type PbrMaterial } from './pbr-material.js';
@@ -153,6 +155,7 @@ export interface StudioPresentation {
         name: string;
     })[];
     credits: string;
+    watermark?: import('./watermark.js').DisplayWatermark;
 }
 /** Bounded metadata only; routes remain optional public OES navigation. */
 export function validateStudioPresentation(candidate: unknown): MaterialValidation {
@@ -165,11 +168,12 @@ export function validateStudioPresentation(candidate: unknown): MaterialValidati
         add("STUDIO_PRESENTATION_VERSION", "", "Only presentation version 1 is supported");
         return { valid: false, errors };
     }
-    const keys = value.startCamera === undefined ? ["version", "viewpoints", "credits"] : ["version", "startCamera", "viewpoints", "credits"];
+    const keys = ["version", "viewpoints", "credits",...(value.startCamera===undefined?[]:["startCamera"]),...(value.watermark===undefined?[]:["watermark"])];
     if (!exact(value, keys) || !Array.isArray(value.viewpoints) || value.viewpoints.length > 64 || typeof value.credits !== "string" || value.credits.length > 4096) {
         add("STUDIO_PRESENTATION_SCHEMA", "", "Expected at most 64 viewpoints and bounded credits");
         return { valid: false, errors };
     }
+    if(value.watermark!==undefined&&!validDisplayWatermark(value.watermark))add('STUDIO_WATERMARK_INVALID','/watermark','Expected a bounded optional display watermark; rights and original access remain independent');
     const rooms = Array.isArray(candidate.rooms) ? candidate.rooms.filter(object) : [];
     const seen = new Set<string>();
     const vector = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3 && v.every(n => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 10000);

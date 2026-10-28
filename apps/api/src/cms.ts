@@ -8,6 +8,8 @@ import { artworkAccess, type BlobStore, sha256 } from "@exhibitos/storage";
 import { ApiError, type Session, uuid } from "./auth.ts";
 import { validRights, allowedRights } from "./rights.ts";
 import { derivative } from "./derivative.ts";
+import {normalizeDisplayWatermark,type DisplayWatermark} from '@exhibitos/studio-contract';
+import {cachedDisplayDerivative} from './display-derivative-cache.ts';
 export interface ArtworkMetadata {
   title: string;
   description: string;
@@ -485,13 +487,15 @@ export class Cms {
     if(bytes.length!==declared.bytes||sha256(bytes)!==declared.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
     return bytes;
   }
-  async displayApprovedVariant(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number) {
+  async displayApprovedVariant(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number,watermark?:DisplayWatermark) {
     const original=await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision);
-    const bytes=await derivative(original,'model/gltf-binary');
+    if(!this.blobs)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+    const bytes=await cachedDisplayDerivative(original,'model/gltf-binary',{watermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId,sourceSha256:sha256(original)});
     if(!(await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
     return {original,bytes,mime:'model/gltf-binary' as const};
   }
-  async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number) {
+  async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number,watermark?:DisplayWatermark) {
+    const displayWatermark=normalizeDisplayWatermark(watermark);
     if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision > 2147483647))
       throw new ApiError(400, "INVALID_INPUT");
     let a;
@@ -542,7 +546,7 @@ export class Cms {
         dimensions: m.dimensions,
         creditLine: (m.rights as { creditLine?: string }).creditLine ?? "",
         previewMime: asset.mime,
-        watermarked: true,
+        watermarked: displayWatermark.mode==='embedded'&&asset.mime==='image/png',
         originalDownload:
           ["admin","artist"].includes(s.role) && allowedRights(m.rights, "download") &&
           allowedRights(asset.rights, "download"),
@@ -558,30 +562,9 @@ export class Cms {
       sha256(original) !== asset.sha256
     )
       throw new ApiError(409, "ASSET_INTEGRITY");
-    const bytes = await derivative(original, asset.mime);
-    const key = `${s.tenantId}/derivatives/${asset.sha256}-watermark-v1/${sha256(bytes)}`;
-    await this.blobs.put(key, bytes);
-    const did = createHash("sha256")
-      .update(`${s.tenantId}:${asset.id}:watermark-v1`)
-      .digest("hex");
-    const derivativeId = `${did.slice(0, 8)}-${did.slice(8, 12)}-4${did.slice(13, 16)}-8${did.slice(17, 20)}-${did.slice(20, 32)}`;
-    await c.query(
-      "INSERT INTO asset_derivatives(tenant_id,id,metadata,asset_id) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,id) DO NOTHING",
-      [
-        s.tenantId,
-        derivativeId,
-        {
-          objectKey: key,
-          sha256: sha256(bytes),
-          mime: asset.mime,
-          bytes: bytes.length,
-          watermarked: true,
-          policy: "display",
-          sourceSha256: asset.sha256,
-        },
-        asset.id,
-      ],
-    );
-    return { bytes, mime: asset.mime, revision: a.revision };
+    const bytes = await cachedDisplayDerivative(original,asset.mime,{watermark:displayWatermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256});
+    if(!allowedRights(m.rights,'display')||!allowedRights(asset.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
+    const embedded=displayWatermark.mode==='embedded'&&asset.mime==='image/png';
+    return { bytes, mime: asset.mime, revision: a.revision,watermarked:embedded,watermarkMode:embedded?'embedded' as const:'none' as const };
   }
 }

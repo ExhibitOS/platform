@@ -3,6 +3,7 @@ import {freezeCanonical,MAX_COVER_BYTES,spaceStillFor,validateSpaceStillInventor
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import type {EntranceCoverSource} from './EntranceCover';
 import {approvedPlacementArtwork} from './native-placement-source';
+import {approvedDisplayCopyResponse} from './approved-display-response';
 async function bounded(response:Response,limit:number,signal:AbortSignal){
  if(!response.ok||!response.body){await response.body?.cancel().catch(()=>{});throw Error('ENTRANCE_PREVIEW_IMAGE_UNAVAILABLE');}
  const reader=response.body.getReader(),chunks:Uint8Array[]=[];let size=0;
@@ -23,7 +24,7 @@ export function nativeEntranceCoverSource(frame:NativeViewportFrame,check:(signa
     if(result.id!==still.id||result.revision!==1||result.state!=='approved'||result.revoked!==false||freezeCanonical(result.asset)!==freezeCanonical(still))throw Error('ENTRANCE_PREVIEW_IMAGE_STALE');
    };
    await metadata();const response=await fetcher(`${path}/preview?expectedSha256=${still.sha256}`,options);
-   if(!response.ok||response.headers.get('content-type')?.split(';')[0]!=='image/png'||response.headers.get('x-exhibitos-watermarked')!=='true'||response.headers.get('x-exhibitos-cover-sha256')!==still.sha256){await response.body?.cancel().catch(()=>{});throw Error('ENTRANCE_PREVIEW_IMAGE_UNAVAILABLE');}
+   if(!response.ok||response.headers.get('content-type')?.split(';')[0]!=='image/png'||!approvedDisplayCopyResponse(response.headers)||response.headers.get('x-exhibitos-cover-sha256')!==still.sha256){await response.body?.cancel().catch(()=>{});throw Error('ENTRANCE_PREVIEW_IMAGE_UNAVAILABLE');}
    const bytes=await bounded(response,MAX_COVER_BYTES,signal);await metadata();await check(signal);signal.throwIfAborted();
    if(!validateSpaceStillInventory(frame.draft.candidate,{publicationTime:new Date().toISOString()}).valid)throw Error('ENTRANCE_PREVIEW_IMAGE_RIGHTS');
    return bytes.buffer;
@@ -36,7 +37,7 @@ export function nativeEntranceCoverSource(frame:NativeViewportFrame,check:(signa
    if(freezeCanonical(approved)!==freezeCanonical(artwork))throw Error('ENTRANCE_PREVIEW_IMAGE_STALE');
   };
   await metadata();const response=await fetcher(`${preview}?expectedRevision=${binding.revision}`,options);
-  if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!=='image/png'||response.headers.get('x-exhibitos-watermarked')!=='true'||response.headers.get('x-exhibitos-artwork-revision')!==String(binding.revision)){await response.body?.cancel().catch(()=>{});throw Error('ENTRANCE_PREVIEW_IMAGE_UNAVAILABLE');}
+  if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!=='image/png'||!approvedDisplayCopyResponse(response.headers)||response.headers.get('x-exhibitos-artwork-revision')!==String(binding.revision)){await response.body?.cancel().catch(()=>{});throw Error('ENTRANCE_PREVIEW_IMAGE_UNAVAILABLE');}
   const bytes=await bounded(response,MAX_COVER_BYTES,signal);
   // Rights/revision may change during the download. No stale bytes reach the shared cover.
   await metadata();await check(signal);signal.throwIfAborted();
