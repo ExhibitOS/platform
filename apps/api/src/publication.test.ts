@@ -1,3 +1,4 @@
+import {VIEWING_PLAN_NAMESPACE,viewingPlanFor,validateViewingPlan,presentationFor} from '@exhibitos/studio-contract';
 import {SPATIAL_NAMESPACE,spatialProgramFor,validateSpatialProfile} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect } from "vitest";
@@ -171,4 +172,32 @@ describe('explicit approved LOD projection and unsupported fallback',()=>{
   const result=projectPublication(e,[{artwork:a,sourceAssetId:primary.id,sourceSha256:primary.sha256,coarseSource:{id,sha256:hash},bytes:Buffer.from('qualified full display bytes'),mime:'model/gltf-binary',variants:{full:{triangles:8,textureSize:2},coarse:{triangles:2,textureSize:2},bytes:Buffer.from('coarse')}}],'2026-10-01T00:00:00Z');
   expect(result.assets[1]!.prepared.sourceAssetId).toBe(id);expect(result.assets[1]!.prepared.sourceSha256).toBe(hash);expect(result.snapshot.artworks[0]!.assets[1]!.id).not.toBe(id);expect(result.snapshot.artworks[0]!.transform).toEqual(a.transform);
  });
+});
+
+it('preserves viewing-plan order and orbit through publication and OEX while rejecting dangling authored references',async()=>{
+ const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+ const placements=[candidate.placements[1]!,candidate.placements[2]!];
+ const viewpoints=placements.map((p,i)=>({id:crypto.randomUUID(),name:p.id,roomId:p.roomId,position:[i,1.65,2],target:[0,1,0],fov:50}));
+ const orbit={minYaw:-1,maxYaw:1};
+ candidate.extensions={
+  [PRESENTATION_NAMESPACE]:{version:1,viewpoints,credits:viewpoints[0]!.id},
+  [VIEWING_PLAN_NAMESPACE]:{version:1,stops:placements.map((p,i)=>({placementId:p.id.toUpperCase(),viewpointId:viewpoints[i]!.id.toUpperCase(),...(i===0?{orbit}:{})}))},
+ };
+ expect(validateViewingPlan(candidate).valid).toBe(true);expect(()=>checkOexProfile(candidate)).not.toThrow();
+ const before=structuredClone(candidate);
+ const prepared=candidate.artworks.map(a=>({artwork:a,sourceAssetId:a.primaryAssetId,sourceSha256:a.assets[0]!.sha256,bytes:Buffer.from('Synthetic qualified display'),mime:a.artworkType==='image'?'image/png' as const:'model/gltf-binary' as const}));
+ const published=projectPublication(candidate,prepared,'2026-10-28T00:00:00Z').snapshot;
+ const copied=remapOex(candidate).exhibition,roundtrip=remapOex(published).exhibition;
+ for(const output of [published,copied,roundtrip]){
+  expect(validateViewingPlan(output)).toEqual({valid:true,errors:[]});expect(()=>checkOexProfile(output)).not.toThrow();
+  const stops=viewingPlanFor(output).stops,views=presentationFor(output).viewpoints;
+  expect(stops.map(s=>s.placementId)).toEqual([output.placements[1]!.id,output.placements[2]!.id]);
+  expect(stops.map(s=>s.viewpointId)).toEqual(views.map(v=>v.id));expect(stops[0]!.orbit).toEqual(orbit);expect(stops[1]!.orbit).toBeUndefined();
+  expect(stops[0]!.placementId).not.toBe(placements[0]!.id);expect(stops[0]!.viewpointId).not.toBe(viewpoints[0]!.id);
+  expect(views.map(v=>({position:v.position,target:v.target,fov:v.fov,name:v.name}))).toEqual(viewpoints.map(v=>({position:v.position,target:v.target,fov:v.fov,name:v.name})));
+  expect(presentationFor(output).credits).toBe(viewpoints[0]!.id);
+ }
+ expect(candidate).toEqual(before);
+ const dangling=structuredClone(candidate);(dangling.extensions![PRESENTATION_NAMESPACE] as {viewpoints:unknown[]}).viewpoints=[];
+ expect(()=>projectPublication(dangling,prepared,'2026-10-28T00:00:00Z')).toThrow('PUBLICATION_NOT_READY');expect(()=>checkOexProfile(dangling)).toThrow('OEX_PROFILE_INVALID');
 });
