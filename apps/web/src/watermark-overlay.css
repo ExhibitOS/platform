@@ -6,3 +6,4 @@
 .display-watermark[data-position$="right"]{right:max(.75rem,env(safe-area-inset-right))}
 .display-watermark[data-position^="top"]{top:max(4.5rem,env(safe-area-inset-top))}
 .display-watermark[data-position^="bottom"]{bottom:max(.75rem,env(safe-area-inset-bottom))}
+@media(max-width:367px){.geometry-preview:not(.geometry-immersive) .watermark-display-stage .walking-touch{position:relative;inset:auto}}
