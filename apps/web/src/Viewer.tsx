@@ -41,12 +41,16 @@ export function Viewer({
   controlsHost,
   onNavigationActive,
   onStageState,
+  guideDismissed,
+  onGuideDismissedChange,
 }: {
   publication: PublicPublication;
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
   onNavigationActive?:()=>void;
   onStageState?:(state:{ready:boolean;message:string;error?:boolean;phase?:"space"|"artwork"|"navigation"})=>void;
+  guideDismissed?:boolean;
+  onGuideDismissedChange?:(dismissed:boolean)=>void;
   appearance: (id: string) => SurfaceAppearance;
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
@@ -63,7 +67,9 @@ export function Viewer({
   const registerViewingEntry = useCallback((actions: DetailEntryActions | null) => { viewingEntry.current = actions; onDetailEntryReady?.(actions); }, [onDetailEntryReady]);
   const analytics = useRef<ViewerAnalytics | null>(null);
   const [viewFov,setViewFov]=useState<number|"authored">(48);
-  const [introDismissed,setIntroDismissed]=useState(false);
+  const [localIntroDismissed,setLocalIntroDismissed]=useState(false);
+  const introDismissed=guideDismissed??localIntroDismissed;
+  const setIntroDismissed=(dismissed:boolean)=>{setLocalIntroDismissed(dismissed);if(dismissed!==introDismissed)onGuideDismissedChange?.(dismissed);};
   const [guideSequence,setGuideSequence]=useState(0);
   const [inputMode,setInputMode]=useState<ViewerInputMode>("auto");
   const [coarsePointer]=useMediaPreference("(pointer: coarse)");
