@@ -132,7 +132,7 @@ export function WalkingTouch({
       style={{ gridArea: direction }}
       disabled={!available || (paused && !resumable)}
       onPointerDown={(event) => {
-        if (event.pointerType === "mouse" && event.button !== 0) return;
+        if ((paused && event.isPrimary === false) || (event.pointerType === "mouse" && event.button !== 0)) return;
         if (paused && !actions?.resumeInput?.()) return;
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);

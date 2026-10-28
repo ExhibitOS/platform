@@ -276,7 +276,7 @@ test('Shift preserves movement, and background entry never resumes',()=>{
 test('first right touch resumes existing drag and retains the same captured pointer',()=>{
  let f:ReturnType<typeof fixture>;const resume=vi.fn(()=>{f.input.enable();return true;});f=fixture(resume);f.input.pause('panel');
  const pointer=(type:string,x:number)=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:8,pointerType:'touch',button:0,clientX:x,clientY:20}));
- pointer('pointerdown',70);pointer('pointermove',80);expect(resume).toHaveBeenCalledOnce();expect(f.canvas.setPointerCapture).toHaveBeenCalledWith(8);
+ pointer('pointerdown',70);expect(resume).not.toHaveBeenCalled();pointer('pointermove',80);expect(resume).toHaveBeenCalledOnce();expect(f.canvas.setPointerCapture).toHaveBeenCalledWith(8);
  expect(f.input.sample(.1).yawDelta).toBe(-.04);pointer('pointercancel',80);pointer('pointermove',90);expect(f.input.sample(.1).yawDelta).toBe(0);f.input.dispose();
 });
 
@@ -296,4 +296,48 @@ test('a fresh mapped key after Esc resumes in the same event without native reca
  expect(resume).toHaveBeenCalledOnce();expect(f.input.sample(.1).right).toBe(1);
  expect(f.canvas.requestPointerLock).not.toHaveBeenCalled();
  window.dispatchEvent(Object.assign(new Event('keyup'),{code:'KeyD'}));expect(f.input.sample(.1).right).toBe(0);f.input.dispose();
+});
+
+
+test('held keys and leftover look never return after a temporary pause is cleared',()=>{
+ const f=fixture();const key=(type:string,repeat=false)=>window.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{code:'KeyW',repeat}));
+ key('keydown');expect(f.input.sample(.1).forward).toBe(1);f.input.pause('panel');f.input.enable();key('keydown',true);expect(f.input.sample(.1).forward).toBe(0);
+ key('keyup');key('keydown');expect(f.input.sample(.1).forward).toBe(1);f.input.dispose();
+});
+test('paused taps, cancelled pointers and multitouch do not consume resume',()=>{
+ let f:ReturnType<typeof fixture>;const resume=vi.fn(()=>{f.input.enable();return true;});f=fixture(resume);f.input.pause('escape');
+ const pointer=(type:string,fields={})=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:8,pointerType:'touch',button:0,clientX:70,clientY:20,...fields}));
+ pointer('pointerdown');pointer('pointerup');expect(resume).not.toHaveBeenCalled();
+ pointer('pointerdown');pointer('pointercancel');pointer('pointermove',{clientX:90});expect(resume).not.toHaveBeenCalled();
+ pointer('pointerdown');pointer('pointerdown',{pointerId:9,isPrimary:false});pointer('pointermove',{clientX:90});expect(resume).not.toHaveBeenCalled();
+ pointer('pointerdown');pointer('pointermove',{clientX:90});expect(resume).toHaveBeenCalledOnce();
+ expect(f.input.sample(.1).yawDelta).toBe(-.08);f.input.dispose();
+});
+test('a joystick held in active walking permits the existing second-hand look without another resume',()=>{
+ const resume=vi.fn(()=>false),f=fixture(resume);f.input.press('forward',1);
+ f.canvas.dispatchEvent(Object.assign(new Event('pointerdown',{cancelable:true}),{pointerId:2,pointerType:'touch',isPrimary:false,button:0,clientX:70,clientY:20}));
+ f.canvas.dispatchEvent(Object.assign(new Event('pointermove',{cancelable:true}),{pointerId:2,clientX:80,clientY:20}));
+ expect(f.input.sample(.1)).toMatchObject({forward:1,yawDelta:-.04});expect(resume).not.toHaveBeenCalled();f.input.dispose();
+});
+
+
+test('fresh non-repeat input after a release outside the app works on the first press',()=>{
+ const f=fixture();const key=(repeat:boolean)=>window.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyW',repeat}));
+ key(false);f.input.pause('window');f.input.enable();key(true);expect(f.input.sample(.1).forward).toBe(0);
+ key(false);expect(f.input.sample(.1).forward).toBe(1);f.input.dispose();
+});
+test('shortcut-modified pending look does not resume, including modifiers applied after down',()=>{
+ for(const modifier of ['ctrlKey','metaKey','altKey']){
+  const resume=vi.fn(()=>false),f=fixture(resume);f.input.pause('escape');
+  const pointer=(type:string,fields={})=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:8,pointerType:'mouse',button:0,clientX:70,clientY:20,...fields}));
+  pointer('pointerdown',{[modifier]:true});pointer('pointermove',{clientX:90});expect(resume).not.toHaveBeenCalled();
+  pointer('pointerdown');pointer('pointermove',{clientX:90,[modifier]:true});pointer('pointermove',{clientX:100});expect(resume).not.toHaveBeenCalled();f.input.dispose();
+ }
+});
+
+
+test('a key first held during a panel pause cannot introduce movement through later repeat',()=>{
+ const f=fixture(()=>false);f.input.pause('panel');const key=(repeat:boolean)=>window.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyW',repeat}));
+ key(false);f.input.enable();key(true);expect(f.input.sample(.1).forward).toBe(0);
+ window.dispatchEvent(Object.assign(new Event('keyup'),{code:'KeyW'}));key(false);expect(f.input.sample(.1).forward).toBe(1);f.input.dispose();
 });

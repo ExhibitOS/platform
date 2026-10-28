@@ -9,16 +9,18 @@ export function createWalkingInput(
   isPanelFocus: (target: EventTarget | null) => boolean = () => false,
   resumeMovement: () => boolean = () => false,
 ) {
+  const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
     touch = new Map<number, WalkAction>();
   let disposed = false, captureGeneration = 0;
   let pendingCapture: { generation: number } | undefined;
   let enabled = false,
-    look: { id: number; x: number; y: number } | undefined,
+    look: { id: number; x: number; y: number; pending?: boolean } | undefined,
     yawDelta = 0,
     pitchDelta = 0,
     hadLock = false;
   const clear = () => {
+    for (const code of keys) blockedKeys.add(code);
     keys.clear();
     touch.clear();
     look = undefined;
@@ -49,7 +51,9 @@ export function createWalkingInput(
     // if a browser leaves the canvas as the reported active element.
     const protectedTarget = (target: EventTarget | null) => typeof Element !== "undefined" && target instanceof Element &&
       !!target.closest('input,textarea,select,button,summary,a[href],[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="button"],[role="dialog"],[aria-modal="true"]');
-    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
+    if (event.repeat && codes.has(event.code) && !keys.has(event.code)) return;
+    if (!event.repeat) blockedKeys.delete(event.code); // A keyup may have occurred in another app.
+    if (blockedKeys.has(event.code) || event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
       event.altKey || event.ctrlKey || event.metaKey || document.hidden ||
       protectedTarget(event.target) || protectedTarget(document.activeElement)) return;
     if (!enabled && /^(KeyQ|KeyW|KeyE|KeyA|KeyS|KeyD)$/.test(event.code) && !event.repeat)
@@ -73,7 +77,7 @@ export function createWalkingInput(
       keys.add(event.code);
     }
   };
-  const keyup = (event: KeyboardEvent) => keys.delete(event.code);
+  const keyup = (event: KeyboardEvent) => { keys.delete(event.code); blockedKeys.delete(event.code); };
   const move = (event: MouseEvent) => {
     if (enabled && document.pointerLockElement === canvas) {
       yawDelta -= event.movementX * 0.002;
@@ -90,10 +94,10 @@ export function createWalkingInput(
     hadLock = locked;
   };
   const pointerdown = (event: PointerEvent) => {
-    if (!enabled && event.pointerType === "touch" && event.clientX >=
-      canvas.getBoundingClientRect().left + canvas.getBoundingClientRect().width / 2) resumeMovement();
+    if (event.isPrimary === false && (!enabled || touch.size === 0)) { look = undefined; return; }
+    if (event.target !== canvas || event.defaultPrevented || document.hidden ||
+      (!enabled && (event.altKey || event.ctrlKey || event.metaKey))) return;
     if (
-      !enabled ||
       document.pointerLockElement === canvas ||
       (event.pointerType === "mouse" && event.button !== 0) ||
       (event.pointerType === "touch" && event.clientX <
@@ -101,13 +105,20 @@ export function createWalkingInput(
           canvas.getBoundingClientRect().width / 2)
     )
       return;
-    event.preventDefault();
-    canvas.focus({ preventScroll: true });
-    look = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    if (enabled) { event.preventDefault(); canvas.focus({ preventScroll: true }); }
+    look = { id: event.pointerId, x: event.clientX, y: event.clientY, pending: !enabled };
     canvas.setPointerCapture(event.pointerId);
   };
   const pointermove = (event: PointerEvent) => {
-    if (!enabled || look?.id !== event.pointerId) return;
+    if (look?.id !== event.pointerId) return;
+    if (look.pending) {
+      if (event.altKey || event.ctrlKey || event.metaKey) { look = undefined; return; }
+      if (Math.hypot(event.clientX - look.x, event.clientY - look.y) <= 5) return;
+      const gesture = look;
+      if (!resumeMovement() || !enabled) { look = undefined; return; }
+      look = { ...gesture, pending: false }; // enable clears old input; retain only THIS intentional drag.
+    }
+    if (!enabled) return;
     event.preventDefault();
     yawDelta -= (event.clientX - look.x) * 0.004;
     pitchDelta -= (event.clientY - look.y) * 0.004;
@@ -118,6 +129,7 @@ export function createWalkingInput(
     if (look?.id === event.pointerId) look = undefined;
     touch.delete(event.pointerId);
   };
+  const cancelPendingLook = () => { if (look?.pending) look = undefined; };
   const windowBlur = () => stop("window");
   const canvasBlur = (event: FocusEvent) => stop(isPanelFocus(event.relatedTarget) ? "panel" : "blur");
   window.addEventListener("keydown", keydown);
@@ -127,6 +139,9 @@ export function createWalkingInput(
   canvas.addEventListener("blur", canvasBlur);
   document.addEventListener("visibilitychange", visibility);
   document.addEventListener("pointerlockchange", lockchange);
+  document.addEventListener("wheel", cancelPendingLook, true);
+  document.addEventListener("scroll", cancelPendingLook, true);
+  document.addEventListener("contextmenu", cancelPendingLook, true);
   canvas.addEventListener("pointerdown", pointerdown);
   canvas.addEventListener("pointermove", pointermove);
   canvas.addEventListener("pointerup", pointerend);
@@ -233,6 +248,9 @@ export function createWalkingInput(
       canvas.removeEventListener("blur", canvasBlur);
       document.removeEventListener("visibilitychange", visibility);
       document.removeEventListener("pointerlockchange", lockchange);
+      document.removeEventListener("wheel", cancelPendingLook, true);
+      document.removeEventListener("scroll", cancelPendingLook, true);
+      document.removeEventListener("contextmenu", cancelPendingLook, true);
       canvas.removeEventListener("pointerdown", pointerdown);
       canvas.removeEventListener("pointermove", pointermove);
       canvas.removeEventListener("pointerup", pointerend);

@@ -59,6 +59,8 @@ export function Viewer({
   guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
+  const viewingEntry = useRef<DetailEntryActions | null>(null);
+  const registerViewingEntry = useCallback((actions: DetailEntryActions | null) => { viewingEntry.current = actions; onDetailEntryReady?.(actions); }, [onDetailEntryReady]);
   const analytics = useRef<ViewerAnalytics | null>(null);
   const [viewFov,setViewFov]=useState<number|"authored">(48);
   const [introDismissed,setIntroDismissed]=useState(false);
@@ -196,7 +198,7 @@ export function Viewer({
   );
   return (
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
-      {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>setIntroDismissed(true)} />}
+      {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>{setIntroDismissed(true);viewingEntry.current?.resumeViewing?.();}} />}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       <GeometryPreview
         immersive={immersive}
@@ -223,7 +225,7 @@ export function Viewer({
         onPlaqueSelect={onPlaqueSelect}
         proximityDetail={proximityDetail}
         focusedPlacementId={focusedPlacementId}
-        onDetailEntryReady={onDetailEntryReady}
+        onDetailEntryReady={registerViewingEntry}
         guideRequest={guideRequest}
         openingViewpoint={openingView}
         onPresencePose={publication.local?undefined:capturePresencePose}
