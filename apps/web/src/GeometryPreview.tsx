@@ -1426,7 +1426,7 @@ export function GeometryPreview({
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
-        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined;
+        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
@@ -1991,12 +1991,13 @@ export function GeometryPreview({
           desired.set(art.revisionId,active.get(art.revisionId)!);
           detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;
           sharedDetailUnavailable=input.unavailable;
-          let promoteImage:(()=>void)|undefined;
+          let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
           const visible=()=>{if(globalThis.document.visibilityState==='visible')void check();};
           const restore=()=>{
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             if(settleDetail===promoteImage)settleDetail=undefined;
+            if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
             peak.release(detailKey);
             sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
             if(!disposed&&!gpuLost){
@@ -2025,14 +2026,20 @@ export function GeometryPreview({
                 const previous=object,retired=detailRetired;object=next;detailPinned=next;detailRetired=false;
                 if(retired&&previous)destroy(previous);
               };
-              settleDetail=promoteImage;request(art,true,false,true);
+              settleDetail=promoteImage;
+              retryPromotion=()=>{
+                if(!alive||signal.aborted||disposed||gpuLost||sharedDetail!==scope||pending.has(art.revisionId)||(retryAfter.get(art.revisionId)??0)>performance.now())return;
+                try{if(active.get(art.revisionId)===selectAssetVariant(art,0,viewerBudget).id)return;}catch{return;}
+                request(art,true,false,true);
+              };
+              retryFlatDetail=retryPromotion;retryPromotion();
             }
             update();return scope;
           }catch(error){restore();throw error;}
         };
         detailEntry.current.mountPreview=mountSharedDetail;
         cancelSharedDetail=()=>cancelDetail?.();
-        const statsTimer = setInterval(()=>{automaticDemand();update();}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();}, 200);
         const originalRelease = release;
         release = () => {
           viewingCallback.current?.(null);for(const check of [...viewingWaiters])check();viewingPins.clear();
