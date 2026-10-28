@@ -41,6 +41,7 @@ export function VisitorMap({map,worldPose,previews,destinations,available,travel
  const dispatch=(intent:{type:'hover'|'leave'|'focus'|'blur'|'select';target:MapTarget}|{type:'dismiss'})=>{
   const previous=selectionRef.current,next=selectVisitorMap(map,previous,{...intent,key:map.key} as MapIntent);
   if(intent.type==='dismiss'||!sameTarget(visitorMapPreview(map,previous),visitorMapPreview(map,next))||!sameTarget(previous.selected,next.selected))invalidate();
+  if(intent.type==='select'&&!sameTarget(previous.selected,next.selected)&&travel.status==='preparing')onCancel();
   selectionRef.current=next;setSelection(next);
  };
  const preview=visitorMapPreview(map,selection),placement=preview?.kind==='placement'?map.placements.find(item=>same(item.id,preview.id)):undefined;
