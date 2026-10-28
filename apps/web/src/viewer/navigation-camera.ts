@@ -6,7 +6,7 @@ import { artifactPoint, presentationFor, benchSeat } from "@exhibitos/studio-con
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
-import { teleportToViewpoint } from "./navigation-teleport";
+import { teleportToViewpoint, viewpointPose } from "./navigation-teleport";
 import { createWalkingInput, type WalkingPauseReason } from "./navigation-input";
 export async function createWalkingCamera({
   document,
@@ -161,8 +161,24 @@ export async function createWalkingCamera({
     frame = requestAnimationFrame(tick);
     onMessage("걷기를 시작했습니다. 화면에 초점이 있습니다.");
   };
+  const prepareViewpoint = (id:string) => {
+    if(disposed||seated)return undefined;
+    try{const authored=viewpointPose(document,id),position=controller.qualifiedStandingEye(authored.position);return position?{...authored,position}:undefined;}catch{return undefined;}
+  };
   const actions: WalkingActions = {
     start,
+    prepareViewpoint:async id=>prepareViewpoint(id),
+    visitViewpoint:(id,ordered)=>{
+      const destination=prepareViewpoint(id);if(!destination)return false;
+      input.pause();
+      const state=controller.reset({position:destination.position,yaw:destination.yaw});
+      pitch=Math.max(-1.396,Math.min(1.396,Math.atan2(destination.target[1]-state.eyePosition[1],Math.hypot(destination.target[0]-state.eyePosition[0],destination.target[2]-state.eyePosition[2]))));
+      targetPitch=pitch;targetYaw=state.yaw;walking=!ordered;paused=true;
+      controls.enabled=false;canvas.style.touchAction=ordered?'manipulation':previousTouchAction;
+      camera.fov=destination.fov;camera.updateProjectionMatrix();
+      camera.position.fromArray(state.eyePosition);camera.rotation.set(pitch,state.yaw,0,'YXZ');controls.target.fromArray(destination.target);
+      onMode(walking,true);apply();return true;
+    },
     sit: benchId => {
       if(disposed||seated)return;
       try {
