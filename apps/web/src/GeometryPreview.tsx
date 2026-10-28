@@ -1873,7 +1873,7 @@ export function GeometryPreview({
           signal.throwIfAborted();
           if(!objects.has(art.revisionId))await new Promise<void>((resolve,reject)=>{
             const deadline=performance.now()+10000;let settled=false;
-            const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;error?reject(error):resolve();};
+            const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;if(error)reject(error);else resolve();};
             const cancel=()=>finish(Error('DETAIL_CANCELLED'));
             const check=()=>{
               if(signal.aborted||disposed||gpuLost){cancel();return;}
