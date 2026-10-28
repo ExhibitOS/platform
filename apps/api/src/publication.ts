@@ -225,7 +225,7 @@ export class Publications {
                 let result: {bytes:Buffer;mime:"model/gltf-binary"|"image/png"};
                 if (artwork.artworkType === "image") {
                     await this.cms.display(c,s,artwork.id,false,artwork.revision);
-                    const asset=(await c.query("SELECT object_key,bytes,sha256 FROM assets WHERE tenant_id=$1 AND id=$2",[s.tenantId,primary.id])).rows[0];
+                    const asset=(await c.query("SELECT id,object_key,bytes,sha256 FROM assets WHERE tenant_id=$1 AND id=$2",[s.tenantId,primary.id])).rows[0];
                     if(!asset||!this.blobs)throw new ApiError(503,"STORAGE_UNAVAILABLE");
                     const original=Buffer.from(await this.blobs.get(asset.object_key));
                     if(original.length!==Number(asset.bytes)||sha256(original)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
