@@ -963,7 +963,7 @@ export function GeometryPreview({
                 setWalkLoading(false);setWalkMessage("이 viewpoint의 참조나 시점 방향을 지원하지 않습니다. 기존 위치와 정지 관람을 유지합니다.");return;
               }
             } else view("start");
-            controls.enabled = false;
+            if(!preserveCurrent)controls.enabled = false;
             initialization = (async () => {
               const { createWalkingCamera } =
                 await import("./viewer/navigation-camera");
@@ -1027,7 +1027,7 @@ export function GeometryPreview({
               .catch(() => {
                 if (!disposed) {
                   setWalkPreparation('failed');
-                  controls.enabled = true;
+                  if(!preserveCurrent)controls.enabled = true;
                   setWalkMessage(
                     "이 전시의 시작 위치나 바닥에서 안전한 걷기를 준비할 수 없습니다. 정지 관람과 작품 목록을 사용할 수 있습니다.",
                   );
@@ -1930,7 +1930,10 @@ export function GeometryPreview({
                 let plane:InstanceType<typeof three.Mesh>|undefined;
                 group.traverse(node=>{if(!plane&&node instanceof three.Mesh&&(Array.isArray(node.material)?node.material:[node.material]).some(m=>(m as InstanceType<typeof three.MeshBasicMaterial>).map))plane=node;});
                 if(!plane)throw Error('VIEWING_IMAGE_FRONT');
-                const normal=new three.Vector3(0,0,1).transformDirection(plane.matrixWorld),eye=new three.Vector3(...destination.position),centre=box.getCenter(new three.Vector3());
+                const determinant=plane.matrixWorld.determinant();if(!Number.isFinite(determinant)||determinant===0)throw Error('VIEWING_IMAGE_FRONT');
+                const normal=new three.Vector3(0,0,1).applyNormalMatrix(new three.Matrix3().getNormalMatrix(plane.matrixWorld));
+                if(!normal.toArray().every(Number.isFinite)||normal.lengthSq()===0)throw Error('VIEWING_IMAGE_FRONT');
+                const eye=new three.Vector3(...destination.position),centre=box.getCenter(new three.Vector3());
                 if(normal.dot(eye.sub(centre).normalize())<Math.cos(Math.PI/6))throw Error('VIEWING_IMAGE_FRONT');
               }
               return {commit(style){
