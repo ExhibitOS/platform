@@ -3,9 +3,9 @@ import {deflateSync} from 'node:zlib';
 import {decode} from './imports.ts';
 function crc(data:Buffer){let value=0xffffffff;for(const b of data){value^=b;for(let i=0;i<8;i++)value=(value>>>1)^((value&1)?0xedb88320:0);}return (value^0xffffffff)>>>0;}
 function chunk(kind:string,body:Buffer){const h=Buffer.alloc(8),tail=Buffer.alloc(4);h.writeUInt32BE(body.length);h.write(kind,4);tail.writeUInt32BE(crc(Buffer.concat([h.subarray(4),body])));return Buffer.concat([h,body,tail]);}
-function png(edge=2048,rgba=false){const h=Buffer.alloc(13);h.writeUInt32BE(edge);h.writeUInt32BE(edge,4);h[8]=8;h[9]=rgba?6:2;return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',h),chunk('IDAT',deflateSync(Buffer.alloc((edge*(rgba?4:3)+1)*edge))),chunk('IEND',Buffer.alloc(0))]);}
-function fixture(options:{edge?:number;rgba?:boolean;crc?:boolean;alias?:boolean;sampler?:number;partialSampler?:boolean}={}){
- const positions=Buffer.from(new Float32Array([0,0,0,1,0,0,0,1,0]).buffer),normals=Buffer.from(new Float32Array([0,0,1,0,0,1,0,0,1]).buffer),uv=Buffer.from(new Float32Array([0,0,1,0,0,1]).buffer),indices=Buffer.from(new Uint16Array([0,1,2]).buffer),image=png(),images=[image,png(options.edge??2048,options.rgba),image];
+function png(edge=2048,rgba=false,idatCount=1){const h=Buffer.alloc(13);h.writeUInt32BE(edge);h.writeUInt32BE(edge,4);h[8]=8;h[9]=rgba?6:2;const compressed=deflateSync(Buffer.alloc((edge*(rgba?4:3)+1)*edge)),packets=Array.from({length:idatCount},(_,i)=>chunk('IDAT',compressed.subarray(Math.floor(i*compressed.length/idatCount),Math.floor((i+1)*compressed.length/idatCount))));return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',h),...packets,chunk('IEND',Buffer.alloc(0))]);}
+function fixture(options:{edge?:number;rgba?:boolean;crc?:boolean;alias?:boolean;sampler?:number;partialSampler?:boolean;idatCount?:number}={}){
+ const positions=Buffer.from(new Float32Array([0,0,0,1,0,0,0,1,0]).buffer),normals=Buffer.from(new Float32Array([0,0,1,0,0,1,0,0,1]).buffer),uv=Buffer.from(new Float32Array([0,0,1,0,0,1]).buffer),indices=Buffer.from(new Uint16Array([0,1,2]).buffer),image=png(),images=[image,png(options.edge??2048,options.rgba,options.idatCount),image];
  if(options.crc)images[1]![images[1]!.length-1]^=1;
  const parts:Buffer[]=[],views:{buffer:number;byteOffset:number;byteLength:number}[]=[];let offset=0;
  for(const data of [positions,normals,uv,indices,...images]){views.push({buffer:0,byteOffset:offset,byteLength:data.length});const padded=Buffer.alloc(Math.ceil(data.length/4)*4);data.copy(padded);parts.push(padded);offset+=padded.length;}
@@ -18,4 +18,9 @@ it('strict ordinary RGB role decoding preserves omitted/partial/default mip samp
 },30000);
 it('strict ordinary resource bounds retain CRC/RGB/edge/role/sampler rejection before approval',async()=>{
  for(const options of [{crc:true},{rgba:true},{edge:2049},{alias:true},{sampler:1234}])await expect(decode(fixture(options),'model/gltf-binary')).rejects.toMatchObject({code:'FORMAT_REJECTED'});
+},30000);
+it('admits bounded ordinary producer IDAT packets while preserving the chunk ceiling and legacy limit',async()=>{
+ await expect(decode(fixture({idatCount:355}),'model/gltf-binary')).resolves.toBeUndefined();
+ await expect(decode(fixture({idatCount:1023}),'model/gltf-binary')).rejects.toMatchObject({code:'FORMAT_REJECTED'});
+ await expect(decode(png(2048,false,355),'image/png')).rejects.toMatchObject({code:'FORMAT_REJECTED'});
 },30000);

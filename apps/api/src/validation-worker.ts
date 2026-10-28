@@ -24,7 +24,7 @@ function crc(data: Buffer) {
   }
   return (value ^ 0xffffffff) >>> 0;
 }
-function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192) {
+function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192, chunkLimit = 256) {
   if (
     data.length < 33 ||
     !data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -41,7 +41,7 @@ function png(data: Buffer, pixelLimit = PIXELS, dimensionLimit = 8192) {
   const compressed: Buffer[] = [];
   let chunkCount = 0;
   while (offset < data.length) {
-    if (++chunkCount > 256 || offset + 12 > data.length) fail();
+    if (++chunkCount > chunkLimit || offset + 12 > data.length) fail();
     const size = data.readUInt32BE(offset),
       end = offset + 12 + size;
     if (end > data.length) fail();
@@ -162,7 +162,10 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
     if (!w || !h || w > 2048 || h > 2048 || pixels > texturePixels || compressed > textureBytes) fail();
     imageBytes.push(bytes);
   }
-  for (const bytes of imageBytes) png(bytes, ordinary?4*1024*1024:texturePixels, 2048);
+  // The bounded ordinary role producer emits 16 KiB IDAT packets. An 8 MiB
+  // image can exceed 256 chunks without increasing decoded pixels or bytes.
+  // Keep legacy admission unchanged and retain all CRC/metadata/scanline checks.
+  for (const bytes of imageBytes) png(bytes, ordinary?4*1024*1024:texturePixels, 2048, ordinary?1024:256);
   for (const sampler of doc.samplers??[]) {
     if(ordinary){
       if(!closed(sampler,[],["magFilter","minFilter","wrapS","wrapT","name"]) || sampler.magFilter!==undefined && ![9728,9729].includes(sampler.magFilter) || sampler.minFilter!==undefined && ![9728,9729,9984,9985,9986,9987].includes(sampler.minFilter) || [sampler.wrapS,sampler.wrapT].some(v=>v!==undefined && ![33071,10497,33648].includes(v)))fail();
