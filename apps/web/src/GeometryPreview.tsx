@@ -3,7 +3,7 @@ import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-text
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
-import {borrowedDetailPreview,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
+import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
@@ -1964,11 +1964,12 @@ export function GeometryPreview({
                 if(retired&&previous)destroy(previous);
               };
               settleDetail=promoteImage;
-              retryPromotion=()=>{
-                if(!alive||signal.aborted||disposed||gpuLost||sharedDetail!==scope||pending.has(art.revisionId)||(retryAfter.get(art.revisionId)??0)>performance.now())return;
-                try{if(active.get(art.revisionId)===selectAssetVariant(art,0,viewerBudget).id)return;}catch{return;}
-                request(art,true,false,true);
-              };
+              retryPromotion=createFlatDetailRetry({
+                valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&sharedDetail===scope,
+                pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
+                ready:()=>active.get(art.revisionId)===selectAssetVariant(art,0,viewerBudget).id,
+                request:()=>request(art,true,false,true),
+              });
               retryFlatDetail=retryPromotion;retryPromotion();
             }
             update();return scope;
