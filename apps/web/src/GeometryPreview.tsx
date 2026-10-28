@@ -1935,7 +1935,7 @@ export function GeometryPreview({
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             if(settleDetail===promoteImage)settleDetail=undefined;
             peak.release(detailKey);
-            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
+            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
             if(!disposed&&!gpuLost){
               resize();update();
               // Dialog teardown may run before the borrowed canvas is returned.
