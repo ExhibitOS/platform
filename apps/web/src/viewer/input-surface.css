@@ -1,0 +1,43 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* Scope to the actual 3D viewing surface, including its blank ancestor area.
+   Do not disable selection, touch defaults or context menus on body/document. */
+.publication-mode-3d {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Reading remains native: copy/lookup, scrolling and browser zoom are useful. */
+.publication-mode-3d :is(.artwork-detail, .viewer-brief-copy, .publication-record, .detail-text),
+.publication-mode-text .publication-text-content {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Interaction targets are controls, even when embedded in a reading dialog. */
+.publication-mode-3d :is(button, summary, [role="button"], [role="slider"]),
+.publication-mode-3d :is(.geometry-render-host, .geometry-stage, .walking-touch, .display-watermark),
+.publication-mode-3d .artwork-detail .detail-preview {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Labels must hit their own inert surface rather than the canvas underneath.
+   Keep the surrounding pad gaps transparent to ordinary blank-space input. */
+.publication-mode-3d .walking-touch-label {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.publication-mode-3d .walking-touch button {
+  touch-action: none;
+}
+
+/* Native editing overrides ancestor/control policies; no paste/selection traps. */
+.publication-mode-3d :is(input, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: auto;
+}

@@ -88,3 +88,23 @@ test("a second Escape cancels a pending click without revoking explicit key resu
  expect(gate.consume(20,30,true)).toBe(false);
  expect(gate.canResume()).toBe(true);expect(gate.movement(true)).toBe(true);
 });
+
+
+test("last panel close releases only the temporary panel cause, once", () => {
+ const gate=panelPaused();expect(gate.panelClosed()).toBe(true);expect(gate.panelClosed()).toBe(false);
+ for(const reason of ["escape","user","hidden","window","blur"] as const){
+  const stopped=panelPaused();stopped.mode(true,true,reason);stopped.mode(true,true,"panel");
+  expect(stopped.panelClosed()).toBe(false);
+ }
+});
+test("panel settings and repeated panel focus do not replace an earlier explicit stop", () => {
+ const gate=panelPaused();gate.mode(true,true,"escape");gate.mode(true,true,"panel");gate.mode(true,true,"settings");
+ expect(gate.panelClosed()).toBe(false);expect(gate.movement(true)).toBe(true);
+});
+test("guide skip and exhibition return use the same intent, fenced by newer stops and availability", () => {
+ for(const action of ["skip-guide","return-exhibition"]){
+  const gate=panelPaused(),intent=gate.intent();expect(intent(false),action).toBe(false);expect(intent(true),action).toBe(true);
+  const stopped=panelPaused(),oldIntent=stopped.intent();stopped.mode(true,true,"escape");expect(oldIntent(true),action).toBe(false);
+  const hidden=panelPaused(),backgroundIntent=hidden.intent();hidden.invalidate();expect(backgroundIntent(true),action).toBe(false);
+ }
+});
