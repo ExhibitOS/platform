@@ -33,7 +33,7 @@ export function createMapTravel(map:VisitorMap,destinations:readonly MapDestinat
     return false;
    }finally{if(active===controller)active=undefined;}
   },
-  cancel(){if(disposed)return;abort();publish({status:'idle',message:'이동 준비를 취소했어요. 현재 위치를 유지해요.'});},
+  cancel(){if(disposed)return;const pending=!!active;abort();publish({status:'idle',message:pending?'이동 준비를 취소했어요. 현재 위치를 유지해요.':''});},
   dispose(){abort();disposed=true;},
  };
 }
