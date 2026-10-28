@@ -61,6 +61,8 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [proximityDetail, setProximityDetail] = useState(false);
   const [coverViewingStyle,setCoverViewingStyle]=useState<ViewingStyle>('free');
   const preferredViewingStyle=useRef<ViewingStyle>('free');
+  const cancelMapTravel=useRef<(()=>void)|null>(null);
+  const registerMapCancel=useCallback((cancel:(()=>void)|null)=>{cancelMapTravel.current=cancel;},[]);
   const viewingSession=useRef<ReturnType<typeof createViewingSession>|null>(null);
   const [viewingState,setViewingState]=useState<ViewingState>({style:'free',status:'idle',message:''});
   const [viewingReady,setViewingReady]=useState(false);
@@ -73,10 +75,10 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
     if(!renderer||!value)return;
     const current=createViewingSession({stops:viewingPlanFor(value.exhibition).stops,prepare:(stop,signal)=>renderer.prepare(stop,signal),free:()=>renderer.free(),changed:state=>{if(viewingSession.current===current)setViewingState(state);}});
     viewingSession.current=current;setViewingState(current.state());
-    if(preferredViewingStyle.current==='ordered')current.actions.setStyle('ordered');
+    if(preferredViewingStyle.current==='ordered'){cancelMapTravel.current?.();current.actions.setStyle('ordered');}
   },[value]);
   const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;setCoverViewingStyle(style);};
-  const viewingActions:ViewingActions={setStyle(style){chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>viewingSession.current?.actions.step(direction),select:placementId=>viewingSession.current?.actions.select(placementId),cancel:()=>viewingSession.current?.actions.cancel()};
+  const viewingActions:ViewingActions={setStyle(style){cancelMapTravel.current?.();chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>{cancelMapTravel.current?.();viewingSession.current?.actions.step(direction);},select:placementId=>{cancelMapTravel.current?.();viewingSession.current?.actions.select(placementId);},cancel:()=>viewingSession.current?.actions.cancel()};
   const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
@@ -235,7 +237,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           {mode === "3d" && <button className="publication-text-route" onClick={showTextArtworks}>텍스트로 관람</button>}
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
+            <Viewer onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
               onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}

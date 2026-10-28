@@ -48,11 +48,13 @@ export function Viewer({
   onViewingRendererReady,
   mapEnabled = true,
   onMapAction,
+  onMapCancelReady,
   guideDismissed,
   onGuideDismissedChange,
 }: {
   mapEnabled?:boolean;
   onMapAction?:()=>void;
+  onMapCancelReady?:(cancel:(()=>void)|null)=>void;
   onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
   publication: PublicPublication;
   immersive?: boolean;
@@ -83,6 +85,7 @@ export function Viewer({
   const mapDestinations=useMemo(()=>presentationFor(publication.exhibition).viewpoints.map(({id,roomId,name})=>({id,roomId,name})),[publication]);
   const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240)}])),[publication]);
   const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState):undefined,[map,mapDestinations]);
+  useEffect(()=>{onMapCancelReady?.(mapTravel?.cancel??null);return()=>onMapCancelReady?.(null);},[mapTravel,onMapCancelReady]);
   useEffect(()=>{
     setMapTravelState({status:'idle',message:''});
     const cancel=()=>mapTravel?.cancel(),hidden=()=>{if(document.hidden)cancel();};
