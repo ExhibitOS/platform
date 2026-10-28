@@ -8,6 +8,8 @@ const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&
 export const DEFAULT_WATERMARK:Readonly<DisplayWatermark>=Object.freeze({version:1,mode:'none'});
 export function validDisplayWatermark(v:unknown):v is DisplayWatermark{
  if(!object(v)||v.version!==1||typeof v.mode!=='string'||!['none','overlay','embedded'].includes(v.mode)||Object.keys(v).some(k=>!['version','mode','text','position','size','opacity'].includes(k)))return false;
+ // Reject raw C0/C1 controls before trimming; these ranges are intentional.
+ // eslint-disable-next-line no-control-regex
  return (v.text===undefined||typeof v.text==='string'&&v.text.trim().length>0&&Array.from(v.text).length<=160&&!/[\u0000-\u001f\u007f-\u009f]/.test(v.text))&&
   (v.position===undefined||typeof v.position==='string'&&['top-left','top-right','bottom-left','bottom-right'].includes(v.position))&&
   (v.size===undefined||typeof v.size==='number'&&Number.isInteger(v.size)&&v.size>=8&&v.size<=24)&&
