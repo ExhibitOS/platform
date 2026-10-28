@@ -19,7 +19,7 @@ test('no automatic visit; pending target never replaces committed current until 
 test('a late cancelled preparation cannot commit or erase a newer intent',async()=>{
  const f=fixture();f.session.actions.setStyle('ordered');f.session.actions.select('b');expect(f.work[0]!.signal.aborted).toBe(true);
  const old=prepared(),next=prepared();f.work[1]!.resolve(next);await flush();f.work[0]!.resolve(old);await flush();
- expect(old.commit).not.toHaveBeenCalled();expect(old.release).toHaveBeenCalledOnce();expect(f.session.state().currentPlacementId).toBe('b');
+ expect(old.commit).not.toHaveBeenCalled();expect(old.release).toHaveBeenCalledOnce();expect(f.session.state()).toMatchObject({style:'ordered',currentPlacementId:'b'});
 });
 test('free/cancel/dispose abort pending work and release late results without camera commit',async()=>{
  for(const action of ['free','cancel','dispose'] as const){const f=fixture();f.session.actions.setStyle('ordered');
@@ -30,4 +30,10 @@ test('free/cancel/dispose abort pending work and release late results without ca
 test('failed safe commit keeps current and frees preparation; list bounds never wrap or autoplay',async()=>{
  const f=fixture();f.session.actions.setStyle('ordered');f.work[0]!.resolve(prepared());await flush();f.session.actions.step(-1);expect(f.work).toHaveLength(1);
  f.session.actions.step(1);const denied=prepared();denied.commit.mockReturnValue(false);f.work[1]!.resolve(denied);await flush();expect(denied.release).toHaveBeenCalledOnce();expect(f.session.state()).toMatchObject({style:'ordered',currentPlacementId:'a',status:'blocked'});
+});
+
+test('a new target during first ordered preparation keeps the requested style without publishing it as current',async()=>{
+ const f=fixture();f.session.actions.setStyle('ordered');expect(f.session.state()).toMatchObject({style:'free',pendingStyle:'ordered',pendingPlacementId:'a'});
+ f.session.actions.step(1);expect(f.work[0]!.signal.aborted).toBe(true);expect(f.work[1]!.id).toBe('b');expect(f.session.state().currentPlacementId).toBeUndefined();
+ const next=prepared();f.work[1]!.resolve(next);await flush();expect(next.commit).toHaveBeenCalledWith('ordered');expect(f.session.state()).toMatchObject({style:'ordered',currentPlacementId:'b'});expect(f.session.state().pendingStyle).toBeUndefined();
 });
