@@ -25,7 +25,7 @@ vi.mock('./approved-demo-display-files.ts',async original=>{
  return {...real,APPROVED_DEMO_DISPLAY_FILES:[...real.APPROVED_DEMO_DISPLAY_FILES,{...real.APPROVED_DEMO_DISPLAY_FILES[0],approvalId:witness.approvalId,canonicalAssetSha256:createHash('sha256').update(witness.bytes).digest('hex'),canonicalBytes:witness.bytes.length,canonicalMime:'model/gltf-binary',canonicalRole:'model',artworkType:'sculpture',canonicalTriangles:triangles,canonicalMaxTextureSize:512}]};
 });
 vi.mock('./imports.ts',async original=>({...await original<typeof import('./imports.ts')>(),decode:vi.fn(async()=>{})}));
-vi.mock('./derivative.ts',()=>({derivative:vi.fn(async()=>Buffer.from('marked default'))}));
+vi.mock('./derivative.ts',()=>({derivative:vi.fn(async()=>Buffer.from('clean default'))}));
 vi.mock('./viewer-variants.ts',async original=>({...await original<typeof import('./viewer-variants.ts')>(),viewerVariants:vi.fn(async()=>{throw Error('COARSE_UNAVAILABLE');})}));
 afterEach(()=>vi.clearAllMocks());
 async function fixture(){
@@ -51,11 +51,11 @@ test('the real selected model record binds the new rights snapshot rather than t
  a.extensions![N]={...a.extensions![N] as object,rightsEvidenceSha256:'448a4193a1668e67588c36224b25dd63b9c595f4039b8ee45a23253351f9d94c'};
  expect(()=>qualifyDemoDisplay(a)).toThrow('DISPLAY_POLICY_INVALID');
 });
-test('selected bytes must pass the existing strict decoder and are copied exactly; default GLB keeps its mark',async()=>{
+test('selected bytes must pass the existing strict decoder and are copied exactly; ordinary GLB uses the clean derivative route',async()=>{
  const {a}=await fixture(),before=Buffer.from(witness.bytes),copy=await publicationModelDerivative(a,witness.bytes);
  expect(decode).toHaveBeenCalledWith(witness.bytes,'model/gltf-binary');expect(copy).toEqual(before);expect(copy).not.toBe(witness.bytes);expect(witness.bytes).toEqual(before);expect(derivative).not.toHaveBeenCalled();
  vi.mocked(decode).mockRejectedValueOnce(Error('FORMAT_REJECTED'));await expect(publicationModelDerivative(a,witness.bytes)).rejects.toThrow('FORMAT_REJECTED');
- delete a.extensions;expect(await publicationModelDerivative(a,witness.bytes)).toEqual(Buffer.from('marked default'));expect(derivative).toHaveBeenCalledWith(witness.bytes,'model/gltf-binary');
+ delete a.extensions;expect(await publicationModelDerivative(a,witness.bytes)).toEqual(Buffer.from('clean default'));expect(derivative).toHaveBeenCalledWith(witness.bytes,'model/gltf-binary',{watermark:{version:1,mode:'none'}});
 });
 test('a manifest metric declaration cannot replace actual full-variant measurement',async()=>{
  const {a}=await fixture(),entry=approved.find(a=>a.approvalId===witness.approvalId)! as unknown as {canonicalTriangles:number},before=entry.canonicalTriangles;
