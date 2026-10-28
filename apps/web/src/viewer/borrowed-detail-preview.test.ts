@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,test,vi} from 'vitest';
 import * as three from 'three';
-import {borrowedDetailPreview} from './borrowed-detail-preview';
+import {AssetPeakBudget} from './loading';
+import {borrowedDetailPreview,createFlatDetailRetry} from './borrowed-detail-preview';
 
 afterEach(()=>vi.unstubAllGlobals());
 function fixture(renderFails=false){
@@ -42,4 +43,21 @@ test('failed first draw restores canvas and ownership instead of disposing the a
  const f=fixture(true);expect(()=>f.create()).toThrow('GPU_UNAVAILABLE');
  expect(f.canvas.parentNode).toBe(f.parent);expect(f.canvas.dataset.detailState).toBeUndefined();
  expect(f.read()).toMatchObject({width:1280,height:720,ratio:1.5,released:1,disconnected:1,geometryDisposed:0,materialDisposed:0,textureDisposed:0});
+});
+
+test('deferred flat detail retries once when budget frees, without duplicate or closed/aborted retries',()=>{
+ function deferred(){
+  let resident=8,time=0,after=0,pending=false,ready=false,alive=true,owner=true,attempts=0,deferredCount=0;
+  const abort=new AbortController(),budget=new AssetPeakBudget(10,()=>resident);
+  const tick=createFlatDetailRetry({valid:()=>alive&&!abort.signal.aborted&&owner,pending:()=>pending,retryAfter:()=>after,now:()=>time,ready:()=>ready,request:()=>{
+   attempts++;try{budget.reserve('full',4);pending=true;}catch{deferredCount++;after=time+400;}
+  }});
+  return {tick,abort,free:()=>{resident=2;},time:(v:number)=>{time=v;},close:()=>{alive=false;},replace:()=>{owner=false;},complete:()=>{budget.release('full');resident+=4;pending=false;ready=true;},read:()=>({attempts,deferredCount,pending,ready})};
+ }
+ const f=deferred();f.tick();expect(f.read()).toEqual({attempts:1,deferredCount:1,pending:false,ready:false});
+ f.free();f.time(200);f.tick();expect(f.read().attempts).toBe(1); // Existing retry grace still owns admission.
+ f.time(400);f.tick();expect(f.read()).toEqual({attempts:2,deferredCount:1,pending:true,ready:false});
+ for(let i=0;i<5;i++)f.tick();expect(f.read().attempts).toBe(2);
+ f.complete();f.tick();expect(f.read()).toMatchObject({attempts:2,pending:false,ready:true});
+ for(const stop of ['close','abort','replace'] as const){const ended=deferred();ended.tick();if(stop==='close')ended.close();else if(stop==='abort')ended.abort.abort();else ended.replace();ended.free();ended.time(500);ended.tick();expect(ended.read().attempts,stop).toBe(1);}
 });

@@ -3,7 +3,7 @@ import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-text
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
-import {borrowedDetailPreview,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
+import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
@@ -1415,7 +1415,7 @@ export function GeometryPreview({
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
-        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined;
+        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
           for (const resource of decodedResources.get(object) ?? [])
@@ -1589,8 +1589,8 @@ export function GeometryPreview({
           );
           settleDetail?.();
         };
-        const request = (art: (typeof arts)[number], full = false, prepareOnly=false):void => {
-          if(art.revisionId===detailPinnedArtwork)return;
+        const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false):void => {
+          if(art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
           requested.add(art.revisionId);
           let inventory: (typeof art.assets)[number];
           try {
@@ -1910,9 +1910,9 @@ export function GeometryPreview({
             settleDetail=check;cancelDetail=cancel;signal.addEventListener('abort',cancel,{once:true});request(art,false);check();
           });
           signal.throwIfAborted();
-          const object=objects.get(art.revisionId);
+          let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
-          const markerBytes=input.anchors.length?16384+input.anchors.length*512:0,detailKey='shared-detail-annotations';
+          const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
           // Spend no extra residency on the borrowed view until unpinned bytes
           // have yielded to the already displayed object and annotations.
@@ -1928,12 +1928,15 @@ export function GeometryPreview({
           desired.set(art.revisionId,active.get(art.revisionId)!);
           detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;
           sharedDetailUnavailable=input.unavailable;
+          let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
           const visible=()=>{if(globalThis.document.visibilityState==='visible')void check();};
           const restore=()=>{
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            if(settleDetail===promoteImage)settleDetail=undefined;
+            if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
             peak.release(detailKey);
-            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired)destroy(object);
+            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
             if(!disposed&&!gpuLost){
               resize();update();
               // Dialog teardown may run before the borrowed canvas is returned.
@@ -1950,12 +1953,31 @@ export function GeometryPreview({
           try{
             const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
-            sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);update();return scope;
+            sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
+            if(input.flatImage){
+              // The existing scheduler owns verification, decode and peak admission.
+              // Keep the borrowed old texture until the replacement has drawn successfully.
+              promoteImage=()=>{
+                const next=objects.get(art.revisionId);if(!alive||signal.aborted||!next||next===object)return;
+                try{scope.replaceImage(next);}catch{return;}
+                const previous=object,retired=detailRetired;object=next;detailPinned=next;detailRetired=false;
+                if(retired&&previous)destroy(previous);
+              };
+              settleDetail=promoteImage;
+              retryPromotion=createFlatDetailRetry({
+                valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&sharedDetail===scope,
+                pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
+                ready:()=>active.get(art.revisionId)===selectAssetVariant(art,0,viewerBudget).id,
+                request:()=>request(art,true,false,true),
+              });
+              retryFlatDetail=retryPromotion;retryPromotion();
+            }
+            update();return scope;
           }catch(error){restore();throw error;}
         };
         detailEntry.current.mountPreview=mountSharedDetail;
         cancelSharedDetail=()=>cancelDetail?.();
-        const statsTimer = setInterval(()=>{automaticDemand();update();}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();}, 200);
         const originalRelease = release;
         release = () => {
           cancelDetail?.();sharedDetail?.dispose();

@@ -261,3 +261,5 @@ export * from "./floor-textures.js";
 
 export * from './furnishings.js';
 export * from './surface-texture-resources.js';
+
+export * from './dimensions-display.js';
