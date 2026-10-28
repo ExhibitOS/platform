@@ -23,3 +23,8 @@
 .artwork-detail .detail-preview[data-dragging] { cursor: grabbing; }
 .artwork-detail .detail-preview:focus-visible { outline: 3px solid #2465a5; outline-offset: 3px; }
 .artwork-detail .detail-gesture-hint { font-size: .9em; line-height: 1.5; margin: 8px 0; }
+
+.artwork-detail .detail-preview{height:clamp(180px,50dvh,520px);min-height:180px;touch-action:none;overflow:hidden;cursor:grab}
+.artwork-detail .detail-preview[data-dragging]{cursor:grabbing}
+.detail-image-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.detail-image-controls output{min-width:4ch;font-variant-numeric:tabular-nums;text-align:center}
