@@ -6,13 +6,15 @@ import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
 import { TimedTranscript } from "./TimedTranscript";
 import type { VoicePlayback } from "./viewer/audio";
+import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
 
 // UUID references are case-insensitive in the accepted public document.
 const sameId = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
 
-export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null }: {
+export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null,sharedPreview }: {
   publication: PublicPublication; placementId: string; onClose(): void;
   renderPreview?: boolean; voicePlayback?: VoicePlayback | null;
+  sharedPreview?:SharedDetailPreview;
   onVoicePlay(assetId: string): Promise<void>; onVoiceStop(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), close = useRef(onClose), stop = useRef(onVoiceStop);
@@ -42,7 +44,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   return <dialog ref={dialog} className="artwork-detail" aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
     <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
     <p>{artwork.metadata.artist}</p>
-    {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} />}
+    {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} placementId={placementId} sharedPreview={sharedPreview} />}
     <section aria-label="작품 설명"><h3>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</h3><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></section>
     <dl>
       <dt>실제 치수 (너비 × 높이 × 깊이)</dt><dd>{artwork.dimensions.width} × {artwork.dimensions.height} × {artwork.dimensions.depth ?? "미기록"} m</dd>

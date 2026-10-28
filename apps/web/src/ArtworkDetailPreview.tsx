@@ -11,18 +11,31 @@ import { checkImageDecode, deviceBudget, fetchVerifiedAsset, selectAssetVariant 
 import type * as THREE from "three";
 
 import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
+import type {SharedDetailPreview,SharedDetailSession} from './viewer/borrowed-detail-preview';
 
 export interface DetailAnchor { id: string; position: [number, number, number]; text: string }
-export function ArtworkDetailPreview({ publication, artwork, anchors, referenceTone = DEFAULT_REFERENCE_TONE }: {
+export function ArtworkDetailPreview({ publication, artwork, anchors, placementId, sharedPreview, referenceTone = DEFAULT_REFERENCE_TONE }: {
   referenceTone?: ReferenceTone;
   publication: PublicPublication; artwork: Artwork; anchors: DetailAnchor[];
+  placementId?:string;sharedPreview?:SharedDetailPreview;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [view, setView] = useState(INITIAL_DETAIL_VIEW), [error, setError] = useState("");
   const { yaw, pitch, zoom } = view;
   const controls = useRef(view);
+  const sharedSession=useRef<SharedDetailSession|null>(null);
   const hint = useId();
-  const changeView = (next: typeof view) => { controls.current = next; setView(next); };
+  const changeView = (next: typeof view) => { controls.current = next;sharedSession.current?.update(next); setView(next); };
+  useEffect(()=>{
+    if(!sharedPreview||!placementId||!host.current)return;
+    const abort=new AbortController();let session:SharedDetailSession|undefined;
+    setError('');
+    const unavailable=()=>{if(!abort.signal.aborted)setError('공개 상태를 확인할 수 없어 상세 표시를 중단했습니다. 설명은 아래에서 읽을 수 있어요.');};
+    void sharedPreview({placementId,host:host.current,signal:abort.signal,view:controls.current,anchors,unavailable}).then(value=>{
+      if(abort.signal.aborted){value.dispose();return;}session=value;sharedSession.current=value;value.update(controls.current);
+    }).catch(()=>{if(!abort.signal.aborted)setError('현재 준비된 작품 표시를 사용할 수 없어요. 전시로 돌아가 작품이 준비된 뒤 다시 열거나 아래 설명을 읽어 주세요.');});
+    return()=>{abort.abort();session?.dispose();if(sharedSession.current===session)sharedSession.current=null;};
+  },[sharedPreview,placementId,anchors]);
   useEffect(() => {
     const target = host.current;
     if (!target) return;
@@ -86,6 +99,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, referenceT
     };
   }, []);
   useEffect(() => {
+    if(sharedPreview)return;
     const target = host.current;
     if (!target) return;
     const abort = new AbortController();
@@ -206,7 +220,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, referenceT
     void start();
     return () => { disposed = true; abort.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", visible);
       cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); };
-  }, [publication, artwork, anchors, referenceTone]);
+  }, [publication, artwork, anchors, referenceTone,sharedPreview]);
   return <section aria-label="작품 확대 및 회전">
     <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label="작품 회전 및 확대 조작" aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
     <p id={hint} className="detail-gesture-hint">드래그하여 상하·좌우 회전 · 두 손가락으로 확대. 키보드는 방향키·+/−, Home으로 초기화합니다.</p>

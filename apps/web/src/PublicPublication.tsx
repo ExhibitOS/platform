@@ -10,6 +10,7 @@ import { GuidedRoutes, type GuideRequest } from "./GuidedRoutes";
 import type { AudioApi, VoicePlayback } from "./viewer/audio";
 import { ArtworkDetail } from "./ArtworkDetail";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
+import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import type { PublicPublication as PublicResponse } from "./publication-client";
 import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
@@ -59,6 +60,10 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
+  const sharedDetailPreview=useCallback<SharedDetailPreview>(request=>{
+    const mount=detailEntry.current?.mountPreview;
+    return mount?mount(request):Promise.reject(Error('DETAIL_MAIN_VIEWER_UNAVAILABLE'));
+  },[]);
   const prepareDetailEntry = useCallback(() => { detailEntry.current?.prepare(); }, []);
   const audio = useRef<AudioApi | null>(null);
   const registerAudio = useCallback((api: typeof audio.current) => { audio.current = api; voiceSubscription.current?.();voiceSubscription.current=api?.subscribeVoice(setVoicePlayback)??null;if(!api)setVoicePlayback(null); }, []);
@@ -210,7 +215,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             </Suspense>
           </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
-            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} />}
+            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => setOverview(null)} />}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
