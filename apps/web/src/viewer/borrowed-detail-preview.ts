@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import {metricCameraFit} from './metric-model';
+import {flatImagePreview} from './flat-image-preview';
+import type {ImageViewport} from './flat-image-view';
 import type {DetailView} from './detail-gesture';
 
 export interface SharedDetailSession {update(view:DetailView):void;dispose():void}
 export interface SharedDetailRequest {
  placementId:string;host:HTMLElement;signal:AbortSignal;view:DetailView;
  anchors:readonly {id:string;position:[number,number,number];text:string}[];
+ flatImage?:boolean;imageViewport?(viewport:ImageViewport):void;
  unavailable(reason:'rights'|'graphics'):void;
 }
 export type SharedDetailPreview=(request:SharedDetailRequest)=>Promise<SharedDetailSession>;
@@ -19,7 +22,7 @@ export function borrowedDetailPreview(input:{
  three:typeof Three;renderer:Three.WebGLRenderer;object:Three.Object3D;
  request:SharedDetailRequest;environment:()=>{map:Three.Texture|null;intensity:number};
  onRelease():void;
-}):SharedDetailSession&{render():void}{
+}):SharedDetailSession&{render():void;replaceImage(object:Three.Object3D):void}{
  const {three,renderer,request}=input,canvas=renderer.domElement;
  request.signal.throwIfAborted();
  const parent=canvas.parentNode,next=canvas.nextSibling;
@@ -27,6 +30,7 @@ export function borrowedDetailPreview(input:{
  const saved={size:renderer.getSize(new three.Vector2()),ratio:renderer.getPixelRatio(),style:canvas.style.cssText,label:canvas.getAttribute('aria-label'),tabIndex:canvas.tabIndex};
  const pixelLimit=canvas.width*canvas.height;
  const scene=new three.Scene();scene.background=new three.Color('#181a20');
+ const flat=request.flatImage?flatImagePreview(three,input.object):undefined;
  const clone=input.object.clone(true);clone.updateMatrixWorld(true);
  const box=new three.Box3().setFromObject(clone,true),size=box.getSize(new three.Vector3()),centre=box.getCenter(new three.Vector3());
  const extent=Math.max(size.x,size.y,size.z);
@@ -44,6 +48,7 @@ export function borrowedDetailPreview(input:{
   if(disposed)return;
   const width=Math.max(1,request.host.clientWidth),height=Math.max(1,request.host.clientHeight);
   renderer.setPixelRatio(Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height))));renderer.setSize(width,height,false);
+  if(flat){const state=flat.render(renderer,width,height,view);request.imageViewport?.(state.viewport);canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});return;}
   camera.aspect=width/height;
   const fit=metricCameraFit(extent,camera.aspect,view.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();
   camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
@@ -55,7 +60,7 @@ export function borrowedDetailPreview(input:{
  const observer=new ResizeObserver(render);
  const dispose=()=>{
   if(disposed)return;disposed=true;observer.disconnect();request.signal.removeEventListener('abort',dispose);
-  scene.clear();markerGeometry?.dispose();markerMaterial?.dispose();
+  flat?.dispose();scene.clear();markerGeometry?.dispose();markerMaterial?.dispose();
   delete canvas.dataset.detailState;canvas.style.cssText=saved.style;canvas.tabIndex=saved.tabIndex;
   if(saved.label===null)canvas.removeAttribute('aria-label');else canvas.setAttribute('aria-label',saved.label);
   if(next?.parentNode===parent)parent.insertBefore(canvas,next);else parent.appendChild(canvas);
@@ -64,8 +69,8 @@ export function borrowedDetailPreview(input:{
  };
  try{
   canvas.style.width='100%';canvas.style.height='100%';canvas.style.pointerEvents='none';canvas.tabIndex=-1;
-  canvas.setAttribute('aria-label','작품 상세 3D 미리보기');request.host.appendChild(canvas);
+  canvas.setAttribute('aria-label',flat?'작품 정면 이미지':'작품 상세 3D 미리보기');request.host.appendChild(canvas);
   request.signal.addEventListener('abort',dispose,{once:true});observer.observe(request.host);render();
  }catch(error){dispose();throw error;}
- return {render,update(nextView){view=nextView;render();},dispose};
+ return {render,replaceImage(object:Three.Object3D){if(!flat)return;const rollback=flat.replace(object);try{render();}catch(error){rollback();throw error;}},update(nextView){view=nextView;render();},dispose};
 }
