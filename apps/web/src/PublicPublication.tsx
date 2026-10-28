@@ -2,7 +2,7 @@ import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -215,7 +215,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             </Suspense>
           </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
-            onClose={() => setSelectedId(null)} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
+            onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
@@ -248,7 +248,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
                     </p>
                     <p>{description?.text ?? a?.metadata.description}</p>
                     <p>
-                      {a?.dimensions.width} × {a?.dimensions.height} m
+                      {formatArtworkDimensions(a?.dimensions)}
                     </p>
                   </li>
                 );
