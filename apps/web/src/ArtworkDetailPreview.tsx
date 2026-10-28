@@ -75,7 +75,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       event.preventDefault();
     };
     const end = (event: PointerEvent) => {
-      const owned=captured.has(event.pointerId);if(event.type!=='pointerup')tap=undefined;
+      const owned=captured.has(event.pointerId);if(owned&&event.type!=='pointerup')tap=undefined;
       gesture.end(event.pointerId);imageGesture.end(event.pointerId);captured.delete(event.pointerId);
       if(flat&&owned&&event.type==='pointerup'&&!moved&&!multiple){
         const now=performance.now(),p=point(event);
