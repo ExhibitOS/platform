@@ -18,12 +18,12 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { transaction, sha256, type BlobStore } from "@exhibitos/storage";
 import { validateExhibition, revisionHash, type Artwork, type Exhibition } from "@exhibitos/spec";
-import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
+import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, NEAR_TEXTURE_PAIR_PROFILE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
-import { qualifyApprovedTexturedPair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
+import { qualifyApprovedTexturedPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
 import { Audio, audioMedia, validatePcmWav, type MediaAsset } from "./audio.ts";
 import {CoverImages,coverImageAsset} from './cover-images.ts';
 import {SPACE_STILL_NAMESPACE,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
@@ -75,9 +75,14 @@ const equal = (a: unknown, b: unknown): boolean => {
 /** A secondary publication source must be the exact coarse member of its immutable import approval. */
 export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha256:string;bytes:number;mime:string},primary:string):boolean {
     if(!snapshot||typeof snapshot!=='object')return false;
-    const approval=snapshot as {asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork};
+    const approval=snapshot as {asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork;modelPair?:{version:number;profileId:string;full:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number};reduced:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number}}};
     if(approval.asset?.id!==primary)return false;
     if(source.id===primary)return approval.asset.sha256===source.sha256&&approval.asset.bytes===source.bytes&&approval.asset.mime===source.mime;
+    const pair=approval.modelPair;
+    if(pair){
+      const full=pair.full,low=pair.reduced;
+      return pair.version===1&&pair.profileId===NEAR_TEXTURE_PAIR_PROFILE&&source.mime==='model/gltf-binary'&&approval.asset.mime==='model/gltf-binary'&&full?.id===primary&&full.sha256===approval.asset.sha256&&full.bytes===approval.asset.bytes&&low?.id===source.id&&low.sha256===source.sha256&&low.bytes===source.bytes&&low.bytes<full.bytes&&low.triangles===full.triangles&&low.textureSize<full.textureSize&&low.textureSize<=512;
+    }
     const a=approval.importedArtwork;
     if(!a||a.primaryAssetId!==primary||!validateViewerLod(a).valid)return false;
     const lod=a.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]}|undefined;
@@ -130,7 +135,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: sha256(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
         if (p.variants) {
-            const metric=(v:GeneratedVariants['full']):Record<string,number>=>{const key=p.mime==='image/png'?'textureSize':'triangles',n=v[key];if(!Number.isSafeInteger(n)||n===undefined||n<1)throw new ApiError(422,'PUBLICATION_NOT_READY');return {[key]:n};};
+            const metric=(v:GeneratedVariants['full']):Record<string,number>=>{const key=p.mime==='image/png'?'textureSize':'triangles',n=v[key];if(!Number.isSafeInteger(n)||n===undefined||n<1)throw new ApiError(422,'PUBLICATION_NOT_READY');if(p.variants?.profile){if(!Number.isSafeInteger(v.textureSize)||!v.textureSize)throw new ApiError(422,'PUBLICATION_NOT_READY');return {triangles:n,textureSize:v.textureSize};}return {[key]:n};};
             const variants = [{assetId:p.sourceAssetId,detail:"full",...metric(p.variants.full)}];
             if (p.variants.coarse && p.variants.bytes) {
                 const coarseId=randomUUID();
@@ -138,7 +143,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
                 a.assets.push({id:coarseId,path:`assets/${coarseId}/${p.mime==="image/png"?"image.png":"model.glb"}`,role:p.mime==="image/png"?"image":"model",mime:p.mime,bytes:p.variants.bytes.length,sha256:sha256(p.variants.bytes)});
                 variants.push({assetId:coarseId,detail:"coarse",...metric(p.variants.coarse)});
             }
-            a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants}};
+            a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants,...(p.variants.profile?{profile:p.variants.profile}:{})}};
         }
         a.provenance = { authorship: a.provenance.authorship, events: [{ id: randomUUID(), type: "exhibited", at, description: approvedDisplay?`Approved exact selected open-access display. Object ${approvedDisplay.officialObjectURL}; raw SHA256 ${approvedDisplay.rawSourceSha256}; canonical SHA256 ${approvedDisplay.canonicalAssetSha256}; recipe SHA256 ${approvedDisplay.recipeSha256}; rights evidence SHA256 ${approvedDisplay.rightsEvidenceSha256}.`:"Approved display derivative explicitly published by its authorized exhibition editor." }] };
         return a;
@@ -238,7 +243,7 @@ export class Publications {
                 } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision,displayWatermark) as {bytes:Buffer;mime:"model/gltf-binary"};
                 // Unsupported/nonreducing simplification remains an honest full-only fallback.
                 const fullMetric=measureFullVariant(result.bytes,result.mime);
-                const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
+                const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {profile?:typeof NEAR_TEXTURE_PAIR_PROFILE;variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
                 if(lod&&!validateViewerLod(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
                 const low=lod?.variants.find(v=>v.detail==='coarse'),high=lod?.variants.find(v=>v.detail==='full');
                 const generated:GeneratedVariants=exactModel||(low&&high&&result.mime==='image/png')?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
@@ -266,10 +271,12 @@ export class Publications {
                     const coarse=await this.cms.displayApprovedVariant(c,s,artwork.id,low.assetId,artwork.revision,displayWatermark);
                     if(!full.bytes.equals(result.bytes))throw new ApiError(409,'ASSET_INTEGRITY');
                     try {
-                        qualifyApprovedTexturedPair(full.original,coarse.original,high.triangles!,low.triangles!);
+                        const textureOnly=lod?.profile===NEAR_TEXTURE_PAIR_PROFILE;
+                        if(textureOnly)qualifyApprovedTextureDerivativePair(full.original,coarse.original,{triangles:high.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
+                        else qualifyApprovedTexturedPair(full.original,coarse.original,high.triangles!,low.triangles!);
                         const coarseMetric=measureFullVariant(coarse.bytes,coarse.mime);
-                        if(!coarseMetric.triangles||!fullMetric.triangles||coarseMetric.triangles>=fullMetric.triangles||coarse.bytes.length>=result.bytes.length)throw Error('APPROVED_LOD_UNSUPPORTED');
-                        variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes};
+                        if(!coarseMetric.triangles||!fullMetric.triangles||(textureOnly?coarseMetric.triangles!==fullMetric.triangles:coarseMetric.triangles>=fullMetric.triangles)||coarse.bytes.length>=result.bytes.length)throw Error('APPROVED_LOD_UNSUPPORTED');
+                        variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes,...(textureOnly?{profile:NEAR_TEXTURE_PAIR_PROFILE}:{})};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
                     }catch(error){if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}

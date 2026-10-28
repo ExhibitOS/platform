@@ -1,3 +1,4 @@
+import {MODEL_DERIVATION_SCHEMA} from './model-derivation.ts';
 import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
 import {surfaceMaterialCatalog} from './surface-materials.ts';
 import {furnishingAsset,type FurnishingCatalogId} from '@exhibitos/studio-contract';
@@ -255,7 +256,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const imports=store?new Imports(pool,store):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));
- app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
+ app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA,modelDerivation:MODEL_DERIVATION_SCHEMA},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
  app.get(`${prefix}/imports/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().view(await importer().access(c,s,p.id));}));
  app.put(`${prefix}/imports/:id/bytes`,{bodyLimit:MAX_UPLOAD},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().upload(c,s,p.id,req.body);}));
  app.put(`${prefix}/imports/:id/derived-bytes`,{bodyLimit:MAX_PREPARED_IMAGE_BYTES},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().uploadDerived(c,s,p.id,req.body);}));

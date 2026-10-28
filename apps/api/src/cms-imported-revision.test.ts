@@ -33,6 +33,7 @@ function setup(imported=true){
   if(sql.includes('a.id=ANY'))return rows([structuredClone(asset)]);
   if(sql.startsWith('SELECT a.*,r.metadata AS rights'))return rows(p[2]===asset.id?[structuredClone(asset)]:[]);
   if(sql.startsWith('SELECT revision,snapshot FROM artwork_approvals')){const r=[...approvals.values()].filter(a=>a.revision<=Number(p[2])).sort((a,b)=>b.revision-a.revision)[0];return rows(r?[structuredClone(r)]:[]);}
+  if(sql.startsWith('SELECT metadata FROM asset_derivatives'))return rows([]);
   if(sql.startsWith('SELECT metadata FROM artists'))return rows([{metadata:{name:'Synthetic artist'}}]);
   if(sql.startsWith('SELECT snapshot FROM artwork_approvals')){const r=approvals.get(Number(p[2]));return rows(r?[structuredClone(r)]:[]);}
   if(sql.startsWith('INSERT INTO artwork_approvals')){approvals.set(Number(p[2]),{revision:Number(p[2]),created_at:article.updated_at,snapshot:structuredClone(p[4]) as Approval['snapshot']});return rows([]);}
