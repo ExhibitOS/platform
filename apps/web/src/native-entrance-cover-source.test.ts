@@ -11,11 +11,20 @@ function fixture(){
  const headers={'content-type':'image/png','x-exhibitos-watermarked':'true','x-exhibitos-artwork-revision':String(artwork.revision)},check=vi.fn(async(signal:AbortSignal)=>signal.throwIfAborted());
  return {frame,artwork,headers,check};
 }
-it('uses only approved watermarked display bytes, checks scope and current approval again, and leaves the draft intact',async()=>{
+it('uses approved legacy display bytes, checks scope and current approval again, and leaves the draft intact',async()=>{
  const {frame,artwork,headers,check}=fixture(),before=structuredClone(frame),paths:string[]=[];
  const fetcher=vi.fn(async(input:RequestInfo|URL,options?:RequestInit)=>{const path=String(input);paths.push(path);expect(options).toMatchObject({credentials:'same-origin',redirect:'error',cache:'no-store'});return path.includes('/studio/')?Response.json({artwork}):new Response(new Uint8Array([1,2,3]),{headers});});
  const bytes=await nativeEntranceCoverSource(frame,check,fetcher).image(artwork.primaryAssetId,new AbortController().signal);
  expect([...new Uint8Array(bytes)]).toEqual([1,2,3]);expect(paths).toEqual([`/api/v1/tenants/${frame.tenantId}/studio/artworks/${artwork.id}`,`/api/v1/tenants/${frame.tenantId}/cms/artworks/${artwork.id}/preview?expectedRevision=${artwork.revision}`,paths[0]]);expect(check).toHaveBeenCalledTimes(2);expect(frame).toEqual(before);
+});
+it('accepts a clean approved display copy and rejects contradictory treatment markers',async()=>{
+ for(const valid of [true,false]){
+  const {frame,artwork,headers,check}=fixture(),cancel=vi.fn();
+  const fetcher=vi.fn(async(input:RequestInfo|URL)=>String(input).includes('/studio/')?Response.json({artwork}):new Response(valid?new Uint8Array([1,2,3]):new ReadableStream({cancel}),{headers:{...headers,'x-exhibitos-display-copy':'true','x-exhibitos-watermark-mode':'none','x-exhibitos-watermarked':valid?'false':'true'}}));
+  const result=nativeEntranceCoverSource(frame,check,fetcher).image(artwork.primaryAssetId,new AbortController().signal);
+  if(valid){expect([...new Uint8Array(await result)]).toEqual([1,2,3]);expect(check).toHaveBeenCalledTimes(2);}
+  else{await expect(result).rejects.toThrow('ENTRANCE_PREVIEW_IMAGE_UNAVAILABLE');expect(cancel).toHaveBeenCalledOnce();}
+ }
 });
 it('refuses revoked approval, missing watermark and post-download source changes before returning bytes',async()=>{
  for(const failure of ['denied','unmarked','changed'] as const){
