@@ -1392,13 +1392,17 @@ export function GeometryPreview({
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
-        const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>();
+        const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>(),materialBudgetDeferred=new Set<string>();
         let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),0)+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
-        growAssetLimits=()=>{byteCache.raiseLimit(assetBudgetBytes);peak.raiseLimit(transitionBudgetBytes);};
+        growAssetLimits=()=>{
+          const increased=assetBudgetBytes>byteCache.stats().maxBytes;
+          byteCache.raiseLimit(assetBudgetBytes);peak.raiseLimit(transitionBudgetBytes);
+          if(increased)for(const id of materialBudgetDeferred){retryAfter.delete(id);failed.delete(id);materialBudgetDeferred.delete(id);}
+        };
         growAssetLimits();
         const reserve=(key:string,bytes:number)=>{
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
@@ -1649,7 +1653,9 @@ export function GeometryPreview({
               if (!disposed) {
                 if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
                 retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===currentArtwork?500:5000):Infinity);
+                if(error?.message==='MODEL_RESIDENT_BUDGET'&&(!floorSettled||!surfaceSettled))materialBudgetDeferred.add(art.revisionId);
                 if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===currentArtwork)reclaimForCurrent();}
+                if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&art.revisionId===currentArtwork)reduceSurfaceForCurrent(art.revisionId);
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
@@ -1688,6 +1694,19 @@ export function GeometryPreview({
           xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
           if(old)destroy(old);if(oldAsset)byteCache.delete(oldAsset);
           shadowPass.invalidate();render();
+        };
+        let materialReductionPending=false;
+        const reduceSurfaceForCurrent=(artId:string)=>{
+          if(materialReductionPending||!floorSettled||!surfaceSettled||disposed||gpuLost)return;
+          materialReductionPending=true;
+          const key='surface-resolution-reduction';
+          void surfaceTextures.reduceForArtwork(bytes=>{reserve(key,bytes);return()=>peak.release(key);},texture=>renderer.initTexture(texture)).then(residentBytes=>{
+            if(disposed||gpuLost||residentBytes===undefined)return;
+            // Only retired material ownership returns bytes to artwork admission.
+            surfacePlan.residentBytes=residentBytes;releaseMaterialLoadHold('surface');
+            retryAfter.delete(artId);failed.delete(artId);minimumBlocked.delete(artId);
+            shadowPass.invalidate();render();update();
+          }).catch(()=>{/* Old complete material stays valid; no retry loop. */}).finally(()=>{materialReductionPending=false;});
         };
         demand.current = (kind) => {
           if (kind === 'auto'){automatic=true;return;}
