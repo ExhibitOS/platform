@@ -34,13 +34,13 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
   const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&hasUsableImage&&motion&&canReveal?'folded':'flat');
   const imageStateCallback=useRef(onImageState);imageStateCallback.current=onImageState;
-  const displayedImageState:ThemeProps['image']['status']=!showImage||!hasUsableImage?'absent':failed?'failed':image?(layoutReady||paper==='flat'&&loaded?'ready':'decoded'):'loading';
+  const displayedImageState:ThemeProps['image']['status']=!showImage||!hasUsableImage?'absent':failed?'failed':image?(loaded?'ready':'decoded'):'loading';
   useEffect(()=>{imageStateCallback.current?.(displayedImageState);},[displayedImageState]);
   // Once left, failed, or explicitly flattened, this revision never folds again.
   useEffect(()=>{
     if(!interactive||!showImage||!hasUsableImage||failed||!motion||!canReveal)setPaper('flat');
-    else if(layoutReady)setPaper(state=>state==='folded'?'opening':state);
-  },[interactive,showImage,hasUsableImage,failed,motion,canReveal,layoutReady]);
+    else if(layoutReady)setPaper(state=>state==='folded'?(design.theme==='catalogue'||loaded?'opening':'open'):state);
+  },[interactive,showImage,hasUsableImage,failed,motion,canReveal,layoutReady,design.theme,loaded]);
   useEffect(()=>{
     const compact=window.matchMedia('(max-width:700px)'),reduced=window.matchMedia('(prefers-reduced-motion:reduce)');
     const flatten=()=>setPaper('flat'),preference=()=>{if((compact.matches&&(design.theme==='catalogue'||design.effects.mobile==='none'))||reduced.matches)flatten();};
@@ -49,11 +49,11 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   },[design.theme,design.effects.mobile]);
   useEffect(()=>{
     setLayoutReady(false);
-    if(!loaded||!spread.current||!interactive||!motion||!canReveal)return;
-    const current=generation.current,abort=new AbortController(),signal=AbortSignal.any([abort.signal,AbortSignal.timeout(15000)]);
-    void waitForCoverLayout(spread.current,signal).then(()=>{if(current===generation.current&&!signal.aborted)setLayoutReady(true);}).catch(()=>{if(!abort.signal.aborted&&current===generation.current)setPaper('flat');});
+    if(!spread.current||!interactive||!motion||!canReveal)return;
+    const abort=new AbortController(),signal=AbortSignal.any([abort.signal,AbortSignal.timeout(15000)]);
+    void waitForCoverLayout(spread.current,signal).then(()=>{if(!signal.aborted)setLayoutReady(true);}).catch(()=>{if(!abort.signal.aborted)setPaper('flat');});
     return()=>abort.abort();
-  },[loaded,interactive,motion,canReveal]);
+  },[interactive,motion,canReveal]);
   const ratio=coverAspectRatio(publication);
   useEffect(() => {
     const current=++generation.current, abort = new AbortController();
@@ -93,7 +93,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   if(design.theme!=='catalogue'){
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
     const status=displayedImageState;
-    const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width??ratio,height:image?.height??1},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
+    const props:ThemeProps={content,image:{status,url:image?.url,width:image?.width,height:image?.height,layoutRatio:ratio},design:{...design,effects},coverState:phase==='folded'?'pending':phase==='opening'?'revealing':phase,interactive,reducedMotion:!motion,layoutRef:spread,entry:ticket,children,onImageLoad:displayed,onImageError:imageFailed,onRetryImage:()=>setRetry(n=>n+1)};
     return <div className="entrance-theme-host" lang={content.locale} onAnimationEnd={event=>{if(['entrance-theme-mask','entrance-theme-fade','entrance-theme-card'].includes(event.animationName))setPaper(state=>state==='opening'||state==='folded'?'open':state);}}><Component {...props}/></div>;
   }
   const style=catalogueStyle(design,authored,effects);
