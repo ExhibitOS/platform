@@ -78,6 +78,7 @@ export async function createWalkingCamera({
     captureMessage = "",
     frame = 0,
     last = 0;
+  let orderedViewing=false;
   let seated: {benchId:string;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;returnPaused:boolean}|undefined;
   const publish = () => {
     const raw = controller.state();
@@ -148,7 +149,7 @@ export async function createWalkingCamera({
     frame = requestAnimationFrame(tick);
   };
   const start = () => {
-    if (disposed || seated) return;
+    if (disposed || seated || orderedViewing) return;
     walking = true;
     captureMessage = "";
     paused = false;
@@ -170,17 +171,18 @@ export async function createWalkingCamera({
     prepareViewpoint:async id=>prepareViewpoint(id),
     visitViewpoint:(id,ordered)=>{
       const destination=prepareViewpoint(id);if(!destination)return false;
-      input.pause();
+      input.pause('panel');
       const state=controller.reset({position:destination.position,yaw:destination.yaw});
       pitch=Math.atan2(destination.target[1]-state.eyePosition[1],Math.hypot(destination.target[0]-state.eyePosition[0],destination.target[2]-state.eyePosition[2]));
-      targetPitch=pitch;targetYaw=state.yaw;walking=!ordered;paused=true;
+      targetPitch=pitch;targetYaw=state.yaw;orderedViewing=ordered;walking=true;paused=true;
       controls.enabled=false;canvas.style.touchAction=ordered?'manipulation':previousTouchAction;
       camera.fov=destination.fov;camera.updateProjectionMatrix();
       camera.position.fromArray(state.eyePosition);camera.rotation.set(pitch,state.yaw,0,'YXZ');controls.target.fromArray(destination.target);
-      onMode(walking,true);apply();return true;
+      onMode(walking,true,'panel');apply();return true;
     },
+    freeViewing:()=>{if(disposed||seated)return false;orderedViewing=false;walking=true;controls.enabled=false;canvas.style.touchAction='none';onMode(true,true,'settings');publish();return true;},
     sit: benchId => {
-      if(disposed||seated)return;
+      if(disposed||seated||orderedViewing)return;
       try {
         const {bench,floor,top,floorCorners}=benchSeat(document,benchId), destination=presentationFor(document).viewpoints.find(v=>v.id.toLowerCase()===bench.viewpointId.toLowerCase());
         if(!destination)throw Error('BENCH_REFERENCE');
@@ -206,7 +208,7 @@ export async function createWalkingCamera({
       onMessage('이전 위치와 시점으로 돌아왔습니다. 걷기는 직접 재개하세요.');
     },
     teleport: (viewpointId) => {
-      if(seated)return;
+      if(seated||orderedViewing)return;
       input.pause();
       try {
         const result=teleportToViewpoint(controller,document,viewpointId);
@@ -230,7 +232,7 @@ export async function createWalkingCamera({
     },
     pause: (reason) => input.pause(reason),
     stationary: () => {
-      if(seated)return;
+      if(seated||orderedViewing)return;
       input.pause();
       walking = false;
       controls.enabled = true;
@@ -244,11 +246,12 @@ export async function createWalkingCamera({
       onMessage("정지 관람입니다. 시점 버튼과 작품 목록을 사용할 수 있습니다.");
     },
     capture: () => {
+      if(orderedViewing)return;
       start();
       void input.capture();
     },
     reset: () => {
-      if(seated)return;
+      if(seated||orderedViewing)return;
       input.pause();
       try {
         controller.reset();
@@ -275,7 +278,7 @@ export async function createWalkingCamera({
         onMessage("보행 설정을 적용할 수 없습니다.");
       }
     },
-    press: (action, id) => input.press(action, id),
+    press: (action, id) => {if(!orderedViewing)input.press(action,id);},
     release: (id) => input.release(id),
   };
   publish();

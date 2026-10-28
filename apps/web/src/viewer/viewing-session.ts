@@ -15,6 +15,10 @@ export interface ViewingActions {
  cancel(): void;
 }
 export interface ViewingItem { placementId: string; title: string; roomName: string; thumbnail?: string }
+export interface ViewingRenderer {
+ prepare(stop:ViewingStop,signal:AbortSignal):Promise<PreparedViewingStop>;
+ free():boolean;
+}
 export interface PreparedViewingStop { commit(style: ViewingStyle): boolean; release(): void }
 /** One visitor intent at a time. Asset loading/camera safety stay in the existing
  * renderer; this small adapter owns no decoder, scene, pose or authored draft.
