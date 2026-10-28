@@ -22,7 +22,7 @@ export function borrowedDetailPreview(input:{
  three:typeof Three;renderer:Three.WebGLRenderer;object:Three.Object3D;
  request:SharedDetailRequest;environment:()=>{map:Three.Texture|null;intensity:number};
  onRelease():void;
-}):SharedDetailSession&{render():void}{
+}):SharedDetailSession&{render():void;replaceImage(object:Three.Object3D):void}{
  const {three,renderer,request}=input,canvas=renderer.domElement;
  request.signal.throwIfAborted();
  const parent=canvas.parentNode,next=canvas.nextSibling;
