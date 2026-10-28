@@ -75,9 +75,14 @@ const equal = (a: unknown, b: unknown): boolean => {
 /** A secondary publication source must be the exact coarse member of its immutable import approval. */
 export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha256:string;bytes:number;mime:string},primary:string):boolean {
     if(!snapshot||typeof snapshot!=='object')return false;
-    const approval=snapshot as {asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork};
+    const approval=snapshot as {asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork;modelPair?:{version:number;profileId:string;full:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number};reduced:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number}}};
     if(approval.asset?.id!==primary)return false;
     if(source.id===primary)return approval.asset.sha256===source.sha256&&approval.asset.bytes===source.bytes&&approval.asset.mime===source.mime;
+    const pair=approval.modelPair;
+    if(pair){
+      const full=pair.full,low=pair.reduced;
+      return pair.version===1&&pair.profileId===NEAR_TEXTURE_PAIR_PROFILE&&source.mime==='model/gltf-binary'&&approval.asset.mime==='model/gltf-binary'&&full?.id===primary&&full.sha256===approval.asset.sha256&&full.bytes===approval.asset.bytes&&low?.id===source.id&&low.sha256===source.sha256&&low.bytes===source.bytes&&low.bytes<full.bytes&&low.triangles===full.triangles&&low.textureSize<full.textureSize&&low.textureSize<=512;
+    }
     const a=approval.importedArtwork;
     if(!a||a.primaryAssetId!==primary||!validateViewerLod(a).valid)return false;
     const lod=a.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]}|undefined;
