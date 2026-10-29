@@ -2,7 +2,7 @@ import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor, artworkThumbnailFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -23,8 +23,10 @@ import "./publication-novice.css";
 import "./publication-immersive.css";
 import {ViewingStyles} from './viewer/ViewingStyles';
 import {createViewingSession,type ViewingRenderer,type ViewingState,type ViewingStyle,type ViewingActions,type ViewingItem} from './viewer/viewing-session';
+import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const emptyThumbnails:Readonly<Record<string,string>>=Object.freeze({});
 export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
@@ -32,6 +34,37 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const generation = useRef(0);
   const entry=useEntranceEntry(),{mode,modeRef,stageReady,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState}=entry;
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
+  const [thumbnailOwner,setThumbnailOwner]=useState<{key:string;cache:ReturnType<typeof createPublicThumbnailCache>}|null>(null);
+  const [thumbnailState,setThumbnailState]=useState<{key:string;items:Readonly<Record<string,string>>}|null>(null);
+  const thumbnailKey=value?`${value.publication.id}/${value.publication.revisionSha256}`:'';
+  const thumbnailCache=thumbnailOwner?.key===thumbnailKey?thumbnailOwner.cache:null;
+  const thumbnails=thumbnailState?.key===thumbnailKey?thumbnailState.items:emptyThumbnails;
+  useEffect(()=>{
+    if(!value||!value.exhibition.artworks.some(a=>artworkThumbnailFor(a))){setThumbnailOwner(null);setThumbnailState(null);return;}
+    const key=`${value.publication.id}/${value.publication.revisionSha256}`;
+    const check=async()=>{
+      if(value.local){await value.local.check();return;}
+      const response=await fetch(`/api/v1/publications/${value.publication.id}`,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});
+      if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');
+      const current=await response.json();if(current.publication?.id!==value.publication.id||current.publication?.status!=='published'||current.publication?.revisionSha256!==value.publication.revisionSha256||!Array.isArray(current.assets)||current.assets.some((a:unknown)=>!a||typeof a!=='object'||typeof (a as {assetId?:unknown}).assetId!=='string'))throw Error('PUBLICATION_UNAVAILABLE');
+      return current.assets.map((a:{assetId:string})=>a.assetId);
+    };
+    const cache=createPublicThumbnailCache({publicationId:value.publication.id,revisionSha256:value.publication.revisionSha256,assets:value.assets,fetcher:value.local?.fetcher,check,changed:items=>setThumbnailState({key,items})});
+    setThumbnailOwner({key,cache});setThumbnailState({key,items:{}});
+    const visibility=()=>{if(document.hidden)cache.invalidate();else void cache.recheck();};
+    document.addEventListener('visibilitychange',visibility);
+    const timer=setInterval(()=>{if(!document.hidden)void cache.recheck();},10000);
+    return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visibility);cache.dispose();};
+  },[value]);
+  useEffect(()=>{
+    if(!value||!thumbnailCache||mode==='3d')return;
+    let abort=new AbortController(),running=false,closed=false;
+    const visibility=()=>{if(document.hidden)abort.abort();else if(!closed&&abort.signal.aborted)abort=new AbortController();};
+    document.addEventListener('visibilitychange',visibility);
+    const load=async()=>{if(running||document.hidden||abort.signal.aborted)return;running=true;const signal=abort.signal;try{for(const artwork of value.exhibition.artworks){if(signal.aborted||document.hidden)break;if(thumbnailCache.canLoad(artwork))await thumbnailCache.loadOne(artwork,signal);}}finally{running=false;}};
+    void load();const timer=setInterval(()=>void load(),1000);
+    return()=>{closed=true;abort.abort();clearInterval(timer);document.removeEventListener('visibilitychange',visibility);};
+  },[value,thumbnailCache,mode]);
   const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
@@ -187,7 +220,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   };
   const viewingPlan=value?viewingPlanFor(value.exhibition):{version:1 as const,stops:[]};
   const viewingPlacements=value?(viewingPlan.stops.length?viewingPlan.stops.map(stop=>value.exhibition.placements.find(p=>p.id.toLowerCase()===stop.placementId.toLowerCase())!).filter(Boolean):value.exhibition.placements):[];
-  const viewingItems:ViewingItem[]=value?viewingPlacements.map(p=>({placementId:p.id,title:value.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.title??'작품',roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간'})):[];
+  const viewingItems:ViewingItem[]=value?viewingPlacements.map(p=>({placementId:p.id,title:value.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.title??'작품',roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간',thumbnail:thumbnails[p.artworkRevisionId.toLowerCase()]})):[];
   const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
   return (
@@ -224,7 +257,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <section aria-label="관람 방식과 접근성 설정">
             {runtime!.design.translations.length>0&&<label>표지 언어<select value={entranceLocale} onChange={e=>setEntranceLocale(e.target.value)}><option value="">원문</option>{runtime!.design.translations.map(t=><option key={t.locale} value={t.locale}>{t.locale}</option>)}</select></label>}
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
-            <p>글·목록 관람에서는 3D 공간·작품 이미지·음성을 불러오지 않습니다. 설명, 대본, 치수와 권리를 읽을 수 있습니다.</p>
+                <p>글·목록 관람에서는 3D 공간과 음성을 불러오지 않습니다. 준비된 작은 미리보기와 함께 설명, 대본, 치수와 권리를 읽을 수 있습니다.</p>
             <label><input type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} />움직임 줄이기</label>
             <label><input type="checkbox" checked={highContrast} onChange={e => setHighContrast(e.target.checked)} />높은 대비</label>
             <p>처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 움직임 줄이기는 입장·화면 전환의 움직임을 줄여요. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.</p>
@@ -242,7 +275,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           </div></details>
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
+            <Viewer onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
               onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}
@@ -276,6 +309,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
                   );
                 return (
                   <li key={p.id} hidden={guidedIndex !== null && index !== guidedIndex}>
+                    {thumbnails[p.artworkRevisionId.toLowerCase()]&&<img src={thumbnails[p.artworkRevisionId.toLowerCase()]} alt="" loading="lazy" decoding="async"/>}
                     <h3>{a?.metadata.title}</h3>
                     <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setSelectedId(p.id); }} aria-label={`${a?.metadata.title ?? "작품"} 상세 보기`}>작품 상세 보기</button>
                     <p>
