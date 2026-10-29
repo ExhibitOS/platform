@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
-import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail} from './oex.ts';
+import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail,pinnedAuthoritySnapshot,portableOexSnapshot} from './oex.ts';
 import {validMetadata} from './cms.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'))as Exhibition;}
@@ -123,3 +123,15 @@ describe('OEX service boundaries',()=>{
 });
 
 it('retains nonidentity approved artifact and placement poses without baking or refitting OEX assets',async()=>{const e=await fixture(),a=e.artworks[0]!;a.transform={position:[1,2,3],rotation:[0,0,Math.SQRT1_2,Math.SQRT1_2],scale:[2,1,1]};const before=structuredClone(e);expect(()=>checkOexProfile(e)).not.toThrow();const mapped=remapOex(e).exhibition;expect(mapped.artworks[0]!.transform).toEqual(a.transform);expect(mapped.artworks[0]!.assets.map(x=>[x.bytes,x.sha256])).toEqual(a.assets.map(x=>[x.bytes,x.sha256]));expect(mapped.placements.map(p=>p.transform)).toEqual(e.placements.map(p=>p.transform));expect(e).toEqual(before);});
+
+describe('pinned OEX authority construction',()=>{
+ it('adds only an exact optional preview while preserving the original draft and rejects aliases',async()=>{
+  const source=await fixture(),before=structuredClone(source),art=source.artworks[0]!,primary=art.assets.find(a=>a.id===art.primaryAssetId)!;
+  const pin={artworkId:art.id,revision:art.revision,bindingId:'10000000-0000-4000-8000-000000000010',sourceAssetId:primary.id,sourceSha256:primary.sha256,thumbnailAssetId:'10000000-0000-4000-8000-000000000011',thumbnailSha256:'a'.repeat(64),bytes:100};
+  const authority=pinnedAuthoritySnapshot(source,[pin]);expect(source).toEqual(before);expect(authority.artworks[0]!.assets.at(-1)).toMatchObject({id:pin.thumbnailAssetId,sha256:pin.thumbnailSha256,role:'preview'});
+  expect(portableOexSnapshot(authority).artworks[0]!.assets).toHaveLength(art.assets.length+1);
+  expect(()=>pinnedAuthoritySnapshot(source,[pin,pin])).toThrow('FREEZE_INTEGRITY');
+  expect(()=>pinnedAuthoritySnapshot(source,[{...pin,sourceSha256:'b'.repeat(64)}])).toThrow('FREEZE_INTEGRITY');
+  expect(()=>pinnedAuthoritySnapshot(source,[{...pin,thumbnailAssetId:primary.id}])).toThrow('FREEZE_INTEGRITY');
+ });
+});

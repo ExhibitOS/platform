@@ -39,3 +39,21 @@ describe('representative image receipt authority',()=>{
   expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO artwork_thumbnail_bindings'))).toBe(false);
  });
 });
+
+describe('historical thumbnail receipt lookup',()=>{
+ it('uses the pinned receipt independent of the current selection and fails closed on changes or revoked rights',async()=>{
+  const f=fixture(), exportRights={...rights,permissions:{...rights.permissions,export:true}}, exportMetadata={...metadata,rights:exportRights};
+  f.row.metadata=exportMetadata;Object.assign(f.row,{cms_managed:true});
+  const binding='10000000-0000-4000-8000-000000000007';
+  const pin={artworkId:artwork,revision:1,bindingId:binding,sourceAssetId:source,sourceSha256:input.sourceSha256,thumbnailAssetId:preview,thumbnailSha256:input.thumbnailSha256,bytes:previewBytes.length};
+  const row={artwork_revision:1,source_asset_id:source,source_sha256:pin.sourceSha256,thumbnail_asset_id:preview,sha256:pin.thumbnailSha256,bytes:pin.bytes,object_key:'preview',current_key:'preview',current_hash:pin.thumbnailSha256,current_bytes:pin.bytes,mime:'image/png',state:'approved',deleted_at:null,rights_deleted:null,rights:exportRights,approval:{asset:f.primary,metadata:exportMetadata}};
+  const query=vi.fn(async(sql:string)=>{if(sql.includes('FROM artwork_thumbnail_bindings b JOIN artwork_approvals'))return {rows:[row]};throw Error('unexpected query');});
+  const client={query} as unknown as PoolClient;
+  await expect(f.service.pinnedForExport(client,f.session,pin)).resolves.toMatchObject({rights:[exportRights,exportRights,exportRights]});
+  expect(query.mock.calls.every(([sql])=>!sql.includes('artwork_thumbnail_selections'))).toBe(true);
+  await expect(f.service.pinnedForExport(client,f.session,{...pin,thumbnailSha256:'a'.repeat(64)})).rejects.toMatchObject({code:'OEX_SOURCE_CHANGED'});
+  row.rights={...exportRights,permissions:{...exportRights.permissions,export:false}};
+  await expect(f.service.pinnedForExport(client,f.session,pin)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+  const extraPin={...pin,extra:true};await expect(f.service.pinnedForExport(client,f.session,extraPin)).rejects.toMatchObject({code:'OEX_SOURCE_CHANGED'});
+ });
+});
