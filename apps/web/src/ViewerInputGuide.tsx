@@ -13,7 +13,7 @@ export function resolveViewerInputMode(mode: ViewerInputMode, coarse: boolean): 
 export const viewerInputInstructions: Record<ResolvedViewerInputMode, string> = {
   pointer: "W/A/S/D 또는 ↑/↓로 걷고, 화면을 누른 채 드래그하거나 ←/→로 둘러보세요. 원하면 메뉴의 ‘마우스 시점 잡기’를 직접 선택하세요.",
   trackpad: "W/A/S/D 또는 ↑/↓로 걷고, 마우스나 트랙패드를 누른 채 드래그하거나 ←/→로 둘러보세요. 스크롤은 걷기 조작이 아니에요.",
-  touch: "왼쪽 아래 조이스틱을 밀어 걷고, 다른 손가락으로 3D 화면을 드래그해 둘러보세요. 조금 밀면 천천히 움직이고, 손을 떼면 멈춰요.",
+  touch: "아래 가운데 조이스틱을 밀어 걷고, 다른 손가락으로 3D 화면을 드래그해 둘러보세요. 조금 밀면 천천히 움직이고, 손을 떼면 멈춰요.",
 };
 
 export function ViewerInputGuide({ mode, replayed, onDismiss }: {
