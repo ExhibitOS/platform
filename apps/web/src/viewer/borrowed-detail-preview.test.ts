@@ -13,7 +13,7 @@ function fixture(renderFails=false){
  const parent={appendChild(value:typeof canvas){value.parentNode=this;},insertBefore(value:typeof canvas){value.parentNode=this;}};parent.appendChild(canvas);
  const target={isConnected:true,clientWidth:640,clientHeight:360,appendChild(value:typeof canvas){value.parentNode=this;}};
  let width=1280,height=720,ratio=1.5,lastScene:three.Scene|undefined;
- const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){lastScene=scene;if(renderFails)throw Error('GPU_UNAVAILABLE');}};
+ const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setDrawingBufferSize(w:number,h:number,pixelRatio:number){width=w;height=h;ratio=pixelRatio;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){lastScene=scene;if(renderFails)throw Error('GPU_UNAVAILABLE');}};
  const texture=new three.Texture(),geometry=new three.BoxGeometry(2,3,1),material=new three.MeshStandardMaterial({map:texture});
  geometry.addEventListener('dispose',()=>geometryDisposed++);material.addEventListener('dispose',()=>materialDisposed++);texture.addEventListener('dispose',()=>textureDisposed++);
  const object=new three.Mesh(geometry,material);object.position.set(1,2,3);object.updateMatrixWorld(true);
