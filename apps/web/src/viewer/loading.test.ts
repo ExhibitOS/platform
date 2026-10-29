@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import {readFileSync} from "node:fs";
 import * as Three from "three";
 import type {Exhibition} from "@exhibitos/spec";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
+import {createFlatDetailRetry} from "./borrowed-detail-preview";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
@@ -233,6 +234,42 @@ describe('displayed detail pressure and generation isolation',()=>{
   expect(displayedDetailReclamation(candidates(),'b',3800,DEVICE_BUDGETS.desktop)).toEqual({id:'a',evict:false,assetId:a.coarse.id});
   peak.reserve('a-coarse',10);peak.release('a-coarse');displayed.set('a',{asset:a.coarse.id,bytes:5});
   expect(()=>peak.reserve('b-full',45)).not.toThrow();
+ });
+ it('promotes cached borrowed B while wall attention A keeps ticking, retaining both minima and one downgrade',async()=>{
+  const a=paired('image'),b=paired('image'),displayed=new Map([['a',{asset:a.full.id,bytes:60}],['b',{asset:b.coarse.id,bytes:5}]]);
+  const encoded=new MemoryAssetCache<string>(20);encoded.set(b.full.id,'verified-full-b',5);
+  const peak=new AssetPeakBudget(100,()=>[...displayed.values()].reduce((sum,v)=>sum+v.bytes,0)+encoded.stats().bytes);
+  const attention=new ArtworkAttention(),lastAttended=new Map<string,number>();
+  let now=0,current:string|undefined,borrowed:string|undefined,alive=true,pending=false,attempts=0,downgradePending=false;
+  const observeWall=()=>{if(!artworkDemandContext(current,borrowed).observeWall)return;current=attention.update([{id:'a',demand:true,focused:true,occupancy:.5}],now);if(current)lastAttended.set(current,now);};
+  observeWall();now=300;observeWall();expect(current).toBe('a');borrowed='b';
+  const candidates=()=>[...displayed].map(([id,value])=>({id,artwork:id==='a'?a.artwork:b.artwork,assetId:value.asset,visible:true,lastAttended:lastAttended.get(id)??-Infinity}));
+  let finishDowngrade!:(value:string)=>void;const loads:string[]=[];
+  const scheduler=new AssetScheduler<string>({concurrency:1,load:key=>{loads.push(key);peak.reserve(key,10);return new Promise(resolve=>{finishDowngrade=resolve;});}});
+  const retry=createFlatDetailRetry({valid:()=>alive,pending:()=>pending,retryAfter:()=>0,now:()=>now,ready:()=>displayed.get('b')!.asset===b.full.id,request:()=>{
+   attempts++;
+   try{peak.reserve('b-full',45);pending=true;}
+   catch{
+    expect(encoded.get(b.full.id)).toBe('verified-full-b'); // Cached downloadOnly path: no second download.
+    if(downgradePending)return;
+    const choice=displayedDetailReclamation(candidates(),artworkDemandContext(current,borrowed).owner,now,DEVICE_BUDGETS.desktop);
+    if(!choice)return;
+    expect(choice).toEqual({id:'a',evict:false,assetId:a.coarse.id});downgradePending=true;
+    void scheduler.request('a-coarse').then(()=>{peak.release('a-coarse');displayed.set('a',{asset:a.coarse.id,bytes:5});downgradePending=false;});
+   }
+  }});
+  // Real repeated wall observations must not refresh A's grace while B borrows the renderer.
+  for(now=500;now<=1900;now+=200){observeWall();retry();}
+  expect(loads).toEqual([]);now=2100;observeWall();retry();await tick();
+  expect(loads).toEqual(['a-coarse']);expect(lastAttended.get('a')).toBe(300);
+  for(now=2300;now<=2700;now+=200){observeWall();retry();}
+  expect(loads).toEqual(['a-coarse']);expect(displayed.get('a')!.asset).toBe(a.full.id);expect(displayed.get('b')!.asset).toBe(b.coarse.id);
+  finishDowngrade('ready');await tick();retry();expect(pending).toBe(true);const admittedAttempts=attempts;
+  for(let n=0;n<5;n++){observeWall();retry();}expect(attempts).toBe(admittedAttempts);
+  expect(displayed.get('b')!.asset).toBe(b.coarse.id); // Borrowed image stays until its full replacement is ready.
+  peak.release('b-full');displayed.set('b',{asset:b.full.id,bytes:60});pending=false;retry();expect(attempts).toBe(admittedAttempts);expect(peak.total()).toBeLessThanOrEqual(100);
+  alive=false;borrowed=undefined;now=4000;observeWall();expect(lastAttended.get('a')).toBe(4000);retry();expect(attempts).toBe(admittedAttempts);
+  expect(encoded.get(b.full.id)).toBe('verified-full-b');scheduler.dispose();
  });
  it('never manufactures a coarse tuple for visible full-only geometry and only evicts it offscreen after grace',()=>{
   const artwork=syntheticArtwork('sculpture'),assetId=artwork.assets[0]!.id,item={id:'full-only',artwork,assetId,visible:true,lastAttended:0};
