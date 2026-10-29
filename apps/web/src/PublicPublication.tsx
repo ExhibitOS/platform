@@ -1,7 +1,7 @@
 import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor, artworkThumbnailFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
@@ -27,7 +27,7 @@ import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emptyThumbnails:Readonly<Record<string,string>>=Object.freeze({});
-export function PublicPublication({ id, initial }: { id: string; initial?: PublicResponse }) {
+export function PublicPublication({ id, initial, connectionStatus }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode }) {
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
@@ -247,6 +247,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <details data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
           <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
           <div className="publication-menu-panel">
+          {connectionStatus}
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
