@@ -20,3 +20,23 @@ it('does not invent thumbnails or destination controls from room and placement m
  const html=renderToStaticMarkup(<VisitorMap {...props()}/>);
  expect(html).not.toContain('<img');expect(html).toContain('지도에서 고르기');expect(html).not.toContain('선택한 위치로 이동');expect(html).not.toContain('안전한');
 });
+it('centers the circular crop on the world pose without rotating the plan with heading',()=>{
+ const value=props();value.worldPose={point:[4,-1],direction:[1,0]};
+ const first=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(first).toContain('viewBox="0 -5 8 8"');
+ value.worldPose={point:[4,-1],direction:[0,1]};
+ const turned=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(turned).toContain('viewBox="0 -5 8 8"');expect(turned).not.toContain('rotate(');
+ value.worldPose={point:[-2,3],direction:[0,-1]};
+ expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
+ expect(value.onGo).not.toHaveBeenCalled();
+});
+it('uses only supplied real thumbnails while retaining named keyboard controls and a compact expansion affordance',()=>{
+ const value=props();value.previews={placement:{thumbnail:'blob:verified-coarse',description:'Long artwork description belongs in the existing detail view.'}};
+ const html=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(html).toContain('aria-label="전시 지도"');expect(html).toContain('visitor-map-plus');
+ expect(html).toContain('src="blob:verified-coarse"');expect(html).toContain('loading="lazy"');
+ expect(html).toContain('aria-label="선택할 작품"');expect(html).toContain('aria-label="첫 공간"');
+ expect(html).not.toContain(value.previews.placement.description);expect(html).not.toContain('펼치기');
+ expect(value.onGo).not.toHaveBeenCalled();expect(value.onDetails).not.toHaveBeenCalled();
+});
