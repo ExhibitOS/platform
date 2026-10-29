@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { WalkAction, WalkingPauseReason } from "./viewer/navigation-input";
+import { WalkingJoystick } from "./viewer/WalkingJoystick";
 export interface WalkingSettings {
   speed: 0.7 | 1.3 | 1.6;
   eyeHeight: number;
@@ -22,6 +23,7 @@ export interface WalkingActions {
   reset: () => void;
   settings: (value: WalkingSettings) => void;
   press: (action: WalkAction, id: number) => void;
+  move: (id: number, right: number, forward: number) => void;
   release: (id: number) => void;
 }
 export function WalkingControls({
@@ -71,9 +73,9 @@ export function WalkingControls({
       <p id="walking-instructions">
         걷기 시작 후 화면에 초점을 두고 W/A/S/D 또는 ↑/↓로 이동하고 ←/→로 시점을
         돌립니다. 마우스 시점은 직접 선택합니다. Esc·다른 항목 선택·화면 전환은
-        일시 정지합니다. 터치는 왼쪽 방향 버튼으로 이동하고 오른쪽 방향 버튼이나
-        화면 오른쪽 드래그로 위·아래·좌우를 둘러봅니다. 버튼을 누르는 동안 움직이고
-        손을 떼면 멈춥니다.
+        일시 정지합니다. 터치는 왼쪽 아래 조이스틱을 밀어 이동하고
+        3D 화면을 드래그해 위·아래·좌우를 둘러봅니다. 조이스틱을 조금 밀면 천천히,
+        멀리 밀면 선택한 보행 속도까지 움직입니다. 손을 떼면 멈춥니다.
       </p>
         {allowPointerCapture && <button disabled={!available} onClick={() => actions?.capture()}>마우스 시점 잡기</button>}
       <div className="walking-settings">
@@ -128,52 +130,7 @@ export function WalkingTouch({
   resumable?: boolean;
   actions: WalkingActions | null;
 }) {
-  const move = (action: WalkAction, label: string, direction: string, symbol: string) => (
-    <button
-      type="button"
-      aria-label={label}
-      data-walk-touch={action}
-      style={{ gridArea: direction }}
-      disabled={!available || (paused && !resumable)}
-      onPointerDown={(event) => {
-        if ((paused && event.isPrimary === false) || (event.pointerType === "mouse" && event.button !== 0)) return;
-        if (paused && !actions?.resumeInput?.()) return;
-        event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        actions?.press(action, event.pointerId);
-      }}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={(event) => event.preventDefault()}
-      onPointerUp={(event) => {
-        event.preventDefault();
-        actions?.release(event.pointerId);
-      }}
-      onPointerCancel={(event) => actions?.release(event.pointerId)}
-      onLostPointerCapture={(event) => actions?.release(event.pointerId)}
-    >
-      <span aria-hidden="true">{symbol}</span>
-    </button>
-  );
-  return (
-    <div className="walking-touch" aria-label="터치 이동" onContextMenu={event => event.preventDefault()}>
-      <div className="walking-touch-group" role="group" aria-label="이동">
-        <span className="walking-touch-label" onPointerDown={event => event.preventDefault()}>이동</span>
-        <div className="walking-direction-pad">
-          {move("forward", "앞으로 이동", "up", "↑")}
-          {move("left", "왼쪽 이동", "left", "←")}
-          {move("right", "오른쪽 이동", "right", "→")}
-          {move("backward", "뒤로 이동", "down", "↓")}
-        </div>
-      </div>
-      <div className="walking-touch-group" role="group" aria-label="시점">
-        <span className="walking-touch-label" onPointerDown={event => event.preventDefault()}>시점</span>
-        <div className="walking-direction-pad">
-          {move("look-up", "위쪽 시점", "up", "↑")}
-          {move("turn-left", "왼쪽 시점", "left", "←")}
-          {move("turn-right", "오른쪽 시점", "right", "→")}
-          {move("look-down", "아래쪽 시점", "down", "↓")}
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="walking-touch" aria-label="터치 이동" onContextMenu={event => event.preventDefault()}>
+    <WalkingJoystick available={available} paused={paused} resumable={resumable} actions={actions}/>
+  </div>;
 }

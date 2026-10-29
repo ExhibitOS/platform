@@ -640,6 +640,8 @@ export function GeometryPreview({
       let resumeFrame = 0;
       const down = (event: PointerEvent) => { pointerStart=event.isPrimary === false ? undefined : [event.clientX,event.clientY]; };
       const cancelPick = () => { pointerStart=undefined; };
+      const multiPointerPick = (event: PointerEvent) => { if(event.isPrimary===false)cancelPick(); };
+      renderer.domElement.ownerDocument.addEventListener("pointerdown",multiPointerPick,true);
       const canvasMenu = (event: MouseEvent) => { if (immersive) event.preventDefault(); };
       renderer.domElement.addEventListener("contextmenu",canvasMenu);
       const movePick = (event: PointerEvent) => {
@@ -936,6 +938,7 @@ export function GeometryPreview({
         orbitEnabled.current = null;
         renderer.domElement.removeEventListener("click",pick);
         renderer.domElement.removeEventListener("pointerdown",down);
+        renderer.domElement.ownerDocument.removeEventListener("pointerdown",multiPointerPick,true);
         renderer.domElement.removeEventListener("pointermove",movePick);
         renderer.domElement.removeEventListener("pointercancel",cancelPick);
         renderer.domElement.removeEventListener("contextmenu",canvasMenu);
@@ -1105,6 +1108,7 @@ export function GeometryPreview({
           reset: () => {},
           settings: () => {},
           press: () => {},
+          move: () => {},
           release: () => {},
         };
         walkingActions.current = pending;
@@ -2270,7 +2274,7 @@ export function GeometryPreview({
       <figcaption hidden={immersive && ready && assetReport.loaded===document.placements.length && assetReport.failed===0} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
       {(immersive || compactControls) && <summary>공간 조작</summary>}
-      {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·화면 버튼</option></select></label><p>터치 기기는 화면 버튼, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 설정을 닫으면 새 이동·시점 조작을 바로 사용할 수 있어요.</p></>}
+      {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·조이스틱</option></select></label><p>터치 기기는 조이스틱과 화면 드래그, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 설정을 닫으면 새 이동·시점 조작을 바로 사용할 수 있어요.</p></>}
       {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       <ViewControls hidden={viewingStyle==='ordered'} className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
