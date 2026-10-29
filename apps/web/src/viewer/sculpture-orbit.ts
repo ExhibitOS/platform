@@ -41,9 +41,9 @@ export function createSculptureOrbit(options:{placementId:string;bounds:ViewingO
      if(!options.allowed()||options.reducedMotion()||now-pointer.started>=30000){stop();publish();return;}
      const dt=Math.min(.05,Math.max(0,(now-pointer.last)/1000));pointer.last=now;
      if(dt>0&&!move(pointer.direction*dt*Math.PI/12)){stop();publish();return;}
-     frame=requestAnimationFrame(tick);
+     if(!disposed&&token===generation&&pointer)frame=requestAnimationFrame(tick);
     };
-    frame=requestAnimationFrame(tick);
+    if(!disposed&&token===generation&&pointer)frame=requestAnimationFrame(tick);
    },350);
    publish();
   },
