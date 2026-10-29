@@ -27,7 +27,7 @@ import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {transaction,sha256,type BlobStore} from '@exhibitos/storage';
-import {writeOex,validateExhibition,type Exhibition} from '@exhibitos/spec';
+import {writeOex,validateExhibition,validateFurnishingInventory,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
 import {SPACE_STILL_NAMESPACE,spaceStillFor} from '@exhibitos/spec/space-still';
 import {CoverImages,coverImageAsset,validateCoverImage} from './cover-images.ts';
 import {DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,curationDurationValid,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails,creationYearFor} from '@exhibitos/studio-contract';
@@ -38,6 +38,11 @@ import {validRights,allowedRights} from './rights.ts';
 import {decode,MAX_UPLOAD} from './imports.ts';
 import {validatePcmWav,audioMedia,type AudioRow} from './audio.ts';
 export const MAX_OEX_UPLOAD=67108864;
+/** Package overhead is included in the limit and can reject before bytes return. */
+export async function writeOexWithinBudget(write:()=>Promise<Buffer>,dropOptional?:()=>void){
+ const attempt=async()=>{try{const bytes=await write();if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');return bytes;}catch(error){if(object(error)&&['ZIP_ARCHIVE_LIMIT','JSON_DOCUMENT_LIMIT','OEX_LIMIT'].includes(String(error.code)))throw new ApiError(422,'OEX_LIMIT');throw new ApiError(422,'OEX_INVALID');}};
+ try{return await attempt();}catch(error){if(!(error instanceof ApiError)||error.code!=='OEX_LIMIT'||!dropOptional)throw error;dropOptional();return attempt();}
+}
 const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
 const LEGAL_NOTICES={'org.exhibitos/apache-license':'Apache-2.0','org.exhibitos/cc0-license':'CC0-1.0'}as const;
 // Public contract entity identities and reference fields; licenseId is authored rights data.
@@ -47,6 +52,22 @@ const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 /** Remove only server-private CMS bindings; the portable artwork remains unchanged. */
 export function portableOexSnapshot(candidate:Exhibition){const result=structuredClone(candidate);for(const a of result.artworks)if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}return result;}
+export interface ImportedPreviewOmission {artworkId:string;assetId:string;sha256:string}
+/** Remove only an unreferenced optional imported preview, preserving the draft. */
+export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPreviewOmission[]){
+ if(!Array.isArray(omissions)||omissions.length>source.artworks.length)throw new ApiError(409,'FREEZE_INTEGRITY');
+ checkOexProfile(source,true);const result=structuredClone(source),seen=new Set<string>();
+ for(const omission of omissions){
+  if(!object(omission)||Object.keys(omission).sort().join(',')!=='artworkId,assetId,sha256'||typeof omission.artworkId!=='string'||typeof omission.assetId!=='string'||typeof omission.sha256!=='string'||!/^[a-f0-9]{64}$/.test(omission.sha256))throw new ApiError(409,'FREEZE_INTEGRITY');
+  const key=omission.artworkId.toLowerCase(),art=result.artworks.find(a=>a.id.toLowerCase()===key),preview=art&&artworkThumbnailFor(art);
+  if(seen.has(key)||!art||!preview||preview.id.toLowerCase()!==omission.assetId.toLowerCase()||preview.sha256!==omission.sha256)throw new ApiError(409,'FREEZE_INTEGRITY');
+  seen.add(key);art.assets=art.assets.filter(a=>a.id.toLowerCase()!==preview.id.toLowerCase());delete art.extensions![ARTWORK_THUMBNAIL_NAMESPACE];if(!Object.keys(art.extensions!).length)delete art.extensions;
+  let referenced=false;
+  const scan=(v:unknown,field='')=>{if(typeof v==='string'&&((REFERENCE_FIELDS.has(field)&&v.toLowerCase()===preview.id.toLowerCase())||(field==='path'&&v.toLowerCase()===preview.path.toLowerCase())))referenced=true;else if(Array.isArray(v))for(const item of v)scan(item,field);else if(object(v))for(const [key,item]of Object.entries(v))scan(item,key);};
+  scan(result);if(referenced)throw new ApiError(409,'FREEZE_INTEGRITY');
+ }
+ checkOexProfile(result,true);return result;
+}
 /** A pinned authority can add only the exact optional images to the original scene. */
 export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPin[]){
  if(!Array.isArray(pins)||pins.length>source.artworks.length)throw new ApiError(409,'FREEZE_INTEGRITY');
@@ -191,12 +212,14 @@ export class Oex {
   return this.view((await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);
  }
  async export(c:PoolClient,s:Session,id:string,match:string):Promise<Buffer>{return (await this.exportDetailed(c,s,id,match)).bytes;}
- async exportDetailed(c:PoolClient,s:Session,id:string,match:string):Promise<{bytes:Buffer;pins:FrozenThumbnailPin[]}>{
+ async exportDetailed(c:PoolClient,s:Session,id:string,match:string):Promise<{bytes:Buffer;pins:FrozenThumbnailPin[];omittedImported:ImportedPreviewOmission[]}>{
   const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
   if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
-  let e=structuredClone(snapshot.candidate)as Exhibition;checkOexProfile(e,true);const files=new Map<string,Uint8Array>();
+  const original=structuredClone(snapshot.candidate) as Exhibition;
+  let e=structuredClone(original);checkOexProfile(e,true);const files=new Map<string,Uint8Array>();
   const rights:unknown[]=[];let total=0;
+  const pendingImported:{artwork:Exhibition['artworks'][number];asset:NonNullable<ReturnType<typeof artworkThumbnailFor>>}[]=[];
   for(const a of e.artworks){
    const binding=a.extensions?.[CMS]as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
    if(!binding||binding.tenantId?.toLowerCase()!==s.tenantId.toLowerCase()||binding.artworkId?.toLowerCase()!==a.id.toLowerCase()||binding.revision!==a.revision)throw new ApiError(422,'CMS_BINDING_REQUIRED');
@@ -207,7 +230,11 @@ export class Oex {
    const primary=a.assets.find(x=>x.id.toLowerCase()===a.primaryAssetId.toLowerCase())!;
    if(!equal({id:primary.id.toLowerCase(),sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.snapshot.asset?.id?.toLowerCase(),sha256:approval.snapshot.asset?.sha256,bytes:approval.snapshot.asset?.bytes,mime:approval.snapshot.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    if(!approvedImportedThumbnail(a,approval.snapshot))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   const optional=artworkThumbnailFor(a);
    for(const asset of a.assets){
+    if(optional&&asset.id.toLowerCase()===optional.id.toLowerCase()){
+     try{withoutImportedPreviews(original,[{artworkId:a.id,assetId:optional.id,sha256:optional.sha256}]);pendingImported.push({artwork:structuredClone(a),asset:optional});continue;}catch{/* A referenced preview remains required. */}
+    }
     const stored=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];
     if(!stored||stored.sha256!==asset.sha256||Number(stored.bytes)!==asset.bytes||stored.mime!==asset.mime||!equal(stored.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
     if(!allowedRights(m.rights,'export')||!allowedRights(stored.rights,'export')||!allowedRights(a.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
@@ -234,7 +261,19 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(e)){
    const data=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
   }
-  const source=structuredClone(snapshot.candidate) as Exhibition,receipts=new ArtworkThumbnailReceipts(this.blobs),pins:FrozenThumbnailPin[]=[],optionalPaths:string[]=[];
+  const omittedImported:ImportedPreviewOmission[]=[],retainedImported:{omission:ImportedPreviewOmission;path:string;rights:unknown}[]=[];
+  for(const {artwork,asset} of pendingImported){
+   try{
+    const stored=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,artwork.id,asset.id])).rows[0];
+    if(!stored||stored.sha256!==asset.sha256||Number(stored.bytes)!==asset.bytes||stored.mime!==asset.mime||!equal(stored.rights,artwork.rights)||!allowedRights(stored.rights,'export')||!allowedRights(stored.rights,'display'))throw Error('optional unavailable');
+    const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw Error('optional integrity');await validateThumbnailBytes(bytes);
+    if(total+bytes.length>MAX_OEX_UPLOAD||files.has(asset.path))throw Error('optional budget');
+    if(!allowedRights(stored.rights,'export')||!allowedRights(stored.rights,'display'))throw Error('optional rights');
+    files.set(asset.path,bytes);total+=bytes.length;retainedImported.push({omission:{artworkId:artwork.id,assetId:asset.id,sha256:asset.sha256},path:asset.path,rights:stored.rights});
+   }catch{omittedImported.push({artworkId:artwork.id,assetId:asset.id,sha256:asset.sha256});}
+  }
+  let source=withoutImportedPreviews(original,omittedImported);e=portableOexSnapshot(source);
+  const receipts=new ArtworkThumbnailReceipts(this.blobs),pins:FrozenThumbnailPin[]=[],optionalPaths:string[]=[];
   // Load every required resource first; an optional preview must not consume its budget.
   for(const art of source.artworks){
    const primary=art.assets.find(a=>a.id===art.primaryAssetId);if(!primary||artworkThumbnailFor(art))continue;
@@ -247,22 +286,37 @@ export class Oex {
    }catch{/* A missing, invalid or unauthorized optional image does not remove the artwork. */}
   }
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
-  let bytes:Buffer;try{bytes=await write();if(bytes.length>MAX_OEX_UPLOAD&&pins.length){for(const path of optionalPaths)files.delete(path);pins.length=0;e=portableOexSnapshot(source);bytes=await write();}}catch{throw new ApiError(422,'OEX_INVALID');}
+  const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported);e=portableOexSnapshot(source);}:undefined;
+  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length;};
+  if(dropOptional&&packageEntries()>254)dropOptional();
+  let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
   // A preview may expire during archive I/O. Remove only that optional image,
   // rebuild the archive, and repeat until every retained pin remains authorized.
-  for(let index=0;index<pins.length;){
-   try{await receipts.pinnedForExport(c,s,pins[index]!);index++;}
-   catch{
-    files.delete(optionalPaths[index]!);optionalPaths.splice(index,1);pins.splice(index,1);
-    e=portableOexSnapshot(pinnedAuthoritySnapshot(source,pins));
-    try{bytes=await write();}catch{throw new ApiError(422,'OEX_INVALID');}
-    if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');
-    index=0;
+  while(true){
+   let changed=false;
+   for(let index=0;index<pins.length;index++){
+    try{await receipts.pinnedForExport(c,s,pins[index]!);}
+    catch{files.delete(optionalPaths[index]!);optionalPaths.splice(index,1);pins.splice(index,1);changed=true;break;}
    }
+   if(!changed){const index=retainedImported.findIndex(item=>!allowedRights(item.rights,'export')||!allowedRights(item.rights,'display'));
+    if(index>=0){const item=retainedImported[index]!;files.delete(item.path);omittedImported.push(item.omission);retainedImported.splice(index,1);source=withoutImportedPreviews(original,omittedImported);changed=true;}
+   }
+   if(!changed)break;
+   e=portableOexSnapshot(pinnedAuthoritySnapshot(source,pins));try{bytes=await write();}catch{throw new ApiError(422,'OEX_INVALID');}if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');
   }
   if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
-  return {bytes,pins};
+  return {bytes,pins,omittedImported};
+ }
+ /** Omission never makes an unapproved imported preview authoritative. */
+ async authorizeOmissions(c:PoolClient,s:Session,source:Exhibition,omissions:ImportedPreviewOmission[]){
+  const sanitized=withoutImportedPreviews(source,omissions);
+  for(const omission of omissions){
+   const art=source.artworks.find(a=>a.id.toLowerCase()===omission.artworkId.toLowerCase())!;
+   const approval=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,art.id,art.revision])).rows[0]?.snapshot;
+   if(!approval||!approvedImportedThumbnail(art,approval))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  }
+  return sanitized;
  }
  /** Authorize an immutable historical scene using live governing records, without requiring the latest draft scene. */
  async authorizeSnapshot(c:PoolClient,s:Session,exhibitionId:string,candidate:Exhibition){

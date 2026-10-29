@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
-import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail,pinnedAuthoritySnapshot,portableOexSnapshot} from './oex.ts';
+import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail,pinnedAuthoritySnapshot,portableOexSnapshot,withoutImportedPreviews,writeOexWithinBudget} from './oex.ts';
 import {validMetadata} from './cms.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'))as Exhibition;}
@@ -133,5 +133,27 @@ describe('pinned OEX authority construction',()=>{
   expect(()=>pinnedAuthoritySnapshot(source,[pin,pin])).toThrow('FREEZE_INTEGRITY');
   expect(()=>pinnedAuthoritySnapshot(source,[{...pin,sourceSha256:'b'.repeat(64)}])).toThrow('FREEZE_INTEGRITY');
   expect(()=>pinnedAuthoritySnapshot(source,[{...pin,thumbnailAssetId:primary.id}])).toThrow('FREEZE_INTEGRITY');
+ });
+});
+
+describe('optional imported preview omission',()=>{
+ it('removes only an unreferenced exact preview without altering the source',async()=>{
+  const source=await fixture(),art=source.artworks[0]!,preview={id:'f1234567-89ab-4cde-8123-456789abcdef',path:'assets/optional-preview.png',role:'preview' as const,mime:'image/png' as const,bytes:128,sha256:'a'.repeat(64)};
+  art.assets.push(preview);art.extensions={...art.extensions,'org.exhibitos.viewer/thumbnail':{version:1,assetId:preview.id}};
+  const original=structuredClone(source),item={artworkId:art.id,assetId:preview.id,sha256:preview.sha256},out=withoutImportedPreviews(source,[item]);
+  expect(source).toEqual(original);expect(out.artworks[0]!.assets.some(a=>a.id===preview.id)).toBe(false);expect(out.artworks[0]!.extensions?.['org.exhibitos.viewer/thumbnail']).toBeUndefined();
+  expect(()=>withoutImportedPreviews(source,[{...item,sha256:'b'.repeat(64)}])).toThrow();expect(()=>withoutImportedPreviews(source,[item,item])).toThrow();
+  const pathAlias=structuredClone(source);pathAlias.artworks[1]!.assets[0]!.path=preview.path.toUpperCase();expect(()=>withoutImportedPreviews(pathAlias,[item])).toThrow();
+  const aliased=structuredClone(source);aliased.artworks[1]!.assets.push({...preview});aliased.artworks[1]!.extensions={...aliased.artworks[1]!.extensions,'org.exhibitos.viewer/thumbnail':{version:1,assetId:preview.id}};expect(()=>withoutImportedPreviews(aliased,[item])).toThrow();
+ });
+});
+
+describe('optional OEX archive budget fallback',()=>{
+ it('retries without optional assets when packaging rejects overhead and preserves other errors',async()=>{
+  let hasOptional=true,calls=0;const write=async()=>{calls++;if(hasOptional)throw Object.assign(new Error('limit'),{code:'ZIP_ARCHIVE_LIMIT'});return Buffer.from('required');};
+  expect((await writeOexWithinBudget(write,()=>{hasOptional=false;})).toString()).toBe('required');expect(calls).toBe(2);
+  let included=true;expect((await writeOexWithinBudget(async()=>{if(included)throw Object.assign(new Error('limit'),{code:'JSON_DOCUMENT_LIMIT'});return Buffer.from('required');},()=>{included=false;})).toString()).toBe('required');
+  await expect(writeOexWithinBudget(async()=>{throw Object.assign(new Error('invalid'),{code:'ASSET_SIZE_MISMATCH'});},()=>{throw Error('must not drop');})).rejects.toMatchObject({code:'OEX_INVALID'});
+  await expect(writeOexWithinBudget(async()=>{throw Object.assign(new Error('limit'),{code:'ZIP_ARCHIVE_LIMIT'});})).rejects.toMatchObject({code:'OEX_LIMIT'});
  });
 });
