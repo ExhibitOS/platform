@@ -16,7 +16,7 @@ it("uses safe drag or touch defaults without claiming a mouse/trackpad hardware 
 it.each([
   ["pointer", "마우스 시점 잡기"],
   ["trackpad", "스크롤은 걷기 조작이 아니에요"],
-  ["touch", "다른 손가락으로 오른쪽 화면"],
+  ["touch", "다른 손가락으로 3D 화면"],
 ] as const)("explains the supported %s controls with a nonmodal skip and recovery route", (mode, expected) => {
   const html = renderToStaticMarkup(<ViewerInputGuide mode={mode} replayed={false} onDismiss={() => {}} />);
   expect(html).toContain(expected);

@@ -4,7 +4,8 @@ import { createWalkingInput } from './navigation-input';
 afterEach(() => vi.unstubAllGlobals());
 function fixture(resume?: () => boolean) {
   const doc = Object.assign(new EventTarget(), { activeElement: null as unknown, pointerLockElement: null as unknown, hidden:false, exitPointerLock:vi.fn(() => {doc.pointerLockElement=null;}) });
-  const canvas = Object.assign(new EventTarget(), { focus:vi.fn(()=>{doc.activeElement=canvas;}), requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn() });
+  const captures=new Set<number>();
+  const canvas = Object.assign(new EventTarget(), { focus:vi.fn(()=>{doc.activeElement=canvas;}), requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn((id:number)=>{captures.add(id);}),hasPointerCapture:(id:number)=>captures.has(id),releasePointerCapture:vi.fn((id:number)=>{captures.delete(id);}) });
   vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
   const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error,undefined,resume);
   input.enable();return {doc,canvas,input,pause,error};
@@ -340,4 +341,38 @@ test('a key first held during a panel pause cannot introduce movement through la
  const f=fixture(()=>false);f.input.pause('panel');const key=(repeat:boolean)=>window.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyW',repeat}));
  key(false);f.input.enable();key(true);expect(f.input.sample(.1).forward).toBe(0);
  window.dispatchEvent(Object.assign(new Event('keyup'),{code:'KeyW'}));key(false);expect(f.input.sample(.1).forward).toBe(1);f.input.dispose();
+});
+
+
+test('analog movement is proportional, bounded with keys, and independent of release tokens',()=>{
+ const f=fixture();f.input.move(1,.3,.4);
+ expect(f.input.sample(.1)).toMatchObject({right:.3,forward:.4});
+ f.input.move(2,4,3);let v=f.input.sample(.1);expect(Math.hypot(v.right,v.forward)).toBeCloseTo(1);
+ f.input.release(2);expect(f.input.sample(.1)).toMatchObject({right:.3,forward:.4});
+ f.input.press('forward',3);v=f.input.sample(.1);expect(Math.hypot(v.right,v.forward)).toBeCloseTo(1);
+ f.input.release(1);f.input.release(3);expect(f.input.sample(.1)).toMatchObject({right:0,forward:0});
+ f.input.move(1,NaN,1);f.input.move(2,Infinity,0);expect(f.input.sample(.1)).toMatchObject({right:0,forward:0});
+ f.input.pause();f.input.move(1,0,1);f.input.enable();expect(f.input.sample(.1).forward).toBe(0);f.input.dispose();
+});
+test('joystick and canvas look own separate pointers on either half of the surface',()=>{
+ const f=fixture();const pointer=(type:string,id:number,x:number,y:number,primary=false)=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:id,pointerType:'touch',isPrimary:primary,button:0,clientX:x,clientY:y}));
+ f.input.move(1,0,.5);pointer('pointerdown',2,20,20);pointer('pointermove',2,24,20);
+ expect(f.input.sample(.1)).toMatchObject({forward:.5,yawDelta:0}); // tap jitter has no look effect
+ pointer('pointermove',2,30,25);expect(f.input.sample(.1)).toMatchObject({forward:.5,yawDelta:-.04,pitchDelta:-.02});
+ pointer('pointerdown',3,80,20);pointer('pointermove',3,90,20);pointer('pointerup',3,90,20);
+ pointer('pointermove',2,40,25);expect(f.input.sample(.1)).toMatchObject({forward:.5,yawDelta:-.04});
+ f.input.release(1);pointer('pointermove',2,50,25);expect(f.input.sample(.1)).toMatchObject({forward:0,yawDelta:-.04});
+ pointer('pointercancel',2,50,25);pointer('pointermove',2,70,25);expect(f.input.sample(.1).yawDelta).toBe(0);
+ expect(f.canvas.releasePointerCapture).toHaveBeenCalledWith(2);f.input.dispose();
+});
+test.each(['panel','window','hidden','dispose'] as const)('all analog and captured look clear at %s boundary',reason=>{
+ const f=fixture();f.input.move(1,0,1);
+ const pointer=(type:string,x:number)=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:2,pointerType:'touch',isPrimary:false,button:0,clientX:x,clientY:20}));
+ pointer('pointerdown',70);pointer('pointermove',80);
+ if(reason==='window')window.dispatchEvent(new Event('blur'));
+ else if(reason==='hidden'){f.doc.hidden=true;f.doc.dispatchEvent(new Event('visibilitychange'));}
+ else if(reason==='dispose')f.input.dispose();else f.input.pause('panel');
+ expect(f.input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});
+ expect(f.canvas.releasePointerCapture).toHaveBeenCalledWith(2);
+ if(reason!=='dispose'){f.doc.hidden=false;f.input.enable();pointer('pointermove',90);expect(f.input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});f.input.dispose();}
 });

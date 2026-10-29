@@ -83,7 +83,10 @@ export function Viewer({
   const [mapPose,setMapPose]=useState<ReturnType<typeof visitorMapPose>>();
   const [mapTravelState,setMapTravelState]=useState<MapTravelState>({status:'idle',message:''});
   const mapDestinations=useMemo(()=>presentationFor(publication.exhibition).viewpoints.map(({id,roomId,name})=>({id,roomId,name})),[publication]);
-  const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240)}])),[publication]);
+  const [mapPreviewPlacementId,setMapPreviewPlacementId]=useState<string>();
+  const [mapThumbnail,setMapThumbnail]=useState<{revisionSha256:string;placementId:string;thumbnail:string}|null>(null);
+  const receiveMapThumbnail=useCallback((value:typeof mapThumbnail)=>setMapThumbnail(value),[]);
+  const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:mapThumbnail?.revisionSha256===publication.publication.revisionSha256&&mapThumbnail.placementId===p.id?mapThumbnail.thumbnail:undefined}])),[publication,mapThumbnail]);
   const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState):undefined,[map,mapDestinations]);
   useEffect(()=>{onMapCancelReady?.(mapTravel?.cancel??null);return()=>onMapCancelReady?.(null);},[mapTravel,onMapCancelReady]);
   useEffect(()=>{
@@ -239,7 +242,7 @@ export function Viewer({
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
       {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>{setIntroDismissed(true);viewingEntry.current?.resumeViewing?.();}} />}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
-      {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} worldPose={mapPose} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
+      {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} worldPose={mapPose} previews={mapPreviews} onPreviewChange={setMapPreviewPlacementId} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
         immersive={immersive}
         onViewingReady={onViewingRendererReady}
@@ -248,6 +251,8 @@ export function Viewer({
         onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
         onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
+        mapPreviewPlacementId={mapEnabled&&!suspendNavigation?mapPreviewPlacementId:undefined}
+        onMapThumbnail={immersive?receiveMapThumbnail:undefined}
         onMapReady={immersive?registerMap:undefined}
         onMapPose={immersive?reportMapPose:undefined}
         onXrReady={xrReady}

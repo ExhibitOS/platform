@@ -1,7 +1,7 @@
 import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
@@ -35,6 +35,12 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
   const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
+  useLayoutEffect(()=>{
+    if(mode!=='3d')return;
+    const previous=[document.documentElement,document.body].map(element=>({element,overflow:element.style.overflow,overscrollBehavior:element.style.overscrollBehavior}));
+    for(const {element}of previous){element.style.overflow='hidden';element.style.overscrollBehavior='none';}
+    return()=>{for(const {element,overflow,overscrollBehavior}of previous){element.style.overflow=overflow;element.style.overscrollBehavior=overscrollBehavior;}};
+  },[mode]);
   const entryStatus=useRef<HTMLParagraphElement>(null),menuRef=useRef(menuOpen);menuRef.current=menuOpen;
   useEffect(()=>{if(stageReady&&modeRef.current==="3d"&&!menuRef.current)document.querySelector<HTMLCanvasElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});},[stageReady]);
   const [guideRequest,setGuideRequest]=useState<GuideRequest>();
@@ -209,6 +215,7 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
           <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
           <div className="publication-menu-panel">
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
+          {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
@@ -222,7 +229,6 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <label><input type="checkbox" checked={highContrast} onChange={e => setHighContrast(e.target.checked)} />높은 대비</label>
             <p>처음에는 기기의 움직임 줄이기·대비 설정을 따릅니다. 움직임 줄이기는 입장·화면 전환의 움직임을 줄여요. 직접 선택하면 이 관람 동안 선택한 설정을 사용합니다.</p>
             {mode === "3d" && <>
-              <button onClick={showTextArtworks}>텍스트로 관람</button>
               <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
             </>}
           </section>
@@ -234,7 +240,6 @@ export function PublicPublication({ id, initial }: { id: string; initial?: Publi
             <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
           </details>
           </div></details>
-          {mode === "3d" && <button className="publication-text-route" onClick={showTextArtworks}>텍스트로 관람</button>}
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
             <Viewer onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}

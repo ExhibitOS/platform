@@ -289,6 +289,7 @@ export async function createWalkingCamera({
       }
     },
     press: (action, id) => {if(!orderedViewing)input.press(action,id);},
+    move: (id, right, forward) => {if(!orderedViewing)input.move(id,right,forward);},
     release: (id) => input.release(id),
   };
   publish();
