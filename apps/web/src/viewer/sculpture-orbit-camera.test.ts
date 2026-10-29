@@ -14,6 +14,11 @@ it('the real capsule sweep rejects crossing a thin barrier even when both endpoi
  const controller=await createNavigationController(document,{position:[0,1.65,2],eyeHeight:1.65});
  try{const a=controller.qualifiedStandingEye([0,1.65,1])!,b=controller.qualifiedStandingEye([0,1.65,-1])!,before=controller.state();expect(a).toBeDefined();expect(b).toBeDefined();expect(controller.standingSegmentClear(a,b)).toBe(false);expect(controller.state()).toEqual(before);}finally{controller.dispose();}
 });
+it('refuses unequal supported floor heights without reseeding the controller',async()=>{
+ const {document,room}=fixture();document.surfaces.push({id:crypto.randomUUID(),roomId:room.id,type:'floor',dimensions:{width:3,height:2},transform:{position:[0,.2,-2],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}});
+ const controller=await createNavigationController(document,{position:[0,1.65,2],eyeHeight:1.65});
+ try{const a=controller.state().eyePosition,b=controller.qualifiedStandingEye([0,1.85,-2])!,before=controller.state();expect(b).toBeDefined();expect(b[1]-a[1]).toBeCloseTo(.2);expect(controller.standingSegmentClear(a,b)).toBe(false);expect(controller.state()).toEqual(before);}finally{controller.dispose();}
+});
 it('ordered orbit preserves authored target/radius/height, refuses swept walls/stale contexts and allows reduced-motion steps',async()=>{
  const {document,room}=fixture(),id=crypto.randomUUID();document.surfaces.push({id:crypto.randomUUID(),roomId:room.id,type:'wall',dimensions:{width:6,height:3},transform:{position:[1.5,1.5,0],rotation:[0,Math.SQRT1_2,0,Math.SQRT1_2],scale:[1,1,1]}});
  document.extensions={...document.extensions,[PRESENTATION_NAMESPACE]:{version:1,credits:'',viewpoints:[{id,name:'Authored sculpture view',roomId:room.id,position:[0,1.65,2],target:[0,1,0],fov:50}]}};

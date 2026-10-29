@@ -1463,7 +1463,7 @@ export function GeometryPreview({
         const stopSculptureOrbit=()=>sculptureOrbitRuntime.current?.actions.stop();
         const orbitVisibility=()=>{if(renderer.domElement.ownerDocument.hidden)stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();};
         const orbitKey=(event:KeyboardEvent)=>{if(event.key==='Escape')stopSculptureOrbit();};
-        const orbitPointer=(event:PointerEvent)=>{if(!(event.target instanceof Element&&event.target.closest('.viewer-sculpture-orbit')))stopSculptureOrbit();};
+        const orbitPointer=(event:PointerEvent)=>{if(!event.isPrimary||!(event.target instanceof Element&&event.target.closest('.viewer-sculpture-orbit')))stopSculptureOrbit();};
         const orbitRelease=(event:PointerEvent)=>sculptureOrbitRuntime.current?.actions.release(event.pointerId,false);
         const orbitPanel=()=>{if(!orbitAllowed())stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();};
         window.addEventListener('blur',stopSculptureOrbit);window.addEventListener('focus',orbitVisibility);
@@ -1472,6 +1472,9 @@ export function GeometryPreview({
         renderer.domElement.ownerDocument.addEventListener('pointerdown',orbitPointer,true);
         renderer.domElement.ownerDocument.addEventListener('pointerup',orbitRelease);
         renderer.domElement.ownerDocument.addEventListener('pointercancel',orbitRelease);
+        renderer.domElement.ownerDocument.addEventListener('wheel',stopSculptureOrbit,true);
+        renderer.domElement.ownerDocument.addEventListener('scroll',stopSculptureOrbit,true);
+        renderer.domElement.ownerDocument.addEventListener('contextmenu',stopSculptureOrbit,true);
         orbitRoot?.addEventListener('toggle',orbitPanel,true);
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
@@ -2119,6 +2122,9 @@ export function GeometryPreview({
           renderer.domElement.ownerDocument.removeEventListener('pointerdown',orbitPointer,true);
           renderer.domElement.ownerDocument.removeEventListener('pointerup',orbitRelease);
           renderer.domElement.ownerDocument.removeEventListener('pointercancel',orbitRelease);
+          renderer.domElement.ownerDocument.removeEventListener('wheel',stopSculptureOrbit,true);
+          renderer.domElement.ownerDocument.removeEventListener('scroll',stopSculptureOrbit,true);
+          renderer.domElement.ownerDocument.removeEventListener('contextmenu',stopSculptureOrbit,true);
           orbitRoot?.removeEventListener('toggle',orbitPanel,true);
           mapCallbacks.current.onMapReady?.(null);mapPins.clear();
           viewingCallback.current?.(null);for(const check of [...viewingWaiters])check();viewingPins.clear();
