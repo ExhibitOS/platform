@@ -32,3 +32,6 @@
 .viewer-visitor-map .visitor-map-toggle svg{width:22px;height:22px}
 .viewer-visitor-map:not([open]),.viewer-visitor-map:not([open]) summary{background:transparent}
 .publication-shell .viewer-visitor-map>summary::after,.publication-shell .viewer-visitor-map[open]>summary::after{content:none}
+
+/* Short viewports keep the compact map above the lower-left movement control. */
+@media(max-height:400px){.viewer-visitor-map:not([open]){top:max(1rem,env(safe-area-inset-top,0px))}}
