@@ -8,11 +8,30 @@ import {Cms,validMetadata} from './cms.ts';
 import {allowedRights} from './rights.ts';
 import {parseThumbnailCandidate,validateThumbnailBytes} from './artwork-thumbnail.ts';
 
+export interface FrozenThumbnailPin {artworkId:string;revision:number;bindingId:string;sourceAssetId:string;sourceSha256:string;thumbnailAssetId:string;thumbnailSha256:string;bytes:number}
+export function validFrozenThumbnailPin(pin:FrozenThumbnailPin){
+ const uuidPattern=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+ return !!pin&&typeof pin==='object'&&!Array.isArray(pin)&&Object.keys(pin).sort().join(',')==='artworkId,bindingId,bytes,revision,sourceAssetId,sourceSha256,thumbnailAssetId,thumbnailSha256'&&[pin.artworkId,pin.bindingId,pin.sourceAssetId,pin.thumbnailAssetId].every(x=>typeof x==='string'&&uuidPattern.test(x))&&[pin.sourceSha256,pin.thumbnailSha256].every(x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x))&&Number.isSafeInteger(pin.revision)&&pin.revision>=1&&pin.revision<=2147483647&&Number.isSafeInteger(pin.bytes)&&pin.bytes>=1&&pin.bytes<=512*1024;
+}
+
 /** A receipt authorizes a representative image; it does not prove pixel derivation. */
 export class ArtworkThumbnailReceipts {
  readonly cms:Cms;
  readonly blobs:BlobStore;
  constructor(blobs:BlobStore){this.blobs=blobs;this.cms=new Cms(blobs);}
+ /** Revalidate an immutable receipt by ID, never the mutable current selection. */
+ async pinnedForExport(c:PoolClient,s:Session,pin:FrozenThumbnailPin){
+  if(!validFrozenThumbnailPin(pin))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  const current=await this.cms.ownArtwork(c,s,pin.artworkId);
+  const row=(await c.query(`SELECT b.*,a.sha256 AS current_hash,a.bytes AS current_bytes,a.object_key AS current_key,a.mime,a.state,a.deleted_at,r.metadata AS rights,r.deleted_at AS rights_deleted,ap.snapshot AS approval
+   FROM artwork_thumbnail_bindings b JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision)=(b.tenant_id,b.artwork_id,b.artwork_revision)
+   JOIN assets a ON (a.tenant_id,a.id,a.artwork_id)=(b.tenant_id,b.thumbnail_asset_id,b.artwork_id) JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
+   WHERE b.tenant_id=$1 AND b.id=$2 AND b.artwork_id=$3 FOR SHARE OF a,r`,[s.tenantId,pin.bindingId,pin.artworkId])).rows[0];
+  if(!row||!current.cms_managed||!validMetadata(current.metadata)||!validMetadata(row.approval?.metadata)||row.artwork_revision!==pin.revision||row.source_asset_id!==pin.sourceAssetId||row.source_sha256!==pin.sourceSha256||row.thumbnail_asset_id!==pin.thumbnailAssetId||row.sha256!==pin.thumbnailSha256||Number(row.bytes)!==pin.bytes||row.approval.asset?.id!==pin.sourceAssetId||row.approval.asset?.sha256!==pin.sourceSha256||row.current_hash!==pin.thumbnailSha256||Number(row.current_bytes)!==pin.bytes||row.current_key!==row.object_key||row.mime!=='image/png'||row.state!=='approved'||row.deleted_at||row.rights_deleted)throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  const rights=[current.metadata.rights,row.approval.metadata.rights,row.rights];
+  if(rights.some(r=>!allowedRights(r,'display')||!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
+  return {rights};
+ }
  /** Pin the selected receipt while publication prepares its optional derivative. */
  async selectedForPublication(c:PoolClient,s:Session,artworkId:string,revision:number,sourceId:string,sourceHash:string){
   const approved=await this.cms.studioArtwork(c,s,artworkId);

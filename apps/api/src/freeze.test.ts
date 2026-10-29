@@ -3,11 +3,15 @@ import {generateKeyPairSync,createPublicKey,sign} from 'node:crypto';
 import {mkdtemp,writeFile,chmod,symlink,realpath,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {describe,it,expect} from 'vitest';
+import {describe,it,expect,vi} from 'vitest';
 import {freezeCanonical,freezeFileMime,FREEZE_VERSION,type FreezeManifest} from '@exhibitos/studio-contract';
 import {sha256,type BlobStore} from '@exhibitos/storage';
 import type {Pool} from 'pg';
 import type {Session} from './auth.ts';
+import {fixtureURL,revisionHash,type Exhibition} from '@exhibitos/spec';
+import {readFile} from 'node:fs/promises';
+import {pinnedAuthoritySnapshot,portableOexSnapshot} from './oex.ts';
+import {ArtworkThumbnailReceipts} from './artwork-thumbnail-receipts.ts';
 import {Freezes,loadFreezeConfig,loadFreezeRuntime,offlineDeadline,verifyFreezeSignature} from './freeze.ts';
 const digest=(v:unknown)=>sha256(Buffer.from(freezeCanonical(v)));
 async function root(){return realpath(await mkdtemp(join(tmpdir(),'exhibitos-freeze-unit-')));}
@@ -60,5 +64,26 @@ describe('signed freeze service boundaries',()=>{
   expect(offlineDeadline(s,60,[{expiresAt:new Date(now+20000).toISOString()}],now)).toBe(new Date(now+20000).toISOString());
   for(const seconds of [0,28801,1.5,NaN])expect(()=>offlineDeadline(s,seconds,[],now)).toThrow('OFFLINE_INTERVAL_INVALID');
   expect(()=>offlineDeadline({...s,expiresAt:new Date(now-1).toISOString()},60,[],now)).toThrow('OFFLINE_GRANT_EXPIRED');
+ });
+});
+
+describe('pinned freeze authorization',()=>{
+ it('composes required rights and pinned preview rights, checks signed scene hash, and retains legacy behavior',async()=>{
+  const source=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,art=source.artworks[0]!,primary=art.assets.find(a=>a.id===art.primaryAssetId)!;
+  const pin={artworkId:art.id,revision:art.revision,bindingId:'10000000-0000-4000-8000-000000000010',sourceAssetId:primary.id,sourceSha256:primary.sha256,thumbnailAssetId:'10000000-0000-4000-8000-000000000011',thumbnailSha256:'a'.repeat(64),bytes:100};
+  const {privateKey}=generateKeyPairSync('ed25519'),service=new Freezes({} as Pool,{} as BlobStore,{signingKey:privateKey,runtimeRoot:'/unused',origin:'http://127.0.0.1:3000'});
+  const expiresAt=new Date(Date.now()+600000).toISOString(),session={expiresAt} as Session,required={expiresAt},preview={expiresAt:new Date(Date.now()+300000).toISOString()};
+  vi.spyOn(service.oex,'authorizeSnapshot').mockResolvedValue({rights:[required]});
+  const receipt=vi.spyOn(ArtworkThumbnailReceipts.prototype,'pinnedForExport').mockResolvedValue({rights:[preview]});
+  const manifest={authority:service.authority,source:{exhibitionHash:revisionHash(portableOexSnapshot(pinnedAuthoritySnapshot(source,[pin])))}} as FreezeManifest;
+  const row={manifest,manifest_sha256:digest(manifest),signature:sign(null,Buffer.from(freezeCanonical(manifest)),privateKey).toString('base64'),source_snapshot:source,exhibition_id:'exhibition',revoked:false,inventory:{oex:[],runtime:[],thumbnailPins:[pin]}};
+  const check=(service as unknown as {current:(c:unknown,s:Session,r:unknown)=>Promise<{rights:unknown[]}>}).current.bind(service);
+  expect((await check({},session,row)).rights).toEqual([required,preview]);expect(receipt).toHaveBeenCalledOnce();
+  const bad={...row,inventory:{...row.inventory,thumbnailPins:[{...pin,thumbnailSha256:'b'.repeat(64)}]}};await expect(check({},session,bad)).rejects.toMatchObject({code:'FREEZE_INTEGRITY'});
+  await expect(check({},session,{...row,inventory:{oex:[],runtime:[],thumbnailPins:null}})).rejects.toMatchObject({code:'FREEZE_INTEGRITY'});
+  receipt.mockClear();await expect(check({},session,{...row,inventory:{oex:[],runtime:[]}})).rejects.toMatchObject({code:'FREEZE_INTEGRITY'});
+  const legacyManifest={...manifest,source:{...manifest.source,exhibitionHash:revisionHash(portableOexSnapshot(source))}};
+  const legacy={...row,manifest:legacyManifest,manifest_sha256:digest(legacyManifest),signature:sign(null,Buffer.from(freezeCanonical(legacyManifest)),privateKey).toString('base64'),inventory:{oex:[],runtime:[]}};
+  expect((await check({},session,legacy)).rights).toEqual([required]);expect(receipt).not.toHaveBeenCalled();receipt.mockRestore();
  });
 });
