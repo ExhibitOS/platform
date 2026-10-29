@@ -5,7 +5,7 @@ afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 function fixture(bounds={minYaw:-Math.PI,maxYaw:Math.PI}){
  vi.useFakeTimers();const frames=new Map<number,FrameRequestCallback>();let id=0,allowed=true,reduced=false;
  vi.stubGlobal('requestAnimationFrame',(fn:FrameRequestCallback)=>{frames.set(++id,fn);return id;});vi.stubGlobal('cancelAnimationFrame',(key:number)=>frames.delete(key));
- const move=vi.fn(()=>true),changed=vi.fn(),orbit=createSculptureOrbit({placementId:'sculpture',bounds,allowed:()=>allowed,reducedMotion:()=>reduced,move,changed});
+ const move=vi.fn<(yaw:number)=>boolean>(()=>true),changed=vi.fn(),orbit=createSculptureOrbit({placementId:'sculpture',bounds,allowed:()=>allowed,reducedMotion:()=>reduced,move,changed});
  return {orbit,move,changed,frames,setAllowed(v:boolean){allowed=v;},setReduced(v:boolean){reduced=v;},frame(){const row=frames.entries().next().value!;frames.delete(row[0]);row[1](performance.now());}};
 }
 it('rotates only the eye about the authored target with fixed height/radius and rejects invalid coordinates',()=>{
