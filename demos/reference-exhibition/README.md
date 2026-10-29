@@ -3,7 +3,7 @@
 These are the exact public, approved display derivatives from the existing
 reference exhibition, not original photographs or private production material.
 The publication revision and static index hashes are pinned in `publication.json`.
-The index, publication metadata, fourteen PNG display derivatives, and one GLB display
+The index, publication metadata, sixteen PNG display derivatives, and one GLB display
 model are Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository.
 
 The pinned publication also includes two registered CC0 concrete footstep WAVs
@@ -11,7 +11,7 @@ and the shared CC0 license and provenance notices. The publication resource
 channel verifies their sizes and SHA-256 values. Visitors explicitly enable
 both sound and footsteps before sample requests; walking triggers playback.
 
-The seven paintings are provided by The Metropolitan Museum of Art, New York under
+The eight paintings are provided by The Metropolitan Museum of Art, New York under
 CC0-1.0. Their original credit lines, rights, provenance, full and coarse display
 asset hashes remain in the publication metadata:
 
@@ -22,6 +22,7 @@ asset hashes remain in the publication metadata:
 - Johannes Vermeer, *Young Woman with a Water Pitcher*, ca. 1662 — https://www.metmuseum.org/art/collection/search/437881
 - Albert Bierstadt, *Sunrise on the Matterhorn*, after 1875 — https://www.metmuseum.org/art/collection/search/10158
 - Berthe Morisot, *Young Woman Knitting*, ca. 1883 — https://www.metmuseum.org/art/collection/search/437159
+- Camille Pissarro, *Morning, An Overcast Day, Rouen*, 1896 — https://www.metmuseum.org/art/collection/search/437308
 
 The sculpture is Edmonia Lewis, *Old Arrow Maker*, modeled 1866, marble,
 Smithsonian American Art Museum, Gift of Mr. and Mrs. Norman Robbins, 1983.95.179.
@@ -46,16 +47,18 @@ The original 2.4m opening passes through the whole depth; the same solid boxes
 are used for visible geometry and walking collision, without a threshold.
 Reported institutional dimensions and the digital model bounds are distinguished
 in the description; physical scale has not been independently calibrated.
-The eight-artist introduction, descriptions, rights, credits and display
-policy remain in the generated publication metadata. The four added paintings keep
+The nine-artist introduction, descriptions, rights, credits and display
+policy remain in the generated publication metadata. The five added paintings keep
 the complete photograph and its aspect ratio, anchored to the reported height;
 photographic boundaries are not independently matched to the physical painted area.
-Bierstadt and Morisot have no source ICC profile, so display sRGB is assumed and disclosed.
+Bierstadt, Morisot and Pissarro have no source ICC profile, so display sRGB is assumed and disclosed.
 Morisot retains the photographed border and uses the reported 50.2 cm height;
 the image aspect ratio sets its display width. Its museum-reported 60 cm width
 is kept distinct from the uncalibrated photographed boundary. Morisot and Degas
-use opposite sides of the east-wall doorway. The Vermeer painting uses the left wall; Bierstadt sits clear of the existing
-styled doorway wall and opening. Their full/coarse files, rights evidence and
+use opposite sides of the east-wall doorway. Pissarro and Vermeer use opposite
+sides of the west wall. Pissarro retains the whole photograph, anchored to the reported 54.3 cm height; its display width
+follows the photo aspect ratio, separately from the museum-reported 65.1 cm.
+Bierstadt sits clear of the existing styled doorway wall and opening. Their full/coarse files, rights evidence and
 conversion-recipe hashes remain bound in the public metadata. This independent exhibition
 does not imply institutional sponsorship, affiliation or endorsement.
 
