@@ -4,12 +4,12 @@ const freeze = value => { if (value && typeof value === "object") { for (const i
 export const DEMO_ARTWORK_PLAN = freeze({
   "version": 1,
   "base": {
-    "exhibitionId": "36544ec8-7937-4de9-9a47-da7cef4872f2",
-    "revisionSha256": "5bcb6ddb799976bb5f5b1424b583c0942ef4857c9d64427c1447f543442c08a0",
+    "exhibitionId": "f33557c4-1cd6-4dca-9b55-c5e8e0105484",
+    "revisionSha256": "e8eb1efa20342eaa26a5c7174f0d2433f8e69266e9c73f73cfd42318eb0dd579",
     "rooms": [
       {
         "role": "entry",
-        "id": "b051d931-2c7c-4efb-a994-29dee9be29a0",
+        "id": "8b85de2e-17bd-430a-9a5e-1dc7780d3c81",
         "dimensions": {
           "depth": 4,
           "width": 4,
@@ -36,7 +36,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
       },
       {
         "role": "painting",
-        "id": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+        "id": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
         "dimensions": {
           "depth": 10,
           "width": 8,
@@ -63,7 +63,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
       },
       {
         "role": "transition",
-        "id": "ba82d27b-73d2-45f3-a048-0af791ea2313",
+        "id": "f52601cb-a9f3-43ea-b2c3-c194c029b26a",
         "dimensions": {
           "depth": 10,
           "width": 4,
@@ -90,7 +90,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
       },
       {
         "role": "sculpture",
-        "id": "f12feb59-ba66-4268-9efb-28a9dd7c789c",
+        "id": "ab375dfd-5151-4a24-8385-e14195def88c",
         "dimensions": {
           "depth": 10,
           "width": 10,
@@ -117,7 +117,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
       },
       {
         "role": "closing",
-        "id": "9ab35831-1002-4610-9d5d-4f5a19bcd422",
+        "id": "c04b314c-ac7c-45f3-a4c1-7e844712d566",
         "dimensions": {
           "depth": 4,
           "width": 11,
@@ -145,24 +145,24 @@ export const DEMO_ARTWORK_PLAN = freeze({
     ],
     "doorPairs": [
       {
-        "a": "ff525e57-c9b2-43e1-9216-3f2878c84f03",
-        "b": "d3c0946e-6d52-4ad9-9609-d416f4e45813"
+        "a": "49bf6be0-a6af-49bc-b897-50c60161fd53",
+        "b": "64137e6f-ff6d-45b0-b595-5af0ee425ab3"
       },
       {
-        "a": "abffbc0b-5bb4-4c44-8508-f24a9a05eff8",
-        "b": "6e3dc30a-3baf-4e4d-86fa-4565a42a81d1"
+        "a": "855d7e87-954f-481d-8810-98806135cdbf",
+        "b": "0248b401-bd28-4545-8b98-e57350020d1c"
       },
       {
-        "a": "7aaf3dfe-f37c-4432-8d15-dfc795d95da3",
-        "b": "0b7f5def-8e09-4789-9932-f813238d9f4c"
+        "a": "7902dd5a-09f9-4a1b-8655-540044ad8e3d",
+        "b": "54931ddc-dbe6-4465-ac16-f4acbdfdb049"
       },
       {
-        "a": "22ab2dde-8079-4662-888b-aab875329558",
-        "b": "c684c9ba-1868-46fd-a7f9-fb3fed5517ed"
+        "a": "7522c165-a418-43fc-830f-aeb12381e29e",
+        "b": "1da8838e-043d-4e92-926e-3caa2815a430"
       },
       {
-        "a": "1331c3aa-6911-48d8-88cf-a407840dba3f",
-        "b": "eb7c96ae-3777-48a9-8f2d-1742bd0408e2"
+        "a": "3a16c198-8121-4471-86c2-8791ebed7f01",
+        "b": "94410f5c-e764-41c3-a2df-43da744ad4a5"
       }
     ]
   },
@@ -172,11 +172,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
   },
   "entries": [
     {
-      "planId": "16d200f6-d16a-441f-851c-2f89b86880c8",
+      "planId": "e5831c10-e7a1-44f7-8f24-6fb3dfe7cf2e",
       "sourceKey": "met-436535",
       "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/436535",
-      "artworkId": "1b1218d7-6dd4-4395-a626-47300419d3f7",
-      "artworkRevisionId": "034edba4-f32a-4db3-9077-8b0bf300d499",
+      "artworkId": "cdd8c30a-370d-436f-9e2f-6426770b99c7",
+      "artworkRevisionId": "fa382eeb-2a22-48f1-a3b8-da4fe286f369",
       "artworkType": "painting",
       "title": "Wheat Field with Cypresses",
       "artist": "Vincent van Gogh",
@@ -190,7 +190,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 0.934,
         "height": 0.732
       },
-      "roomId": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
       "placement": {
         "scale": [
           1,
@@ -211,11 +211,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
       }
     },
     {
-      "planId": "9ed45fd2-a62a-4e74-aedf-8623a40d225d",
+      "planId": "e1644c0c-279a-4b6f-8724-c1d1e2d3cdac",
       "sourceKey": "met-437394",
       "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/437394",
-      "artworkId": "ffa639e9-cfe8-4b62-90bb-55b8b7527000",
-      "artworkRevisionId": "662b0571-7378-4ef1-8ddd-127915e65b92",
+      "artworkId": "27cf795e-eca2-47b0-a266-a4852deb2aef",
+      "artworkRevisionId": "f21f6cb4-7e69-421d-a11f-6ccb6a406d6b",
       "artworkType": "painting",
       "title": "Aristotle with a Bust of Homer",
       "artist": "Rembrandt (Rembrandt van Rijn)",
@@ -229,7 +229,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 1.365,
         "height": 1.435
       },
-      "roomId": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
       "placement": {
         "scale": [
           1,
@@ -250,11 +250,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
       }
     },
     {
-      "planId": "c71ffa65-bdbc-4fd3-95a4-a429d58ba719",
+      "planId": "fcb53335-def1-4a0c-9710-5e70f9fb573e",
       "sourceKey": "met-435883",
       "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/435883",
-      "artworkId": "3431468a-acbf-4f4f-bd22-356901b9184a",
-      "artworkRevisionId": "b59d86c6-7bf5-41e0-a8b8-7e759bb0f289",
+      "artworkId": "bcc8547f-7fa6-4516-8672-67414e81948d",
+      "artworkRevisionId": "126b7da9-454c-4038-9914-ba43d76023f6",
       "artworkType": "painting",
       "title": "Still Life with Apples and Pears",
       "artist": "Paul Cézanne",
@@ -268,7 +268,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 0.5870000000000001,
         "height": 0.44799999999999995
       },
-      "roomId": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
       "placement": {
         "scale": [
           1,
@@ -289,11 +289,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
       }
     },
     {
-      "planId": "f8c13dc0-627e-4eb9-b038-e41d9f6e8e97",
+      "planId": "689cd853-a851-4a4d-996e-cabf4fceb789",
       "sourceKey": "si-99ca3d6f-6d54-45a5-9b95-f8c245a662c2",
       "officialObjectIdOrURL": "https://americanart.si.edu/artwork/old-arrow-maker-14629",
-      "artworkId": "f882a642-b0e6-4951-bda7-c6a6fa3c3825",
-      "artworkRevisionId": "f92068e1-760f-4ab1-b7b4-8ea2d33b6037",
+      "artworkId": "36b19f30-eb07-4f30-a097-7f7513ae3410",
+      "artworkRevisionId": "2026e727-ee9c-4b2c-a692-b5bb2d403fbb",
       "artworkType": "sculpture",
       "title": "Old Arrow Maker",
       "artist": "Edmonia Lewis",
@@ -308,7 +308,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 0.34847164154052734,
         "height": 0.54190900750109
       },
-      "roomId": "f12feb59-ba66-4268-9efb-28a9dd7c789c",
+      "roomId": "ab375dfd-5151-4a24-8385-e14195def88c",
       "placement": {
         "scale": [
           1,
@@ -329,11 +329,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
       }
     },
     {
-      "planId": "b018e4b0-bd2e-422d-bc93-b4067cbf865a",
+      "planId": "c7cc5dbb-92e8-40f4-b391-8ba2bd82ebc6",
       "sourceKey": "met-437881",
       "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/437881",
-      "artworkId": "9b932367-13be-4891-9185-45df695270fc",
-      "artworkRevisionId": "476f2fdd-55a6-4906-b298-ce9144528439",
+      "artworkId": "b250e19d-d66f-4f81-bd7e-ca2088bd17a1",
+      "artworkRevisionId": "1299df4f-3cdb-4260-af8f-e7f167aa401d",
       "artworkType": "painting",
       "title": "Young Woman with a Water Pitcher",
       "artist": "Johannes Vermeer",
@@ -347,7 +347,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 0.40634619140625,
         "height": 0.457
       },
-      "roomId": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
       "placement": {
         "scale": [
           1,
@@ -368,11 +368,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
       }
     },
     {
-      "planId": "e844dd44-e1fb-49d6-ba4d-931431df0982",
+      "planId": "d49f2ccc-e878-42a2-b28f-9f8e146018ff",
       "sourceKey": "met-10158",
       "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/10158",
-      "artworkId": "35739114-7a96-4c7e-a588-6ed2a7608bb6",
-      "artworkRevisionId": "dee2e9dc-3f04-46b4-95d7-b70c0d2b2b17",
+      "artworkId": "c8c81cad-5199-4d23-acfc-102bba1a9fc9",
+      "artworkRevisionId": "40633830-a330-4762-9e21-4d4d34d44262",
       "artworkType": "painting",
       "title": "Sunrise on the Matterhorn",
       "artist": "Albert Bierstadt",
@@ -386,7 +386,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 1.086927734375,
         "height": 1.486
       },
-      "roomId": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
       "placement": {
         "scale": [
           1,
@@ -407,11 +407,11 @@ export const DEMO_ARTWORK_PLAN = freeze({
       }
     },
     {
-      "planId": "33f61ca3-f581-4c12-a6fb-c26ef8f236ba",
+      "planId": "2bf2678d-d050-476b-b9a6-c9711c1e6ace",
       "sourceKey": "met-436140",
       "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/436140",
-      "artworkId": "01a209ce-b231-4cf2-a13a-45f4d54f8a5e",
-      "artworkRevisionId": "94fa26f9-bc4a-47ba-b79b-1eff7cfe8096",
+      "artworkId": "bf0dd0c3-f7ac-4b69-aa56-2c1c0580f9f0",
+      "artworkRevisionId": "20529e44-4820-41db-bae5-420f4b7103a4",
       "artworkType": "painting",
       "title": "Dancers, Pink and Green",
       "artist": "Edgar Degas",
@@ -425,7 +425,7 @@ export const DEMO_ARTWORK_PLAN = freeze({
         "width": 0.7462894736842104,
         "height": 0.822
       },
-      "roomId": "d273fe75-fb17-48c4-9b69-22462d2eb028",
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
       "placement": {
         "scale": [
           1,
@@ -444,13 +444,52 @@ export const DEMO_ARTWORK_PLAN = freeze({
           0.7071067811865476
         ]
       }
+    },
+    {
+      "planId": "70186a07-71a0-427a-a4d8-7198e2493efd",
+      "sourceKey": "met-437159",
+      "officialObjectIdOrURL": "https://www.metmuseum.org/art/collection/search/437159",
+      "artworkId": "d7b5bd41-2ed5-46a5-b352-0bfe7e2bc314",
+      "artworkRevisionId": "fd2ff398-b989-4153-a4f9-279888175b59",
+      "artworkType": "painting",
+      "title": "Young Woman Knitting",
+      "artist": "Berthe Morisot",
+      "description": "모자를 쓴 여성이 야외에서 의자에 앉아 뜨개질을 하고 있다. 뒤에는 초록 식물과 꽃이 보이고, 곁에는 빈 의자가 놓여 있다.",
+      "asset": {
+        "sha256": "ffe480aae3f3331c894e22e6e64fe68eb36af602963d96661aebbda6fe31890f",
+        "bytes": 6755174,
+        "mime": "image/png"
+      },
+      "dimensions": {
+        "width": 0.6005366467442592,
+        "height": 0.502
+      },
+      "roomId": "244c338c-1176-488f-a577-2b7e6e5cfc1a",
+      "placement": {
+        "scale": [
+          1,
+          1,
+          1
+        ],
+        "position": [
+          3.94,
+          1.5,
+          -2.5
+        ],
+        "rotation": [
+          0,
+          -0.7071067811865476,
+          0,
+          0.7071067811865476
+        ]
+      }
     }
   ],
   "unresolved": [
     {
       "roomRole": "painting",
       "artworkType": "painting",
-      "count": 3,
+      "count": 2,
       "reason": "Admitted artwork packets and fit decisions are pending."
     },
     {

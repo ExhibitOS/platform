@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="6afca980f2bb4f33607c4f236e4ff16860d3482d488a5d11ba653ede9307e6bf";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="cf53b2a9b7ca3484ba82923efa4b0cf0b808317b4f68f682d30c6a20dbbf0e19";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -279,6 +279,36 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
       "bytes": 623356,
       "width": 465,
       "height": 512
+    }
+  },
+  {
+    "approvalId": "4796b546-8b6a-4e18-85e0-96a231314f56",
+    "institutionRecordId": "met-437159",
+    "officialObjectURL": "https://www.metmuseum.org/art/collection/search/437159",
+    "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DT1928.jpg",
+    "rawSourceSha256": "c92f2be6c054a459e4644183d23596ea4b9b8b7ac1bd285584dea54950e03343",
+    "rightsEvidenceSha256": "a60c2b82869d15716a0f67b1aac39f27f6e678998e089f69af027e068123d8ba",
+    "canonicalAssetSha256": "ffe480aae3f3331c894e22e6e64fe68eb36af602963d96661aebbda6fe31890f",
+    "canonicalBytes": 6755174,
+    "recipeSha256": "f5626d3d503d0c33fb70a088452fe7ab00dff34c94a65973c9762a48e6cf1ec1",
+    "rightsEvidenceURLs": [
+      "https://collectionapi.metmuseum.org/public/collection/v1/objects/437159",
+      "https://www.metmuseum.org/policies/image-resources"
+    ],
+    "allowedPublicUses": {
+      "publicHomepage": true,
+      "staticAssets": true,
+      "OEXIncludingAsset": true,
+      "publicRepository": true,
+      "derivativeEditing": true,
+      "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+    },
+    "canonicalMaxPixels": 4194304,
+    "coarse": {
+      "sha256": "5f3d99c071c07bab826a20267e011ad847a96e9c9b7548af825780a49f79c536",
+      "bytes": 558675,
+      "width": 512,
+      "height": 428
     }
   }
 ] as const;
