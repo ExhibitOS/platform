@@ -169,7 +169,22 @@ export class ExhibitionAudio implements AudioApi {
     // Successive targets continue from the current value without resetting source envelopes.
     this.background.gain.setTargetAtTime(speaking ? 0.35 : 1, this.context.currentTime, speaking ? 0.03 : 0.12);
   }
-  snapshot() { return { ...this.state,voice:this.voicePlayback() }; }
+  snapshot() {
+    const voice=this.voicePlayback();
+    let message=this.state.message;
+    // Playback announcements describe live channels; permission/error notices stay intact.
+    if(message==="음성 설명 재생 중입니다." && voice.status!=="playing") {
+      message=this.zone ? "선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다."
+        : voice.status==="ended" ? "음성 설명 재생이 끝났습니다. 대본은 계속 읽을 수 있습니다."
+        : "음성 설명 재생을 멈췄습니다. 대본은 계속 읽을 수 있습니다.";
+    } else if(message==="선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다." && !this.zone) {
+      message=voice.status==="playing" ? "음성 설명 재생 중입니다." : "공간 소리 재생을 멈췄습니다.";
+    }
+    if(this.state.muted && (this.state.message==="음성 설명 재생 중입니다." || this.state.message==="선택한 공간 소리를 재생합니다. 일시 정지하면 멈춥니다.")) {
+      message="소리를 껐습니다. 대본은 계속 읽을 수 있습니다.";
+    }
+    return { ...this.state,voice,message };
+  }
   private emit() {
     if (this.disposed) return;
     this.state.context = this.context?.state ?? "not-created";
