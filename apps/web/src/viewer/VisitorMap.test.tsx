@@ -32,11 +32,12 @@ it('centers the circular crop on the world pose without rotating the plan with h
  expect(value.onGo).not.toHaveBeenCalled();
 });
 it('uses only supplied real thumbnails while retaining named keyboard controls and a compact expansion affordance',()=>{
- const value=props();value.previews={placement:{thumbnail:'blob:verified-coarse',description:'Long artwork description belongs in the existing detail view.'}};
+ const value=props();value.onPreviewChange=vi.fn();value.previews={placement:{thumbnail:'blob:verified-coarse',description:'Long artwork description belongs in the existing detail view.'}};
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
  expect(html).toContain('aria-label="전시 지도"');expect(html).toContain('visitor-map-plus');
  expect(html).toContain('src="blob:verified-coarse"');expect(html).toContain('loading="lazy"');
  expect(html).toContain('aria-label="선택할 작품"');expect(html).toContain('aria-label="첫 공간"');
  expect(html).not.toContain(value.previews.placement.description);expect(html).not.toContain('펼치기');
  expect(value.onGo).not.toHaveBeenCalled();expect(value.onDetails).not.toHaveBeenCalled();
+ expect(value.onPreviewChange).not.toHaveBeenCalled();
 });
