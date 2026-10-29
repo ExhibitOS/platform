@@ -42,7 +42,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -1502,6 +1502,7 @@ export function GeometryPreview({
         let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
+        const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
         const detailBytes=()=>detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0;
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
@@ -1693,7 +1694,7 @@ export function GeometryPreview({
               // Fetch a verified header first when the conservative declared square cannot fit.
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>assetBudgetBytes;
               if(downloadOnly&&cached){
-                if(art.revisionId===currentArtwork){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
+                if(art.revisionId===demandContext().owner){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
                 if(!active.has(art.revisionId))request(art,false,prepareOnly);return;
               }
             }catch{if(!active.has(art.revisionId))request(art,false,prepareOnly);return;}
@@ -1745,7 +1746,7 @@ export function GeometryPreview({
               objects.set(art.revisionId, object);
               const oldId=active.get(art.revisionId);
               active.set(art.revisionId, inventory.id);
-              if(art.revisionId===currentArtwork&&full)reclaiming.clear();
+              if(art.revisionId===demandContext().owner&&full)reclaiming.clear();
               stage(inventory.id,'attached-awaiting-draw');
               if(oldId&&oldId!==inventory.id)byteCache.delete(oldId);
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
@@ -1761,13 +1762,13 @@ export function GeometryPreview({
               if(!current){if(error?.name==='AbortError')tasks.delete(key);if(!disposed)update();return;}
               if (!disposed) {
                 if(error?.name === 'AbortError'){tasks.delete(key);update();return;}
-                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===currentArtwork?500:5000):Infinity);
+                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity);
                 if(error?.message==='MODEL_RESIDENT_BUDGET'&&(!floorSettled||!surfaceSettled))materialBudgetDeferred.add(art.revisionId);
-                if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===currentArtwork)reclaimForCurrent();}
+                if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===demandContext().owner)reclaimForCurrent();}
                 // A visible missing minimum must not wait for detail attention:
                 // its placeholder may be too small/off-center to win that slot.
                 const visibleMissingMinimum=!active.has(art.revisionId)&&observedVisible.get(art.revisionId)&&observedEligible.get(art.revisionId);
-                if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&(art.revisionId===currentArtwork||visibleMissingMinimum))reduceSurfaceForCurrent(art.revisionId);
+                if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&(art.revisionId===demandContext().owner||visibleMissingMinimum))reduceSurfaceForCurrent(art.revisionId);
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
@@ -1791,7 +1792,7 @@ export function GeometryPreview({
           if([...reclaiming].some(id=>pending.has(id)))return;
           const candidate=displayedDetailReclamation(arts.filter(art=>!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&active.has(art.revisionId)&&!reclaiming.has(art.revisionId)).map(art=>({
             id:art.revisionId,artwork:art,assetId:active.get(art.revisionId)!,visible:observedVisible.get(art.revisionId)??true,minimumRequired:observedEligible.get(art.revisionId)??true,lastAttended:lastAttended.get(art.revisionId)??-Infinity,
-          })),currentArtwork,performance.now(),viewerBudget);
+          })),demandContext().owner,performance.now(),viewerBudget);
           if(!candidate)return;
           const art=arts.find(v=>v.revisionId===candidate.id)!;
           reclaiming.add(candidate.id);
@@ -1849,7 +1850,7 @@ export function GeometryPreview({
           for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull)));}
         };
         const automaticDemand=()=>{
-          if(disposed||gpuLost||xrActive.current||!automatic)return;
+          if(disposed||gpuLost||xrActive.current||!automatic||!demandContext().observeWall)return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
           const wallMeshes=document.surfaces.filter(v=>v.type==='wall').map(v=>surfaces.get(v.id.toLowerCase())!).filter(Boolean);

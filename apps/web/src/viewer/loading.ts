@@ -81,6 +81,10 @@ export class DetailTransition {
   return this.full;
  }
 }
+/** The borrowed renderer can focus a different work from the paused wall camera. */
+export function artworkDemandContext(currentArtwork:string|undefined, borrowedArtwork:string|undefined){
+ return {owner:borrowedArtwork??currentArtwork,observeWall:borrowedArtwork===undefined};
+}
 export interface AttentionCandidate { id:string; demand:boolean; occupancy:number; focused:boolean; gazeDistance?:number; distance?:number; eligible?:boolean }
 /** One stable attended artwork across both media; preparation shares its ordering. */
 export class ArtworkAttention {
