@@ -21,7 +21,7 @@ test("only a distinct empty-space click can consume an active panel pause once",
   expect(click(gate)).toBe(false);
 });
 test("prior stopped sessions and explicit stops cannot acquire panel resume", () => {
-  for (const reason of ["window", "hidden", "blur"] as const) {
+  for (const reason of ["window", "hidden"] as const) {
     const gate = panelPaused();
     gate.mode(true, true, reason);
     gate.mode(true, true, "panel");
@@ -58,14 +58,14 @@ test("movement consumes only a panel-owned resumable session, never another stop
  const gate=panelPaused();expect(gate.canResume()).toBe(true);
  expect(gate.movement(false)).toBe(false);expect(gate.movement(true)).toBe(true);
  expect(gate.movement(true)).toBe(false);expect(click(gate)).toBe(false);
- for(const reason of ["window","hidden","blur"] as const){
+ for(const reason of ["window","hidden"] as const){
   const stopped=panelPaused();stopped.mode(true,true,reason);expect(stopped.movement(true)).toBe(false);
  }
 });
 
 // Latest explicit-resume policy supersedes the former Esc/user-stop denial only.
 test("Esc, explicit pause and native unlock allow only a later deliberate gesture", () => {
- for (const reason of ["escape", "user", "pointerlock"] as const) {
+ for (const reason of ["escape", "user", "pointerlock", "blur"] as const) {
   const gate=createPanelResumeGate(); gate.mode(true,false); gate.mode(true,true,reason);
   expect(gate.canResume()).toBe(true); expect(gate.requiresPanel()).toBe(false);
   expect(gate.consume(20,30,true)).toBe(false); // no prior gesture / no auto resume
@@ -79,6 +79,15 @@ test("native unlock after Esc retains eligibility but tab-away and stopped modes
  gate.mode(true,true,"pointerlock");expect(gate.requiresPanel()).toBe(false);expect(gate.canResume()).toBe(true);
  gate.mode(true,true,"window");expect(gate.canResume()).toBe(false);
  gate.mode(false,true,"escape");expect(gate.movement(true)).toBe(false);
+});
+test("a focus loss after a temporary guide or map pause needs a new safe gesture", () => {
+ const gate=panelPaused(),staleIntent=gate.intent();gate.mode(true,true,'blur');
+ expect(staleIntent(true)).toBe(false); // A queued guide return cannot revive a later stop.
+ expect(gate.panelClosed()).toBe(false); // Never restart merely because the panel closed.
+ expect(gate.movement(false)).toBe(false); // A modal, hidden view, or other obstruction still wins.
+ expect(gate.movement(true)).toBe(true);expect(gate.movement(true)).toBe(false);
+ const background=panelPaused();background.mode(true,true,'blur');background.mode(true,true,'window');
+ expect(background.movement(true)).toBe(false);
 });
 
 test("a second Escape cancels a pending click without revoking explicit key resume", () => {
