@@ -313,6 +313,56 @@ function voicePriorityRuntime() {
  return {id,runtime,internal,context,sources,enable,impulseBuffers:()=>impulseBuffers,convolvers:()=>convolvers,failStart:()=>{failStart=true;}};
 }
 
+test('voice playback feedback follows stop, natural end, mute and lifecycle silence',async()=>{
+ vi.useFakeTimers();
+ try{for(const action of ['stop','ended','mute','pause','hide']){
+  const f=voicePriorityRuntime();
+  try{
+   await f.enable();await f.runtime.playVoice(f.id);
+   assert.match(f.runtime.snapshot().message,/음성 설명 재생 중/);
+   if(action==='stop')f.runtime.stopVoice();else if(action==='ended')f.sources[0]!.onended!(new Event('ended'));else if(action==='mute')f.runtime.mute(true);else if(action==='pause')f.runtime.lifecycle(false);else f.runtime.visibility(false);
+   assert.equal(f.runtime.snapshot().active,0);
+   assert.doesNotMatch(f.runtime.snapshot().message,/재생 중/);
+   assert.match(f.runtime.snapshot().message,action==='ended'?/끝났/:action==='mute'?/소리를 껐/:/멈췄/);
+  }finally{f.runtime.dispose();}
+ }}finally{vi.useRealTimers();}
+});
+
+test('zone playback feedback follows stop, mute, pause, hide and opt-out',async()=>{
+ vi.useFakeTimers();
+ try{for(const action of ['stop','mute','pause','hide','optout']){
+  const f=voicePriorityRuntime();
+  try{
+   f.internal.publication.exhibition.audioZones=[{id:f.id,roomId:f.id,assetId:f.id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:'Synthetic zone'}];
+   await f.enable();await f.runtime.playZone(f.id);
+   assert.match(f.runtime.snapshot().message,/공간 소리를 재생합니다/);
+   if(action==='stop')f.runtime.stopZone();else if(action==='mute')f.runtime.mute(true);else if(action==='pause')f.runtime.lifecycle(false);else if(action==='hide')f.runtime.visibility(false);else await f.runtime.zoneTransitions(false);
+   assert.equal(f.runtime.snapshot().active,0);
+   assert.doesNotMatch(f.runtime.snapshot().message,/소리를 재생합니다/);
+   assert.match(f.runtime.snapshot().message,action==='mute'?/소리를 껐/:/멈췄/);
+  }finally{f.runtime.dispose();}
+ }}finally{vi.useRealTimers();}
+});
+
+test('stopping one audio channel reports the other channel that remains playing',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  f.internal.publication.exhibition.audioZones=[{id:f.id,roomId:f.id,assetId:f.id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:'Synthetic zone'}];
+  await f.enable();await f.runtime.playZone(f.id);await f.runtime.playVoice(f.id);
+  f.runtime.stopVoice();assert.equal(f.runtime.snapshot().active,1);assert.match(f.runtime.snapshot().message,/공간 소리를 재생합니다/);
+  await f.runtime.playVoice(f.id);f.runtime.stopZone();assert.equal(f.runtime.snapshot().active,1);assert.match(f.runtime.snapshot().message,/음성 설명 재생 중/);
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
+test('stopping or muting audio preserves an existing playback failure message',async()=>{
+ vi.useFakeTimers();const f=voicePriorityRuntime();
+ try{
+  await f.enable();f.failStart();await assert.rejects(f.runtime.playVoice(f.id),/SYNTHETIC_START_FAILURE/);
+  const message=f.runtime.snapshot().message;assert.match(message,/재생할 수 없습니다/);
+  f.runtime.stopVoice();f.runtime.stopZone();f.runtime.mute(true);assert.equal(f.runtime.snapshot().message,message);
+ }finally{f.runtime.dispose();vi.useRealTimers();}
+});
+
 test('voice priority routes active dry steps, zones and wet tails through one bus while voice bypasses it',async()=>{
  vi.useFakeTimers();const f=voicePriorityRuntime();const random=vi.spyOn(Math,'random').mockReturnValue(.5);
  try{
