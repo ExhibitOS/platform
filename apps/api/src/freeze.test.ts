@@ -87,3 +87,22 @@ describe('pinned freeze authorization',()=>{
   expect((await check({},session,legacy)).rights).toEqual([required]);expect(receipt).not.toHaveBeenCalled();receipt.mockRestore();
  });
 });
+
+describe('omitted imported preview freeze authority',()=>{
+ it('checks approval and signed reconstruction, rejecting a missing omission marker',async()=>{
+  const {withoutImportedPreviews}=await import('./oex.ts');
+  const source=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,art=source.artworks[0]!;
+  const preview={id:'f1234567-89ab-4cde-8123-456789abcdef',path:'assets/optional-preview.png',role:'preview' as const,mime:'image/png' as const,bytes:128,sha256:'a'.repeat(64)};
+  art.assets.push(preview);art.extensions={...art.extensions,'org.exhibitos.viewer/thumbnail':{version:1,assetId:preview.id}};
+  const omission={artworkId:art.id,assetId:preview.id,sha256:preview.sha256},sanitized=withoutImportedPreviews(source,[omission]);
+  const {privateKey}=generateKeyPairSync('ed25519'),service=new Freezes({} as Pool,{} as BlobStore,{signingKey:privateKey,runtimeRoot:'/unused',origin:'http://127.0.0.1:3000'});
+  const required=vi.spyOn(service.oex,'authorizeSnapshot').mockResolvedValue({rights:[]});
+  const manifest={authority:service.authority,source:{exhibitionHash:revisionHash(portableOexSnapshot(sanitized))}} as FreezeManifest;
+  const row={manifest,manifest_sha256:digest(manifest),signature:sign(null,Buffer.from(freezeCanonical(manifest)),privateKey).toString('base64'),source_snapshot:source,exhibition_id:'exhibition',revoked:false,inventory:{oex:[],runtime:[],thumbnailPins:[],omittedImported:[omission]}};
+  const client={query:async()=>({rows:[{snapshot:{importedArtwork:structuredClone(art)}}]})};
+  const check=(service as unknown as {current:(c:unknown,s:Session,r:unknown)=>Promise<{rights:unknown[]}>}).current.bind(service);
+  await expect(check(client,{} as Session,row)).resolves.toEqual({rights:[]});expect(required).toHaveBeenCalledWith(client,expect.anything(),'exhibition',sanitized);
+  await expect(check(client,{} as Session,{...row,inventory:{oex:[],runtime:[],thumbnailPins:[]}})).rejects.toMatchObject({code:'FREEZE_INTEGRITY'});
+  const invalidClient={query:async()=>({rows:[{snapshot:{}}]})};await expect(check(invalidClient,{} as Session,row)).rejects.toMatchObject({code:'OEX_SOURCE_CHANGED'});
+ });
+});
