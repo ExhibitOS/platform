@@ -42,6 +42,6 @@ export function WalkingJoystick({available,paused,resumable=false,actions}:{
    <span className="walking-joystick-track" aria-hidden="true"/>
    <span className="walking-joystick-thumb" aria-hidden="true" style={{transform:`translate(${thumb.x}px,${thumb.y}px)`}}/>
   </button>
-  <span id={helpId} className="walking-joystick-help">원을 끌어 이동하고 손을 떼면 멈춰요. 다른 손가락으로 오른쪽 화면을 끌어 둘러보세요. 키보드는 전시 화면에서 W/A/S/D 또는 방향키로 조작할 수 있어요.</span>
+  <span id={helpId} className="walking-joystick-help">원을 끌어 이동하고 손을 떼면 멈춰요. 다른 손가락으로 3D 화면을 끌어 둘러보세요. 키보드는 전시 화면에서 W/A/S/D 또는 방향키로 조작할 수 있어요.</span>
  </div>;
 }
