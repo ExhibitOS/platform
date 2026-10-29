@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="cf53b2a9b7ca3484ba82923efa4b0cf0b808317b4f68f682d30c6a20dbbf0e19";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="b2a56b92e8fbbdf3676ce416256452fc35f910ee2fe5cc8a1a69389291000d50";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -310,5 +310,35 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
       "width": 512,
       "height": 428
     }
+  },
+{
+  "approvalId": "b7eff3e0-a71f-4386-af13-6903d3218f6e",
+  "institutionRecordId": "met-437308",
+  "officialObjectURL": "https://www.metmuseum.org/art/collection/search/437308",
+  "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DT1863.jpg",
+  "rawSourceSha256": "5f841e6d2662667008248089867fcc553d147390c067fd8bcc5d8d0eb2f8e219",
+  "rightsEvidenceSha256": "cd6144abf1c8b85ae348697c78172c5d52e3536f6d1277fb1e4d7787dc87f7de",
+  "canonicalAssetSha256": "3bd86b148feb25fac1c64132895416d5375997f45a1a6060f0ea3316a63d431d",
+  "canonicalBytes": 7521849,
+  "recipeSha256": "bcfdd2a12a914c103d2ff77d05c52b12091a2a7cfcc9f4afe93bb3066abc49c0",
+  "rightsEvidenceURLs": [
+    "https://collectionapi.metmuseum.org/public/collection/v1/objects/437308",
+    "https://www.metmuseum.org/policies/image-resources"
+  ],
+  "allowedPublicUses": {
+    "publicHomepage": true,
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+  },
+  "canonicalMaxPixels": 4194304,
+  "coarse": {
+    "sha256": "b4a248a5fb58276077f249d3a96423519e24803266404b082e65b390e041cd97",
+    "bytes": 617105,
+    "width": 512,
+    "height": 430
   }
+}
 ] as const;
