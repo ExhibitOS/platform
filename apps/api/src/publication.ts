@@ -3,6 +3,8 @@ import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {ArtworkThumbnailReceipts} from './artwork-thumbnail-receipts.ts';
 import {cachedDisplayDerivative} from './display-derivative-cache.ts';
+import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
+import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -145,7 +147,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
                 collect(x);
         } };
     // Unknown namespaces are retained privately but never implicitly published.
-    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, FLOOR_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, VIEWING_PLAN_NAMESPACE, SPATIAL_NAMESPACE].includes(key)));
+    doc.extensions = Object.fromEntries(Object.entries(doc.extensions ?? {}).filter(([key]) => [DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, INSTALLATION_NAMESPACE, FLOOR_NAMESPACE, BENCH_NAMESPACE, ARCHITECTURAL_FINISH_NAMESPACE, PLAQUE_NAMESPACE, LIGHT_DETAILS_NAMESPACE, SPACE_LIGHTING_NAMESPACE, ENTRANCE_NAMESPACE, SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE, CURATION_NAMESPACE, VIEWING_PLAN_NAMESPACE, SPATIAL_NAMESPACE, FOOTSTEP_RESOURCE_NAMESPACE].includes(key)));
     doc.extensions[PRESENTATION_NAMESPACE]={...presentationFor(doc),watermark:watermarkFor(doc)} as unknown as NonNullable<Exhibition['extensions']>[string];
     const lightDetails=doc.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
     const finishes=doc.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
@@ -212,6 +214,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
 export interface PublicationSource {
     anonymous(id: string): Promise<unknown>;
     asset(id: string, assetId: string): Promise<{bytes: Buffer;mime: string;revisionSha256: string}>;
+    resource?(id:string,sha256:string):Promise<{bytes:Buffer;mime:string;revisionSha256:string}>;
 }
 export class Publications {
     readonly studio = new Studio();
@@ -236,6 +239,13 @@ export class Publications {
             errors.push(issue("PUBLICATION_LIMIT", "/candidate/artworks", "At most 64 artworks per bounded publication.", "Split the exhibition into smaller publication drafts."));
         if (errors.length)
             return { issues: errors, prepared, media, cover,at };
+        for(const resource of footstepResourcesFor(candidate)){
+            try{
+                if(!this.blobs)throw new ApiError(409,'FOOTSTEP_RESOURCE_UNAVAILABLE');
+                const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,exhibitionId,resource);
+                totalBytes+=bytes.length;if(totalBytes>67108864)throw new ApiError(422,'PUBLICATION_LIMIT');
+            }catch(error){errors.push(issue(error instanceof ApiError?error.code:'FOOTSTEP_RESOURCE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1footstep-resources','Selected footstep resource bytes are unavailable or invalid.','Restore the exact registered resource before publication.'));}
+        }
         const watermark=watermarkFor(candidate),displayWatermark=watermark.mode==='embedded'?{...watermark,text:watermarkLabel(candidate)}:watermark;
         for(const [i,asset] of candidate.mediaAssets.entries()) {
             try {
@@ -489,6 +499,18 @@ export class Publications {
             return {authorized:true,publicationId:id,assetId,revisionSha256:row.revision_sha256};
         });
     }
+    async resource(id:string,hash:string){
+        uuid(id);if(!/^[a-f0-9]{64}$/.test(hash))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+        return transaction(this.pool,async c=>{
+            await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+            const row=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1',[id])).rows[0] as PublicationRow|undefined;
+            if(!row||row.status!=='published'||!this.blobs)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            await this.gate(c,row);const descriptor=footstepResourcesFor(row.snapshot).find(v=>v.sha256===hash);
+            if(!descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            let bytes:Buffer;try{bytes=await footstepResourceBytes(c,this.blobs,row.tenant_id,row.exhibition_id,descriptor);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+            await this.gate(c,row);return {bytes,mime:descriptor.mime,revisionSha256:row.revision_sha256};
+        });
+    }
     async anonymous(id: string, assetId?: string) {
         uuid(id);
         if (assetId)
@@ -519,7 +541,8 @@ export class Publications {
                 if(!(await this.gate(c,row)).some(current=>current.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
                 return { bytes, mime: asset.mime, revisionSha256: row.revision_sha256 };
             }
-            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })) };
+            const resources=footstepResourcesFor(row.snapshot);
+            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}) };
         });
     }
 }

@@ -36,3 +36,12 @@ test("hosted public projection preserves selected identity and cannot grant priv
   const grant=await app.inject({method:"POST",url:`/api/v1/tenants/${tenant}/studio/publications/${pub}/opening-host`,headers:{host:new URL(origin).host,origin:clientOrigin},payload:{revisionSha256:revision}});expect(grant.statusCode).toBe(401);expect(reads).toBe(1);
  }finally{await app.close();}
 });
+test('legacy metadata readers refuse a publication with selected footstep resources',async()=>{
+ const pub='11111111-1111-4111-8111-111111111111',projection={publication:{id:pub,status:'published',revisionSha256:'a'.repeat(64)},exhibition:{extensions:{'org.exhibitos.viewer/footstep-resources':{version:1,families:['wood']}}}};
+ const app=buildApp({pool,auth:{mode:'network',origin,clientOrigin,bindHost:'127.0.0.1'},publicationSource:{anonymous:async()=>projection,asset:async()=>{throw Error('not selected');}}});
+ try{
+  const headers={host:new URL(origin).host,origin:clientOrigin};
+  expect((await app.inject({method:'GET',url:`/api/v1/publications/${pub}`,headers})).statusCode).toBe(406);
+  expect((await app.inject({method:'GET',url:`/api/v1/publications/${pub}?footsteps=1`,headers})).json()).toEqual(projection);
+ }finally{await app.close();}
+});

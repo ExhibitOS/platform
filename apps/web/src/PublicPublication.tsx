@@ -11,7 +11,8 @@ import type { AudioApi, VoicePlayback } from "./viewer/audio";
 import { ArtworkDetail } from "./ArtworkDetail";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
-import type { PublicPublication as PublicResponse } from "./publication-client";
+import type {PublicPublication as PublicResponse} from "./publication-client";
+import {validFootstepPublication} from './viewer/footstep-publication';
 import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
 import { EntranceCover, coverAspectRatio } from './EntranceCover';
@@ -44,7 +45,7 @@ export function PublicPublication({ id, initial, connectionStatus }: { id: strin
     const key=`${value.publication.id}/${value.publication.revisionSha256}`;
     const check=async()=>{
       if(value.local){await value.local.check();return;}
-      const response=await fetch(`/api/v1/publications/${value.publication.id}`,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});
+      const response=await fetch(`/api/v1/publications/${value.publication.id}?footsteps=1`,{credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(10000)});
       if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');
       const current=await response.json();if(current.publication?.id!==value.publication.id||current.publication?.status!=='published'||current.publication?.revisionSha256!==value.publication.revisionSha256||!Array.isArray(current.assets)||current.assets.some((a:unknown)=>!a||typeof a!=='object'||typeof (a as {assetId?:unknown}).assetId!=='string'))throw Error('PUBLICATION_UNAVAILABLE');
       return current.assets.map((a:{assetId:string})=>a.assetId);
@@ -155,10 +156,11 @@ export function PublicPublication({ id, initial, connectionStatus }: { id: strin
       if (!uuid.test(id)) throw Error("PUBLICATION_UNAVAILABLE");
       if (initial) {
         await initial.local?.check();
+        if(!validFootstepPublication(initial))throw Error('INVALID_PUBLICATION');
         if (generation.current === current) setValue(initial);
         return;
       }
-      const response = await fetch(`/api/v1/publications/${id}`, {
+      const response = await fetch(`/api/v1/publications/${id}?footsteps=1`, {
         credentials: "omit",
         cache: "no-store",
         signal: AbortSignal.timeout(30000),
@@ -173,6 +175,7 @@ export function PublicPublication({ id, initial, connectionStatus }: { id: strin
         result.publication.status !== "published" ||
         !/^[a-f0-9]{64}$/.test(result.publication.revisionSha256) ||
         !validateDraft(envelope).valid ||
+        !validFootstepPublication(result) ||
         !Array.isArray(result.assets) ||
         result.assets.some(
           (asset) =>
@@ -183,7 +186,7 @@ export function PublicPublication({ id, initial, connectionStatus }: { id: strin
         )
       )
         throw Error("INVALID_PUBLICATION");
-      if (generation.current === current) setValue({publication:result.publication, exhibition:result.exhibition, assets:result.assets});
+      if (generation.current === current) setValue({publication:result.publication, exhibition:result.exhibition, assets:result.assets,...(result.resources?{resources:result.resources}:{})});
     } catch {
       if (generation.current === current)
         setError(

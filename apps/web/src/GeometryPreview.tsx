@@ -1188,7 +1188,7 @@ export function GeometryPreview({
         if(!publicSource)throw Error('PUBLIC_DERIVATIVE_UNAVAILABLE');
         if(publicSource.check)await publicSource.check();
         else{
-          const current=await fetch(`/api/v1/publications/${publicSource.publicationId}`,{credentials:'omit',cache:'no-store',signal});
+          const current=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',signal});
           if(!current.ok||(await current.json()).publication.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLIC_DERIVATIVE_UNAVAILABLE');
         }
         signal.throwIfAborted();

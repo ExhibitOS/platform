@@ -9,7 +9,7 @@ export function DynamicConnectionStatus({publicationId,revisionSha256}:{publicat
  const [attempt,setAttempt]=useState(0),[state,setState]=useState<"checking"|"connected"|"unavailable">("checking");
  useEffect(()=>{const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);let current=true;setState("checking");
   void(async()=>{const health=await boundedJSON("/api/v1/health",16384,controller.signal) as {status?:string;service?:string};if(health?.status!=="ok"||health.service!=="exhibitos-api")throw Error("CONNECTION_HEALTH");
-   const value=await boundedJSON(`/api/v1/publications/${encodeURIComponent(publicationId)}`,1048576,controller.signal) as {publication?:{id?:string;revisionSha256?:string;status?:string}};
+   const value=await boundedJSON(`/api/v1/publications/${encodeURIComponent(publicationId)}?footsteps=1`,1048576,controller.signal) as {publication?:{id?:string;revisionSha256?:string;status?:string}};
    if(value?.publication?.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=="published")throw Error("CONNECTION_REVISION");if(current)setState("connected");
   })().catch(()=>{if(current)setState("unavailable");}).finally(()=>clearTimeout(timer));
   return()=>{current=false;clearTimeout(timer);controller.abort();};
