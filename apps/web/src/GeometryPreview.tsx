@@ -1,5 +1,7 @@
 import "./viewer/input-surface.css";
 import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
+import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
+import {SculptureOrbitControls} from './viewer/SculptureOrbitControls';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
@@ -258,6 +260,9 @@ export function GeometryPreview({
     reducedMotion: reducedMotion ?? matchMedia("(prefers-reduced-motion: reduce)").matches,
   }));
   const walkSettingsRef = useRef(walkSettings);
+  const sculptureOrbitRuntime=useRef<ReturnType<typeof createSculptureOrbit>|null>(null);
+  const [sculptureOrbitState,setSculptureOrbitState]=useState<SculptureOrbitState>();
+  useEffect(()=>{sculptureOrbitRuntime.current?.refresh();},[walkSettings.reducedMotion]);
   useEffect(() => {
     if(reducedMotion === undefined || reducedMotion === walkSettingsRef.current.reducedMotion)return;
     const next={...walkSettingsRef.current,reducedMotion};
@@ -285,6 +290,7 @@ export function GeometryPreview({
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
     if (suspendNavigation) {
+      sculptureOrbitRuntime.current?.actions.stop();
       suspendedWasWalking.current = committedEntry.current ?? (currentWalkMode.current.walking && !currentWalkMode.current.paused);
       committedEntry.current = null;
       preparedEntry.current = null;
@@ -302,6 +308,7 @@ export function GeometryPreview({
   }, [suspendNavigation]);
   useEffect(() => {
     const abort = new AbortController();
+    sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
     viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
     let gpuLost = false;
     let disposed = false,
@@ -829,6 +836,7 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        sculptureOrbitRuntime.current?.actions.stop();
         mapCallbacks.current.onMapReady?.(null);
         cancelSharedDetail();
         sharedDetailUnavailable?.('graphics');
@@ -1078,6 +1086,7 @@ export function GeometryPreview({
           },
           prepareViewpoint:async id=>{await initialize(undefined,true);return walkingActions.current!==pending?walkingActions.current?.prepareViewpoint?.(id):undefined;},
           visitViewpoint:(id,ordered)=>walkingActions.current!==pending?(walkingActions.current?.visitViewpoint?.(id,ordered)??false):false,
+          orbitViewpoint:(id,yaw)=>walkingActions.current!==pending?(walkingActions.current?.orbitViewpoint?.(id,yaw)??false):false,
           freeViewing:()=>walkingActions.current!==pending?(walkingActions.current?.freeViewing?.()??false):false,
           sit: benchId => {void initialize().then(()=>{if(!disposed&&!xrActive.current&&!suspendedRef.current&&walkingActions.current!==pending)walkingActions.current?.sit?.(benchId);});},
           stand:()=>{},
@@ -1160,6 +1169,7 @@ export function GeometryPreview({
         signal.throwIfAborted();
       };
       const stopPublicDisplay=()=>{
+        sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
         sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
         setReady(false);setPublicMessage('공개 상태를 확인할 수 없어 작품 표시를 중단했습니다. 작품 목록을 이용해 주세요.');
       };
@@ -1447,6 +1457,25 @@ export function GeometryPreview({
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
+        let viewingPreparing=0;
+        const orbitRoot=renderer.domElement.closest('.publication-shell');
+        const orbitAllowed=()=>!disposed&&!gpuLost&&!xrActive.current&&!sharedDetail&&!suspendedRef.current&&!seatedBenchRef.current&&!viewingPreparing&&viewingStyleRef.current==='ordered'&&!renderer.domElement.ownerDocument.hidden&&renderer.domElement.style.visibility!=='hidden'&&![...(orbitRoot?.querySelectorAll('details[data-visitor-panel][open],dialog[open],[aria-modal="true"],.viewer-brief')??[])].some(node=>node.getClientRects().length>0&&!node.closest('[hidden],[inert]'));
+        const stopSculptureOrbit=()=>sculptureOrbitRuntime.current?.actions.stop();
+        const orbitVisibility=()=>{if(renderer.domElement.ownerDocument.hidden)stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();};
+        const orbitKey=(event:KeyboardEvent)=>{if(event.key==='Escape')stopSculptureOrbit();};
+        const orbitPointer=(event:PointerEvent)=>{if(!event.isPrimary||!(event.target instanceof Element&&event.target.closest('.viewer-sculpture-orbit')))stopSculptureOrbit();};
+        const orbitRelease=(event:PointerEvent)=>sculptureOrbitRuntime.current?.actions.release(event.pointerId,false);
+        const orbitPanel=()=>{if(!orbitAllowed())stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();};
+        window.addEventListener('blur',stopSculptureOrbit);window.addEventListener('focus',orbitVisibility);
+        renderer.domElement.ownerDocument.addEventListener('visibilitychange',orbitVisibility);
+        renderer.domElement.ownerDocument.addEventListener('keydown',orbitKey,true);
+        renderer.domElement.ownerDocument.addEventListener('pointerdown',orbitPointer,true);
+        renderer.domElement.ownerDocument.addEventListener('pointerup',orbitRelease);
+        renderer.domElement.ownerDocument.addEventListener('pointercancel',orbitRelease);
+        renderer.domElement.ownerDocument.addEventListener('wheel',stopSculptureOrbit,true);
+        renderer.domElement.ownerDocument.addEventListener('scroll',stopSculptureOrbit,true);
+        renderer.domElement.ownerDocument.addEventListener('contextmenu',stopSculptureOrbit,true);
+        orbitRoot?.addEventListener('toggle',orbitPanel,true);
         const destroy = (object: InstanceType<typeof three.Object3D>) => {
           if(object===detailPinned){detailRetired=true;return;}
           for (const resource of decodedResources.get(object) ?? [])
@@ -1947,6 +1976,7 @@ export function GeometryPreview({
             const placement=document.placements.find(p=>p.id.toLowerCase()===stop.placementId.toLowerCase());
             const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
             if(!art)throw Error('VIEWING_REFERENCE');
+            viewingPreparing++;stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();
             viewingPins.set(art.revisionId,(viewingPins.get(art.revisionId)??0)+1);let released=false;
             const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else viewingPins.delete(art.revisionId);};
             signal.addEventListener('abort',releasePin,{once:true});
@@ -1979,13 +2009,16 @@ export function GeometryPreview({
                 if(released||signal.aborted||disposed||gpuLost||sharedDetail||suspendedRef.current||xrActive.current||!objects.has(art.revisionId))return false;
                 if(!walkingActions.current?.visitViewpoint?.(stop.viewpointId,style==='ordered'))return false;
                 viewingCurrentArt=art.revisionId;viewingStyleRef.current=style;setViewingStyle(style);controls.enabled=false;currentArtwork=art.revisionId;
+                sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);delete renderer.domElement.dataset.sculptureOrbit;
+                if(style==='ordered'&&art.artworkType==='sculpture'&&stop.orbit)sculptureOrbitRuntime.current=createSculptureOrbit({placementId:stop.placementId,bounds:stop.orbit,allowed:orbitAllowed,reducedMotion:()=>walkSettingsRef.current.reducedMotion,move:yaw=>walkingActions.current?.orbitViewpoint?.(stop.viewpointId,yaw)===true,changed:state=>{setSculptureOrbitState(state);renderer.domElement.dataset.sculptureOrbit=JSON.stringify(state);}});
                 if(style==='free')panelResume?.resumeTemporary();
                 render();update();return true;
               },release:releasePin};
-            }catch(error){releasePin();throw error;}
+            }catch(error){releasePin();throw error;}finally{viewingPreparing--;sculptureOrbitRuntime.current?.refresh();}
           },
           free(){
             if(disposed||gpuLost||sharedDetail||suspendedRef.current||xrActive.current||!walkingActions.current?.freeViewing?.())return false;
+            sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);delete renderer.domElement.dataset.sculptureOrbit;
             viewingStyleRef.current='free';setViewingStyle('free');viewingCurrentArt=undefined;panelResume?.resumeTemporary();render();return true;
           },
         };
@@ -2079,9 +2112,20 @@ export function GeometryPreview({
         };
         detailEntry.current.mountPreview=mountSharedDetail;
         cancelSharedDetail=()=>cancelDetail?.();
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y);}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y);}, 200);
         const originalRelease = release;
         release = () => {
+          sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
+          window.removeEventListener('blur',stopSculptureOrbit);window.removeEventListener('focus',orbitVisibility);
+          renderer.domElement.ownerDocument.removeEventListener('visibilitychange',orbitVisibility);
+          renderer.domElement.ownerDocument.removeEventListener('keydown',orbitKey,true);
+          renderer.domElement.ownerDocument.removeEventListener('pointerdown',orbitPointer,true);
+          renderer.domElement.ownerDocument.removeEventListener('pointerup',orbitRelease);
+          renderer.domElement.ownerDocument.removeEventListener('pointercancel',orbitRelease);
+          renderer.domElement.ownerDocument.removeEventListener('wheel',stopSculptureOrbit,true);
+          renderer.domElement.ownerDocument.removeEventListener('scroll',stopSculptureOrbit,true);
+          renderer.domElement.ownerDocument.removeEventListener('contextmenu',stopSculptureOrbit,true);
+          orbitRoot?.removeEventListener('toggle',orbitPanel,true);
           mapCallbacks.current.onMapReady?.(null);mapPins.clear();
           viewingCallback.current?.(null);for(const check of [...viewingWaiters])check();viewingPins.clear();
           cancelDetail?.();sharedDetail?.dispose();
@@ -2177,6 +2221,7 @@ export function GeometryPreview({
   const ControlsFrame = immersive || compactControls ? "details" : "div";
   return (
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
+      {immersive&&viewingStyle==='ordered'&&sculptureOrbitState&&sculptureOrbitRuntime.current&&<SculptureOrbitControls state={sculptureOrbitState} actions={sculptureOrbitRuntime.current.actions}/>}
       {editing&&spaceTransparency===undefined&&<label><input type="checkbox" checked={transparentSpace} onChange={e=>setTransparentSpace(e.target.checked)}/>편집할 때 공간을 투명하게 보기 · 저장된 재질은 바뀌지 않아요</label>}
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
       {materialIssueCount>0&&<p role="status">마감 텍스처 {materialIssueCount}종의 표시를 완료하지 못했어요. 저장된 재질 설정은 유지됩니다.</p>}
