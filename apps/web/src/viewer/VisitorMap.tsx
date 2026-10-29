@@ -13,6 +13,7 @@ export interface VisitorMapProps {
  onDetails(placementId:string):void;
  onGo(target:MapTarget,viewpointId:string):Promise<boolean>;
  onCancel():void;
+ onPreviewChange?(placementId:string|undefined):void;
 }
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const sameTarget=(a:MapTarget|undefined,b:MapTarget|undefined)=>a===undefined?b===undefined:b!==undefined&&a.kind===b.kind&&same(a.id,b.id);
@@ -42,7 +43,7 @@ function ArtworkThumbnail({src,kind}:{src?:string;kind:string}){
 }
 
 /** The map previews identities. Only the existing renderer owner may admit travel. */
-export function VisitorMap({map,worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel}:VisitorMapProps){
+export function VisitorMap({map,worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel,onPreviewChange}:VisitorMapProps){
  const titleId=useId(),[selection,setSelection]=useState<MapSelection>({key:map.key}),[requestError,setRequestError]=useState<{key:string;text:string}|null>(null),requestGeneration=useRef(0),activeKey=useRef(map.key),selectionRef=useRef(selection);activeKey.current=map.key;selectionRef.current=selection;
  useEffect(()=>()=>{requestGeneration.current++;},[map.key]);
  const invalidate=()=>{requestGeneration.current++;setRequestError(null);};
@@ -54,6 +55,7 @@ export function VisitorMap({map,worldPose,previews,destinations,available,travel
   selectionRef.current=next;setSelection(next);
  };
  const preview=visitorMapPreview(map,selection),placement=preview?.kind==='placement'?map.placements.find(item=>same(item.id,preview.id)):undefined;
+ useEffect(()=>{onPreviewChange?.(placement?.id);return()=>onPreviewChange?.(undefined);},[map.key,placement?.id,onPreviewChange]);
  const room=map.rooms.find(item=>same(item.id,placement?.roomId??(preview?.kind==='room'?preview.id:'')));
  const content=placement&&previews?.[placement.id],choices=room?destinations.filter(item=>same(item.roomId,room.id)):[];
  const busy=travel.status==='preparing';
