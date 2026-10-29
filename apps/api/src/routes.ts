@@ -12,6 +12,7 @@ import { Institution, type InstitutionPrincipal } from './institution.ts';
 import { authorizeProcessingInput } from './processing-authorization.ts';
 import { Audio, MAX_AUDIO, type AudioInput } from './audio.ts';
 import {CoverImages,type CoverImageInput} from './cover-images.ts';
+import {ArtworkThumbnailReceipts} from './artwork-thumbnail-receipts.ts';
 import {MAX_SPACE_STILL_BYTES} from '@exhibitos/spec/space-still';
 import { Publications } from './publication.ts';
 import { registerRealtime } from './realtime.ts';
@@ -253,6 +254,9 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${cp}/artworks/:id/approve`,{schema:{body:object({revision:{type:'integer',minimum:1},assetId:id})}},call(true,async(c,s,req)=>cms.approve(c,s,cmsId(req),req.body as {revision:number;assetId:string})));
  app.get(`${cp}/artworks/:id/display`,call(false,async(c,s,req)=>cms.display(c,s,cmsId(req))));
  app.get(`${cp}/artworks/:id/preview`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}},[])}},call(false,async(c,s,req,reply)=>{const q=req.query as {expectedRevision?:string};const result=await cms.display(c,s,cmsId(req),true,q.expectedRevision===undefined?undefined:Number(q.expectedRevision)) as {bytes:Buffer;mime:string;revision:number;watermarked:boolean;watermarkMode:'none'|'embedded'};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode',result.watermarkMode).header('x-exhibitos-watermarked',String(result.watermarked)).header('x-exhibitos-artwork-revision',String(result.revision));return result.bytes;}));
+ const thumbnailReceipts=()=>{if(!store)throw new ApiError(503,'STORAGE_UNAVAILABLE');return new ArtworkThumbnailReceipts(store);};
+ app.get(`${cp}/artworks/:id/thumbnail-selection`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req)=>thumbnailReceipts().current(c,s,cmsId(req),Number((req.query as {expectedRevision:string}).expectedRevision))));
+ app.post(`${cp}/artworks/:id/thumbnail-selection`,call(true,async(c,s,req)=>thumbnailReceipts().select(c,s,cmsId(req),req.body)));
  const imports=store?new Imports(pool,store):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));

@@ -2,6 +2,7 @@ import {loadModelPairApproval,applyModelPairApproval} from './approved-model-pai
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import { ARTWORK_DETAILS_NAMESPACE, LOD_NAMESPACE, validateViewerLod, validateArtworkDetails, creationYearFor } from '@exhibitos/studio-contract';
+import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import { validateArtwork, type Artwork } from "@exhibitos/spec";
 import { randomUUID, createHash } from "node:crypto";
 import type { PoolClient } from "pg";
@@ -390,7 +391,7 @@ export class Cms {
         importedArtwork.extensions={...importedArtwork.extensions,'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:b.revision}};
         importedArtwork.provenance.events.push({id:importedArtwork.revisionId,type:'edited',at:importedArtwork.createdAt,description:'CMS reviewed text revision; approved source assets, dimensions and rights retained.'});
       }
-      if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid||!validateArtworkDisplayPolicy(importedArtwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
+      if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid||!validateArtworkDisplayPolicy(importedArtwork).valid||!validateArtworkThumbnail(importedArtwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
     }
     if (json(a.metadata.rights) !== json(asset.rights)) {
       await c.query(
@@ -441,12 +442,13 @@ export class Cms {
     const m=approval.snapshot.metadata,asset=approval.snapshot.asset as {id:string;sha256:string;bytes:number;mime:string};
       const imported=structuredClone(approval.snapshot.importedArtwork)as Artwork;
       const binding=imported?.extensions?.['org.exhibitos.studio/cms']as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
-      if(!validateArtwork(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||!validateArtworkDisplayPolicy(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE,DISPLAY_POLICY_NAMESPACE].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
+      if(!validateArtwork(imported).valid||!validateViewerLod(imported).valid||!validateArtworkDetails(imported).valid||!validateArtworkDisplayPolicy(imported).valid||!validateArtworkThumbnail(imported).valid||imported.id.toLowerCase()!==id.toLowerCase()||imported.revision!==approval.revision||binding?.tenantId!==s.tenantId||binding.artworkId!==id||binding.revision!==approval.revision||Object.keys(imported.extensions??{}).some(k=>!['org.exhibitos.studio/cms',ARTWORK_DETAILS_NAMESPACE,LOD_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE].includes(k)))throw new ApiError(409,'APPROVAL_INVALID');
       if(imported.metadata.title!==m.title||(imported.metadata.description??'')!==m.description||imported.metadata.medium!==m.medium||(imported.metadata.artist??'Imported artist')!==artist||imported.dimensions.width!==m.dimensions.width||imported.dimensions.height!==m.dimensions.height||imported.dimensions.depth!==m.dimensions.depth||creationYearFor(imported)!==m.creationYear||imported.provenance.authorship!==m.provenance.source||json(imported.rights)!==json(m.rights))throw new ApiError(409,'APPROVAL_INVALID');
       const primary=imported.assets.find(x=>x.id.toLowerCase()===imported.primaryAssetId.toLowerCase());
       if(!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==asset.bytes||primary.mime!==asset.mime)throw new ApiError(409,'APPROVAL_INVALID');
       const rows=(await c.query("SELECT a.id,a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=ANY($3::uuid[]) AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,imported.assets.map(a=>a.id)])).rows;
-      for(const source of imported.assets){const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
+      const optionalPreview=artworkThumbnailFor(imported);
+      for(const source of imported.assets){if(source.id.toLowerCase()===optionalPreview?.id.toLowerCase())continue;const current=rows.find(x=>x.id===source.id);if(!current||current.sha256!==source.sha256||Number(current.bytes)!==source.bytes||current.mime!==source.mime||json(current.rights)!==json(imported.rights)||!allowedRights(current.rights,'display'))throw new ApiError(409,'APPROVAL_INVALID');}
       qualifyDemoDisplay(imported);
       return imported;
   }
@@ -481,7 +483,8 @@ export class Cms {
     const {artwork}=await this.studioArtwork(c,s,id);
     if(artwork.revision!==expectedRevision)throw new ApiError(409,'REVISION_CONFLICT');
     const declared=artwork.assets.find(a=>a.id.toLowerCase()===assetId.toLowerCase());
-    if(!declared||(declared.mime!=='model/gltf-binary'&&!(artwork.artworkType==='image'&&declared.mime==='image/png')))throw new ApiError(409,'APPROVAL_INVALID');
+    const thumbnail=artworkThumbnailFor(artwork);
+    if(!declared||(declared.mime!=='model/gltf-binary'&&!(artwork.artworkType==='image'&&declared.mime==='image/png')&&thumbnail?.id.toLowerCase()!==assetId.toLowerCase()))throw new ApiError(409,'APPROVAL_INVALID');
     if(!this.blobs)throw new ApiError(503,'STORAGE_UNAVAILABLE');
     await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     const row=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,id,assetId])).rows[0];

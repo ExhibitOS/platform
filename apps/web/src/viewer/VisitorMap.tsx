@@ -5,7 +5,7 @@ import './visitor-map.css';
 
 export interface VisitorMapProps {
  map:MapModel;
- worldPose?:ReturnType<typeof visitorMapPose>;
+ worldPose?:ReturnType<typeof visitorMapPose>&{horizontalFovDegrees?:number};
  previews?:Readonly<Record<string,{description?:string;thumbnail?:string}>>;
  destinations:readonly {id:string;roomId:string;name:string}[];
  available:boolean;
@@ -19,12 +19,20 @@ const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const sameTarget=(a:MapTarget|undefined,b:MapTarget|undefined)=>a===undefined?b===undefined:b!==undefined&&a.kind===b.kind&&same(a.id,b.id);
 const middle=(points:MapPoint[]):MapPoint=>[points.reduce((n,p)=>n+p[0],0)/points.length,points.reduce((n,p)=>n+p[1],0)/points.length];
 
-function Schematic({map,worldPose,local=false}:{map:MapModel;worldPose:VisitorMapProps['worldPose'];local?:boolean}){
+function Schematic({map,worldPose,local=false,overview=false}:{map:MapModel;worldPose:VisitorMapProps['worldPose'];local?:boolean;overview?:boolean}){
  const {x,z,width,depth}=map.bounds;
  // World X/Z stays north-up. Only the crop follows the existing camera snapshot.
  const diameter=Math.max(8,Math.min(20,Math.max(width,depth)*.55));
  const center=worldPose?.point??[x+width/2,z+depth/2],unit=local?diameter:Math.max(width,depth),radius=unit*(local ? .018 : .012);
- const viewBox=local?`${center[0]-diameter/2} ${center[1]-diameter/2} ${diameter} ${diameter}`:`${x} ${z} ${width} ${depth}`;
+ const fov=worldPose?.horizontalFovDegrees,directionLength=worldPose&&Math.hypot(...worldPose.direction);
+ // The sector indicates the actual camera angle, not a ray-traced visibility range.
+ const sector=worldPose&&fov!==undefined&&Number.isFinite(fov)&&fov>0&&fov<180&&directionLength&&Number.isFinite(directionLength)?(()=>{
+  const angle=Math.atan2(worldPose.direction[1],worldPose.direction[0]),half=fov*Math.PI/360,reach=unit*.38,[px,pz]=worldPose.point;
+  return `M ${px} ${pz} L ${px+Math.cos(angle-half)*reach} ${pz+Math.sin(angle-half)*reach} A ${reach} ${reach} 0 0 1 ${px+Math.cos(angle+half)*reach} ${pz+Math.sin(angle+half)*reach} Z`;
+ })():undefined;
+ // A diagonal-sized square keeps every plan corner inside the circular clip.
+ const overviewSpan=Math.hypot(width,depth)*1.12;
+ const viewBox=overview?`${x+width/2-overviewSpan/2} ${z+depth/2-overviewSpan/2} ${overviewSpan} ${overviewSpan}`:local?`${center[0]-diameter/2} ${center[1]-diameter/2} ${diameter} ${diameter}`:`${x} ${z} ${width} ${depth}`;
  return <svg viewBox={viewBox} aria-hidden="true" focusable="false">
   {map.rooms.map(room=><polygon key={room.id} className="visitor-map-room" points={room.outline.map(p=>p.join(',')).join(' ')}/>)}
   {map.doors.map(door=>{
@@ -32,8 +40,9 @@ function Schematic({map,worldPose,local=false}:{map:MapModel;worldPose:VisitorMa
    const a=middle(door.edge),b=paired&&middle(paired.edge);
    return <g key={door.id}><line className="visitor-map-door" x1={door.edge[0][0]} y1={door.edge[0][1]} x2={door.edge[1][0]} y2={door.edge[1][1]}/>{paired&&b&&door.id<paired.id&&<line className="visitor-map-connection" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]}/>}</g>;
   })}
+  {sector&&<path className="visitor-map-fov" d={sector}/>}
   {map.placements.map(item=><circle key={item.id} className="visitor-map-work" cx={item.point[0]} cy={item.point[1]} r={radius}/>)}
-  {worldPose&&<g className="visitor-map-position"><line x1={worldPose.point[0]} y1={worldPose.point[1]} x2={worldPose.point[0]+worldPose.direction[0]*unit*.085} y2={worldPose.point[1]+worldPose.direction[1]*unit*.085}/><circle cx={worldPose.point[0]} cy={worldPose.point[1]} r={radius*1.4}/></g>}
+  {worldPose&&<g className="visitor-map-position"><circle cx={worldPose.point[0]} cy={worldPose.point[1]} r={radius*1.4}/></g>}
  </svg>;
 }
 
@@ -75,7 +84,7 @@ export function VisitorMap({map,worldPose,previews,destinations,available,travel
  return <details className="viewer-visitor-map" data-visitor-panel onBlur={event=>{
   if(!(event.relatedTarget instanceof Node&&event.currentTarget.contains(event.relatedTarget))&&selection.focused)dispatch({type:'blur',target:selection.focused});
  }} onToggle={event=>{if(!event.currentTarget.open){dispatch({type:'dismiss'});cancel();}}}>
-  <summary aria-label="전시 지도"><span className="visitor-map-title">전시 지도</span><span className="visitor-map-compact"><Schematic map={map} worldPose={worldPose} local/></span><span className="visitor-map-toggle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 12h12"/><path className="visitor-map-plus" d="M12 6v12"/></svg></span></summary>
+  <summary aria-label="전시 지도"><span className="visitor-map-title">전시 지도</span><span className="visitor-map-compact"><span className="visitor-map-nearby"><Schematic map={map} worldPose={worldPose} local/></span><span className="visitor-map-overview"><Schematic map={map} worldPose={worldPose} overview/></span></span><span className="visitor-map-toggle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 12h12"/><path className="visitor-map-plus" d="M12 6v12"/></svg></span></summary>
   <section aria-labelledby={titleId}>
    <h2 id={titleId}>전시 지도</h2>
    <p className="visitor-map-note">작품을 골라 설명과 관람 위치를 확인하세요.</p>

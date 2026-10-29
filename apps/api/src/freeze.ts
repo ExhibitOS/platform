@@ -8,7 +8,8 @@ import {sha256,transaction,type BlobStore} from '@exhibitos/storage';
 import {revisionHash,type Exhibition} from '@exhibitos/spec';
 import {supportedFreezeSpec,FREEZE_VERSION,MAX_RUNTIME_BYTES,MAX_OFFLINE_SECONDS,freezeCanonical,freezeFileMime,type FreezeRuntime,type FreezeFile,type FreezeManifest,type FreezeSummary,type FreezeBundle,type SignedOfflineGrant,type OfflineGrant} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
-import {Oex,decodeOex} from './oex.ts';
+import {Oex,decodeOex,pinnedAuthoritySnapshot,portableOexSnapshot,type ImportedPreviewOmission} from './oex.ts';
+import {ArtworkThumbnailReceipts,type FrozenThumbnailPin} from './artwork-thumbnail-receipts.ts';
 import {Studio} from './studio.ts';
 export interface FreezeConfig {runtimeRoot:string;signingKey:KeyObject;origin:string}
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -53,7 +54,7 @@ export async function loadFreezeRuntime(runtimeRoot:string):Promise<{runtime:Fre
   return {runtime:{version:descriptor.version,coreDigest:descriptor.coreDigest,imageDigest:hash(all),files:all},files};
  }catch{throw new ApiError(503,'FREEZE_RUNTIME_INVALID');}
 }
-interface FreezeRow {tenant_id:string;id:string;exhibition_id:string;source_snapshot:Exhibition;manifest:FreezeManifest;manifest_sha256:string;signature:string;inventory:{oex:string[];runtime:{path:string;key:string}[]};revoked:boolean}
+interface FreezeRow {tenant_id:string;id:string;exhibition_id:string;source_snapshot:Exhibition;manifest:FreezeManifest;manifest_sha256:string;signature:string;inventory:{oex:string[];runtime:{path:string;key:string}[];thumbnailPins?:FrozenThumbnailPin[];omittedImported?:ImportedPreviewOmission[]};revoked:boolean}
 /** Verify stored signature integrity only; callers still enforce access, rights and revocation. */
 export function verifyFreezeSignature(row:Pick<FreezeRow,'manifest'|'manifest_sha256'|'signature'>,authority:FreezeManifest['authority'],signingKey:KeyObject){
  if(row.manifest.authority.keyId!==authority.keyId||row.manifest.authority.origin!==authority.origin||row.manifest.authority.publicKey!==authority.publicKey)throw new ApiError(403,'FREEZE_AUTHORITY_CHANGED');
@@ -80,13 +81,27 @@ export class Freezes {
  }
  private async current(c:PoolClient,s:Session,row:FreezeRow){
   if(row.revoked)throw new ApiError(403,'FREEZE_REVOKED');this.validSignature(row);
-  return this.oex.authorizeSnapshot(c,s,row.exhibition_id,row.source_snapshot);
+  return this.authorizeAuthority(c,s,row);
+ }
+ private async authorizeAuthority(c:PoolClient,s:Session,row:FreezeRow){
+  const omissions=Object.hasOwn(row.inventory,'omittedImported')?row.inventory.omittedImported:[];if(!Array.isArray(omissions))throw new ApiError(409,'FREEZE_INTEGRITY');
+  const source=await this.oex.authorizeOmissions(c,s,row.source_snapshot,omissions);
+  const rights=[...(await this.oex.authorizeSnapshot(c,s,row.exhibition_id,source)).rights];
+  const hasPins=Object.hasOwn(row.inventory,'thumbnailPins');
+  const pins=hasPins?row.inventory.thumbnailPins:[];if(!Array.isArray(pins))throw new ApiError(409,'FREEZE_INTEGRITY');
+  const authority=pinnedAuthoritySnapshot(source,pins);
+  if(revisionHash(portableOexSnapshot(authority))!==row.manifest.source.exhibitionHash)throw new ApiError(409,'FREEZE_INTEGRITY');
+  if(hasPins){
+   const receipts=new ArtworkThumbnailReceipts(this.blobs);
+   for(const pin of pins)rights.push(...(await receipts.pinnedForExport(c,s,pin)).rights);
+  }
+  return {rights};
  }
  async list(c:PoolClient,s:Session,exhibitionId:string){await this.studio.access(c,s,exhibitionId);return {items:(await c.query('SELECT f.*,a.revoked FROM exhibition_freezes f JOIN freeze_availability a ON (a.tenant_id,a.freeze_id)=(f.tenant_id,f.id) WHERE f.tenant_id=$1 AND f.exhibition_id=$2 ORDER BY f.created_at DESC,f.id LIMIT 50',[s.tenantId,exhibitionId])).rows.map(r=>this.summary(r))};}
  async get(c:PoolClient,s:Session,id:string){const row=await this.access(c,s,id),draft=await this.studio.get(c,s,row.exhibition_id);const history=(await c.query('SELECT action,metadata,created_at AS "createdAt" FROM freeze_events WHERE tenant_id=$1 AND freeze_id=$2 ORDER BY created_at DESC,id LIMIT 50',[s.tenantId,id])).rows;return {...this.summary(row),history,comparison:{latestDraftRevision:draft.revision,sceneChanged:hash(draft.draft.candidate)!==hash(row.source_snapshot)}};}
  async check(c:PoolClient,s:Session,id:string){const row=await this.access(c,s,id),{rights}=await this.current(c,s,row);return {allowed:true,freezeId:id,manifestSha256:row.manifest_sha256,expiresAt:offlineDeadline(s,MAX_OFFLINE_SECONDS,rights)};}
  private async event(c:PoolClient,s:Session,id:string,action:string,metadata:unknown={}){await c.query('INSERT INTO freeze_events(tenant_id,id,freeze_id,actor_user_id,action,metadata) VALUES($1,$2,$3,$4,$5,$6)',[s.tenantId,randomUUID(),id,s.userId,action,metadata]);}
- async availability(c:PoolClient,s:Session,id:string,restore:boolean){const row=await this.access(c,s,id);if(restore){this.validSignature(row);await this.oex.authorizeSnapshot(c,s,row.exhibition_id,row.source_snapshot);}await c.query('UPDATE freeze_availability SET revoked=$3 WHERE tenant_id=$1 AND freeze_id=$2',[s.tenantId,id,!restore]);await this.event(c,s,id,restore?'restored':'revoked');return this.summary({...row,revoked:!restore});}
+ async availability(c:PoolClient,s:Session,id:string,restore:boolean){const row=await this.access(c,s,id);if(restore){this.validSignature(row);await this.authorizeAuthority(c,s,row);}await c.query('UPDATE freeze_availability SET revoked=$3 WHERE tenant_id=$1 AND freeze_id=$2',[s.tenantId,id,!restore]);await this.event(c,s,id,restore?'restored':'revoked');return this.summary({...row,revoked:!restore});}
  async authorize(c:PoolClient,s:Session,id:string,seconds:number):Promise<SignedOfflineGrant>{
   const row=await this.access(c,s,id),{rights}=await this.current(c,s,row),issuedAt=new Date().toISOString();
   const grant:OfflineGrant={schemaVersion:FREEZE_VERSION,kind:'offline-display-grant' as const,freezeId:id,manifestSha256:row.manifest_sha256,tenantId:s.tenantId,subjectId:s.userId,origin:this.authority.origin,keyId:this.authority.keyId,issuedAt,expiresAt:offlineDeadline(s,seconds,rights,Date.parse(issuedAt))};
@@ -96,6 +111,7 @@ export class Freezes {
   const row=await this.access(c,s,id);await this.current(c,s,row);
   const chunks=[];for(const key of row.inventory.oex)chunks.push(Buffer.from(await this.blobs.get(key)));const oex=Buffer.concat(chunks);
   if(oex.length!==row.manifest.oex.bytes||sha256(oex)!==row.manifest.oex.sha256)throw new ApiError(409,'FREEZE_INTEGRITY');
+  if(Object.hasOwn(row.inventory,'thumbnailPins')&&revisionHash((await decodeOex(oex)).exhibition)!==row.manifest.source.exhibitionHash)throw new ApiError(409,'FREEZE_INTEGRITY');
   const runtimeFiles=[];for(const file of row.manifest.runtime.files){const key=row.inventory.runtime.find(x=>x.path===file.path)?.key;if(!key)throw new ApiError(409,'FREEZE_INTEGRITY');const bytes=Buffer.from(await this.blobs.get(key));if(bytes.length!==file.bytes||sha256(bytes)!==file.sha256)throw new ApiError(409,'FREEZE_INTEGRITY');runtimeFiles.push({path:file.path,data:bytes.toString('base64')});}
   // Recheck wall-clock expiry after all byte I/O. Never renew from stale before-I/O rights.
   const authorization=await this.authorize(c,s,id,seconds);
@@ -114,11 +130,13 @@ export class Freezes {
   const prior=(await c.query('SELECT * FROM freeze_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3',[s.tenantId,s.userId,requestId])).rows[0];
   if(prior){if(prior.payload_sha256!==payload)throw new ApiError(409,'REQUEST_CONFLICT');if(prior.state==='complete')return this.summary(await this.access(c,s,prior.id));}
   if(source.etag!==match)throw new ApiError(412,'REMOTE_CONFLICT');
-  await this.oex.authorizeSnapshot(c,s,exhibitionId,source.draft.candidate);
-  const archive=await this.oex.export(c,s,exhibitionId,match),parsed=await decodeOex(archive),runtime=await loadFreezeRuntime(this.config.runtimeRoot),formats=await this.formats(parsed.oexVersion);
+  const exported=await this.oex.exportDetailed(c,s,exhibitionId,match),archive=exported.bytes,parsed=await decodeOex(archive),runtime=await loadFreezeRuntime(this.config.runtimeRoot),formats=await this.formats(parsed.oexVersion);
+  const requiredSource=await this.oex.authorizeOmissions(c,s,source.draft.candidate,exported.omittedImported);
+  await this.oex.authorizeSnapshot(c,s,exhibitionId,requiredSource);
+  if(revisionHash(parsed.exhibition)!==revisionHash(portableOexSnapshot(pinnedAuthoritySnapshot(requiredSource,exported.pins))))throw new ApiError(409,'FREEZE_INTEGRITY');
   const id=prior?.id??randomUUID(),lease=randomUUID();
   const oexKeys=Array.from({length:Math.ceil(archive.length/CHUNK)},(_,i)=>`${s.tenantId}/freezes/${id}/${lease}/oex-${i}`),runtimeKeys=runtime.runtime.files.map((file,i)=>({path:file.path,key:`${s.tenantId}/freezes/${id}/${lease}/runtime-${i}`}));
-  const inventory={oex:oexKeys,runtime:runtimeKeys},objectKeys=[...oexKeys,...runtimeKeys.map(x=>x.key)];
+  const inventory={oex:oexKeys,runtime:runtimeKeys,thumbnailPins:exported.pins,omittedImported:exported.omittedImported},objectKeys=[...oexKeys,...runtimeKeys.map(x=>x.key)];
   // Separate committed receipt exists before writes; it deliberately has no source-row FK.
   // Studio's outer FOR UPDATE must not deadlock an independent FK KEY SHARE check.
   await transaction(this.pool,async inner=>{
@@ -130,7 +148,8 @@ export class Freezes {
   const receipt=(await c.query("SELECT id FROM freeze_requests WHERE tenant_id=$1 AND id=$2 AND state='creating' AND lease_id=$3 AND lease_until>clock_timestamp() FOR UPDATE",[s.tenantId,id,lease])).rows[0];if(!receipt)throw new ApiError(409,'FREEZE_LEASE_EXPIRED');
   for(const[i,key]of oexKeys.entries())await this.blobs.put(key,archive.subarray(i*CHUNK,(i+1)*CHUNK));
   for(const file of runtimeKeys)await this.blobs.put(file.key,runtime.files.get(file.path)!);
-  await this.oex.authorizeSnapshot(c,s,exhibitionId,source.draft.candidate);
+  await this.oex.authorizeSnapshot(c,s,exhibitionId,await this.oex.authorizeOmissions(c,s,source.draft.candidate,exported.omittedImported));
+  for(const pin of exported.pins)await new ArtworkThumbnailReceipts(this.blobs).pinnedForExport(c,s,pin);
   if(!(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM freeze_requests WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid)throw new ApiError(409,'FREEZE_LEASE_EXPIRED');
   const manifest:FreezeManifest={schemaVersion:FREEZE_VERSION,kind:'exhibition-freeze',id,createdAt:new Date().toISOString(),source:{exhibitionId,revision:source.revision,etag:source.etag,exhibitionHash:revisionHash(parsed.exhibition)},formats,oex:{bytes:archive.length,sha256:sha256(archive)},runtime:runtime.runtime,authority:this.authority};
   const signature=this.signature(manifest);

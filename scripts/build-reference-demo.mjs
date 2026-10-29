@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {readFile,lstat} from 'node:fs/promises';
+import {readFile,lstat,writeFile} from 'node:fs/promises';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {staticCacheHeaders,STATIC_CACHE_POLICY_VERSION} from './static-cache-policy.mjs';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sourceOrigin='https://reference-demo.invalid';
@@ -28,7 +30,7 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
  const {exportStaticPublication}=await import('./export-static-publication.mjs');
  const pinned=JSON.parse(await readFile(join(root,'demos/reference-exhibition/publication.json'),'utf8'));
  const source=createPagesPublicationSource({origin:sourceOrigin,...pinned,fetch:localPublicationFetch(join(root,'demos/reference-exhibition/source'))});
- return exportStaticPublication({origin:'http://127.0.0.1',publicationId:pinned.publicationId,runtimeRoot,output,privateEditor,fetcher:async input=>{
+ const result=await exportStaticPublication({origin:'http://127.0.0.1',publicationId:pinned.publicationId,runtimeRoot,output,privateEditor,fetcher:async input=>{
   const url=new URL(input),base=`/api/v1/publications/${pinned.publicationId}`;
   if(url.origin!=='http://127.0.0.1'||url.search||url.hash)throw Error('DEMO_EXPORT_PATH');
   if(url.pathname===base)return Response.json(await source.anonymous(pinned.publicationId));
@@ -37,6 +39,12 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
   const asset=await source.asset(pinned.publicationId,match[1]);
   return new Response(asset.bytes,{headers:{'content-type':asset.mime,'x-exhibitos-publication-revision':asset.revisionSha256}});
  }});
+ // Wrangler control file is created only by this trusted deployment wrapper;
+ // the normal exported artifact remains suitable for Manager's strict importer.
+ const manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'),'utf8'));
+ const index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'),'utf8'));
+ const headers=staticCacheHeaders(index,manifest.files);if(headers)await writeFile(join(result.output,'_headers'),headers,{flag:'wx',mode:0o600});
+ return {...result,cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:createHash('sha256').update(headers).digest('hex')};
 }
 
 async function run(args,options={}){
