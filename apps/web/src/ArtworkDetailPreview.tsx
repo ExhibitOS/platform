@@ -241,7 +241,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
     // No persistent cache. Revoke the visible detail if authoritative publication availability changes.
     const check = async () => { try {
       if (publication.local) { await publication.local.check(); return; }
-      const response = await fetch(`/api/v1/publications/${publication.publication.id}`, { cache: "no-store", credentials: "omit", signal: abort.signal });
+      const response = await fetch(`/api/v1/publications/${publication.publication.id}?footsteps=1`, { cache: "no-store", credentials: "omit", signal: abort.signal });
       if (!response.ok || (await response.json()).publication.revisionSha256 !== publication.publication.revisionSha256) throw Error("REVOKED");
     } catch { if (!disposed) { abort.abort(); cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); setError("공개 상태를 확인할 수 없어 상세 표시를 중단했습니다."); } } };
     const timer = setInterval(() => void check(), 10000);

@@ -6,6 +6,11 @@ The publication revision and static index hashes are pinned in `publication.json
 The index, publication metadata, twelve PNG display derivatives, and one GLB display
 model are Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository.
 
+The pinned publication also includes two registered CC0 concrete footstep WAVs
+and the shared CC0 license and provenance notices. The publication resource
+channel verifies their sizes and SHA-256 values. Visitors explicitly enable
+both sound and footsteps before sample requests; walking triggers playback.
+
 The six paintings are provided by The Metropolitan Museum of Art, New York under
 CC0-1.0. Their original credit lines, rights, provenance, full and coarse display
 asset hashes remain in the publication metadata:

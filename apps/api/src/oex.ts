@@ -3,6 +3,8 @@ import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {ArtworkThumbnailReceipts,validFrozenThumbnailPin,type FrozenThumbnailPin} from './artwork-thumbnail-receipts.ts';
 import {floorResourceBytes} from './floor-resources.ts';
+import {footstepResourceBytes} from './footstep-resources.ts';
+import {OEX_FOOTSTEP_RESOURCE_VERSION,FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor,type FootstepResource} from '@exhibitos/spec/footstep-resources';
 import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
@@ -112,7 +114,7 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -175,12 +177,12 @@ export function remapOex(e:Exhibition){
  for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
  return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
-export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[]}>{
+export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[];footstepResources:FootstepResource[]}>{
  return new Promise((resolve,reject)=>{
   const url=new URL('./oex-validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
   const child=execFile(process.execPath,['--max-old-space-size=512',fileURLToPath(url)],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
    if(error){reject(new ApiError(422,'OEX_INVALID'));return;}
-   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=parsed.manifest.formatVersion===OEX_SURFACE_MATERIAL_VERSION?parsed.manifest.materialResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
+   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[];footstepResources?:FootstepResource[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=[OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.materialResources??[]:[],footstepResources=parsed.manifest.formatVersion===OEX_FOOTSTEP_RESOURCE_VERSION?parsed.manifest.footstepResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8||!Array.isArray(footstepResources)||footstepResources.length>13)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources,footstepResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
   });child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -261,6 +263,9 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(e)){
    const data=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
   }
+  for(const resource of footstepResourcesFor(e)){
+   const data=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
+  }
   const omittedImported:ImportedPreviewOmission[]=[],retainedImported:{omission:ImportedPreviewOmission;path:string;rights:unknown}[]=[];
   for(const {artwork,asset} of pendingImported){
    try{
@@ -287,7 +292,7 @@ export class Oex {
   }
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
   const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported);e=portableOexSnapshot(source);}:undefined;
-  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length;};
+  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length;};
   if(dropOptional&&packageEntries()>254)dropOptional();
   let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
@@ -381,13 +386,13 @@ export class Oex {
    for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path)||artworkThumbnailFor(a)?.id.toLowerCase()===asset.id.toLowerCase())await checkAssetBytes(a,asset.id,bytes,asset.mime);qualified.set(asset.path,bytes);}
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
-   for(const resource of [...parsed.floorResources,...parsed.materialResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
+   for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
    const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
    for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
    for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
    for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
    const mappedStill=spaceStillFor(e);if(mappedStill){keys.set(mappedStill.path,sourceKeys.get(mappedStill.path)!);restoredBytes.set(mappedStill.path,qualified.get(mappedStill.path)!);}
-   for(const resource of [...parsed.floorResources,...parsed.materialResources]){keys.set(resource.artifactPath,sourceKeys.get(resource.artifactPath)!);restoredBytes.set(resource.artifactPath,qualified.get(resource.artifactPath)!);}
+   for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){keys.set(resource.artifactPath,sourceKeys.get(resource.artifactPath)!);restoredBytes.set(resource.artifactPath,qualified.get(resource.artifactPath)!);}
    const storedBytes=new Map([...sourceKeys].map(([path,key])=>[key,qualified.get(path)!]));
    // Commit the cleanup inventory before any destination byte write, including process death.
    const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...storedBytes.keys()])])).rowCount;});
@@ -435,6 +440,9 @@ export class Oex {
     }
     for(const resource of parsed.materialResources){
      await c.query('INSERT INTO studio_surface_material_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
+    }
+    for(const resource of parsed.footstepResources){
+     await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');

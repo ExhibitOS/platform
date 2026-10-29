@@ -11,6 +11,13 @@ describe('explicit floor preset scopes',()=>{
   const b=createFloorPreset(target,'wood'),before=structuredClone(b);b.sound={mode:'material-default',gain:.3};
   const next=applyFloorPreset(b,'marble',['texturePack','repeatMeters','color']);expect(next.preset).toBe('wood');expect(next.sound).toEqual(b.sound);expect(next.texturePack).toEqual({id:'Marble006',version:1});expect(next.repeatMeters).toEqual([1,1]);expect(b.texturePack).toEqual(before.texturePack);
  });
+ it('does not silently change between tile and marble sounds on an appearance-only change',()=>{
+  for(const [from,to] of [['tile','marble'],['marble','tile']] as const){
+   const b=createFloorPreset(target,from),next=applyFloorPreset(b,to,['texturePack']);
+   expect(next.preset).toBe(from);expect(next.sound).toEqual(b.sound);
+   expect(next.texturePack).toEqual({id:to==='tile'?'Tiles074':'Marble006',version:1});
+  }
+ });
  it('materializes inherited unselected appearance on a base change without altering legacy sound absence',()=>{
   const b:FloorBinding={target,preset:'tile',repeatMeters:[2.1,2.1],rotation:.2};
   const next=applyFloorPreset(b,'marble',['repeatMeters'],{color:'#123456',roughness:.4,metalness:.2});expect(next.preset).toBe('marble');expect(next.sound).toBeUndefined();expect(next.texturePack).toEqual({id:'Tiles074',version:1});expect(next.rotation).toBe(.2);expect(next.normalScale).toBe(1);expect(next.aoStrength).toBe(1);expect(next.materialOverride).toEqual({color:'#123456',roughness:.4,metalness:.2});
