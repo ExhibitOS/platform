@@ -20,3 +20,14 @@ export function visitingBuffer(width: number, height: number, preferredRatio: nu
     : Math.min(DESKTOP_VISITING_PIXELS, width * height * preferredRatio ** 2);
   return {pixelBudget, ratio: Math.min(preferredRatio, Math.sqrt(pixelBudget / (width * height)))};
 }
+
+/** Keep intermediate canvas dimensions bounded during a ratio/orientation change.
+ * Three updates canvas width before height, so a mixed-axis change can otherwise
+ * temporarily allocate the new width with the old height. */
+export function resizeVisitingBuffer(renderer:{domElement:HTMLCanvasElement;setDrawingBufferSize(width:number,height:number,ratio:number):void},width:number,height:number,ratio:number,updateStyle=true){
+ const canvas=renderer.domElement,oldWidth=canvas.width,oldHeight=canvas.height;
+ const nextWidth=Math.floor(width*ratio),nextHeight=Math.floor(height*ratio);
+ if(nextWidth*oldHeight>Math.max(oldWidth*oldHeight,nextWidth*nextHeight))canvas.height=Math.min(oldHeight,nextHeight);
+ renderer.setDrawingBufferSize(width,height,ratio);
+ if(updateStyle){canvas.style.width=`${width}px`;canvas.style.height=`${height}px`;}
+}

@@ -2,6 +2,13 @@
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { lodVariantsFor } from "@exhibitos/studio-contract";
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number }
+/** An identical source can have been decoded at a smaller texture limit. */
+export function reusableImageTier(actual:number|undefined,requested:number|undefined):boolean {
+ return requested===undefined||actual===requested;
+}
+export function keepsAttendedImageTier(actual:number|undefined,requested:number):boolean {
+ return (actual??0)>=requested;
+}
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
@@ -9,7 +16,7 @@ export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
 /** Canvas width is a resolution/layout input, not a device capacity signal.
  * Keep the existing standard default and constrained-memory preset; neither
  * preset is a measured hardware guarantee. */
-export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"]};}
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number;coarsePointer?:boolean}):DeviceBudget {return {...DEVICE_BUDGETS[(input.deviceMemory!==undefined&&input.deviceMemory<=4)||(input.deviceMemory===undefined&&input.coarsePointer)?"compact":"desktop"]};}
 /** Explicit existing high-quality choice only. Auto and known constrained devices
  * retain their previous triangle/resident limits. Explicit desktop uses the
  * development starting budget (192 MiB steady / 256 MiB transition); actual
@@ -139,7 +146,7 @@ export function minimumFootprintVisible<T>(corners:ReadonlyArray<T>,centerClear:
 }
 /** Pressure may reclaim one old displayed detail, never the attended object.
  * Prefer a real coarse replacement even offscreen, preserving a quick turn back. */
-export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;visible:boolean;minimumRequired?:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){
+export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwork:Artwork;assetId:string;imageLimit?:number;visible:boolean;minimumRequired?:boolean;lastAttended:number}>,current:string|undefined,now:number,budget:DeviceBudget){
  if(!current)return undefined;
  for(const item of [...items].sort((a,b)=>Number(a.visible)-Number(b.visible)||a.lastAttended-b.lastAttended||a.id.localeCompare(b.id))){
   if(item.id===current||now-item.lastAttended<1800)continue;
@@ -148,6 +155,7 @@ export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwor
   try{
    const coarse=selectAssetVariant(item.artwork,Infinity,budget);
    if(coarse.id.toLowerCase()!==item.assetId.toLowerCase())return {id:item.id,evict:false as const,assetId:coarse.id};
+   if(item.artwork.artworkType==='image'&&(item.imageLimit??0)>budget.maxTextureSize)return {id:item.id,evict:false as const,assetId:coarse.id};
   }catch{/* No real supported replacement: retain the visible object. */}
   if(!item.visible&&!item.minimumRequired)return {id:item.id,evict:true as const};
  }
@@ -224,14 +232,14 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
  return Math.ceil(inventory.bytes*5+geometryBytes+textureBytes);
 }
 /** Header allocation guard before the browser decoder; hash/profile admission is separate. */
-export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
+export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,strictSource=false){
  const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
  const desktopPair=budget.maxTextureSize>=2048&&!!authoredImagePair(artwork);
- if(!desktopPair&&(declared===undefined||declared<=budget.maxTextureSize))return;
+ if(!strictSource&&!desktopPair&&(declared===undefined||declared<=budget.maxTextureSize))return;
  const p=new DataView(bytes),signature=[137,80,78,71,13,10,26,10];
  if(bytes.byteLength<33||bytes.byteLength>8388608||signature.some((n,i)=>p.getUint8(i)!==n)||p.getUint32(8)!==13||p.getUint32(12)!==0x49484452||p.getUint8(24)!==8||![2,6].includes(p.getUint8(25))||p.getUint8(26)!==0||p.getUint8(27)!==0||p.getUint8(28)!==0)throw Error('IMAGE_DECODE_BUDGET');
  const w=p.getUint32(16),h=p.getUint32(20);
- if(!w||!h||w>Math.min(declared??0,2048)||h>Math.min(declared??0,2048)||w*h>(desktopPair?4194304:2097152))throw Error('IMAGE_DECODE_BUDGET');
+ if(!w||!h||w>Math.min(declared??(strictSource?2048:0),2048)||h>Math.min(declared??(strictSource?2048:0),2048)||w*h>((desktopPair||strictSource)?4194304:2097152))throw Error('IMAGE_DECODE_BUDGET');
  return {width:w,height:h};
 }
 export type LoadingStatus="queued"|"loading"|"loaded"|"error"|"cancelled";

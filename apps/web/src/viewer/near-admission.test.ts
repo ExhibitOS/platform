@@ -19,6 +19,8 @@ test('a narrow canvas cannot classify the same capacity as a lower-memory device
  }
  expect(deviceBudget({deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({})).toEqual(DEVICE_BUDGETS.desktop);
+ expect(deviceBudget({coarsePointer:true})).toEqual(DEVICE_BUDGETS.compact);
+ expect(deviceBudget({coarsePointer:true,deviceMemory:8})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('compact',{deviceMemory:8})).toEqual(DEVICE_BUDGETS.compact);
 });
 

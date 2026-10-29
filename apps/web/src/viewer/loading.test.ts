@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import {readFileSync} from "node:fs";
 import * as Three from "three";
 import type {Exhibition} from "@exhibitos/spec";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, reusableImageTier, keepsAttendedImageTier } from "./loading";
 import {createFlatDetailRetry} from "./borrowed-detail-preview";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
@@ -218,6 +218,19 @@ describe('displayed detail pressure and generation isolation',()=>{
   artwork.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',...(kind==='sculpture'?{triangles:100}:{textureSize:2048})},{assetId:coarse.id,detail:'coarse',...(kind==='sculpture'?{triangles:20}:{textureSize:512})}]}};
   return {artwork,full,coarse};
  };
+ it('reclaims a visible legacy image by tier and never reuses its smaller same-ID texture for promotion',()=>{
+  const artwork=syntheticArtwork('image'),assetId=artwork.assets[0]!.id;
+  const item={id:'old',artwork,assetId,imageLimit:2048,visible:true,minimumRequired:true,lastAttended:0};
+  expect(displayedDetailReclamation([item],'new',1799,DEVICE_BUDGETS.compact)).toBeUndefined();
+  expect(displayedDetailReclamation([item],'new',1800,DEVICE_BUDGETS.compact)).toEqual({id:'old',evict:false,assetId});
+  expect(reusableImageTier(512,2048)).toBe(false);
+  expect(reusableImageTier(1024,2048)).toBe(false);
+  expect(reusableImageTier(2048,512)).toBe(false);
+  expect(reusableImageTier(512,512)).toBe(true);
+  expect(keepsAttendedImageTier(2048,1024)).toBe(true);
+  expect(keepsAttendedImageTier(1024,2048)).toBe(false);
+  expect(displayedDetailReclamation([{...item,imageLimit:512}],'new',1800,DEVICE_BUDGETS.compact)).toBeUndefined();
+ });
  it('makes current detail progress by ready-before-swap downgrading an old visible full neighbor, and allows a later revisit',()=>{
   const a=paired('image'),b=paired('sculpture'),displayed=new Map([['a',{asset:a.coarse.id,bytes:5}],['b',{asset:b.full.id,bytes:60}]]);
   const peak=new AssetPeakBudget(100,()=>[...displayed.values()].reduce((sum,v)=>sum+v.bytes,0));
@@ -353,4 +366,12 @@ it('retained decoder backing remains charged across cache eviction without count
  const second=retainEncodedBuffer(cache,'original',original);same.dispose();same.dispose();expect(cache.delete('original')).toBe(false);second.dispose();expect(cache.delete('original')).toBe(true);
  const uncached=retainEncodedBuffer(cache,'original',original);expect(uncached.retainedBytes+cache.stats().bytes).toBe(4);uncached.dispose();
  cache.set('original',original,4);const independent=retainEncodedBuffer(cache,'original',rewritten);expect(independent.retainedBytes+cache.stats().bytes).toBe(8);expect(cache.delete('original')).toBe(true);expect(independent.retainedBytes+cache.stats().bytes).toBe(4);independent.dispose();
+});
+
+it('bounds a legacy single PNG before one-painting promotion without changing its ordinary path',()=>{
+ const art=syntheticArtwork('image'),asset=art.assets[0]!,bytes=new ArrayBuffer(33),v=new DataView(bytes);
+ new Uint8Array(bytes).set([137,80,78,71,13,10,26,10]);v.setUint32(8,13);v.setUint32(12,0x49484452);v.setUint32(16,2048);v.setUint32(20,1024);v.setUint8(24,8);v.setUint8(25,6);
+ expect(checkImageDecode(bytes,art,asset,DEVICE_BUDGETS.compact)).toBeUndefined();
+ expect(checkImageDecode(bytes,art,asset,DEVICE_BUDGETS.desktop,true)).toEqual({width:2048,height:1024});
+ v.setUint32(16,2049);expect(()=>checkImageDecode(bytes,art,asset,DEVICE_BUDGETS.desktop,true)).toThrow('IMAGE_DECODE_BUDGET');
 });
