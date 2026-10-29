@@ -13,9 +13,14 @@ export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'mo
 export function decode(bytes:Buffer,mime:string) {
  return new Promise<void>((resolve,reject)=>{
   const path=new URL('./validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))path.pathname=path.pathname.replace(/\.js$/,'.ts');
+  let callbackDone=false,closed=false,valid=false;
+  const settle=()=>{if(callbackDone&&closed){if(valid)resolve();else reject(new ApiError(422,'FORMAT_REJECTED'));}};
   const child=execFile(process.execPath,['--max-old-space-size=128',fileURLToPath(path),mime],{timeout:5000,maxBuffer:4096,env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,stdout)=>{
-   if(error || stdout.trim()!=='VALID')reject(new ApiError(422,'FORMAT_REJECTED'));else resolve();
+   callbackDone=true;valid=!error&&stdout.trim()==='VALID';settle();
   });
+  // execFile may report a kill error before a live child has closed. A result
+  // is safe to release only after both its callback and the actual close event.
+  child.once('close',()=>{closed=true;settle();});
   child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -43,7 +48,7 @@ export class Imports {
   const prior=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND idempotency_key=$2',[s.tenantId,input.idempotencyKey]);
   if(prior.rowCount){if(prior.rows[0].request_hash!==hash)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');return this.view(prior.rows[0]);}
   const id=randomUUID(),key=`${s.tenantId}/quarantine/import-${id}/${input.sha256}`,target=`${s.tenantId}/approved/${derived?.sha256??input.sha256}`,preparedKey=derived?`${s.tenantId}/quarantine/import-${id}/prepared-${derived.sha256}`:null;
-  const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,derived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null]);
+  const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation,png_drain_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,derived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null,input.mime==='image/png'?1:0]);
   return this.view(row.rows[0]);
  }
  model(row:Record<string,unknown>){
@@ -55,6 +60,7 @@ export class Imports {
  view(row:Record<string,unknown>){
   const model=this.model(row),result=(row.model_derivation as {result?:Record<string,unknown>}|null)?.result;
   return {id:row.id,state:row.state,progress:row.progress,attempts:row.attempts,errorCode:row.error_code,assetId:row.asset_id,retryAt:row.available_at,
+   ...(row.mime==='image/png'?{workerDrainVersion:row.png_drain_version===1?1:0,workerDrained:row.png_drain_version===1&&row.lease_id==null&&Array.isArray(row.png_worker_tokens)&&row.png_worker_tokens.length===0&&['approved','failed','cancelled'].includes(String(row.state))}:{}),
    ...(model?{modelDerivation:{...(result??{}),operationID:model.operationID,generation:model.generation,profileId:model.profileId,status:result?.status??(['failed','cancelled'].includes(String(row.state))?'failed':'pending'),workerDrained:row.lease_id==null}}:row.derived==null?{}:{originalAssetId:row.original_asset_id})};
  }
  prepared(row:Record<string,unknown>){if(this.model(row))return undefined;const derived=preparedImageInput(row.derived??undefined);if((row.mime==='image/jpeg')!==(derived!==undefined))throw new ApiError(422,'FORMAT_REJECTED');return derived;}
@@ -84,12 +90,13 @@ export class Imports {
   const row=await this.access(c,s,id);
   if(action==='cancel'){
    if(row.state==='approved')throw new ApiError(409,'JOB_STATE');
-   if(this.model(row)&&row.lease_id!=null)await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
+   if((this.model(row)||row.mime==='image/png'&&row.png_drain_version===1)&&row.lease_id!=null)await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
    else await c.query("UPDATE import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }else{
    const model=this.model(row),value=row.model_derivation as {result?:Record<string,unknown>}|null;
    const optionalRetry=!!model&&row.state==='approved'&&row.asset_id!=null&&value?.result?.status==='failed'&&row.lease_id==null;
    if(!optionalRetry&&row.state!=='failed'||row.attempts>=5||new Date(row.available_at).getTime()>Date.now())throw new ApiError(409,'JOB_STATE');
+   if(row.mime==='image/png'&&row.png_drain_version===1&&(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length!==0))throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
    if(model){const result={...(value?.result??{}),status:'pending'} as Record<string,unknown>;delete result.errorCode;await c.query('UPDATE import_jobs SET model_derivation=$3 WHERE tenant_id=$1 AND id=$2',[s.tenantId,id,{kind:'model-texture-pair',request:model,result}]);}
    await c.query("UPDATE import_jobs SET state='queued',error_code=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }
@@ -99,10 +106,10 @@ export class Imports {
   const lease=randomUUID();
   const row=await transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5");
-   const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
+   await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (mime='image/png' AND png_drain_version=1 AND cardinality(png_worker_tokens)>0)");
+   const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (mime='image/png' AND png_drain_version=1 AND cardinality(png_worker_tokens)>0) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
    if(!found.rowCount)return null;const r=found.rows[0];
-   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
+   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN mime='image/png' AND png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
   });if(!row)return false;
   try{
    const bytes=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return Buffer.from(await this.blobs.get(row.object_key));});if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
@@ -157,7 +164,8 @@ export class Imports {
   }finally{
    // Only the actual completed worker/decoder call reaches this owner cleanup.
    // A cancellation response keeps this lease until close; timeout is not drain.
-   if(this.model(row))await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
+   if(this.model(row)||row.mime==='image/png'&&row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
+   if(row.mime==='image/png'&&row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
   }return true;
  }
 }
