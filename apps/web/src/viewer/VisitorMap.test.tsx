@@ -42,3 +42,41 @@ it('uses only supplied real thumbnails while retaining named keyboard controls a
  expect(value.onGo).not.toHaveBeenCalled();expect(value.onDetails).not.toHaveBeenCalled();
  expect(value.onPreviewChange).not.toHaveBeenCalled();
 });
+it('renders supplied thumbnails for every available marker before any artwork is selected',()=>{
+ const value=props();value.map={...map,placements:[...map.placements,{...map.placements[0]!,id:'second',title:'다른 작품',point:[-2,2]}]};
+ value.previews={placement:{thumbnail:'blob:verified-first'},second:{thumbnail:'blob:verified-second'}};
+ const html=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(html.match(/<img /g)).toHaveLength(2);expect(html).toContain('src="blob:verified-first"');expect(html).toContain('src="blob:verified-second"');
+ expect(html).not.toContain('visitor-map-preview-heading');expect(html).not.toContain('aria-pressed="true"');expect(value.onGo).not.toHaveBeenCalled();
+});
+it('shows only the actual FOV sector and rotates it with heading while keeping the plan fixed',()=>{
+ const value=props();value.worldPose={point:[0,0],direction:[0,-1],horizontalFovDegrees:90};
+ const coordinates=(html:string)=>html.match(/class="visitor-map-fov" d="([^"]+)"/)![1]!.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
+ const northHtml=renderToStaticMarkup(<VisitorMap {...value}/>),north=coordinates(northHtml);
+ expect(northHtml).not.toContain('<line');expect(northHtml).not.toContain('rotate(');expect(northHtml).toContain('viewBox="-4 -4 8 8"');
+ expect(north[2]).toBeLessThan(0);expect(north[9]).toBeGreaterThan(0);expect(north[3]).toBeLessThan(0);expect(north[10]).toBeLessThan(0);
+ expect(north[2]!*north[9]!+north[3]!*north[10]!).toBeCloseTo(0);
+ value.worldPose={point:[0,0],direction:[1,0],horizontalFovDegrees:60};
+ const eastHtml=renderToStaticMarkup(<VisitorMap {...value}/>),east=coordinates(eastHtml);
+ expect(eastHtml).toContain('viewBox="-4 -4 8 8"');expect(east[2]).toBeGreaterThan(0);expect(east[9]).toBeGreaterThan(0);
+ const cosine=(east[2]!*east[9]!+east[3]!*east[10]!)/(Math.hypot(east[2]!,east[3]!)*Math.hypot(east[9]!,east[10]!));
+ expect(cosine).toBeCloseTo(.5);
+});
+it('does not invent a viewing angle when the actual camera FOV or direction is unavailable',()=>{
+ for(const fov of [undefined,NaN,Infinity,0,180,-10]){
+  const html=renderToStaticMarkup(<VisitorMap {...props()} worldPose={{point:[0,0],direction:[0,-1],horizontalFovDegrees:fov}}/>);
+  expect(html).not.toContain('visitor-map-fov');expect(html).not.toContain('<line');expect(html).toContain('visitor-map-position');
+ }
+ expect(renderToStaticMarkup(<VisitorMap {...props()} worldPose={{point:[0,0],direction:[0,0],horizontalFovDegrees:60}}/>)).not.toContain('visitor-map-fov');
+});
+it('fits every full-plan corner within the desktop circle without following or rotating the camera',()=>{
+ const value=props();value.worldPose={point:[4,-1],direction:[0,-1],horizontalFovDegrees:70};
+ const overview=(html:string)=>html.match(/class="visitor-map-overview"><svg viewBox="([^"]+)"/)![1]!.split(' ').map(Number);
+ const first=overview(renderToStaticMarkup(<VisitorMap {...value}/>)),[x,z,width,depth]=first as [number,number,number,number];
+ expect(width).toBe(depth);
+ const cx=x+width/2,cz=z+depth/2;
+ for(const px of [map.bounds.x,map.bounds.x+map.bounds.width])for(const pz of [map.bounds.z,map.bounds.z+map.bounds.depth])expect(Math.hypot(px-cx,pz-cz)).toBeLessThan(width/2);
+ value.worldPose={point:[-2,3],direction:[1,0],horizontalFovDegrees:70};
+ expect(overview(renderToStaticMarkup(<VisitorMap {...value}/>))).toEqual(first);
+ expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
+});

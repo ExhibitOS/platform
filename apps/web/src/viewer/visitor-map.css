@@ -8,11 +8,11 @@
 .visitor-map-toggle{display:grid;place-items:center;width:44px;height:44px;flex:none;margin-left:auto;border-radius:50%;color:var(--publication-paper,#f8fbfc);background:rgb(18 39 45 / .82)}
 .viewer-visitor-map:not([open]) .visitor-map-toggle{position:absolute;right:-.125rem;bottom:-.125rem}
 .visitor-map-toggle svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}.viewer-visitor-map[open] .visitor-map-plus{display:none}
-.viewer-visitor-map svg{display:block;width:100%;height:100%;overflow:visible}.visitor-map-compact>svg{overflow:hidden;filter:drop-shadow(0 1px 1px #071c24)}
+.viewer-visitor-map svg{display:block;width:100%;height:100%;overflow:visible}.visitor-map-compact svg{overflow:hidden;filter:drop-shadow(0 1px 1px #071c24)}
 .visitor-map-room{fill:var(--publication-paper,#f8fbfc);stroke:currentColor;stroke-width:1;vector-effect:non-scaling-stroke}
 .visitor-map-door{stroke:var(--publication-action,#135967);stroke-width:4;vector-effect:non-scaling-stroke}.visitor-map-connection{stroke:currentColor;stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
 .visitor-map-work{fill:currentColor}.visitor-map-position{fill:var(--publication-action,#135967);stroke:var(--publication-action,#135967);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linecap:round}
-.visitor-map-compact .visitor-map-room{fill:none;stroke:#f2f8f9;stroke-width:1.5}.visitor-map-compact .visitor-map-door{stroke:#b7dfe7;stroke-width:3}.visitor-map-compact .visitor-map-connection{stroke:#e4f2f5}.visitor-map-compact .visitor-map-work{fill:#e4f2f5}.visitor-map-compact .visitor-map-position{fill:#f8fbfc;stroke:#143e49;stroke-width:2}.visitor-map-compact .visitor-map-position line{stroke:#f8fbfc;stroke-width:3}
+.visitor-map-compact .visitor-map-room{fill:none;stroke:#f2f8f9;stroke-width:1.5}.visitor-map-compact .visitor-map-door{stroke:#b7dfe7;stroke-width:3}.visitor-map-compact .visitor-map-connection{stroke:#e4f2f5}.visitor-map-compact .visitor-map-work{fill:#e4f2f5}.visitor-map-compact .visitor-map-position{fill:#f8fbfc;stroke:#143e49;stroke-width:2}
 .viewer-visitor-map[open]{width:min(30rem,calc(100vw - 2rem - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));max-height:calc(100svh - 7rem - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;padding:.75rem 1rem;background:var(--publication-paper,#f8fbfc);box-shadow:0 5px 20px #182d3226;border-radius:.75rem;scrollbar-color:var(--publication-action,#135967) transparent}
 .viewer-visitor-map[open] .visitor-map-compact{display:none}.viewer-visitor-map[open] .visitor-map-toggle{background:transparent;color:inherit}.viewer-visitor-map>section{display:grid;gap:.75rem;padding:.5rem 0;min-width:0}
 .viewer-visitor-map :is(h2,h3,p){margin:0;overflow-wrap:anywhere}.visitor-map-note{font-size:.875rem;line-height:1.5}
@@ -28,10 +28,17 @@
 .visitor-map-preview form{display:flex;flex-wrap:wrap;align-items:end;gap:.5rem}.visitor-map-preview label{display:grid;gap:.25rem;min-width:0;max-width:100%}.visitor-map-preview :is(button,select),.visitor-map-target-select select{min-height:44px;max-width:100%;font:inherit}.visitor-map-target-select{display:grid;gap:.25rem;min-width:0;font-size:.8125rem}.visitor-map-target-select select{width:100%}
 .viewer-visitor-map ::selection{background:var(--publication-action,#135967);color:var(--publication-paper,#f8fbfc)}
 @media(max-width:700px){.viewer-visitor-map{top:calc(9rem + env(safe-area-inset-top,0px));left:calc(.75rem + env(safe-area-inset-left,0px));width:8rem}.viewer-visitor-map:not([open]) summary{width:8rem;height:8rem}.viewer-visitor-map[open]{width:calc(100vw - 1.5rem - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px));max-height:calc(100svh - 10.5rem - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));padding:.5rem .75rem}.visitor-map-preview form{display:grid}.visitor-map-preview form button{width:100%}}
-.visitor-map-position circle,.visitor-map-position line{vector-effect:non-scaling-stroke}
+.visitor-map-position circle{vector-effect:non-scaling-stroke}
 .viewer-visitor-map .visitor-map-toggle svg{width:22px;height:22px}
 .viewer-visitor-map:not([open]),.viewer-visitor-map:not([open]) summary{background:transparent}
 .publication-shell .viewer-visitor-map>summary::after,.publication-shell .viewer-visitor-map[open]>summary::after{content:none}
 
-/* Short viewports keep the compact map above the lower-left movement control. */
-@media(max-height:400px){.viewer-visitor-map:not([open]){top:max(1rem,env(safe-area-inset-top,0px))}}
+/* The compact overview shares the safe top/left inset; the expanded panel keeps its own clearance. */
+.viewer-visitor-map:not([open]){top:calc(1rem + env(safe-area-inset-top,0px))}
+@media(max-width:700px){.viewer-visitor-map:not([open]){top:calc(.75rem + env(safe-area-inset-top,0px))}}
+.visitor-map-fov{fill:var(--publication-action,#135967);fill-opacity:.12;stroke:none;pointer-events:none}
+.visitor-map-compact .visitor-map-fov{fill:#b7dfe7;fill-opacity:.22}
+
+.visitor-map-nearby{display:block;width:100%;height:100%}.visitor-map-overview{display:none;width:100%;height:100%}
+@media(pointer:fine){.viewer-visitor-map .visitor-map-nearby{display:none}.viewer-visitor-map .visitor-map-overview{display:block}}
+@media(pointer:fine) and (min-width:701px) and (min-height:480px){.viewer-visitor-map:not([open]){width:12rem}.viewer-visitor-map:not([open]) summary{width:12rem;height:12rem}}
