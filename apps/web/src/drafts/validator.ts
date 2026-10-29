@@ -1,3 +1,4 @@
+import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
@@ -15,6 +16,8 @@ import type { ValidationResult } from "@exhibitos/spec";
 export function validateDraft(document: unknown): ValidationResult {
   const result = validateLifecycle(document);
   if (!result.valid) return result;
+  const viewing=validateViewingPlan((document as Draft).candidate);
+  if(!viewing.valid)return viewing;
   const entrance=validateViewerEntrance((document as Draft).candidate);
   if(!entrance.valid)return entrance;
   const spatial=validateSpatialProfile((document as Draft).candidate);

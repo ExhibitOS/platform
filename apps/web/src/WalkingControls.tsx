@@ -10,6 +10,10 @@ export interface WalkingActions {
   canResumeInput?: () => boolean;
   resumeInput?: () => boolean;
   teleport?: (viewpointId: string) => void;
+  prepareViewpoint?: (viewpointId: string) => Promise<{position:[number,number,number];target:[number,number,number];yaw:number;fov:number}|undefined>;
+  freeViewing?: () => boolean;
+  visitViewpoint?: (viewpointId: string, ordered: boolean) => boolean;
+  orbitViewpoint?: (viewpointId:string,relativeYaw:number) => boolean;
   sit?: (benchId:string) => void;
   stand?: () => void;
   pause: (reason?: WalkingPauseReason) => void;

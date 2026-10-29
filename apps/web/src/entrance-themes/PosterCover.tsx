@@ -21,7 +21,7 @@ export function themeAttributes(props:ThemeProps){
       '--theme-copy-ratio':design.layout.copyRatio,
       '--theme-image-fit':design.image.fit,
       '--theme-image-focus':`${design.image.focus[0]*100}% ${design.image.focus[1]*100}%`,
-      '--theme-source-ratio':image.width&&image.height?String(image.width/image.height):'4/3',
+      '--theme-source-ratio':String(image.layoutRatio??4/3),
       '--theme-duration':`${400/design.effects.speed}ms`,
       '--theme-strength':design.effects.strength,
     } as CSSProperties,

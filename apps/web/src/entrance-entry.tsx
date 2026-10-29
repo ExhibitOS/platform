@@ -23,7 +23,7 @@ export function useEntranceEntry(){
 }
 export function EntranceEntryOverlay({entry,transition,speed,statusRef,onCancel,onText}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;onCancel:()=>void;onText:()=>void}){
  useEffect(()=>{if(!entry.stageReady&&!entry.entryFailed)statusRef.current?.focus({preventScroll:true});},[entry.stageReady,entry.entryFailed,entry.entryAttempt,statusRef]);
- return <div className="publication-entry-overlay" data-ready={entry.stageReady} data-transition={transition} style={{'--entry-transition-duration':`${(transition==='doors'?650:transition==='panels'?400:220)/speed}ms`} as CSSProperties} data-door-effect={transition!=='none'} data-failed={entry.entryFailed}>
+ return <div className="publication-entry-overlay" data-ready={entry.stageReady} data-transition={transition} style={{'--entry-transition-duration':`${(transition==='doors'?220:transition==='panels'?180:140)/speed}ms`} as CSSProperties} data-door-effect={transition!=='none'} data-failed={entry.entryFailed}>
   <div className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>
   {!entry.stageReady&&<div className="publication-entry-recovery">
    <p className="publication-entry-progress" role={entry.entryFailed?'alert':'status'} ref={statusRef} tabIndex={-1}>{entry.entryFailed?'공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.':entry.longEntry?'공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.':'전시장으로 들어가고 있어요.'}</p>

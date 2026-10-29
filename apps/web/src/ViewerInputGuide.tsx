@@ -39,7 +39,7 @@ export function ViewerInputGuide({ mode, replayed, onDismiss }: {
   return <aside ref={guide} className="viewer-brief" aria-label="짧은 관람 안내" data-input-mode={mode}>
     <div className="viewer-brief-copy"><h2 ref={heading} tabIndex={-1}>가볍게 둘러보기</h2>
       <p>{viewerInputInstructions[mode]} 작품을 선택하면 설명을 볼 수 있어요.</p>
-      <p>Esc·화면 이탈은 정지해요. 메뉴에서 걷기 재개·조작 방식·소리·텍스트 관람을 선택하고 이 안내를 다시 볼 수 있어요.</p>
+      <p>Esc나 화면 이탈로 멈춰요. 메뉴에서 조작·소리·텍스트 관람을 바꾸거나 안내를 다시 볼 수 있어요.</p>
     </div>
     <button onPointerDown={event => event.preventDefault()} onClick={dismiss}>안내 건너뛰기</button>
   </aside>;

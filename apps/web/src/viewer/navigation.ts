@@ -69,6 +69,8 @@ export interface NavigationController {
     readonly walkableRegions: readonly WalkableRegion[];
     readonly physicsVersion: string;
     isWalkable: (position: Vec3) => boolean;
+    qualifiedStandingEye: (position: Vec3) => Vec3 | undefined;
+    standingSegmentClear: (fromEye:Vec3,toEye:Vec3) => boolean;
     seatedClear: (eye:Vec3, floor:Vec3, seatTop:number, benchId?:string, footprint?:readonly Vec3[]) => boolean;
     readonly navigationMesh: NavigationMesh;
     pathBetween: (fromEye: Vec3, toEye: Vec3) => Vec3[] | undefined;
@@ -216,13 +218,14 @@ export async function createNavigationController(doc: Exhibition, options: {
             }
             return highest >= foot - 0.09 && highest <= foot + radius * Math.tan(35 * Math.PI / 180) + 0.05;
         }
-        function isWalkable(eye: Vec3) {
+        function qualifiedStandingEye(eye: Vec3): Vec3 | undefined {
             ensure();
-            if (!finite(eye))
-                return false;
+            if (!finite(eye)) return undefined;
             const next = standingAt(eye);
-            return !!next && supported(next) && !world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character);
+            if (!next || !supported(next) || world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character)) return undefined;
+            return [next[0], next[1] - half + settings.eyeHeight, next[2]];
         }
+        function isWalkable(eye: Vec3) { return qualifiedStandingEye(eye) !== undefined; }
         function seatedClear(eye:Vec3,floor:Vec3,seatTop:number,benchId?:string,footprint:readonly Vec3[]=[]){
             ensure();
             if(!finite([...eye,...floor,seatTop])||eye[1]-seatTop<.5||eye[1]-seatTop>1.1||!inside(eye)||!inside([eye[0],eye[1]+.15,eye[2]]))return false;
@@ -315,7 +318,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             }
             return true;
         }
-        function clearSegment(a: Vec3, b: Vec3) {
+        function clearSegment(a: Vec3, b: Vec3, allowStep = true) {
             if (!corridorCovered(a, b))
                 return false;
             let previousFloor: number | undefined;
@@ -333,6 +336,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             const clear = (from: Vec3, to: Vec3) => Math.hypot(...to.map((n, i) => n - from[i]!)) < 1e-8 || !cast(from, to);
             if (clear(start, end))
                 return true;
+            if(!allowStep)return false;
             if (Math.abs(a[1] - b[1]) > NAVIGATION_PROFILE.maxStepHeight + 0.00001)
                 return false;
             // A legal riser requires the same approach, lift, traverse and landing sweeps
@@ -415,8 +419,13 @@ export async function createNavigationController(doc: Exhibition, options: {
             }
             if (!initial) throw Error("NAVIGATION_SPAWN_UNSAFE");
         }
+        const standingSegmentClear=(from:Vec3,to:Vec3)=>{
+            ensure();const a=qualifiedStandingEye(from),b=qualifiedStandingEye(to);
+            if(!a||!b||Math.abs(a[1]-from[1])>.005||Math.abs(b[1]-to[1])>.005||Math.abs(from[1]-to[1])>.005)return false;
+            return clearSegment([a[0],a[1]-settings.eyeHeight,a[2]],[b[0],b[1]-settings.eyeHeight,b[2]],false);
+        };
         reset();
-        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
+        return { walkableRegions: structuredClone(regions), navigationMesh: structuredClone(navigationMesh), pathBetween, physicsVersion: RAPIER.version(), isWalkable, qualifiedStandingEye, standingSegmentClear, seatedClear, state: () => { ensure(); return snapshot(); }, pause: () => { ensure(); paused = true; velocity = [0, 0, 0]; accumulator = 0; }, setSettings: changes => { ensure(); const next = { ...settings, ...changes }; checkSettings(next); Object.assign(settings, next); }, reset, dispose: () => {
                 if (!disposed) {
                     disposed = true;
                     world.free();

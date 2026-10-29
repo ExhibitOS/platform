@@ -24,6 +24,10 @@ import { AudioControls } from "./viewer/AudioControls";
 import { selectedDeviceBudget } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "./ViewerInputGuide";
+import {VisitorMap} from './viewer/VisitorMap';
+import {buildVisitorMap,visitorMapPose} from './viewer/visitor-map';
+import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
+import type {ViewingRenderer} from './viewer/viewing-session';
 export function Viewer({
   publication,
   appearance,
@@ -41,12 +45,24 @@ export function Viewer({
   controlsHost,
   onNavigationActive,
   onStageState,
+  onViewingRendererReady,
+  mapEnabled = true,
+  onMapAction,
+  onMapCancelReady,
+  guideDismissed,
+  onGuideDismissedChange,
 }: {
+  mapEnabled?:boolean;
+  onMapAction?:()=>void;
+  onMapCancelReady?:(cancel:(()=>void)|null)=>void;
+  onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
   publication: PublicPublication;
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
   onNavigationActive?:()=>void;
   onStageState?:(state:{ready:boolean;message:string;error?:boolean;phase?:"space"|"artwork"|"navigation"})=>void;
+  guideDismissed?:boolean;
+  onGuideDismissedChange?:(dismissed:boolean)=>void;
   appearance: (id: string) => SurfaceAppearance;
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
@@ -61,9 +77,32 @@ export function Viewer({
 }) {
   const viewingEntry = useRef<DetailEntryActions | null>(null);
   const registerViewingEntry = useCallback((actions: DetailEntryActions | null) => { viewingEntry.current = actions; onDetailEntryReady?.(actions); }, [onDetailEntryReady]);
+  const map=useMemo(()=>{try{return buildVisitorMap(publication.exhibition,publication.publication);}catch{return undefined;}},[publication]);
+  const mapBridge=useRef<MapTravelBridge|null>(null);
+  const [mapAvailable,setMapAvailable]=useState(false),[mapStageReady,setMapStageReady]=useState(false);
+  const [mapPose,setMapPose]=useState<ReturnType<typeof visitorMapPose>>();
+  const [mapTravelState,setMapTravelState]=useState<MapTravelState>({status:'idle',message:''});
+  const mapDestinations=useMemo(()=>presentationFor(publication.exhibition).viewpoints.map(({id,roomId,name})=>({id,roomId,name})),[publication]);
+  const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240)}])),[publication]);
+  const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState):undefined,[map,mapDestinations]);
+  useEffect(()=>{onMapCancelReady?.(mapTravel?.cancel??null);return()=>onMapCancelReady?.(null);},[mapTravel,onMapCancelReady]);
+  useEffect(()=>{
+    setMapTravelState({status:'idle',message:''});
+    const cancel=()=>mapTravel?.cancel(),hidden=()=>{if(document.hidden)cancel();};
+    window.addEventListener('blur',cancel);document.addEventListener('visibilitychange',hidden);
+    return()=>{mapTravel?.dispose();window.removeEventListener('blur',cancel);document.removeEventListener('visibilitychange',hidden);};
+  },[mapTravel]);
+  useEffect(()=>{if(suspendNavigation||!mapEnabled)mapTravel?.cancel();},[suspendNavigation,mapEnabled,mapTravel]);
+  const registerMap=useCallback((bridge:MapTravelBridge|null)=>{if(mapBridge.current&&mapBridge.current!==bridge)mapTravel?.cancel();mapBridge.current=bridge;setMapAvailable(!!bridge);if(!bridge){setMapPose(undefined);setMapStageReady(false);}},[mapTravel]);
+  const reportMapPose=useCallback((position:[number,number,number],yaw:number)=>{
+    const next=visitorMapPose(position,yaw);
+    setMapPose(previous=>previous&&next&&Math.hypot(previous.point[0]-next.point[0],previous.point[1]-next.point[1])<.01&&Math.hypot(previous.direction[0]-next.direction[0],previous.direction[1]-next.direction[1])<.005?previous:next);
+  },[]);
   const analytics = useRef<ViewerAnalytics | null>(null);
   const [viewFov,setViewFov]=useState<number|"authored">(48);
-  const [introDismissed,setIntroDismissed]=useState(false);
+  const [localIntroDismissed,setLocalIntroDismissed]=useState(false);
+  const introDismissed=guideDismissed??localIntroDismissed;
+  const setIntroDismissed=(dismissed:boolean)=>{setLocalIntroDismissed(dismissed);if(dismissed!==introDismissed)onGuideDismissedChange?.(dismissed);};
   const [guideSequence,setGuideSequence]=useState(0);
   const [inputMode,setInputMode]=useState<ViewerInputMode>("auto");
   const [coarsePointer]=useMediaPreference("(pointer: coarse)");
@@ -200,13 +239,17 @@ export function Viewer({
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
       {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>{setIntroDismissed(true);viewingEntry.current?.resumeViewing?.();}} />}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
+      {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} worldPose={mapPose} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
         immersive={immersive}
+        onViewingReady={onViewingRendererReady}
         controlsHost={controlsHost}
         inputMode={inputMode}
         onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
-        onRenderState={state=>onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"})}
+        onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
+        onMapReady={immersive?registerMap:undefined}
+        onMapPose={immersive?reportMapPose:undefined}
         onXrReady={xrReady}
         onXrArtworks={xrLoaded}
         document={publication.exhibition}

@@ -33,7 +33,8 @@ export function NativeEntranceHost({intent,owner,authenticate,stage}:{intent:Ent
  const exhibition=useMemo(()=>previewExhibition(intent),[intent]),publication=useMemo(()=>({exhibition}),[exhibition]);
  const [systemReduced,setSystemReduced]=useState(()=>matchMedia('(prefers-reduced-motion:reduce)').matches);
  const reduced=intent.request.reducedMotion||systemReduced,compact=intent.request.device==='mobile',runtime=entranceRuntime(exhibition,reduced,compact),content=entranceContent(exhibition,intent.request.locale??undefined,compact);
- const [imageStatus,setImageStatus]=useState<ThemeProps['image']['status']>(()=>runtime.settings.imageAssetId?'loading':'absent'),[enteredScene,setEnteredScene]=useState(false);
+ const still=spaceStillFor(exhibition),selectedStill=!!still&&runtime.settings.imageAssetId?.toLowerCase()===still.id.toLowerCase();
+ const [imageStatus,setImageStatus]=useState<ThemeProps['image']['status']>(()=>runtime.settings.imageAssetId&&(runtime.design.theme!=='threshold'||selectedStill)?'loading':'absent'),[enteredScene,setEnteredScene]=useState(false);
  const source=useMemo(()=>{
   const approved=nativeEntranceCoverSource(intent.frame,signal=>authenticate(intent.frame,signal));
   return {image:async(assetId:string,signal:AbortSignal)=>{

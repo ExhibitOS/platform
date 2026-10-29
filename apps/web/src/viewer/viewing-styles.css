@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+.viewer-viewing-styles{display:grid;gap:.75rem;min-width:0;color:inherit}
+.viewer-viewing-styles h2,.viewer-viewing-styles p{margin:0}
+.viewer-viewing-styles-options,.viewer-viewing-styles-navigation{display:flex;flex-wrap:wrap;gap:.5rem}
+.viewer-viewing-styles button{min-height:44px;max-width:100%;font:inherit}
+.viewer-viewing-styles button:focus-visible{outline:3px solid currentColor;outline-offset:3px}
+.viewer-viewing-styles button[aria-pressed=true]{font-weight:700;text-decoration:underline;text-underline-offset:.2em}
+.viewer-viewing-styles-list{list-style:none;display:grid;gap:.5rem;padding:0;margin:0}
+.viewer-viewing-styles-list button{display:flex;align-items:center;gap:.75rem;width:100%;text-align:left}
+.viewer-viewing-styles-list img{width:3rem;height:3rem;object-fit:contain;flex:none}
+.viewer-viewing-styles-list button>span{display:grid;gap:.15rem;min-width:0;overflow-wrap:anywhere}
+.viewer-viewing-styles-title{font-weight:600}.viewer-viewing-styles-room{font-size:.875em}
