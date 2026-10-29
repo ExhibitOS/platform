@@ -2144,7 +2144,7 @@ export function GeometryPreview({
         };
         detailEntry.current.mountPreview=mountSharedDetail;
         cancelSharedDetail=()=>cancelDetail?.();
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI);}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI);}, 200);
         const originalRelease = release;
         release = () => {
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
