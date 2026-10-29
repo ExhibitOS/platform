@@ -46,6 +46,8 @@
 .publication-cover-surface[data-entering=true] .publication-entry-ticket{position:fixed;left:var(--entry-ticket-left);top:var(--entry-ticket-top);width:var(--entry-ticket-width);height:var(--entry-ticket-height);visibility:visible}
 .publication-cover-surface[data-entering=true] .entrance-cover{background:transparent;perspective:none}
 .publication-cover-surface[data-entering=true] .entrance-cover-spread{visibility:hidden;perspective:none}
+/* A ready image overrides inherited visibility, including a late decode during entry. */
+.publication-cover-surface[data-entering=true] :is(.entrance-cover-image,.entrance-theme-image) img{visibility:hidden}
 /* Entry rects are viewport measurements: remove every owned containing block synchronously. */
 .publication-cover-surface[data-entering=true] .entrance-cover-spread,.publication-cover-surface[data-entering=true] .entrance-paper-left,.publication-cover-surface[data-entering=true] .entrance-paper-leaf{transform:none!important;animation:none!important;transform-style:flat}
 .publication-cover-surface[data-entering=true] .publication-entry-ticket[data-ticket-animation=false]{visibility:hidden}

@@ -14,6 +14,7 @@ import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type Stud
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
+import {createMapThumbnailPreview,MAP_THUMBNAIL_RESERVE_BYTES} from './viewer/map-thumbnail';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -125,7 +126,11 @@ export function GeometryPreview({
   inputMode = "auto",
   onInputModeChange,
   onViewingReady,
+  mapPreviewPlacementId,
+  onMapThumbnail,
 }: {
+  mapPreviewPlacementId?:string;
+  onMapThumbnail?:(value:{revisionSha256:string;placementId:string;thumbnail:string}|null)=>void;
   onViewingReady?:(renderer:ViewingRenderer|null)=>void;
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
@@ -219,7 +224,10 @@ export function GeometryPreview({
   useEffect(()=>{onSelectionFindReady?.(id=>selectionFindAction.current?.document===selectionFindDocument.current?selectionFindAction.current.find(id):false);return()=>onSelectionFindReady?.(null);},[onSelectionFindReady]);
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
-  const mapCallbacks=useRef({onMapReady,onMapPose});mapCallbacks.current={onMapReady,onMapPose};
+  const mapCallbacks=useRef({onMapReady,onMapPose,onMapThumbnail});mapCallbacks.current={onMapReady,onMapPose,onMapThumbnail};
+  const mapThumbnailRequest=useRef(mapPreviewPlacementId);mapThumbnailRequest.current=mapPreviewPlacementId;
+  const mapThumbnailRefresh=useRef<(()=>void)|null>(null);
+  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapPreviewPlacementId]);
   const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
@@ -382,23 +390,24 @@ export function GeometryPreview({
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
+      const mapThumbnailReserve=viewerBudget&&onMapThumbnail?MAP_THUMBNAIL_RESERVE_BYTES:0;
       const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
       if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
-      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes);
+      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-retainedMaterialBytes);
       const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-retainedMaterialBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const releaseMaterialLoadHold=(kind:'floor'|'surface')=>{
         if(disposed||gpuLost)return;
         if(kind==='floor')floorSettled=true;else surfaceSettled=true;
         const materialBytes=materialPhaseBytes(floorPlan,floorSettled)+materialPhaseBytes(surfacePlan,surfaceSettled);
         assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-retainedMaterialBytes-materialBytes);
-        renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,assetBudgetBytes,transitionBudgetBytes});
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-retainedMaterialBytes-materialBytes);
+        renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
         growAssetLimits();
@@ -836,6 +845,7 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        mapThumbnailRefresh.current?.();
         sculptureOrbitRuntime.current?.actions.stop();
         mapCallbacks.current.onMapReady?.(null);
         cancelSharedDetail();
@@ -1171,6 +1181,7 @@ export function GeometryPreview({
       const stopPublicDisplay=()=>{
         sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
         sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
+        mapThumbnailRefresh.current?.();
         setReady(false);setPublicMessage('공개 상태를 확인할 수 없어 작품 표시를 중단했습니다. 작품 목록을 이용해 주세요.');
       };
       const readArtworkBytes = async (
@@ -1452,6 +1463,20 @@ export function GeometryPreview({
               a && all.findIndex((b) => b.revisionId === a.revisionId) === i,
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
+        const mapThumbnail=createMapThumbnailPreview({
+          requested:()=>mapThumbnailRequest.current,
+          allowed:()=>!!onMapThumbnail&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden',
+          image:id=>{
+            const placement=document.placements.find(p=>p.id.toLowerCase()===id.toLowerCase());
+            const art=document.artworks.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
+            if(art?.artworkType!=='image')return;
+            let image:ImageBitmap|undefined;
+            objects.get(art.revisionId)?.traverse(node=>{if(!image&&node instanceof three.Mesh){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){const candidate=(material as InstanceType<typeof three.MeshStandardMaterial>).map?.image;if(candidate instanceof ImageBitmap){image=candidate;break;}}}});
+            return image;
+          },
+          changed:value=>mapCallbacks.current.onMapThumbnail?.(value?{...value,revisionSha256:publicSource.revisionSha256}:null),
+        });
+        mapThumbnailRefresh.current=mapThumbnail.refresh;
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
@@ -1609,6 +1634,7 @@ export function GeometryPreview({
             active.has(p.artworkRevisionId),
           ).length;
           setAssetReport(previous=>previous.loaded===loaded&&previous.failed===failed.size?previous:{loaded,failed:failed.size});
+          mapThumbnail.refresh();
           renderer.domElement.dataset.viewerState = JSON.stringify({
             loadedPlacements: loaded,
             authoredLights: document.lights.length,
@@ -2128,6 +2154,8 @@ export function GeometryPreview({
           renderer.domElement.ownerDocument.removeEventListener('contextmenu',stopSculptureOrbit,true);
           orbitRoot?.removeEventListener('toggle',orbitPanel,true);
           mapCallbacks.current.onMapReady?.(null);mapPins.clear();
+          if(mapThumbnailRefresh.current===mapThumbnail.refresh)mapThumbnailRefresh.current=null;
+          mapThumbnail.dispose();
           viewingCallback.current?.(null);for(const check of [...viewingWaiters])check();viewingPins.clear();
           cancelDetail?.();sharedDetail?.dispose();
           if(detailEntry.current.mountPreview===mountSharedDetail)delete detailEntry.current.mountPreview;
