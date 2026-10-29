@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { test, vi } from "vitest";
+import { test, vi, expect } from "vitest";
 import assert from "node:assert/strict";
 import { distanceGain, footstepWave, StrideClock, verifyPcmWav, ExhibitionAudio } from "./audio.ts";
 import type { NavigationState } from "./navigation.ts";
+import {readFile} from 'node:fs/promises';
+import {BUILTIN_STEP_BANKS} from './footstep-bank';
 const state=(x:number, extra:Partial<NavigationState>={}):NavigationState=>({eyePosition:[x,1.65,0],yaw:0,velocity:[1.3,0,0],grounded:true,steps:1,paused:false,blocked:false,recovered:false,...extra});
 test("distance attenuation is bounded, silence outside radius and invalid distances",()=>{assert.equal(distanceGain(0,3),1);assert.equal(distanceGain(1.5,3),0.25);assert.equal(distanceGain(3,3),0);assert.equal(distanceGain(4,3),0);assert.equal(distanceGain(NaN,3),0);assert.equal(distanceGain(1,0),0);});
 test("original four floor waveforms have bounded finite distinct energy and deterministic output",()=>{const waves=["wood","stone","concrete","carpet"].map(m=>footstepWave(m as "wood",48000));for(const wave of waves){assert.ok(wave.length<10000);assert.ok(wave.every(n=>Number.isFinite(n)&&Math.abs(n)<1));}assert.notDeepEqual(waves[0],waves[1]);assert.deepEqual(waves[0],footstepWave("wood",48000));const energy=(wave:Float32Array)=>wave.reduce((n,v)=>n+v*v,0);assert.ok(energy(waves[3]!)<energy(waves[0]!));});
@@ -17,6 +19,16 @@ function voiceRuntime() {
   const publication={publication:{id,revisionSha256:"a".repeat(64),publishedAt:"2026-10-02",status:"published"},assets:[],exhibition:{rooms:[],extensions:{"org.exhibitos.viewer/experience":{version:1,footsteps:[],voices:[{assetId:id,placementId:id,locale:"ko",transcript:"Synthetic narration"}],annotations:[],rooms:[],translations:[]}}}} as unknown as import("../publication-client").PublicPublication;
   return {id,runtime:new ExhibitionAudio(publication,()=>{})};
 }
+test('declared step resource is checked before decode and corruption never decodes',async()=>{
+ const {runtime}=voiceRuntime(),id=BUILTIN_STEP_BANKS.wood[0],bytes=await readFile(new URL(`../../public/footstep-samples/v1/${id}.wav`,import.meta.url));
+ const internal=runtime as unknown as {state:{enabled:boolean};context:AudioContext;publication:import('../publication-client').PublicPublication;load:(id:string)=>Promise<AudioBuffer>};
+ let decodes=0,corrupt=false;internal.state.enabled=true;
+ internal.context={decodeAudioData:async()=>{decodes++;return {duration:.43,length:20640,numberOfChannels:1,sampleRate:48000} as AudioBuffer;}} as unknown as AudioContext;
+ const pub=internal.publication;pub.resources=[{sha256:id,bytes:bytes.length,mime:'audio/wav',url:`/api/v1/publications/${pub.publication.id}/resources/${id}`}];
+ pub.local={check:async()=>{},fetcher:async()=>{const data=new Uint8Array(bytes);if(corrupt)data[44]=data[44]!^1;return new Response(data,{headers:{'content-type':'audio/wav','x-exhibitos-publication-revision':pub.publication.revisionSha256}});}};
+ corrupt=true;await expect(internal.load(id)).rejects.toThrow('AUDIO_HASH');expect(decodes).toBe(0);
+ corrupt=false;await expect(internal.load(id)).resolves.toBeDefined();expect(decodes).toBe(1);
+});
 function preparedVoice() {
   const {id,runtime}=voiceRuntime();
   let starts=0;

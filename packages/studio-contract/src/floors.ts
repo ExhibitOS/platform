@@ -74,4 +74,4 @@ export function floorPresetDefaults(preset:FloorPreset):Omit<FloorBinding,'targe
  return {preset,repeatMeters:preset==='wood'?[1.8,1.8]:preset==='tile'?[2.1,2.1]:[1,1],rotation:0,materialOverride:{color:'#ffffff',roughness:1,metalness:0},texturePack:{id:({wood:'WoodFloor051',marble:'Marble006',tile:'Tiles074',carpet:'Carpet004'} as const)[preset],version:1},normalScale:1,aoStrength:1,sound:{mode:'material-default',gain:1}};
 }
 export function floorMaterial(binding:FloorBinding,legacy?:PbrMaterial):PbrMaterial {return {...DEFAULT_MATERIAL,...floorPresetDefaults(binding.preset).materialOverride,...legacy,...binding.materialOverride};}
-export function floorSoundFamily(preset:FloorPreset):'wood'|'stone'|'carpet' {return preset==='marble'||preset==='tile'?'stone':preset;}
+export function floorSoundFamily(preset:FloorPreset):FloorPreset {return preset;}

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { experienceFor, presentationFor, curationFor, curationDurationValid } from "@exhibitos/studio-contract";
-import type { PublicPublication } from "../publication-client";
+import type {PublicPublication} from "../publication-client";
 import type { NavigationState } from "./navigation";
 import { fetchVerifiedAsset } from "./loading";
 import { authoredDistanceGain, occlusionGain } from "./audio-geometry";
 import {recordedStepPolicy,RECORDED_STEP_LIMITS,type StepHistory,type VerifiedStepSample} from "./recorded-step-policy";
+import {BUILTIN_STEP_BYTES,resolveFootsteps} from './footstep-bank';
 
 export type FloorSound = "wood" | "stone" | "concrete" | "carpet";
 export interface VoicePlayback {
@@ -149,6 +150,7 @@ export class ExhibitionAudio implements AudioApi {
   private experience: Experience;
   private curation: ReturnType<typeof curationFor>;
   private state: AudioState = { voice: {assetId:null,positionSeconds:0,durationSeconds:0,status:"stopped"}, zoneTransitions:false, zoneId:null, enabled: false, muted: false, volume: 0.5, suspended: true, context: "not-created", footsteps: 0, footstepsEnabled:false, reverbEnabled:false, material: "concrete", roomId: null, loaded: 0, decodedBytes: 0, requests: 0, active: 0, reverbSeconds: 0, zoneGain: 0, message: "소리는 선택해서 켭니다. 음성 설명은 소리 없이 읽을 수 있습니다." };
+  private resolvedSteps(){return resolveFootsteps(this.publication.exhibition,this.room,this.floor,this.experience.footsteps.find(f=>f.surfaceId===this.floor));}
   constructor(private publication: PublicPublication, private changed: (state: AudioState) => void) {
     this.experience = experienceFor(publication.exhibition);
     this.curation = curationFor(publication.exhibition);
@@ -283,14 +285,14 @@ export class ExhibitionAudio implements AudioApi {
   update(state: NavigationState) {
     this.position = [...state.eyePosition];
     this.setRoom(state.roomId);
-    if(this.floor!==state.floorSurfaceId){this.floor=state.floorSurfaceId;this.stepWindow=0;this.failedStepPreloads.clear();this.preload();}
+    if(this.floor!==state.floorSurfaceId){for(const source of [...this.stepSources])this.stop(source);this.floor=state.floorSurfaceId;this.stepWindow=0;this.failedStepPreloads.clear();this.setRoom(this.room,true);}
     if (this.context && this.state.enabled) {
       const listener = this.context.listener, now = this.context.currentTime;
       listener.positionX.setValueAtTime(this.position[0], now); listener.positionY.setValueAtTime(this.position[1], now); listener.positionZ.setValueAtTime(this.position[2], now);
       listener.forwardX.setValueAtTime(-Math.sin(state.yaw), now); listener.forwardY.setValueAtTime(0, now); listener.forwardZ.setValueAtTime(-Math.cos(state.yaw), now);
-      const material = this.experience.footsteps.find(f => f.surfaceId === state.floorSurfaceId)?.material;
-      this.state.material = material === "wood" || material === "carpet" || material === "stone" ? material : material === "metal" ? "stone" : "concrete";
-      if (this.stride.advance(state, this.moving && this.visible && !this.state.muted && !this.detail && this.state.footstepsEnabled) && this.context.state === "running") this.footstep(state);
+      const material = this.resolvedSteps().material;
+      this.state.material = material === "wood" || material === "carpet" || material === "stone" ? material : material === "metal" || material === 'tile' || material === 'marble' ? "stone" : "concrete";
+      if (this.stride.advance(state, this.moving && this.visible && !this.state.muted && !this.detail && this.state.footstepsEnabled) && this.context.state === "running") this.footstep();
       if (this.zone) {
         const zone = this.publication.exhibition.audioZones.find(z => z.id === this.zone!.id)!;
         const p = this.worldPosition(zone.roomId, zone.position);
@@ -303,19 +305,20 @@ export class ExhibitionAudio implements AudioApi {
     }
     this.transition();
   }
-  private footstep(state: NavigationState) {
+  private footstep() {
     if(!this.state.footstepsEnabled)return;
     this.audible=true;this.updateMaster();
     const context = this.context!;
     this.applyRoomReverb();
-    const entry=this.experience.footsteps.find(f=>f.surfaceId===state.floorSurfaceId),custom=entry?.assetId;
-    const samples:VerifiedStepSample[]=entry?.bank?entry.bank.flatMap(({assetId})=>{
+    const resolved=this.resolvedSteps();if(resolved.kind==='none')return;
+    const ids=resolved.kind==='builtin'||resolved.kind==='publication'?resolved.ids:[];
+    const samples:VerifiedStepSample[]=ids.flatMap(assetId=>{
       const b=this.buffers.get(assetId);if(!b)return [];
       if(!Number.isFinite(b.duration)||b.duration<RECORDED_STEP_LIMITS.minClipSeconds||b.duration>RECORDED_STEP_LIMITS.maxClipSeconds){this.state.message='일부 녹음 발소리의 길이를 지원하지 않습니다. 사용 가능한 짧은 샘플이나 기본 발소리를 사용합니다.';return [];}
       return [{id:assetId,durationSeconds:b.duration,verified:true as const}];
-    }):custom&&this.buffers.has(custom)?[{id:custom,durationSeconds:this.buffers.get(custom)!.duration,verified:true}]:[];
+    });
     const decision=recordedStepPolicy(samples,{visitorFootstepsEnabled:this.state.footstepsEnabled,enabled:this.state.enabled,muted:this.state.muted,visible:this.visible,audible:this.audible,detail:this.detail,contextRunning:context.state==='running',voicePlaying:!this.background&&this.state.voice.status==='playing'},this.stepHistory,{selection:Math.random(),gain:Math.random(),rate:Math.random()});
-    let buffer=decision.play?this.buffers.get(decision.plan.sampleId):!entry?.bank&&custom?this.buffers.get(custom):undefined;
+    let buffer=decision.play?this.buffers.get(decision.plan.sampleId):resolved.kind==='publication'&&ids.length===1?this.buffers.get(ids[0]!):undefined;
     if (!buffer) {
       buffer = this.steps.get(this.state.material);
       if (!buffer) { const wave = footstepWave(this.state.material, context.sampleRate); buffer = context.createBuffer(1, wave.length, context.sampleRate); buffer.copyToChannel(new Float32Array(wave), 0); this.steps.set(this.state.material, buffer); }
@@ -323,17 +326,18 @@ export class ExhibitionAudio implements AudioApi {
     // Only an explicitly authored, verified loaded short WAV enters the natural-tail path.
     // Legacy long custom WAVs retain their existing 0.2s cap; no automatic segmentation.
     const source = context.createBufferSource(), gain = context.createGain();
-    source.buffer = buffer; gain.gain.value = 0.35*(!this.background&&this.state.voice.status==='playing'?.35:1); source.connect(gain).connect(this.background ?? this.master!); this.connectReverb(gain);
+    source.buffer = buffer; gain.gain.value = resolved.gain*0.35*(!this.background&&this.state.voice.status==='playing'?.35:1); source.connect(gain).connect(this.background ?? this.master!); this.connectReverb(gain);
+    for(const previous of [...this.stepSources])this.stop(previous);
     this.stepSources.add(source);this.track(source, () => {this.stepSources.delete(source);this.reverbInputs.delete(gain);gain.disconnect();});
     try{
       if(decision?.play){
-        const plan=decision.plan,now=context.currentTime,peak=plan.peakGain*(entry?.material==='concrete'?.85:1);source.playbackRate.value=plan.playbackRate;
+        const plan=decision.plan,now=context.currentTime,peak=plan.peakGain*resolved.gain*(resolved.material==='concrete'?.85:1);source.playbackRate.value=plan.playbackRate;
         gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(peak,now+plan.fadeInSeconds);gain.gain.setValueAtTime(peak,now+plan.fadeOutStartSeconds);gain.gain.linearRampToValueAtTime(0,now+plan.wallDurationSeconds);
         source.start(0,plan.offsetSeconds,plan.mediaDurationSeconds);this.stepHistory=plan.nextHistory;
       }else source.start(0,0,Math.min(buffer.duration,.2));
     }catch{this.stop(source);this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
     this.state.footsteps++; this.emit();
-    if(entry?.bank){this.stepWindow=(this.stepWindow+1)%entry.bank.length;this.preload();}
+    if(ids.length>1){this.stepWindow=(this.stepWindow+1)%ids.length;this.preload();}
   }
   private track(source: AudioBufferSourceNode, cleanup: () => void = () => {}) { this.playing.add(source); source.onended = () => { this.playing.delete(source); source.disconnect(); cleanup(); this.emit(); }; }
   private worldPosition(roomId: string, local: [number, number, number]): [number, number, number] {
@@ -350,13 +354,18 @@ export class ExhibitionAudio implements AudioApi {
     const rooms = new Set([id, doc.rooms[index + 1]?.id].filter(Boolean));
     this.allowed = new Set(this.state.zoneTransitions?doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId):[]);
     for(const voice of this.experience.voices) {const placement=doc.placements.find(p=>p.id===voice.placementId);if(placement&&rooms.has(placement.roomId))this.allowed.add(voice.assetId);}
-    for (const entry of this.state.footstepsEnabled?this.experience.footsteps:[]) { const surface = doc.surfaces.find(s => s.id === entry.surfaceId); if (surface && rooms.has(surface.roomId)) for(const id of entry.bank?.map(s=>s.assetId)??(entry.assetId?[entry.assetId]:[]))this.allowed.add(id); }
+    for (const entry of this.state.footstepsEnabled?this.experience.footsteps:[]) {
+      const surface=doc.surfaces.find(s=>s.id===entry.surfaceId);if(!surface||!rooms.has(surface.roomId))continue;
+      const resolved=resolveFootsteps(doc,surface.roomId,surface.id,entry);
+      if(resolved.kind==='publication')for(const assetId of resolved.ids)this.allowed.add(assetId);
+    }
+    const steps=this.resolvedSteps();if(this.state.footstepsEnabled&&(steps.kind==='builtin'||steps.kind==='publication'))for(const id of steps.ids)this.allowed.add(id);
     for (const [key] of this.buffers) if (!this.allowed.has(key) && ![...this.playing].some(source=>source.buffer===this.buffers.get(key))) this.buffers.delete(key);
     if(changed){this.clearReverb();this.applyRoomReverb();}
     if (this.state.enabled) this.preload(); this.emit();
   }
   private preloadTargets(){
-    const entry=this.experience.footsteps.find(f=>f.surfaceId===this.floor),ids=entry?.bank?.map(s=>s.assetId)??(entry?.assetId?[entry.assetId]:[]);
+    const steps=this.resolvedSteps(),ids=steps.kind==='builtin'||steps.kind==='publication'?steps.ids:[];
     const priority=this.state.footstepsEnabled?[...ids.slice(this.stepWindow),...ids.slice(0,this.stepWindow)]:[];
     return [...new Set([...priority,...this.allowed])].filter(id=>this.allowed.has(id)&&!this.failedStepPreloads.has(id)).slice(0,8);
   }
@@ -367,7 +376,7 @@ export class ExhibitionAudio implements AudioApi {
       if(!this.allowed.has(id)&&![...this.playing].some(source=>source.buffer===this.buffers.get(id)))this.buffers.delete(id);this.emit();
     }).catch(error=>{
       if(error instanceof Error&&error.message==='AUDIO_PRELOAD_STALE')return;
-      if(this.experience.footsteps.some(f=>f.bank?.some(s=>s.assetId===id)))this.failedStepPreloads.add(id);
+      const steps=this.resolvedSteps();if((steps.kind==='builtin'||steps.kind==='publication')&&(steps.ids as readonly string[]).includes(id))this.failedStepPreloads.add(id);
       this.state.message='일부 소리가 없거나 검증되지 않았습니다. 글 설명과 기본 발소리는 유지됩니다.';this.emit();
     }).finally(()=>{if(!this.preloadTargets().includes(id))this.preload();});
   }
@@ -378,10 +387,25 @@ export class ExhibitionAudio implements AudioApi {
     const promise = this.loadQueue.catch(()=>{}).then(async () => {
       if (!this.state.enabled || !this.context || this.disposed) throw Error("AUDIO_NOT_ENABLED");
       if(preload && ((!this.visible||this.state.muted)||(!this.preloadTargets().includes(id) && !this.explicitLoads.has(id))))throw Error("AUDIO_PRELOAD_STALE");
-      const inventory = this.publication.exhibition.mediaAssets.find(a => a.id === id), asset = this.publication.assets.find(a => a.assetId === id);
-      if (!inventory || !asset || inventory.mime !== "audio/wav") throw Error("AUDIO_MISSING");
       this.state.requests++; this.emit();
-      const bytes = await fetchVerifiedAsset({ publicationId:this.publication.publication.id, revisionSha256:this.publication.publication.revisionSha256, asset, inventory, signal:this.abort.signal, maxBytes:12*1024*1024, ...this.publication.local });
+      let bytes:ArrayBuffer;
+      const builtin=BUILTIN_STEP_BYTES[id];
+      if(builtin){
+        const resource=this.publication.resources?.find(item=>item.sha256===id);
+        if(!resource||resource.bytes!==builtin||resource.mime!=='audio/wav'||resource.url!==`/api/v1/publications/${this.publication.publication.id}/resources/${id}`)throw Error('AUDIO_MISSING');
+        const response=await (this.publication.local?.fetcher??fetch)(resource.url,{credentials:'omit',redirect:'error',signal:this.abort.signal});
+        if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!=='audio/wav'||response.headers.get('x-exhibitos-publication-revision')!==this.publication.publication.revisionSha256)throw Error('AUDIO_MISSING');
+        const reader=response.body.getReader(),parts:Uint8Array[]=[];let size=0;
+        try{for(;;){const part=await reader.read();if(part.done)break;size+=part.value.length;if(size>builtin)throw Error('AUDIO_SIZE');parts.push(part.value);}}catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}
+        if(size!==builtin)throw Error('AUDIO_SIZE');
+        const joined=new Uint8Array(size);let offset=0;for(const part of parts){joined.set(part,offset);offset+=part.length;}
+        const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',joined)),v=>v.toString(16).padStart(2,'0')).join('');
+        if(hash!==id)throw Error('AUDIO_HASH');bytes=joined.buffer;
+      }else{
+        const inventory=this.publication.exhibition.mediaAssets.find(a=>a.id===id),asset=this.publication.assets.find(a=>a.assetId===id);
+        if(!inventory||!asset||inventory.mime!=='audio/wav')throw Error('AUDIO_MISSING');
+        bytes=await fetchVerifiedAsset({publicationId:this.publication.publication.id,revisionSha256:this.publication.publication.revisionSha256,asset,inventory,signal:this.abort.signal,maxBytes:12*1024*1024,...this.publication.local});
+      }
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       const pcm=verifyPcmWav(bytes);
       if(!curationDurationValid(this.publication.exhibition,id,pcm.duration))throw Error("AUDIO_TRANSCRIPT_DURATION_MISMATCH");
@@ -398,7 +422,7 @@ export class ExhibitionAudio implements AudioApi {
   private async checkAvailability(signal?:AbortSignal) {
     if(signal?.aborted)throw Error("AUDIO_CANCELLED");
     if(this.publication.local) return this.publication.local.check();
-    const response=await fetch(`/api/v1/publications/${this.publication.publication.id}`,{credentials:"omit",cache:"no-store",signal:AbortSignal.any([this.abort.signal,AbortSignal.timeout(10000),...(signal?[signal]:[])])});
+    const response=await fetch(`/api/v1/publications/${this.publication.publication.id}?footsteps=1`,{credentials:"omit",cache:"no-store",signal:AbortSignal.any([this.abort.signal,AbortSignal.timeout(10000),...(signal?[signal]:[])])});
     if(!response.ok)throw Error("PUBLICATION_UNAVAILABLE");
     const value=await response.json() as {publication?:{id?:string;status?:string;revisionSha256?:string}} | null;
     if(value?.publication?.id!==this.publication.publication.id||value.publication.status!=="published"||value.publication.revisionSha256!==this.publication.publication.revisionSha256)throw Error("PUBLICATION_UNAVAILABLE");

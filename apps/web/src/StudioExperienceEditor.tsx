@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Exhibition, JsonValue } from "@exhibitos/spec";
 import { EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, type ViewerExperience } from "@exhibitos/studio-contract";
 import { VoiceRecorder } from "./VoiceRecorder";
+import {declareFootstepFamily} from './viewer/footstep-authoring';
 import { failureMessage, request, type Session, type Rights } from "./cms-client";
 type Media = Exhibition["mediaAssets"][number];
 interface AudioItem { id: string; state: "uploading" | "validated" | "approved"; revision: 1; revoked: boolean; durationSeconds: number | null; mediaAsset: Media }
@@ -29,7 +30,7 @@ export function StudioExperienceEditor({ candidate, session, exhibitionId, disab
   function change(edit: (doc: Exhibition, experience: ViewerExperience) => void) {
     if (disabled || busy) return;
     const doc = structuredClone(latest.current), experience = experienceFor(doc);
-    edit(doc, experience);
+    try{edit(doc, experience);}catch{setNotice('기존 소리 자원 설정을 확인하세요. 현재 전시 문서는 유지됩니다.');return;}
     doc.extensions = { ...doc.extensions, [EXPERIENCE_NAMESPACE]: experience as unknown as { [key: string]: JsonValue } };
     const result = validateViewerExperience(doc);
     if (!result.valid) { setNotice("참조·위치·언어 또는 입력 한도를 확인하세요. 현재 전시 문서는 유지됩니다."); return; }
@@ -118,7 +119,7 @@ export function StudioExperienceEditor({ candidate, session, exhibitionId, disab
       <legend>바닥 소리와 공간 울림</legend>
       <label>발소리 바닥<select aria-label="발소리 바닥" value={surfaceId} onChange={e => setSurfaceId(e.target.value)}><option value="">바닥 선택</option>{candidate.surfaces.filter(s => s.type === "floor").map(s => <option key={s.id} value={s.id}>{candidate.rooms.find(r => r.id === s.roomId)?.name ?? s.id}</option>)}</select></label>
       <label>발소리 재질<select aria-label="발소리 재질" value={material} onChange={e => setMaterial(e.target.value as typeof material)}>{["wood", "stone", "concrete", "carpet", "metal"].map(m => <option key={m}>{m}</option>)}</select></label>
-      <button disabled={!surfaceId} onClick={() => change((_doc, x) => { x.footsteps = x.footsteps.filter(f => f.surfaceId !== surfaceId); x.footsteps.push({ surfaceId, material }); })}>바닥 발소리 적용</button>
+      <button disabled={!surfaceId} onClick={() => change((doc, x) => { if(material==='wood'||material==='carpet'||material==='concrete')declareFootstepFamily(doc,material);x.footsteps = x.footsteps.filter(f => f.surfaceId !== surfaceId); x.footsteps.push({ surfaceId, material }); })}>바닥 발소리 적용</button>
       <label>울림 공간<select aria-label="울림 공간" value={roomId} onChange={e => setRoomId(e.target.value)}><option value="">공간 선택</option>{candidate.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
       <label>공간 울림<input type="range" min="0" max="1" step="0.05" value={reverb} onChange={e => setReverb(Number(e.target.value))} /></label>
       <button disabled={!roomId} onClick={() => change((_doc, x) => { x.rooms = x.rooms.filter(r => r.roomId !== roomId); x.rooms.push({ roomId, reverb }); })}>공간 울림 적용</button>

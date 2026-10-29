@@ -8,6 +8,8 @@ import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
 import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles} from '@exhibitos/studio-contract';
+import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
+import {createPagesPublicationSource} from './pages-publication-source.mjs';
 const sha=b=>createHash("sha256").update(b).digest("hex");
 test('approved Viewer favicon exports exact bytes and rejects a changed SVG',async t=>{
  const {runtime,options,directory}=await setup(t);
@@ -27,6 +29,27 @@ export async function staticFixture(){
  return {decoded,raw,id,fetcher,get reads(){return reads;}};
 }
 async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256">');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
+test('selected footsteps export exact versioned resources and remain publication scoped',async t=>{
+ const {fixture,options,directory}=await setup(t),{raw,id}=fixture;
+ raw.exhibition.extensions={...raw.exhibition.extensions,'org.exhibitos.viewer/footstep-resources':{version:1,families:['wood']}};
+ raw.publication.revisionSha256=revisionHash(raw.exhibition);
+ const selected=footstepResourcesFor(raw.exhibition);
+ raw.resources=selected.map(item=>({sha256:item.sha256,bytes:item.bytes,mime:item.mime,url:`/api/v1/publications/${id}/resources/${item.sha256}`}));
+ const prior=options.fetcher;options.fetcher=async input=>{
+  const path=new URL(input).pathname,item=selected.find(v=>path===`/api/v1/publications/${id}/resources/${v.sha256}`);
+  if(!item)return prior(input);const bytes=await readFile(new URL('../apps/web/public/'+item.artifactPath,import.meta.url));
+  return new Response(bytes,{headers:{'content-type':item.mime,'x-exhibitos-publication-revision':raw.publication.revisionSha256}});
+ };
+ const output=await exportStaticPublication(options),indexBytes=await readFile(join(output.output,'static-publication-index.json')),index=JSON.parse(indexBytes);
+ assert.equal(index.version,2);assert.equal(index.resources.length,4);
+ const source=createPagesPublicationSource({origin:'https://reference-demo.invalid',publicationId:id,revisionSha256:raw.publication.revisionSha256,indexSha256:sha(indexBytes),fetch:async input=>{
+  const path=new URL(input).pathname.slice(1);return new Response(await readFile(join(output.output,path)));
+ }});
+ const value=await source.anonymous(id);assert.equal(value.resources.length,4);
+ const record=selected.find(v=>v.role==='sample');assert.equal(sha((await source.resource(id,record.sha256)).bytes),record.sha256);
+ await assert.rejects(source.resource(id,'0'.repeat(64)),/PAGES_PUBLICATION_UNAVAILABLE/);
+ raw.resources[0].sha256='0'.repeat(64);await assert.rejects(exportStaticPublication({...options,output:join(directory,'bad')}),/STATIC_RESOURCE_INVENTORY/);
+});
 test("published public projection exports exact synthetic GLB PNG audio and bound revision, excluding private fields",async t=>{const {fixture,options}=await setup(t),result=await exportStaticPublication(options);assert.equal(fixture.reads,2);const indexBytes=await readFile(join(result.output,"static-publication-index.json")),index=JSON.parse(indexBytes);assert.equal(sha(indexBytes),result.indexSha256);assert.match(await readFile(join(result.output,"index.html"),"utf8"),new RegExp(result.indexSha256));const publication=await readFile(join(result.output,index.publication.path),"utf8");assert(!publication.includes("must-never-export"));for(const entry of index.assets){const bytes=await readFile(join(result.output,entry.path));assert.equal(sha(bytes),entry.sha256);assert.deepEqual(bytes,fixture.decoded.files.get(fixture.decoded.manifest.assets.find(a=>a.id===entry.assetId).path));}const manifest=JSON.parse(await readFile(join(result.output,"static-export-manifest.json")));assert.equal(manifest.format,"exhibitos-static-publication-v1");assert.equal(sha(await readFile(join(result.output,"static-export-manifest.json"))),result.manifestSha256);assert.equal(manifest.files.length+1,result.files);for(const f of manifest.files){const b=await readFile(join(result.output,f.path));assert.equal(sha(b),f.sha256);assert.equal(b.length,f.bytes);}assert.equal(index.assets.length,3);await assert.rejects(exportStaticPublication(options),/STATIC_OUTPUT_EXISTS/);});
 test("draft or withdrawn snapshot cannot be exported",async t=>{const {fixture,options}=await setup(t);fixture.raw.publication.status="unpublished";await assert.rejects(exportStaticPublication(options),/STATIC_NOT_PUBLISHED/);await assert.rejects(lstat(options.output),{code:"ENOENT"});});
 test("withdrawal during asset export leaves no published directory or staging debris",async t=>{const {fixture,options,directory}=await setup(t),fetcher=options.fetcher;options.fetcher=async(...args)=>{if(fixture.reads===1&&new URL(args[0]).pathname.endsWith(fixture.id))fixture.raw.publication.status="unpublished";return fetcher(...args);};await assert.rejects(exportStaticPublication(options),/STATIC_PUBLICATION_CHANGED/);assert.deepEqual(await readdir(directory),["runtime"]);});

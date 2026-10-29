@@ -32,8 +32,10 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
  const source=createPagesPublicationSource({origin:sourceOrigin,...pinned,fetch:localPublicationFetch(join(root,'demos/reference-exhibition/source'))});
  const result=await exportStaticPublication({origin:'http://127.0.0.1',publicationId:pinned.publicationId,runtimeRoot,output,privateEditor,fetcher:async input=>{
   const url=new URL(input),base=`/api/v1/publications/${pinned.publicationId}`;
-  if(url.origin!=='http://127.0.0.1'||url.search||url.hash)throw Error('DEMO_EXPORT_PATH');
+  if(url.origin!=='http://127.0.0.1'||url.hash||(url.search&&!(url.pathname===base&&url.search==='?footsteps=1')))throw Error('DEMO_EXPORT_PATH');
   if(url.pathname===base)return Response.json(await source.anonymous(pinned.publicationId));
+  const resource=url.pathname.match(new RegExp(`^${base}/resources/([a-f0-9]{64})$`));
+  if(resource){const item=await source.resource(pinned.publicationId,resource[1]);return new Response(item.bytes,{headers:{'content-type':item.mime,'x-exhibitos-publication-revision':item.revisionSha256}});}
   const match=url.pathname.match(new RegExp(`^${base}/assets/([a-f0-9-]{36})$`));
   if(!match)throw Error('DEMO_EXPORT_PATH');
   const asset=await source.asset(pinned.publicationId,match[1]);

@@ -76,7 +76,7 @@ try{
   const manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'),'utf8'));assert.deepEqual(manifest.files.filter(f=>f.path.startsWith('surface-material-')).map(f=>f.path).sort(),expectedResources.map(f=>f.artifactPath).sort());
   for(const resource of expectedResources)assert.deepEqual(await readFile(join(result.output,resource.artifactPath)),files.get(resource.artifactPath));
   const frozen=await json(request('POST',`/studio/exhibitions/${id}/freezes`,{requestId:randomUUID()},{'if-match':saved.etag}),201);
-  assert.equal(frozen.manifest.formats.oex,OEX_SURFACE_MATERIAL_VERSION);assert.equal(frozen.manifest.formats.specPackage,'0.1.0-draft.9');assert.equal(frozen.manifest.formats.specSha256,'dbaacc7c16d82b10992fe95ac35f0aca35d2781a65a0ee1a1af69dae1f838d5a');
+  assert.equal(frozen.manifest.formats.oex,OEX_SURFACE_MATERIAL_VERSION);assert.equal(frozen.manifest.formats.specPackage,'0.1.0-draft.10');assert.equal(frozen.manifest.formats.specSha256,'bd3105374589c2f6d019d425f939587ba1ba422b448874c693b71abf0c946f29');
   assert(frozen.manifest.formats.migrations.includes('020_surface_material_resources.sql:'+sha256(await readFile(new URL('../database/migrations/020_surface_material_resources.sql',import.meta.url)))));
   const bundle=await json(request('POST',`/studio/exhibitions/${id}/freezes/${frozen.id}/offline`,{seconds:300}));
   await verifyFreezeBundle(Buffer.from(JSON.stringify(bundle)),{trustedKeys:[sha256(keys.publicKey.export({format:'der',type:'spki'}))]});
