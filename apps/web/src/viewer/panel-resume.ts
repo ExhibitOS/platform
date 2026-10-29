@@ -9,7 +9,9 @@ export function createPanelResumeGate() {
   const cancel = () => { gesture = undefined; };
   return {
     mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
-      const explicitPause = reason === "escape" || reason === "pointerlock" || reason === "user";
+      // A canvas-only focus loss stops movement, but a fresh deliberate gesture
+      // in the foreground may resume it. Window/visibility loss still invalidates.
+      const explicitPause = reason === "escape" || reason === "pointerlock" || reason === "user" || reason === "blur";
       const retained = active || eligible;
       if (explicitPause) {
         stopGeneration++; eligible = walking && retained; panelOwned = false;
