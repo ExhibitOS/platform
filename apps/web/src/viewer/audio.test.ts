@@ -185,6 +185,7 @@ test("volume rejects nonfinite input instead of sending NaN into WebAudio",()=>{
 test("zone entry remains opt-in, transitions once on entry, stops on exit and reenters after pause",async()=>{
  const {id,runtime,internal}=preparedVoice();
  const priv=runtime as unknown as {publication:import("../publication-client").PublicPublication;room:string};
+ priv.publication.exhibition.placements=[];
  priv.publication.exhibition.audioZones=[{id,roomId:id,assetId:id,position:[0,0,0],radius:3,volume:.5,autoplay:false,transcript:"Synthetic readable fallback"}];priv.room=id;
  const parameter=()=>({setValueAtTime:()=>{}});(internal.context as unknown as {listener:unknown}).listener={positionX:parameter(),positionY:parameter(),positionZ:parameter(),forwardX:parameter(),forwardY:parameter(),forwardZ:parameter()};
  let starts=0,stops=0;runtime.playZone=async()=>{starts++;};const stop=runtime.stopZone.bind(runtime);runtime.stopZone=()=>{stops++;stop();};
@@ -252,6 +253,18 @@ test('recorded step bank selects distinct loaded buffers with their natural ends
  internal.experience.footsteps=[{surfaceId:id,material:'wood',bank:[{assetId:id},{assetId:other}]}];internal.buffers.set(other,{duration:1.2,length:57600,numberOfChannels:1}as AudioBuffer);
  const random=vi.spyOn(Math,'random').mockReturnValue(0);
  try{runtime.lifecycle(true);stride();stride();stride();assert.deepEqual(calls.map(c=>c[2]),[.7,1.2,.7]);runtime.footstepsEnabled(false);assert(sources.every(s=>s.stopped));stride();assert.equal(calls.length,3);}finally{runtime.dispose();random.mockRestore();}
+});
+test('authored concrete recording reduces both envelope peaks while other floor recordings retain their gain',()=>{
+ const random=vi.spyOn(Math,'random').mockReturnValue(.5);
+ try{
+  const peaks=(material:string)=>{
+   const f=preparedShortStep();f.internal.experience.footsteps=[{surfaceId:f.id,material,bank:[{assetId:f.id}]}];
+   try{f.runtime.lifecycle(true);f.stride();return f.envelope.filter(v=>v[0]!>0&&v[1]!>2).map(v=>v[0]!);}finally{f.runtime.dispose();}
+  };
+  const wood=peaks('wood'),concrete=peaks('concrete'),stone=peaks('stone'),carpet=peaks('carpet');
+  assert.equal(wood.length,2);assert.deepEqual(stone,wood);assert.deepEqual(carpet,wood);assert.equal(concrete.length,2);
+  for(let i=0;i<2;i++)assert(Math.abs(concrete[i]!-wood[i]!* .85)<1e-12);
+ }finally{random.mockRestore();}
 });
 test('recorded step bank excludes unqualified long recordings rather than truncating them into steps',()=>{
  const {id,runtime,internal,calls,stride}=preparedShortStep(),long='full-recording';
