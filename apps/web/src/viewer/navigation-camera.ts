@@ -23,6 +23,7 @@ export async function createWalkingCamera({
   isPanelFocus,
   resumeMovement,
   onSeat,
+  onMotionFrame,
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
@@ -37,6 +38,7 @@ export async function createWalkingCamera({
   isPanelFocus?: (target: EventTarget | null) => boolean;
   resumeMovement?: () => boolean;
   onSeat?: (benchId:string|null) => void;
+  onMotionFrame?: (now:number, intervalMs:number, moving:boolean) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
   const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
@@ -125,6 +127,7 @@ export async function createWalkingCamera({
     const dt = Math.max(0, (now - last) / 1000);
     last = now;
     const value = input.sample(Math.min(dt, 0.25));
+    const previousYaw=controller.state().yaw, previousPitch=pitch;
     targetYaw += value.yawDelta;
     targetPitch = Math.max(
       -1.396,
@@ -142,6 +145,7 @@ export async function createWalkingCamera({
       paused: false,
     });
     apply();
+    onMotionFrame?.(now,dt*1000,Math.hypot(...state.velocity)>.01 || Math.abs(state.yaw-previousYaw)>.0001 || Math.abs(pitch-previousPitch)>.0001 || Math.abs(value.yawDelta)+Math.abs(value.pitchDelta)>.0001);
     if (captureMessage) onMessage(captureMessage);
     else if (state.blocked)
       onMessage(

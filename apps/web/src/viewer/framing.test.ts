@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
-import {visitingFov,visitingBuffer,DESKTOP_VISITING_PIXELS} from './framing';
+import {visitingFov,visitingBuffer,resizeVisitingBuffer,DESKTOP_VISITING_PIXELS} from './framing';
 const frames=[[1440,810],[1920,810],[390,844],[844,390]] as const;
 test('display choices preserve narrower authored views and allow the unchanged authored option',()=>{
   expect(visitingFov(30,48,16/9)).toBeCloseTo(30);
@@ -38,4 +38,16 @@ test('desktop retina and larger windows retain a stable explicit pixel ceiling a
     expect(visitingBuffer(width,height,preferred)).toEqual(result);
   }
   expect(visitingBuffer(3840,2160,1.5).ratio).toBe(.5);
+});
+
+
+test('orientation and ratio changes never create an oversized intermediate drawing buffer',()=>{
+ for(const [oldW,oldH,newW,newH,ratio] of [[512,2048,2048,512,1],[1920,1080,1280,720,1.5],[2048,512,512,2048,1]] as const){
+  let w:number=oldW,h:number=oldH;const sizes:number[]=[];
+  const canvas={style:{},get width(){return w},set width(n:number){w=n;sizes.push(w*h)},get height(){return h},set height(n:number){h=n;sizes.push(w*h)}};
+  const renderer={domElement:canvas as unknown as HTMLCanvasElement,setDrawingBufferSize:(width:number,height:number,pixelRatio:number)=>{canvas.width=Math.floor(width*pixelRatio);canvas.height=Math.floor(height*pixelRatio);}};
+  resizeVisitingBuffer(renderer,newW,newH,ratio);
+  expect(Math.max(...sizes)).toBeLessThanOrEqual(Math.max(oldW*oldH,Math.floor(newW*ratio)*Math.floor(newH*ratio)));
+  expect([canvas.width,canvas.height]).toEqual([Math.floor(newW*ratio),Math.floor(newH*ratio)]);
+ }
 });

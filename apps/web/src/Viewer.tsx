@@ -226,8 +226,9 @@ export function Viewer({
       selectedDeviceBudget(profile,{
         deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory,
         pixelRatio:devicePixelRatio,
+        coarsePointer,
       }),
-    [profile],
+    [profile,coarsePointer],
   );
   const source = useMemo(
     () => ({

@@ -4,6 +4,7 @@ import {metricCameraFit} from './metric-model';
 import {flatImagePreview} from './flat-image-preview';
 import type {ImageViewport} from './flat-image-view';
 import type {DetailView} from './detail-gesture';
+import {resizeVisitingBuffer} from './framing';
 
 export interface SharedDetailSession {update(view:DetailView):void;dispose():void}
 export interface SharedDetailRequest {
@@ -47,7 +48,7 @@ export function borrowedDetailPreview(input:{
  const render=()=>{
   if(disposed)return;
   const width=Math.max(1,request.host.clientWidth),height=Math.max(1,request.host.clientHeight);
-  renderer.setPixelRatio(Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height))));renderer.setSize(width,height,false);
+  resizeVisitingBuffer(renderer,width,height,Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height))),false);
   if(flat){const state=flat.render(renderer,width,height,view);request.imageViewport?.(state.viewport);canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});return;}
   camera.aspect=width/height;
   const fit=metricCameraFit(extent,camera.aspect,view.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();
@@ -64,7 +65,7 @@ export function borrowedDetailPreview(input:{
   delete canvas.dataset.detailState;canvas.style.cssText=saved.style;canvas.tabIndex=saved.tabIndex;
   if(saved.label===null)canvas.removeAttribute('aria-label');else canvas.setAttribute('aria-label',saved.label);
   if(next?.parentNode===parent)parent.insertBefore(canvas,next);else parent.appendChild(canvas);
-  renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);
+  resizeVisitingBuffer(renderer,saved.size.x,saved.size.y,saved.ratio,false);
   input.onRelease();
  };
  try{
