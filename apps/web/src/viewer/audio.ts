@@ -327,8 +327,8 @@ export class ExhibitionAudio implements AudioApi {
     this.stepSources.add(source);this.track(source, () => {this.stepSources.delete(source);this.reverbInputs.delete(gain);gain.disconnect();});
     try{
       if(decision?.play){
-        const plan=decision.plan,now=context.currentTime;source.playbackRate.value=plan.playbackRate;
-        gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(plan.peakGain,now+plan.fadeInSeconds);gain.gain.setValueAtTime(plan.peakGain,now+plan.fadeOutStartSeconds);gain.gain.linearRampToValueAtTime(0,now+plan.wallDurationSeconds);
+        const plan=decision.plan,now=context.currentTime,peak=plan.peakGain*(entry?.material==='concrete'?.85:1);source.playbackRate.value=plan.playbackRate;
+        gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(peak,now+plan.fadeInSeconds);gain.gain.setValueAtTime(peak,now+plan.fadeOutStartSeconds);gain.gain.linearRampToValueAtTime(0,now+plan.wallDurationSeconds);
         source.start(0,plan.offsetSeconds,plan.mediaDurationSeconds);this.stepHistory=plan.nextHistory;
       }else source.start(0,0,Math.min(buffer.duration,.2));
     }catch{this.stop(source);this.state.message='발소리를 재생하지 못했습니다. 걷기는 계속할 수 있습니다.';this.emit();return;}
