@@ -1,0 +1,7 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+.viewer-sculpture-orbit{position:absolute;z-index:18;left:50%;bottom:max(1rem,env(safe-area-inset-bottom));transform:translateX(-50%);width:min(29rem,calc(100% - 2rem));box-sizing:border-box;padding:.75rem 1rem;background:var(--publication-paper,#f8fbfc);color:var(--publication-ink,#182d32);box-shadow:0 5px 20px #182d3218;text-align:center;pointer-events:auto;touch-action:manipulation}
+.sculpture-orbit-buttons{display:flex;justify-content:center;gap:.75rem}
+.viewer-sculpture-orbit button{min-height:44px;min-width:44px;flex:1;font:inherit;padding:.5rem .75rem;touch-action:none;user-select:none;-webkit-user-select:none}
+.viewer-sculpture-orbit button:focus-visible{outline:3px solid var(--publication-action,#135967);outline-offset:3px}
+.viewer-sculpture-orbit p{margin:.5rem 0 0;font-size:.875rem;line-height:1.5;overflow-wrap:anywhere}
+@media(max-width:420px){.viewer-sculpture-orbit{padding:.5rem .75rem;width:calc(100% - 1.5rem)}.sculpture-orbit-buttons{gap:.5rem}}
