@@ -12,6 +12,7 @@ export function createWalkingInput(
   const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
     touch = new Map<number, WalkAction>();
+  const analog = new Map<number, { right: number; forward: number }>();
   let disposed = false, captureGeneration = 0;
   let pendingCapture: { generation: number } | undefined;
   let enabled = false,
@@ -19,11 +20,17 @@ export function createWalkingInput(
     yawDelta = 0,
     pitchDelta = 0,
     hadLock = false;
+  const clearLook = () => {
+    const id = look?.id;
+    look = undefined;
+    if (id !== undefined && canvas.hasPointerCapture?.(id)) canvas.releasePointerCapture(id);
+  };
   const clear = () => {
     for (const code of keys) blockedKeys.add(code);
     keys.clear();
     touch.clear();
-    look = undefined;
+    analog.clear();
+    clearLook();
     yawDelta = 0;
     pitchDelta = 0;
   };
@@ -94,28 +101,32 @@ export function createWalkingInput(
     hadLock = locked;
   };
   const pointerdown = (event: PointerEvent) => {
-    if (event.isPrimary === false && (!enabled || touch.size === 0)) { look = undefined; return; }
+    if (event.isPrimary === false && (!enabled || (touch.size === 0 && analog.size === 0))) {
+      if (look?.pending) clearLook();
+      return;
+    }
+    if (look) return; // A second canvas contact never steals the current look pointer.
     if (event.target !== canvas || event.defaultPrevented || document.hidden ||
       (!enabled && (event.altKey || event.ctrlKey || event.metaKey))) return;
     if (
       document.pointerLockElement === canvas ||
-      (event.pointerType === "mouse" && event.button !== 0) ||
-      (event.pointerType === "touch" && event.clientX <
-        canvas.getBoundingClientRect().left +
-          canvas.getBoundingClientRect().width / 2)
+      (event.pointerType === "mouse" && event.button !== 0)
     )
       return;
     if (enabled) { event.preventDefault(); canvas.focus({ preventScroll: true }); }
-    look = { id: event.pointerId, x: event.clientX, y: event.clientY, pending: !enabled };
+    look = { id: event.pointerId, x: event.clientX, y: event.clientY, pending: true };
     canvas.setPointerCapture(event.pointerId);
   };
   const pointermove = (event: PointerEvent) => {
     if (look?.id !== event.pointerId) return;
     if (look.pending) {
-      if (event.altKey || event.ctrlKey || event.metaKey) { look = undefined; return; }
+      if (event.altKey || event.ctrlKey || event.metaKey) { clearLook(); return; }
       if (Math.hypot(event.clientX - look.x, event.clientY - look.y) <= 5) return;
       const gesture = look;
-      if (!resumeMovement() || !enabled) { look = undefined; return; }
+      if (!enabled) {
+        if (!resumeMovement() || !enabled) { clearLook(); return; }
+        canvas.setPointerCapture(event.pointerId); // enable releases stale capture; retain this intentional drag.
+      }
       look = { ...gesture, pending: false }; // enable clears old input; retain only THIS intentional drag.
     }
     if (!enabled) return;
@@ -126,10 +137,11 @@ export function createWalkingInput(
     look.y = event.clientY;
   };
   const pointerend = (event: PointerEvent) => {
-    if (look?.id === event.pointerId) look = undefined;
+    if (look?.id === event.pointerId) clearLook();
     touch.delete(event.pointerId);
+    analog.delete(event.pointerId);
   };
-  const cancelPendingLook = () => { if (look?.pending) look = undefined; };
+  const cancelPendingLook = () => { if (look?.pending) clearLook(); };
   const windowBlur = () => stop("window");
   const canvasBlur = (event: FocusEvent) => stop(isPanelFocus(event.relatedTarget) ? "panel" : "blur");
   window.addEventListener("keydown", keydown);
@@ -167,8 +179,18 @@ export function createWalkingInput(
         touch.set(id, action);
       }
     },
+    move(id: number, right: number, forward: number) {
+      if (!enabled || !Number.isFinite(right) || !Number.isFinite(forward)) {
+        analog.delete(id);
+        return;
+      }
+      const length = Math.max(1, Math.hypot(right, forward));
+      canvas.focus({ preventScroll: true });
+      analog.set(id, { right: right / length, forward: forward / length });
+    },
     release(id: number) {
       touch.delete(id);
+      analog.delete(id);
     },
     sample(dt: number) {
       if (!enabled) return { forward: 0, right: 0, yawDelta: 0, pitchDelta: 0 };
@@ -190,6 +212,15 @@ export function createWalkingInput(
           pitchDelta +
           (Number(actions.has("look-up")) - Number(actions.has("look-down"))) * dt * 1.2,
       };
+      if (analog.size) {
+        for (const value of analog.values()) {
+          output.forward += value.forward;
+          output.right += value.right;
+        }
+        const length = Math.max(1, Math.hypot(output.forward, output.right));
+        output.forward /= length;
+        output.right /= length;
+      }
       yawDelta = 0;
       pitchDelta = 0;
       return output;
