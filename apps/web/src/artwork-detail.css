@@ -28,3 +28,6 @@
 .artwork-detail .detail-preview[data-dragging]{cursor:grabbing}
 .detail-image-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .detail-image-controls output{min-width:4ch;font-variant-numeric:tabular-nums;text-align:center}
+.artwork-detail .detail-gesture-hint,.artwork-detail .detail-image-controls output{font-size:.8125rem;color:#53636a}
+.artwork-detail .detail-help{font-size:.875rem;line-height:1.5;color:#40545b}
+.artwork-detail .detail-help summary{min-height:44px;display:flex;align-items:center;cursor:pointer}

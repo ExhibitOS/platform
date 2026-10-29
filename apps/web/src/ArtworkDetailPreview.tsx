@@ -253,7 +253,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
   }, [publication, artwork, anchors, referenceTone,sharedPreview,flat]);
   return <section aria-label={flat?'작품 정면 이미지 확대':'작품 확대 및 회전'}>
     <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label={flat?'작품 이미지 확대 및 이동 조작':'작품 회전 및 확대 조작'} aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
-    <p id={hint} className="detail-gesture-hint">{flat?'두 번 누르거나 +/− 버튼으로 확대 · 확대한 뒤 드래그하여 이동합니다. 두 손가락 확대, 휠·트랙패드, 방향키도 사용할 수 있습니다.':'드래그하여 상하·좌우 회전 · 두 손가락으로 확대. 키보드는 방향키·+/−, Home으로 초기화합니다.'}</p>
+    <p id={hint} className="detail-gesture-hint">{flat?'확대한 뒤 드래그해 살펴보세요.':'드래그해 회전하며 살펴보세요.'}</p>
     {error && <p role="status">{error}</p>}
     {flat?<div className="detail-image-controls" aria-label="이미지 확대">
       <button disabled={zoom<=1} onClick={()=>changeView({...controls.current,zoom:zoom/1.25})} aria-label="작품 이미지 축소">축소</button>
@@ -266,6 +266,8 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => changeView({ ...controls.current, zoom: Number(e.target.value) })} /></label>
       <button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })}>상세 시점 초기화</button>
     </>}
-    <p>{flat?'이미지 비율을 유지하며 표시합니다. 확대 한도는 현재 준비된 이미지의 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'작품의 미터 단위 좌표를 유지하는 디지털 미리보기입니다. 화면의 물리적 크기와는 다릅니다. 회전·확대 슬라이더는 방향키로도 조작할 수 있습니다.'}</p>
+    <details className="detail-help"><summary>{flat?'이미지 조작 안내':'작품 조작 안내'}</summary>
+      <p>{flat?'두 번 누르거나 확대·축소 버튼을 사용하세요. 두 손가락 확대, 휠·트랙패드와 방향키도 사용할 수 있습니다. 이미지 비율은 유지되며 확대 한도는 준비된 이미지 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'두 손가락으로 확대할 수 있습니다. 키보드는 방향키·+/−, Home으로 초기화하며 슬라이더도 방향키로 조작할 수 있습니다. 작품의 미터 단위 좌표를 유지하는 디지털 미리보기이며 화면의 물리적 크기와는 다릅니다.'}</p>
+    </details>
   </section>;
 }
