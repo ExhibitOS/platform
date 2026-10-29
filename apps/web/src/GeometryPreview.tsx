@@ -19,6 +19,7 @@ import {installPanelResume} from './viewer/panel-resume';
 import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
+import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
@@ -719,6 +720,10 @@ export function GeometryPreview({
           "isometric" | "top" | "front" | "left" | "right" | "start" | string,
       ) => {
         if(xrActive.current||seatedBenchRef.current)return;
+        const selectedFloorId=kind==='front'&&selectionRef.current?.kind==='surface'?document.surfaces.find(s=>s.type==='floor'&&s.id.toLowerCase()===selectionRef.current!.id.toLowerCase())?.id:undefined;
+        const floorView=selectedFloorId?floorInteriorView(document,selectedFloorId):undefined;
+        if(selectedFloorId&&!floorView){setMessage('이 바닥을 공간 안에서 볼 수 있는 위치를 찾지 못했습니다. 현재 시점을 유지합니다.');return;}
+        delete renderer.domElement.dataset.floorView;
         camera.near=extent/1000;camera.far=extent*100;camera.updateProjectionMatrix();
         camera.up.set(0, 1, 0);
         controls.target.copy(center);
@@ -752,7 +757,11 @@ export function GeometryPreview({
           const selected = surfaceId
             ? surfaces.get(surfaceId.toLowerCase())
             : undefined;
-          if (selected) {
+          if(floorView){
+            camera.position.fromArray(floorView.position);controls.target.fromArray(floorView.target);camera.up.fromArray(floorView.up);
+            camera.near=Math.min(camera.near,floorView.near);camera.updateProjectionMatrix();
+            renderer.domElement.dataset.floorView=JSON.stringify({surfaceId:selectedFloorId,...floorView});
+          } else if (selected) {
             const point = selected.getWorldPosition(new three.Vector3()),
               rotation = selected.getWorldQuaternion(new three.Quaternion());
             const normal = new three.Vector3(0, 0, 1).applyQuaternion(rotation);
