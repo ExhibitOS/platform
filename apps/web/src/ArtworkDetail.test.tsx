@@ -51,6 +51,8 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(html).toContain('(0, 0, 0) m');
   expect(html).not.toContain('좌표 미등록');
   expect(html).toContain('aria-label="작품 설명"');
+  const withPreview=renderToStaticMarkup(<ArtworkDetail publication={publication} placementId={placement.id} renderPreview onClose={() => {}} onVoicePlay={async () => {}} onVoiceStop={() => {}} />);
+  expect(withPreview).toMatch(/<details class="artwork-detail-record" aria-label="작품 설명" open=""/);
   expect(html).toContain('음성 설명 · 대본');
   expect(html).toContain('등록된 작품 음성 설명이 없습니다.');
   expect(html).not.toContain('작가 원문');
@@ -62,6 +64,7 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(preview).toContain('aria-label="작품 이미지 확대 및 이동 조작"');
   expect(preview).toContain('aria-describedby=');
   expect(preview).toContain('전체 보기');
+  expect(preview).toContain('이미지 조작 안내');
   expect(preview).not.toContain('작품 상하 회전');
   expect(preview).not.toContain('<canvas');
   const sculpturePreview=renderToStaticMarkup(<ArtworkDetailPreview publication={publication} artwork={{...artwork,artworkType:'sculpture'}} anchors={[]} />);
