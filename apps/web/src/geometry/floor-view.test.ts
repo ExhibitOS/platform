@@ -17,6 +17,10 @@ it('shortens the interior camera and near plane beneath a low authored ceiling w
  const {document,floor,ceiling}=fixture();ceiling.transform.position[1]=.04;const view=floorInteriorView(document,floor.id)!;
  expect(view.position[1]).toBeCloseTo(.024);expect(view.position[1]).toBeLessThan(.04);expect(view.near).toBeCloseTo(.00024);expect(floor.transform.position[1]).toBe(0);
 });
+it('uses the lowest transformed corner of a sloping ceiling rather than its centre height',()=>{
+ const {document,floor,ceiling}=fixture();ceiling.transform.position[1]=3;ceiling.transform.rotation=[.5,0,0,Math.sqrt(3)/2];
+ const view=floorInteriorView(document,floor.id)!;expect(view.position[1]).toBeCloseTo(.6);expect(view.position[1]).toBeLessThan(1);
+});
 it('refuses unsupported, outside or closed envelopes instead of inventing an exterior camera',()=>{
  const {document,floor,ceiling}=fixture();expect(floorInteriorView(document,ceiling.id)).toBeUndefined();floor.transform.position[0]=6;expect(floorInteriorView(document,floor.id)).toBeUndefined();floor.transform.position[0]=0;ceiling.transform.position[1]=0;expect(floorInteriorView(document,floor.id)).toBeUndefined();
 });
