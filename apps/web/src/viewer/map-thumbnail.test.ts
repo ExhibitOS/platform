@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {createMapThumbnailPreview,imageMapThumbnail,MAP_THUMBNAIL_RESERVE_BYTES} from './map-thumbnail';
+import {createMapThumbnailPreview,createMapThumbnailRoster,imageMapThumbnail,MAP_THUMBNAIL_RESERVE_BYTES,MAP_THUMBNAIL_ROSTER_LIMIT,mapThumbnailRosterReserve} from './map-thumbnail';
 
 it('encodes an admitted GPU-oriented bitmap into one bounded upright DOM thumbnail without owning its source',()=>{
  const image={width:2048,height:1024,close:vi.fn()} as unknown as ImageBitmap;
@@ -37,4 +37,16 @@ it('does not hot-retry failed encoding and retries only after the selected ident
  const preview=createMapThumbnailPreview({requested:()=>requested,allowed:()=>true,image:()=>({} as ImageBitmap),changed,encode});
  preview.refresh();preview.refresh();expect(encode).toHaveBeenCalledTimes(1);expect(changed).toHaveBeenLastCalledWith(null);
  requested='b';preview.refresh();expect(encode).toHaveBeenCalledTimes(2);preview.dispose();
+});
+it('builds a bounded preselection roster from admitted images only and clears it on rights loss',()=>{
+ let allowed=true,now=0;const available=new Set(['a','b']),changed=vi.fn(),encode=vi.fn(()=> 'data:image/png;base64,cGl4ZWxz');
+ const ids=['a','b',...Array.from({length:130},(_,i)=>`other${i}`)];
+ const roster=createMapThumbnailRoster({ids,allowed:()=>allowed,image:id=>available.has(id)?{} as ImageBitmap:undefined,changed,encode,now:()=>now});
+ roster.refresh();expect(changed).toHaveBeenLastCalledWith([{placementId:'a',thumbnail:'data:image/png;base64,cGl4ZWxz'}]);
+ roster.refresh();expect(encode).toHaveBeenCalledTimes(1);now=200;roster.refresh();expect(changed).toHaveBeenLastCalledWith([{placementId:'a',thumbnail:'data:image/png;base64,cGl4ZWxz'},{placementId:'b',thumbnail:'data:image/png;base64,cGl4ZWxz'}]);
+ roster.refresh();expect(encode).toHaveBeenCalledTimes(2);
+ available.add('other9');now=400;roster.refresh();expect(encode).toHaveBeenCalledTimes(3); // Later placements are not starved by the first eight.
+ available.add('other129');now=600;roster.refresh();expect(encode).toHaveBeenCalledTimes(3); // Beyond the Viewer placement cap.
+ expect(MAP_THUMBNAIL_ROSTER_LIMIT).toBe(128);expect(mapThumbnailRosterReserve(128)).toBe(6.5*1024*1024);expect(mapThumbnailRosterReserve(6)).toBe(800*1024);
+ allowed=false;roster.refresh();expect(changed).toHaveBeenLastCalledWith([]);roster.dispose();
 });

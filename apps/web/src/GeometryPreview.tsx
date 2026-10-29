@@ -14,7 +14,7 @@ import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type Stud
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
-import {createMapThumbnailPreview,MAP_THUMBNAIL_RESERVE_BYTES} from './viewer/map-thumbnail';
+import {createMapThumbnailRoster,mapThumbnailRosterReserve} from './viewer/map-thumbnail';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
@@ -126,11 +126,11 @@ export function GeometryPreview({
   inputMode = "auto",
   onInputModeChange,
   onViewingReady,
-  mapPreviewPlacementId,
+  mapThumbnailsEnabled,
   onMapThumbnail,
 }: {
-  mapPreviewPlacementId?:string;
-  onMapThumbnail?:(value:{revisionSha256:string;placementId:string;thumbnail:string}|null)=>void;
+  mapThumbnailsEnabled?:boolean;
+  onMapThumbnail?:(value:{revisionSha256:string;items:ReadonlyArray<{placementId:string;thumbnail:string}>}|null)=>void;
   onViewingReady?:(renderer:ViewingRenderer|null)=>void;
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
@@ -158,7 +158,7 @@ export function GeometryPreview({
   onNavigationState?: (state: NavigationState) => void;
   onCameraPose?: (position: [number,number,number],yaw: number) => void;
   onMapReady?: (bridge:MapTravelBridge|null) => void;
-  onMapPose?: (position:[number,number,number],yaw:number) => void;
+  onMapPose?: (position:[number,number,number],yaw:number,horizontalFovDegrees:number) => void;
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
   onPlaqueSelect?: (id:string)=>void;
@@ -225,9 +225,9 @@ export function GeometryPreview({
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const mapCallbacks=useRef({onMapReady,onMapPose,onMapThumbnail});mapCallbacks.current={onMapReady,onMapPose,onMapThumbnail};
-  const mapThumbnailRequest=useRef(mapPreviewPlacementId);mapThumbnailRequest.current=mapPreviewPlacementId;
+  const mapThumbnailEnabled=useRef(mapThumbnailsEnabled);mapThumbnailEnabled.current=mapThumbnailsEnabled;
   const mapThumbnailRefresh=useRef<(()=>void)|null>(null);
-  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapPreviewPlacementId]);
+  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapThumbnailsEnabled]);
   const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
@@ -390,7 +390,8 @@ export function GeometryPreview({
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
-      const mapThumbnailReserve=viewerBudget&&onMapThumbnail?MAP_THUMBNAIL_RESERVE_BYTES:0;
+      const mapImageIds=document.placements.filter(p=>document.artworks.some(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase()&&a.artworkType==='image')).map(p=>p.id);
+      const mapThumbnailReserve=viewerBudget&&onMapThumbnail?mapThumbnailRosterReserve(mapImageIds.length):0;
       const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
       if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
       const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-retainedMaterialBytes);
@@ -1467,9 +1468,9 @@ export function GeometryPreview({
               a && all.findIndex((b) => b.revisionId === a.revisionId) === i,
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
-        const mapThumbnail=createMapThumbnailPreview({
-          requested:()=>mapThumbnailRequest.current,
-          allowed:()=>!!onMapThumbnail&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden',
+        const mapThumbnail=createMapThumbnailRoster({
+          ids:mapImageIds,
+          allowed:()=>!!onMapThumbnail&&!!mapThumbnailEnabled.current&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden',
           image:id=>{
             const placement=document.placements.find(p=>p.id.toLowerCase()===id.toLowerCase());
             const art=document.artworks.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
@@ -1478,7 +1479,7 @@ export function GeometryPreview({
             objects.get(art.revisionId)?.traverse(node=>{if(!image&&node instanceof three.Mesh){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){const candidate=(material as InstanceType<typeof three.MeshStandardMaterial>).map?.image;if(candidate instanceof ImageBitmap){image=candidate;break;}}}});
             return image;
           },
-          changed:value=>mapCallbacks.current.onMapThumbnail?.(value?{...value,revisionSha256:publicSource.revisionSha256}:null),
+          changed:items=>mapCallbacks.current.onMapThumbnail?.(items.length?{items,revisionSha256:publicSource.revisionSha256}:null),
         });
         mapThumbnailRefresh.current=mapThumbnail.refresh;
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
@@ -2143,7 +2144,7 @@ export function GeometryPreview({
         };
         detailEntry.current.mountPreview=mountSharedDetail;
         cancelSharedDetail=()=>cancelDetail?.();
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y);}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI);}, 200);
         const originalRelease = release;
         release = () => {
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
