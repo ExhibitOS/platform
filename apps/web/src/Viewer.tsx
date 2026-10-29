@@ -28,8 +28,11 @@ import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap,visitorMapPose} from './viewer/visitor-map';
 import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
 import type {ViewingRenderer} from './viewer/viewing-session';
+import type {createPublicThumbnailCache} from './viewer/public-thumbnail';
 export function Viewer({
   publication,
+  artworkThumbnails={},
+  thumbnailCache,
   appearance,
   suspendNavigation = false,
   onArtworkSelect,
@@ -52,6 +55,8 @@ export function Viewer({
   guideDismissed,
   onGuideDismissedChange,
 }: {
+  artworkThumbnails?:Readonly<Record<string,string>>;
+  thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   mapEnabled?:boolean;
   onMapAction?:()=>void;
   onMapCancelReady?:(cancel:(()=>void)|null)=>void;
@@ -85,7 +90,7 @@ export function Viewer({
   const mapDestinations=useMemo(()=>presentationFor(publication.exhibition).viewpoints.map(({id,roomId,name})=>({id,roomId,name})),[publication]);
   const [mapThumbnail,setMapThumbnail]=useState<{revisionSha256:string;items:ReadonlyArray<{placementId:string;thumbnail:string}>}|null>(null);
   const receiveMapThumbnail=useCallback((value:typeof mapThumbnail)=>setMapThumbnail(value),[]);
-  const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:mapThumbnail?.revisionSha256===publication.publication.revisionSha256?mapThumbnail.items.find(item=>item.placementId===p.id)?.thumbnail:undefined}])),[publication,mapThumbnail]);
+  const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:artworkThumbnails[p.artworkRevisionId.toLowerCase()]??(mapThumbnail?.revisionSha256===publication.publication.revisionSha256?mapThumbnail.items.find(item=>item.placementId===p.id)?.thumbnail:undefined)}])),[publication,mapThumbnail,artworkThumbnails]);
   const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState):undefined,[map,mapDestinations]);
   useEffect(()=>{onMapCancelReady?.(mapTravel?.cancel??null);return()=>onMapCancelReady?.(null);},[mapTravel,onMapCancelReady]);
   useEffect(()=>{
@@ -245,6 +250,8 @@ export function Viewer({
       <GeometryPreview
         immersive={immersive}
         onViewingReady={onViewingRendererReady}
+        thumbnailCache={thumbnailCache}
+        suppliedThumbnails={artworkThumbnails}
         controlsHost={controlsHost}
         inputMode={inputMode}
         onInputModeChange={setInputMode}

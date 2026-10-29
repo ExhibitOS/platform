@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {fixtureURL,validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE} from '@exhibitos/studio-contract';
-import {checkOexProfile,remapOex,decodeOex} from './oex.ts';
+import {checkOexProfile,remapOex,decodeOex,approvedImportedThumbnail} from './oex.ts';
 import {validMetadata} from './cms.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 async function fixture(){return JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'))as Exhibition;}
@@ -80,6 +80,20 @@ describe('OEX service boundaries',()=>{
   for(const p of r.exhibition.placements){const artwork=r.exhibition.artworks.find(x=>x.revisionId===p.artworkRevisionId)!;expect(p.assetId).toBe(artwork.primaryAssetId);}
   expect(r.assetAliases.filter(x=>x.sourceAssetId===shared.id)).toHaveLength(2);expect(r.idMap[shared.id]).toBe(a.primaryAssetId);
   expect(validateExhibition(r.exhibition).valid).toBe(true);
+ });
+ it('remaps a shared thumbnail id independently for each artwork revision',async()=>{
+  const e=await fixture(),preview={id:'f1234567-89ab-4cde-8123-456789abcdef',path:'assets/thumbnail.png',role:'preview' as const,mime:'image/png' as const,bytes:128,sha256:'a'.repeat(64)};
+  for(const a of e.artworks){a.assets.push({...preview});a.extensions={...a.extensions,'org.exhibitos.viewer/thumbnail':{version:1,assetId:preview.id}};}
+  const approved=structuredClone(e.artworks[0]!);expect(approvedImportedThumbnail(e.artworks[0]!,{importedArtwork:approved})).toBe(true);
+  expect(approvedImportedThumbnail(e.artworks[0]!,{})).toBe(false);
+  approved.assets.find(x=>x.role==='preview')!.sha256='b'.repeat(64);expect(approvedImportedThumbnail(e.artworks[0]!,{importedArtwork:approved})).toBe(false);
+  expect(()=>checkOexProfile(e)).not.toThrow();
+  const out=remapOex(e).exhibition;
+  for(const a of out.artworks){const selected=a.extensions?.['org.exhibitos.viewer/thumbnail'] as {assetId:string};expect(selected.assetId).toBe(a.assets.find(x=>x.role==='preview')!.id);}
+  expect(out.artworks[0]!.assets.find(x=>x.role==='preview')!.id).not.toBe(out.artworks[1]!.assets.find(x=>x.role==='preview')!.id);
+  expect(()=>checkOexProfile(out)).not.toThrow();
+  e.artworks[0]!.extensions!['org.exhibitos.viewer/thumbnail']={version:1,assetId:e.artworks[0]!.primaryAssetId};
+  expect(()=>checkOexProfile(e)).toThrow();
  });
  it('normalizes valid long shared source paths to bounded MIME-specific paths and retains source audit identity',async()=>{
   const e=await fixture(),first=e.artworks[0]!,second=e.artworks[1]!,shared=first.assets[0]!;

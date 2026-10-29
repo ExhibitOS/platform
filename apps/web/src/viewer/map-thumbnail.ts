@@ -46,6 +46,7 @@ export function createMapThumbnailPreview(input:{
  * refresh limits work on the existing statistics tick; missing images wait. */
 export function createMapThumbnailRoster(input:{
  ids:readonly string[];allowed():boolean;image(id:string):ImageBitmap|undefined;
+ exclude?:(id:string)=>boolean;
  changed(value:ReadonlyArray<{placementId:string;thumbnail:string}>):void;
  encode?:(image:ImageBitmap)=>string|undefined;
  now?:()=>number;
@@ -57,8 +58,11 @@ export function createMapThumbnailRoster(input:{
   if(!input.allowed()){
    if(settled.size||values.size){settled.clear();values.clear();lastEncode=-Infinity;input.changed([]);}return;
   }
+  let removed=false;for(const id of ids)if(input.exclude?.(id)&&values.delete(id)){settled.delete(id);removed=true;}
+  if(removed)input.changed([...values].map(([placementId,thumbnail])=>({placementId,thumbnail})));
   const now=(input.now??(()=>performance.now()))();if(!Number.isFinite(now)||now-lastEncode<200)return;
   for(const id of ids){
+   if(input.exclude?.(id))continue;
    if(settled.has(id))continue;
    const image=input.image(id);if(!image)continue;
    settled.add(id);lastEncode=now;const thumbnail=input.encode?input.encode(image):imageMapThumbnail(image,undefined,32,8192);

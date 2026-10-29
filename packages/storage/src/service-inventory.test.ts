@@ -12,6 +12,11 @@ const row={tenant_id:tenant,id,object_key:key,target_key:tenant+'/objects/final.
 describe('service inventory typed references',()=>{
  it('includes retained/deleted assets and marks unwritten outbox destination optional',()=>{const r=rowObjectReferences('assets',{...row,state:'quarantine',deleted_at:'2020-01-01'});expect(r.references.map(v=>[v.key,v.required])).toEqual([[key,true],[row.target_key,false]]);expect(r.references[0].expectedSha256).toBe(sha);});
  it('uses derivative expectations and refuses foreign tenant keys',()=>{expect(rowObjectReferences('asset_derivatives',{...row,metadata:{objectKey:key,bytes:42,sha256:sha}}).references[0].expectedBytes).toBe(42);expect(rowObjectReferences('assets',{...row,object_key:'another/objects/x',state:'approved'}).issues[0].code).toBe('INVALID_REFERENCE');});
+ it('retains immutable thumbnail bytes with exact size and hash in backup inventory',()=>{
+  const result=rowObjectReferences('artwork_thumbnail_bindings',row);
+  expect(result.issues).toEqual([]);expect(result.references).toEqual([expect.objectContaining({key,required:true,expectedBytes:123,expectedSha256:sha})]);
+  expect(rowObjectReferences('artwork_thumbnail_bindings',{...row,object_key:'other/objects/a'}).issues[0].code).toBe('INVALID_REFERENCE');
+ });
  it('retains optional pending and required committed imports/audio',()=>{const source={...row,approved_key:row.target_key,expected_bytes:123,expected_hash:sha};expect(rowObjectReferences('import_jobs',{...source,state:'uploading'}).references.every(v=>!v.required)).toBe(true);expect(rowObjectReferences('import_jobs',{...source,state:'approved'}).references.every(v=>v.required)).toBe(true);expect(rowObjectReferences('studio_audio',{...row,state:'approved',revoked:true}).references[0].required).toBe(true);});
  it('keeps original JPEG and prepared PNG custody references distinct through approval',()=>{
   const preparedHash='b'.repeat(64),source={...row,mime:'image/jpeg',approved_key:row.target_key,expected_bytes:123,expected_hash:sha,derived:{mime:'image/png',bytes:17,sha256:preparedHash},derived_object_key:tenant+'/quarantine/import/prepared.png'};

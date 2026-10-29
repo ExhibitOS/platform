@@ -1,4 +1,6 @@
 import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
+import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
+import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {floorResourceBytes} from './floor-resources.ts';
 import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
@@ -42,6 +44,16 @@ const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetI
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+export function approvedImportedThumbnail(artwork:Exhibition['artworks'][number],approval:unknown){
+ const thumbnail=artworkThumbnailFor(artwork);if(!thumbnail)return true;
+ const approved=object(approval)?artworkThumbnailFor(approval.importedArtwork):undefined;
+ return !!approved&&equal(thumbnail,approved);
+}
+async function checkAssetBytes(artwork:Exhibition['artworks'][number],assetId:string,bytes:Buffer,mime:string){
+ const thumbnail=artworkThumbnailFor(artwork);
+ if(thumbnail&&thumbnail.id.toLowerCase()===assetId.toLowerCase())await validateThumbnailBytes(bytes);
+ else await decode(bytes,mime);
+}
 export interface OexInput {requestId:string;bytes:number;sha256:string}
 interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean}
 /** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
@@ -52,13 +64,13 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  }
 
 
- if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -113,6 +125,8 @@ export function remapOex(e:Exhibition){
   target.primaryAssetId=scopedId(source.primaryAssetId);
   const lod=target.extensions?.[LOD_NAMESPACE]as {variants:{assetId:string}[]}|undefined,sourceLod=source.extensions?.[LOD_NAMESPACE]as {variants:{assetId:string}[]}|undefined;
   if(lod&&sourceLod)for(const[i,variant]of sourceLod.variants.entries())lod.variants[i]!.assetId=scopedId(variant.assetId);
+  const thumbnail=target.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE] as {assetId:string}|undefined,sourceThumbnail=source.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE] as {assetId:string}|undefined;
+  if(thumbnail&&sourceThumbnail)thumbnail.assetId=scopedId(sourceThumbnail.assetId);
   for(const[i,event]of source.provenance.events.entries())if(event.sourceAssetIds)target.provenance.events[i]!.sourceAssetIds=event.sourceAssetIds.map(scopedId);
   if(source.provenance.scaleConversion&&target.provenance.scaleConversion)target.provenance.scaleConversion.appliedToAssetIds=source.provenance.scaleConversion.appliedToAssetIds.map(scopedId);
  }
@@ -170,11 +184,12 @@ export class Oex {
    if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
    const primary=a.assets.find(x=>x.id.toLowerCase()===a.primaryAssetId.toLowerCase())!;
    if(!equal({id:primary.id.toLowerCase(),sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.snapshot.asset?.id?.toLowerCase(),sha256:approval.snapshot.asset?.sha256,bytes:approval.snapshot.asset?.bytes,mime:approval.snapshot.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   if(!approvedImportedThumbnail(a,approval.snapshot))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    for(const asset of a.assets){
     const stored=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];
     if(!stored||stored.sha256!==asset.sha256||Number(stored.bytes)!==asset.bytes||stored.mime!==asset.mime||!equal(stored.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
     if(!allowedRights(m.rights,'export')||!allowedRights(stored.rights,'export')||!allowedRights(a.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
-    rights.push(m.rights,stored.rights,a.rights);const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');await decode(bytes,asset.mime);total+=bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(asset.path)&&sha256(files.get(asset.path)!)!==asset.sha256)throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(asset.path,bytes);
+    rights.push(m.rights,stored.rights,a.rights);const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');await checkAssetBytes(a,asset.id,bytes,asset.mime);total+=bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(asset.path)&&sha256(files.get(asset.path)!)!==asset.sha256)throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(asset.path,bytes);
    }
    if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}
   }
@@ -215,6 +230,7 @@ export class Oex {
    if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source||!equal(m.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    const primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
    if(!equal({id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.asset?.id,sha256:approval.asset?.sha256,bytes:approval.asset?.bytes,mime:approval.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   if(!approvedImportedThumbnail(a,approval))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    require(a.rights);require(current.metadata.rights);require(m.rights);
    for(const asset of a.assets){const live=(await c.query("SELECT a.sha256,a.bytes,a.mime,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];if(!live||live.sha256!==asset.sha256||Number(live.bytes)!==asset.bytes||live.mime!==asset.mime)throw new ApiError(409,'OEX_SOURCE_CHANGED');require(live.rights);}
   }
@@ -259,7 +275,7 @@ export class Oex {
    const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
    const qualified=new Map<string,Buffer>();
-   for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path))await decode(bytes,asset.mime);qualified.set(asset.path,bytes);}
+   for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path)||artworkThumbnailFor(a)?.id.toLowerCase()===asset.id.toLowerCase())await checkAssetBytes(a,asset.id,bytes,asset.mime);qualified.set(asset.path,bytes);}
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
    for(const resource of [...parsed.floorResources,...parsed.materialResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
