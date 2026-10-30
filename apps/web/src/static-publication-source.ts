@@ -4,6 +4,7 @@ import { newDraft } from "./drafts/example";
 import { validateExhibition } from "./drafts/exhibition-validation.mjs";
 import { validateDraft } from "./drafts/validator";
 import {validFootstepPublication} from './viewer/footstep-publication';
+import {validateCoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 interface FileEntry {path:string;bytes:number;sha256:string;mime:string;assetId?:string}
 const hash=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes)))].map(x=>x.toString(16).padStart(2,"0")).join("");
 async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false){
@@ -27,6 +28,7 @@ export async function loadStaticPublication():Promise<PublicPublication>{
  if(value.publication.status!=="published"||!validateDraft(draft).valid||!validFootstepPublication(value)||await hash(new TextEncoder().encode(freezeCanonical(value.exhibition)))!==value.publication.revisionSha256)throw Error("STATIC_PUBLICATION");
  const ids=new Set<string>();for(const entry of index.assets){if(!entry.assetId||ids.has(entry.assetId)||!Number.isSafeInteger(entry.bytes)||entry.bytes<1||entry.bytes>25*1024*1024||! /^[a-f0-9]{64}$/.test(entry.sha256))throw Error("STATIC_ASSET");ids.add(entry.assetId);}
  if(value.assets.length!==ids.size||value.assets.some(a=>!index.assets.some(e=>e.assetId===a.assetId&&e.mime===a.mime)||a.url!==`/api/v1/publications/${value.publication.id}/assets/${a.assetId}`))throw Error("STATIC_ASSETS");
+ if(value.coverVariants&&!validateCoverVariantDescriptor(value))delete value.coverVariants;
  const resources=index.resources??[];if(resources.length!==(value.resources?.length??0)||new Set(resources.map(r=>r.sha256)).size!==resources.length||resources.some(r=>!r||Object.keys(r).sort().join(',')!=='bytes,mime,path,sha256'||r.path!==`data/${r.sha256}.bin`||!value.resources?.some(v=>v.sha256===r.sha256&&v.bytes===r.bytes&&v.mime===r.mime))||Boolean(resources.length)!==(index.version===2))throw Error('STATIC_RESOURCES');
  const fetcher:typeof fetch=async(input,init)=>{const url=typeof input==="string"?input:input instanceof URL?input.toString():input.url;
  const asset=value.assets.find(a=>a.url===url),resource=value.resources?.find(r=>r.url===url),entry=asset?index.assets.find(e=>e.assetId===asset.assetId):resource?resources.find(e=>e.sha256===resource.sha256):undefined;if(!entry||init?.method&&init.method!=="GET")throw Error("STATIC_ASSET_URL");

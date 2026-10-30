@@ -4,6 +4,7 @@ import {revisionHash,validateExhibition} from '@exhibitos/spec';
 import {checkOexProfile} from '../apps/api/dist/oex.js';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
+import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i,hex=/^[a-f0-9]{64}$/;
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v),keys=(v,list)=>object(v)&&Object.keys(v).sort().join(',')===[...list].sort().join(',');
 const unavailable=()=>{throw Error('PAGES_PUBLICATION_UNAVAILABLE');};
@@ -23,11 +24,13 @@ export function createPagesPublicationSource({origin:clientOrigin,publicationId,
   if(!(index.version===1&&keys(index,['version','publication','assets'])||index.version===2&&keys(index,['version','publication','assets','resources'])&&Array.isArray(index.resources))||!Array.isArray(index.assets)||index.assets.length>20000||!keys(index.publication,['path','bytes','sha256','mime']))unavailable();
   const p=index.publication;if(!hex.test(p.sha256)||p.path!==`data/${p.sha256}.json`||!Number.isSafeInteger(p.bytes)||p.bytes<1||p.bytes>1048576||p.mime!=='application/json')unavailable();
   const data=await get('/'+p.path,p.bytes);if(data.length!==p.bytes||sha(data)!==p.sha256)unavailable();const value=JSON.parse(data.toString('utf8'));
-  if(!(index.version===1&&keys(value,['publication','exhibition','assets'])||index.version===2&&keys(value,['publication','exhibition','assets','resources'])&&Array.isArray(value.resources))||!keys(value.publication,['id','revisionSha256','publishedAt','status'])||value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||!Number.isFinite(Date.parse(value.publication.publishedAt))||revisionHash(value.exhibition)!==revisionSha256||!Array.isArray(value.assets))unavailable();
+  const coverKey=Object.hasOwn(value,'coverVariants')?['coverVariants']:[];
+  if(!(index.version===1&&keys(value,['publication','exhibition','assets',...coverKey])||index.version===2&&keys(value,['publication','exhibition','assets','resources',...coverKey])&&Array.isArray(value.resources))||!keys(value.publication,['id','revisionSha256','publishedAt','status'])||value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||!Number.isFinite(Date.parse(value.publication.publishedAt))||revisionHash(value.exhibition)!==revisionSha256||!Array.isArray(value.assets))unavailable();
   checkOexProfile(value.exhibition);rights(value);
   const still=spaceStillFor(value.exhibition),inventory=new Map();for(const asset of [...value.exhibition.artworks.flatMap(a=>a.assets),...value.exhibition.mediaAssets,...(still?[still]:[])]){const previous=inventory.get(asset.id);if(previous&&JSON.stringify(previous)!==JSON.stringify(asset))unavailable();inventory.set(asset.id,asset);}
   const entries=new Map();for(const e of index.assets){if(!keys(e,['assetId','path','bytes','sha256','mime'])||!uuid.test(e.assetId)||entries.has(e.assetId)||!hex.test(e.sha256)||e.path!==`data/${e.sha256}.bin`||!Number.isSafeInteger(e.bytes)||e.bytes<1||e.bytes>25*1024*1024||!['image/png','model/gltf-binary','audio/wav'].includes(e.mime))unavailable();const original=inventory.get(e.assetId);if(!original||original.bytes!==e.bytes||original.sha256!==e.sha256||original.mime!==e.mime)unavailable();entries.set(e.assetId,e);}
   if(entries.size!==inventory.size||value.assets.length!==entries.size||new Set(value.assets.map(a=>a.assetId)).size!==entries.size||value.assets.some(a=>!keys(a,['assetId','url','mime'])||a.url!==`/api/v1/publications/${publicationId}/assets/${a.assetId}`||entries.get(a.assetId)?.mime!==a.mime))unavailable();
+  if(coverKey.length&&!validateCoverVariantDescriptor(value))delete value.coverVariants;
   const expected=footstepResourcesFor(value.exhibition),resources=new Map();
   if(index.version===1&&expected.length||index.version===2&&(!expected.length||index.resources.length!==expected.length||value.resources.length!==expected.length))unavailable();
   for(const e of index.resources??[]){const known=expected.find(v=>v.sha256===e.sha256);if(!keys(e,['path','bytes','sha256','mime'])||!known||resources.has(e.sha256)||e.path!==`data/${e.sha256}.bin`||e.bytes!==known.bytes||e.mime!==known.mime)unavailable();resources.set(e.sha256,e);}
