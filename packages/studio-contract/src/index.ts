@@ -265,3 +265,5 @@ export * from './surface-texture-resources.js';
 export * from './viewing-plan.js';
 export * from './dimensions-display.js';
 export * from './artwork-thumbnail.js';
+
+export * from './room-envelope.js';
