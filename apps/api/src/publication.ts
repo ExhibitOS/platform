@@ -103,8 +103,8 @@ interface AssetRow {
     bytes: number;
     mime: string;
     artwork_deleted?:unknown;artist_deleted?:unknown;tenant_deleted?:unknown;exhibition_deleted?:unknown;asset_deleted?:unknown;rights_deleted?:unknown;
-    asset_state?:string;current_revision?:number;approved_revision?:number;source_artwork_id?:string;source_approval?:unknown;
-    current_source_bytes?:number|string;current_source_mime?:string;approved_asset_id?:string;current_source_sha256?:string;current_metadata?:unknown;current_rights?:unknown;
+    asset_state?:string;current_revision?:number;approved_revision?:number|null;source_artwork_id?:string;source_approval?:unknown;
+    current_source_bytes?:number|string;current_source_mime?:string;approved_asset_id?:string|null;current_source_sha256?:string;current_metadata?:unknown;current_rights?:unknown;
     receipt_artwork_id?:string;receipt_revision?:number;receipt_source_id?:string;receipt_source_sha256?:string;receipt_thumbnail_id?:string;receipt_sha256?:string;receipt_bytes?:number|string;
 }
 const PUBLIC_REFERENCE_FIELDS = new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','imageAssetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
@@ -120,7 +120,9 @@ export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha
     if(approval.asset?.id!==primary)return false;
     if(source.id===primary)return approval.asset.sha256===source.sha256&&approval.asset.bytes===source.bytes&&approval.asset.mime===source.mime;
     const imported=approval.importedArtwork;
-    const thumbnail=imported&&imported.primaryAssetId===primary&&validateViewerLod(imported).valid?artworkThumbnailFor(imported):undefined;
+    const importedPrimary=Array.isArray(imported?.assets)?imported.assets.find(a=>a.id===primary):undefined;
+    const importedPrimaryMatches=imported?.primaryAssetId===primary&&importedPrimary?.sha256===approval.asset.sha256&&importedPrimary?.bytes===approval.asset.bytes&&importedPrimary?.mime===approval.asset.mime;
+    const thumbnail=imported&&importedPrimaryMatches&&validateViewerLod(imported).valid?artworkThumbnailFor(imported):undefined;
     if(thumbnail&&thumbnail.id===source.id)return thumbnail.sha256===source.sha256&&thumbnail.bytes===source.bytes&&thumbnail.mime===source.mime;
     const pair=approval.modelPair;
     if(pair){
@@ -128,7 +130,7 @@ export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha
       return pair.version===1&&pair.profileId===NEAR_TEXTURE_PAIR_PROFILE&&source.mime==='model/gltf-binary'&&approval.asset.mime==='model/gltf-binary'&&full?.id===primary&&full.sha256===approval.asset.sha256&&full.bytes===approval.asset.bytes&&low?.id===source.id&&low.sha256===source.sha256&&low.bytes===source.bytes&&low.bytes<full.bytes&&low.triangles===full.triangles&&low.textureSize<full.textureSize&&low.textureSize<=512;
     }
     const a=approval.importedArtwork;
-    if(!a||a.primaryAssetId!==primary||!validateViewerLod(a).valid)return false;
+    if(!a||!importedPrimaryMatches||!validateViewerLod(a).valid)return false;
     const lod=a.extensions?.[LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]}|undefined;
     const low=lod?.variants.find(v=>v.detail==='coarse');
     const asset=a.assets.find(v=>v.id===source.id);
@@ -141,8 +143,12 @@ export function authorizedArtworkAssets(snapshot:Exhibition,records:AssetRow[],n
  const permitted:AssetRow[]=[];
  for(const r of records){
   const approval=r.source_approval as {asset?:{id?:string;sha256?:string}}|undefined;
-  const receipt=optionalPreviewIds.has(String(r.id).toLowerCase())&&r.receipt_artwork_id===r.artwork_id&&r.receipt_revision===r.artwork_revision&&r.receipt_source_id===r.approved_asset_id&&approval?.asset?.id===r.receipt_source_id&&approval?.asset?.sha256===r.receipt_source_sha256&&r.receipt_thumbnail_id===r.source_asset_id&&r.receipt_sha256===r.source_sha256&&Number(r.receipt_bytes)===Number(r.current_source_bytes)&&r.current_source_mime==='image/png';
-  const item=inventory.find(a=>a.id===r.id),valid=item&&item.sha256===r.sha256&&item.bytes===Number(r.bytes)&&item.mime===r.mime&&!r.artwork_deleted&&!r.artist_deleted&&!r.tenant_deleted&&!r.exhibition_deleted&&!r.asset_deleted&&!r.rights_deleted&&r.asset_state==='approved'&&r.current_revision===r.artwork_revision&&r.approved_revision===r.artwork_revision&&r.source_artwork_id===r.artwork_id&&typeof r.current_source_mime==='string'&&typeof r.approved_asset_id==='string'&&(receipt||approvedPublicationSource(r.source_approval,{id:r.source_asset_id,sha256:r.source_sha256,bytes:Number(r.current_source_bytes),mime:r.current_source_mime},r.approved_asset_id))&&r.current_source_sha256===r.source_sha256&&validMetadata(r.current_metadata)&&allowedRights(r.current_metadata.rights,'display',now)&&allowedRights(r.current_rights,'display',now);
+  // The joined approval belongs to this publication's immutable artwork
+  // revision. A later private edit clears the current approval pointer; that
+  // does not revoke the earlier approved source or authorize a different one.
+  const historicalPrimary=approval?.asset?.id;
+  const receipt=optionalPreviewIds.has(String(r.id).toLowerCase())&&r.receipt_artwork_id===r.artwork_id&&r.receipt_revision===r.artwork_revision&&r.receipt_source_id===historicalPrimary&&approval?.asset?.sha256===r.receipt_source_sha256&&r.receipt_thumbnail_id===r.source_asset_id&&r.receipt_sha256===r.source_sha256&&Number(r.receipt_bytes)===Number(r.current_source_bytes)&&r.current_source_mime==='image/png';
+  const item=inventory.find(a=>a.id===r.id),valid=item&&item.sha256===r.sha256&&item.bytes===Number(r.bytes)&&item.mime===r.mime&&!r.artwork_deleted&&!r.artist_deleted&&!r.tenant_deleted&&!r.exhibition_deleted&&!r.asset_deleted&&!r.rights_deleted&&r.asset_state==='approved'&&r.source_artwork_id===r.artwork_id&&typeof r.current_source_mime==='string'&&typeof historicalPrimary==='string'&&(receipt||approvedPublicationSource(r.source_approval,{id:r.source_asset_id,sha256:r.source_sha256,bytes:Number(r.current_source_bytes),mime:r.current_source_mime},historicalPrimary))&&r.current_source_sha256===r.source_sha256&&validMetadata(r.current_metadata)&&allowedRights(r.current_metadata.rights,'display',now)&&allowedRights(r.current_rights,'display',now);
   if(!valid){if(optionalPreviewIds.has(String(r.id).toLowerCase()))continue;throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
   permitted.push(r);
  }
@@ -453,6 +459,16 @@ export class Publications {
         })) };
     }
     async list(c: PoolClient, s: Session, id: string) { await this.studio.access(c, s, id); return { items: (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 ORDER BY p.published_at DESC LIMIT 100", [s.tenantId, id])).rows.map(r => this.summary(r)) }; }
+    /** Existing server authoring identity, never an inferred native origin or
+     * a restoration of the selected public snapshot. Opening makes no edit. */
+    async editingDraft(c: PoolClient, s: Session, id: string) {
+        uuid(id);
+        const source=(await c.query('SELECT exhibition_id FROM studio_publications WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0];
+        if(!source)throw new ApiError(403,'FORBIDDEN');
+        const saved=await this.studio.get(c,s,source.exhibition_id);
+        const publications=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 ORDER BY p.draft_revision DESC,p.published_at DESC,p.id DESC LIMIT 2',[s.tenantId,source.exhibition_id])).rows;
+        return {capability:'reusable-published-draft-v1' as const,sourcePublicationId:id,authoringExhibitionId:source.exhibition_id,reused:true as const,...saved,currentPublication:publications[0]?this.summary(publications[0]):null,previousPublication:publications[1]?this.summary(publications[1]):null};
+    }
     private async owned(c: PoolClient, s: Session, id: string): Promise<PublicationRow> { uuid(id); const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF s", [s.tenantId, id])).rows[0]; if (!row)
         throw new ApiError(403, "FORBIDDEN"); await this.studio.access(c, s, row.exhibition_id); return row; }
     async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string) {
@@ -466,8 +482,16 @@ export class Publications {
         }
         if (match !== etag(row.revision, row.metadata))
             throw new ApiError(412, "REMOTE_CONFLICT");
-        if ((await c.query("SELECT 1 FROM studio_publications WHERE tenant_id=$1 AND exhibition_id=$2", [s.tenantId, id])).rowCount)
-            throw new ApiError(409, "PUBLISHED_DRAFT_IMMUTABLE");
+        // Studio.access holds the authoring row FOR UPDATE in this same
+        // READ COMMITTED transaction. Supported API writers therefore observe
+        // a concurrent publication after waiting for the lock, before writing.
+        const existing=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3 ORDER BY p.published_at DESC,p.id DESC LIMIT 1',[s.tenantId,id,row.revision])).rows[0];
+        if(existing){
+            await c.query('INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)',[s.tenantId,s.userId,requestId,payloadHash,existing.id]);
+            // A lost response or a second publish click must not republish an
+            // explicitly withdrawn version. Its existing status is returned.
+            return this.summary(existing);
+        }
         const load=(bytes:PublicationBytes):Buffer=>{if(!Buffer.isBuffer(bytes))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return bytes;};
         const report = await this.prepare(c, s, row.metadata.candidate, id);
         if (report.issues.length)
