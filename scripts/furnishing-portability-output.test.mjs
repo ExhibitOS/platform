@@ -61,8 +61,12 @@ try{
   assert.equal(metadata.furnishingNotices.length,4);const publicFurniture=furnishingsFor(metadata.exhibition);assert.equal(publicFurniture.assets.length,4);
   for(const asset of publicFurniture.assets){assert(!selected.assets.some(a=>a.id===asset.id));const model=await expected(publicRead(`${url}/assets/${asset.id}`),200),notice=await expected(publicRead(`${url}/furnishing-notices/${asset.id}`),200);assert.equal(sha256(model.rawPayload),asset.sha256);assert.equal(sha256(notice.rawPayload),asset.rights.notice.sha256);assert.equal(notice.headers['cache-control'],'no-store');assert.equal(notice.headers['x-exhibitos-publication-revision'],publication.revisionSha256);}
   await expected(publicRead(`${url}/assets/${randomUUID()}`),404);await expected(publicRead(`${url}/furnishing-notices/${randomUUID()}`),404);
-  const damaged=rows.find(r=>r.role==='notice'),originalNotice=Buffer.from(await blobs.get(damaged.object_key));await blobs.put(damaged.object_key,Buffer.from('changed owned synthetic fixture notice'));
-  await expected(publicRead(url),404);await expected(publicRead(`${url}/assets/${publicFurniture.assets[0].id}`),404);await expected(publicRead(`${url}/furnishing-notices/${publicFurniture.assets[0].id}`),404);await blobs.put(damaged.object_key,originalNotice);
+  const damaged=rows.find(r=>r.role==='notice'),originalNotice=Buffer.from(await blobs.get(damaged.object_key));
+  // Simulate external corruption only inside this newly owned synthetic store;
+  // the product BlobStore correctly refuses overwriting immutable objects.
+  await writeFile(join(output,'corruption-before-notice.bin'),originalNotice);
+  const damagedPath=join(output,'blobs',damaged.object_key);await writeFile(damagedPath,Buffer.from('changed owned synthetic fixture notice'));
+  await expected(publicRead(url),404);await expected(publicRead(`${url}/assets/${publicFurniture.assets[0].id}`),404);await expected(publicRead(`${url}/furnishing-notices/${publicFurniture.assets[0].id}`),404);await writeFile(damagedPath,originalNotice);
   await json(request('POST',`/studio/publications/${publication.publicationId}/unpublish`,{}));await expected(publicRead(url),404);await expected(publicRead(`${url}/furnishing-notices/${publicFurniture.assets[0].id}`),404);
   await json(request('POST',`/studio/publications/${publication.publicationId}/republish`,{}));await expected(publicRead(url),200);
   await pool.query('UPDATE exhibitions SET deleted_at=now() WHERE tenant_id=$1 AND id=$2',[workspace.tenantId,id]);await expected(publicRead(url),404);await expected(publicRead(`${url}/assets/${publicFurniture.assets[0].id}`),404);await expected(publicRead(`${url}/furnishing-notices/${publicFurniture.assets[0].id}`),404);
