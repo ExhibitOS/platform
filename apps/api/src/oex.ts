@@ -128,13 +128,13 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
 /** Verify the complete selected catalogue pair before staging any import blob.
  * Compiled catalogue hashes qualify the exact GLBs; package paths grant no new
  * source, host or licence authority. No partial pair is returned. */
-export function checkedOexFurnishingFiles(e:Exhibition,files:ReadonlyMap<string,Buffer>):Map<string,Buffer>{
+export function checkedOexFurnishingFiles(e:Exhibition,files:ReadonlyMap<string,Uint8Array>):Map<string,Buffer>{
  if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
  const selected=new Map<string,Buffer>();
  for(const descriptor of [...packageFurnishingAssetManifest(e),...packageFurnishingNoticeManifest(e)]){
   const bytes=files.get(descriptor.path);
   if(!bytes||bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256||selected.has(descriptor.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');
-  selected.set(descriptor.artifactPath,bytes);
+  selected.set(descriptor.artifactPath,Buffer.from(bytes));
  }
  return selected;
 }

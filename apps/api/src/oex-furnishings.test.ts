@@ -39,7 +39,7 @@ it('admits only qualified four-host furnishings and remaps every model, notice a
 });
 it('requires the entire exact model and notice input inventory before intake can stage any blob',async()=>{
  const e=await fixture(),files=await sourceFiles(e),descriptors=[...packageFurnishingAssetManifest(e),...packageFurnishingNoticeManifest(e)];
- for(const descriptor of descriptors){const missing=new Map(files);missing.delete(descriptor.path);expect(()=>checkedOexFurnishingFiles(e,missing)).toThrow('ASSET_INTEGRITY');const corrupt=new Map(files),bytes=Buffer.from(corrupt.get(descriptor.path)!);bytes[0]^=1;corrupt.set(descriptor.path,bytes);expect(()=>checkedOexFurnishingFiles(e,corrupt)).toThrow('ASSET_INTEGRITY');}
+ for(const descriptor of descriptors){const missing=new Map(files);missing.delete(descriptor.path);expect(()=>checkedOexFurnishingFiles(e,missing)).toThrow('ASSET_INTEGRITY');const corrupt=new Map(files),bytes=Buffer.from(corrupt.get(descriptor.path)!);bytes[0]=bytes[0]!^1;corrupt.set(descriptor.path,bytes);expect(()=>checkedOexFurnishingFiles(e,corrupt)).toThrow('ASSET_INTEGRITY');}
  const unsupported=structuredClone(e),value=furnishingsFor(unsupported)!;value.assets[0]!.catalogId='gallery-stool' as never;unsupported.extensions![FURNISHING_NAMESPACE]=value as never;
  expect(()=>checkOexProfile(unsupported)).toThrow('OEX_PROFILE_INVALID');expect(()=>remapOex(unsupported)).toThrow('OEX_PROFILE_INVALID');expect(()=>checkedOexFurnishingFiles(unsupported,files)).toThrow('OEX_PROFILE_INVALID');
 });
