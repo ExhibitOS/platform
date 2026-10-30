@@ -9,7 +9,7 @@ import type {InstallationMaterial,InstallationPrimitive,ResolvedInstallation} fr
 export function installDecor(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>){
  const resolved=resolveInstallations(document),groups=new Map<string,Three.Group>(),geometries=new Set<Three.BufferGeometry>(),materials=new Map<string,Three.MeshStandardMaterial>();
  type Batch={key:string;mesh:Three.Mesh<Three.BufferGeometry>};
- const frames=new Map<string,Batch[]>();let disposed=false;
+ const frames=new Map<string,Batch[]>(),pedestals=new Map<string,Three.Object3D[]>();let disposed=false;
  const key=(m:InstallationMaterial)=>JSON.stringify([m.color.toLowerCase(),m.roughness,m.metalness]);
  const material=(m:InstallationMaterial)=>{const k=key(m);let result=materials.get(k);if(result)return result;result=new three.MeshStandardMaterial({color:new three.Color(m.color),roughness:m.roughness,metalness:m.metalness,side:three.DoubleSide,flatShading:true});materials.set(k,result);return result;};
  function merge(primitives:InstallationPrimitive[]){
@@ -27,7 +27,7 @@ export function installDecor(three:typeof Three,document:Exhibition,rooms:Readon
  try{for(const record of resolved){
   const parent=rooms.get(record.roomId.toLowerCase());if(!parent)throw Error('INSTALLATION_REFERENCE');
   const group=new three.Group();group.userData.placementId=record.placementId;group.userData.editorSelection={kind:'placement',id:record.placementId};parent.add(group);groups.set(record.placementId.toLowerCase(),group);
-  const count=pedestalCount(document,record);addBatches(group,record.primitives.slice(0,count),record.placementId);frames.set(record.placementId.toLowerCase(),addBatches(group,record.primitives.slice(count),record.placementId));
+  const count=pedestalCount(document,record);pedestals.set(record.placementId.toLowerCase(),addBatches(group,record.primitives.slice(0,count),record.placementId).map(batch=>batch.mesh));frames.set(record.placementId.toLowerCase(),addBatches(group,record.primitives.slice(count),record.placementId));
  }}catch(error){for(const group of groups.values())group.removeFromParent();for(const geometry of geometries)geometry.dispose();for(const m of materials.values())m.dispose();throw error;}
  const issues=resolved.flatMap(r=>r.issues.map(issue=>({placementId:r.placementId,...issue})));
  /** Update only the selected frame's existing buffers; pedestal remains independent.
@@ -45,5 +45,5 @@ export function installDecor(three:typeof Three,document:Exhibition,rooms:Readon
   // Complete validation/allocation precedes mutation, preventing partial previews.
   for(const {mesh,attribute,positions}of updates){(attribute.array as Float32Array).set(positions);attribute.needsUpdate=true;mesh.visible=true;mesh.geometry.computeVertexNormals();mesh.geometry.computeBoundingBox();mesh.geometry.computeBoundingSphere();}return issues.length;
  }
- return {groups,preview,issues,primitiveCount:resolved.reduce((n,r)=>n+r.primitives.length,0),dispose(){if(disposed)return;disposed=true;for(const g of groups.values())g.removeFromParent();for(const g of geometries)g.dispose();for(const m of materials.values())m.dispose();groups.clear();frames.clear();geometries.clear();materials.clear();}};
+ return {groups,pedestals,preview,issues,primitiveCount:resolved.reduce((n,r)=>n+r.primitives.length,0),dispose(){if(disposed)return;disposed=true;for(const g of groups.values())g.removeFromParent();for(const g of geometries)g.dispose();for(const m of materials.values())m.dispose();groups.clear();frames.clear();pedestals.clear();geometries.clear();materials.clear();}};
 }
