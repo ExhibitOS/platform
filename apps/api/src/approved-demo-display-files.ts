@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="081b80e85da991adf78c26c01a4b74e24e84e531bcf9382250c9489de0b3d29d";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="5a40af5b1ae9384b304cdba4b23e0be21912091bf1e3168416665876d70a62d4";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -367,6 +367,36 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
   "coarse": {
     "sha256": "840e736142fa04b823790655676fc4c53c945f38ddcb5acb09dae109fe39fa95",
     "bytes": 448100,
+    "width": 512,
+    "height": 416
+  }
+},
+{
+  "approvalId": "e12a747d-f2eb-4143-ad0c-56cb780381e6",
+  "institutionRecordId": "met-436946",
+  "officialObjectURL": "https://www.metmuseum.org/art/collection/search/436946",
+  "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DP-13655-001.jpg",
+  "rawSourceSha256": "415c5a77bf36315cfc8d8c633b4d1d926660d43b6eef39635502dc524d2f68c3",
+  "rightsEvidenceSha256": "c4ca2a0eb230a3f921e42695ba40aec60d9fc9d711ab362ea6b1859c18c7fc86",
+  "canonicalAssetSha256": "2a8c66f7c6f7e9a868d00000f0d0f7809c3e982e133bc0d424ba8ac3d2648719",
+  "canonicalBytes": 5857490,
+  "recipeSha256": "347ea357b05186cf96cfa6ec33eec9e8ce22c5ce8b6022f5c9f898f53681cef3",
+  "rightsEvidenceURLs": [
+    "https://collectionapi.metmuseum.org/public/collection/v1/objects/436946",
+    "https://www.metmuseum.org/policies/image-resources"
+  ],
+  "allowedPublicUses": {
+    "publicHomepage": true,
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+  },
+  "canonicalMaxPixels": 4194304,
+  "coarse": {
+    "sha256": "8ce739bde938a32d9666282c4aa73abbd5bb26861b27e8a49eb7899a692e7aa6",
+    "bytes": 470577,
     "width": 512,
     "height": 416
   }
