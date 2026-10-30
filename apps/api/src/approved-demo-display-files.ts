@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="b2a56b92e8fbbdf3676ce416256452fc35f910ee2fe5cc8a1a69389291000d50";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="081b80e85da991adf78c26c01a4b74e24e84e531bcf9382250c9489de0b3d29d";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -339,6 +339,36 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
     "bytes": 617105,
     "width": 512,
     "height": 430
+  }
+},
+{
+  "approvalId": "3847e4d5-333f-4cc5-a161-24f6a940cd75",
+  "institutionRecordId": "met-436013",
+  "officialObjectURL": "https://www.metmuseum.org/art/collection/search/436013",
+  "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DP290289.jpg",
+  "rawSourceSha256": "f4faf4bee0eee3fb7fa7bd1fa41d0ddc4373ad80cedfcdd8ea70e44c7f2aea6f",
+  "rightsEvidenceSha256": "078d5e466819edb4b11a9a80ab4bc1c595f690e8f4cd1f345670ee4af1c0c0b0",
+  "canonicalAssetSha256": "2f04318b37245747e60ab8d0190060e17824f005f15a91d423e75e5dcbb1c7e6",
+  "canonicalBytes": 4957538,
+  "recipeSha256": "786503207aa70d4ae1a03aee33675fb763ffe3164f0f367706b8bd270d0b0406",
+  "rightsEvidenceURLs": [
+    "https://collectionapi.metmuseum.org/public/collection/v1/objects/436013",
+    "https://www.metmuseum.org/policies/image-resources"
+  ],
+  "allowedPublicUses": {
+    "publicHomepage": true,
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+  },
+  "canonicalMaxPixels": 4194304,
+  "coarse": {
+    "sha256": "840e736142fa04b823790655676fc4c53c945f38ddcb5acb09dae109fe39fa95",
+    "bytes": 448100,
+    "width": 512,
+    "height": 416
   }
 }
 ] as const;
