@@ -14,7 +14,7 @@
 .private-editor p { font-size:.875rem; line-height:1.6; max-width:70ch; }
 .private-editor-header nav,.private-scene-tools,.private-scene-tools>div { display:flex; flex-wrap:wrap; gap:.5rem; }
 .private-editor .private-primary { background:var(--private-accent); border-color:var(--private-accent); color:#fff; }
-.private-editor .private-primary:hover { background:#00665c; }
+.private-editor button.private-primary:hover:not(:disabled) { background:#00665c; }
 .private-save-status { margin:.75rem 0; font-size:.875rem; min-height:1.5rem; }
 .private-editor-workspace { display:grid; grid-template-columns:8rem minmax(0,1fr) 15rem; align-items:start; gap:1rem; }
 .private-art-dock,.private-inspector { background:#fff; border-radius:.65rem; padding:.8rem; min-width:0; }
