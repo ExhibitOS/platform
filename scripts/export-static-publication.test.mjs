@@ -7,7 +7,7 @@ import { join,dirname } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
-import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles} from '@exhibitos/studio-contract';
+import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice} from '@exhibitos/studio-contract';
 import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
@@ -213,5 +213,58 @@ test('private editor still fails closed for missing or corrupt required surface 
 test('optional surface handling does not admit unregistered runtime files',async t=>{
  const {runtime,options}=await surfaceEditorSetup(t);
  await writeFile(join(runtime,dirname(SURFACE_MATERIAL_FILES[0].artifactPath),'unregistered.txt'),'unapproved');
+ await assert.rejects(exportStaticPublication(options),/STATIC_RUNTIME_UNLISTED/);
+});
+
+async function floorEditorSetup(t){
+ const state=await setup(t);state.options.privateEditor=true;
+ await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
+ for(const file of FLOOR_TEXTURE_FILES){const path=join(state.runtime,file.path);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),path);}
+ return state;
+}
+async function assertExportedFloorPacks(options,packs){
+ const result=await exportStaticPublication(options),manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'))),expected=packs.flatMap(floorTextureFiles).map(file=>({path:file.path,bytes:file.bytes,sha256:file.sha256})).sort((a,b)=>a.path.localeCompare(b.path));
+ assert.deepEqual(manifest.files.filter(file=>file.path.startsWith('floor-textures/')),expected);
+ for(const file of expected){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ const notice=manifest.files.find(file=>file.path==='floor-texture-notices.txt');
+ if(!packs.length){assert.equal(notice,undefined);await assert.rejects(lstat(join(result.output,'floor-texture-notices.txt')),{code:'ENOENT'});}
+ else{const bytes=Buffer.from(packs.map(floorTextureNotice).join('\n'));assert.deepEqual(await readFile(join(result.output,notice.path)),bytes);assert.equal(notice.bytes,bytes.length);assert.equal(notice.sha256,sha(bytes));}
+ return result;
+}
+test('private editor includes complete local floor packs with canonical ordered notices; ordinary exports omit optional packs',async t=>{
+ const {options,directory}=await floorEditorSetup(t);
+ await assertExportedFloorPacks(options,FLOOR_TEXTURE_PACKS);
+ await assertExportedFloorPacks({...options,privateEditor:false,output:join(directory,'ordinary')},[]);
+});
+test('invalid optional floor maps omit the entire pack and its notice while other packs remain available',async t=>{
+ for(const damage of ['missing','hash','size','directory','file-link','ancestor-link'])await t.test(damage,async t=>{
+  const {runtime,options,directory}=await floorEditorSetup(t),pack=FLOOR_TEXTURE_PACKS[0],file=floorTextureFiles(pack)[1],path=join(runtime,file.path);
+  if(damage==='missing')await rm(path);
+  if(damage==='hash'){const bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);}
+  if(damage==='size')await truncate(path,1);
+  if(damage==='directory'){await rm(path);await mkdir(path);}
+  if(damage==='file-link'){await rm(path);await symlink(new URL('../apps/web/public/'+file.path,import.meta.url).pathname,path);}
+  if(damage==='ancestor-link'){const dir=dirname(path);await rm(dir,{recursive:true});await symlink(dirname(new URL('../apps/web/public/'+file.path,import.meta.url).pathname),dir);}
+  await assertExportedFloorPacks(options,FLOOR_TEXTURE_PACKS.slice(1));
+  if(damage==='file-link'||damage==='ancestor-link')await assert.rejects(exportStaticPublication({...options,privateEditor:false,output:join(directory,'ordinary')}),/STATIC_SYMLINK/);
+ });
+});
+test('required floor maps still fail closed in private exports with optional packs and preserve original sound metadata',async t=>{
+ const {runtime,fixture,options,directory}=await floorEditorSetup(t),e=fixture.raw.exhibition,room=e.rooms[0],pack=FLOOR_TEXTURE_PACKS[2];
+ const floor={id:randomUUID(),roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}};e.surfaces.push(floor);
+ e.extensions={...e.extensions,'org.exhibitos.studio/floors':{version:1,bindings:[{target:{kind:'surface',surfaceId:floor.id},preset:'tile',repeatMeters:[2,3],rotation:.2,sound:{mode:'none',gain:.3}}]}};
+ fixture.raw.publication.revisionSha256=revisionHash(e);
+ // Omit an optional pack, keeping a required pack in registry order among the remaining optional packs.
+ await rm(join(runtime,floorTextureFiles(FLOOR_TEXTURE_PACKS[0])[0].path));
+ const result=await assertExportedFloorPacks(options,FLOOR_TEXTURE_PACKS.slice(1)),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'))),published=JSON.parse(await readFile(join(result.output,index.publication.path)));
+ assert.deepEqual(published.exhibition,e);assert.equal(revisionHash(published.exhibition),fixture.raw.publication.revisionSha256);
+ const path=join(runtime,floorTextureFiles(pack)[0].path),bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt-required')}),/STATIC_FLOOR_INTEGRITY/);
+ await rm(path);await assert.rejects(exportStaticPublication({...options,output:join(directory,'missing-required')}),/STATIC_FLOOR_MISSING/);
+});
+test('private optional floor handling still rejects unregistered runtime files',async t=>{
+ const {runtime,options}=await floorEditorSetup(t);
+ await writeFile(join(runtime,dirname(FLOOR_TEXTURE_FILES[0].path),'extra.png'),'unregistered');
  await assert.rejects(exportStaticPublication(options),/STATIC_RUNTIME_UNLISTED/);
 });
