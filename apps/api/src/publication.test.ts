@@ -11,6 +11,11 @@ import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibi
 import {LOD_NAMESPACE,validateViewerLod} from '@exhibitos/studio-contract';
 import {remapOex,checkOexProfile} from './oex.ts';
 import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor} from '@exhibitos/studio-contract';
+it('rejects staged descriptors at the exported publication projection boundary',async()=>{
+ const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,a=e.artworks[0]!,primary=a.assets.find(asset=>asset.id===a.primaryAssetId)!;
+ const forged={offset:0,length:1,sha256:'0'.repeat(64)};
+ expect(()=>projectPublication(e,[{artwork:a,sourceAssetId:primary.id,sourceSha256:primary.sha256,bytes:forged,mime:'model/gltf-binary'}],'2026-10-01T00:00:00Z')).toThrow('PUBLICATION_NOT_READY');
+});
 it('projects only an exact approved thumbnail and keeps its source authority distinct',async()=>{
  const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition,a=e.artworks.find(x=>x.artworkType==='sculpture')!,primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
  const preview={id:crypto.randomUUID(),path:'assets/thumb.png',role:'preview' as const,mime:'image/png' as const,bytes:10,sha256:'a'.repeat(64)};a.assets.push(preview);a.extensions={...a.extensions,[ARTWORK_THUMBNAIL_NAMESPACE]:{version:1,assetId:preview.id}};
