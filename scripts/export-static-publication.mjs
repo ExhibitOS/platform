@@ -11,6 +11,8 @@ import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTex
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {footstepResourcesFor,FOOTSTEP_SAMPLES,FOOTSTEP_NOTICES} from '@exhibitos/spec/footstep-resources';
 import {SURFACE_MATERIAL_FILES,packageSurfaceMaterialManifest} from '@exhibitos/spec/surface-material-resources';
+import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
+import {coverProjectionFromVerifiedSource} from '../apps/api/dist/approved-cover-projection.js';
 /** Inert public text only; actionable entry waits for verified index/document data. */
 export function staticCoverShell(title,artist="",introduction="",hasImage=false,unfold=true,ratio=4/3){
  const escape=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -45,6 +47,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  }else if(declared!==undefined)fail('STATIC_RESOURCE_INVENTORY','publication.json');
  const requiredIds=new Set([...raw.exhibition.artworks.flatMap(a=>{const preview=artworkThumbnailFor(a)?.id;return a.assets.filter(x=>x.id!==preview).map(x=>x.id);}),...raw.exhibition.mediaAssets.map(a=>a.id),...(still?[still.id]:[])]);
  if(!Array.isArray(raw.assets)||new Set(raw.assets.map(a=>a.assetId)).size!==raw.assets.length||raw.assets.some(a=>!byId.has(a.assetId))||[...requiredIds].some(id=>!raw.assets.some(a=>a.assetId===id)))fail("STATIC_INVENTORY","publication.json");
+ let coverVariants=validateCoverVariantDescriptor(raw)?raw.coverVariants:undefined;
  const floorPacks=requiredFloorTexturePacks(raw.exhibition),selectedFloorFiles=new Map(floorPacks.flatMap(floorTextureFiles).map(file=>[file.path,file])),knownFloorFiles=new Map(FLOOR_TEXTURE_FILES.map(file=>[file.path,file]));
  const knownSteps=new Map([...FOOTSTEP_SAMPLES,...FOOTSTEP_NOTICES].map(file=>[file.artifactPath,file]));
  const copiedFloorFiles=new Set(),surfaceResources=packageSurfaceMaterialManifest(raw.exhibition),selectedSurfaceFiles=new Map(surfaceResources.map(file=>[file.artifactPath,file])),knownSurfaceFiles=new Map(SURFACE_MATERIAL_FILES.map(file=>[file.artifactPath,file])),copiedSurfaceFiles=new Set();
@@ -56,8 +59,11 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  for(const asset of raw.assets){const item=byId.get(asset.assetId);if(!item||asset.url!==`/api/v1/publications/${publicationId}/assets/${asset.assetId}`||item.mime!==asset.mime)fail("STATIC_ASSET_URL",asset.url);if(item.bytes>MAX)fail("STATIC_FILE_TOO_LARGE",item.path);
  const response=await request(asset.url);if(response.headers.get("x-exhibitos-publication-revision")!==raw.publication.revisionSha256||response.headers.get("content-type")?.split(";")[0]!==item.mime)fail("STATIC_ASSET_RESPONSE",item.path);
  const data=await bounded(response,Math.min(MAX,item.bytes),item.path);if(data.length!==item.bytes||sha(data)!==item.sha256)fail("STATIC_ASSET_HASH",item.path);
+ const coverImage=coverVariants&&[coverVariants.primary,...coverVariants.variants].find(v=>v.assetId===asset.assetId);
+ if(coverImage&&(data.length<33||data.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||data.toString('ascii',12,16)!=='IHDR'||data.readUInt32BE(16)!==coverImage.width||data.readUInt32BE(20)!==coverImage.height))coverVariants=undefined;
  if(still?.id===item.id)await validateCoverImage(data);
  const path=`data/${item.sha256}.bin`;if(!files.has(path))await put(path,data);assetIndex.push({assetId:asset.assetId,path,bytes:item.bytes,sha256:item.sha256,mime:item.mime});}
+ if(coverVariants){try{const bindings=assetIndex.map(a=>({id:a.assetId,sha256:a.sha256,bytes:a.bytes,mime:a.mime,object_key:a.path}));const proof=await coverProjectionFromVerifiedSource(raw.exhibition,raw.publication.revisionSha256,bindings,{get:async key=>readFile(join(temporary,key))});if(JSON.stringify(proof)!==JSON.stringify(coverVariants))coverVariants=undefined;}catch{coverVariants=undefined;}}
  for(const item of stepResources){
   const response=await request(`/api/v1/publications/${publicationId}/resources/${item.sha256}`);
   if(response.headers.get('x-exhibitos-publication-revision')!==raw.publication.revisionSha256||response.headers.get('content-type')?.split(';')[0]!==item.mime.split(';')[0])fail('STATIC_RESOURCE_RESPONSE',item.artifactPath);
@@ -65,7 +71,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
   const path=`data/${item.sha256}.bin`;if(!files.has(path))await put(path,data);resourceIndex.push({path,bytes:item.bytes,sha256:item.sha256,mime:item.mime});
  }
  for(const artwork of raw.exhibition.artworks){const validation=await mkdtemp(join(tmpdir(),"exhibitos-static-validation-"));try{const copy=structuredClone(artwork),preview=artworkThumbnailFor(copy);if(preview&&!raw.assets.some(a=>a.assetId===preview.id)){copy.assets=copy.assets.filter(a=>a.id!==preview.id);delete copy.extensions[ARTWORK_THUMBNAIL_NAMESPACE];}for(const asset of copy.assets){const path=join(validation,asset.path);await mkdir(dirname(path),{recursive:true});await copyFile(join(temporary,`data/${asset.sha256}.bin`),path);}const result=await validateArtworkFiles(copy,validation);if(!result.valid)fail("STATIC_ARTWORK_INVALID",artwork.id);}finally{await rm(validation,{recursive:true,force:true});}}
- const publication={publication:{id:publicationId,revisionSha256:raw.publication.revisionSha256,publishedAt:raw.publication.publishedAt,status:"published"},exhibition:raw.exhibition,assets:raw.assets.map(a=>({assetId:a.assetId,url:a.url,mime:a.mime})),...(stepResources.length?{resources:declared}: {})};
+ const publication={publication:{id:publicationId,revisionSha256:raw.publication.revisionSha256,publishedAt:raw.publication.publishedAt,status:"published"},exhibition:raw.exhibition,assets:raw.assets.map(a=>({assetId:a.assetId,url:a.url,mime:a.mime})),...(coverVariants?{coverVariants}:{}),...(stepResources.length?{resources:declared}: {})};
  const p=Buffer.from(JSON.stringify(publication)),pPath=`data/${sha(p)}.json`;await put(pPath,p);
  const index=Buffer.from(JSON.stringify({version:stepResources.length?2:1,publication:{path:pPath,bytes:p.length,sha256:sha(p),mime:"application/json"},assets:assetIndex,...(stepResources.length?{resources:resourceIndex}:{})}));if(index.length>1048576)fail("STATIC_INDEX_SIZE","static-publication-index.json");await put("static-publication-index.json",index);
  // New theme bootstraps use the same compiled React presentation modules as the Viewer.
@@ -78,7 +84,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  if(!files.has("index.html"))fail("STATIC_RUNTIME_ENTRY","static.html");
  if((studioDemo||privateEditor)&&!files.has("studio.html"))fail("STATIC_RUNTIME_ENTRY","static-studio.html");
  // Recheck public status/revision immediately before publication; no draft/withdrawn snapshot is exported.
- const current=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString());const membership=assets=>JSON.stringify(assets.map(a=>[a.assetId,a.mime,a.url]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));if(current.publication?.status!=="published"||current.publication?.revisionSha256!==publication.publication.revisionSha256||!Array.isArray(current.assets)||membership(current.assets)!==membership(raw.assets)||JSON.stringify(current.resources??null)!==JSON.stringify(raw.resources??null))fail("STATIC_PUBLICATION_CHANGED",publicationId);
+ const current=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString());const membership=assets=>JSON.stringify(assets.map(a=>[a.assetId,a.mime,a.url]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));if(current.publication?.status!=="published"||current.publication?.revisionSha256!==publication.publication.revisionSha256||!Array.isArray(current.assets)||membership(current.assets)!==membership(raw.assets)||JSON.stringify(current.resources??null)!==JSON.stringify(raw.resources??null)||coverVariants&&JSON.stringify(current.coverVariants??null)!==JSON.stringify(coverVariants))fail("STATIC_PUBLICATION_CHANGED",publicationId);
  const manifest=Buffer.from(JSON.stringify({format:"exhibitos-static-publication-v1",publicationId,revisionSha256:publication.publication.revisionSha256,indexSha256:sha(index),files:[...files].map(([path,entry])=>({path,...entry})).sort((a,b)=>a.path.localeCompare(b.path))}));await put("static-export-manifest.json",manifest);
  try{await lstat(target);fail("STATIC_OUTPUT_EXISTS",target);}catch(e){if(e.code!=="ENOENT")throw e;}
  await rename(temporary,target);

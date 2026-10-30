@@ -1,5 +1,6 @@
 import type { Exhibition } from "@exhibitos/spec";
 import type { Session } from "./cms-client";
+import type {CoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 import { request, RequestError } from "./cms-client";
 export interface ReadyIssue {
   code: string;
@@ -37,6 +38,7 @@ export interface PublicPublication {
   };
   exhibition: Exhibition;
   assets: PublicAsset[];
+  coverVariants?: CoverVariantDescriptor;
   resources?: PublicResource[];
 }
 export function publicationPath(session: Session, id: string) {
