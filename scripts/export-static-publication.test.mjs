@@ -8,6 +8,7 @@ import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
 import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles} from '@exhibitos/studio-contract';
+import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
 const sha=b=>createHash("sha256").update(b).digest("hex");
@@ -163,4 +164,54 @@ test('invalid floor references cannot bypass static profile admission',async t=>
  const {fixture,options}=await setup(t),e=fixture.raw.exhibition;
  e.extensions={...e.extensions,'org.exhibitos.studio/floors':{version:1,bindings:[{target:{kind:'surface',surfaceId:randomUUID()},preset:'wood',repeatMeters:[1.8,1.8],rotation:0}]}};fixture.raw.publication.revisionSha256=revisionHash(e);
  await assert.rejects(exportStaticPublication(options),/OEX_PROFILE_INVALID/);await assert.rejects(lstat(options.output),{code:'ENOENT'});
+});
+
+async function surfaceEditorSetup(t){
+ const state=await setup(t);state.options.privateEditor=true;
+ await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
+ for(const file of SURFACE_MATERIAL_FILES){const path=join(state.runtime,file.artifactPath);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.artifactPath,import.meta.url),path);}
+ return state;
+}
+async function exportedSurfaceFiles(options){
+ const result=await exportStaticPublication(options),manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json')));
+ const files=manifest.files.filter(file=>SURFACE_MATERIAL_FILES.some(known=>known.artifactPath===file.path));
+ for(const file of files){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ return files;
+}
+test('private editor exports complete exact registered CC0 surface packs; ordinary exports stay unchanged',async t=>{
+ const {options,directory}=await surfaceEditorSetup(t);
+ const expected=SURFACE_MATERIAL_FILES.map(file=>({path:file.artifactPath,bytes:file.bytes,sha256:file.sha256})).sort((a,b)=>a.path.localeCompare(b.path));
+ assert.deepEqual(await exportedSurfaceFiles(options),expected);
+ assert.deepEqual(await exportedSurfaceFiles({...options,privateEditor:false,output:join(directory,'ordinary')}),[]);
+});
+test('optional surface pack omission is atomic for missing, corrupt, wrong-size and nonordinary local files',async t=>{
+ for(const damage of ['missing-map','corrupt-notice','wrong-size','file-directory','file-link','directory-link'])await t.test(damage,async t=>{
+  const {runtime,options,directory}=await surfaceEditorSetup(t),pack=SURFACE_MATERIAL_PACKS[0],files=SURFACE_MATERIAL_FILES.filter(file=>file.packId===pack.id),file=damage==='corrupt-notice'?files.find(file=>file.role==='notice'):files.find(file=>file.role==='color'),path=join(runtime,file.artifactPath);
+  if(damage==='missing-map')await rm(path);
+  if(damage==='corrupt-notice'){const bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);}
+  if(damage==='wrong-size')await truncate(path,1);
+  if(damage==='file-directory'){await rm(path);await mkdir(path);}
+  if(damage==='file-link'){await rm(path);await symlink(new URL('../apps/web/public/'+file.artifactPath,import.meta.url).pathname,path);}
+  if(damage==='directory-link'){const dir=dirname(path);await rm(dir,{recursive:true});await symlink(dirname(new URL('../apps/web/public/'+file.artifactPath,import.meta.url).pathname),dir);}
+  const emitted=await exportedSurfaceFiles(options);
+  assert.deepEqual(emitted.map(file=>file.path),SURFACE_MATERIAL_FILES.filter(file=>file.packId!==pack.id).map(file=>file.artifactPath).sort((a,b)=>a.localeCompare(b)));
+  if(damage==='file-link'||damage==='directory-link')await assert.rejects(exportStaticPublication({...options,privateEditor:false,output:join(directory,'ordinary')}),/STATIC_SYMLINK/);
+ });
+});
+test('private editor still fails closed for missing or corrupt required surface packs',async t=>{
+ const {runtime,fixture,options,directory}=await surfaceEditorSetup(t),pack=SURFACE_MATERIAL_PACKS[0],wall=fixture.raw.exhibition.surfaces.find(surface=>surface.type==='wall');
+ fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.studio/materials':{version:1,surfaces:{},surfaceTextures:{[wall.id]:{pack:{id:pack.id,version:pack.version},repeatMeters:[1,1],rotation:0,normalScale:1}}}};
+ fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ assert.equal((await exportedSurfaceFiles(options)).length,SURFACE_MATERIAL_FILES.length);
+ const file=SURFACE_MATERIAL_FILES.find(file=>file.packId===pack.id&&file.role==='notice'),path=join(runtime,file.artifactPath),bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt-required')}),/STATIC_MATERIAL_INTEGRITY/);
+ await rm(path);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'missing-required')}),/STATIC_MATERIAL_MISSING/);
+});
+
+test('optional surface handling does not admit unregistered runtime files',async t=>{
+ const {runtime,options}=await surfaceEditorSetup(t);
+ await writeFile(join(runtime,dirname(SURFACE_MATERIAL_FILES[0].artifactPath),'unregistered.txt'),'unapproved');
+ await assert.rejects(exportStaticPublication(options),/STATIC_RUNTIME_UNLISTED/);
 });
