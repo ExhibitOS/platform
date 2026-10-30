@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {freezeCanonical,presentationFor,spaceStillFor} from '@exhibitos/studio-contract';
+import {freezeCanonical,presentationFor,spaceStillFor,validateFurnishings} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {PublicPublication} from '../publication-client';
 import {newDraft} from '../drafts/example';
@@ -15,6 +15,7 @@ export function privateSeed(source:PublicPublication,indexSha256:string):Private
 }
 export function checkPrivateCandidate(seed:PrivateSeed,candidate:Exhibition){
  if(freezeCanonical(candidate.artworks)!==freezeCanonical(seed.source.exhibition.artworks)||freezeCanonical(candidate.mediaAssets)!==freezeCanonical(seed.source.exhibition.mediaAssets)||freezeCanonical(spaceStillFor(candidate)??null)!==freezeCanonical(spaceStillFor(seed.source.exhibition)??null))throw Error('원본 작품·파일·권리 정보는 이 체험에서 변경할 수 없어요.');
+ if(!validateFurnishings(candidate).valid)throw Error('가구 참조를 확인할 수 없어요.');
  createGeometryState(candidate);
 }
 /** Add one complete room to a private clone; keep every original room, reference and unknown extension. */
