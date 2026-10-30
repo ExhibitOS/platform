@@ -582,3 +582,12 @@ test('same-room footsteps lazily restore opted-in reverb after mute or visibilit
   }finally{f.runtime.dispose();}
  }}finally{vi.useRealTimers();}
 });
+
+test('private document changes preserve sound preferences and reject resource changes without starting audio',async()=>{
+ const {newDraft}=await import('../drafts/example');const doc=newDraft().candidate;
+ const fetcher=vi.fn();const publication={publication:{id:doc.id,revisionSha256:'a'.repeat(64),publishedAt:'2026-10-30',status:'published'},exhibition:doc,assets:[],local:{fetcher,check:async()=>{}}} as unknown as import('../publication-client').PublicPublication;
+ const runtime=new ExhibitionAudio(publication,()=>{});runtime.footstepsEnabled(true);runtime.volume(.25);runtime.mute(true);
+ const changed=structuredClone(doc);changed.title='Private change';runtime.updatePrivateExhibition(changed);
+ expect(runtime.snapshot()).toMatchObject({footstepsEnabled:true,muted:true,volume:.25,enabled:false,context:'not-created'});expect(fetcher).not.toHaveBeenCalled();
+ const invalid=structuredClone(changed);invalid.mediaAssets.push({} as never);expect(()=>runtime.updatePrivateExhibition(invalid)).toThrow('AUDIO_PRIVATE_SOURCE_CHANGED');expect(runtime.snapshot()).toMatchObject({footstepsEnabled:true,muted:true,volume:.25,enabled:false});runtime.dispose();
+});
