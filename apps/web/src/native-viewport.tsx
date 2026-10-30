@@ -15,7 +15,7 @@ import {freezeCanonical,materialFor,SURFACE_MATERIAL_TEXTURE_CAPABILITY} from '@
 import type {Session} from './cms-client';
 import {selectedItem,type EditorBridge} from './geometry/direct-edit';
 import {checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
-import {nativeInstallationAction,type NativeInstallationAction} from './native-installation-action';
+import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
 import {checkedCatalogRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail} from './native-artwork-thumbnail';
 import {NativePlacement} from './native-placement';
@@ -29,7 +29,7 @@ import {NATIVE_SPACE_SETTINGS_CAPABILITY,checkedSpaceSettingsRequest,nativeSpace
 import {NATIVE_VIEWING_PLAN_CAPABILITY,checkedViewingPlanRequest,nativeViewingPlanCandidate,type ViewingPlanRequest} from './native-viewing-plan';
 import {NATIVE_FURNISHING_VISUALS_CAPABILITY,checkedFurnishingVisualsRequest,nativeFurnishingVisualsCandidate,type FurnishingVisualsRequest} from './native-furnishing-visuals';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
  accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES}>;
  entrancePreview:(v:unknown)=>Promise<EntrancePreviewReply>;
