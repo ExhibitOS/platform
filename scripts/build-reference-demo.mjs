@@ -65,7 +65,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
  await run([npm,'run','notices']);
  for(const workspace of ['@exhibitos/studio-contract','@exhibitos/storage','@exhibitos/api'])await run([npm,'run','build','--workspace',workspace]);
  await run(['scripts/build-web-schema-validators.mjs','--check']);
- await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer'}});
+ await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer',EXHIBITOS_PRIVATE_EDITOR:'1'}});
  await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.cover.config.ts'],{cwd:join(root,'apps/web')});
- console.log(JSON.stringify(await exportReferenceDemo()));
+ console.log(JSON.stringify(await exportReferenceDemo({privateEditor:true})));
 }
