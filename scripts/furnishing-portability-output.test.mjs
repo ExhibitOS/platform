@@ -7,7 +7,7 @@ import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
 import {fixtureURL,readOex,writeOex} from '@exhibitos/spec';
-import {applyBenchCommand,applyFurnishingCommand,furnishingsFor,furnishingCatalogueEntry,FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyBenchCommand,applyFurnishingCommand,furnishingsFor,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {migrate,FileBlobStore,sha256,transaction,collectServiceInventory} from '@exhibitos/storage';
 import {openLocalWorkspace} from '../apps/api/dist/local-workspace.js';
 import {buildApp} from '../apps/api/dist/app.js';
