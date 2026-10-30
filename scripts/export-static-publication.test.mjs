@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile,mkdtemp,mkdir,writeFile,lstat,readdir,rm,symlink,truncate,copyFile } from "node:fs/promises";
+import { readFile,mkdtemp,mkdir,writeFile,lstat,readdir,rm,symlink,truncate,copyFile,realpath } from "node:fs/promises";
+import {pathToFileURL} from "node:url";
 import { tmpdir } from "node:os";
 import { join,dirname } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
-import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice} from '@exhibitos/studio-contract';
+import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
@@ -267,4 +268,47 @@ test('private optional floor handling still rejects unregistered runtime files',
  const {runtime,options}=await floorEditorSetup(t);
  await writeFile(join(runtime,dirname(FLOOR_TEXTURE_FILES[0].path),'extra.png'),'unregistered');
  await assert.rejects(exportStaticPublication(options),/STATIC_RUNTIME_UNLISTED/);
+});
+
+const benchPrefix='furnish-catalog/backless-oak-bench/1/';
+async function isolatedBenchExporter(t){
+ const state=await setup(t);state.options.privateEditor=true;
+ await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
+ // Isolate the existing compiled trusted reader's source root. Damage tests
+ // must never rename or modify the shared catalogue or another checkout.
+ const code=join(state.directory,'trusted-code'),api=join(code,'apps/api/dist');await mkdir(api,{recursive:true});await mkdir(join(code,'scripts'));
+ await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
+ for(const name of ['oex.js','cover-images.js','auth.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
+ await copyFile(new URL('../apps/api/dist/furnishings.js',import.meta.url),join(api,'furnishings.js'));
+ await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
+ const entry=furnishingCatalogueEntry('backless-oak-bench');
+ for(const path of [entry.path,entry.rights.noticePath]){const destination=join(code,path);await mkdir(dirname(destination),{recursive:true});await copyFile(new URL('../'+path,import.meta.url),destination);}
+ const {exportStaticPublication:exporter}=await import(pathToFileURL(join(code,'scripts/export-static-publication.mjs')).href);
+ return {...state,code,entry,exporter};
+}
+async function benchManifest(exporter,options){const result=await exporter(options),manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json')));return {result,entries:manifest.files.filter(file=>file.path.startsWith('furnish-catalog/'))};}
+test('private editor includes the exact approved bench model and notice pair without expanding publication inventory',async t=>{
+ const {exporter,options,directory,entry}=await isolatedBenchExporter(t),{result,entries}=await benchManifest(exporter,options);
+ const expected=[{path:benchPrefix+'LICENSE-NOTICE.txt',bytes:entry.rights.noticeBytes,sha256:entry.rights.noticeSha256},{path:benchPrefix+'model.glb',bytes:entry.bytes,sha256:entry.sha256}];
+ assert.deepEqual(entries,expected);
+ for(const file of expected){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ const ordinary=await benchManifest(exporter,{...options,privateEditor:false,output:join(directory,'ordinary')});assert.deepEqual(ordinary.entries,[]);
+ assert.deepEqual(await readFile(join(result.output,'static-publication-index.json')),await readFile(join(ordinary.result.output,'static-publication-index.json')));
+});
+test('optional bench pair is omitted atomically for missing, corrupt, wrong-size or linked trusted source files',async t=>{
+ for(const damage of ['missing-model','missing-notice','corrupt-model','corrupt-notice','wrong-size','file-link','directory-link'])await t.test(damage,async t=>{
+  const {exporter,options,code,entry}=await isolatedBenchExporter(t),path=join(code,damage.includes('notice')?entry.rights.noticePath:entry.path);
+  if(damage.startsWith('missing'))await rm(path);
+  if(damage.startsWith('corrupt')){const bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);}
+  if(damage==='wrong-size')await truncate(path,1);
+  if(damage==='file-link'){await rm(path);await symlink(new URL('../'+entry.path,import.meta.url).pathname,path);}
+  if(damage==='directory-link'){const dir=dirname(path);await rm(dir,{recursive:true});await symlink(dirname(new URL('../'+entry.path,import.meta.url).pathname),dir);}
+  const {result,entries}=await benchManifest(exporter,options);assert.deepEqual(entries,[]);
+  await assert.rejects(lstat(join(result.output,'furnish-catalog')),{code:'ENOENT'});
+ });
+});
+test('runtime-supplied bench catalogue paths remain unlisted and cannot shadow trusted bytes',async t=>{
+ const {exporter,options,runtime}=await isolatedBenchExporter(t),path=join(runtime,benchPrefix+'model.glb');await mkdir(dirname(path),{recursive:true});await writeFile(path,'untrusted');
+ await assert.rejects(exporter(options),/STATIC_RUNTIME_UNLISTED/);
 });
