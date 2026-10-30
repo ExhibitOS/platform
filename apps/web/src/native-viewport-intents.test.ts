@@ -20,7 +20,7 @@ async function sample(withWalls=false){
  vi.stubGlobal('window',browser);vi.stubGlobal('document',{getElementById:()=>({})});
  const draft=newDraft(),light=newLight(draft.candidate.rooms[0]!.id);draft.candidate.lights=[light];if(withWalls)draft.candidate.surfaces=whiteCubeSurfaces(draft.candidate.rooms[0]!);
  const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false};
- const session=()=>Response.json({tenantId:frame.tenantId,userId:frame.principalId,role:'admin'}),fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>session());vi.stubGlobal('fetch',fetcher);
+ const session=()=>Response.json({tenantId:frame.tenantId,userId:frame.principalId,role:'admin'}),fetcher=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>{void _input;void _init;return session();});vi.stubGlobal('fetch',fetcher);
  await import('./native-viewport');const vm=browser.exhibitosViewport!;const accepted=await vm.accept(frame);fetcher.mockClear();
  const {id,...value}=light;
  const request:LightInspectorRequest={version:1,epoch:frame.epoch,sequence:frame.sequence,tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),type:'set-light',lightId:id,light:{...value,intensity:160}};
@@ -123,4 +123,15 @@ it('viewing plan is an authenticated profile-only proposal with replay/exclusion
  expect(reply.candidate).toEqual({...s.frame.draft.candidate,extensions:{...s.frame.draft.candidate.extensions,'org.exhibitos.viewer/viewing-plan':request.plan}});expect(s.frame).toEqual(before);expect(s.accepted.capabilities).toContain('viewing-plan-v1');
  await expect(s.vm.viewingPlan(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
  s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const late=s.vm.viewingPlan({...request,requestId:crypto.randomUUID()}),rejected=expect(late).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...s.frame,sequence:2});resolve(s.session());await rejected;
+});
+
+it('v2 furnishing intent fences other mutations, authenticates twice and rejects replay and stale frames',async()=>{
+ const s=await sample(),bench=benchRequest(s);if(bench.type!=='add-bench')throw Error('fixture');const {applyBenchCommand}=await import('@exhibitos/studio-contract');
+ const next=structuredClone(s.frame);next.sequence=2;next.draft.candidate=applyBenchCommand(next.draft.candidate,{type:'add-bench',bench:bench.bench,viewpoint:bench.viewpoint});const accepted=await s.vm.accept(next);expect(accepted.capabilities).toContain('furnishing-visuals-v2');s.fetcher.mockClear();
+ const request={version:1 as const,epoch:next.epoch,sequence:next.sequence,tenantId:next.tenantId,principalId:next.principalId,requestId:crypto.randomUUID(),type:'set-furnishing-visual' as const,hostKind:'bench' as const,hostId:bench.bench.id,catalogId:'backless-oak-bench' as const,catalogVersion:1 as const,pose:{position:[0,0,0] as [number,number,number],yaw:0,scale:1}};
+ let resolveLight!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolveLight=r;}));const light=s.vm.lightInspector({...s.request,sequence:2,requestId:crypto.randomUUID()});await expect(s.vm.furnishingVisualsV2(request)).rejects.toThrow('VIEWPORT_INTENT_ACTIVE');resolveLight(s.session());await light;s.fetcher.mockClear();
+ let resolve!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.furnishingVisualsV2(request);
+ expect(()=>s.vm.action({type:'add-light',roomId:bench.bench.roomId})).toThrow('FURNISHING_INTENT_ACTIVE');expect(()=>s.vm.placement({...s.begin,sequence:2})).toThrow('FURNISHING_INTENT_ACTIVE');await expect(s.vm.lightInspector({...s.request,sequence:2,requestId:crypto.randomUUID()})).rejects.toThrow('FURNISHING_INTENT_ACTIVE');await expect(s.vm.furnishingVisualsV2({...request,requestId:crypto.randomUUID()})).rejects.toThrow('FURNISHING_INTENT_ACTIVE');
+ resolve(s.session());const reply=await pending;expect(Object.keys(reply).sort()).toEqual(['candidate','epoch','principalId','requestId','sequence','tenantId','version']);expect(reply.requestId).toBe(request.requestId);expect(s.fetcher).toHaveBeenCalledTimes(2);expect(next.draft.candidate.extensions?.['org.exhibitos.studio/furnishing-visuals']).toBeUndefined();await expect(s.vm.furnishingVisualsV2(request)).rejects.toThrow('CATALOG_REQUEST_REPLAY');
+ const delayed={...request,requestId:crypto.randomUUID()};s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const late=s.vm.furnishingVisualsV2(delayed),rejected=expect(late).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');await s.vm.accept({...next,sequence:3});resolve(s.session());await rejected;expect(()=>s.vm.placement({...s.begin,sequence:3})).toThrow('PLACEMENT_RENDERER_NOT_READY');
 });
