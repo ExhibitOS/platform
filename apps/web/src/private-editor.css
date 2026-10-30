@@ -72,3 +72,8 @@
 .private-room-controls .private-selection-actions { margin:.65rem 0; }
 
 @media(min-width:761px){.private-inspector{max-height:calc(100dvh - 10rem);overflow-y:auto;overscroll-behavior:contain}}
+
+.private-surface-material { margin-top:1.25rem; padding-top:1rem; border-top:1px solid #89998f; }
+.private-surface-material h3 { font-size:1rem; margin:0 0 .65rem; }
+.private-surface-material label { display:block; margin:.65rem 0; }
+.private-surface-material input { display:block; box-sizing:border-box; min-height:2.75rem; width:100%; }
