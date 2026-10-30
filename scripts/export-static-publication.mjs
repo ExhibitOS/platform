@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { fixtureURL,readOex,revisionHash,validateArtworkFiles,validateExhibition } from "@exhibitos/spec";
 import { checkOexProfile } from "../apps/api/dist/oex.js";
 import {validateCoverImage} from '../apps/api/dist/cover-images.js';
-import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTextureNotice,artworkThumbnailFor,ARTWORK_THUMBNAIL_NAMESPACE} from '@exhibitos/studio-contract';
+import {FLOOR_TEXTURE_PACKS,FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTextureNotice,artworkThumbnailFor,ARTWORK_THUMBNAIL_NAMESPACE} from '@exhibitos/studio-contract';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {footstepResourcesFor,FOOTSTEP_SAMPLES,FOOTSTEP_NOTICES} from '@exhibitos/spec/footstep-resources';
 import {SURFACE_MATERIAL_PACKS,SURFACE_MATERIAL_FILES,packageSurfaceMaterialManifest} from '@exhibitos/spec/surface-material-resources';
@@ -52,8 +52,12 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  // Optional editor choices are independent of the immutable publication's required packs.
  const requiredSurfacePacks=new Set(surfaceResources.map(file=>file.packId));
  const optionalSurfaceFiles=privateEditor?SURFACE_MATERIAL_FILES.filter(file=>!requiredSurfacePacks.has(file.packId)&&SURFACE_MATERIAL_PACKS.some(pack=>pack.id===file.packId&&pack.version===file.packVersion&&pack.license==='CC0-1.0')):[];
- const optionalPaths=new Set(optionalSurfaceFiles.map(file=>file.artifactPath));
- const optionalAncestors=new Set(optionalSurfaceFiles.flatMap(file=>{const parts=file.artifactPath.split('/');return parts.slice(0,-1).map((_,i)=>parts.slice(0,i+1).join('/'));}).filter(path=>!surfaceResources.some(file=>file.artifactPath.startsWith(path+'/'))));
+ const includedFloorPacks=new Set(floorPacks.map(pack=>pack.id));
+ const optionalGroups=[...new Set(optionalSurfaceFiles.map(file=>file.packId))].map(packId=>({files:optionalSurfaceFiles.filter(file=>file.packId===packId)}));
+ if(privateEditor)for(const pack of FLOOR_TEXTURE_PACKS){if(pack.license==='CC0-1.0'&&!includedFloorPacks.has(pack.id))optionalGroups.push({floorPack:pack.id,files:floorTextureFiles(pack).map(file=>({...file,artifactPath:file.path}))});}
+ const optionalFiles=optionalGroups.flatMap(group=>group.files),requiredPaths=[...surfaceResources.map(file=>file.artifactPath),...selectedFloorFiles.keys()];
+ const optionalPaths=new Set(optionalFiles.map(file=>file.artifactPath));
+ const optionalAncestors=new Set(optionalFiles.flatMap(file=>{const parts=file.artifactPath.split('/');return parts.slice(0,-1).map((_,i)=>parts.slice(0,i+1).join('/'));}).filter(path=>!requiredPaths.some(file=>file.startsWith(path+'/'))));
  const target=resolve(output),parent=dirname(target);try{await lstat(target);fail("STATIC_OUTPUT_EXISTS",target);}catch(e){if(e.code!=="ENOENT")throw e;}
  const parentStat=await lstat(parent);if(!parentStat.isDirectory()||parentStat.isSymbolicLink())fail("STATIC_OUTPUT_PARENT",parent);
  const temporary=join(parent,`.static-export-${randomUUID()}`);await mkdir(temporary,{mode:0o700});
@@ -81,10 +85,10 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  // Retain verified bytes until the entire pack is accepted; never emit a partial choice.
  // Check every ancestor before reading so unavailable optional symlinks are not followed.
  const runtimeStat=await lstat(runtime);if(!runtimeStat.isDirectory()||runtimeStat.isSymbolicLink())fail("STATIC_RUNTIME_DIRECTORY",runtime);
- for(const packId of new Set(optionalSurfaceFiles.map(file=>file.packId))){
+ for(const group of optionalGroups){
   const accepted=[];
   try{
-   for(const file of optionalSurfaceFiles.filter(file=>file.packId===packId)){
+   for(const file of group.files){
     const parts=file.artifactPath.split('/');
     for(let i=1;i<parts.length;i++){const stat=await lstat(join(runtime,...parts.slice(0,i)));if(!stat.isDirectory()||stat.isSymbolicLink())throw Error('OPTIONAL_MATERIAL_DIRECTORY');}
     const path=join(runtime,file.artifactPath),stat=await lstat(path);
@@ -99,13 +103,15 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
     }finally{await handle.close();}
    }
    optionalPacks.push(accepted);
+   if(group.floorPack)includedFloorPacks.add(group.floorPack);
   }catch{ /* An unavailable optional choice must not block the published exhibition. */ }
  }
  async function walk(dir,prefix=""){const stat=await lstat(dir);if(!stat.isDirectory()||stat.isSymbolicLink())fail("STATIC_RUNTIME_DIRECTORY",prefix||runtime);for(const name of (await readdir(dir)).sort()){const rel=prefix+name;if(!safeStaticPath(rel))fail("STATIC_RUNTIME_PATH",rel);if(optionalPaths.has(rel))continue;const path=join(dir,name),s=await lstat(path);if(optionalAncestors.has(rel)&&(!s.isDirectory()||s.isSymbolicLink()))continue;if(s.isSymbolicLink())fail("STATIC_SYMLINK",rel);if(s.isDirectory())await walk(path,rel+"/");else if(s.isFile()){if(knownSteps.has(rel)){const entry=knownSteps.get(rel);if(s.size!==entry.bytes||sha(await readFile(path))!==entry.sha256)fail('STATIC_RESOURCE_INTEGRITY',rel);continue;}if(knownSurfaceFiles.has(rel)){const descriptor=selectedSurfaceFiles.get(rel);if(!descriptor)continue;if(s.size!==descriptor.bytes)fail("STATIC_MATERIAL_INTEGRITY",rel);const bytes=await readFile(path);if(sha(bytes)!==descriptor.sha256)fail("STATIC_MATERIAL_INTEGRITY",rel);await put(rel,bytes);copiedSurfaceFiles.add(rel);continue;}if(knownFloorFiles.has(rel)){const descriptor=selectedFloorFiles.get(rel);if(!descriptor)continue;if(s.size!==descriptor.bytes)fail("STATIC_FLOOR_INTEGRITY",rel);const bytes=await readFile(path);if(sha(bytes)!==descriptor.sha256)fail("STATIC_FLOOR_INTEGRITY",rel);await put(rel,bytes);copiedFloorFiles.add(rel);continue;}if(rel==="static-studio.html"&&!studioDemo&&!privateEditor)continue;if(!["static.html","static-studio.html","THIRD_PARTY_NOTICES.txt","voice-pcm-worklet.js","viewer-favicon.svg"].includes(rel)&&! /^(assets|basis)\/[A-Za-z0-9_.-]+\.(js|css|wasm)$/.test(rel))fail("STATIC_RUNTIME_UNLISTED",rel);assertStaticBudget(rel,s.size,files.size);let b=await readFile(path);if(rel==="viewer-favicon.svg"&&sha(b)!=="c2d259310843e6c9f676ef8e3ecde72edf5305a94fb87afcea44b4657d558263")fail("STATIC_RUNTIME_FAVICON",rel);if(rel==="static.html"||rel==="static-studio.html"){if(b.toString().split("STATIC_INDEX_SHA256").length!==2)fail("STATIC_RUNTIME_INDEX",rel);b=Buffer.from(b.toString().replace("STATIC_INDEX_SHA256",sha(index)));if(rel==="static.html"){const artist=raw.exhibition.extensions?.["org.exhibitos.viewer/entrance"]?.artist??"";const coverWork=raw.exhibition.artworks.find(a=>a.assets.some(v=>v.id===raw.exhibition.extensions?.["org.exhibitos.viewer/entrance"]?.imageAssetId));const ratio=coverWork&&coverWork.dimensions.height>0?coverWork.dimensions.width/coverWork.dimensions.height:4/3;const shell=themeShell??staticCoverShell(raw.exhibition.title,artist,raw.exhibition.extensions?.["org.exhibitos.viewer/entrance"]?.introduction??"",Boolean(raw.exhibition.extensions?.["org.exhibitos.viewer/entrance"]?.imageAssetId),raw.exhibition.extensions?.["org.exhibitos.viewer/entrance"]?.presentation?.coverUnfold!==false,ratio);b=Buffer.from(b.toString().replace("<!--STATIC_COVER_SHELL-->",()=>shell).replace(/<title>[^<]*<\/title>/,()=>`<title>${String(raw.exhibition.title).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}</title>`));}if(rel==="static.html"&&(studioDemo||privateEditor)){if(!b.toString().includes('<div id="root">'))fail("STATIC_RUNTIME_ENTRY",rel);b=Buffer.from(b.toString().replace('<div id="root">','<nav class="cms-actions" aria-label="샘플 체험"><a href="/studio.html">직접 꾸며보기</a></nav><div id="root">'));}await put(rel==="static.html"?"index.html":"studio.html",b);}else await put(rel,b);}else fail("STATIC_RUNTIME_TYPE",rel);}}await walk(runtime);
  for(const pack of optionalPacks)for(const [path,bytes] of pack)await put(path,bytes);
  if(copiedSurfaceFiles.size!==selectedSurfaceFiles.size)fail("STATIC_MATERIAL_MISSING","surface-material-textures");
  if(copiedFloorFiles.size!==selectedFloorFiles.size)fail("STATIC_FLOOR_MISSING","floor-textures");
- if(floorPacks.length)await put("floor-texture-notices.txt",Buffer.from(floorPacks.map(floorTextureNotice).join("\n")));
+ const noticePacks=FLOOR_TEXTURE_PACKS.filter(pack=>includedFloorPacks.has(pack.id));
+ if(noticePacks.length)await put("floor-texture-notices.txt",Buffer.from(noticePacks.map(floorTextureNotice).join("\n")));
  if(!files.has("index.html"))fail("STATIC_RUNTIME_ENTRY","static.html");
  if((studioDemo||privateEditor)&&!files.has("studio.html"))fail("STATIC_RUNTIME_ENTRY","static-studio.html");
  // Recheck public status/revision immediately before publication; no draft/withdrawn snapshot is exported.
