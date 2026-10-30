@@ -1,5 +1,5 @@
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,type FurnishingAsset} from '@exhibitos/studio-contract';
-import {furnishingResourceBytes} from './furnishings.ts';
+import {furnishingResourcePair} from './furnishings.ts';
 import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
 import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
@@ -64,8 +64,7 @@ export async function admittedPublicationFurnishings(c:PoolClient,blobs:BlobStor
  if(assets.length&&!blobs)throw new ApiError(409,'FURNISHING_UNAVAILABLE');
  const result:PreparedFurnishing[]=[];
  for(const source of assets){
-  const model=await furnishingResourceBytes(c,blobs!,tenantId,exhibitionId,source,'model');
-  const notice=await furnishingResourceBytes(c,blobs!,tenantId,exhibitionId,source,'notice');
+  const {model,notice}=await furnishingResourcePair(c,blobs!,tenantId,exhibitionId,source);
   result.push({source,model,notice});
  }
  return result;
