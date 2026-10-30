@@ -1,5 +1,5 @@
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
-import {furnishingResourceBytes} from './furnishings.ts';
+import {furnishingResourcePair} from './furnishings.ts';
 import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
 import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
@@ -279,9 +279,9 @@ export class Oex {
    if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    rights.push(still.rights,source.row.rights);total+=source.bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');files.set(still.path,source.bytes);
   }
-  for(const asset of furnishingsFor(e)?.assets??[])for(const role of ['model','notice'] as const){
-   const data=await furnishingResourceBytes(c,this.blobs,s.tenantId,id,asset,role),path=role==='model'?asset.path:asset.rights.notice.path;
-   total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(path,data);
+  for(const asset of furnishingsFor(e)?.assets??[]){
+   const pair=await furnishingResourcePair(c,this.blobs,s.tenantId,id,asset);
+   for(const role of ['model','notice'] as const){const data=pair[role],path=role==='model'?asset.path:asset.rights.notice.path;total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(path,data);}
   }
   for(const resource of packageFloorResourceManifest(e)){
    const data=await floorResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);

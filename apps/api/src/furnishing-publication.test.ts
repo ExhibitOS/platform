@@ -43,13 +43,23 @@ it('rejects unsupported catalogue identity, edited rights and invalid functional
   await expect(admittedPublicationFurnishings({query} as unknown as PoolClient,emptyStore,tenantId,exhibitionId,broken)).rejects.toThrow('FURNISHING_UNAVAILABLE');expect(query).not.toHaveBeenCalled();
  }
 });
-it('keeps stored imported resources tenant scoped and fails closed on corrupt stored metadata or bytes',async()=>{
+it('keeps stored imported pairs tenant scoped and fails closed on either corrupt role',async()=>{
  const e=await fixture(),asset=furnishingsFor(e)!.assets[0]!,entry=furnishingCatalogueEntry(asset.catalogId),buffers=await prepared(e);
- for(const damage of ['tenant','metadata','bytes','missing-blob']){
-  const query=vi.fn(async(_sql:string,args:unknown[])=>{expect(args.slice(0,4)).toEqual([tenantId,exhibitionId,asset.catalogId,1]);const model=args[4]==='model';return {rows:[{resource_path:model?entry.path:entry.rights.noticePath,bytes:model?asset.bytes:asset.rights.notice.bytes,sha256:damage==='metadata'?'0'.repeat(64):model?asset.sha256:asset.rights.notice.sha256,object_key:(damage==='tenant'?randomUUID():tenantId)+'/'+args[4]}]};});
-  const get=vi.fn(async(key:string)=>{if(damage==='missing-blob')throw Error('missing');return damage==='bytes'?Buffer.from('changed'):key.endsWith('/model')?buffers[0]!.model:buffers[0]!.notice;});
+ for(const affected of ['model','notice'])for(const damage of ['tenant','metadata','bytes','missing-blob']){
+  const query=vi.fn(async(_sql:string,args:unknown[])=>{expect(args).toEqual([tenantId,exhibitionId,asset.catalogId,1]);return {rows:['model','notice'].map(role=>({role,resource_path:role==='model'?entry.path:entry.rights.noticePath,bytes:role==='model'?asset.bytes:asset.rights.notice.bytes,sha256:role===affected&&damage==='metadata'?'0'.repeat(64):role==='model'?asset.sha256:asset.rights.notice.sha256,object_key:(role===affected&&damage==='tenant'?randomUUID():tenantId)+'/'+role}))};});
+  const get=vi.fn(async(key:string)=>{const affectedKey=key.endsWith('/'+affected);if(affectedKey&&damage==='missing-blob')throw Error('missing');return affectedKey&&damage==='bytes'?Buffer.from('changed'):key.endsWith('/model')?buffers[0]!.model:buffers[0]!.notice;});
   await expect(admittedPublicationFurnishings({query} as unknown as PoolClient,{get} as unknown as BlobStore,tenantId,exhibitionId,e)).rejects.toThrow();
  }
+});
+it('rejects a persisted half-pair instead of mixing imported and installed resources',async()=>{
+ const e=await fixture(),asset=furnishingsFor(e)!.assets[0]!,entry=furnishingCatalogueEntry(asset.catalogId),buffers=await prepared(e);
+ const rows=['model','notice'].map(role=>({role,resource_path:role==='model'?entry.path:entry.rights.noticePath,bytes:role==='model'?asset.bytes:asset.rights.notice.bytes,sha256:role==='model'?asset.sha256:asset.rights.notice.sha256,object_key:tenantId+'/'+role}));
+ for(const partial of [[rows[0]],[rows[1]],[rows[0],rows[0]]]){
+  const query=vi.fn(async()=>({rows:partial})),get=vi.fn();
+  await expect(admittedPublicationFurnishings({query} as unknown as PoolClient,{get} as unknown as BlobStore,tenantId,exhibitionId,e)).rejects.toMatchObject({code:'FURNISHING_INTEGRITY'});expect(get).not.toHaveBeenCalled();
+ }
+ const query=vi.fn(async()=>({rows})),get=vi.fn(async(key:string)=>key.endsWith('/model')?buffers[0]!.model:buffers[0]!.notice);
+ expect(await admittedPublicationFurnishings({query} as unknown as PoolClient,{get} as unknown as BlobStore,tenantId,exhibitionId,e)).toEqual(buffers);expect(get).toHaveBeenCalledTimes(2);
 });
 async function publicFixture(){
  const source=await fixture(),admitted=await prepared(source),snapshot=projectPublication(source,[],new Date().toISOString(),[],undefined,admitted).snapshot;
