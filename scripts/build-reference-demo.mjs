@@ -36,6 +36,8 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
   if(url.pathname===base)return Response.json(await source.anonymous(pinned.publicationId));
   const resource=url.pathname.match(new RegExp(`^${base}/resources/([a-f0-9]{64})$`));
   if(resource){const item=await source.resource(pinned.publicationId,resource[1]);return new Response(item.bytes,{headers:{'content-type':item.mime,'x-exhibitos-publication-revision':item.revisionSha256}});}
+  const notice=url.pathname.match(new RegExp(`^${base}/furnishing-notices/([a-f0-9-]{36})$`));
+  if(notice){const item=await source.furnishingNotice(pinned.publicationId,notice[1]);return new Response(item.bytes,{headers:{'content-type':item.mime,'x-exhibitos-publication-revision':item.revisionSha256}});}
   const match=url.pathname.match(new RegExp(`^${base}/assets/([a-f0-9-]{36})$`));
   if(!match)throw Error('DEMO_EXPORT_PATH');
   const asset=await source.asset(pinned.publicationId,match[1]);

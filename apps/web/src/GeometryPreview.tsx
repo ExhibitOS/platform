@@ -410,7 +410,8 @@ export function GeometryPreview({
       const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
       if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
       const beforeBench=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
-      const benchSource=catalogBenchSource(document,publicSource,privateCatalogue);
+      const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
+      const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
       const benchReserve=benchSource&&beforeBench>BENCH_RESERVE_BYTES?BENCH_RESERVE_BYTES:0;
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve);
       const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
