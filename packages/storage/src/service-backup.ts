@@ -241,7 +241,9 @@ async function observeInventory(options:InventoryObservationOptions,candidateSys
 /** Operator-only prerequisite for additive migrations. Trusted artifact inspection
  * must supply the target schema/migrations; this function does not authenticate
  * an artifact or authorize activation. Existing rows, sequence state, objects and
- * references must remain byte-identical. Column/data transformations are refused.
+ * references must remain byte-identical. Column/data transformations are refused,
+ * except the exact 025→026 OEX catalog below: its two added columns must be NULL
+ * and every original column is independently hashed inside each fenced pass.
  * New tables may exist; their content is not attested as migration-authored data.
  * Configuration, runtime health and recoverability require separate proofs. */
 export async function verifyMigratedInventory(options:InventoryObservationOptions&{
@@ -262,7 +264,24 @@ export async function verifyMigratedInventory(options:InventoryObservationOption
  const uniqueTables=(v:ServiceInventory)=>new Set(v.tables.map(t=>t.name)).size===v.tables.length;
  const sourceLog=manifest.inventory.tables.find(t=>t.name==='schema_migrations');
  if(!uniqueTables(manifest.inventory)||!sourceLog||sourceLog.rowCount!==manifest.inventory.migrations.length)throw Error('MIGRATION_SOURCE_INVALID');
+ // This is not a caller-defined list of columns to ignore. Both complete SQL
+ // catalogs are pinned; changing SQL, adding another migration, or downgrading
+ // keeps the ordinary exact-row comparison. The target schema pin remains an
+ // independent trusted artifact input, checked against the observed catalog.
+ const oexNullColumns=sha(inventoryCanonical(manifest.inventory.migrations))==='52a1b41841acb76d86b34cf6ad1391cef1229cecdbd1b877390ed15c098cbd55'
+  &&sha(inventoryCanonical(targetMigrations))==='42c94d4d57a41c34ca1697ce8bd68347ef0a0b07de7c3b3c5b4a24a2e1c57358';
+ const sourceJobs=manifest.inventory.tables.find(t=>t.name==='oex_import_jobs');
+ if(oexNullColumns&&!sourceJobs)throw Error('MIGRATION_SOURCE_INVALID');
  const c=await options.pool.connect();let locked=false,transaction=false,broken=false;
+ const originalJobs=async()=>{
+  if((await c.query('SELECT 1 FROM public.oex_import_jobs WHERE archive_profile IS NOT NULL OR oex_format IS NOT NULL LIMIT 1')).rows.length)throw Error('MIGRATION_DATA_MISMATCH');
+  await c.query("SET LOCAL TimeZone='UTC'");await c.query("SET LOCAL DateStyle='ISO, YMD'");await c.query('SET LOCAL extra_float_digits=3');
+  const cursor='migration_oex_'+randomUUID().replaceAll('-',''),hash=createHash('sha256');let rowCount=0;
+  const projection="(to_jsonb(t) - 'archive_profile' - 'oex_format')::text";
+  await c.query(`DECLARE "${cursor}" NO SCROLL CURSOR FOR SELECT ${projection} AS raw FROM public.oex_import_jobs t ORDER BY ${projection} COLLATE "C"`);
+  try{for(;;){const batch=await c.query(`FETCH 1000 FROM "${cursor}"`);if(!batch.rows.length)break;for(const row of batch.rows){if(typeof row.raw!=='string'||++rowCount>sourceJobs!.rowCount)throw Error('MIGRATION_DATA_MISMATCH');hash.update(row.raw+'\n');}}}finally{await c.query(`CLOSE "${cursor}"`);}
+  if(rowCount!==sourceJobs!.rowCount||hash.digest('hex')!==sourceJobs!.sha256)throw Error('MIGRATION_DATA_MISMATCH');
+ };
  const history=async()=>{
   // Hash only the original log rows, including applied_at. Never drop this table
   // from preservation checks just because new migration rows are expected.
@@ -281,7 +300,8 @@ export async function verifyMigratedInventory(options:InventoryObservationOption
    if(current.systemIdentifier!==candidate||current.database!==manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
    const actual=await options.snapshot(c);validateInventory(actual);
    if(!uniqueTables(actual)||schemaHash(actual)!==targetSchemaSha256||inventoryCanonical(actual.migrations)!==inventoryCanonical(targetMigrations))throw Error('MIGRATION_SCHEMA_MISMATCH');
-   for(const table of manifest.inventory.tables){if(table.name==='schema_migrations')continue;const found=actual.tables.find(t=>t.name===table.name);if(!found||inventoryCanonical(found)!==inventoryCanonical(table))throw Error('MIGRATION_DATA_MISMATCH');}
+   if(oexNullColumns&&inventoryCanonical(actual.tables.map(t=>t.name).sort())!==inventoryCanonical(manifest.inventory.tables.map(t=>t.name).sort()))throw Error('MIGRATION_DATA_MISMATCH');
+   for(const table of manifest.inventory.tables){if(table.name==='schema_migrations')continue;const found=actual.tables.find(t=>t.name===table.name);if(!found)throw Error('MIGRATION_DATA_MISMATCH');if(oexNullColumns&&table.name==='oex_import_jobs'){if(found.rowCount!==table.rowCount)throw Error('MIGRATION_DATA_MISMATCH');await originalJobs();}else if(inventoryCanonical(found)!==inventoryCanonical(table))throw Error('MIGRATION_DATA_MISMATCH');}
    if(inventoryCanonical(actual.objects)!==inventoryCanonical(manifest.inventory.objects)||inventoryCanonical(actual.references)!==inventoryCanonical(manifest.inventory.references))throw Error('MIGRATION_DATA_MISMATCH');
    const log=actual.tables.find(t=>t.name==='schema_migrations');if(!log||log.rowCount!==targetMigrations.length)throw Error('MIGRATION_HISTORY_MISMATCH');
    await history();const observed=comparable(actual);
