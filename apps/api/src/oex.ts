@@ -1,3 +1,5 @@
+import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
+import {furnishingResourceBytes} from './furnishings.ts';
 import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
 import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
@@ -29,7 +31,7 @@ import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {transaction,sha256,type BlobStore} from '@exhibitos/storage';
-import {writeOex,validateExhibition,validateFurnishingInventory,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
+import {writeOex,validateExhibition,validateFurnishingInventory,packageFurnishingAssetManifest,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
 import {SPACE_STILL_NAMESPACE,spaceStillFor} from '@exhibitos/spec/space-still';
 import {CoverImages,coverImageAsset,validateCoverImage} from './cover-images.ts';
 import {DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,curationDurationValid,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails,creationYearFor} from '@exhibitos/studio-contract';
@@ -108,13 +110,13 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  }
 
 
- if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateLightAttachments(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(!validateFurnishings(e).valid||e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateLightAttachments(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,LIGHT_ATTACHMENT_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[FURNISHING_NAMESPACE,DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,LIGHT_ATTACHMENT_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -123,11 +125,27 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  for(const a of e.artworks){qualifyDemoDisplay(a);if(!validRights(a.rights)||a.assets.length>8||a.assets.some(x=>!['image/png','model/gltf-binary'].includes(x.mime)||x.bytes>MAX_UPLOAD))throw new ApiError(422,'OEX_PROFILE_INVALID');}
  for(const m of e.mediaAssets)if(m.mime!=='audio/wav'||!validRights(m.rights))throw new ApiError(422,'OEX_PROFILE_INVALID');
 }
+/** Verify the complete selected catalogue pair before staging any import blob.
+ * Compiled catalogue hashes qualify the exact GLBs; package paths grant no new
+ * source, host or licence authority. No partial pair is returned. */
+export function checkedOexFurnishingFiles(e:Exhibition,files:ReadonlyMap<string,Buffer>):Map<string,Buffer>{
+ if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ const selected=new Map<string,Buffer>();
+ for(const descriptor of [...packageFurnishingAssetManifest(e),...packageFurnishingNoticeManifest(e)]){
+  const bytes=files.get(descriptor.path);
+  if(!bytes||bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256||selected.has(descriptor.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');
+  selected.set(descriptor.artifactPath,bytes);
+ }
+ return selected;
+}
 /** Only typed UUID fields and material surface keys are rewritten. UUID-shaped human prose is untouched. */
 export function remapOex(e:Exhibition){
+ if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ const furniture=furnishingsFor(e);
  const ids=new Map<string,string>();
  const collect=(v:unknown)=>{if(Array.isArray(v))for(const x of v)collect(x);else if(object(v))for(const[k,x]of Object.entries(v)){if((k==='id'||k==='revisionId')&&typeof x==='string'){uuid(x);if(!ids.has(x.toLowerCase()))ids.set(x.toLowerCase(),randomUUID());}else if(k!=='extensions')collect(x);}};
  collect(e);
+ for(const asset of furniture?.assets??[])if(!ids.has(asset.id.toLowerCase()))ids.set(asset.id.toLowerCase(),randomUUID());
  const still=spaceStillFor(e);if(still&&!ids.has(still.id.toLowerCase()))ids.set(still.id.toLowerCase(),randomUUID());
  const finishes=e.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
  const plaques=e.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;
@@ -144,7 +162,7 @@ export function remapOex(e:Exhibition){
  const lightDetails=source.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
  const attachments=source.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
- if(source.extensions){delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ if(source.extensions){delete source.extensions[FURNISHING_NAMESPACE];delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
  const exhibition=visit(source)as Exhibition;
  if(materials)exhibition.extensions={...exhibition.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(floors)exhibition.extensions={...exhibition.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -156,6 +174,8 @@ export function remapOex(e:Exhibition){
  if(benches)exhibition.extensions={...exhibition.extensions,[BENCH_NAMESPACE]:remapStudioBenches(benches,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(installation)exhibition.extensions={...exhibition.extensions,[INSTALLATION_NAMESPACE]:remapStudioInstallation(installation,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(spatial)exhibition.extensions={...exhibition.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,id=>ids.get(id.toLowerCase())??id) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ if(furniture)exhibition.extensions={...exhibition.extensions,[FURNISHING_NAMESPACE]:remapFurnishings(furniture,ids) as unknown as NonNullable<Exhibition['extensions']>[string]};
+ if(!validateFurnishings(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
  const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
  const assetAliases:{sourceAssetId:string;sourceArtworkRevisionId:string;destinationArtworkId:string;destinationArtworkRevisionId:string;destinationAssetId:string;sourceArtifactPath:string;destinationArtifactPath:string}[]=[];
  const scoped=new Map<string,Map<string,string>>();
@@ -258,6 +278,10 @@ export class Oex {
    const source=await new CoverImages(this.blobs).approvedBytes(c,s,id,still.id,'export');
    if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    rights.push(still.rights,source.row.rights);total+=source.bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');files.set(still.path,source.bytes);
+  }
+  for(const asset of furnishingsFor(e)?.assets??[])for(const role of ['model','notice'] as const){
+   const data=await furnishingResourceBytes(c,this.blobs,s.tenantId,id,asset,role),path=role==='model'?asset.path:asset.rights.notice.path;
+   total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(path,data);
   }
   for(const resource of packageFloorResourceManifest(e)){
    const data=await floorResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
@@ -389,12 +413,19 @@ export class Oex {
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
    for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
+   for(const [path,bytes] of checkedOexFurnishingFiles(parsed.exhibition,parsed.files)){if(qualified.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');qualified.set(path,bytes);}
    const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
    for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
    for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
    for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
    const mappedStill=spaceStillFor(e);if(mappedStill){keys.set(mappedStill.path,sourceKeys.get(mappedStill.path)!);restoredBytes.set(mappedStill.path,qualified.get(mappedStill.path)!);}
    for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){keys.set(resource.artifactPath,sourceKeys.get(resource.artifactPath)!);restoredBytes.set(resource.artifactPath,qualified.get(resource.artifactPath)!);}
+   for(const source of furnishingsFor(parsed.exhibition)?.assets??[]){
+    const mapped=furnishingsFor(e)!.assets.find(asset=>asset.id===idMap[source.id.toLowerCase()]);if(!mapped)throw new ApiError(422,'OEX_PROFILE_INVALID');
+    for(const [before,after] of [[source.path,mapped.path],[source.rights.notice.path,mapped.rights.notice.path]]){
+     const key=sourceKeys.get(before!),bytes=qualified.get(before!);if(!key||!bytes)throw new ApiError(422,'ASSET_INTEGRITY');keys.set(after!,key);restoredBytes.set(after!,bytes);
+    }
+   }
    const storedBytes=new Map([...sourceKeys].map(([path,key])=>[key,qualified.get(path)!]));
    // Commit the cleanup inventory before any destination byte write, including process death.
    const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...storedBytes.keys()])])).rowCount;});
@@ -436,6 +467,14 @@ export class Oex {
      if(!stillKey)throw new ApiError(422,'ASSET_INTEGRITY');
      await c.query("INSERT INTO studio_cover_images(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'image/png',$9,$10,'approved')",[s.tenantId,e.id,still.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(still)))),still.sha256,still.bytes,still.rights,stillKey]);
      await c.query('INSERT INTO cover_image_approvals(tenant_id,image_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,still.id,still,s.userId]);
+    }
+    for(const asset of furnishingsFor(e)?.assets??[]){
+     const entry=furnishingCatalogueEntry(asset.catalogId);
+     for(const role of ['model','notice'] as const){
+      const descriptor=role==='model'?{path:asset.path,resourcePath:entry.path,bytes:asset.bytes,sha256:asset.sha256}:{path:asset.rights.notice.path,resourcePath:entry.rights.noticePath,bytes:asset.rights.notice.bytes,sha256:asset.rights.notice.sha256};
+      const key=keys.get(descriptor.path);if(!key)throw new ApiError(422,'ASSET_INTEGRITY');
+      await c.query('INSERT INTO studio_furnishing_resources(tenant_id,exhibition_id,catalog_id,catalog_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,asset.catalogId,asset.catalogVersion,role,descriptor.resourcePath,descriptor.sha256,descriptor.bytes,key]);
+     }
     }
     for(const resource of parsed.floorResources){
      await c.query('INSERT INTO studio_floor_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
