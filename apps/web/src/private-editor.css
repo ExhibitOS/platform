@@ -65,3 +65,10 @@
 .private-art-dock button>span { display:block; width:100%; max-width:100%; overflow-wrap:anywhere; }
 .private-inspector select { width:100%; min-height:2.75rem; font:inherit; }
 .private-scene .geometry-controls>summary { min-height:2.75rem; align-content:center; cursor:pointer; }
+
+.private-room-controls { margin-top:1.25rem; padding-top:1rem; border-top:1px solid #89998f; }
+.private-room-controls h3 { font-size:1rem; margin:1.1rem 0 .65rem; }
+.private-room-controls output { display:block; font-size:.85rem; margin-bottom:.65rem; font-variant-numeric:tabular-nums; }
+.private-room-controls .private-selection-actions { margin:.65rem 0; }
+
+@media(min-width:761px){.private-inspector{max-height:calc(100dvh - 10rem);overflow-y:auto;overscroll-behavior:contain}}

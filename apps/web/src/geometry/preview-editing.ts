@@ -23,7 +23,7 @@ export function installPreviewEditing({scene,camera,renderer,model,targets,orbit
   if(lastVisual&&(!target||lastVisual!==target)&&!active){const old=lastVisual.userData.editorSelection as EditorSelection|undefined;if(old)try{visual(lastVisual,b.document,old);previewDocument?.(b.document,old);}catch{/* removed target */}}
   if(target&&!active&&b.selection){let doc=b.document;try{if(b.preview)doc=applyGeometryCommand(createGeometryState(doc),b.preview).present;visual(target,doc,b.selection);previewDocument?.(doc,b.selection);lastVisual=target;}catch(error){report(error);}}
   const freePose=(()=>{try{return !b.selection||!alignedWall(b.document,b.selection);}catch{return false;}})(),rotateAllowed=b.selection?.kind!=='opening'&&freePose;
-  if(target&&!b.disabled&&b.mode!=='dimensions'&&(b.mode!=='rotate'||rotateAllowed)){if(control.object!==target)control.attach(target);if(control.mode!==b.mode)control.setMode(b.mode);control.setSpace('local');control.showZ=b.selection?.kind!=='opening'&&freePose;}
+  if(target&&!b.disabled&&b.mode!=='dimensions'&&(b.mode!=='rotate'||rotateAllowed)){if(control.object!==target)control.attach(target);if(control.mode!==b.mode)control.setMode(b.mode);control.setSpace('local');const upright=!!b.uprightRooms&&b.selection?.kind==='room'&&b.mode==='rotate';control.showX=!upright;control.showY=true;control.showZ=!upright&&b.selection?.kind!=='opening'&&freePose;}
   else control.detach();
   if(key!==highlightKey){clearHighlight();highlightKey=key;if(target){highlight=new BoxHelper(target,0x007f75);scene.add(highlight);}}
   highlight?.update();render();

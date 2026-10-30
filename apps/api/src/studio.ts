@@ -2,7 +2,7 @@ import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
-import {validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {validateStudioInstallation} from '@exhibitos/studio-contract';
@@ -53,7 +53,7 @@ function checked(input: StudioInput) {
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
     !validateArchitecturalFinishes(input.draft.candidate).valid || !validateStudioPlaques(input.draft.candidate).valid || !validateStudioBenches(input.draft.candidate).valid || !validateViewingPlan(input.draft.candidate).valid ||
-    !validateStudioLightDetails(input.draft.candidate).valid ||
+    !validateStudioLightDetails(input.draft.candidate).valid || !validateLightAttachments(input.draft.candidate).valid ||
     !validateStudioInstallation(input.draft.candidate).valid ||
     !validateStudioFloors(input.draft.candidate).valid ||
     !validateViewerEntrance(input.draft.candidate).valid ||
@@ -115,7 +115,7 @@ export class Studio {
       !validateStudioFloors(row.metadata.candidate).valid ||
       !validateStudioPresentation(row.metadata.candidate).valid ||
       !validateArchitecturalFinishes(row.metadata.candidate).valid || !validateStudioPlaques(row.metadata.candidate).valid || !validateStudioBenches(row.metadata.candidate).valid || !validateViewingPlan(row.metadata.candidate).valid ||
-      !validateStudioLightDetails(row.metadata.candidate).valid ||
+      !validateStudioLightDetails(row.metadata.candidate).valid || !validateLightAttachments(row.metadata.candidate).valid ||
       !validateViewerEntrance(row.metadata.candidate).valid ||
       !validateSpatialProfile(row.metadata.candidate).valid || !validateViewerCuration(row.metadata.candidate).valid || !validateViewerExperience(row.metadata.candidate).valid ||
       row.metadata.candidate.artworks.some((a:unknown)=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid)

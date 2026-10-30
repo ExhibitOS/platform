@@ -147,7 +147,7 @@ export function GeometryPreview({
   onEntranceSceneReady?:(preview:EntranceScenePreview|null)=>void;
   placementPreview?: PlacementPreviewInstaller;
   placementPreviewVersion?: number;
-  cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
+  cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right"|"ceiling";sequence:number};
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
@@ -774,6 +774,10 @@ export function GeometryPreview({
           );
           authoredFov = savedCamera.fov;
           applyProjection();
+        } else if(kind==='ceiling'){
+          const selection=selectionRef.current,roomId=selection?.kind==='room'?selection.id:selection?.kind==='surface'?document.surfaces.find(s=>s.id===selection.id)?.roomId:undefined;
+          const room=document.rooms.find(r=>r.id===roomId)??document.rooms[0],owner=room&&rooms.get(room.id.toLowerCase());
+          if(room&&owner){camera.position.copy(owner.localToWorld(new three.Vector3(0,Math.min(1.65,room.dimensions.height*.5),room.dimensions.depth*.3)));controls.target.copy(owner.localToWorld(new three.Vector3(0,room.dimensions.height-.01,0)));camera.near=.01;authoredFov=60;applyProjection();}
         } else if (kind === "front" && selectionRef.current) {
           const selection=selectionRef.current;
           const surfaceId =
