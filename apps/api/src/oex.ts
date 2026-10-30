@@ -101,7 +101,12 @@ async function checkAssetBytes(artwork:Exhibition['artworks'][number],assetId:st
  else await decode(bytes,mime);
 }
 export interface OexInput {requestId:string;bytes:number;sha256:string}
-interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean}
+interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean;archive_profile?:string|null;oex_format?:string|null}
+// The legacy worker never consumes or mutates a later profile. JSON projection
+// keeps the same predicate valid on schemas both before and after migration 026.
+const legacyJobSql="(to_jsonb(oex_import_jobs)->>'archive_profile') IS NULL AND (to_jsonb(oex_import_jobs)->>'oex_format') IS NULL AND expected_bytes<=67108864";
+function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==null&&Number.isSafeInteger(row.expected_bytes)&&row.expected_bytes>0&&row.expected_bytes<=MAX_OEX_UPLOAD;}
+function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
 /** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
 export function checkOexProfile(e:Exhibition,privateBindings=false){
  for(const[namespace,licenseId]of Object.entries(LEGAL_NOTICES))if(e.extensions&&Object.hasOwn(e.extensions,namespace)){
@@ -220,17 +225,17 @@ export class Oex {
   this.role(s);uuid(input.requestId);if(!Number.isSafeInteger(input.bytes)||input.bytes<1||input.bytes>MAX_OEX_UPLOAD||!/^[a-f0-9]{64}$/.test(input.sha256))throw new ApiError(400,'INVALID_INPUT');
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:oex-quota`]);
   const prior=(await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3',[s.tenantId,s.userId,input.requestId])).rows[0];
-  if(prior){if(prior.payload_sha256!==input.sha256||prior.expected_bytes!==input.bytes)throw new ApiError(409,'REQUEST_CONFLICT');return this.view(prior);}
+  if(prior){requireLegacyJob(prior);if(prior.payload_sha256!==input.sha256||prior.expected_bytes!==input.bytes)throw new ApiError(409,'REQUEST_CONFLICT');return this.view(prior);}
   const quota=(await c.query("SELECT count(*) AS count,coalesce(sum(expected_bytes),0) AS bytes FROM oex_import_jobs WHERE tenant_id=$1 AND (state IN ('uploading','queued','processing','failed') OR cleanup_pending)",[s.tenantId])).rows[0];
   if(Number(quota.count)>=16||Number(quota.bytes)+input.bytes>512*1024*1024)throw new ApiError(409,'OEX_JOB_LIMIT');
   const id=randomUUID(),keys=Array.from({length:Math.ceil(input.bytes/CHUNK)},(_,i)=>`${s.tenantId}/oex-staging/${id}/chunk-${i}`);
   const r=(await c.query('INSERT INTO oex_import_jobs(tenant_id,id,user_id,request_id,payload_sha256,expected_bytes,staging_keys) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[s.tenantId,id,s.userId,input.requestId,input.sha256,input.bytes,JSON.stringify(keys)])).rows[0];return this.view(r);
  }
- async upload(c:PoolClient,s:Session,id:string,bytes:Buffer){const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.payload_sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');for(const[k,key]of row.staging_keys.entries())await this.blobs.put(key,bytes.subarray(k*CHUNK,(k+1)*CHUNK));return {received:bytes.length};}
+ async upload(c:PoolClient,s:Session,id:string,bytes:Buffer){const row=await this.access(c,s,id);requireLegacyJob(row);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.payload_sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');for(const[k,key]of row.staging_keys.entries())await this.blobs.put(key,bytes.subarray(k*CHUNK,(k+1)*CHUNK));return {received:bytes.length};}
  private async uploaded(row:Job){const chunks=[];for(const key of row.staging_keys)chunks.push(Buffer.from(await this.blobs.get(key)));const bytes=Buffer.concat(chunks);if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.payload_sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');return bytes;}
- async complete(c:PoolClient,s:Session,id:string){const row=await this.access(c,s,id);if(['queued','processing','complete'].includes(row.state))return this.view(row);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');try{await this.uploaded(row);}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}return this.view((await c.query("UPDATE oex_import_jobs SET state='queued',updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id])).rows[0]);}
+ async complete(c:PoolClient,s:Session,id:string){const row=await this.access(c,s,id);requireLegacyJob(row);if(['queued','processing','complete'].includes(row.state))return this.view(row);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');try{await this.uploaded(row);}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}return this.view((await c.query("UPDATE oex_import_jobs SET state='queued',updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id])).rows[0]);}
  async action(c:PoolClient,s:Session,id:string,action:'cancel'|'retry'){
-  const row=await this.access(c,s,id);if(row.state==='complete')throw new ApiError(409,'JOB_STATE');
+  const row=await this.access(c,s,id);requireLegacyJob(row);if(row.state==='complete')throw new ApiError(409,'JOB_STATE');
   if(action==='retry'){if(row.state!=='failed'||row.attempts>=5)throw new ApiError(409,'JOB_STATE');await c.query("UPDATE oex_import_jobs SET state='queued',error_code=NULL,lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);}
   else {await c.query("UPDATE oex_import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);}
   return this.view((await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);
@@ -382,21 +387,21 @@ export class Oex {
  async cleanup(id:string){
   return transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   const r=(await c.query("SELECT * FROM oex_import_jobs WHERE id=$1 AND state IN ('failed','cancelled','complete') AND cleanup_pending FOR UPDATE",[id])).rows[0]as Job|undefined;if(!r)return false;
+   const r=(await c.query(`SELECT * FROM oex_import_jobs WHERE id=$1 AND state IN ('failed','cancelled','complete') AND cleanup_pending AND ${legacyJobSql} FOR UPDATE`,[id])).rows[0]as Job|undefined;if(!r||!legacyJob(r))return false;
    const keys=[...(r.state==='complete'?[]:r.cleanup_keys),...(['complete','cancelled'].includes(r.state)?r.staging_keys:[])];
    let failed=false;for(const key of keys){if(!key.startsWith(`${r.tenant_id}/oex-staging/${r.id}/`)&&!key.startsWith(`${r.tenant_id}/oex-import/${r.id}/`))throw new ApiError(409,'CLEANUP_SCOPE_INVALID');try{await this.remove(key);}catch{failed=true;}}
    await c.query('UPDATE oex_import_jobs SET cleanup_pending=$3,cleanup_keys=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,failed,JSON.stringify(failed?r.cleanup_keys:[])]);return true;
   });
  }
  async runNext(){
-  const clean=(await this.pool.query("SELECT id FROM oex_import_jobs WHERE cleanup_pending AND state IN ('failed','cancelled','complete') ORDER BY updated_at LIMIT 1")).rows[0];if(clean)await this.cleanup(clean.id);
-  const row=(await this.pool.query("SELECT id FROM oex_import_jobs WHERE state='queued' OR state='processing' AND lease_until<clock_timestamp() ORDER BY created_at LIMIT 1")).rows[0];if(!row)return false;return this.run(row.id);
+  const clean=(await this.pool.query(`SELECT id FROM oex_import_jobs WHERE cleanup_pending AND state IN ('failed','cancelled','complete') AND ${legacyJobSql} ORDER BY updated_at LIMIT 1`)).rows[0];if(clean)await this.cleanup(clean.id);
+  const row=(await this.pool.query(`SELECT id FROM oex_import_jobs WHERE (state='queued' OR state='processing' AND lease_until<clock_timestamp()) AND ${legacyJobSql} ORDER BY created_at LIMIT 1`)).rows[0];if(!row)return false;return this.run(row.id);
  }
  async run(id:string){
   uuid(id);const lease=randomUUID();
   const row=await transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   const r=(await c.query("SELECT * FROM oex_import_jobs WHERE id=$1 AND (state='queued' OR state='processing' AND lease_until<clock_timestamp()) FOR UPDATE SKIP LOCKED",[id])).rows[0]as Job|undefined;if(!r)return null;
+   const r=(await c.query(`SELECT * FROM oex_import_jobs WHERE id=$1 AND (state='queued' OR state='processing' AND lease_until<clock_timestamp()) AND ${legacyJobSql} FOR UPDATE SKIP LOCKED`,[id])).rows[0]as Job|undefined;if(!r||!legacyJob(r))return null;
    if(r.attempts>=5){await c.query("UPDATE oex_import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',cleanup_pending=true,lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2",[r.tenant_id,id]);return null;}
    // Remove previous attempt's exclusively owned disposable keys before another attempt.
    for(const key of r.cleanup_keys){if(!key.startsWith(`${r.tenant_id}/oex-import/${id}/`))throw new ApiError(409,'CLEANUP_SCOPE_INVALID');try{await this.remove(key);}catch{await c.query("UPDATE oex_import_jobs SET state='failed',error_code='CLEANUP_PENDING',cleanup_pending=true,lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2",[r.tenant_id,id]);return null;}}
