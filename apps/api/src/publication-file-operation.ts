@@ -5,7 +5,7 @@ import {realpath,lstat} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
 import type {Session} from './auth.ts';
 import {PublicationDiskBudget,type DiskReservationBinding,type DiskPlan} from './publication-disk-budget.ts';
-import {PublicationAttempts,publicationDiskOwner,type PublicationAttempt} from './publication-attempt.ts';
+import {PublicationAttempts,publicationDiskOwner,isPublicationFileStore,type PublicationAttempt} from './publication-attempt.ts';
 import {PublicationByteStage} from './publication-byte-stage.ts';
 
 export interface PublicationOperationRequest {
@@ -41,7 +41,7 @@ export class PublicationFileOperation {
   // Snapshot configuration values before any await; service-owned instances
   // are shared with OEX, never replaced by a parallel coordinator namespace.
   config={...config,additionalDiskPlan:config.additionalDiskPlan?.map(p=>({...p}))};
-  if(!(config.coordinator instanceof PublicationDiskBudget)||!(config.journal instanceof PublicationAttempts)||!(config.blobs instanceof FileBlobStore))throw Error('PUBLICATION_FILE_CONFIG');
+  if(!(config.coordinator instanceof PublicationDiskBudget)||!(config.journal instanceof PublicationAttempts)||!isPublicationFileStore(config.blobs))throw Error('PUBLICATION_FILE_CONFIG');
   const scratch=config.scratchRoot,s=await lstat(scratch);
   if(!isAbsolute(scratch)||await realpath(scratch)!==scratch||!s.isDirectory()||s.isSymbolicLink()||(s.mode&0o077)!==0||s.uid!==process.getuid?.())throw Error('PUBLICATION_STAGE_ROOT');
   const owner=await publicationDiskOwner(c,config.blobs.root),plan=[{root:scratch,bytes:536870912},{root:owner.storeRoot,bytes:1073741824},...config.additionalDiskPlan??[]];
@@ -55,22 +55,28 @@ export class PublicationFileOperation {
  /** Independent copies for durable service receipts; mutation cannot alter
   * the private live authority used by subsequent claims and final fences. */
  receipt(){return JSON.parse(canonical({request:this.request,reservation:this.binding})) as {request:PublicationOperationRequest;reservation:DiskReservationBinding};}
+ assertClaimed(){if(this.state!=='claimed')throw Error('PUBLICATION_FILE_STATE');}
  async verify(c:PoolClient,s:Session,blobs:BlobStore|undefined,kind:PublicationOperationRequest['kind'],exhibitionId:string,etag:string,requestId?:string){
   if(this.state==='terminal'||c!==this.c||blobs!==this.config.blobs||kind!==this.request.kind||s.tenantId!==this.request.tenantId||s.userId!==this.request.userId||exhibitionId!==this.request.exhibitionId||etag!==this.request.etag||kind==='publish'&&requestId!==this.request.requestId)throw Error('PUBLICATION_FILE_BINDING');
-  if(canonical(await publicationDiskOwner(c,this.config.blobs.root))!==canonical(this.binding.owner))throw Error('PUBLICATION_FILE_BINDING');
+  const state=this.state;
+  if(!isPublicationFileStore(blobs)||canonical(await publicationDiskOwner(c,this.config.blobs.root))!==canonical(this.binding.owner))throw Error('PUBLICATION_FILE_BINDING');
+  if(this.state!==state)throw Error('PUBLICATION_FILE_STATE');
   await this.config.coordinator.verifyActive(this.binding);
+  if(this.state!==state)throw Error('PUBLICATION_FILE_STATE');
  }
  async claim(c:PoolClient,s:Session,blobs:BlobStore|undefined,kind:PublicationOperationRequest['kind'],exhibitionId:string,etag:string,requestId?:string){
   if(this.state!=='admitted')throw Error('PUBLICATION_FILE_STATE');
   // Seal against two concurrent claim callers before the first await.
-  this.state='claimed';try{await this.verify(c,s,blobs,kind,exhibitionId,etag,requestId);return this.stage;}catch(error){try{await this.close();}catch(cleanup){throw new AggregateError([error,cleanup],'PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanup});}throw error;}
+  this.state='claimed';try{await this.verify(c,s,blobs,kind,exhibitionId,etag,requestId);this.assertClaimed();return this.stage;}catch(error){try{await this.close();}catch(cleanup){throw new AggregateError([error,cleanup],'PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanup});}throw error;}
  }
  async manifest(publicationId:string,snapshotHash:string,objects:PublicationAttempt['objects']){
   if(this.state!=='claimed'||this.request.kind!=='publish'||this.journalStarted)throw Error('PUBLICATION_FILE_STATE');this.journalStarted=true;
   objects=JSON.parse(canonical(objects)) as PublicationAttempt['objects'];
   await this.config.coordinator.verifyActive(this.binding);
+  this.assertClaimed();
   const r=this.request;
   await this.config.journal.create({version:1,attemptId:r.attemptId,generation:this.binding.generation,runtimeGeneration:r.runtimeGeneration,owner:this.binding.owner,tenantId:r.tenantId,userId:r.userId,requestId:r.requestId,exhibitionId:r.exhibitionId,etag:r.etag,payloadHash:sha256(Buffer.from(JSON.stringify({id:r.exhibitionId,requestId:r.requestId,match:r.etag}))),publicationId,snapshotHash,objects});
+  this.assertClaimed();
  }
  /** Only local stage closure is proven. Caller must independently establish
   * parent DB outcome, irreversible service terminal state and real child drain

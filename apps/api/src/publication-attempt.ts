@@ -18,6 +18,13 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const hash=/^[0-9a-f]{64}$/;
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 const LIMIT=262144;
+const filePrototype=FileBlobStore.prototype;
+const fileMethods=new Map(Object.getOwnPropertyNames(filePrototype).map(name=>[name,Object.getOwnPropertyDescriptor(filePrototype,name)?.value as unknown]));
+/** Recovery/admission only support the actual unwrapped immutable local store,
+ * including its private path checks; subclasses/instance overrides fail closed. */
+export function isPublicationFileStore(value:unknown):value is FileBlobStore{
+ return value instanceof FileBlobStore&&Object.getPrototypeOf(value)===filePrototype&&Object.getOwnPropertyNames(value).every(name=>name==='root')&&Object.getOwnPropertyNames(filePrototype).length===fileMethods.size&&[...fileMethods].every(([name,method])=>Object.getOwnPropertyDescriptor(filePrototype,name)?.value===method);
+}
 function validate(a:PublicationAttempt){
  if(!a||Object.keys(a).filter(k=>k!=='runtimeGeneration').sort().join(',')!=='attemptId,etag,exhibitionId,generation,objects,owner,payloadHash,publicationId,requestId,snapshotHash,tenantId,userId,version'||a.version!==1||![a.attemptId,a.generation,a.tenantId,a.userId,a.requestId,a.exhibitionId,a.publicationId].every(v=>typeof v==='string'&&uuid.test(v))||Object.hasOwn(a,'runtimeGeneration')&&(typeof a.runtimeGeneration!=='string'||!uuid.test(a.runtimeGeneration))||typeof a.etag!=='string'||!/^"studio-r[1-9][0-9]*-[0-9a-f]{64}"$/.test(a.etag)||!hash.test(a.payloadHash)||!hash.test(a.snapshotHash)||!a.owner||Object.keys(a.owner).sort().join(',')!=='databaseOid,databaseSystemId,storeDevice,storeInode,storeRoot'||![a.owner.databaseOid,a.owner.databaseSystemId,a.owner.storeDevice,a.owner.storeInode].every(v=>typeof v==='string'&&/^[0-9]{1,24}$/.test(v))||!isAbsolute(a.owner.storeRoot)||!Array.isArray(a.objects)||a.objects.length>256)throw Error('PUBLICATION_ATTEMPT_INVALID');
  const keys=new Set<string>();let total=0;
@@ -66,7 +73,7 @@ export class PublicationAttempts {
   // The verifier never receives the private validated snapshot subsequently
   // used for DB lookups/deletion, even across an awaited callback.
   if(a.generation!==generation||!await verifyDrain(JSON.parse(canonical(a)) as PublicationAttempt))throw Error('PUBLICATION_ATTEMPT_DRAIN_UNCONFIRMED');
-  if(!(blobs instanceof FileBlobStore)||await realpath(blobs.root)!==a.owner.storeRoot)throw Error('PUBLICATION_ATTEMPT_OWNER');
+  if(!isPublicationFileStore(blobs)||await realpath(blobs.root)!==a.owner.storeRoot)throw Error('PUBLICATION_ATTEMPT_OWNER');
   return transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
   if(canonical(await publicationDiskOwner(c,a.owner.storeRoot))!==canonical(a.owner))throw Error('PUBLICATION_ATTEMPT_OWNER');
