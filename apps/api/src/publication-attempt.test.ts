@@ -17,6 +17,7 @@ async function fixture(){
 }
 function database(a:PublicationAttempt,mode:'absent'|'committed'|'conflict'|'query-failure'='absent'){
  const query=vi.fn(async(sql:string,_values?:unknown[])=>{
+  void _values;
   if(sql.includes('pg_control_system'))return {rows:[{system_id:a.owner.databaseSystemId,database_oid:a.owner.databaseOid}]};
   if(sql.includes('FROM studio_publications')){if(mode==='query-failure')throw Error('database unavailable');return {rows:mode==='committed'||mode==='conflict'?[{tenant_id:a.tenantId,exhibition_id:a.exhibitionId,created_by:a.userId,revision_sha256:mode==='conflict'?'f'.repeat(64):a.snapshotHash}]:[]};}
   if(sql.includes('FROM publication_requests'))return {rows:mode==='committed'||mode==='conflict'?[{payload_sha256:a.payloadHash,publication_id:a.publicationId}]:[]};
@@ -71,4 +72,13 @@ it('isolates asynchronous verifier mutations from the validated deletion snapsho
  });
  expect(result).toEqual({outcome:'rolled-back',removed:1});expect(Buffer.from(await blobs.get('originals/foreign'))).toEqual(bytes);
  expect(query.mock.calls.find(([sql])=>sql.includes('FROM studio_publications'))?.[1]).toEqual([a.publicationId]);
+});
+it('rejects root accessors without evaluating them and pins a data root for the entire recovery',async()=>{
+ const {a,journal,blobs,bytes}=await fixture();await journal.create(a);await blobs.put(a.objects[0]!.key,bytes);
+ const other=new FileBlobStore(await mkdtemp(join(root,'foreign-')));await other.put(a.objects[0]!.key,bytes);
+ let reads=0;Object.defineProperty(blobs,'root',{configurable:true,get:()=>++reads===1?a.owner.storeRoot:other.root});
+ await expect(journal.recover(database(a).pool,blobs,a.attemptId,a.generation,async()=>true)).rejects.toThrow('PUBLICATION_ATTEMPT_OWNER');expect(reads).toBe(0);expect(Buffer.from(await other.get(a.objects[0]!.key))).toEqual(bytes);
+ const actual=new FileBlobStore(a.owner.storeRoot),db=database(a),original=db.query.getMockImplementation()!;
+ db.query.mockImplementation(async(sql,values)=>{if(sql.includes('FROM studio_publications'))expect(Reflect.set(actual,'root',other.root)).toBe(false);return original(sql,values);});
+ expect(await journal.recover(db.pool,actual,a.attemptId,a.generation,async()=>true)).toEqual({outcome:'rolled-back',removed:1});expect(Object.isFrozen(actual)).toBe(true);expect(Buffer.from(await other.get(a.objects[0]!.key))).toEqual(bytes);
 });

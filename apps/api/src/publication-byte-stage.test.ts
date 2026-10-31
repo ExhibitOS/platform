@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {describe,expect,it} from 'vitest';
 import {PublicationByteStage,stageReadinessBytes,withReadinessStage,type ReadinessStage} from './publication-byte-stage.ts';
+import {mkdtemp,realpath,readdir,rm,symlink,chmod} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 describe('publication private byte stage',()=>{
  it('retains exact immutable source bytes, verifies reads and closes safely',async()=>{
   const stage=await PublicationByteStage.create(64);try{
    const input=Buffer.from('first'),a=await stage.append(input),b=await stage.append(Buffer.from('second'));input.fill(0);
    expect(await stage.read(a)).toEqual(Buffer.from('first'));expect(await stage.read(b)).toEqual(Buffer.from('second'));
+   expect(stage.describe(a)).toEqual({length:5,sha256:a.sha256});
+   expect(()=>stage.describe({...a})).toThrow('PUBLICATION_STAGE_STATE');
    await expect(stage.read({...a})).rejects.toThrow('PUBLICATION_STAGE_STATE');
    await expect(stage.append(Buffer.alloc(64))).rejects.toThrow('PUBLICATION_STAGE_LIMIT');
   }finally{await stage.close();}await stage.close();
@@ -16,6 +21,7 @@ describe('publication private byte stage',()=>{
   try{const pending=stage.append(Buffer.from('one'));await expect(stage.append(Buffer.from('two'))).rejects.toThrow('PUBLICATION_STAGE_STATE');ref=await pending;expect(await stage.read(ref)).toEqual(Buffer.from('one'));}
   finally{await stage.close();}
   await expect(stage.read(ref!)).rejects.toThrow('PUBLICATION_STAGE_STATE');
+  expect(()=>stage.describe(ref!)).toThrow('PUBLICATION_STAGE_STATE');
  });
  it('waits for in-flight writes when the caller closes after cancellation',async()=>{
   const stage=await PublicationByteStage.create(32),pending=stage.append(Buffer.from('pending')),closing=stage.close();
@@ -34,5 +40,13 @@ describe('publication private byte stage',()=>{
  it('rejects impossible stage budgets and empty entries',async()=>{
   await expect(PublicationByteStage.create(512*1024*1024+1)).rejects.toThrow('PUBLICATION_STAGE_LIMIT');
   const stage=await PublicationByteStage.create(4);try{await expect(stage.append(Buffer.alloc(0))).rejects.toThrow('PUBLICATION_STAGE_LIMIT');}finally{await stage.close();}
+ });
+ it('uses only the explicit private scratch root and rejects aliases or shared roots',async()=>{
+  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-stage-root-'))),alias=root+'-alias';
+  try{
+   const stage=await PublicationByteStage.create(32,root);try{expect(await readdir(root)).toEqual([]);const ref=await stage.append(Buffer.from('reserved device'));expect(await stage.read(ref)).toEqual(Buffer.from('reserved device'));}finally{await stage.close();}
+   await symlink(root,alias);await expect(PublicationByteStage.create(32,alias)).rejects.toThrow('PUBLICATION_STAGE_ROOT');
+   await chmod(root,0o755);await expect(PublicationByteStage.create(32,root)).rejects.toThrow('PUBLICATION_STAGE_ROOT');
+  }finally{await rm(alias,{force:true});await rm(root,{recursive:true,force:true});}
  });
 });

@@ -6,6 +6,7 @@ import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {ArtworkThumbnailReceipts} from './artwork-thumbnail-receipts.ts';
 import {cachedDisplayDerivative} from './display-derivative-cache.ts';
 import {withReadinessStage,stageReadinessBytes,PublicationStageError,type PublicationStagedBytes,type ReadinessStage} from './publication-byte-stage.ts';
+import {PublicationFileOperation} from './publication-file-operation.ts';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
@@ -113,6 +114,17 @@ const equal = (a: unknown, b: unknown): boolean => {
     const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, sorted(x)])) : v;
     return JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
 };
+/** Revalidate current source authority after long staging/final writes. Existing
+ * CMS/audio/still approvals remain the authority; no second approval registry. */
+export async function recheckPublicationSources(c:PoolClient,s:Session,candidate:Exhibition,exhibitionId:string,cms:Cms,blobs?:BlobStore){
+ for(const artwork of candidate.artworks)if(!equal((await cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'ARTWORK_SNAPSHOT_CHANGED');
+ for(const media of candidate.mediaAssets)if(!equal(audioMedia(await new Audio(blobs).approved(c,s,exhibitionId,media.id)),media))throw new ApiError(409,'AUDIO_APPROVAL_CHANGED');
+ const still=spaceStillFor(candidate);
+ if(still&&!equal(coverImageAsset(await new CoverImages(blobs).approved(c,s,exhibitionId,still.id)),still))throw new ApiError(409,'COVER_IMAGE_APPROVAL_CHANGED');
+ // Capture the clock after all source queries, including an earlier source
+ // whose grant could expire while a later approval was being checked.
+ if(!validateExhibition(candidate,{publicationTime:new Date().toISOString()}).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
+}
 /** A secondary publication source must be the exact coarse member of its immutable import approval. */
 export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha256:string;bytes:number;mime:string},primary:string):boolean {
     if(!snapshot||typeof snapshot!=='object')return false;
@@ -163,8 +175,11 @@ export function admitOptionalThumbnails(prepared:PreparedAsset[],requiredBytes:n
 /** Only complete public fields and known presentation/material extensions cross the anonymous boundary. */
 export function projectPublication(candidate: Exhibition, prepared: PreparedAsset[], at: string, media: PreparedMedia[] = [],cover?:PreparedCover, furnishings:PreparedFurnishing[] = []) {
     // The exported projection retains its original byte-based integrity boundary.
-    // Staged references are permitted only in the private readiness path.
+    // Private staging never grants authority to caller-supplied descriptors.
     if(prepared.some(p=>!Buffer.isBuffer(p.bytes)||p.thumbnail&&!Buffer.isBuffer(p.thumbnail.bytes)||p.variants?.bytes&&!Buffer.isBuffer(p.variants.bytes))||media.some(p=>!Buffer.isBuffer(p.bytes))||cover&&!Buffer.isBuffer(cover.bytes))throw new ApiError(422,'PUBLICATION_NOT_READY');
+    return projectPublicationCore(candidate,prepared,at,media,cover,furnishings,publicationBytesHash);
+}
+function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at:string,media:PreparedMedia[],cover:PreparedCover|undefined,furnishings:PreparedFurnishing[],byteHash:(bytes:PublicationBytes)=>string){
     if(!validateViewingPlan(candidate).valid||!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateLightAttachments(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     checkedPreparedFurnishings(candidate,furnishings);
     const furniture=furnishingsFor(candidate);
@@ -173,7 +188,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
         prepared: PreparedAsset;
     }[] = [];
     const still=spaceStillFor(candidate);
-    if(!!still!==!!cover||still&&cover&&(!equal(still,cover.source)||cover.bytes.length!==still.bytes||publicationBytesHash(cover.bytes)!==still.sha256))throw new ApiError(422,'PUBLICATION_NOT_READY');
+    if(!!still!==!!cover||still&&cover&&(!equal(still,cover.source)||cover.bytes.length!==still.bytes||byteHash(cover.bytes)!==still.sha256))throw new ApiError(422,'PUBLICATION_NOT_READY');
     const map = (id: string) => { const key = id.toLowerCase(); if (!ids.has(key))
         ids.set(key, randomUUID()); return ids.get(key)!; };
     const collect = (v: unknown): void => { if (Array.isArray(v))
@@ -205,16 +220,16 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
         assets.push({ id: assetId, prepared: p });
-        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE],displayPolicy=a.extensions?.[DISPLAY_POLICY_NAMESPACE],approvedSource=qualifyDemoDisplay(p.artwork),approvedDisplay=approvedSource?.canonicalAssetSha256===publicationBytesHash(p.bytes)?approvedSource:undefined;
+        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE],displayPolicy=a.extensions?.[DISPLAY_POLICY_NAMESPACE],approvedSource=qualifyDemoDisplay(p.artwork),approvedDisplay=approvedSource?.canonicalAssetSha256===byteHash(p.bytes)?approvedSource:undefined;
         delete a.extensions;
         if(details!==undefined&&validateArtworkDetails(p.artwork).valid)a.extensions={[ARTWORK_DETAILS_NAMESPACE]:structuredClone(details)};
         if(displayPolicy!==undefined&&approvedDisplay)a.extensions={...a.extensions,[DISPLAY_POLICY_NAMESPACE]:structuredClone(displayPolicy)};
-        a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: publicationBytesHash(p.bytes) }];
+        a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: byteHash(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
         if(p.thumbnail){
             const thumbnailId=map(p.thumbnail.sourceAssetId);
             assets.push({id:thumbnailId,prepared:{...p,sourceAssetId:p.thumbnail.sourceAssetId,sourceSha256:p.thumbnail.sourceSha256,bytes:p.thumbnail.bytes,mime:'image/png',thumbnailReceiptId:p.thumbnail.receiptId,thumbnail:undefined,variants:undefined}});
-            a.assets.push({id:p.thumbnail.sourceAssetId,path:`assets/${thumbnailId}/thumbnail.png`,role:'preview',mime:'image/png',bytes:p.thumbnail.bytes.length,sha256:publicationBytesHash(p.thumbnail.bytes)});
+            a.assets.push({id:p.thumbnail.sourceAssetId,path:`assets/${thumbnailId}/thumbnail.png`,role:'preview',mime:'image/png',bytes:p.thumbnail.bytes.length,sha256:byteHash(p.thumbnail.bytes)});
             a.extensions={...a.extensions,[ARTWORK_THUMBNAIL_NAMESPACE]:{version:1,assetId:p.thumbnail.sourceAssetId}};
         }
         if (p.variants) {
@@ -223,7 +238,7 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
             if (p.variants.coarse && p.variants.bytes) {
                 const coarseId=randomUUID();
                 assets.push({id:coarseId,prepared:{...p,bytes:p.variants.bytes,...(p.coarseSource?{sourceAssetId:p.coarseSource.id,sourceSha256:p.coarseSource.sha256}:{})}});
-                a.assets.push({id:coarseId,path:`assets/${coarseId}/${p.mime==="image/png"?"image.png":"model.glb"}`,role:p.mime==="image/png"?"image":"model",mime:p.mime,bytes:p.variants.bytes.length,sha256:publicationBytesHash(p.variants.bytes)});
+                a.assets.push({id:coarseId,path:`assets/${coarseId}/${p.mime==="image/png"?"image.png":"model.glb"}`,role:p.mime==="image/png"?"image":"model",mime:p.mime,bytes:p.variants.bytes.length,sha256:byteHash(p.variants.bytes)});
                 variants.push({assetId:coarseId,detail:"coarse",...metric(p.variants.coarse)});
             }
             a.extensions={...a.extensions,[LOD_NAMESPACE]:{version:1,variants,...(p.variants.profile?{profile:p.variants.profile}:{})}};
@@ -267,7 +282,8 @@ export class Publications {
     readonly blobs: BlobStore | undefined;
     constructor(pool: Pool, blobs?: BlobStore) { this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); }
     private summary(row: PublicationRow) { return { publicationId: row.id, publicUrl: `/p/${row.id}`, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: row.status }; }
-    private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage) {
+    private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864) {
+        if(!Number.isSafeInteger(budget)||budget<1||budget>536870912||budget>67108864&&!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
         const store=(bytes:Buffer):Promise<PublicationBytes>=>stageReadinessBytes(stage,bytes);
         const errors: PublicationIssue[] = [], prepared: PreparedAsset[] = [], media:PreparedMedia[]=[];
         let furnishings:PreparedFurnishing[]=[];
@@ -286,15 +302,19 @@ export class Publications {
         if (errors.length)
             return { issues: errors, prepared, media, cover,furnishings,at };
         try{
+            // Furnishing pairs retain their existing in-memory bound. Do not
+            // load an aggregate furnishing inventory of archive-sized buffers.
+            const furnishingBytes=(furnishingsFor(candidate)?.assets??[]).reduce((n,a)=>n+a.bytes+a.rights.notice.bytes,0);
+            if(!Number.isSafeInteger(furnishingBytes)||furnishingBytes>67108864)throw new ApiError(422,'PUBLICATION_LIMIT');
             furnishings=await admittedPublicationFurnishings(c,this.blobs,s.tenantId,exhibitionId,candidate);
             totalBytes+=furnishings.reduce((n,p)=>n+p.model.length+p.notice.length,0);
-            if(totalBytes>67108864)throw new ApiError(422,'PUBLICATION_LIMIT');
+            if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');
         }catch(error){errors.push(issue(error instanceof ApiError?error.code:'FURNISHING_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1furnishing-visuals','Selected furnishing model or CC0 notice is unavailable or invalid.','Restore the exact supported catalogue bytes and functional host before publication.'));}
         for(const resource of footstepResourcesFor(candidate)){
             try{
                 if(!this.blobs)throw new ApiError(409,'FOOTSTEP_RESOURCE_UNAVAILABLE');
                 const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,exhibitionId,resource);
-                totalBytes+=bytes.length;if(totalBytes>67108864)throw new ApiError(422,'PUBLICATION_LIMIT');
+                totalBytes+=bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');
             }catch(error){errors.push(issue(error instanceof ApiError?error.code:'FOOTSTEP_RESOURCE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1footstep-resources','Selected footstep resource bytes are unavailable or invalid.','Restore the exact registered resource before publication.'));}
         }
         const watermark=watermarkFor(candidate),displayWatermark=watermark.mode==='embedded'?{...watermark,text:watermarkLabel(candidate)}:watermark;
@@ -305,7 +325,7 @@ export class Publications {
                 const bytes=Buffer.from(await this.blobs.get(row.object_key));
                 if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
                 if(!curationDurationValid(candidate,asset.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,"CURATION_AUDIO_DURATION");totalBytes+=bytes.length;
-                if(totalBytes>67108864)throw new ApiError(422,"PUBLICATION_LIMIT");
+                if(totalBytes>budget)throw new ApiError(422,"PUBLICATION_LIMIT");
                 media.push({source:asset,bytes:await store(bytes)});
             }catch(error){if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:"AUDIO_UNAVAILABLE",`/candidate/mediaAssets/${i}`,"Current approved audio, bytes or display rights unavailable.","Upload and approve exact PCM16 WAV for this exhibition; correct current rights or restore its availability."));}
         }
@@ -313,7 +333,7 @@ export class Publications {
         if(still){try{
             const source=await new CoverImages(this.blobs).approvedBytes(c,s,exhibitionId,still.id);
             if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'COVER_IMAGE_APPROVAL_CHANGED');
-            totalBytes+=source.bytes.length;if(totalBytes>67108864)throw new ApiError(422,'PUBLICATION_LIMIT');cover={source:still,bytes:await store(source.bytes)};
+            totalBytes+=source.bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');cover={source:still,bytes:await store(source.bytes)};
         }catch(error){if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:'COVER_IMAGE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1space-still','Current approved space PNG, exact bytes or display rights unavailable.','Approve the exact separate PNG for this exhibition and restore its current display grant.'));}}
         for (const [i, artwork] of candidate.artworks.entries()) {
             const path = `/candidate/artworks/${i}`;
@@ -416,12 +436,14 @@ export class Publications {
                 }
                 if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                 totalBytes += result.bytes.length + (variants?.bytes?.length??0);
-                if (totalBytes > 67108864) {
-                    errors.push(issue("PUBLICATION_LIMIT", path, "Qualified display derivatives exceed the 64 MiB publication budget.", "Split the exhibition into smaller publication drafts."));
+                if (totalBytes > budget) {
+                    errors.push(issue("PUBLICATION_LIMIT", path, "Qualified display derivatives exceed the active publication budget.", "Use supported private staging or split the exhibition into smaller publication drafts."));
                     break;
                 }
                 const storedVariants:PreparedVariants|undefined=variants?.bytes?{...variants,bytes:await store(variants.bytes)}:variants;
-                const storedThumbnail=thumbnail?{...thumbnail,bytes:await store(thumbnail.bytes as Buffer)}:undefined;
+                // Keep at most 64 bounded 512KiB previews until required
+                // content has its budget; discarded previews never fill disk.
+                const storedThumbnail=thumbnail;
                 prepared.push({ artwork, sourceAssetId: primary.id, sourceSha256: primary.sha256, bytes: await store(result.bytes), mime: result.mime, variants:storedVariants, ...(coarseSource?{coarseSource}:{}),...(storedThumbnail?{thumbnail:storedThumbnail}:{}) });
             }
             catch (error) {
@@ -430,17 +452,30 @@ export class Publications {
                 errors.push(issue(code, path, "Current approved artwork, display rights or qualified derivative is unavailable.", "Review current CMS approval, ownership/assignment and artwork/asset display grants; reimport after correcting them."));
             }
         }
-        admitOptionalThumbnails(prepared,totalBytes);
+        admitOptionalThumbnails(prepared,totalBytes,budget);
+        if(stage)for(const p of prepared)if(p.thumbnail)p.thumbnail={...p.thumbnail,bytes:await store(p.thumbnail.bytes as Buffer)};
         return { issues: errors, prepared, media, cover,furnishings,at };
     }
-    async ready(c: PoolClient, s: Session, id: string) {
+    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation) {
+        try{
         const row = await this.studio.access(c, s, id);
-        // At most 64MiB required + 64 bounded 512KiB optional thumbnails.
-        // Unsupported unlink/disk conditions retain the existing <=64MiB path.
-        return withReadinessStage(async stage=>{
-         const report=await this.prepare(c,s,row.metadata.candidate,id,stage);
+        // Larger aggregates require private disk staging. Unsupported
+        // unlink/disk conditions retain the existing <=64MiB memory path.
+        const prepare=async(stage?:ReadinessStage,budget=67108864)=>{
+         const report=await this.prepare(c,s,row.metadata.candidate,id,stage,budget);
          return { status: report.issues.length ? "BLOCKED" : "READY", etag: etag(row.revision, row.metadata), issues: report.issues };
-        });
+        };
+        const complete=async(result:Awaited<ReturnType<typeof prepare>>)=>{
+         if(!result.issues.length){try{await recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs);}catch(error){if(!(error instanceof ApiError))throw error;result.issues.push(issue(error.code,'/candidate','Source approval or display grant changed during preparation.','Refresh the current approved sources before retrying publication.'));result.status='BLOCKED';}}
+         return result;
+        };
+        if(fileOperation){
+         if(!(fileOperation instanceof PublicationFileOperation))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+         const match=etag(row.revision,row.metadata),stage=await fileOperation.claim(c,s,this.blobs,'readiness',id,match),result=await prepare(stage,fileOperation.budget);
+         await stage.close();await fileOperation.verify(c,s,this.blobs,'readiness',id,match);const final=await complete(result);fileOperation.assertClaimed();return final;
+        }
+        return await withReadinessStage(prepare);
+        }finally{await fileOperation?.close();}
     }
     /** Existing Studio roles/ownership, projected metadata only; export rechecks public rights/revision. */
     async catalog(c: PoolClient, s: Session) {
@@ -471,7 +506,8 @@ export class Publications {
     }
     private async owned(c: PoolClient, s: Session, id: string): Promise<PublicationRow> { uuid(id); const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF s", [s.tenantId, id])).rows[0]; if (!row)
         throw new ApiError(403, "FORBIDDEN"); await this.studio.access(c, s, row.exhibition_id); return row; }
-    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string) {
+    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation) {
+        try{
         uuid(requestId);
         const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify({ id, requestId, match })));
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
@@ -492,34 +528,56 @@ export class Publications {
             // explicitly withdrawn version. Its existing status is returned.
             return this.summary(existing);
         }
-        const load=(bytes:PublicationBytes):Buffer=>{if(!Buffer.isBuffer(bytes))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return bytes;};
-        const report = await this.prepare(c, s, row.metadata.candidate, id);
+        // Legacy publication retains its bounded memory path. Staging is only
+        // selected by an explicitly admitted context, with no silent fallback.
+        if(fileOperation&&!(fileOperation instanceof PublicationFileOperation))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+        const stage=fileOperation?await fileOperation.claim(c,s,this.blobs,'publish',id,match,requestId):undefined;
+        try{
+        const load=async(bytes:PublicationBytes):Promise<Buffer>=>{if(Buffer.isBuffer(bytes))return bytes;if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.read(bytes);};
+        const put=async(key:string,bytes:PublicationBytes)=>{const loaded=await load(bytes);fileOperation?.assertClaimed();await this.blobs!.put(key,loaded);fileOperation?.assertClaimed();};
+        const byteHash=(bytes:PublicationBytes)=>{if(Buffer.isBuffer(bytes))return sha256(bytes);if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.describe(bytes).sha256;};
+        const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
-        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover } = projectPublication(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings);
+        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover } = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash);
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         const digest = revisionHash(snapshot);
+        if(fileOperation)await fileOperation.manifest(publicationId,digest,[
+         ...assets.map(({id:assetId,prepared:p})=>{const hash=byteHash(p.bytes);return {key:`${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`,sha256:hash,bytes:p.bytes.length};}),
+         ...media.map(({id:mediaId,prepared:p})=>({key:`${s.tenantId}/publications/${publicationId}/${mediaId}/${p.source.sha256}`,sha256:p.source.sha256,bytes:p.source.bytes})),
+         ...(cover?[{key:`${s.tenantId}/publications/${publicationId}/${cover.id}/${cover.prepared.source.sha256}`,sha256:cover.prepared.source.sha256,bytes:cover.prepared.source.bytes}]:[])
+        ]);
         await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
         await c.query("INSERT INTO publication_states VALUES($1,'published',now())", [publicationId]);
         for (const { id: assetId, prepared: p } of assets) {
-            const hash = publicationBytesHash(p.bytes), key = `${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`;
-            await this.blobs.put(key, load(p.bytes));
+            const hash = byteHash(p.bytes), key = `${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`;
+            await put(key,p.bytes);
             await c.query("INSERT INTO publication_assets(tenant_id,publication_id,id,artwork_id,artwork_revision,source_asset_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)", [s.tenantId, publicationId, assetId, p.artwork.id, p.artwork.revision, p.sourceAssetId, p.sourceSha256, key, hash, p.bytes.length, p.mime]);
             if(p.thumbnailReceiptId)await c.query('INSERT INTO publication_thumbnail_bindings(tenant_id,publication_id,asset_id,binding_id) VALUES($1,$2,$3,$4)',[s.tenantId,publicationId,assetId,p.thumbnailReceiptId]);
         }
         for(const {id:mediaId,prepared:p} of media){
             const key=`${s.tenantId}/publications/${publicationId}/${mediaId}/${p.source.sha256}`;
-            await this.blobs.put(key,load(p.bytes));
+            await put(key,p.bytes);
             await c.query("INSERT INTO publication_media(tenant_id,publication_id,id,source_audio_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)",[s.tenantId,publicationId,mediaId,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);
         }
-        if(cover){const p=cover.prepared,key=`${s.tenantId}/publications/${publicationId}/${cover.id}/${p.source.sha256}`;await this.blobs.put(key,load(p.bytes));await c.query('INSERT INTO publication_cover_images(tenant_id,publication_id,id,source_image_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)',[s.tenantId,publicationId,cover.id,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);}
+        if(cover){const p=cover.prepared,key=`${s.tenantId}/publications/${publicationId}/${cover.id}/${p.source.sha256}`;await put(key,p.bytes);await c.query('INSERT INTO publication_cover_images(tenant_id,publication_id,id,source_image_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)',[s.tenantId,publicationId,cover.id,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);}
+        await stage?.close();
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
+        if(fileOperation){
+        const final=await this.gate(c,{tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published'});
+        if(final.assets.length!==assets.length+media.length+(cover?1:0))throw new ApiError(422,'PUBLICATION_NOT_READY');
+        await fileOperation.verify(c,s,this.blobs,'publish',id,match,requestId);
+        await recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs);
+        fileOperation.assertClaimed();
+        }
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
+        }finally{await stage?.close();}
+        }finally{await fileOperation?.close();}
     }
     private async event(c: PoolClient, s: Session, id: string, action: string) { await c.query("INSERT INTO publication_events(id,publication_id,actor_user_id,action) VALUES($1,$2,$3,$4)", [randomUUID(), id, s.userId, action]); await c.query("INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)", [s.tenantId, randomUUID(), { action: `studio.${action}`, actor: s.userId, target: id }]); }
     async unpublish(c: PoolClient, s: Session, id: string) { const row = await this.owned(c, s, id); if (row.status !== "unpublished") {

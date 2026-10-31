@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
-import {open,mkdtemp,unlink,rmdir,lstat,statfs} from 'node:fs/promises';
+import {open,mkdtemp,unlink,rmdir,lstat,statfs,realpath} from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,isAbsolute} from 'node:path';
 
 const ENTRY_LIMIT=32*1024*1024,ARCHIVE_LIMIT=512*1024*1024;
 export interface PublicationStagedBytes {readonly offset:number;readonly length:number;readonly sha256:string}
@@ -18,9 +18,12 @@ export class PublicationByteStage {
  private readonly issued=new WeakSet<PublicationStagedBytes>();
  private readonly file:FileHandle;private readonly limit:number;
  private constructor(file:FileHandle,limit:number){this.file=file;this.limit=limit;}
- static async create(limit=64*1024*1024){
+ static async create(limit=64*1024*1024,scratchRoot?:string){
   if(!Number.isSafeInteger(limit)||limit<1||limit>ARCHIVE_LIMIT)throw Error('PUBLICATION_STAGE_LIMIT');
-  const dir=await mkdtemp(join(tmpdir(),'exhibitos-publication-stage-')),path=join(dir,'empty');let file:FileHandle|undefined,identity:{dev:bigint;ino:bigint}|undefined;
+  // Optional file-admission callers must use their explicitly reserved device,
+  // never silently relocate a qualified operation to the system temp device.
+  if(scratchRoot!==undefined){const s=await lstat(scratchRoot);if(!isAbsolute(scratchRoot)||await realpath(scratchRoot)!==scratchRoot||!s.isDirectory()||s.isSymbolicLink()||(s.mode&0o077)!==0||s.uid!==process.getuid?.())throw Error('PUBLICATION_STAGE_ROOT');}
+  const dir=await mkdtemp(join(scratchRoot??tmpdir(),'exhibitos-publication-stage-')),path=join(dir,'empty');let file:FileHandle|undefined,identity:{dev:bigint;ino:bigint}|undefined;
   try{
    const capacity=await statfs(dir,{bigint:true});if(capacity.bsize<=0n||capacity.bavail*capacity.bsize<BigInt(limit))throw Error('PUBLICATION_STAGE_DISK');
    file=await open(path,'wx+',0o600);identity=await file.stat({bigint:true});
@@ -52,6 +55,12 @@ export class PublicationByteStage {
    if(createHash('sha256').update(bytes).digest('hex')!==ref.sha256)throw Error('PUBLICATION_STAGE_INTEGRITY');return bytes;
   }catch(error){this.failed=true;throw error;}finally{this.end();}
  }
+ /** Metadata is authoritative only for a reference issued by this live stage.
+  * Final consumers still read and rehash the actual bytes before writing. */
+ describe(ref:PublicationStagedBytes):Readonly<{length:number;sha256:string}>{
+  if(this.closed||this.failed||this.busy||!this.issued.has(ref))throw Error('PUBLICATION_STAGE_STATE');
+  return Object.freeze({length:ref.length,sha256:ref.sha256});
+ }
  async close(){
   if(!this.closing){this.closed=true;const pending=this.idle;this.closing=(async()=>{await pending;await this.file.close();})();}
   await this.closing;
@@ -69,15 +78,17 @@ export async function stageReadinessBytes(stage:ReadinessStage|undefined,bytes:B
 }
 /** Retry only staging failures using the pre-existing bounded in-memory path. */
 export async function withReadinessStage<T>(prepare:(stage?:ReadinessStage)=>Promise<T>,create:()=>Promise<ReadinessStage>=()=>PublicationByteStage.create(96*1024*1024)):Promise<T>{
- let stage=await create().catch(()=>undefined),failure:unknown;
+ let stage=await create().catch(()=>undefined),failure:unknown,result!:T,failed=false,cleanupFailure:unknown,cleanupFailed=false;
  try{
-  try{return await prepare(stage);}
+  try{result=await prepare(stage);}
   catch(error){
    if(!(error instanceof PublicationStageError)||!stage)throw error;
    const failedStage=stage;stage=undefined;
-   try{await failedStage.close();}catch(cleanup){throw new AggregateError([error,cleanup],'PUBLICATION_STAGE_CLEANUP_FAILED');}
-   return await prepare(undefined);
+   try{await failedStage.close();}catch(cleanup){throw new AggregateError([error,cleanup],'PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanup});}
+   result=await prepare(undefined);
   }
- }catch(error){failure=error;throw error;}
- finally{try{await stage?.close();}catch(cleanup){if(failure!==undefined)throw new AggregateError([failure,cleanup],'PUBLICATION_STAGE_CLEANUP_FAILED');throw new Error('PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanup});}}
+ }catch(error){failure=error;failed=true;}
+ finally{try{await stage?.close();}catch(cleanup){cleanupFailure=cleanup;cleanupFailed=true;}}
+ if(cleanupFailed){if(failed)throw new AggregateError([failure,cleanupFailure],'PUBLICATION_STAGE_CLEANUP_FAILED');throw new Error('PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanupFailure});}
+ if(failed)throw failure;return result;
 }
