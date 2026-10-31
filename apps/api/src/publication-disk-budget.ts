@@ -8,6 +8,7 @@ import {createHash,randomUUID} from 'node:crypto';
 
 export interface DiskOwner {databaseSystemId:string;databaseOid:string;storeRoot:string;storeDevice:string;storeInode:string}
 export interface DiskPlan {root:string;bytes:number}
+export interface DiskClaimJournalBinding {root:string;device:string;inode:string}
 type DevicePlan=DiskPlan&{device:string};
 export interface DiskReservationReceipt {version:1;id:string;generation:string;operation:'publication'|'oex-import'|'oex-export'|'oex-freeze';owner:DiskOwner;plan:DevicePlan[]}
 type Record=DiskReservationReceipt;
@@ -74,16 +75,33 @@ function parseRecord(text:string):Record{
  * capacity only; it does not authorize deleting any blob or killing a child. */
 export class PublicationDiskBudget {
  private readonly root:string;
- private constructor(root:string){this.root=root;}
- static async open(root:string){
+ private readonly claims?:Readonly<DiskClaimJournalBinding>;
+ private readonly protocol:string;
+ private constructor(root:string,claims:Readonly<DiskClaimJournalBinding>|undefined,protocol:string){this.root=root;this.claims=claims;this.protocol=protocol;}
+ static async open(root:string,options?:{claimJournal:DiskClaimJournalBinding}){
+  const claims=options?Object.freeze({...options.claimJournal}):undefined;
+  if(claims){
+   if(Object.keys(claims).sort().join(',')!=='device,inode,root'||typeof claims.root!=='string'||![claims.device,claims.inode].every(v=>typeof v==='string'&&/^[0-9]{1,24}$/.test(v)))throw Error('DISK_BUDGET_JOURNAL');
+   await privateDirectory(claims.root);const s=await stat(claims.root,{bigint:true});if(String(s.dev)!==claims.device||String(s.ino)!==claims.inode)throw Error('DISK_BUDGET_JOURNAL');
+  }
+  const protocol=claims?{version:2,kind:'exhibitos-disk-budget',claimJournal:claims}:{version:1,kind:'exhibitos-disk-budget'};
   await privateDirectory(root);const marker=join(root,'protocol.json');
   const names=await readdir(root);
-  if(!names.includes('protocol.json')){if(names.length)throw Error('DISK_BUDGET_PROTOCOL');try{await durableNew(root,'protocol.json',{version:1,kind:'exhibitos-disk-budget'});}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}}
-  if(await readBounded(marker)!==canonical({version:1,kind:'exhibitos-disk-budget'}))throw Error('DISK_BUDGET_PROTOCOL');
-  return new PublicationDiskBudget(root);
+  if(!names.includes('protocol.json')){if(names.length)throw Error('DISK_BUDGET_PROTOCOL');try{await durableNew(root,'protocol.json',protocol);}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}}
+  if(await readBounded(marker)!==canonical(protocol))throw Error('DISK_BUDGET_PROTOCOL');
+  const result=new PublicationDiskBudget(root,claims,canonical(protocol));if(claims)Object.freeze(result);return result;
+ }
+ /** Protocol2 cannot be reopened unbound or silently upgrade a legacy store.
+  * Journal binding is configuration, not a claim or retirement capability. */
+ claimJournalIdentity(){return this.claims;}
+ async coordinatorIdentity():Promise<Readonly<DiskClaimJournalBinding>>{
+  await privateDirectory(this.root);if(await readBounded(join(this.root,'protocol.json'))!==this.protocol)throw Error('DISK_BUDGET_PROTOCOL');
+  const s=await stat(this.root,{bigint:true});return Object.freeze({root:this.root,device:String(s.dev),inode:String(s.ino)});
  }
  private async mutex<T>(work:()=>Promise<T>){
-  await privateDirectory(this.root);const path=join(this.root,'reservation.lock');
+  await this.coordinatorIdentity();
+  if(this.claims){await privateDirectory(this.claims.root);const s=await stat(this.claims.root,{bigint:true});if(String(s.dev)!==this.claims.device||String(s.ino)!==this.claims.inode)throw Error('DISK_BUDGET_JOURNAL');}
+  const path=join(this.root,'reservation.lock');
   await mkdir(path,{mode:0o700});
   try{return await work();}finally{await rmdir(path);await syncDirectory(this.root);}
  }
@@ -143,6 +161,9 @@ export class PublicationDiskBudget {
   * an unknown lease. Run BEFORE the filesystem mutex to avoid DB→mutex /
   * mutex→DB lock inversion. False or errors leave the durable reservation. */
  async release(id:string,owner:DiskOwner,generation:string,verifyDrain:(generation:string)=>Promise<boolean>){
+  // No qualified Manager retirement verifier exists yet. Protocol2 therefore
+  // has NO release capability: a callback(true) cannot bypass journal claims.
+  if(this.claims)throw Error('DISK_BUDGET_JOURNAL_RETIREMENT_UNAVAILABLE');
   owner={...owner};if(!uuid.test(id)||!uuid.test(generation))throw Error('DISK_BUDGET_RECORD');await this.checkOwner(owner);
   const path=join(this.root,'lease-'+id+'.json'),before=await readBounded(path),record=parseRecord(before);
   if(record.generation!==generation||canonical(record.owner)!==canonical(owner)||!await verifyDrain(generation))throw Error('DISK_BUDGET_DRAIN_UNCONFIRMED');
