@@ -86,3 +86,11 @@ it('returns a frozen live receipt with actual plan devices, without creating new
  await expect(lease.releaseAfter(async()=>false)).rejects.toThrow('DISK_BUDGET_DRAIN_UNCONFIRMED');
  await lease.releaseAfter(async()=>true);await expect(budget.verifiedReceipt(binding)).rejects.toMatchObject({code:'ENOENT'});
 });
+it('encodes an existing valid durable reservation with leading-zero database identifiers verbatim',async()=>{
+ const {store,owner,budget}=await fixture(),legacy={...owner,databaseSystemId:'00123',databaseOid:'00456'},plan=[{root:store,bytes:1}],lease=await budget.acquire('publication',legacy,randomUUID(),plan);
+ const receipt=await budget.verifiedReceipt({id:lease.id,generation:lease.generation,operation:'publication',owner:legacy,plan});
+ expect(receipt.owner).toEqual(legacy);
+ const bytes=encodeDiskReservationReceipt(receipt);expect(bytes.includes(Buffer.from('00123','utf8'))).toBe(true);expect(bytes.includes(Buffer.from('00456','utf8'))).toBe(true);
+ expect(diskReservationReceiptDigest(receipt)).not.toBe(diskReservationReceiptDigest({...receipt,owner:{...legacy,databaseSystemId:'123',databaseOid:'456'}}));
+ await lease.releaseAfter(async()=>true);
+});

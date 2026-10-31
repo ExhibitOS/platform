@@ -19,7 +19,8 @@ const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof
  * EXHIBITOS-DISK-RESERVATION NUL v1 NUL, then u32-BE length-prefixed exact UTF8
  * strings: id,generation,operation,databaseSystemId,databaseOid,storeRoot,
  * storeDevice,storeInode; u32-BE plan count; ordered root,device,decimal bytes
- * for each plan entry. No normalization, sorting, JSON or host-endian numbers.
+ * for each plan entry. Numeric identifier strings retain existing leading
+ * zeros; byte counts use canonical decimal. No normalization, sorting, JSON or host-endian numbers.
  * The public fixture is normative. A digest never authorizes release/drain. */
 export function encodeDiskReservationReceipt(input:DiskReservationReceipt):Buffer{
  const fail=()=>{throw Error('DISK_BUDGET_ENCODING');};
@@ -30,7 +31,7 @@ export function encodeDiskReservationReceipt(input:DiskReservationReceipt):Buffe
   return result;
  };
  const string=(v:unknown)=>{if(typeof v!=='string'||v.length>32768||v.includes('\0'))return fail();const b=Buffer.from(v,'utf8');if(b.length>32768||b.toString('utf8')!==v)return fail();return v;};
- const decimal=(v:unknown)=>{const s=string(v);if(!/^(0|[1-9][0-9]{0,23})$/.test(s))return fail();return s;};
+ const identifier=(v:unknown)=>{const s=string(v);if(!/^[0-9]{1,24}$/.test(s))return fail();return s;};
  const path=(v:unknown)=>{const s=string(v);if(!isAbsolute(s))return fail();return s;};
  const r=data(input,['version','id','generation','operation','owner','plan']),o=data(r.owner,['databaseSystemId','databaseOid','storeRoot','storeDevice','storeInode']);
  if(r.version!==1||!uuid.test(string(r.id))||!uuid.test(string(r.generation))||!['publication','oex-import','oex-export','oex-freeze'].includes(string(r.operation)))return fail();
@@ -39,13 +40,13 @@ export function encodeDiskReservationReceipt(input:DiskReservationReceipt):Buffe
  const u32=(n:number)=>{const b=Buffer.alloc(4);b.writeUInt32BE(n);return b;};
  const chunks=[Buffer.from('EXHIBITOS-DISK-RESERVATION\0v1\0','ascii')];
  const append=(s:string)=>{const bytes=Buffer.from(s,'utf8');chunks.push(u32(bytes.length),bytes);};
- for(const s of [string(r.id),string(r.generation),string(r.operation),decimal(o.databaseSystemId),decimal(o.databaseOid),path(o.storeRoot),decimal(o.storeDevice),decimal(o.storeInode)])append(s);
+ for(const s of [string(r.id),string(r.generation),string(r.operation),identifier(o.databaseSystemId),identifier(o.databaseOid),path(o.storeRoot),identifier(o.storeDevice),identifier(o.storeInode)])append(s);
  chunks.push(u32(plan.length));
  for(let i=0;i<plan.length;i++){
   const d=Object.getOwnPropertyDescriptor(plan,String(i));if(!d||!d.enumerable||!Object.hasOwn(d,'value'))return fail();
   const p=data(d.value,['root','device','bytes']);
   if(typeof p.bytes!=='number'||!Number.isSafeInteger(p.bytes)||p.bytes<1||p.bytes>2147483648)return fail();
-  append(path(p.root));append(decimal(p.device));append(String(p.bytes));
+  append(path(p.root));append(identifier(p.device));append(String(p.bytes));
  }
  const length=chunks.reduce((n,b)=>n+b.length,0);if(length>32768)return fail();return Buffer.concat(chunks,length);
 }
