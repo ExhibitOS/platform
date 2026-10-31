@@ -106,8 +106,10 @@ export async function publicationDiskOwner(c:PoolClient,storeRoot:string):Promis
 }
 export class PublicationAttempts {
  private readonly root:string;
- constructor(root:string){this.root=root;}
+ private readonly resourceClaims:boolean;
+ constructor(root:string,options?:{resourceClaims:true}){this.root=root;this.resourceClaims=options?.resourceClaims===true;}
  async claimJournalIdentity():Promise<Readonly<DiskClaimJournalBinding>>{
+  if(!this.resourceClaims)throw Error('PUBLICATION_CLAIM_MODE_REQUIRED');
   await privateRoot(this.root);const s=await stat(this.root,{bigint:true});return Object.freeze({root:this.root,device:String(s.dev),inode:String(s.ino)});
  }
  private async claimWrite(path:string,text:string){
@@ -131,7 +133,9 @@ export class PublicationAttempts {
   if(!actual.isDirectory()||await realpath(request.owner.storeRoot)!==request.owner.storeRoot||String(actual.dev)!==request.owner.storeDevice||String(actual.ino)!==request.owner.storeInode)throw Error('PUBLICATION_CLAIM_INVALID');
   for(const p of request.plan)if(await realpath(p.root)!==p.root||!(await stat(p.root)).isDirectory())throw Error('PUBLICATION_CLAIM_INVALID');
   const record:ResourceClaimRecord=claimSnapshot({...request,version:1,kind:'resource-claim',journal,coordinator});
-  const scope=sha256(Buffer.from(canonical({owner:request.owner,tenantId:request.tenantId,resourceId:request.resourceId}))),anchor=join(this.root,`resource-${scope}.claim.json`),alias=join(this.root,`${request.attemptId}.claim.json`);
+  // The resource fence is tenant/resource only. Owner stays immutable inside
+  // the record; switching a DB/store must not bypass an unresolved claim.
+  const scope=sha256(Buffer.from(canonical({tenantId:request.tenantId,resourceId:request.resourceId}))),anchor=join(this.root,`resource-${scope}.claim.json`),alias=join(this.root,`${request.attemptId}.claim.json`);
   if(!await absent(anchor))throw Error('PUBLICATION_RESOURCE_CLAIMED');
   if(!await absent(alias)||!await absent(join(this.root,request.attemptId+'.json')))throw Error('PUBLICATION_CLAIM_ATTEMPT_REUSED');
   const text=canonical(record),pending=join(this.root,`.pending-claim-${request.attemptId}-${randomUUID()}`);
@@ -189,6 +193,7 @@ export class PublicationAttempts {
  /** Called while the publishing transaction holds 82003→82002, before the
   * first final put. Partial/uncertain records are retained, never adopted. */
  async create(input:PublicationAttempt){
+  if(this.resourceClaims||!await absent(join(this.root,'claim-provider.json')))throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
   const a=JSON.parse(canonical(input)) as PublicationAttempt;validate(a);const text=canonical(a);if(Buffer.byteLength(text)>LIMIT)throw Error('PUBLICATION_ATTEMPT_INVALID');
   if(!await absent(join(this.root,a.attemptId+'.claim.json')))throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
   await privateRoot(this.root);const f=await open(join(this.root,a.attemptId+'.json'),'wx',0o600);
@@ -208,6 +213,7 @@ export class PublicationAttempts {
   * cannot write/respawn and that all actual writers drained. A dead DB session
   * alone is NOT that proof. This method never releases the disk reservation. */
  async recover(pool:Pool,blobs:FileBlobStore,id:string,generation:string,verifyDrain:(a:PublicationAttempt)=>Promise<boolean>){
+  if(this.resourceClaims||!await absent(join(this.root,'claim-provider.json')))throw Error('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');
   if(!uuid.test(id))throw Error('PUBLICATION_ATTEMPT_INVALID');
   if(!await absent(join(this.root,id+'.claim.json')))throw Error('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');
   const a=await this.read(id);

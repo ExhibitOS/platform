@@ -13,7 +13,7 @@ import {PublicationAttempts,type ResourceClaimRequest,type ResourceClaimHandle,t
 const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-resource-claim-')));
 afterAll(()=>rm(root,{recursive:true,force:true}));
 async function fixture(){
- const journalRoot=await mkdtemp(join(root,'journal-')),budgetRoot=await mkdtemp(join(root,'budget-')),store=await mkdtemp(join(root,'store-')),s=await stat(store,{bigint:true}),journal=new PublicationAttempts(journalRoot);
+ const journalRoot=await mkdtemp(join(root,'journal-')),budgetRoot=await mkdtemp(join(root,'budget-')),store=await mkdtemp(join(root,'store-')),s=await stat(store,{bigint:true}),journal=new PublicationAttempts(journalRoot,{resourceClaims:true});
  const request:ResourceClaimRequest={operation:'publication',purpose:'publish',tenantId:randomUUID(),resourceId:randomUUID(),attemptId:randomUUID(),generation:randomUUID(),runtimeGeneration:randomUUID(),userId:randomUUID(),requestId:randomUUID(),requestDigest:'a'.repeat(64),sourceDigest:'b'.repeat(64),stageId:randomUUID(),reservationId:randomUUID(),owner:{databaseSystemId:'123',databaseOid:'456',storeRoot:store,storeDevice:String(s.dev),storeInode:String(s.ino)},plan:[{root:store,bytes:1}]};
  const options={claimJournal:await journal.claimJournalIdentity()},budget=await PublicationDiskBudget.open(budgetRoot,options);
  return {journalRoot,budgetRoot,store,journal,request,options,budget};
@@ -26,7 +26,18 @@ it('persists pending claim BEFORE allocation and blocks all operation kinds on t
  await expect(f.journal.beginResourceClaim(f.budget,{...f.request,operation:'oex-freeze',purpose:'freeze',attemptId:randomUUID(),reservationId:randomUUID()})).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
  await mkdir(join(f.budgetRoot,'reservation.lock'),{mode:0o700});
  await expect(f.budget.acquire(f.request.operation,f.request.owner,f.request.reservationId,f.request.plan)).rejects.toMatchObject({code:'EEXIST'});
- await expect(new PublicationAttempts(f.journalRoot).beginResourceClaim(f.budget,{...f.request,attemptId:randomUUID(),reservationId:randomUUID()})).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
+ await expect(new PublicationAttempts(f.journalRoot,{resourceClaims:true}).beginResourceClaim(f.budget,{...f.request,attemptId:randomUUID(),reservationId:randomUUID()})).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
+});
+it('keeps the same tenant/resource claimed across owner changes and restart',async()=>{
+ const f=await fixture();await f.journal.beginResourceClaim(f.budget,f.request);
+ const otherStore=await mkdtemp(join(root,'different-store-')),s=await stat(otherStore,{bigint:true}),changed={...f.request,attemptId:randomUUID(),owner:{...f.request.owner,databaseSystemId:'999',databaseOid:'998',storeRoot:otherStore,storeDevice:String(s.dev),storeInode:String(s.ino)}};
+ await expect(f.journal.beginResourceClaim(f.budget,changed)).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
+ await expect(new PublicationAttempts(f.journalRoot,{resourceClaims:true}).beginResourceClaim(f.budget,changed)).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
+});
+it('rejects legacy create/recover before a claim, including concurrent different attempts',async()=>{
+ const f=await fixture(),a:PublicationAttempt={version:1,attemptId:randomUUID(),generation:randomUUID(),owner:f.request.owner,tenantId:f.request.tenantId,userId:f.request.userId,requestId:f.request.requestId,exhibitionId:f.request.resourceId,etag:'"studio-r2-'+ 'c'.repeat(64)+'"',payloadHash:f.request.requestDigest,publicationId:randomUUID(),snapshotHash:'d'.repeat(64),objects:[]};
+ const proof=vi.fn(async()=>true),results=await Promise.allSettled([f.journal.beginResourceClaim(f.budget,f.request),f.journal.create(a),f.journal.recover({} as Pool,new FileBlobStore(f.store),a.attemptId,a.generation,proof)]);
+ expect(results.map(r=>r.status)).toEqual(['fulfilled','rejected','rejected']);expect(proof).not.toHaveBeenCalled();expect(await readdir(f.journalRoot)).not.toContain(a.attemptId+'.json');
 });
 it('binds the actual provider generation once and rejects raw release even with true proof',async()=>{
  const f=await bound(),verified=await f.journal.verifyResourceClaim(f.budget,f.handle);
@@ -64,18 +75,19 @@ it('preserves legacy manifests while claimed manifests require the bound handle'
  const f=await bound(),a:PublicationAttempt={version:1,attemptId:f.request.attemptId,generation:f.lease.generation,runtimeGeneration:f.request.runtimeGeneration,owner:f.request.owner,tenantId:f.request.tenantId,userId:f.request.userId,requestId:f.request.requestId,exhibitionId:f.request.resourceId,etag:'"studio-r2-'+ 'c'.repeat(64)+'"',payloadHash:f.request.requestDigest,publicationId:randomUUID(),snapshotHash:'d'.repeat(64),objects:[]};
  await expect(f.journal.create(a)).rejects.toThrow('PUBLICATION_CLAIM_HANDLE_REQUIRED');await f.journal.createForClaim(f.budget,f.handle,a);expect(await f.journal.read(a.attemptId)).toEqual(a);
  const verifier=vi.fn(async()=>true);await expect(f.journal.recover({} as Pool,new FileBlobStore(f.store),a.attemptId,a.generation,verifier)).rejects.toThrow('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');expect(verifier).not.toHaveBeenCalled();
- const legacy={...a,attemptId:randomUUID()};await f.journal.create(legacy);expect(await f.journal.read(legacy.attemptId)).toEqual(legacy);
+ const legacy={...a,attemptId:randomUUID()},old=new PublicationAttempts(await mkdtemp(join(root,'legacy-journal-')));await old.create(legacy);expect(await old.read(legacy.attemptId)).toEqual(legacy);
+ const sameRootOld=new PublicationAttempts(f.journalRoot);await expect(sameRootOld.create(legacy)).rejects.toThrow('PUBLICATION_CLAIM_HANDLE_REQUIRED');await expect(sameRootOld.recover({} as Pool,new FileBlobStore(f.store),legacy.attemptId,legacy.generation,verifier)).rejects.toThrow('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');
 });
-const childSource=`import {PublicationAttempts} from ${JSON.stringify(new URL('./publication-attempt.ts',import.meta.url).href)};import {PublicationDiskBudget} from ${JSON.stringify(new URL('./publication-disk-budget.ts',import.meta.url).href)};const [root,budgetRoot,request,phase]=JSON.parse(process.argv[1]);const j=new PublicationAttempts(root),b=await PublicationDiskBudget.open(budgetRoot,{claimJournal:await j.claimJournalIdentity()}),h=await j.beginResourceClaim(b,request);if(phase==='bound'){const l=await b.acquire(request.operation,request.owner,request.reservationId,request.plan);await j.bindReservation(b,h,{id:l.id,generation:l.generation,operation:request.operation,owner:request.owner,plan:request.plan},'c'.repeat(64));}process.stdout.write(JSON.stringify(h));process.exitCode=37;`;
+const childSource=`import {PublicationAttempts} from ${JSON.stringify(new URL('./publication-attempt.ts',import.meta.url).href)};import {PublicationDiskBudget} from ${JSON.stringify(new URL('./publication-disk-budget.ts',import.meta.url).href)};const [root,budgetRoot,request,phase]=JSON.parse(process.argv[1]);const j=new PublicationAttempts(root,{resourceClaims:true}),b=await PublicationDiskBudget.open(budgetRoot,{claimJournal:await j.claimJournalIdentity()}),h=await j.beginResourceClaim(b,request);if(phase==='bound'){const l=await b.acquire(request.operation,request.owner,request.reservationId,request.plan);await j.bindReservation(b,h,{id:l.id,generation:l.generation,operation:request.operation,owner:request.owner,plan:request.plan},'c'.repeat(64));}process.stdout.write(JSON.stringify(h));process.exitCode=37;`;
 it.each(['pending','bound'])('retains %s claims after creator process exits; a restart cannot adopt authority',async phase=>{
  const f=await fixture(),failure=await promisify(execFile)(process.execPath,['--input-type=module','-e',childSource,JSON.stringify([f.journalRoot,f.budgetRoot,f.request,phase])]).then(()=>{throw Error('expected synthetic owner exit');},(error:Error&{code:number;stdout:string})=>error);expect(failure.code).toBe(37);
- const handle=JSON.parse(failure.stdout) as ResourceClaimHandle,restarted=new PublicationAttempts(f.journalRoot),provider=await PublicationDiskBudget.open(f.budgetRoot,f.options);
+ const handle=JSON.parse(failure.stdout) as ResourceClaimHandle,restarted=new PublicationAttempts(f.journalRoot,{resourceClaims:true}),provider=await PublicationDiskBudget.open(f.budgetRoot,f.options);
  await expect(restarted.verifyResourceClaim(provider,handle)).rejects.toThrow('PUBLICATION_CLAIM_HANDLE_REQUIRED');
  await expect(restarted.beginResourceClaim(provider,{...f.request,attemptId:randomUUID(),reservationId:randomUUID()})).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
  expect((await readdir(f.budgetRoot)).filter(n=>n.startsWith('lease-')).length).toBe(phase==='bound'?1:0);
 });
 it('atomically admits only one concurrent claim on the same canonical resource',async()=>{
  const f=await fixture();
- const results=await Promise.allSettled([f.journal.beginResourceClaim(f.budget,f.request),new PublicationAttempts(f.journalRoot).beginResourceClaim(f.budget,{...f.request,operation:'oex-import',purpose:'import',attemptId:randomUUID(),reservationId:randomUUID()})]);
+ const results=await Promise.allSettled([f.journal.beginResourceClaim(f.budget,f.request),new PublicationAttempts(f.journalRoot,{resourceClaims:true}).beginResourceClaim(f.budget,{...f.request,operation:'oex-import',purpose:'import',attemptId:randomUUID(),reservationId:randomUUID()})]);
  expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect((await readdir(f.journalRoot)).filter(n=>n.startsWith('resource-')&&n.endsWith('.claim.json'))).toHaveLength(1);
 });
