@@ -9,11 +9,47 @@ import {createHash,randomUUID} from 'node:crypto';
 export interface DiskOwner {databaseSystemId:string;databaseOid:string;storeRoot:string;storeDevice:string;storeInode:string}
 export interface DiskPlan {root:string;bytes:number}
 type DevicePlan=DiskPlan&{device:string};
-interface Record {version:1;id:string;generation:string;operation:'publication'|'oex-import'|'oex-export'|'oex-freeze';owner:DiskOwner;plan:DevicePlan[]}
+export interface DiskReservationReceipt {version:1;id:string;generation:string;operation:'publication'|'oex-import'|'oex-export'|'oex-freeze';owner:DiskOwner;plan:DevicePlan[]}
+type Record=DiskReservationReceipt;
 export interface DiskReservationBinding {id:string;generation:string;operation:Record['operation'];owner:DiskOwner;plan:DiskPlan[]}
 const digest=(s:string)=>createHash('sha256').update(s).digest('hex');
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
+/** Portable consistency encoding, NOT live authority. Version1 is ASCII magic
+ * EXHIBITOS-DISK-RESERVATION NUL v1 NUL, then u32-BE length-prefixed exact UTF8
+ * strings: id,generation,operation,databaseSystemId,databaseOid,storeRoot,
+ * storeDevice,storeInode; u32-BE plan count; ordered root,device,decimal bytes
+ * for each plan entry. No normalization, sorting, JSON or host-endian numbers.
+ * The public fixture is normative. A digest never authorizes release/drain. */
+export function encodeDiskReservationReceipt(input:DiskReservationReceipt):Buffer{
+ const fail=()=>{throw Error('DISK_BUDGET_ENCODING');};
+ const data=(v:unknown,keys:string[])=>{
+  if(!v||typeof v!=='object'||Array.isArray(v)||Reflect.ownKeys(v).length!==keys.length) return fail();
+  const result:{[key:string]:unknown}=Object.create(null) as {[key:string]:unknown};
+  for(const key of keys){const d=Object.getOwnPropertyDescriptor(v,key);if(!d||!d.enumerable||!Object.hasOwn(d,'value'))return fail();result[key]=d.value;}
+  return result;
+ };
+ const string=(v:unknown)=>{if(typeof v!=='string'||v.length>32768||v.includes('\0'))return fail();const b=Buffer.from(v,'utf8');if(b.length>32768||b.toString('utf8')!==v)return fail();return v;};
+ const decimal=(v:unknown)=>{const s=string(v);if(!/^(0|[1-9][0-9]{0,23})$/.test(s))return fail();return s;};
+ const path=(v:unknown)=>{const s=string(v);if(!isAbsolute(s))return fail();return s;};
+ const r=data(input,['version','id','generation','operation','owner','plan']),o=data(r.owner,['databaseSystemId','databaseOid','storeRoot','storeDevice','storeInode']);
+ if(r.version!==1||!uuid.test(string(r.id))||!uuid.test(string(r.generation))||!['publication','oex-import','oex-export','oex-freeze'].includes(string(r.operation)))return fail();
+ const plan=r.plan;
+ if(!Array.isArray(plan)||plan.length<1||plan.length>4||Reflect.ownKeys(plan).length!==plan.length+1)return fail();
+ const u32=(n:number)=>{const b=Buffer.alloc(4);b.writeUInt32BE(n);return b;};
+ const chunks=[Buffer.from('EXHIBITOS-DISK-RESERVATION\0v1\0','ascii')];
+ const append=(s:string)=>{const bytes=Buffer.from(s,'utf8');chunks.push(u32(bytes.length),bytes);};
+ for(const s of [string(r.id),string(r.generation),string(r.operation),decimal(o.databaseSystemId),decimal(o.databaseOid),path(o.storeRoot),decimal(o.storeDevice),decimal(o.storeInode)])append(s);
+ chunks.push(u32(plan.length));
+ for(let i=0;i<plan.length;i++){
+  const d=Object.getOwnPropertyDescriptor(plan,String(i));if(!d||!d.enumerable||!Object.hasOwn(d,'value'))return fail();
+  const p=data(d.value,['root','device','bytes']);
+  if(typeof p.bytes!=='number'||!Number.isSafeInteger(p.bytes)||p.bytes<1||p.bytes>2147483648)return fail();
+  append(path(p.root));append(decimal(p.device));append(String(p.bytes));
+ }
+ const length=chunks.reduce((n,b)=>n+b.length,0);if(length>32768)return fail();return Buffer.concat(chunks,length);
+}
+export const diskReservationReceiptDigest=(input:DiskReservationReceipt)=>createHash('sha256').update(encodeDiskReservationReceipt(input)).digest('hex');
 async function syncDirectory(path:string){const f=await open(path,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);try{await f.sync();}finally{await f.close();}}
 async function privateDirectory(path:string){
  if(!isAbsolute(path)||await realpath(path)!==path)throw Error('DISK_BUDGET_ROOT');
@@ -84,13 +120,20 @@ export class PublicationDiskBudget {
   * fence must prevent release/respawn racing a subsequent job claim. Never run
   * a DB callback under this mutex or treat this as an atomic DB+FS grant. */
  async verifyActive(input:DiskReservationBinding):Promise<void>{
+  await this.verifiedReceipt(input);
+ }
+ /** Snapshot issued only after the same locked live checks as verifyActive.
+  * Includes actual device identity per plan. It is still point-in-time, never
+  * continuous lifecycle authority or permission to retire a reservation. */
+ async verifiedReceipt(input:DiskReservationBinding):Promise<Readonly<DiskReservationReceipt>>{
   const expected=JSON.parse(canonical(input)) as DiskReservationBinding;
   if(!uuid.test(expected.id)||!uuid.test(expected.generation)||!Array.isArray(expected.plan)||!expected.plan.length||expected.plan.length>4)throw Error('DISK_BUDGET_RECORD');
-  await this.mutex(async()=>{
+  return this.mutex(async()=>{
    await this.checkOwner(expected.owner);
    const record=parseRecord(await readBounded(join(this.root,'lease-'+expected.id+'.json')));
    if(record.id!==expected.id||record.generation!==expected.generation||record.operation!==expected.operation||canonical(record.owner)!==canonical(expected.owner)||canonical(record.plan.map(({root,bytes})=>({root,bytes})))!==canonical(expected.plan))throw Error('DISK_BUDGET_UNCERTAIN');
    for(const p of record.plan){const s=await stat(p.root,{bigint:true});if(!s.isDirectory()||String(s.dev)!==p.device||await realpath(p.root)!==p.root)throw Error('DISK_BUDGET_UNCERTAIN');}
+   for(const p of record.plan)Object.freeze(p);Object.freeze(record.plan);Object.freeze(record.owner);return Object.freeze(record);
   });
  }
  /** verifyDrain must bind this generation to irreversible terminal DB outcome,

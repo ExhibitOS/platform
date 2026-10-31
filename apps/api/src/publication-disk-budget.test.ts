@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterAll,expect,it} from 'vitest';
-import {mkdtemp,mkdir,realpath,stat,readdir,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,realpath,stat,readdir,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {PublicationDiskBudget,type DiskOwner} from './publication-disk-budget.ts';
+import {PublicationDiskBudget,encodeDiskReservationReceipt,diskReservationReceiptDigest,type DiskReservationReceipt,type DiskOwner} from './publication-disk-budget.ts';
 const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-budget-boundary-')));
 afterAll(()=>rm(root,{recursive:true,force:true}));
 async function fixture(){const dir=await mkdtemp(join(root,'provider-')),store=await mkdtemp(join(root,'store-')),s=await stat(store,{bigint:true});const owner:DiskOwner={databaseSystemId:'123',databaseOid:'456',storeRoot:store,storeDevice:String(s.dev),storeInode:String(s.ino)};return {dir,store,owner,budget:await PublicationDiskBudget.open(dir)};}
@@ -67,4 +67,22 @@ it('verifies exact active durable authority and rejects stale or altered claim b
  await expect(budget.verifyActive(binding)).resolves.toBeUndefined();
  for(const wrong of [{...binding,generation:randomUUID()},{...binding,operation:'publication' as const},{...binding,plan:[{root:store,bytes:2}]},{...binding,owner:{...owner,databaseOid:'789'}}])await expect(budget.verifyActive(wrong)).rejects.toThrow('DISK_BUDGET_UNCERTAIN');
  await lease.releaseAfter(async()=>true);await expect(budget.verifyActive(binding)).rejects.toMatchObject({code:'ENOENT'});
+});
+it('matches the independent versioned UTF8 byte vector without Unicode or plan normalization',async()=>{
+ const v=JSON.parse(await readFile(new URL('./fixtures/disk-reservation-v1.json',import.meta.url),'utf8')) as {receipt:DiskReservationReceipt;encodedHex:string;sha256:string};
+ expect(encodeDiskReservationReceipt(v.receipt).toString('hex')).toBe(v.encodedHex);expect(diskReservationReceiptDigest(v.receipt)).toBe(v.sha256);
+ expect(diskReservationReceiptDigest({...v.receipt,plan:[...v.receipt.plan].reverse()})).not.toBe(v.sha256);
+ expect(diskReservationReceiptDigest({...v.receipt,owner:{...v.receipt.owner,storeRoot:v.receipt.owner.storeRoot.normalize('NFD')}})).not.toBe(v.sha256);
+ let evaluated=false;const bad={...v.receipt};Object.defineProperty(bad,'owner',{enumerable:true,get:()=>{evaluated=true;return v.receipt.owner;}});
+ expect(()=>encodeDiskReservationReceipt(bad)).toThrow('DISK_BUDGET_ENCODING');expect(evaluated).toBe(false);
+ for(const value of [NaN,0,2147483649])expect(()=>encodeDiskReservationReceipt({...v.receipt,plan:[{...v.receipt.plan[0]!,bytes:value}]})).toThrow('DISK_BUDGET_ENCODING');
+ expect(()=>encodeDiskReservationReceipt({...v.receipt,owner:{...v.receipt.owner,storeRoot:'/invalid/\ud800'}})).toThrow('DISK_BUDGET_ENCODING');
+});
+it('returns a frozen live receipt with actual plan devices, without creating new release authority',async()=>{
+ const {store,owner,budget}=await fixture(),plan=[{root:store,bytes:1}],lease=await budget.acquire('publication',owner,randomUUID(),plan),binding={id:lease.id,generation:lease.generation,operation:'publication' as const,owner,plan};
+ const receipt=await budget.verifiedReceipt(binding);
+ expect(receipt.plan).toEqual([{root:store,bytes:1,device:owner.storeDevice}]);expect(Object.isFrozen(receipt)).toBe(true);expect(Object.isFrozen(receipt.owner)).toBe(true);expect(Object.isFrozen(receipt.plan)).toBe(true);expect(Object.isFrozen(receipt.plan[0])).toBe(true);
+ expect(diskReservationReceiptDigest(receipt)).toMatch(/^[a-f0-9]{64}$/);
+ await expect(lease.releaseAfter(async()=>false)).rejects.toThrow('DISK_BUDGET_DRAIN_UNCONFIRMED');
+ await lease.releaseAfter(async()=>true);await expect(budget.verifiedReceipt(binding)).rejects.toMatchObject({code:'ENOENT'});
 });
