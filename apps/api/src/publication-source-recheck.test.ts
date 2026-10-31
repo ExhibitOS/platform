@@ -12,7 +12,7 @@ import {fixtureURL,type Exhibition} from '@exhibitos/spec';
 import type {Pool,PoolClient} from 'pg';
 import {Publications,recheckPublicationSources,type PublicationIssue} from './publication.ts';
 import {PublicationByteStage} from './publication-byte-stage.ts';
-import {Studio} from './studio.ts';
+import {Studio,etag,type Draft} from './studio.ts';
 import {Cms} from './cms.ts';
 import {ApiError,type Session} from './auth.ts';
 const c={} as PoolClient,s={} as Session;
@@ -38,10 +38,10 @@ it.each(['close','verify'])('does not return admitted READY if a display grant e
  const request={kind:'readiness' as const,attemptId:randomUUID(),runtimeGeneration:randomUUID(),tenantId:session.tenantId,userId:session.userId,exhibitionId:candidate.id,requestId:randomUUID(),etag:''};
  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-31T12:00:00Z'));
  candidate.artworks[0]!.rights.expiresAt='2026-10-31T12:00:01Z';
- const {etag}=await import('./studio.ts');request.etag=etag(2,{candidate});
+ const metadata:Draft={schemaVersion:'1.0.0-draft.1',id:randomUUID(),exhibitionId:candidate.id,kind:'exhibition-draft',editVersion:1,createdAt:'2026-10-31T11:00:00Z',updatedAt:'2026-10-31T11:00:00Z',candidate};request.etag=etag(2,metadata);
  const op=await PublicationFileOperation.admit(client,{coordinator,blobs,journal:new PublicationAttempts(dirs[2]!),scratchRoot:dirs[3]!},request);
  try{
- vi.spyOn(Studio.prototype,'access').mockResolvedValue({revision:2,metadata:{candidate}} as never);
+ vi.spyOn(Studio.prototype,'access').mockResolvedValue({revision:2,metadata} as never);
  vi.spyOn(publisher as unknown as {prepare:()=>Promise<{issues:PublicationIssue[]}>},'prepare').mockResolvedValue({issues:[]});
  vi.spyOn(publisher.cms,'studioArtwork').mockImplementation(async(_c,_s,id)=>({artwork:candidate.artworks.find(a=>a.id===id)!,previewUrl:''}));
  const close=PublicationByteStage.prototype.close;
