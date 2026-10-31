@@ -87,6 +87,8 @@ it('returns a frozen live receipt with actual plan devices, without creating new
  await lease.releaseAfter(async()=>true);await expect(budget.verifiedReceipt(binding)).rejects.toMatchObject({code:'ENOENT'});
 });
 it('encodes an existing valid durable reservation with leading-zero database identifiers verbatim',async()=>{
+ const v=JSON.parse(await readFile(new URL('./fixtures/disk-reservation-leading-zero-v1.json',import.meta.url),'utf8')) as {receipt:DiskReservationReceipt;encodedHex:string;sha256:string};
+ expect(encodeDiskReservationReceipt(v.receipt).toString('hex')).toBe(v.encodedHex);expect(diskReservationReceiptDigest(v.receipt)).toBe(v.sha256);
  const {store,owner,budget}=await fixture(),legacy={...owner,databaseSystemId:'00123',databaseOid:'00456'},plan=[{root:store,bytes:1}],lease=await budget.acquire('publication',legacy,randomUUID(),plan);
  const receipt=await budget.verifiedReceipt({id:lease.id,generation:lease.generation,operation:'publication',owner:legacy,plan});
  expect(receipt.owner).toEqual(legacy);
