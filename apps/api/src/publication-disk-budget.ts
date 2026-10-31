@@ -10,6 +10,7 @@ export interface DiskOwner {databaseSystemId:string;databaseOid:string;storeRoot
 export interface DiskPlan {root:string;bytes:number}
 type DevicePlan=DiskPlan&{device:string};
 interface Record {version:1;id:string;generation:string;operation:'publication'|'oex-import'|'oex-export'|'oex-freeze';owner:DiskOwner;plan:DevicePlan[]}
+export interface DiskReservationBinding {id:string;generation:string;operation:Record['operation'];owner:DiskOwner;plan:DiskPlan[]}
 const digest=(s:string)=>createHash('sha256').update(s).digest('hex');
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
@@ -78,6 +79,19 @@ export class PublicationDiskBudget {
    await durableNew(this.root,'lease-'+record.id+'.json',record);
   });
   return Object.freeze({id:record.id,generation:record.generation,releaseAfter:async(verifyDrain:(generation:string)=>Promise<boolean>)=>this.release(record.id,owner,record.generation,verifyDrain)});
+ }
+ /** Point-in-time durable authority check only. The consumer's terminal DB
+  * fence must prevent release/respawn racing a subsequent job claim. Never run
+  * a DB callback under this mutex or treat this as an atomic DB+FS grant. */
+ async verifyActive(input:DiskReservationBinding):Promise<void>{
+  const expected=JSON.parse(canonical(input)) as DiskReservationBinding;
+  if(!uuid.test(expected.id)||!uuid.test(expected.generation)||!Array.isArray(expected.plan)||!expected.plan.length||expected.plan.length>4)throw Error('DISK_BUDGET_RECORD');
+  await this.mutex(async()=>{
+   await this.checkOwner(expected.owner);
+   const record=parseRecord(await readBounded(join(this.root,'lease-'+expected.id+'.json')));
+   if(record.id!==expected.id||record.generation!==expected.generation||record.operation!==expected.operation||canonical(record.owner)!==canonical(expected.owner)||canonical(record.plan.map(({root,bytes})=>({root,bytes})))!==canonical(expected.plan))throw Error('DISK_BUDGET_UNCERTAIN');
+   for(const p of record.plan){const s=await stat(p.root,{bigint:true});if(!s.isDirectory()||String(s.dev)!==p.device||await realpath(p.root)!==p.root)throw Error('DISK_BUDGET_UNCERTAIN');}
+  });
  }
  /** verifyDrain must bind this generation to irreversible terminal DB outcome,
   * prevention of respawn, and actual file/child retirement. Recovery callers

@@ -61,3 +61,10 @@ it('retains a child process reservation after exit and refuses a cross-process h
  await expect(budget.release(id,owner,generation,async()=>false)).rejects.toThrow('DISK_BUDGET_DRAIN_UNCONFIRMED');
  await budget.release(id,owner,generation,async()=>true);
 });
+it('verifies exact active durable authority and rejects stale or altered claim bindings',async()=>{
+ const {store,owner,budget}=await fixture(),id=randomUUID(),plan=[{root:store,bytes:1}],lease=await budget.acquire('oex-import',owner,id,plan);
+ const binding={id,generation:lease.generation,operation:'oex-import' as const,owner,plan};
+ await expect(budget.verifyActive(binding)).resolves.toBeUndefined();
+ for(const wrong of [{...binding,generation:randomUUID()},{...binding,operation:'publication' as const},{...binding,plan:[{root:store,bytes:2}]},{...binding,owner:{...owner,databaseOid:'789'}}])await expect(budget.verifyActive(wrong)).rejects.toThrow('DISK_BUDGET_UNCERTAIN');
+ await lease.releaseAfter(async()=>true);await expect(budget.verifyActive(binding)).rejects.toMatchObject({code:'ENOENT'});
+});
