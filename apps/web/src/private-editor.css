@@ -14,7 +14,7 @@
 .private-editor p { font-size:.875rem; line-height:1.6; max-width:70ch; }
 .private-editor-header nav,.private-scene-tools,.private-scene-tools>div { display:flex; flex-wrap:wrap; gap:.5rem; }
 .private-editor .private-primary { background:var(--private-accent); border-color:var(--private-accent); color:#fff; }
-.private-editor .private-primary:hover { background:#00665c; }
+.private-editor button.private-primary:hover:not(:disabled) { background:#00665c; }
 .private-save-status { margin:.75rem 0; font-size:.875rem; min-height:1.5rem; }
 .private-editor-workspace { display:grid; grid-template-columns:8rem minmax(0,1fr) 15rem; align-items:start; gap:1rem; }
 .private-art-dock,.private-inspector { background:#fff; border-radius:.65rem; padding:.8rem; min-width:0; }
@@ -65,3 +65,15 @@
 .private-art-dock button>span { display:block; width:100%; max-width:100%; overflow-wrap:anywhere; }
 .private-inspector select { width:100%; min-height:2.75rem; font:inherit; }
 .private-scene .geometry-controls>summary { min-height:2.75rem; align-content:center; cursor:pointer; }
+
+.private-room-controls { margin-top:1.25rem; padding-top:1rem; border-top:1px solid #89998f; }
+.private-room-controls h3 { font-size:1rem; margin:1.1rem 0 .65rem; }
+.private-room-controls output { display:block; font-size:.85rem; margin-bottom:.65rem; font-variant-numeric:tabular-nums; }
+.private-room-controls .private-selection-actions { margin:.65rem 0; }
+
+@media(min-width:761px){.private-inspector{max-height:calc(100dvh - 10rem);overflow-y:auto;overscroll-behavior:contain}}
+
+.private-surface-material { margin-top:1.25rem; padding-top:1rem; border-top:1px solid #89998f; }
+.private-surface-material h3 { font-size:1rem; margin:0 0 .65rem; }
+.private-surface-material label { display:block; margin:.65rem 0; }
+.private-surface-material input { display:block; box-sizing:border-box; min-height:2.75rem; width:100%; }

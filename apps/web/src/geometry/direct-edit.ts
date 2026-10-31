@@ -9,6 +9,7 @@ export type Pose=Exhibition['rooms'][number]['transform'];
 export interface EditorBridge {
  document:Exhibition;selection:EditorSelection|null;mode:EditMode;view:string;disabled:boolean;preview:GeometryCommand|null;
  select:(selection:EditorSelection)=>void;previewChange:(command:GeometryCommand|null)=>void;commit:(command:GeometryCommand)=>void;error:(message:string)=>void;
+ uprightRooms?:boolean;
  dropArtwork?:(artworkRevisionId:string,surfaceId:string,worldPoint:[number,number,number])=>void;
 }
 export const selectionKey=(s:EditorSelection)=>s.kind+':'+s.id;
@@ -26,7 +27,7 @@ export function localPose(doc:Exhibition,s:EditorSelection):Pose {
  if(s.kind==='opening'){const o=item as Exhibition['openings'][number];return {position:[o.offset[0],o.offset[1],.002],rotation:[0,0,0,1],scale:[1,1,1]};}
  return structuredClone((item as Exhibition['rooms'][number]).transform);
 }
-function wallOffset(doc:Exhibition,p:Exhibition['placements'][number],wall:Exhibition['surfaces'][number],position:Pose['position']):[number,number]{
+export function wallOffset(doc:Exhibition,p:Exhibition['placements'][number],wall:Exhibition['surfaces'][number],position:Pose['position']):[number,number]{
  const art=doc.artworks.find(a=>a.revisionId===p.artworkRevisionId);if(!art)throw Error('작품 정보를 확인해 주세요.');
  const bounds=artifactBounds(artifactCorners(art.dimensions,[art.transform,{...IDENTITY_ARTIFACT_POSE,scale:p.transform.scale}]));
  const local=new Vector3(...position).sub(new Vector3(...wall.transform.position)).applyQuaternion(new Quaternion(...wall.transform.rotation).invert());

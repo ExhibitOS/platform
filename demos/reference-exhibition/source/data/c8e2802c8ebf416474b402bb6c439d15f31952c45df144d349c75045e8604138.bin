@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "outputSHA256": "34213946f200a31d9440a3f362d9c6ca88a50d498092f9aff225fe698e33279e",
+      "outputBytes": 25036,
+      "creator": "taure",
+      "sourcePage": "https://freesound.org/people/taure/sounds/575321/",
+      "surfaceMetadataClaim": "carpet",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceCompressedSHA256": "f02e219ba8d1279800a3033fd620d48a8663b3718520f64ca1cca7682acd10d7",
+      "sourceVariant": "OFFICIAL_ANONYMOUS_PROVIDER_DERIVED_HQ_MP3_NOT_ORIGINAL_WAV",
+      "decodedSourceSHA256": "bafaed148e6695c26966a1ba5a467b7cdd51d3643bd56d8d85e7106adb86c171",
+      "startSampleInclusive": 564286,
+      "endSampleExclusive": 576782,
+      "transform": "Exact variable sample-range copy to a new PCM16 mono48000Hz WAV; no fade, gain, normalization, EQ or noise removal."
+    },
+    {
+      "outputSHA256": "67854dd262d3035a6634c1e9f9bd044e92ed5eaa17a0717a563f6e8d66deb043",
+      "outputBytes": 25128,
+      "creator": "taure",
+      "sourcePage": "https://freesound.org/people/taure/sounds/575321/",
+      "surfaceMetadataClaim": "carpet",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceCompressedSHA256": "f02e219ba8d1279800a3033fd620d48a8663b3718520f64ca1cca7682acd10d7",
+      "sourceVariant": "OFFICIAL_ANONYMOUS_PROVIDER_DERIVED_HQ_MP3_NOT_ORIGINAL_WAV",
+      "decodedSourceSHA256": "bafaed148e6695c26966a1ba5a467b7cdd51d3643bd56d8d85e7106adb86c171",
+      "startSampleInclusive": 1235850,
+      "endSampleExclusive": 1248392,
+      "transform": "Exact variable sample-range copy to a new PCM16 mono48000Hz WAV; no fade, gain, normalization, EQ or noise removal."
+    },
+    {
+      "outputSHA256": "7ca36a490917d937421b8b59e1a0ab522bd4d30b44c14d24dd5bccd82edb599e",
+      "outputBytes": 28884,
+      "creator": "SpliceSound",
+      "sourcePage": "https://freesound.org/people/SpliceSound/sounds/170506/",
+      "surfaceMetadataClaim": "tile",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceCompressedSHA256": "9e48387265b254793e09f8c24fcbb11191b16a0d554ca9cff40c5afb1dd396a2",
+      "sourceVariant": "OFFICIAL_ANONYMOUS_PROVIDER_DERIVED_HQ_MP3_NOT_ORIGINAL_WAV",
+      "decodedSourceSHA256": "b561518766ef29a79ebd3c36c12b14613b52ca666600ce14e35c683b1c6398ee",
+      "startSampleInclusive": 298656,
+      "endSampleExclusive": 313076,
+      "transform": "Exact variable sample-range copy to a new PCM16 mono48000Hz WAV; no fade, gain, normalization, EQ or noise removal."
+    },
+    {
+      "outputSHA256": "e87702641d0b7fcbe2d281f306485187ed908cffb193d32af7d78643c6d31e52",
+      "outputBytes": 21534,
+      "creator": "SpliceSound",
+      "sourcePage": "https://freesound.org/people/SpliceSound/sounds/170506/",
+      "surfaceMetadataClaim": "tile",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceCompressedSHA256": "9e48387265b254793e09f8c24fcbb11191b16a0d554ca9cff40c5afb1dd396a2",
+      "sourceVariant": "OFFICIAL_ANONYMOUS_PROVIDER_DERIVED_HQ_MP3_NOT_ORIGINAL_WAV",
+      "decodedSourceSHA256": "b561518766ef29a79ebd3c36c12b14613b52ca666600ce14e35c683b1c6398ee",
+      "startSampleInclusive": 733572,
+      "endSampleExclusive": 744317,
+      "transform": "Exact variable sample-range copy to a new PCM16 mono48000Hz WAV; no fade, gain, normalization, EQ or noise removal."
+    },
+    {
+      "outputSHA256": "e9b60da98614aa459f1f50e8f91a766a19b4cc08470e2b57b4dabd1c01109220",
+      "outputBytes": 35944,
+      "creator": "sturmankin",
+      "sourcePage": "https://freesound.org/people/sturmankin/sounds/272253/",
+      "surfaceMetadataClaim": "concrete",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceCompressedSHA256": "5e50e3b32143287b5483c45d912398a6b1d8f5e78cf503021f3cbf6cc6ff79f3",
+      "sourceVariant": "OFFICIAL_ANONYMOUS_PROVIDER_DERIVED_HQ_MP3_NOT_ORIGINAL_WAV",
+      "decodedSourceSHA256": "8f6456c9f34391587c9dcac73820816130a78fe2394515e82da8278ff75d6060",
+      "startSampleInclusive": 116105,
+      "endSampleExclusive": 134055,
+      "transform": "Exact variable sample-range copy to a new PCM16 mono48000Hz WAV; no fade, gain, normalization, EQ or noise removal."
+    },
+    {
+      "outputSHA256": "618daca30a012b88db88f516b35001eefa86322e10a0e4722888be64887afcbd",
+      "outputBytes": 30778,
+      "creator": "sturmankin",
+      "sourcePage": "https://freesound.org/people/sturmankin/sounds/272253/",
+      "surfaceMetadataClaim": "concrete",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "sourceCompressedSHA256": "5e50e3b32143287b5483c45d912398a6b1d8f5e78cf503021f3cbf6cc6ff79f3",
+      "sourceVariant": "OFFICIAL_ANONYMOUS_PROVIDER_DERIVED_HQ_MP3_NOT_ORIGINAL_WAV",
+      "decodedSourceSHA256": "8f6456c9f34391587c9dcac73820816130a78fe2394515e82da8278ff75d6060",
+      "startSampleInclusive": 651940,
+      "endSampleExclusive": 667307,
+      "transform": "Exact variable sample-range copy to a new PCM16 mono48000Hz WAV; no fade, gain, normalization, EQ or noise removal."
+    },
+    {
+      "outputSHA256": "ea8f68ab6983ff43a72d67c192a79e9f021ebf9584589af232a37190e1b18f78",
+      "outputBytes": 41324,
+      "creator": "Joseph Sardin",
+      "sourcePage": "https://lasonotheque.org/pas-chaussure-sur-parquet-s0376.html",
+      "surfaceMetadataClaim": "wood",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "originalSHA256": "4e30c3314cb18d7825dab7396f563c9ad9d58b9b9ad0cdbf202e6664ff5f2ee3",
+      "sourceWindowSeconds": [
+        10.05,
+        10.48
+      ],
+      "transform": "gain 0.054524 then +3 dB"
+    },
+    {
+      "outputSHA256": "3d8d589234fa6c2131cdc8c6c666cdc9256c5042e10cd395564e03398413769e",
+      "outputBytes": 41324,
+      "creator": "Joseph Sardin",
+      "sourcePage": "https://lasonotheque.org/pas-chaussure-sur-parquet-s0376.html",
+      "surfaceMetadataClaim": "wood",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "originalSHA256": "4e30c3314cb18d7825dab7396f563c9ad9d58b9b9ad0cdbf202e6664ff5f2ee3",
+      "sourceWindowSeconds": [
+        10.53,
+        10.96
+      ],
+      "transform": "gain 0.080626"
+    },
+    {
+      "outputSHA256": "e156335a5f984a51f36519c40cd381fda5a77c31d4285f3e5dd7c1b9a2001619",
+      "outputBytes": 84524,
+      "creator": "ragamuffin",
+      "sourcePage": "https://freesound.org/people/ragamuffin/sounds/118985/",
+      "surfaceMetadataClaim": "marble",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "approvedMasterSHA256": "6477cf9d7776b0ae8f49e7051d748bc229408a8fe40643b1c1dcb82cfb9d9b7c",
+      "intermediateSHA256": "5cfd0f3a2ef9c9265377d1faa73091356fabb43ddf27c033cccadac80021dbc8",
+      "sourceWindowSeconds": [
+        1.5,
+        1.94
+      ],
+      "transform": "Time envelope late-tail suppression, NOT acoustic dereverberation. Preserve first 140ms of clip; ramp attenuation to -24dB by 400ms; 3ms leading and 12ms trailing edge fades. Peak normalized to 0.22; PCM16 stereo 96kHz. No time stretch or pitch change.; Apple afconvert LEI16@48000 stereo default SRC quality 127; WAV rewrapped without altering samples",
+      "normalizationGainDb": 3.12
+    },
+    {
+      "outputSHA256": "9cd0ed446bf9d6cc28c48024dbe0416693cdb809a966f0a1d2df6f58f3029e18",
+      "outputBytes": 84524,
+      "creator": "ragamuffin",
+      "sourcePage": "https://freesound.org/people/ragamuffin/sounds/118985/",
+      "surfaceMetadataClaim": "marble",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "approvedMasterSHA256": "4f61e6fa68eb3939fd6793f39c4c6246edf58876803bb3cf1149fcb2e4a348d5",
+      "intermediateSHA256": "5cfd0f3a2ef9c9265377d1faa73091356fabb43ddf27c033cccadac80021dbc8",
+      "sourceWindowSeconds": [
+        3.87,
+        4.31
+      ],
+      "transform": "Time envelope late-tail suppression, NOT acoustic dereverberation. Preserve first 140ms of clip; ramp attenuation to -24dB by 400ms; 3ms leading and 12ms trailing edge fades. Peak normalized to 0.22; PCM16 stereo 96kHz. No time stretch or pitch change.; Apple afconvert LEI16@48000 stereo default SRC quality 127; WAV rewrapped without altering samples",
+      "normalizationGainDb": -8.82
+    },
+    {
+      "outputSHA256": "0f96c75572f718f9fe268f8c847803331dfe0f9fb923345a311a02ac75a67f60",
+      "outputBytes": 84524,
+      "creator": "ragamuffin",
+      "sourcePage": "https://freesound.org/people/ragamuffin/sounds/118985/",
+      "surfaceMetadataClaim": "marble",
+      "license": "CC0-1.0",
+      "licenseURL": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "approvedMasterSHA256": "450186c735847b0138368fcf2d9e6db11fdcf09990b9b3d8a36ffe36700ffa0e",
+      "intermediateSHA256": "5cfd0f3a2ef9c9265377d1faa73091356fabb43ddf27c033cccadac80021dbc8",
+      "sourceWindowSeconds": [
+        5.64,
+        6.08
+      ],
+      "transform": "Time envelope late-tail suppression, NOT acoustic dereverberation. Preserve first 140ms of clip; ramp attenuation to -24dB by 400ms; 3ms leading and 12ms trailing edge fades. Peak normalized to 0.22; PCM16 stereo 96kHz. No time stretch or pitch change.; Apple afconvert LEI16@48000 stereo default SRC quality 127; WAV rewrapped without altering samples",
+      "normalizationGainDb": -4.42
+    }
+  ]
+}

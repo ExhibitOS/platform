@@ -32,8 +32,12 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
  const source=createPagesPublicationSource({origin:sourceOrigin,...pinned,fetch:localPublicationFetch(join(root,'demos/reference-exhibition/source'))});
  const result=await exportStaticPublication({origin:'http://127.0.0.1',publicationId:pinned.publicationId,runtimeRoot,output,privateEditor,fetcher:async input=>{
   const url=new URL(input),base=`/api/v1/publications/${pinned.publicationId}`;
-  if(url.origin!=='http://127.0.0.1'||url.search||url.hash)throw Error('DEMO_EXPORT_PATH');
+  if(url.origin!=='http://127.0.0.1'||url.hash||(url.search&&!(url.pathname===base&&url.search==='?footsteps=1')))throw Error('DEMO_EXPORT_PATH');
   if(url.pathname===base)return Response.json(await source.anonymous(pinned.publicationId));
+  const resource=url.pathname.match(new RegExp(`^${base}/resources/([a-f0-9]{64})$`));
+  if(resource){const item=await source.resource(pinned.publicationId,resource[1]);return new Response(item.bytes,{headers:{'content-type':item.mime,'x-exhibitos-publication-revision':item.revisionSha256}});}
+  const notice=url.pathname.match(new RegExp(`^${base}/furnishing-notices/([a-f0-9-]{36})$`));
+  if(notice){const item=await source.furnishingNotice(pinned.publicationId,notice[1]);return new Response(item.bytes,{headers:{'content-type':item.mime,'x-exhibitos-publication-revision':item.revisionSha256}});}
   const match=url.pathname.match(new RegExp(`^${base}/assets/([a-f0-9-]{36})$`));
   if(!match)throw Error('DEMO_EXPORT_PATH');
   const asset=await source.asset(pinned.publicationId,match[1]);
@@ -63,7 +67,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
  await run([npm,'run','notices']);
  for(const workspace of ['@exhibitos/studio-contract','@exhibitos/storage','@exhibitos/api'])await run([npm,'run','build','--workspace',workspace]);
  await run(['scripts/build-web-schema-validators.mjs','--check']);
- await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer'}});
+ await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.static.config.ts'],{cwd:join(root,'apps/web'),env:{...process.env,EXHIBITOS_STATIC_TARGET:'viewer',EXHIBITOS_PRIVATE_EDITOR:'1'}});
  await run([join(root,'node_modules/vite/bin/vite.js'),'build','--config','vite.cover.config.ts'],{cwd:join(root,'apps/web')});
- console.log(JSON.stringify(await exportReferenceDemo()));
+ console.log(JSON.stringify(await exportReferenceDemo({privateEditor:true})));
 }

@@ -5,6 +5,8 @@ import {PublicPublication} from './PublicPublication';
 import {prepareStudioShell} from './studio-shell';
 import type {PublicPublication as PublicResponse} from './publication-client';
 import {decodeFreezeOex,freezeHash,type FrozenOex} from './freeze-oex';
+import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
+import {packageFurnishingAssetManifest} from './vendor/furnishings-v1.mjs';
 import {addFreezeRecord,authorityScope,freezeRecordKey,listFreezeRecords,observeOfflineTime,readOfflineAuthority,saveOfflineAuthority,clearOfflineAuthority,offlineOperation,type OfflineOperation,type FreezeRecord,type OfflineAuthority} from './freeze-cache';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 async function bounded(response:Response,limit:number){if(!response.ok||!response.body)throw Error('OFFLINE_RESPONSE');const reader=response.body.getReader(),chunks:Uint8Array[]=[];let size=0;try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit)throw Error('OFFLINE_SIZE');chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}const bytes=new Uint8Array(size);let offset=0;for(const b of chunks){bytes.set(b,offset);offset+=b.length;}return bytes;}
@@ -40,9 +42,11 @@ export function frozenPublication(b:FreezeBundle,oex:FrozenOex,check:()=>Promise
  const id=b.manifest.id,revision=b.manifest.source.exhibitionHash;
  const fetcher:typeof fetch=async(input,init)=>{
   init?.signal?.throwIfAborted();await check();const url=typeof input==='string'?input:input instanceof URL?input.toString():input.url;
+  const resource=footstepResourcesFor(oex.exhibition).find(item=>url===`/api/v1/publications/${id}/resources/${item.sha256}`);
+  if(resource){const data=oex.footstepResources?.get(resource.sha256);if(init?.method&&init.method!=='GET'||!data||data.bytes.length!==resource.bytes||await freezeHash(data.bytes)!==resource.sha256)throw Error('OFFLINE_RESOURCE_INTEGRITY');await check();init?.signal?.throwIfAborted();return new Response(new Uint8Array(data.bytes),{headers:{'content-type':data.mime,'content-length':String(data.bytes.length),'x-exhibitos-publication-revision':revision}});}
   const asset=[...oex.assets].find(([assetId])=>url===`/api/v1/publications/${id}/assets/${assetId}`);
   if(!asset||init?.method&&init.method!=='GET')throw Error('OFFLINE_ASSET_URL');
-  const [assetId,data]=asset,still=spaceStillFor(oex.exhibition);const inventory=[...oex.exhibition.artworks.flatMap(a=>a.assets),...oex.exhibition.mediaAssets,...(still?[still]:[])].find(a=>a.id===assetId);
+  const [assetId,data]=asset,still=spaceStillFor(oex.exhibition);const inventory=[...oex.exhibition.artworks.flatMap(a=>a.assets),...oex.exhibition.mediaAssets,...(still?[still]:[]),...packageFurnishingAssetManifest(oex.exhibition)].find(a=>a.id===assetId);
   if(!inventory||data.bytes.length!==inventory.bytes||await freezeHash(data.bytes)!==inventory.sha256)throw Error('OFFLINE_ASSET_INTEGRITY');
   await check();init?.signal?.throwIfAborted();return new Response(new Uint8Array(data.bytes),{headers:{'content-type':data.mime,'content-length':String(data.bytes.length),'x-exhibitos-publication-revision':revision}});
  };
@@ -54,9 +58,10 @@ export function frozenPublication(b:FreezeBundle,oex:FrozenOex,check:()=>Promise
  };
  // The verified offline maps stay owned by this source after image decoding.
  // Charge each real backing buffer once, including shared views and notices.
- const retainedBuffers=new Set([...oex.floorResources?.values()??[],...oex.materialResources?.values()??[]].map(data=>data.bytes.buffer));
+ const retainedBuffers=new Set([...oex.floorResources?.values()??[],...oex.materialResources?.values()??[],...oex.footstepResources?.values()??[],...oex.furnishingNotices?.values()??[]].map(data=>data.bytes.buffer));
  const retainedMaterialBytes=[...retainedBuffers].reduce((sum,buffer)=>sum+buffer.byteLength,0);
- return {publication:{id,revisionSha256:revision,publishedAt:b.manifest.createdAt,status:'published'},exhibition:oex.exhibition,assets:[...oex.assets].map(([assetId,data])=>({assetId,mime:data.mime,url:`/api/v1/publications/${id}/assets/${assetId}`})),local:{fetcher,floorFetcher,retainedMaterialBytes,check}};
+ const resources=footstepResourcesFor(oex.exhibition).map(item=>({sha256:item.sha256,bytes:item.bytes,mime:item.mime,url:`/api/v1/publications/${id}/resources/${item.sha256}`}));
+ return {publication:{id,revisionSha256:revision,publishedAt:b.manifest.createdAt,status:'published'},exhibition:oex.exhibition,assets:[...oex.assets].map(([assetId,data])=>({assetId,mime:data.mime,url:`/api/v1/publications/${id}/assets/${assetId}`})),...(resources.length?{resources}:{}),local:{fetcher,floorFetcher,retainedMaterialBytes,check}};
 }
 export function OfflineExhibition(){
  const [authority,setAuthority]=useState<OfflineAuthority>(),[records,setRecords]=useState<FreezeRecord[]>([]),[active,setActive]=useState<{value:PublicResponse;deadline:string}|null>(null),[message,setMessage]=useState('온라인에서 신뢰할 표시 계정과 서명 키를 먼저 준비하세요.'),[busy,setBusy]=useState(false),[portable,setPortable]=useState(false),[validating,setValidating]=useState(false),[shell,setShell]=useState('오프라인 앱 재시작을 준비하지 않았습니다.'),[shellWaiting,setShellWaiting]=useState(false);

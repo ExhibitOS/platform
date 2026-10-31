@@ -8,6 +8,13 @@ function crc(bytes:Buffer){let value=0xffffffff;for(const byte of bytes){value^=
 function chunk(name:string,body:Buffer){const head=Buffer.alloc(8),tail=Buffer.alloc(4);head.writeUInt32BE(body.length);head.write(name,4);tail.writeUInt32BE(crc(Buffer.concat([head.subarray(4),body])));return Buffer.concat([head,body,tail]);}
 function png(width=256,height=128){const header=Buffer.alloc(13),rows=Buffer.alloc((width*3+1)*height);header.writeUInt32BE(width);header.writeUInt32BE(height,4);header[8]=8;header[9]=2;for(let y=0;y<height;y++)for(let x=0;x<width;x++)rows.set([100,150,200],y*(width*3+1)+1+x*3);return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('sRGB',Buffer.from([1])),chunk('IDAT',deflateSync(rows)),chunk('IEND',Buffer.alloc(0))]);}
 function pixels(bytes:Buffer){const width=bytes.readUInt32BE(16),height=bytes.readUInt32BE(20),channels=bytes[25]===2?3:4,idat:Buffer[]=[],tags:string[]=[];for(let at=8;at<bytes.length;){const size=bytes.readUInt32BE(at),name=bytes.toString('ascii',at+4,at+8);tags.push(name);if(name==='IDAT')idat.push(bytes.subarray(at+8,at+8+size));at+=12+size;}return {width,height,channels,tags,rows:inflateSync(Buffer.concat(idat))};}
+test('cancellation rejects before or during conversion without mutating the source',async()=>{
+ const source=png(),before=Buffer.from(source),already=new AbortController();already.abort();
+ await expect(derivative(source,'image/png',{signal:already.signal})).rejects.toMatchObject({code:'DERIVATIVE_CANCELLED'});
+ const active=new AbortController(),pending=derivative(source,'image/png',{signal:active.signal});active.abort();
+ await expect(pending).rejects.toMatchObject({code:'DERIVATIVE_CANCELLED'});expect(source).toEqual(before);
+ expect(await derivative(source,'image/png')).toEqual(source);
+});
 test('new none and overlay copies keep suitable bytes, while quality resize stays clean and colour-tagged',async()=>{
  const source=png(),before=Buffer.from(source);expect(await derivative(source,'image/png')).toEqual(source);expect(await derivative(source,'image/png',{watermark:{version:1,mode:'overlay',text:'작가 · 출처'}})).toEqual(source);expect(source).toEqual(before);
  const resized=pixels(await derivative(png(1024,512),'image/png'));expect([resized.width,resized.height,resized.channels]).toEqual([512,256,3]);expect(resized.tags).toContain('sRGB');expect([...resized.rows.subarray(1,4)]).toEqual([100,150,200]);

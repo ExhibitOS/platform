@@ -2,6 +2,8 @@
 import {test,expect} from 'vitest';
 import type {Exhibition} from '@exhibitos/spec';
 import {applyInstallationCommand} from './installation-commands.js';
+import {applyFurnishingCommand} from './furnishings.js';
+import {artifactCorners} from './artifact-affine.js';
 import {INSTALLATION_NAMESPACE as N} from './installation.js';
 import {installationArtworkBounds,resolveInstallations} from './installation-resolver.js';
 const id='aaaaaaaa-0000-4000-8000-000000000001',roomId='aaaaaaaa-0000-4000-8000-000000000002',artId='aaaaaaaa-0000-4000-8000-000000000003',surfaceId='aaaaaaaa-0000-4000-8000-000000000004';
@@ -39,4 +41,15 @@ test('outward-authored perimeter wall resolves room-inward gap while interior pa
  const d=doc();d.placements[0]!.transform.position=[0,1.5,9];const wall={id:surfaceId,roomId,type:'wall',dimensions:{width:8,height:4},transform:{...pose(),position:[0,2,10]}} as Exhibition['surfaces'][number];d.surfaces=[wall];
  const result=applyInstallationCommand(d,{placementId:id,command:'wall-gap',wallSurfaceId:surfaceId,gap:.05});expect(installationArtworkBounds(result.artworks[0]!,result.placements[0]!).max[2]).toBeCloseTo(9.95);expect(result.placements[0]!.transform.rotation).toEqual(d.placements[0]!.transform.rotation);
  wall.transform.position=[0,2,0];d.placements[0]!.transform.position=[0,1.5,-1];const other=applyInstallationCommand(d,{placementId:id,command:'wall-gap',wallSurfaceId:surfaceId,gap:.05});expect(installationArtworkBounds(other.artworks[0]!,other.placements[0]!).max[2]).toBeCloseTo(-.05);
+});
+
+test('verified plinth alignment moves only the selected assertion envelope and rejects overhang or missing host',()=>{
+ const original=doc();original.artworks[0]!.artworkType='sculpture';original.artworks[0]!.dimensions={width:.2,height:.4,depth:.2};
+ const d=applyFurnishingCommand(original,{type:'set-furnishing-visual',hostKind:'pedestal',hostId:id,catalogId:'rectangular-plinth',catalogVersion:1,pose:{position:[-1,0,1],yaw:Math.PI/4,scale:.8}}),before=structuredClone(d),result=applyInstallationCommand(d,{placementId:id,command:'align-on-verified-plinth'}),bounds=installationArtworkBounds(result.artworks[0]!,result.placements[0]!);
+ expect(bounds.center[0]).toBeCloseTo(-1);expect(bounds.center[2]).toBeCloseTo(1);expect(bounds.min[1]).toBeCloseTo(.9000000059604645*.8);expect(result.artworks).toEqual(d.artworks);expect(result.extensions).toEqual(d.extensions);expect(result.placements[0]!.transform.rotation).toEqual(d.placements[0]!.transform.rotation);expect(result.placements[0]!.transform.scale).toEqual(d.placements[0]!.transform.scale);expect(d).toEqual(before);
+ const oversized=structuredClone(d);oversized.artworks[0]!.dimensions={width:1,height:1,depth:1};const saved=structuredClone(oversized);expect(()=>applyInstallationCommand(oversized,{placementId:id,command:'align-on-verified-plinth'})).toThrow('INSTALLATION_plinth-overhang');expect(oversized).toEqual(saved);
+ expect(()=>applyInstallationCommand(original,{placementId:id,command:'align-on-verified-plinth'})).toThrow('INSTALLATION_plinth-unsupported');
+ const transformed=structuredClone(d);transformed.rooms[0]!.transform={position:[3,2,-4],rotation:[0,Math.sin(.3),0,Math.cos(.3)],scale:[1.2,1,1.1]};transformed.artworks[0]!.transform.scale=[.5,1.1,.8];transformed.placements[0]!.transform.scale=[1.2,.8,1.1];const transformedBefore=structuredClone(transformed),aligned=applyInstallationCommand(transformed,{placementId:id,command:'align-on-verified-plinth'}),transformedBounds=installationArtworkBounds(aligned.artworks[0]!,aligned.placements[0]!);expect(transformedBounds.min[1]).toBeCloseTo(.9000000059604645*.8);expect(transformed).toEqual(transformedBefore);expect(aligned.placements[0]!.transform.scale).toEqual(transformed.placements[0]!.transform.scale);
+ const zeroDepth=structuredClone(d);zeroDepth.artworks[0]!.dimensions.depth=0;expect(()=>applyInstallationCommand(zeroDepth,{placementId:id,command:'align-on-verified-plinth'})).toThrow('INSTALLATION_plinth-unsupported');
+ const shiftedRoom=structuredClone(d);shiftedRoom.rooms[0]!.transform.position=[0,9999,0];shiftedRoom.placements[0]!.transform.position[1]=.2;expect(()=>artifactCorners(shiftedRoom.artworks[0]!.dimensions,[shiftedRoom.artworks[0]!.transform,shiftedRoom.placements[0]!.transform,shiftedRoom.rooms[0]!.transform],true)).not.toThrow();const shiftedBefore=structuredClone(shiftedRoom);expect(()=>applyInstallationCommand(shiftedRoom,{placementId:id,command:'align-on-verified-plinth'})).toThrow('INSTALLATION_limits-exceeded');expect(shiftedRoom).toEqual(shiftedBefore);
 });

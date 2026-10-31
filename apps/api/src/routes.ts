@@ -188,10 +188,15 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  for(const action of ['revoke','restore'] as const)app.post(`${coverPath}/:imageId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.availability(c,s,p.id,p.imageId,action==='restore');}));
  const publications=new Publications(pool,store);
  app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
- const readPublic=(id:string,assetId?:string)=>publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId);
+ app.get(`${prefix}/studio/publications/:id/editing-draft`,call(false,async(c,s,req,reply)=>{const result=await publications.editingDraft(c,s,(req.params as {id:string}).id);reply.header('etag',result.etag);return result;}));
+ const readPublic=async(id:string,assetId?:string,profile?:string)=>{
+  const value=await (publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId));
+  if(!assetId){const projection=value as {exhibition?:{extensions?:Record<string,unknown>}};if(projection?.exhibition?.extensions&&Object.hasOwn(projection.exhibition.extensions,'org.exhibitos.viewer/footstep-resources')&&profile!=='footstep-resources-v1')throw new ApiError(406,'PUBLICATION_PROFILE_UNSUPPORTED');}
+  return value;
+ };
  const authorizeHost=openingHostAuthority(pool);
- const opening=registerOpening(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id) as import('./realtime.ts').RealtimePublication,authorizeHost});
- registerRealtime(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id) as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
+ const opening=registerOpening(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,authorizeHost});
+ registerRealtime(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
  app.post(`${prefix}/studio/publications/:id/opening-host`,{schema:{body:object({revisionSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}})}},async(req,reply)=>{
   guarded(req,true);reply.header('cache-control','no-store');
   const params=req.params as {id:string;tenantId:string};uuid(params.id);uuid(params.tenantId);
@@ -202,7 +207,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
    if(!await authorizeHost(subject,params.id))throw new ApiError(403,'FORBIDDEN');
    return subject;
   });
-  const current=await readPublic(params.id) as import('./realtime.ts').RealtimePublication;
+  const current=await readPublic(params.id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication;
   if(current.publication.revisionSha256!==(req.body as {revisionSha256:string}).revisionSha256)throw new ApiError(409,'REVISION_CONFLICT');
   // issueHost and socket admission each recheck live session/owner authority.
   return opening.issueHost(params.id,subject);
@@ -221,9 +226,11 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   app.post(`${prefix}/federation/peers`,{schema:{body:object({origin:str,publicKey:str,state:{enum:['trusted','blocked']}})}},call(true,async(c,s,req)=>{admin(s);const b=req.body as {origin:string;publicKey:string;state:'trusted'|'blocked'};return federation.peer(c,b.origin,b.publicKey,b.state);}));
   app.post(`${prefix}/federation/sync`,{schema:{body:object({origin:str})}},call(true,async(_c,s,req)=>{admin(s);return federation.sync((req.body as {origin:string}).origin);}));
  }
- app.get('/api/v1/publications/:id',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');return readPublic((req.params as {id:string}).id);});
+ app.get('/api/v1/publications/:id',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');return readPublic((req.params as {id:string}).id,undefined,(req.query as {footsteps?:string}).footsteps==='1'?'footstep-resources-v1':undefined);});
  app.get('/api/v1/publications/:id/xr-export/:assetId',async(req,reply)=>{reply.header('cache-control','no-store');const p=req.params as {id:string;assetId:string};return publications.xrExport(p.id,p.assetId);});
  app.get('/api/v1/publications/:id/assets/:assetId',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;assetId:string};const result=await readPublic(p.id,p.assetId) as {bytes:Buffer;mime:string;revisionSha256:string};reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
+ app.get('/api/v1/publications/:id/furnishing-notices/:assetId',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;assetId:string};const result=publicationSource?await publicationSource.furnishingNotice?.(p.id,p.assetId):await publications.furnishingNotice(p.id,p.assetId);if(!result)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
+ app.get('/api/v1/publications/:id/resources/:sha256',async(req,reply)=>{reply.header('cache-control','no-store').header('pragma','no-cache');const p=req.params as {id:string;sha256:string};const result=publicationSource?await publicationSource.resource?.(p.id,p.sha256):await publications.resource(p.id,p.sha256);if(!result)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');reply.header('content-type',result.mime).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-publication-revision',result.revisionSha256);return result.bytes;});
  const cms=new Cms(store),cp=`${prefix}/cms`;
  app.get(`${prefix}/studio/artworks/:id`,call(false,async(c,s,req)=>cms.studioArtwork(c,s,cmsId(req))));
  const artistBody={name:{...str,minLength:1,maxLength:512},bio:{...str,maxLength:16384}};

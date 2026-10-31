@@ -2,7 +2,7 @@
 import {test,expect} from 'vitest';
 import {readFile} from 'node:fs/promises';
 import {fixtureURL,readOex} from '@exhibitos/spec';
-import {INSTALLATION_NAMESPACE as N,installationArtworkBounds} from '@exhibitos/studio-contract';
+import {INSTALLATION_NAMESPACE as N,installationArtworkBounds,applyFurnishingCommand} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
 import {checkedFrame,type NativeViewportFrame} from './native-viewport-protocol';
 import {nativeInstallationAction} from './native-installation-action';
@@ -39,4 +39,11 @@ test('closed branches, disabled dirty buffer and post-command complete draft val
  const noConfig=structuredClone(frame);delete noConfig.draft.candidate.extensions![N];expect(()=>nativeInstallationAction(noConfig,{type:'installation-command',placementId,command:'on-top'})).toThrow('VIEWPORT_COMMAND_DENIED');
  const invalid=structuredClone(frame);invalid.draft.candidate.title='';expect(()=>nativeInstallationAction(invalid,action)).toThrow('VIEWPORT_COMMAND_DENIED');
  expect(frame).toEqual(before);
+});
+
+test('verified plinth command requires selected placement and returns a single translation or a stable overhang error',async()=>{
+ const {frame}=await fixture(),doc=frame.draft.candidate,p=doc.placements.find(row=>doc.artworks.some(a=>a.revisionId===row.artworkRevisionId&&a.artworkType==='sculpture'))!,art=doc.artworks.find(a=>a.revisionId===p.artworkRevisionId)!;art.dimensions={width:.2,height:.4,depth:.2};
+ const candidate=applyFurnishingCommand(doc,{type:'set-furnishing-visual',hostKind:'pedestal',hostId:p.id,catalogId:'rectangular-plinth',catalogVersion:1,pose:{position:[-2,0,0],yaw:.2,scale:1}}),selected={...frame,selection:{kind:'placement' as const,id:p.id},draft:{...frame.draft,candidate}},action={type:'installation-command',placementId:p.id,command:'align-on-verified-plinth'},before=structuredClone(selected);
+ expect(()=>nativeInstallationAction({...selected,selection:null},action)).toThrow('VIEWPORT_COMMAND_DENIED');const result=nativeInstallationAction(selected,action);expect(result.extensions).toEqual(candidate.extensions);expect(result.artworks).toEqual(candidate.artworks);expect(result.placements.filter(row=>row.id!==p.id)).toEqual(candidate.placements.filter(row=>row.id!==p.id));expect(selected).toEqual(before);
+ const oversized=structuredClone(selected);oversized.draft.candidate.artworks.find(a=>a.revisionId===p.artworkRevisionId)!.dimensions={width:1,height:1,depth:1};const saved=structuredClone(oversized);expect(()=>nativeInstallationAction(oversized,action)).toThrow('INSTALLATION_PLINTH_OVERHANG');expect(oversized).toEqual(saved);
 });

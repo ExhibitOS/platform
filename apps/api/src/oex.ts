@@ -1,8 +1,12 @@
+import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
+import {furnishingResourcePair} from './furnishings.ts';
 import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
 import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {ArtworkThumbnailReceipts,validFrozenThumbnailPin,type FrozenThumbnailPin} from './artwork-thumbnail-receipts.ts';
 import {floorResourceBytes} from './floor-resources.ts';
+import {footstepResourceBytes} from './footstep-resources.ts';
+import {OEX_FOOTSTEP_RESOURCE_VERSION,FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor,type FootstepResource} from '@exhibitos/spec/footstep-resources';
 import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
@@ -14,7 +18,7 @@ import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
 import {SPACE_LIGHTING_NAMESPACE} from '@exhibitos/studio-contract';
-import {validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails} from '@exhibitos/studio-contract';
+import {validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,remapLightAttachments,type StudioLightAttachments} from '@exhibitos/studio-contract';
 import {validateStudioBenches,BENCH_NAMESPACE,remapStudioBenches,type StudioBenches} from '@exhibitos/studio-contract';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
@@ -27,7 +31,7 @@ import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {transaction,sha256,type BlobStore} from '@exhibitos/storage';
-import {writeOex,validateExhibition,validateFurnishingInventory,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
+import {writeOex,validateExhibition,validateFurnishingInventory,packageFurnishingAssetManifest,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
 import {SPACE_STILL_NAMESPACE,spaceStillFor} from '@exhibitos/spec/space-still';
 import {CoverImages,coverImageAsset,validateCoverImage} from './cover-images.ts';
 import {DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,curationDurationValid,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails,creationYearFor} from '@exhibitos/studio-contract';
@@ -97,7 +101,12 @@ async function checkAssetBytes(artwork:Exhibition['artworks'][number],assetId:st
  else await decode(bytes,mime);
 }
 export interface OexInput {requestId:string;bytes:number;sha256:string}
-interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean}
+interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean;archive_profile?:string|null;oex_format?:string|null}
+// The legacy worker never consumes or mutates a later profile. JSON projection
+// keeps the same predicate valid on schemas both before and after migration 026.
+const legacyJobSql="(to_jsonb(oex_import_jobs)->>'archive_profile') IS NULL AND (to_jsonb(oex_import_jobs)->>'oex_format') IS NULL AND expected_bytes<=67108864";
+function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==null&&Number.isSafeInteger(row.expected_bytes)&&row.expected_bytes>0&&row.expected_bytes<=MAX_OEX_UPLOAD;}
+function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
 /** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
 export function checkOexProfile(e:Exhibition,privateBindings=false){
  for(const[namespace,licenseId]of Object.entries(LEGAL_NOTICES))if(e.extensions&&Object.hasOwn(e.extensions,namespace)){
@@ -106,13 +115,13 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  }
 
 
- if(e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(!validateFurnishings(e).valid||e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateLightAttachments(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[FURNISHING_NAMESPACE,DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,LIGHT_ATTACHMENT_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -121,11 +130,27 @@ export function checkOexProfile(e:Exhibition,privateBindings=false){
  for(const a of e.artworks){qualifyDemoDisplay(a);if(!validRights(a.rights)||a.assets.length>8||a.assets.some(x=>!['image/png','model/gltf-binary'].includes(x.mime)||x.bytes>MAX_UPLOAD))throw new ApiError(422,'OEX_PROFILE_INVALID');}
  for(const m of e.mediaAssets)if(m.mime!=='audio/wav'||!validRights(m.rights))throw new ApiError(422,'OEX_PROFILE_INVALID');
 }
+/** Verify the complete selected catalogue pair before staging any import blob.
+ * Compiled catalogue hashes qualify the exact GLBs; package paths grant no new
+ * source, host or licence authority. No partial pair is returned. */
+export function checkedOexFurnishingFiles(e:Exhibition,files:ReadonlyMap<string,Uint8Array>):Map<string,Buffer>{
+ if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ const selected=new Map<string,Buffer>();
+ for(const descriptor of [...packageFurnishingAssetManifest(e),...packageFurnishingNoticeManifest(e)]){
+  const bytes=files.get(descriptor.path);
+  if(!bytes||bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256||selected.has(descriptor.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');
+  selected.set(descriptor.artifactPath,Buffer.from(bytes));
+ }
+ return selected;
+}
 /** Only typed UUID fields and material surface keys are rewritten. UUID-shaped human prose is untouched. */
 export function remapOex(e:Exhibition){
+ if(!validateFurnishings(e).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
+ const furniture=furnishingsFor(e);
  const ids=new Map<string,string>();
  const collect=(v:unknown)=>{if(Array.isArray(v))for(const x of v)collect(x);else if(object(v))for(const[k,x]of Object.entries(v)){if((k==='id'||k==='revisionId')&&typeof x==='string'){uuid(x);if(!ids.has(x.toLowerCase()))ids.set(x.toLowerCase(),randomUUID());}else if(k!=='extensions')collect(x);}};
  collect(e);
+ for(const asset of furniture?.assets??[])if(!ids.has(asset.id.toLowerCase()))ids.set(asset.id.toLowerCase(),randomUUID());
  const still=spaceStillFor(e);if(still&&!ids.has(still.id.toLowerCase()))ids.set(still.id.toLowerCase(),randomUUID());
  const finishes=e.extensions?.[ARCHITECTURAL_FINISH_NAMESPACE] as unknown as ArchitecturalFinishes|undefined;
  const plaques=e.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;
@@ -140,18 +165,22 @@ export function remapOex(e:Exhibition){
  const materials=source.extensions?.[MATERIAL_NAMESPACE] as unknown as StudioMaterials|undefined;
  const floors=source.extensions?.[FLOOR_NAMESPACE] as unknown as StudioFloors|undefined;
  const lightDetails=source.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined;
+ const attachments=source.extensions?.[LIGHT_ATTACHMENT_NAMESPACE] as unknown as StudioLightAttachments|undefined;
  const installation=source.extensions?.[INSTALLATION_NAMESPACE] as unknown as StudioInstallation|undefined;
- if(source.extensions){delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
+ if(source.extensions){delete source.extensions[FURNISHING_NAMESPACE];delete source.extensions[VIEWING_PLAN_NAMESPACE];delete source.extensions[MATERIAL_NAMESPACE];delete source.extensions[FLOOR_NAMESPACE];delete source.extensions[ARCHITECTURAL_FINISH_NAMESPACE];delete source.extensions[PLAQUE_NAMESPACE];delete source.extensions[LIGHT_DETAILS_NAMESPACE];delete source.extensions[LIGHT_ATTACHMENT_NAMESPACE];delete source.extensions[BENCH_NAMESPACE];delete source.extensions[SPATIAL_NAMESPACE];delete source.extensions[INSTALLATION_NAMESPACE];}
  const exhibition=visit(source)as Exhibition;
  if(materials)exhibition.extensions={...exhibition.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(floors)exhibition.extensions={...exhibition.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(lightDetails)exhibition.extensions={...exhibition.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ if(attachments)exhibition.extensions={...exhibition.extensions,[LIGHT_ATTACHMENT_NAMESPACE]:remapLightAttachments(attachments,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(finishes)exhibition.extensions={...exhibition.extensions,[ARCHITECTURAL_FINISH_NAMESPACE]:remapArchitecturalFinishes(finishes,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(plaques)exhibition.extensions={...exhibition.extensions,[PLAQUE_NAMESPACE]:remapStudioPlaques(plaques,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(viewingPlan)exhibition.extensions={...exhibition.extensions,[VIEWING_PLAN_NAMESPACE]:remapViewingPlan(viewingPlan,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(benches)exhibition.extensions={...exhibition.extensions,[BENCH_NAMESPACE]:remapStudioBenches(benches,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(installation)exhibition.extensions={...exhibition.extensions,[INSTALLATION_NAMESPACE]:remapStudioInstallation(installation,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
  if(spatial)exhibition.extensions={...exhibition.extensions,[SPATIAL_NAMESPACE]:remapSpatialProgram(spatial,id=>ids.get(id.toLowerCase())??id) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
+ if(furniture)exhibition.extensions={...exhibition.extensions,[FURNISHING_NAMESPACE]:remapFurnishings(furniture,ids) as unknown as NonNullable<Exhibition['extensions']>[string]};
+ if(!validateFurnishings(exhibition).valid)throw new ApiError(422,'OEX_PROFILE_INVALID');
  const counts=new Map<string,number>();for(const artwork of e.artworks)for(const asset of artwork.assets)counts.set(asset.id.toLowerCase(),(counts.get(asset.id.toLowerCase())??0)+1);
  const assetAliases:{sourceAssetId:string;sourceArtworkRevisionId:string;destinationArtworkId:string;destinationArtworkRevisionId:string;destinationAssetId:string;sourceArtifactPath:string;destinationArtifactPath:string}[]=[];
  const scoped=new Map<string,Map<string,string>>();
@@ -175,12 +204,12 @@ export function remapOex(e:Exhibition){
  for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
  return {exhibition,idMap:Object.fromEntries(ids),assetAliases};
 }
-export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[]}>{
+export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map<string,Buffer>;oexVersion:string;floorResources:FloorResourceEntry[];materialResources:SurfaceMaterialResourceEntry[];footstepResources:FootstepResource[]}>{
  return new Promise((resolve,reject)=>{
   const url=new URL('./oex-validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
   const child=execFile(process.execPath,['--max-old-space-size=512',fileURLToPath(url)],{timeout:30000,maxBuffer:100*1024*1024,encoding:'buffer',env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,output)=>{
    if(error){reject(new ApiError(422,'OEX_INVALID'));return;}
-   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=parsed.manifest.formatVersion===OEX_SURFACE_MATERIAL_VERSION?parsed.manifest.materialResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
+   try{const parsed=JSON.parse(output.toString('utf8'))as {exhibition:Exhibition;manifest:{formatVersion:string;floorResources?:FloorResourceEntry[];materialResources?:SurfaceMaterialResourceEntry[];footstepResources?:FootstepResource[]};files:[string,string][]};let total=0;if(!Array.isArray(parsed.files)||parsed.files.length>1024)throw Error('limit');const files=new Map<string,Buffer>();for(const [path,b64]of parsed.files){const content=Buffer.from(b64,'base64');total+=content.length;if(total>MAX_OEX_UPLOAD||files.has(path))throw Error('limit');files.set(path,content);}const floorResources=[OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.floorResources??[]:[],materialResources=[OEX_SURFACE_MATERIAL_VERSION,OEX_FOOTSTEP_RESOURCE_VERSION].some(version=>version===parsed.manifest.formatVersion)?parsed.manifest.materialResources??[]:[],footstepResources=parsed.manifest.formatVersion===OEX_FOOTSTEP_RESOURCE_VERSION?parsed.manifest.footstepResources??[]:[];if(!Array.isArray(floorResources)||floorResources.length>17||!Array.isArray(materialResources)||materialResources.length>8||!Array.isArray(footstepResources)||footstepResources.length>13)throw Error('limit');resolve({exhibition:parsed.exhibition,files,oexVersion:parsed.manifest.formatVersion,floorResources,materialResources,footstepResources});}catch{reject(new ApiError(422,'OEX_INVALID'));}
   });child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -196,17 +225,17 @@ export class Oex {
   this.role(s);uuid(input.requestId);if(!Number.isSafeInteger(input.bytes)||input.bytes<1||input.bytes>MAX_OEX_UPLOAD||!/^[a-f0-9]{64}$/.test(input.sha256))throw new ApiError(400,'INVALID_INPUT');
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:oex-quota`]);
   const prior=(await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3',[s.tenantId,s.userId,input.requestId])).rows[0];
-  if(prior){if(prior.payload_sha256!==input.sha256||prior.expected_bytes!==input.bytes)throw new ApiError(409,'REQUEST_CONFLICT');return this.view(prior);}
+  if(prior){requireLegacyJob(prior);if(prior.payload_sha256!==input.sha256||prior.expected_bytes!==input.bytes)throw new ApiError(409,'REQUEST_CONFLICT');return this.view(prior);}
   const quota=(await c.query("SELECT count(*) AS count,coalesce(sum(expected_bytes),0) AS bytes FROM oex_import_jobs WHERE tenant_id=$1 AND (state IN ('uploading','queued','processing','failed') OR cleanup_pending)",[s.tenantId])).rows[0];
   if(Number(quota.count)>=16||Number(quota.bytes)+input.bytes>512*1024*1024)throw new ApiError(409,'OEX_JOB_LIMIT');
   const id=randomUUID(),keys=Array.from({length:Math.ceil(input.bytes/CHUNK)},(_,i)=>`${s.tenantId}/oex-staging/${id}/chunk-${i}`);
   const r=(await c.query('INSERT INTO oex_import_jobs(tenant_id,id,user_id,request_id,payload_sha256,expected_bytes,staging_keys) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[s.tenantId,id,s.userId,input.requestId,input.sha256,input.bytes,JSON.stringify(keys)])).rows[0];return this.view(r);
  }
- async upload(c:PoolClient,s:Session,id:string,bytes:Buffer){const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.payload_sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');for(const[k,key]of row.staging_keys.entries())await this.blobs.put(key,bytes.subarray(k*CHUNK,(k+1)*CHUNK));return {received:bytes.length};}
+ async upload(c:PoolClient,s:Session,id:string,bytes:Buffer){const row=await this.access(c,s,id);requireLegacyJob(row);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.payload_sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');for(const[k,key]of row.staging_keys.entries())await this.blobs.put(key,bytes.subarray(k*CHUNK,(k+1)*CHUNK));return {received:bytes.length};}
  private async uploaded(row:Job){const chunks=[];for(const key of row.staging_keys)chunks.push(Buffer.from(await this.blobs.get(key)));const bytes=Buffer.concat(chunks);if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.payload_sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');return bytes;}
- async complete(c:PoolClient,s:Session,id:string){const row=await this.access(c,s,id);if(['queued','processing','complete'].includes(row.state))return this.view(row);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');try{await this.uploaded(row);}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}return this.view((await c.query("UPDATE oex_import_jobs SET state='queued',updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id])).rows[0]);}
+ async complete(c:PoolClient,s:Session,id:string){const row=await this.access(c,s,id);requireLegacyJob(row);if(['queued','processing','complete'].includes(row.state))return this.view(row);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');try{await this.uploaded(row);}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}return this.view((await c.query("UPDATE oex_import_jobs SET state='queued',updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id])).rows[0]);}
  async action(c:PoolClient,s:Session,id:string,action:'cancel'|'retry'){
-  const row=await this.access(c,s,id);if(row.state==='complete')throw new ApiError(409,'JOB_STATE');
+  const row=await this.access(c,s,id);requireLegacyJob(row);if(row.state==='complete')throw new ApiError(409,'JOB_STATE');
   if(action==='retry'){if(row.state!=='failed'||row.attempts>=5)throw new ApiError(409,'JOB_STATE');await c.query("UPDATE oex_import_jobs SET state='queued',error_code=NULL,lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);}
   else {await c.query("UPDATE oex_import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);}
   return this.view((await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);
@@ -255,11 +284,18 @@ export class Oex {
    if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    rights.push(still.rights,source.row.rights);total+=source.bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');files.set(still.path,source.bytes);
   }
+  for(const asset of furnishingsFor(e)?.assets??[]){
+   const pair=await furnishingResourcePair(c,this.blobs,s.tenantId,id,asset);
+   for(const role of ['model','notice'] as const){const data=pair[role],path=role==='model'?asset.path:asset.rights.notice.path;total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(path,data);}
+  }
   for(const resource of packageFloorResourceManifest(e)){
    const data=await floorResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
   }
   for(const resource of packageSurfaceMaterialManifest(e)){
    const data=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
+  }
+  for(const resource of footstepResourcesFor(e)){
+   const data=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
   }
   const omittedImported:ImportedPreviewOmission[]=[],retainedImported:{omission:ImportedPreviewOmission;path:string;rights:unknown}[]=[];
   for(const {artwork,asset} of pendingImported){
@@ -287,7 +323,7 @@ export class Oex {
   }
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
   const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported);e=portableOexSnapshot(source);}:undefined;
-  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length;};
+  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length;};
   if(dropOptional&&packageEntries()>254)dropOptional();
   let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
@@ -351,21 +387,21 @@ export class Oex {
  async cleanup(id:string){
   return transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   const r=(await c.query("SELECT * FROM oex_import_jobs WHERE id=$1 AND state IN ('failed','cancelled','complete') AND cleanup_pending FOR UPDATE",[id])).rows[0]as Job|undefined;if(!r)return false;
+   const r=(await c.query(`SELECT * FROM oex_import_jobs WHERE id=$1 AND state IN ('failed','cancelled','complete') AND cleanup_pending AND ${legacyJobSql} FOR UPDATE`,[id])).rows[0]as Job|undefined;if(!r||!legacyJob(r))return false;
    const keys=[...(r.state==='complete'?[]:r.cleanup_keys),...(['complete','cancelled'].includes(r.state)?r.staging_keys:[])];
    let failed=false;for(const key of keys){if(!key.startsWith(`${r.tenant_id}/oex-staging/${r.id}/`)&&!key.startsWith(`${r.tenant_id}/oex-import/${r.id}/`))throw new ApiError(409,'CLEANUP_SCOPE_INVALID');try{await this.remove(key);}catch{failed=true;}}
    await c.query('UPDATE oex_import_jobs SET cleanup_pending=$3,cleanup_keys=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,failed,JSON.stringify(failed?r.cleanup_keys:[])]);return true;
   });
  }
  async runNext(){
-  const clean=(await this.pool.query("SELECT id FROM oex_import_jobs WHERE cleanup_pending AND state IN ('failed','cancelled','complete') ORDER BY updated_at LIMIT 1")).rows[0];if(clean)await this.cleanup(clean.id);
-  const row=(await this.pool.query("SELECT id FROM oex_import_jobs WHERE state='queued' OR state='processing' AND lease_until<clock_timestamp() ORDER BY created_at LIMIT 1")).rows[0];if(!row)return false;return this.run(row.id);
+  const clean=(await this.pool.query(`SELECT id FROM oex_import_jobs WHERE cleanup_pending AND state IN ('failed','cancelled','complete') AND ${legacyJobSql} ORDER BY updated_at LIMIT 1`)).rows[0];if(clean)await this.cleanup(clean.id);
+  const row=(await this.pool.query(`SELECT id FROM oex_import_jobs WHERE (state='queued' OR state='processing' AND lease_until<clock_timestamp()) AND ${legacyJobSql} ORDER BY created_at LIMIT 1`)).rows[0];if(!row)return false;return this.run(row.id);
  }
  async run(id:string){
   uuid(id);const lease=randomUUID();
   const row=await transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   const r=(await c.query("SELECT * FROM oex_import_jobs WHERE id=$1 AND (state='queued' OR state='processing' AND lease_until<clock_timestamp()) FOR UPDATE SKIP LOCKED",[id])).rows[0]as Job|undefined;if(!r)return null;
+   const r=(await c.query(`SELECT * FROM oex_import_jobs WHERE id=$1 AND (state='queued' OR state='processing' AND lease_until<clock_timestamp()) AND ${legacyJobSql} FOR UPDATE SKIP LOCKED`,[id])).rows[0]as Job|undefined;if(!r||!legacyJob(r))return null;
    if(r.attempts>=5){await c.query("UPDATE oex_import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',cleanup_pending=true,lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2",[r.tenant_id,id]);return null;}
    // Remove previous attempt's exclusively owned disposable keys before another attempt.
    for(const key of r.cleanup_keys){if(!key.startsWith(`${r.tenant_id}/oex-import/${id}/`))throw new ApiError(409,'CLEANUP_SCOPE_INVALID');try{await this.remove(key);}catch{await c.query("UPDATE oex_import_jobs SET state='failed',error_code='CLEANUP_PENDING',cleanup_pending=true,lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2",[r.tenant_id,id]);return null;}}
@@ -381,13 +417,20 @@ export class Oex {
    for(const a of parsed.exhibition.artworks)for(const asset of a.assets){const bytes=parsed.files.get(`assets/${asset.path}`);if(!bytes||bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!qualified.has(asset.path)||artworkThumbnailFor(a)?.id.toLowerCase()===asset.id.toLowerCase())await checkAssetBytes(a,asset.id,bytes,asset.mime);qualified.set(asset.path,bytes);}
    for(const m of parsed.exhibition.mediaAssets){const bytes=parsed.files.get(`assets/${m.path}`);if(!bytes||bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(422,'ASSET_INTEGRITY');if(!curationDurationValid(parsed.exhibition,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');qualified.set(m.path,bytes);}
    if(sourceStill){const bytes=parsed.files.get(`assets/${sourceStill.path}`);if(!bytes||bytes.length!==sourceStill.bytes||sha256(bytes)!==sourceStill.sha256)throw new ApiError(422,'ASSET_INTEGRITY');await validateCoverImage(bytes);qualified.set(sourceStill.path,bytes);}
-   for(const resource of [...parsed.floorResources,...parsed.materialResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
+   for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){const bytes=parsed.files.get(resource.path);if(!bytes||bytes.length!==resource.bytes||sha256(bytes)!==resource.sha256||qualified.has(resource.artifactPath))throw new ApiError(422,'ASSET_INTEGRITY');qualified.set(resource.artifactPath,bytes);}
+   for(const [path,bytes] of checkedOexFurnishingFiles(parsed.exhibition,parsed.files)){if(qualified.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');qualified.set(path,bytes);}
    const {exhibition:e,idMap,assetAliases}=remapOex(parsed.exhibition),keys=new Map<string,string>(),sourceKeys=new Map<string,string>(),restoredBytes=new Map<string,Buffer>();
    for(const path of qualified.keys())sourceKeys.set(path,`${row.tenant_id}/oex-import/${id}/${lease}/${randomUUID()}`);
    for(const alias of assetAliases){keys.set(alias.destinationArtifactPath,sourceKeys.get(alias.sourceArtifactPath)!);restoredBytes.set(alias.destinationArtifactPath,qualified.get(alias.sourceArtifactPath)!);}
    for(const m of e.mediaAssets){keys.set(m.path,sourceKeys.get(m.path)!);restoredBytes.set(m.path,qualified.get(m.path)!);}
    const mappedStill=spaceStillFor(e);if(mappedStill){keys.set(mappedStill.path,sourceKeys.get(mappedStill.path)!);restoredBytes.set(mappedStill.path,qualified.get(mappedStill.path)!);}
-   for(const resource of [...parsed.floorResources,...parsed.materialResources]){keys.set(resource.artifactPath,sourceKeys.get(resource.artifactPath)!);restoredBytes.set(resource.artifactPath,qualified.get(resource.artifactPath)!);}
+   for(const resource of [...parsed.floorResources,...parsed.materialResources,...parsed.footstepResources]){keys.set(resource.artifactPath,sourceKeys.get(resource.artifactPath)!);restoredBytes.set(resource.artifactPath,qualified.get(resource.artifactPath)!);}
+   for(const source of furnishingsFor(parsed.exhibition)?.assets??[]){
+    const mapped=furnishingsFor(e)!.assets.find(asset=>asset.id===idMap[source.id.toLowerCase()]);if(!mapped)throw new ApiError(422,'OEX_PROFILE_INVALID');
+    for(const [before,after] of [[source.path,mapped.path],[source.rights.notice.path,mapped.rights.notice.path]]){
+     const key=sourceKeys.get(before!),bytes=qualified.get(before!);if(!key||!bytes)throw new ApiError(422,'ASSET_INTEGRITY');keys.set(after!,key);restoredBytes.set(after!,bytes);
+    }
+   }
    const storedBytes=new Map([...sourceKeys].map(([path,key])=>[key,qualified.get(path)!]));
    // Commit the cleanup inventory before any destination byte write, including process death.
    const inventoried=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return (await c.query("UPDATE oex_import_jobs SET cleanup_keys=$4 WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() RETURNING id",[row.tenant_id,id,lease,JSON.stringify([...storedBytes.keys()])])).rowCount;});
@@ -430,11 +473,22 @@ export class Oex {
      await c.query("INSERT INTO studio_cover_images(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'image/png',$9,$10,'approved')",[s.tenantId,e.id,still.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(still)))),still.sha256,still.bytes,still.rights,stillKey]);
      await c.query('INSERT INTO cover_image_approvals(tenant_id,image_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,still.id,still,s.userId]);
     }
+    for(const asset of furnishingsFor(e)?.assets??[]){
+     const entry=furnishingCatalogueEntry(asset.catalogId);
+     for(const role of ['model','notice'] as const){
+      const descriptor=role==='model'?{path:asset.path,resourcePath:entry.path,bytes:asset.bytes,sha256:asset.sha256}:{path:asset.rights.notice.path,resourcePath:entry.rights.noticePath,bytes:asset.rights.notice.bytes,sha256:asset.rights.notice.sha256};
+      const key=keys.get(descriptor.path);if(!key)throw new ApiError(422,'ASSET_INTEGRITY');
+      await c.query('INSERT INTO studio_furnishing_resources(tenant_id,exhibition_id,catalog_id,catalog_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,asset.catalogId,asset.catalogVersion,role,descriptor.resourcePath,descriptor.sha256,descriptor.bytes,key]);
+     }
+    }
     for(const resource of parsed.floorResources){
      await c.query('INSERT INTO studio_floor_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
     for(const resource of parsed.materialResources){
      await c.query('INSERT INTO studio_surface_material_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
+    }
+    for(const resource of parsed.footstepResources){
+     await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');

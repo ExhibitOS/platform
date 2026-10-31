@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Generated public-only projection of the existing Docs-owned selected-file manifest.
 // No new approval registry: update only from a newly reviewed immutable source manifest.
-export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="6afca980f2bb4f33607c4f236e4ff16860d3482d488a5d11ba653ede9307e6bf";
+export const APPROVED_DEMO_SOURCE_MANIFEST_SHA256="5a40af5b1ae9384b304cdba4b23e0be21912091bf1e3168416665876d70a62d4";
 export const APPROVED_DEMO_DISPLAY_FILES=[
   {
     "approvalId": "336ba6e9-75c4-5a56-a2de-0fd3348ad2c4",
@@ -280,5 +280,125 @@ export const APPROVED_DEMO_DISPLAY_FILES=[
       "width": 465,
       "height": 512
     }
+  },
+  {
+    "approvalId": "4796b546-8b6a-4e18-85e0-96a231314f56",
+    "institutionRecordId": "met-437159",
+    "officialObjectURL": "https://www.metmuseum.org/art/collection/search/437159",
+    "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DT1928.jpg",
+    "rawSourceSha256": "c92f2be6c054a459e4644183d23596ea4b9b8b7ac1bd285584dea54950e03343",
+    "rightsEvidenceSha256": "a60c2b82869d15716a0f67b1aac39f27f6e678998e089f69af027e068123d8ba",
+    "canonicalAssetSha256": "ffe480aae3f3331c894e22e6e64fe68eb36af602963d96661aebbda6fe31890f",
+    "canonicalBytes": 6755174,
+    "recipeSha256": "f5626d3d503d0c33fb70a088452fe7ab00dff34c94a65973c9762a48e6cf1ec1",
+    "rightsEvidenceURLs": [
+      "https://collectionapi.metmuseum.org/public/collection/v1/objects/437159",
+      "https://www.metmuseum.org/policies/image-resources"
+    ],
+    "allowedPublicUses": {
+      "publicHomepage": true,
+      "staticAssets": true,
+      "OEXIncludingAsset": true,
+      "publicRepository": true,
+      "derivativeEditing": true,
+      "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+    },
+    "canonicalMaxPixels": 4194304,
+    "coarse": {
+      "sha256": "5f3d99c071c07bab826a20267e011ad847a96e9c9b7548af825780a49f79c536",
+      "bytes": 558675,
+      "width": 512,
+      "height": 428
+    }
+  },
+{
+  "approvalId": "b7eff3e0-a71f-4386-af13-6903d3218f6e",
+  "institutionRecordId": "met-437308",
+  "officialObjectURL": "https://www.metmuseum.org/art/collection/search/437308",
+  "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DT1863.jpg",
+  "rawSourceSha256": "5f841e6d2662667008248089867fcc553d147390c067fd8bcc5d8d0eb2f8e219",
+  "rightsEvidenceSha256": "cd6144abf1c8b85ae348697c78172c5d52e3536f6d1277fb1e4d7787dc87f7de",
+  "canonicalAssetSha256": "3bd86b148feb25fac1c64132895416d5375997f45a1a6060f0ea3316a63d431d",
+  "canonicalBytes": 7521849,
+  "recipeSha256": "bcfdd2a12a914c103d2ff77d05c52b12091a2a7cfcc9f4afe93bb3066abc49c0",
+  "rightsEvidenceURLs": [
+    "https://collectionapi.metmuseum.org/public/collection/v1/objects/437308",
+    "https://www.metmuseum.org/policies/image-resources"
+  ],
+  "allowedPublicUses": {
+    "publicHomepage": true,
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+  },
+  "canonicalMaxPixels": 4194304,
+  "coarse": {
+    "sha256": "b4a248a5fb58276077f249d3a96423519e24803266404b082e65b390e041cd97",
+    "bytes": 617105,
+    "width": 512,
+    "height": 430
   }
+},
+{
+  "approvalId": "3847e4d5-333f-4cc5-a161-24f6a940cd75",
+  "institutionRecordId": "met-436013",
+  "officialObjectURL": "https://www.metmuseum.org/art/collection/search/436013",
+  "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DP290289.jpg",
+  "rawSourceSha256": "f4faf4bee0eee3fb7fa7bd1fa41d0ddc4373ad80cedfcdd8ea70e44c7f2aea6f",
+  "rightsEvidenceSha256": "078d5e466819edb4b11a9a80ab4bc1c595f690e8f4cd1f345670ee4af1c0c0b0",
+  "canonicalAssetSha256": "2f04318b37245747e60ab8d0190060e17824f005f15a91d423e75e5dcbb1c7e6",
+  "canonicalBytes": 4957538,
+  "recipeSha256": "786503207aa70d4ae1a03aee33675fb763ffe3164f0f367706b8bd270d0b0406",
+  "rightsEvidenceURLs": [
+    "https://collectionapi.metmuseum.org/public/collection/v1/objects/436013",
+    "https://www.metmuseum.org/policies/image-resources"
+  ],
+  "allowedPublicUses": {
+    "publicHomepage": true,
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+  },
+  "canonicalMaxPixels": 4194304,
+  "coarse": {
+    "sha256": "840e736142fa04b823790655676fc4c53c945f38ddcb5acb09dae109fe39fa95",
+    "bytes": 448100,
+    "width": 512,
+    "height": 416
+  }
+},
+{
+  "approvalId": "e12a747d-f2eb-4143-ad0c-56cb780381e6",
+  "institutionRecordId": "met-436946",
+  "officialObjectURL": "https://www.metmuseum.org/art/collection/search/436946",
+  "officialFileURL": "https://images.metmuseum.org/CRDImages/ep/original/DP-13655-001.jpg",
+  "rawSourceSha256": "415c5a77bf36315cfc8d8c633b4d1d926660d43b6eef39635502dc524d2f68c3",
+  "rightsEvidenceSha256": "c4ca2a0eb230a3f921e42695ba40aec60d9fc9d711ab362ea6b1859c18c7fc86",
+  "canonicalAssetSha256": "2a8c66f7c6f7e9a868d00000f0d0f7809c3e982e133bc0d424ba8ac3d2648719",
+  "canonicalBytes": 5857490,
+  "recipeSha256": "347ea357b05186cf96cfa6ec33eec9e8ce22c5ce8b6022f5c9f898f53681cef3",
+  "rightsEvidenceURLs": [
+    "https://collectionapi.metmuseum.org/public/collection/v1/objects/436946",
+    "https://www.metmuseum.org/policies/image-resources"
+  ],
+  "allowedPublicUses": {
+    "publicHomepage": true,
+    "staticAssets": true,
+    "OEXIncludingAsset": true,
+    "publicRepository": true,
+    "derivativeEditing": true,
+    "basis": "기관의 해당 파일 CC0 표시를 근거로 재배포·변환을 허용한다고 판단. OEX는 기관이 명명한 포맷이 아니라 CC0 재배포 범위에서 해석."
+  },
+  "canonicalMaxPixels": 4194304,
+  "coarse": {
+    "sha256": "8ce739bde938a32d9666282c4aa73abbd5bb26861b27e8a49eb7899a692e7aa6",
+    "bytes": 470577,
+    "width": 512,
+    "height": 416
+  }
+}
 ] as const;
