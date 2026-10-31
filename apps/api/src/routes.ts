@@ -188,6 +188,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  for(const action of ['revoke','restore'] as const)app.post(`${coverPath}/:imageId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.availability(c,s,p.id,p.imageId,action==='restore');}));
  const publications=new Publications(pool,store);
  app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
+ app.get(`${prefix}/studio/publications/:id/editing-draft`,call(false,async(c,s,req,reply)=>{const result=await publications.editingDraft(c,s,(req.params as {id:string}).id);reply.header('etag',result.etag);return result;}));
  const readPublic=async(id:string,assetId?:string,profile?:string)=>{
   const value=await (publicationSource ? (assetId ? publicationSource.asset(id,assetId) : publicationSource.anonymous(id)) : publications.anonymous(id,assetId));
   if(!assetId){const projection=value as {exhibition?:{extensions?:Record<string,unknown>}};if(projection?.exhibition?.extensions&&Object.hasOwn(projection.exhibition.extensions,'org.exhibitos.viewer/footstep-resources')&&profile!=='footstep-resources-v1')throw new ApiError(406,'PUBLICATION_PROFILE_UNSUPPORTED');}
