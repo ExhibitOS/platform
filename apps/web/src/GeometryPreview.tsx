@@ -8,6 +8,8 @@ import {SculptureOrbitControls} from './viewer/SculptureOrbitControls';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
+import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
+import {viewingPlanFor} from '@exhibitos/studio-contract';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
@@ -2020,8 +2022,11 @@ export function GeometryPreview({
           if(!destination)return false;
           const selected=input.placementId?document.placements.find(p=>p.id.toLowerCase()===input.placementId!.toLowerCase()&&p.roomId.toLowerCase()===destination.roomId.toLowerCase()):undefined;
           if(input.placementId&&!selected)return false;
+          const authored=selected&&authoredArtworkViewpoint(viewingPlanFor(document).stops,selected.id);
+          if(authored&&authored.toLowerCase()!==destination.id.toLowerCase())return false;
           const placement=selected??prioritizePlacements(document,destination.roomId,destination.position).find(p=>p.roomId.toLowerCase()===destination.roomId.toLowerCase());
           const art=placement&&arts.find(a=>a.revisionId.toLowerCase()===placement.artworkRevisionId.toLowerCase());
+          if(selected&&!art)return false;
           const position=camera.position.clone(),quaternion=camera.quaternion.clone();
           let releaseMinimum:(()=>void)|undefined;
           try{
@@ -2029,6 +2034,13 @@ export function GeometryPreview({
             signal.throwIfAborted();
             if(art)releaseMinimum=await retainMapMinimum({id:art.revisionId,signal,pins:mapPins,waiters:mapWaiters,ready:()=>objects.has(art.revisionId)&&active.has(art.revisionId),failed:()=>!pending.has(art.revisionId)&&(failed.has(art.revisionId)||minimumBlocked.has(art.revisionId)),request:()=>request(art,false)});
             signal.throwIfAborted();
+            if(selected&&art){
+              const qualified=await walkingActions.current?.prepareViewpoint?.(destination.id);
+              signal.throwIfAborted();
+              const group=placements.get(selected.id.toLowerCase());
+              if(!qualified||!group)return false;
+              try{assertArtworkViewpoint(three,group,art.artworkType,qualified);}catch{return false;}
+            }
             if(viewingStyleRef.current!=='free'||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current||renderer.domElement.ownerDocument.hidden||!camera.position.equals(position)||!camera.quaternion.equals(quaternion))return false;
             return walkingActions.current?.visitViewpoint?.(destination.id,false)===true;
           }finally{releaseMinimum?.();}
@@ -2058,18 +2070,7 @@ export function GeometryPreview({
               const destination=await walkingActions.current?.prepareViewpoint?.(stop.viewpointId);
               signal.throwIfAborted();if(!destination)throw Error('VIEWING_UNSAFE_POSITION');
               const group=placements.get(placement!.id.toLowerCase());if(!group)throw Error('VIEWING_REFERENCE');
-              group.updateMatrixWorld(true);const box=new three.Box3().setFromObject(group,true);
-              if(box.isEmpty()||box.distanceToPoint(new three.Vector3(...destination.target))>.05)throw Error('VIEWING_TARGET_OUTSIDE_ARTWORK');
-              if(art.artworkType==='image'){
-                let plane:InstanceType<typeof three.Mesh>|undefined;
-                group.traverse(node=>{if(!plane&&node instanceof three.Mesh&&(Array.isArray(node.material)?node.material:[node.material]).some(m=>(m as InstanceType<typeof three.MeshBasicMaterial>).map))plane=node;});
-                if(!plane)throw Error('VIEWING_IMAGE_FRONT');
-                const determinant=plane.matrixWorld.determinant();if(!Number.isFinite(determinant)||determinant===0)throw Error('VIEWING_IMAGE_FRONT');
-                const normal=new three.Vector3(0,0,1).applyNormalMatrix(new three.Matrix3().getNormalMatrix(plane.matrixWorld));
-                if(!normal.toArray().every(Number.isFinite)||normal.lengthSq()===0)throw Error('VIEWING_IMAGE_FRONT');
-                const eye=new three.Vector3(...destination.position),centre=box.getCenter(new three.Vector3());
-                if(normal.dot(eye.sub(centre).normalize())<Math.cos(Math.PI/6))throw Error('VIEWING_IMAGE_FRONT');
-              }
+              assertArtworkViewpoint(three,group,art.artworkType,destination);
               return {commit(style){
                 if(released||signal.aborted||disposed||gpuLost||sharedDetail||suspendedRef.current||xrActive.current||!objects.has(art.revisionId))return false;
                 if(!walkingActions.current?.visitViewpoint?.(stop.viewpointId,style==='ordered'))return false;
