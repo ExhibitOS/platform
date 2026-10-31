@@ -9,7 +9,7 @@ import type {DiskOwner} from './publication-disk-budget.ts';
 
 interface OwnedObject {key:string;sha256:string;bytes:number}
 export interface PublicationAttempt {
- version:1;attemptId:string;generation:string;owner:DiskOwner;
+ version:1;attemptId:string;generation:string;owner:DiskOwner;runtimeGeneration?:string;
  tenantId:string;userId:string;requestId:string;exhibitionId:string;
  etag:string;payloadHash:string;publicationId:string;snapshotHash:string;
  objects:OwnedObject[];
@@ -19,7 +19,7 @@ const hash=/^[0-9a-f]{64}$/;
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 const LIMIT=262144;
 function validate(a:PublicationAttempt){
- if(!a||Object.keys(a).sort().join(',')!=='attemptId,etag,exhibitionId,generation,objects,owner,payloadHash,publicationId,requestId,snapshotHash,tenantId,userId,version'||a.version!==1||![a.attemptId,a.generation,a.tenantId,a.userId,a.requestId,a.exhibitionId,a.publicationId].every(v=>typeof v==='string'&&uuid.test(v))||typeof a.etag!=='string'||!/^"studio-r[1-9][0-9]*-[0-9a-f]{64}"$/.test(a.etag)||!hash.test(a.payloadHash)||!hash.test(a.snapshotHash)||!a.owner||Object.keys(a.owner).sort().join(',')!=='databaseOid,databaseSystemId,storeDevice,storeInode,storeRoot'||![a.owner.databaseOid,a.owner.databaseSystemId,a.owner.storeDevice,a.owner.storeInode].every(v=>typeof v==='string'&&/^[0-9]{1,24}$/.test(v))||!isAbsolute(a.owner.storeRoot)||!Array.isArray(a.objects)||a.objects.length>256)throw Error('PUBLICATION_ATTEMPT_INVALID');
+ if(!a||Object.keys(a).filter(k=>k!=='runtimeGeneration').sort().join(',')!=='attemptId,etag,exhibitionId,generation,objects,owner,payloadHash,publicationId,requestId,snapshotHash,tenantId,userId,version'||a.version!==1||![a.attemptId,a.generation,a.tenantId,a.userId,a.requestId,a.exhibitionId,a.publicationId].every(v=>typeof v==='string'&&uuid.test(v))||Object.hasOwn(a,'runtimeGeneration')&&(typeof a.runtimeGeneration!=='string'||!uuid.test(a.runtimeGeneration))||typeof a.etag!=='string'||!/^"studio-r[1-9][0-9]*-[0-9a-f]{64}"$/.test(a.etag)||!hash.test(a.payloadHash)||!hash.test(a.snapshotHash)||!a.owner||Object.keys(a.owner).sort().join(',')!=='databaseOid,databaseSystemId,storeDevice,storeInode,storeRoot'||![a.owner.databaseOid,a.owner.databaseSystemId,a.owner.storeDevice,a.owner.storeInode].every(v=>typeof v==='string'&&/^[0-9]{1,24}$/.test(v))||!isAbsolute(a.owner.storeRoot)||!Array.isArray(a.objects)||a.objects.length>256)throw Error('PUBLICATION_ATTEMPT_INVALID');
  const keys=new Set<string>();let total=0;
  for(const o of a.objects){
   if(!o||Object.keys(o).sort().join(',')!=='bytes,key,sha256'||!hash.test(o.sha256)||!Number.isSafeInteger(o.bytes)||o.bytes<1||o.bytes>33554432||typeof o.key!=='string')throw Error('PUBLICATION_ATTEMPT_INVALID');
