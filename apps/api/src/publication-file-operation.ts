@@ -5,7 +5,7 @@ import {realpath,lstat} from 'node:fs/promises';
 import {isAbsolute} from 'node:path';
 import type {Session} from './auth.ts';
 import {PublicationDiskBudget,type DiskReservationBinding,type DiskPlan} from './publication-disk-budget.ts';
-import {PublicationAttempts,publicationDiskOwner,isPublicationFileStore,type PublicationAttempt} from './publication-attempt.ts';
+import {PublicationAttempts,publicationDiskOwner,isPublicationFileStore,pinPublicationFileStore,type PublicationAttempt} from './publication-attempt.ts';
 import {PublicationByteStage} from './publication-byte-stage.ts';
 
 export interface PublicationOperationRequest {
@@ -42,6 +42,7 @@ export class PublicationFileOperation {
   // are shared with OEX, never replaced by a parallel coordinator namespace.
   config={...config,additionalDiskPlan:config.additionalDiskPlan?.map(p=>({...p}))};
   if(!(config.coordinator instanceof PublicationDiskBudget)||!(config.journal instanceof PublicationAttempts)||!isPublicationFileStore(config.blobs))throw Error('PUBLICATION_FILE_CONFIG');
+  pinPublicationFileStore(config.blobs);
   const scratch=config.scratchRoot,s=await lstat(scratch);
   if(!isAbsolute(scratch)||await realpath(scratch)!==scratch||!s.isDirectory()||s.isSymbolicLink()||(s.mode&0o077)!==0||s.uid!==process.getuid?.())throw Error('PUBLICATION_STAGE_ROOT');
   const owner=await publicationDiskOwner(c,config.blobs.root),plan=[{root:scratch,bytes:536870912},{root:owner.storeRoot,bytes:1073741824},...config.additionalDiskPlan??[]];

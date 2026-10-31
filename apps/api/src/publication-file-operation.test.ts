@@ -67,9 +67,10 @@ it.each(['verify-db','verify-fs','claim-db','manifest-provider','manifest-write'
  if(phase==='manifest-provider')await expect(config.journal.read(request.attemptId)).rejects.toMatchObject({code:'ENOENT'});
  if(phase==='manifest-write')expect((await config.journal.read(request.attemptId)).generation).toBe(op.receipt().reservation.generation);
 });
-it('rejects store subclasses and instance overrides before reserving capacity',async()=>{
- for(const kind of ['subclass','override']){const {c,request,config,coordinatorRoot}=await fixture();
+it('rejects store subclasses, root accessors and instance overrides before reserving capacity',async()=>{
+ for(const kind of ['subclass','override','accessor']){const {c,request,config,coordinatorRoot}=await fixture();
   if(kind==='subclass'){class Wrapped extends FileBlobStore{}config.blobs=new Wrapped(config.blobs.root);}
+  else if(kind==='accessor')Object.defineProperty(config.blobs,'root',{get:()=>{throw Error('must not evaluate getter');}});
   else Object.defineProperty(config.blobs,'put',{value:async()=>{}});
   await expect(PublicationFileOperation.admit(c,config,request)).rejects.toThrow('PUBLICATION_FILE_CONFIG');expect((await readdir(coordinatorRoot)).some(n=>n.startsWith('lease-'))).toBe(false);
  }
