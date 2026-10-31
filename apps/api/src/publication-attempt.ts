@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Narrow publication-owned journal, independent of the parent SQL transaction.
 import {constants} from 'node:fs';
-import {open,realpath,lstat,stat,link,unlink} from 'node:fs/promises';
+import {open,realpath,lstat,stat,link,unlink,readdir} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {join,isAbsolute} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
@@ -108,8 +108,17 @@ export class PublicationAttempts {
  private readonly root:string;
  private readonly resourceClaims:boolean;
  constructor(root:string,options?:{resourceClaims:true}){this.root=root;this.resourceClaims=options?.resourceClaims===true;}
+ private async protocol(){
+  await privateRoot(this.root);const path=join(this.root,'journal-protocol.json'),text=canonical({version:this.resourceClaims?2:1,kind:'publication-attempt-journal'});
+  // Atomic exclusive mode selection also fences new legacy instances racing
+  // first claim initialization. Existing legacy journals are never upgraded.
+  if(this.resourceClaims&&await absent(path)&&(await readdir(this.root)).length)throw Error('PUBLICATION_CLAIM_MODE_CONFLICT');
+  try{await this.claimWrite(path,text);}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
+  const actual=await claimFile(path);if(actual.stat.nlink!==1n||actual.text!==text)throw Error('PUBLICATION_CLAIM_MODE_CONFLICT');
+ }
  async claimJournalIdentity():Promise<Readonly<DiskClaimJournalBinding>>{
   if(!this.resourceClaims)throw Error('PUBLICATION_CLAIM_MODE_REQUIRED');
+  await this.protocol();
   await privateRoot(this.root);const s=await stat(this.root,{bigint:true});return Object.freeze({root:this.root,device:String(s.dev),inode:String(s.ino)});
  }
  private async claimWrite(path:string,text:string){
@@ -194,6 +203,7 @@ export class PublicationAttempts {
   * first final put. Partial/uncertain records are retained, never adopted. */
  async create(input:PublicationAttempt){
   if(this.resourceClaims||!await absent(join(this.root,'claim-provider.json')))throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
+  await this.protocol();
   const a=JSON.parse(canonical(input)) as PublicationAttempt;validate(a);const text=canonical(a);if(Buffer.byteLength(text)>LIMIT)throw Error('PUBLICATION_ATTEMPT_INVALID');
   if(!await absent(join(this.root,a.attemptId+'.claim.json')))throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
   await privateRoot(this.root);const f=await open(join(this.root,a.attemptId+'.json'),'wx',0o600);
@@ -214,6 +224,7 @@ export class PublicationAttempts {
   * alone is NOT that proof. This method never releases the disk reservation. */
  async recover(pool:Pool,blobs:FileBlobStore,id:string,generation:string,verifyDrain:(a:PublicationAttempt)=>Promise<boolean>){
   if(this.resourceClaims||!await absent(join(this.root,'claim-provider.json')))throw Error('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');
+  await this.protocol();
   if(!uuid.test(id))throw Error('PUBLICATION_ATTEMPT_INVALID');
   if(!await absent(join(this.root,id+'.claim.json')))throw Error('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');
   const a=await this.read(id);

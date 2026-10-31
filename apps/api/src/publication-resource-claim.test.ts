@@ -39,6 +39,18 @@ it('rejects legacy create/recover before a claim, including concurrent different
  const proof=vi.fn(async()=>true),results=await Promise.allSettled([f.journal.beginResourceClaim(f.budget,f.request),f.journal.create(a),f.journal.recover({} as Pool,new FileBlobStore(f.store),a.attemptId,a.generation,proof)]);
  expect(results.map(r=>r.status)).toEqual(['fulfilled','rejected','rejected']);expect(proof).not.toHaveBeenCalled();expect(await readdir(f.journalRoot)).not.toContain(a.attemptId+'.json');
 });
+it('atomically selects a journal mode when a default legacy instance races first v2 initialization',async()=>{
+ const f=await fixture(),a:PublicationAttempt={version:1,attemptId:randomUUID(),generation:randomUUID(),owner:f.request.owner,tenantId:f.request.tenantId,userId:f.request.userId,requestId:f.request.requestId,exhibitionId:f.request.resourceId,etag:'"studio-r2-'+ 'c'.repeat(64)+'"',payloadHash:f.request.requestDigest,publicationId:randomUUID(),snapshotHash:'d'.repeat(64),objects:[]};
+ for(let i=0;i<8;i++){
+  const dir=await mkdtemp(join(root,'mode-race-')),budgetRoot=await mkdtemp(join(root,'mode-budget-')),legacy=new PublicationAttempts(dir),modern=new PublicationAttempts(dir,{resourceClaims:true});
+  const claim=async()=>{const budget=await PublicationDiskBudget.open(budgetRoot,{claimJournal:await modern.claimJournalIdentity()});return modern.beginResourceClaim(budget,f.request);};
+  const results=await Promise.allSettled(i%2?[legacy.create(a),claim()]:[claim(),legacy.create(a)]),legacyResult=results[i%2?0:1],claimResult=results[i%2?1:0];
+  expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+  const names=await readdir(dir);expect(names.includes(a.attemptId+'.json')).toBe(legacyResult.status==='fulfilled');expect(names.some(n=>n.startsWith('resource-'))).toBe(claimResult.status==='fulfilled');
+ }
+ const oldRoot=await mkdtemp(join(root,'unmarked-legacy-'));await writeFile(join(oldRoot,a.attemptId+'.json'),JSON.stringify(a),{mode:0o600});
+ await expect(new PublicationAttempts(oldRoot,{resourceClaims:true}).claimJournalIdentity()).rejects.toThrow('PUBLICATION_CLAIM_MODE_CONFLICT');
+});
 it('binds the actual provider generation once and rejects raw release even with true proof',async()=>{
  const f=await bound(),verified=await f.journal.verifyResourceClaim(f.budget,f.handle);
  expect(verified.claim.generation).toBe(f.request.generation);expect(verified.binding.receipt.generation).toBe(f.lease.generation);expect(verified.claim.generation).not.toBe(f.lease.generation);
