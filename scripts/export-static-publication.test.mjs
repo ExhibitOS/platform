@@ -31,7 +31,7 @@ export async function staticFixture(){
  let reads=0;const fetcher=async url=>{const path=new URL(url).pathname;if(path===`/api/v1/publications/${id}`){reads++;return Response.json(raw);}const asset=decoded.manifest.assets.find(a=>path===`/api/v1/publications/${id}/assets/${a.id}`);if(!asset)return new Response(null,{status:404});return new Response(decoded.files.get(asset.path),{headers:{"content-type":asset.mime,"x-exhibitos-publication-revision":raw.publication.revisionSha256}});};
  return {decoded,raw,id,fetcher,get reads(){return reads;}};
 }
-async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256">');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
+async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
 test('selected furnishing model and notice survive static and Pages roundtrip with fail-closed integrity',async t=>{
  const {fixture,options,directory}=await setup(t),room=fixture.raw.exhibition.rooms[0],id=randomUUID(),viewpointId=randomUUID(),catalog=furnishingCatalogueEntry('backless-oak-bench'),{min,max}=catalog.bounds;
  const bench={id,name:'bench',roomId:room.id,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:max[0]-min[0],depth:max[2]-min[2],height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId};
@@ -109,7 +109,7 @@ test("known display rights expiry is retained and enforced before static export"
 
 test("explicit demo exports only the fixed CC0 sample and separate Studio entry",async t=>{
  const {runtime,options,fixture,directory}=await setup(t);
- await writeFile(join(runtime,"static.html"),'<html><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"><div id="root"></div></html>');
+ await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await writeFile(join(runtime,"static-studio.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256">');
  const result=await exportStaticStudioDemo({runtimeRoot:runtime,output:options.output});
  assert.equal(revisionHash(fixture.decoded.exhibition),"4a561248e1f166dfb3ca2ea4cfb692127e1e533440ce0c8a7aba1df069b58f00");
@@ -119,11 +119,11 @@ test("explicit demo exports only the fixed CC0 sample and separate Studio entry"
  expected.extensions={...expected.extensions,"org.exhibitos.studio/presentation":{version:1,startCamera:{roomId:expected.rooms[0].id,position:[0,1.6,2],target:[0,1.6,0],fov:60},viewpoints:[],credits:""}};
  assert.deepEqual(derived.exhibition,expected);
  assert.deepEqual((await readOex(await readFile(fixtureURL("oex/v1/examples/synthetic-media.oex")))).exhibition,fixture.decoded.exhibition);
- assert.match(await readFile(join(result.output,"index.html"),"utf8"),/href="\/studio.html"/);
+ const demoHtml=await readFile(join(result.output,"index.html"),"utf8");assert.match(demoHtml,/<meta name="exhibitos-private-editor" content="enabled">/);assert.doesNotMatch(demoHtml,/cms-actions|href="\/studio.html"/);
  assert.match(await readFile(join(result.output,"studio.html"),"utf8"),new RegExp(result.indexSha256));
  const ordinary=await exportStaticPublication({...options,output:join(directory,"ordinary")});
  await assert.rejects(lstat(join(ordinary.output,"studio.html")),{code:"ENOENT"});
- assert(!((await readFile(join(ordinary.output,"index.html"),"utf8")).includes("/studio.html")));
+ assert.doesNotMatch(await readFile(join(ordinary.output,"index.html"),"utf8"),/exhibitos-private-editor|href="\/studio.html"/);
  const legacy=await exportStaticPublication({...options,studioDemo:true,output:join(directory,"legacy-demo")});
  assert.equal(legacy.revisionSha256,revisionHash(fixture.decoded.exhibition));
  fixture.raw.exhibition=structuredClone(expected);
@@ -135,7 +135,7 @@ test("explicit demo exports only the fixed CC0 sample and separate Studio entry"
 });
 test("demo requires its fixed entry and still refuses extra HTML",async t=>{
  const {runtime,options,directory}=await setup(t);
- await writeFile(join(runtime,"static.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await assert.rejects(exportStaticStudioDemo({runtimeRoot:runtime,output:options.output}),/STATIC_RUNTIME_ENTRY: static-studio.html/);
  await writeFile(join(runtime,"other.html"),"must not export");
  await assert.rejects(exportStaticStudioDemo({runtimeRoot:runtime,output:join(directory,"extra")}),/STATIC_RUNTIME_UNLISTED: other.html/);

@@ -253,7 +253,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {connectionStatus}
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}
-          {mode === "3d" && privateEditorHref && <a className="publication-private-edit" href={privateEditorHref}>직접 꾸며보기</a>}
+          {privateEditorHref && <div className="publication-private-entry"><a className="publication-private-edit" href={privateEditorHref}>직접 꾸며보기</a><p>이 브라우저에 개인 사본을 만들어요.</p></div>}
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
