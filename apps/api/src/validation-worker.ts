@@ -25,10 +25,9 @@ function closed(value: unknown, required: string[], optional: string[] = []) {
   return required.every(k => Object.hasOwn(object, k)) && Object.keys(object).every(k => required.includes(k) || optional.includes(k));
 }
 async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number) {
-  const ordinary=ordinaryPngRoleSet(doc), imageBytesLimit=8*1024*1024;
-  const texturePixels = (ordinary?12:2)*1024*1024, textureBytes = (ordinary?24:8)*1024*1024;
+  const ordinaryRoles=ordinaryPngRoleSet(doc), imageBytesLimit=8*1024*1024;
   if (binHeader + 8 > data.length || binHeader % 4 || data.readUInt32LE(binHeader + 4) !== 0x004e4942 || data.readUInt32LE(binHeader) % 4 || binHeader + 8 + data.readUInt32LE(binHeader) !== data.length || !Array.isArray(doc.buffers) || doc.buffers.length !== 1 || !closed(doc.buffers[0], ["byteLength"]) || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength < 1 || doc.buffers[0].byteLength > data.length - binHeader - 8 || data.length - binHeader - 8 - doc.buffers[0].byteLength > 3) fail();
-  if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 16 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !(ordinary && doc.samplers===undefined) && (!Array.isArray(doc.samplers) || doc.samplers.length < 1 || doc.samplers.length > 8) || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined) fail();
+  if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 16 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined) fail();
   const bin = data.subarray(binHeader + 8, binHeader + 8 + doc.buffers[0].byteLength);
   const integer = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0;
   const view = (index: unknown) => {
@@ -36,6 +35,11 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
     if (!v || v.buffer !== 0 || !integer(v.byteOffset ?? 0) || !integer(v.byteLength) || v.byteLength < 1 || (v.byteOffset ?? 0) + v.byteLength > bin.length) fail();
     return bin.subarray(v.byteOffset ?? 0, (v.byteOffset ?? 0) + v.byteLength);
   };
+  // The expanded ordinary budget is RGB8 only. Existing RGBA PBR models
+  // must still use the smaller legacy budget and stricter sampler rules.
+  const ordinary=ordinaryRoles&&doc.images.every((image:{bufferView:number})=>{const bytes=view(image.bufferView);return bytes.length>=33&&bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))&&bytes.readUInt32BE(8)===13&&bytes.toString('ascii',12,16)==='IHDR'&&bytes[24]===8&&bytes[25]===2;});
+  const texturePixels=(ordinary?12:2)*1024*1024,textureBytes=(ordinary?24:8)*1024*1024;
+  if(!(ordinary&&doc.samplers===undefined)&&(!Array.isArray(doc.samplers)||doc.samplers.length<1||doc.samplers.length>8))fail();
   const basis=embeddedBasisPairs(doc,(i)=>view(doc.images[i].bufferView));
   let compressed = 0, pixels = 0;
   // Sum all image declarations before any expansion or third-party validator.
