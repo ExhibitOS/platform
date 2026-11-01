@@ -59,7 +59,10 @@ export class Imports {
  }
  view(row:Record<string,unknown>){
   const model=this.model(row),result=(row.model_derivation as {result?:Record<string,unknown>}|null)?.result;
+  const recipe=(row.derived as {recipe?:{colourConversion?:unknown}}|null)?.recipe;
+  const imagePreparation=!model&&row.mime==='image/jpeg'&&recipe&&Object.hasOwn(recipe,'colourConversion')?this.prepared(row):undefined;
   return {id:row.id,state:row.state,progress:row.progress,attempts:row.attempts,errorCode:row.error_code,assetId:row.asset_id,retryAt:row.available_at,
+   ...(imagePreparation?{imagePreparation:{provenance:'client-declared' as const,originalSha256:row.expected_hash,derivedSha256:imagePreparation.sha256,recipe:imagePreparation.recipe}}:{}),
    ...(row.mime==='image/png'?{workerDrainVersion:row.png_drain_version===1?1:0,workerDrained:row.png_drain_version===1&&row.lease_id==null&&Array.isArray(row.png_worker_tokens)&&row.png_worker_tokens.length===0&&['approved','failed','cancelled'].includes(String(row.state))}:{}),
    ...(model?{modelDerivation:{...(result??{}),operationID:model.operationID,generation:model.generation,profileId:model.profileId,status:result?.status??(['failed','cancelled'].includes(String(row.state))?'failed':'pending'),workerDrained:row.lease_id==null}}:row.derived==null?{}:{originalAssetId:row.original_asset_id})};
  }
