@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {Matrix4,Quaternion,Vector3} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
+import {privateViewKey} from './private-view-storage';
 
 /** Transient, same-tab camera handoff; world coordinates, never draft content. */
 export type PrivateView={roomId:string;position:[number,number,number];target:[number,number,number];fov:number};
@@ -18,15 +19,11 @@ export function safePrivateView(doc:Exhibition,value:unknown):PrivateView|undefi
   return {roomId:room.id,position:[...v.position],target:[...v.target],fov:v.fov};
  }catch{return;}
 }
-function key(publicationId:string,revision:string,index:string){
- if(!/^[0-9a-f-]{36}$/i.test(publicationId)||! /^[a-f0-9]{64}$/.test(revision)||! /^[a-f0-9]{64}$/.test(index))return;
- return `exhibitos-private-view-v1:${publicationId}:${revision}:${index}`;
-}
 export function savePrivateView(publicationId:string,revision:string,index:string,view:PrivateView|undefined){
- const k=key(publicationId,revision,index);if(!k)return;
+ const k=privateViewKey(publicationId,revision,index);if(!k)return;
  try{if(view)sessionStorage.setItem(k,JSON.stringify(view));else sessionStorage.removeItem(k);}catch{/* storage is optional */}
 }
 export function takePrivateView(publicationId:string,revision:string,index:string,doc:Exhibition):PrivateView|undefined{
- const k=key(publicationId,revision,index);if(!k)return;
+ const k=privateViewKey(publicationId,revision,index);if(!k)return;
  try{const raw=sessionStorage.getItem(k);sessionStorage.removeItem(k);return raw?safePrivateView(doc,JSON.parse(raw)):undefined;}catch{return;}
 }
