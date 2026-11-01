@@ -2,7 +2,18 @@
 import {expect,it} from 'vitest';
 import {PointLight} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {syncPreviewLightColors} from './light-preview';
+import {onlyLightColorChanged,syncPreviewLightColors} from './light-preview';
+
+it('retains a scene only for an exact single-light color change',()=>{
+ const original={id:'d',revisionId:'r',lights:[{id:'a',color:[1,1,1],intensity:1},{id:'b',color:[1,1,1],intensity:1}],placements:[{id:'p'}]} as unknown as Exhibition;
+ const changed=structuredClone(original);changed.lights[0]!.color=[1,.5,.25];
+ expect(onlyLightColorChanged(original,changed)).toBe(true);
+ expect(onlyLightColorChanged(changed,original)).toBe(true);
+ const both=structuredClone(changed);both.lights[1]!.color=[.5,1,1];expect(onlyLightColorChanged(original,both)).toBe(false);
+ const other=structuredClone(changed);other.lights[0]!.intensity=2;expect(onlyLightColorChanged(original,other)).toBe(false);
+ const invalid=structuredClone(changed);invalid.lights[0]!.color=[NaN,1,1];expect(onlyLightColorChanged(original,invalid)).toBe(false);
+ expect(onlyLightColorChanged(original,original)).toBe(false);
+});
 
 it('previews only changed light colors in place and restores the committed colors on cancel',()=>{
  const a=new PointLight(),b=new PointLight(),lights=new Map([['a',{light:a}],['b',{light:b}]]);

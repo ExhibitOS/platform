@@ -3,6 +3,23 @@ import {LinearSRGBColorSpace,type Light} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {GeometryCommand} from './model';
 
+/** Conservative equivalence for retaining an editor scene across one light-color edit. */
+export function onlyLightColorChanged(before:Exhibition,after:Exhibition):boolean{
+ if(before.lights.length!==after.lights.length)return false;
+ const changed:number[]=[];
+ for(let i=0;i<before.lights.length;i++){
+  const a=before.lights[i],b=after.lights[i];
+  if(!a||!b||a.id!==b.id)return false;
+  if(JSON.stringify(a.color)!==JSON.stringify(b.color))changed.push(i);
+ }
+ if(changed.length!==1)return false;
+ const i=changed[0]!;
+ const valid=(v:unknown)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==='number'&&Number.isFinite(n));
+ if(!valid(before.lights[i]!.color)||!valid(after.lights[i]!.color))return false;
+ const omit=(doc:Exhibition)=>({...doc,lights:doc.lights.map((light,index)=>index===i?{...light,color:null}:light)});
+ try{return JSON.stringify(omit(before))===JSON.stringify(omit(after));}catch{return false;}
+}
+
 /** Apply only temporary authored-light colors to existing Three.js lights.
  * The committed document and the fixture geometry remain untouched. */
 export function syncPreviewLightColors(lights:ReadonlyMap<string,{light:Light}>,document:Exhibition,preview:GeometryCommand|null|undefined,previewLightId?:string):boolean{
