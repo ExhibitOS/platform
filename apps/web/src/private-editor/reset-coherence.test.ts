@@ -4,7 +4,7 @@ import {expect,it,vi} from 'vitest';
 import type {PublicPublication} from '../publication-client';
 import type {LocalDraft} from '../drafts/store';
 import {validateDraft} from '../drafts/validator';
-import {preparePrivateReset,preparePrivateSave} from '../PrivateExhibitionEditor';
+import {preparePrivateReset,preparePrivateSave,preparePrivateRecovery} from '../PrivateExhibitionEditor';
 import {privateSeed,starterDraft} from './model';
 
 function fixture(){
@@ -13,20 +13,21 @@ function fixture(){
  const seed=privateSeed(source,'a'.repeat(64)),draft=starterDraft(seed),old:LocalDraft={id:draft.id,format:2,version:1,draft,updatedAt:draft.updatedAt};
  return {source,seed,old};
 }
-it('keeps a saved reset coherent and preserves known copies when the following list read fails',async()=>{
- const f=fixture(),before={source:structuredClone(f.source.exhibition),old:structuredClone(f.old)},known=[f.old],save=vi.fn(async(draft:LocalDraft['draft']):Promise<LocalDraft>=>({id:draft.id,format:2,version:1,draft,updatedAt:draft.updatedAt})),list=vi.fn(async():Promise<LocalDraft[]>=>{throw Error('read failed after committed save');});
- const next=await preparePrivateReset(f.seed,{save,list},known);
- expect(next.record.id).not.toBe(f.old.id);expect(next.record.draft.exhibitionId).toBe(next.geometry.present.id);expect(validateDraft({...next.record.draft,candidate:next.geometry.present}).valid).toBe(true);
- expect(next.copies).toEqual([next.record,f.old]);expect(next.listRefreshed).toBe(false);expect(save).toHaveBeenCalledOnce();expect(list).toHaveBeenCalledOnce();expect(f.source.exhibition).toEqual(before.source);expect(f.old).toEqual(before.old);expect(known).toEqual([before.old]);
+it('resets the current identity coherently, preserving unsaved previous input when list refresh fails',async()=>{
+ const f=fixture(),before=structuredClone(f.old),candidate={...f.old.draft.candidate,title:'저장하지 않은 편집'},known=[f.old];
+ const resetPrivate=vi.fn(async(current:LocalDraft['draft'],reset:LocalDraft['draft'],expected:number):Promise<LocalDraft>=>{expect(current.candidate).toEqual(candidate);expect(expected).toBe(f.old.version);return {id:reset.id,format:2,version:3,draft:{...reset,editVersion:3},updatedAt:reset.updatedAt};});
+ const list=vi.fn(async():Promise<LocalDraft[]>=>{throw Error('list failed');});
+ const next=await preparePrivateReset(f.seed,{resetPrivate,list},f.old,candidate,known);
+ expect(next.record.id).toBe(f.old.id);expect(next.record.draft.exhibitionId).toBe(f.old.draft.exhibitionId);expect(next.geometry.present.title).toBe(f.source.exhibition.title);expect(validateDraft(next.record.draft).valid).toBe(true);expect(next.copies).toEqual([next.record]);expect(next.listRefreshed).toBe(false);expect(resetPrivate).toHaveBeenCalledOnce();expect(f.old).toEqual(before);
 });
-it('retains the current copy and does not list when saving a reset fails',async()=>{
- const f=fixture(),before=structuredClone(f.old),save=vi.fn(async():Promise<LocalDraft>=>{throw Error('save failed');}),list=vi.fn(async()=>[f.old]);
- await expect(preparePrivateReset(f.seed,{save,list},[f.old])).rejects.toThrow('save failed');expect(list).not.toHaveBeenCalled();expect(f.old).toEqual(before);
+it('does not list or replace editing state when atomic reset fails',async()=>{
+ const f=fixture(),before=structuredClone(f.old),resetPrivate=vi.fn(async():Promise<LocalDraft>=>{throw Error('LOCAL_CONFLICT');}),list=vi.fn(async()=>[f.old]);
+ await expect(preparePrivateReset(f.seed,{resetPrivate,list},f.old,f.old.draft.candidate,[f.old])).rejects.toThrow('LOCAL_CONFLICT');expect(list).not.toHaveBeenCalled();expect(f.old).toEqual(before);
 });
-it('uses the actual refreshed copies and includes the selected new record exactly once',async()=>{
- const f=fixture();let saved:LocalDraft;
- const save=vi.fn(async(draft:LocalDraft['draft']):Promise<LocalDraft>=>saved={id:draft.id,format:2,version:1,draft,updatedAt:draft.updatedAt}),list=vi.fn(async()=>[saved,f.old]);
- const next=await preparePrivateReset(f.seed,{save,list},[f.old]);expect(next.copies).toEqual([next.record,f.old]);expect(next.listRefreshed).toBe(true);expect(next.geometry.present).toEqual(next.record.draft.candidate);expect(validateDraft(next.record.draft).valid).toBe(true);
+it('retains other copies while selecting the committed current reset exactly once',async()=>{
+ const f=fixture();let saved:LocalDraft;const other={...f.old,id:crypto.randomUUID()};
+ const resetPrivate=vi.fn(async(_current:LocalDraft['draft'],draft:LocalDraft['draft']):Promise<LocalDraft>=>saved={id:draft.id,format:2,version:3,draft:{...draft,editVersion:3},updatedAt:draft.updatedAt}),list=vi.fn(async()=>[saved,other]);
+ const next=await preparePrivateReset(f.seed,{resetPrivate,list},f.old,f.old.draft.candidate,[f.old,other]);expect(next.copies).toEqual([next.record,other]);expect(next.listRefreshed).toBe(true);expect(next.geometry.present).toEqual(next.record.draft.candidate);expect(validateDraft(next.record.draft).valid).toBe(true);
 });
 
 it('reports the committed save even when the copy list cannot be refreshed',async()=>{
@@ -47,10 +48,14 @@ it('uses refreshed copies while retaining the newly committed version exactly on
  const result=await preparePrivateSave(f.seed,{save,list},f.old,f.old.draft.candidate,[f.old]);
  expect(result).toEqual({record:saved,copies:[saved,other],listRefreshed:true});
 });
-it('retains the saved version when a following reset also cannot refresh the list',async()=>{
- const f=fixture(),saved={...f.old,version:2,draft:{...f.old.draft,editVersion:2}},list=vi.fn(async():Promise<LocalDraft[]>=>{throw Error('list failed');});
- const saveCurrent=vi.fn(async()=>saved),current=await preparePrivateSave(f.seed,{save:saveCurrent,list},f.old,f.old.draft.candidate,[f.old]);
- const saveNew=vi.fn(async(draft:LocalDraft['draft']):Promise<LocalDraft>=>({id:draft.id,format:2,version:1,draft,updatedAt:draft.updatedAt}));
- const reset=await preparePrivateReset(f.seed,{save:saveNew,list},current.copies);
- expect(reset.copies).toEqual([reset.record,saved]);expect(reset.listRefreshed).toBe(false);
+it('validates previous source assets before asking the store to recover',async()=>{
+ const f=fixture(),bad=structuredClone(f.old);bad.draft.candidate.artworks[0]!.assets[0]!.sha256='0'.repeat(64);
+ const privatePrevious=vi.fn(async()=>bad),recoverPrivate=vi.fn(async()=>f.old),list=vi.fn(async()=>[f.old]);
+ await expect(preparePrivateRecovery(f.seed,{privatePrevious,recoverPrivate,list},f.old,f.old.draft.candidate,[f.old])).rejects.toThrow();expect(recoverPrivate).not.toHaveBeenCalled();expect(list).not.toHaveBeenCalled();
+});
+it('recovers the verified previous version with CAS and keeps the committed result if listing fails',async()=>{
+ const f=fixture(),previous={...f.old,version:2,draft:{...f.old.draft,editVersion:2}},candidate={...f.old.draft.candidate,title:'현재 저장하지 않은 편집'},saved={...f.old,version:4,draft:{...f.old.draft,editVersion:4}};
+ const privatePrevious=vi.fn(async()=>previous),recoverPrivate=vi.fn(async()=>saved),list=vi.fn(async():Promise<LocalDraft[]>=>{throw Error('list failed');});
+ const next=await preparePrivateRecovery(f.seed,{privatePrevious,recoverPrivate,list},f.old,candidate,[f.old]);
+ expect(recoverPrivate).toHaveBeenCalledWith({...f.old.draft,candidate},f.old.version,previous.version);expect(next.record).toBe(saved);expect(next.copies).toEqual([saved]);expect(next.geometry.present).toEqual(saved.draft.candidate);expect(next.listRefreshed).toBe(false);
 });

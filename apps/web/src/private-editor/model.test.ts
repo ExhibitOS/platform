@@ -1,3 +1,6 @@
+import {artifactCorners} from '@exhibitos/studio-contract';
+import {newDraft} from '../drafts/example';
+import {validateDraft} from '../drafts/validator';
 import {readFileSync} from 'node:fs';
 import {it,expect} from 'vitest';
 import type {PublicPublication} from '../publication-client';
@@ -42,4 +45,10 @@ it('adds an empty complete disconnected room only on explicit command and keeps 
  expect(next.present.surfaces.filter(s=>s.roomId===result.roomId).map(s=>s.type).sort()).toEqual(['ceiling','floor','wall','wall','wall','wall']);
  expect(next.present.placements).toEqual(initial.present.placements);expect(next.present.openings).toEqual(initial.present.openings);expect(next.present.lights).toEqual(initial.present.lights);
  expect(next.present.extensions?.['org.exhibitos.studio/presentation']).toEqual(initial.present.extensions?.['org.exhibitos.studio/presentation']);checkPrivateCandidate(seed,next.present);expect(undoGeometry(next).present).toEqual(initial.present);
+});
+
+it('places the explicit room beyond transformed bounds of a tall tilted room and rejects non-rigid scale',()=>{
+ const draft=newDraft(),document=draft.candidate,old=document.rooms[0]!;old.dimensions={width:2,height:30,depth:2};old.transform.rotation=[0,0,Math.SQRT1_2,Math.SQRT1_2];old.transform.scale=[1,1,1];
+ expect(validateDraft(draft).errors).toEqual([]);const result=addPrivateRoom(document),added=result.command.candidate.rooms.find(r=>r.id===result.roomId)!;
+ const right=Math.max(...artifactCorners(old.dimensions,[old.transform],true).map(p=>p[0])),left=Math.min(...artifactCorners(added.dimensions,[added.transform],true).map(p=>p[0]));expect(left).toBeGreaterThan(right);const invalid=structuredClone(document);invalid.rooms[0]!.transform.scale=[2,3,1];expect(()=>addPrivateRoom(invalid)).toThrow('INVALID_GEOMETRY');
 });

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {freezeCanonical,presentationFor,spaceStillFor,validateFurnishings} from '@exhibitos/studio-contract';
+import {freezeCanonical,presentationFor,spaceStillFor,validateFurnishings,artifactCorners} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {PublicPublication} from '../publication-client';
 import {newDraft} from '../drafts/example';
 import {applyGeometryCommand,createGeometryState,newRoom,whiteCubeSurfaces} from '../geometry/model';
 import type {Draft} from '../drafts/store';
+import type {PrivateView} from '../viewer/private-view';
 
-export interface PrivateSeed {source:PublicPublication;indexSha256:string;storeName:string}
+export interface PrivateSeed {source:PublicPublication;indexSha256:string;storeName:string;initialView?:PrivateView}
 /** The verified loader remains the sole source authority; edited metadata never grants asset access. */
 export function privateSeed(source:PublicPublication,indexSha256:string):PrivateSeed {
  if(!source.local||source.publication.status!=='published'||! /^[a-f0-9]{64}$/.test(indexSha256)||! /^[a-f0-9]{64}$/.test(source.publication.revisionSha256))throw Error('편집 원본의 검증 정보를 확인할 수 없어요.');
@@ -29,7 +30,7 @@ export function starterDraft(seed:PrivateSeed){return resetPrivateDraft(seed,new
 
 /** Explicitly add a complete empty room. A door connection is a separate existing command. */
 export function addPrivateRoom(document:Exhibition){
- const right=Math.max(0,...document.rooms.map(room=>room.transform.position[0]+Math.hypot(room.dimensions.width,room.dimensions.depth)/2*Math.max(...room.transform.scale)));
+ const right=Math.max(0,...document.rooms.flatMap(room=>artifactCorners(room.dimensions,[room.transform],true).map(point=>point[0])));
  const room=newRoom('새 전시실',{width:8,height:3.2,depth:6},{position:[Math.ceil(right)+8,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
  let state=applyGeometryCommand(createGeometryState(document),{type:'add-room',room});
  for(const surface of whiteCubeSurfaces(room))state=applyGeometryCommand(state,{type:'add-surface',surface});
