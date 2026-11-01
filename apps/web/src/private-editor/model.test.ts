@@ -1,4 +1,5 @@
-import {artifactCorners,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,RoomEnvelopeError} from '@exhibitos/studio-contract';
+import {artifactCorners,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,RoomEnvelopeError,lightAttachmentPose,setLightAttachment,setLightDetails} from '@exhibitos/studio-contract';
+import {newLight} from '../placement/model';
 import {newDraft} from '../drafts/example';
 import {validateDraft} from '../drafts/validator';
 import {readFileSync} from 'node:fs';
@@ -56,11 +57,17 @@ it('places the explicit room beyond transformed bounds of a tall tilted room and
 it('allows unrelated edits with identical inherited doors but rejects changed or new misaligned structure',()=>{
  const input=source(),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed),doc=draft.candidate;
  expect(doc.openings.filter(o=>o.connectsToOpeningId)).toHaveLength(10);
- const connected=doc.openings.find(o=>o.connectsToOpeningId)!,wall=doc.surfaces.find(s=>s.id===connected.surfaceId)!,room=doc.rooms.find(r=>r.id===wall.roomId)!;
+ const connected=doc.openings.find(o=>o.connectsToOpeningId&&doc.placements.some(p=>p.roomId===doc.surfaces.find(s=>s.id===o.surfaceId)?.roomId))!,wall=doc.surfaces.find(s=>s.id===connected.surfaceId)!,room=doc.rooms.find(r=>r.id===wall.roomId)!;expect(connected).toBeDefined();
  expect(()=>assertRoomEnvelopeContents(doc,room.id)).toThrow(RoomEnvelopeError);
  expect(()=>assertRoomEnvelopeContentsAgainstBaseline(doc,input.exhibition,room.id)).not.toThrow();
- const placement=doc.placements.find(p=>p.roomId===room.id);if(placement){const {id,...rest}=placement;const moved=applyGeometryCommand(createGeometryState(doc),{type:'set-placement',id,placement:{...rest,transform:{...rest.transform,position:[rest.transform.position[0]+.1,rest.transform.position[1],rest.transform.position[2]]}}});expect(()=>assertRoomEnvelopeContentsAgainstBaseline(moved.present,input.exhibition,room.id)).not.toThrow();expect(undoGeometry(moved).present).toEqual(doc);}
+ const placement=doc.placements.find(p=>p.roomId===room.id);expect(placement).toBeDefined();if(!placement)throw Error('fixture placement');{const {id,...rest}=placement;const moved=applyGeometryCommand(createGeometryState(doc),{type:'set-placement',id,placement:{...rest,transform:{...rest.transform,position:[rest.transform.position[0]+.1,rest.transform.position[1],rest.transform.position[2]]}}});expect(()=>assertRoomEnvelopeContentsAgainstBaseline(moved.present,input.exhibition,room.id)).not.toThrow();expect(undoGeometry(moved).present).toEqual(doc);}
 
+ const ceiling=doc.surfaces.find(s=>s.roomId===room.id&&s.type==='ceiling');expect(ceiling).toBeDefined();if(!ceiling)throw Error('fixture ceiling');
+ const light=newLight(room.id),binding={lightId:light.id,surfaceId:ceiling.id,anchor:[0,0] as [number,number],gap:.03};light.transform=lightAttachmentPose(ceiling,binding);
+ let withLight=applyGeometryCommand(createGeometryState(doc),{type:'add-light',light}).present;const {id:lightId,...lightValue}=light;
+ withLight=setLightDetails(withLight,lightId,lightValue,{fixture:'disc',aim:{kind:'rotation'},range:12});withLight=setLightAttachment(withLight,lightId,binding,input.exhibition);
+ expect(()=>assertRoomEnvelopeContentsAgainstBaseline(withLight,input.exhibition,room.id)).not.toThrow();
+ const movedLight=applyGeometryCommand(createGeometryState(withLight),{type:'set-light-attachment',lightId,attachment:{surfaceId:ceiling.id,anchor:[.1,0],gap:.03}},{verifiedDoorBaseline:input.exhibition});expect(()=>assertRoomEnvelopeContentsAgainstBaseline(movedLight.present,input.exhibition,room.id)).not.toThrow();
  const changed=structuredClone(doc);changed.openings.find(o=>o.id===connected.id)!.offset[0]+=.1;
  expect(()=>assertRoomEnvelopeContentsAgainstBaseline(changed,input.exhibition,room.id)).toThrow(/연결된 두 문/);
  const other=structuredClone(doc);const pair=other.openings.find(o=>o.id===connected.connectsToOpeningId)!,pairWall=other.surfaces.find(s=>s.id===pair.surfaceId)!;other.rooms.find(r=>r.id===pairWall.roomId)!.transform.position[0]+=.1;
