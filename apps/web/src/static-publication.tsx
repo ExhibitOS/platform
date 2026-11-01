@@ -22,7 +22,8 @@ async function load(){
   const value=await loadStaticPublication();
   if(current!==generation)return;
   if(value.local&&document.querySelector<HTMLMetaElement>('meta[name="exhibitos-dynamic"]')?.content==="same-origin")value.local.dynamic=true;
-  root.render(<PublicPublication id={value.publication.id} initial={value} connectionStatus={value.local?.dynamic?<DynamicConnectionStatus publicationId={value.publication.id} revisionSha256={value.publication.revisionSha256}/>:undefined}/>);
+  const privateEditorHref=document.querySelector<HTMLAnchorElement>('nav.cms-actions[aria-label="샘플 체험"] a[href="/studio.html"]')?.getAttribute('href')??undefined;
+  root.render(<PublicPublication id={value.publication.id} initial={value} privateEditorHref={privateEditorHref} connectionStatus={value.local?.dynamic?<DynamicConnectionStatus publicationId={value.publication.id} revisionSha256={value.publication.revisionSha256}/>:undefined}/>);
   const still=spaceStillFor(value.exhibition),expiry=Math.min(...[...value.exhibition.artworks,...value.exhibition.mediaAssets,...(still?[still]:[])].map(a=>a.rights.expiresAt?Date.parse(a.rights.expiresAt):Infinity));
   const schedule=()=>{if(current!==generation||!Number.isFinite(expiry))return;const remaining=expiry-Date.now();if(remaining<=0){failed();return;}timer=setTimeout(schedule,Math.min(remaining,2147483647));};schedule();
  }catch{if(current===generation)failed();}
