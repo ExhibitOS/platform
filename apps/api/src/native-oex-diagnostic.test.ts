@@ -19,6 +19,11 @@ it('classifies an allowlisted error without copying raw context',()=>{
  const d=createNativeOexDiagnostic();d.step('lease-returned');d.fail(Error('FILE_OPERATION_COMMIT_UNCERTAIN'),{});
  expect(d.report()).toBe('NATIVE_OEX_DIAGNOSTIC lease-returned FILE_OPERATION_COMMIT_UNCERTAIN unknown');
 });
+it('identifies the bounded preparation gap without exposing error context',()=>{
+ const stages=['scene-validation-start','scene-validation-passed','inventory-live-start','inventory-transaction-start','inventory-transaction-returned','receiver-live-start','receiver-start','receiver-returned'] as const;
+ for(const stage of stages){const d=createNativeOexDiagnostic();d.step(stage);d.fail({code:'OEX_INVENTORY_UNAVAILABLE',message:'secret /private/path'},{});expect(d.report()).toBe(`NATIVE_OEX_DIAGNOSTIC ${stage} OEX_INVENTORY_UNAVAILABLE unknown`);}
+ const d=createNativeOexDiagnostic();d.step('scene-validation-start');d.fail(Error('OEX_TEST_SCENE_UNSUPPORTED'),{isOpen:()=>true});expect(d.report()).toBe('NATIVE_OEX_DIAGNOSTIC scene-validation-start OEX_TEST_SCENE_UNSUPPORTED open');
+});
 it('ignores arbitrary stage values and raw string errors',()=>{
  const d=createNativeOexDiagnostic();d.step('owner-selected');d.step('secret-token /private/path' as never);d.fail('secret-token /private/path',{});
  expect(d.report()).toBe('NATIVE_OEX_DIAGNOSTIC owner-selected OTHER unknown');
