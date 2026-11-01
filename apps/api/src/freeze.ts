@@ -122,7 +122,14 @@ export class Freezes {
   if(!supportedFreezeSpec(artifact.packageVersion,artifact.sha256))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
   const migrations=(await this.pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
   if(!migrations.some(x=>x.name==='010_freeze.sql'))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
-  for(const migration of migrations){if(!/^\d{3}_[a-z_]+\.sql$/.test(migration.name)||!/^[a-f0-9]{64}$/.test(migration.sha256)||sha256(await readFile(new URL(`../../../database/migrations/${migration.name}`,import.meta.url)))!==migration.sha256)throw new ApiError(503,'FREEZE_FORMAT_INVALID');}
+  for(const migration of migrations){
+   if(!/^\d{3}_[a-z_]+\.sql$/.test(migration.name)||!/^[a-f0-9]{64}$/.test(migration.sha256))throw new ApiError(503,'FREEZE_FORMAT_INVALID');
+   // Only the exact selected-native 026 has a supplemental artifact. Ordinary
+   // migrations and all other unknown names retain the existing directory.
+   const selected=migration.name==='026_oex_file_profile.sql'&&migration.sha256==='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
+   const root=selected?'../../../database/native-oex-normal/':'../../../database/migrations/';
+   if(sha256(await readFile(new URL(`${root}${migration.name}`,import.meta.url)))!==migration.sha256)throw new ApiError(503,'FREEZE_FORMAT_INVALID');
+  }
   return {oes:'1.0.0-draft.1',oex:oexVersion,specPackage:artifact.packageVersion,specSha256:artifact.sha256,migrations:migrations.map(x=>`${x.name}:${x.sha256}`)};
  }
  async create(c:PoolClient,s:Session,exhibitionId:string,requestId:string,match:string):Promise<FreezeSummary>{

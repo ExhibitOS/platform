@@ -34,13 +34,49 @@ async function copy(from, to) {
   await mkdir(dirname(to), {recursive: true});
   await cp(from, to, {recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true});
 }
-async function copyTrackedTree(name, destination) {
+async function copyTrackedTree(name, destination, excluded = new Set()) {
   const paths = (await command('/usr/bin/git', ['ls-files', '--', name], {cwd: source, capture: true})).split('\n').filter(Boolean);
   if (!paths.length) fail('NATIVE_PACKAGE_SOURCE_MISSING');
   for (const path of paths) {
     if (!path.startsWith(name + '/') || path.includes('..') || path.includes('\\')) fail('NATIVE_PACKAGE_SOURCE_INVALID');
+    if (excluded.has(path)) continue;
     await copy(join(source, path), join(destination, path));
   }
+  return new Set(paths.filter(path=>!excluded.has(path)));
+}
+const OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.11-7b06dae895ea.tgz';
+const OEX_SPEC_HASH='7b06dae895ea4ef46a0ad94958945db022b65978371d4b15c161ccdcc7498b84';
+const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
+const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
+const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
+const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
+/** Copy a fixed checked input if Git did not already copy it. Source/destination
+ * validation is point-in-time, not protection from a concurrent same-UID writer. */
+async function copyCheckedValidationFile(sourceRoot,platformRoot,tracked,path,expected){
+  const input = await checkedSource(join(sourceRoot,path),'file');
+  if (input !== join(sourceRoot,path) || await hash(input) !== expected) fail('NATIVE_PACKAGE_SOURCE_INVALID');
+  if (!tracked.get(path.split('/')[0]).has(path)) await copy(input,join(platformRoot,path));
+  const output=await checkedSource(join(platformRoot,path),'file');
+  if (output !== join(platformRoot,path) || await hash(output) !== expected) fail('NATIVE_PACKAGE_SOURCE_INVALID');
+}
+/** Local validation only: lockfile dependency is included for every mode;
+ * the supplemental isolated-test migration requires explicit opt-in. */
+export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation) {
+  const lock=JSON.parse(await readFile(join(sourceRoot,'package-lock.json'),'utf8'));
+  const spec=lock?.packages?.['']?.dependencies?.['@exhibitos/spec'];
+  if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
+  else if (requireOexSpec) fail('NATIVE_PACKAGE_SOURCE_INVALID');
+  if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
+}
+export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected){
+  if (normalOexSelected) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);
+}
+// A sealed-inventory declaration, never authority to select or run an operation.
+// oneShot means one selected operation in a newly provisioned empty workspace/session.
+export async function writeNormalOexCapability(platformRoot, normalOexSelected) {
+  if (!normalOexSelected) return;
+  const bytes = '{"format":1,"kind":"exhibitos-native-normal-oex","protocol":"normal-oex-v1","ownerChannelVersion":2,"schemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","schemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}';
+  await writeFile(join(platformRoot,'scripts/native-normal-oex-capability-v1.json'),bytes,{flag:'wx',mode:0o600});
 }
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and
@@ -126,7 +162,8 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
-export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full'}) {
+export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false}) {
+  if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
   const selection = postgresRuntimeSelection(postgresProfile);
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.version !== 'v24.21.0') fail('NATIVE_PACKAGE_TOOLCHAIN_INVALID');
   if (!isAbsolute(destination) || resolve(destination) !== destination) fail('NATIVE_PACKAGE_DESTINATION_INVALID');
@@ -168,10 +205,21 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'package.json'),join(platform,workspace,'package.json'));
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
-  for (const name of ['database','contracts','vendor']) await copyTrackedTree(name,platform);
+  const tracked = new Map();
+  const excluded = new Set([...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH])]);
+  for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
+  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
+  await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected);
   await copyNativeFurnishings(source, platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
+  await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
+  await writeNormalOexCapability(platform,normalOexSelected);
+  await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
+  await copy(join(source,'scripts/native-owner-frames.mjs'),join(platform,'scripts/native-owner-frames.mjs'));
+  // Producer capability declaration only; Manager must still admit the exact
+  // inventory and runtime source, not infer compatibility from this marker.
+  await writeFile(join(platform,'scripts/native-owner-channel-v1.json'),'{"format":1,"kind":"exhibitos-native-owner-channel","version":1}',{flag:'wx',mode:0o600});
   await copy(join(source,'scripts/native-workspace-session.mjs'),join(platform,'scripts/native-workspace-session.mjs'));
   // Reuse the authenticated service-backup codec and PostgreSQL adapter. The
   // native controller supplies admitted pg_dump/pg_restore absolute paths;
@@ -198,15 +246,17 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await command(nodeBinary,[npmCLI,'ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],{cwd:platform});
   const files = await inventory(root);
   const sourceCommit = await command('/usr/bin/git',['rev-parse','HEAD'],{cwd:source,capture:true});
+  const sourceModified = Boolean(await command('/usr/bin/git',['status','--porcelain','--untracked-files=normal'],{cwd:source,capture:true}));
   const manifest = {
     format:'exhibitos-native-runtime-v1',mode:'local-validation',platform:'darwin-arm64',
     nodeVersion:'24.21.0',postgresVersion:'18.6',platformVersion:'0.1.0',protocolVersion:'1',
     sourceCommit,producerSHA256:await hash(fileURLToPath(import.meta.url)),
     entry:{node:'bin/node',script:'platform/scripts/local-runtime.mjs',postgres:'postgres/bin/postgres',initdb:'postgres/bin/initdb'},
     files,redistributionQualified:false,officialSigned:false,
-    remaining:selection.profile === 'validation-full'
+    remaining:(selection.profile === 'validation-full'
       ? 'Full PostgreSQL validation copy includes optional modules: release payload minimization/complete third-party notices and final application signing/distribution are not qualified.'
-      : 'Managed PostgreSQL core candidate: actual selected-file/dependency/notice and supported-backup restore qualification plus final owning-app/helper signing remain required. Optional extension support is not implied.'
+      : 'Managed PostgreSQL core candidate: actual selected-file/dependency/notice and supported-backup restore qualification plus final owning-app/helper signing remain required. Optional extension support is not implied.')
+      + (sourceModified ? ' Source commit is the checkout baseline; uncommitted source changes are present and are not identified by that commit.' : '')
   };
   await writeFile(join(root,'manifest.json'),JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});
   return {directory:root,files:files.length,manifestSHA256:await hash(join(root,'manifest.json')),redistributionQualified:false};

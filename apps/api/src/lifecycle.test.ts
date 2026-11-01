@@ -32,6 +32,11 @@ it('fails readiness for drifted or extra database migrations', async () => {
   rows.push({name: '002.sql', sha256: '0'.repeat(64)});
   expect((await readiness(pool, config)).services.find(service => service.name === 'database')?.status).toBe('unavailable');
 });
+it('checks an explicit selected supplemental migration without changing the default sequence',async()=>{
+ const {config,pool,rows}=await fixture(),supplemental=join(config.migrationDirectory,'..','fresh-only');await mkdir(supplemental);await writeFile(join(supplemental,'026.sql'),'SELECT 2;');rows.push({name:'026.sql',sha256:createHash('sha256').update('SELECT 2;').digest('hex')});
+ expect((await readiness(pool,config)).ready).toBe(false);expect((await readiness(pool,{...config,supplementalMigrationDirectory:supplemental})).ready).toBe(true);
+ await writeFile(join(supplemental,'001.sql'),'SELECT 1;');expect((await readiness(pool,{...config,supplementalMigrationDirectory:supplemental})).ready).toBe(false);
+});
 it('does not expose errors, filesystem paths or secrets when the database is unavailable', async () => {
   const {config} = await fixture();
   const pool = {query: async () => { throw new Error('postgresql://secret@private-database'); }} as unknown as Pool;

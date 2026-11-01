@@ -7,6 +7,7 @@ import {join,isAbsolute} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,transaction,FileBlobStore} from '@exhibitos/storage';
 import {PublicationDiskBudget,diskReservationReceiptDigest,type DiskOwner,type DiskPlan,type DiskReservationBinding,type DiskReservationReceipt,type DiskClaimJournalBinding} from './publication-disk-budget.ts';
+import {verifySelectedSettlement,revalidateSelectedSettlement,type SelectedSettlementAuthority} from './oex-owner-claim.ts';
 
 interface OwnedObject {key:string;sha256:string;bytes:number}
 export interface PublicationAttempt {
@@ -103,6 +104,10 @@ function validate(a:PublicationAttempt){
 }
 async function privateRoot(root:string){const s=await lstat(root);if(!isAbsolute(root)||await realpath(root)!==root||!s.isDirectory()||s.isSymbolicLink()||(s.mode&0o077)!==0||s.uid!==process.getuid?.())throw Error('PUBLICATION_ATTEMPT_ROOT');}
 async function syncDir(root:string){const f=await open(root,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);try{await f.sync();}finally{await f.close();}}
+/** Compare the complete validated physical owner identity independent of object prototype. */
+export function samePublicationDiskOwner(a:Readonly<DiskOwner>,b:Readonly<DiskOwner>):boolean{
+ return a.databaseSystemId===b.databaseSystemId&&a.databaseOid===b.databaseOid&&a.storeRoot===b.storeRoot&&a.storeDevice===b.storeDevice&&a.storeInode===b.storeInode;
+}
 /** Live identity is read through the actual transaction connection. Lack of
  * permission to identify the physical database disables this optional path. */
 export async function publicationDiskOwner(c:PoolClient,storeRoot:string):Promise<DiskOwner>{
@@ -236,6 +241,27 @@ export class PublicationAttempts {
  /** Intentionally unavailable: no trusted same-fence Manager recovery/drain
   * verifier exists. A boolean, PID, terminal row or receipt cannot unlock it. */
  async retireResourceClaim(handle:ResourceClaimHandle):Promise<never>{void handle;throw Error('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');}
+ /** Narrow live native OEX settlement. Unknown/partial outcomes retain the
+  * intent and claim evidence; this is not restart recovery or a general
+  * resource-retirement API. Caller holds the same workspace operation fence. */
+ async settleSelectedOex(provider:PublicationDiskBudget,handle:ResourceClaimHandle,authority:SelectedSettlementAuthority,outcome:{exhibitionId:string;etag:string;requestId:string}){
+  const mutation=this.beginMutation(handle);
+  try{
+   const verified=await this.verifiedClaim(provider,handle),state=await this.activeClaim(handle),r=verified.claim,receipt=verified.binding.receipt;
+   if(r.operation!=='oex-import'||r.purpose!=='import'||state!==mutation)throw Error('PUBLICATION_CLAIM_BINDING');
+   const binding:DiskReservationBinding={id:receipt.id,generation:receipt.generation,operation:r.operation,owner:r.owner,plan:r.plan};
+   if(!outcome||!uuid.test(outcome.exhibitionId)||!uuid.test(outcome.requestId)||!/^\"studio-r[1-9][0-9]*-[0-9a-f]{64}\"$/.test(outcome.etag))throw Error('PUBLICATION_CLAIM_INVALID');
+   await verifySelectedSettlement(authority,binding,handle.digest);
+   const record=claimSnapshot({version:1,kind:'selected-oex-settlement',databaseOutcome:'committed',save:outcome,claimDigest:handle.digest,claim:r,receiptDigest:verified.binding.receiptDigest,managerBindingDigest:verified.binding.managerBindingDigest,reservation:receipt});
+   const text=canonical(record),intent=join(this.root,r.attemptId+'.settlement-terminal.json'),terminal=join(this.root,r.attemptId+'.reservation-released.json');
+   state.outcomeStarted=true;await this.claimWrite(intent,text);await this.activeClaim(handle,true);
+   await provider.releaseSelectedOex(binding,handle.digest,authority);
+   // A failure after release leaves the intent and anchor for review, never a
+   // fabricated rollback or an automatic second release.
+   await this.claimWrite(terminal,text);await this.activeClaim(handle,true);await revalidateSelectedSettlement(authority);
+   await unlink(state.anchor);await syncDir(this.root);
+  }finally{mutation.mutationActive=false;}
+ }
  async createForClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle,input:PublicationAttempt){
   const mutation=this.beginMutation(handle);try{
   const a=claimSnapshot(input);validate(a);const bound=await this.verifyResourceClaim(provider,handle),r=bound.claim;

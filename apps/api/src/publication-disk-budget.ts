@@ -5,6 +5,7 @@ import {mkdir,open,readdir,realpath,rmdir,lstat,stat,statfs,unlink} from 'node:f
 import {constants} from 'node:fs';
 import {join,isAbsolute} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
+import {consumeSelectedSettlement,type SelectedSettlementAuthority} from './oex-owner-claim.ts';
 
 export interface DiskOwner {databaseSystemId:string;databaseOid:string;storeRoot:string;storeDevice:string;storeInode:string}
 export interface DiskPlan {root:string;bytes:number}
@@ -168,5 +169,19 @@ export class PublicationDiskBudget {
   const path=join(this.root,'lease-'+id+'.json'),before=await readBounded(path),record=parseRecord(before);
   if(record.generation!==generation||canonical(record.owner)!==canonical(owner)||!await verifyDrain(generation))throw Error('DISK_BUDGET_DRAIN_UNCONFIRMED');
   await this.mutex(async()=>{await this.checkOwner(owner);if(await readBounded(path)!==before)throw Error('DISK_BUDGET_UNCERTAIN');await unlink(path);await syncDirectory(this.root);});
+ }
+ /** Only the live selected-native operation can provide this one-use channel
+  * capability. It does not grant restart recovery or delete staged bytes. */
+ async releaseSelectedOex(binding:DiskReservationBinding,claimDigest:string,authority:SelectedSettlementAuthority){
+  const expected=JSON.parse(canonical(binding)) as DiskReservationBinding;
+  if(!this.claims||expected.operation!=='oex-import'||!uuid.test(expected.id)||!uuid.test(expected.generation))throw Error('DISK_BUDGET_JOURNAL_RETIREMENT_UNAVAILABLE');
+  const revalidate=await consumeSelectedSettlement(authority,expected,claimDigest);
+  await this.mutex(async()=>{
+   await this.checkOwner(expected.owner);
+   const path=join(this.root,'lease-'+expected.id+'.json'),raw=await readBounded(path),record=parseRecord(raw);
+   if(record.id!==expected.id||record.generation!==expected.generation||record.operation!==expected.operation||canonical(record.owner)!==canonical(expected.owner)||canonical(record.plan.map(({root,bytes})=>({root,bytes})))!==canonical(expected.plan))throw Error('DISK_BUDGET_UNCERTAIN');
+   for(const p of record.plan){const s=await stat(p.root,{bigint:true});if(!s.isDirectory()||String(s.dev)!==p.device||await realpath(p.root)!==p.root)throw Error('DISK_BUDGET_UNCERTAIN');}
+   await revalidate();await unlink(path);await syncDirectory(this.root);
+  });
  }
 }

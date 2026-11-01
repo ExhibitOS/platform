@@ -101,6 +101,15 @@ async function checkAssetBytes(artwork:Exhibition['artworks'][number],assetId:st
  else await decode(bytes,mime);
 }
 export interface OexInput {requestId:string;bytes:number;sha256:string}
+export interface PreparedOexImportAttachment extends ReturnType<typeof remapOex> {
+ keys:ReadonlyMap<string,string>;
+ /** Keyed by remapped media ID, from the qualified PCM bytes before attachment. */
+ mediaDurations:ReadonlyMap<string,number>;
+ floorResources:readonly FloorResourceEntry[];
+ materialResources:readonly SurfaceMaterialResourceEntry[];
+ footstepResources:readonly FootstepResource[];
+}
+export interface OexImportAttachmentJob {id:string;leaseId:string;payloadSha256:string}
 interface Job {tenant_id:string;id:string;user_id:string;request_id:string;payload_sha256:string;expected_bytes:number;state:string;attempts:number;lease_id:string|null;lease_until:Date|null;error_code:string|null;result:unknown;staging_keys:string[];cleanup_keys:string[];cleanup_pending:boolean;archive_profile?:string|null;oex_format?:string|null}
 // The legacy worker never consumes or mutates a later profile. JSON projection
 // keeps the same predicate valid on schemas both before and after migration 026.
@@ -108,14 +117,14 @@ const legacyJobSql="(to_jsonb(oex_import_jobs)->>'archive_profile') IS NULL AND 
 function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==null&&Number.isSafeInteger(row.expected_bytes)&&row.expected_bytes>0&&row.expected_bytes<=MAX_OEX_UPLOAD;}
 function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
 /** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
-export function checkOexProfile(e:Exhibition,privateBindings=false){
+export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1'){
  for(const[namespace,licenseId]of Object.entries(LEGAL_NOTICES))if(e.extensions&&Object.hasOwn(e.extensions,namespace)){
   const notice=e.extensions[namespace];
   if(!object(notice)||Object.keys(notice).length!==3||!['scope','licenseId','text'].every(k=>Object.hasOwn(notice,k))||notice.licenseId!==licenseId||typeof notice.scope!=='string'||notice.scope.length<1||notice.scope.length>512||!notice.scope.trim()||typeof notice.text!=='string'||notice.text.length<1||notice.text.length>32768||!notice.text.trim())throw new ApiError(422,'OEX_LEGAL_NOTICE_INVALID');
  }
 
 
- if(!validateFurnishings(e).valid||e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateLightAttachments(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
+ if(!validateFurnishings(e).valid||e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e,{archiveProfile}).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateLightAttachments(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
  const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
   if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
   if(!object(v))return;
@@ -397,6 +406,82 @@ export class Oex {
   const clean=(await this.pool.query(`SELECT id FROM oex_import_jobs WHERE cleanup_pending AND state IN ('failed','cancelled','complete') AND ${legacyJobSql} ORDER BY updated_at LIMIT 1`)).rows[0];if(clean)await this.cleanup(clean.id);
   const row=(await this.pool.query(`SELECT id FROM oex_import_jobs WHERE (state='queued' OR state='processing' AND lease_until<clock_timestamp()) AND ${legacyJobSql} ORDER BY created_at LIMIT 1`)).rows[0];if(!row)return false;return this.run(row.id);
  }
+ /** DB-only attachment shared with the bounded consumer. Caller must already
+  * hold a real READ COMMITTED transaction, the exact processing job row and
+  * operation/authorization/maintenance fences, after durable destination
+  * inventory, byte qualification, all blob writes and actual owned-worker drain.
+  * Inputs are trusted component metadata, never HTTP/worker ACK authority.
+  * No blob IO, owned transaction, aggregate buffers or publication is created. */
+ async attachPrepared(c:PoolClient,s:Session,job:OexImportAttachmentJob,prepared:PreparedOexImportAttachment){
+  this.role(s);const {id,leaseId:lease,payloadSha256}=job,at=new Date().toISOString(),e=structuredClone(prepared.exhibition),keys=new Map(prepared.keys),mediaDurations=new Map(prepared.mediaDurations);
+  const {idMap,assetAliases,floorResources,materialResources,footstepResources}=structuredClone({idMap:prepared.idMap,assetAliases:prepared.assetAliases,floorResources:prepared.floorResources,materialResources:prepared.materialResources,footstepResources:prepared.footstepResources});
+  const sourceStill=spaceStillFor(e),grants:unknown[]=[...e.artworks.map(a=>a.rights),...e.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
+  if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
+    for(const a of e.artworks){
+     const m:ArtworkMetadata={title:a.metadata.title,description:a.metadata.description??'',...(a.metadata.medium===undefined?{}:{medium:a.metadata.medium}),...(creationYearFor(a)===undefined?{}:{creationYear:creationYearFor(a)}),dimensions:{width:a.dimensions.width,height:a.dimensions.height,...(a.dimensions.depth===undefined?{}:{depth:a.dimensions.depth}),unit:'m'},rights:structuredClone(a.rights),provenance:{source:a.provenance.authorship,sourceUnits:'m',scaleApplied:true,notes:'Imported from an integrity-checked OEX package; source provenance remains in the exhibition snapshot.'}};
+     if(!validMetadata(m))throw new ApiError(422,'OEX_CMS_METADATA_INVALID');
+     const artist=randomUUID();await c.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,artist,s.userId,{name:a.metadata.artist??'Imported artist',bio:''}]);await c.query('INSERT INTO artist_revisions(tenant_id,artist_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,artist,{name:a.metadata.artist??'Imported artist',bio:'',userId:s.userId}]);
+     // New local resource revision starts at 1; source immutable revision/provenance remains package evidence.
+     a.revision=1;
+     a.extensions={...a.extensions,[CMS]:{tenantId:s.tenantId,artworkId:a.id,revision:1}};
+     await c.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[s.tenantId,a.id,artist,m]);await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,a.id,m]);
+     for(const asset of a.assets){const rights=randomUUID();await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,rights,a.rights]);await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,1,'approved')",[s.tenantId,asset.id,a.id,rights,keys.get(asset.path),asset.sha256,asset.bytes,asset.mime]);}
+     const primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
+     await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,1,$3,$4)',[s.tenantId,a.id,primary.id,{metadata:m,asset:{id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime,rightsRevision:1},importedArtwork:structuredClone(a)}]);
+     await c.query('UPDATE artworks SET approved_revision=1,approved_asset_id=$3 WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.id,primary.id]);
+    }
+    e.revision=1; // New local revision identity, scene settings and authored prose preserved.
+    // Paths stay package-relative and bytes/hash exact; private storage keys never enter the draft.
+    const draft:Draft={schemaVersion:'1.0.0-draft.1',kind:'exhibition-draft',id:randomUUID(),exhibitionId:e.id,editVersion:1,createdAt:at,updatedAt:at,candidate:e};
+    const mediaSources=new Map(e.mediaAssets.map(m=>[m.id,{key:keys.get(m.path)!,duration:mediaDurations.get(m.id)}]));
+    for(const m of e.mediaAssets)m.path=`media/${m.id}/audio.wav`;
+    const still=spaceStillFor(e),stillKey=still?keys.get(still.path):undefined;
+    if(still){still.path=`space-still/${still.id}/image.png`;const inventory=e.extensions![SPACE_STILL_NAMESPACE] as unknown as {asset:typeof still};inventory.asset=still;}
+    const response=await this.studio.create(c,s,{draft,requestId:randomUUID()});
+    for(const m of e.mediaAssets){
+     const source=mediaSources.get(m.id)!,key=source.key;
+     if(typeof source.duration!=='number'||!Number.isFinite(source.duration)||source.duration<=0||!curationDurationValid(e,m.id,source.duration))throw new ApiError(422,'CURATION_AUDIO_DURATION');
+     await c.query("INSERT INTO studio_audio(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state,duration_seconds) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'audio/wav',$9,$10,'approved',$11)",[s.tenantId,e.id,m.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(m)))),m.sha256,m.bytes,m.rights,key,source.duration]);
+     // Match the local Audio serializer exactly, including its deterministic inventory path.
+     await c.query('INSERT INTO audio_approvals(tenant_id,audio_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,m.id,m,s.userId]);
+    }
+    if(still){
+     if(!stillKey)throw new ApiError(422,'ASSET_INTEGRITY');
+     await c.query("INSERT INTO studio_cover_images(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'image/png',$9,$10,'approved')",[s.tenantId,e.id,still.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(still)))),still.sha256,still.bytes,still.rights,stillKey]);
+     await c.query('INSERT INTO cover_image_approvals(tenant_id,image_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,still.id,still,s.userId]);
+    }
+    for(const asset of furnishingsFor(e)?.assets??[]){
+     const entry=furnishingCatalogueEntry(asset.catalogId);
+     for(const role of ['model','notice'] as const){
+      const descriptor=role==='model'?{path:asset.path,resourcePath:entry.path,bytes:asset.bytes,sha256:asset.sha256}:{path:asset.rights.notice.path,resourcePath:entry.rights.noticePath,bytes:asset.rights.notice.bytes,sha256:asset.rights.notice.sha256};
+      const key=keys.get(descriptor.path);if(!key)throw new ApiError(422,'ASSET_INTEGRITY');
+      await c.query('INSERT INTO studio_furnishing_resources(tenant_id,exhibition_id,catalog_id,catalog_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,asset.catalogId,asset.catalogVersion,role,descriptor.resourcePath,descriptor.sha256,descriptor.bytes,key]);
+     }
+    }
+    for(const resource of floorResources){
+     await c.query('INSERT INTO studio_floor_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
+    }
+    for(const resource of materialResources){
+     await c.query('INSERT INTO studio_surface_material_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
+    }
+    for(const resource of footstepResources){
+     await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
+    }
+    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
+    const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
+    const result={...response,exhibitionId:e.id,idMap,assetAliases};
+    const terminal=await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3 AND state='processing' AND lease_until>clock_timestamp() AND payload_sha256=$5 AND user_id=$6 RETURNING id",[s.tenantId,id,lease,result,payloadSha256,s.userId]);
+    if(terminal.rowCount!==1)throw new ApiError(409,'LEASE_EXPIRED');
+    await c.query('INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,randomUUID(),{action:'oex.imported',actor:s.userId,jobId:id,exhibitionId:e.id,payloadSha256}]);
+    return result;
+ }
+ /** Same-transaction terminal consistency only, not COMMIT, Session, worker or
+  * retirement authority. Caller retains and revalidates the operation claim. */
+ async checkAttached(c:PoolClient,s:Session,job:OexImportAttachmentJob,expected:Awaited<ReturnType<Oex['attachPrepared']>>){
+  const snapshot=structuredClone(expected),{id,payloadSha256}=job,{tenantId,userId}=s;
+  const row=(await c.query('SELECT state,user_id,payload_sha256,lease_id,lease_until,result FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id])).rows[0];
+  if(!row||row.state!=='complete'||row.user_id!==userId||row.payload_sha256!==payloadSha256||row.lease_id!==null||row.lease_until!==null||!equal(row.result,snapshot))throw new ApiError(409,'OEX_ATTACHMENT_CHANGED');
+ }
  async run(id:string){
   uuid(id);const lease=randomUUID();
   const row=await transaction(this.pool,async c=>{
@@ -438,62 +523,11 @@ export class Oex {
    await transaction(this.pool,async c=>{
     await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     const current=(await c.query("SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() FOR UPDATE",[row.tenant_id,id,lease])).rows[0]as Job|undefined;if(!current)return;
-    const s=await this.actor(c,current),at=new Date().toISOString();
+    const s=await this.actor(c,current);
     if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     for(const[key,bytes]of storedBytes)await this.blobs.put(key,bytes);
-    for(const a of e.artworks){
-     const m:ArtworkMetadata={title:a.metadata.title,description:a.metadata.description??'',...(a.metadata.medium===undefined?{}:{medium:a.metadata.medium}),...(creationYearFor(a)===undefined?{}:{creationYear:creationYearFor(a)}),dimensions:{width:a.dimensions.width,height:a.dimensions.height,...(a.dimensions.depth===undefined?{}:{depth:a.dimensions.depth}),unit:'m'},rights:structuredClone(a.rights),provenance:{source:a.provenance.authorship,sourceUnits:'m',scaleApplied:true,notes:'Imported from an integrity-checked OEX package; source provenance remains in the exhibition snapshot.'}};
-     if(!validMetadata(m))throw new ApiError(422,'OEX_CMS_METADATA_INVALID');
-     const artist=randomUUID();await c.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,artist,s.userId,{name:a.metadata.artist??'Imported artist',bio:''}]);await c.query('INSERT INTO artist_revisions(tenant_id,artist_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,artist,{name:a.metadata.artist??'Imported artist',bio:'',userId:s.userId}]);
-     // New local resource revision starts at 1; source immutable revision/provenance remains package evidence.
-     a.revision=1;
-     a.extensions={...a.extensions,[CMS]:{tenantId:s.tenantId,artworkId:a.id,revision:1}};
-     await c.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[s.tenantId,a.id,artist,m]);await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,a.id,m]);
-     for(const asset of a.assets){const rights=randomUUID();await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,rights,a.rights]);await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,1,'approved')",[s.tenantId,asset.id,a.id,rights,keys.get(asset.path),asset.sha256,asset.bytes,asset.mime]);}
-     const primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
-     await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,1,$3,$4)',[s.tenantId,a.id,primary.id,{metadata:m,asset:{id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime,rightsRevision:1},importedArtwork:structuredClone(a)}]);
-     await c.query('UPDATE artworks SET approved_revision=1,approved_asset_id=$3 WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.id,primary.id]);
-    }
-    e.revision=1; // New local revision identity, scene settings and authored prose preserved.
-    // Paths stay package-relative and bytes/hash exact; private storage keys never enter the draft.
-    const draft:Draft={schemaVersion:'1.0.0-draft.1',kind:'exhibition-draft',id:randomUUID(),exhibitionId:e.id,editVersion:1,createdAt:at,updatedAt:at,candidate:e};
-    const mediaSources=new Map(e.mediaAssets.map(m=>[m.id,{key:keys.get(m.path)!,bytes:restoredBytes.get(m.path)!}]));
-    for(const m of e.mediaAssets)m.path=`media/${m.id}/audio.wav`;
-    const still=spaceStillFor(e),stillKey=still?keys.get(still.path):undefined;
-    if(still){still.path=`space-still/${still.id}/image.png`;const inventory=e.extensions![SPACE_STILL_NAMESPACE] as unknown as {asset:typeof still};inventory.asset=still;}
-    const response=await this.studio.create(c,s,{draft,requestId:randomUUID()});
-    for(const m of e.mediaAssets){
-     const source=mediaSources.get(m.id)!,key=source.key,pcm=validatePcmWav(source.bytes);
-     await c.query("INSERT INTO studio_audio(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state,duration_seconds) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'audio/wav',$9,$10,'approved',$11)",[s.tenantId,e.id,m.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(m)))),m.sha256,m.bytes,m.rights,key,pcm.durationSeconds]);
-     // Match the local Audio serializer exactly, including its deterministic inventory path.
-     await c.query('INSERT INTO audio_approvals(tenant_id,audio_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,m.id,m,s.userId]);
-    }
-    if(still){
-     if(!stillKey)throw new ApiError(422,'ASSET_INTEGRITY');
-     await c.query("INSERT INTO studio_cover_images(tenant_id,exhibition_id,id,request_id,created_by,payload_sha256,sha256,bytes,mime,rights,object_key,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'image/png',$9,$10,'approved')",[s.tenantId,e.id,still.id,randomUUID(),s.userId,sha256(Buffer.from(JSON.stringify(canonical(still)))),still.sha256,still.bytes,still.rights,stillKey]);
-     await c.query('INSERT INTO cover_image_approvals(tenant_id,image_id,snapshot,approved_by) VALUES($1,$2,$3,$4)',[s.tenantId,still.id,still,s.userId]);
-    }
-    for(const asset of furnishingsFor(e)?.assets??[]){
-     const entry=furnishingCatalogueEntry(asset.catalogId);
-     for(const role of ['model','notice'] as const){
-      const descriptor=role==='model'?{path:asset.path,resourcePath:entry.path,bytes:asset.bytes,sha256:asset.sha256}:{path:asset.rights.notice.path,resourcePath:entry.rights.noticePath,bytes:asset.rights.notice.bytes,sha256:asset.rights.notice.sha256};
-      const key=keys.get(descriptor.path);if(!key)throw new ApiError(422,'ASSET_INTEGRITY');
-      await c.query('INSERT INTO studio_furnishing_resources(tenant_id,exhibition_id,catalog_id,catalog_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,asset.catalogId,asset.catalogVersion,role,descriptor.resourcePath,descriptor.sha256,descriptor.bytes,key]);
-     }
-    }
-    for(const resource of parsed.floorResources){
-     await c.query('INSERT INTO studio_floor_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
-    }
-    for(const resource of parsed.materialResources){
-     await c.query('INSERT INTO studio_surface_material_resources(tenant_id,exhibition_id,pack_id,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.packId,resource.packVersion,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
-    }
-    for(const resource of parsed.footstepResources){
-     await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
-    }
-    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
-    const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
-    await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3",[s.tenantId,id,lease,{...response,exhibitionId:e.id,idMap,assetAliases}]);
-    await c.query('INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)',[s.tenantId,randomUUID(),{action:'oex.imported',actor:s.userId,jobId:id,exhibitionId:e.id,payloadSha256:row.payload_sha256}]);
+    const mediaDurations=new Map(e.mediaAssets.map(m=>[m.id,validatePcmWav(restoredBytes.get(m.path)!).durationSeconds]));
+    await this.attachPrepared(c,s,{id,leaseId:lease,payloadSha256:row.payload_sha256},{exhibition:e,idMap,assetAliases,keys,mediaDurations,floorResources:parsed.floorResources,materialResources:parsed.materialResources,footstepResources:parsed.footstepResources});
    });
   }catch(error){await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');await c.query("UPDATE oex_import_jobs SET state='failed',error_code=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3",[row.tenant_id,id,lease,error instanceof ApiError?error.code:'OEX_IMPORT_FAILED']);});}
   await this.cleanup(id);return true;
