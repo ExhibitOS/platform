@@ -5,12 +5,12 @@ import {ApiError} from './auth.ts';
 export const MAX_PREPARED_IMAGE_BYTES=8388608;
 export interface PreparedImage {
  mime:'image/png';bytes:number;sha256:string;
- recipe:{version:1;role:'baseColor';sampling:'nearest-centre';colourMeaning:'srgb'|'srgb-assumed';recipeSha256:string;settingsSha256:string;sourcePixelsSha256:string;outputPixelsSha256:string;toolVersion:string};
+ recipe:{version:1;role:'baseColor';sampling:'nearest-centre';colourMeaning:'srgb'|'srgb-assumed';recipeSha256:string;settingsSha256:string;sourcePixelsSha256:string;outputPixelsSha256:string;toolVersion:string;colourConversion?:{version:1;algorithm:'icc-to-srgb-jpeg-rgb8-v1';sourceIccSha256:string}};
 }
 const digest={type:'string',pattern:'^[0-9a-f]{64}$'};
 export const PREPARED_IMAGE_SCHEMA={type:'object',additionalProperties:false,required:['mime','bytes','sha256','recipe'],properties:{
  mime:{const:'image/png'},bytes:{type:'integer',minimum:1,maximum:MAX_PREPARED_IMAGE_BYTES},sha256:digest,
- recipe:{type:'object',additionalProperties:false,required:['version','role','sampling','colourMeaning','recipeSha256','settingsSha256','sourcePixelsSha256','outputPixelsSha256','toolVersion'],properties:{version:{const:1},role:{const:'baseColor'},sampling:{const:'nearest-centre'},colourMeaning:{enum:['srgb','srgb-assumed']},recipeSha256:digest,settingsSha256:digest,sourcePixelsSha256:digest,outputPixelsSha256:digest,toolVersion:{type:'string',minLength:1,maxLength:128,pattern:'^[ -~]+$'}}}
+ recipe:{type:'object',additionalProperties:false,required:['version','role','sampling','colourMeaning','recipeSha256','settingsSha256','sourcePixelsSha256','outputPixelsSha256','toolVersion'],properties:{version:{const:1},role:{const:'baseColor'},sampling:{const:'nearest-centre'},colourMeaning:{enum:['srgb','srgb-assumed']},recipeSha256:digest,settingsSha256:digest,sourcePixelsSha256:digest,outputPixelsSha256:digest,toolVersion:{type:'string',minLength:1,maxLength:128,pattern:'^[ -~]+$'},colourConversion:{type:'object',additionalProperties:false,required:['version','algorithm','sourceIccSha256'],properties:{version:{const:1},algorithm:{const:'icc-to-srgb-jpeg-rgb8-v1'},sourceIccSha256:digest}}}}
 }};
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const closed=(v:unknown,keys:string[])=>object(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
@@ -21,11 +21,13 @@ export function preparedImageInput(value:unknown):PreparedImage|undefined {
  const fail=():never=>{throw new ApiError(400,'INVALID_DERIVED_INPUT');};
  if(!closed(value,['mime','bytes','sha256','recipe']))fail();
  const v=value as Record<string,unknown>;
- if(v.mime!=='image/png'||!Number.isSafeInteger(v.bytes)||Number(v.bytes)<1||Number(v.bytes)>MAX_PREPARED_IMAGE_BYTES||!hex(v.sha256)||!closed(v.recipe,['version','role','sampling','colourMeaning','recipeSha256','settingsSha256','sourcePixelsSha256','outputPixelsSha256','toolVersion']))fail();
+ const recipeKeys=['version','role','sampling','colourMeaning','recipeSha256','settingsSha256','sourcePixelsSha256','outputPixelsSha256','toolVersion'];
+ if(v.mime!=='image/png'||!Number.isSafeInteger(v.bytes)||Number(v.bytes)<1||Number(v.bytes)>MAX_PREPARED_IMAGE_BYTES||!hex(v.sha256)||!closed(v.recipe,object(v.recipe)&&Object.hasOwn(v.recipe,'colourConversion')?[...recipeKeys,'colourConversion']:recipeKeys))fail();
  const r=v.recipe as Record<string,unknown>;
  if(r.version!==1||r.role!=='baseColor'||r.sampling!=='nearest-centre'||(r.colourMeaning!=='srgb'&&r.colourMeaning!=='srgb-assumed')||!['recipeSha256','settingsSha256','sourcePixelsSha256','outputPixelsSha256'].every(k=>hex(r[k]))||typeof r.toolVersion!=='string'||!r.toolVersion.trim()||!/^[ -~]{1,128}$/.test(r.toolVersion))fail();
  const canonical=JSON.stringify({colourMeaning:r.colourMeaning,role:r.role,sampling:r.sampling,version:r.version});
  if(createHash('sha256').update(canonical).digest('hex')!==r.recipeSha256)fail();
+ if(Object.hasOwn(r,'colourConversion')){const conversion=r.colourConversion;if(!closed(conversion,['version','algorithm','sourceIccSha256']))fail();const c=conversion as Record<string,unknown>;if(r.colourMeaning!=='srgb'||c.version!==1||c.algorithm!=='icc-to-srgb-jpeg-rgb8-v1'||!hex(c.sourceIccSha256))fail();}
  return value as PreparedImage;
 }
 /** Supplement the existing strict PNG decoder with the agreed RGB8 preparation bounds. */
