@@ -1,0 +1,37 @@
+.private-camera-interaction {
+ display:grid;
+ grid-template-columns:repeat(3,minmax(0,1fr));
+ gap:.5rem;
+ min-inline-size:0;
+}
+.private-camera-interaction>button {
+ min-inline-size:0;
+ min-block-size:2.75rem;
+ padding:.55rem .8rem;
+ border:1px solid var(--private-line,#84938a);
+ border-radius:.4rem;
+ background:var(--private-surface,#fff);
+ color:var(--private-ink,#172a21);
+ font:inherit;
+ font-weight:600;
+ line-height:1.4;
+ white-space:normal;
+ word-break:keep-all;
+ overflow-wrap:anywhere;
+ cursor:pointer;
+}
+.private-camera-interaction>button:hover:not(:disabled) {
+ background:#e3eee7;
+}
+.private-camera-interaction>button[aria-pressed=true] {
+ border-color:var(--private-accent,#007f75);
+ background:#d9eee8;
+}
+.private-camera-interaction>button:focus-visible {
+ outline:3px solid var(--private-accent,#007f75);
+ outline-offset:3px;
+}
+.private-camera-interaction>button:disabled {
+ opacity:.5;
+ cursor:default;
+}
