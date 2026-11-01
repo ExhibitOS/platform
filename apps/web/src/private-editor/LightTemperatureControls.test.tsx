@@ -6,7 +6,7 @@ import {lightDetailsFor,lightKelvinLinear,setLightDetails,setLightAttachment,lig
 import {createGeometryState,applyGeometryCommand,undoGeometry,redoGeometry} from '../geometry/model';
 import {newLight} from '../placement/model';
 import type {PublicPublication} from '../publication-client';
-import {privateSeed,starterDraft,starterRoom,checkPrivateCandidate} from './model';
+import {privateSeed,starterDraft,addPrivateRoom,checkPrivateCandidate} from './model';
 import {onlyLightColorChanged} from '../geometry/light-preview';
 import {LightTemperatureControls,lightTemperatureCommand} from './LightTemperatureControls';
 
@@ -14,9 +14,9 @@ function fixture(){
  const root=new URL('../../../../demos/reference-exhibition/source/',import.meta.url),index=JSON.parse(readFileSync(new URL('static-publication-index.json',root),'utf8'));
  const source:PublicPublication={...JSON.parse(readFileSync(new URL(index.publication.path,root),'utf8')),local:{kind:'static',fetcher:async()=>{throw Error('No asset IO');},check:async()=>{}}};
  source.exhibition.extensions={...source.exhibition.extensions,'org.example/kept':{value:'original'}};
- const original=structuredClone(source.exhibition),seed=privateSeed(source,'a'.repeat(64)),draft=starterDraft(seed),room=starterRoom(draft.candidate),ceiling=draft.candidate.surfaces.find(s=>s.roomId===room.id&&s.type==='ceiling')!,light=newLight(room.id),binding={lightId:light.id,surfaceId:ceiling.id,anchor:[.3,.2] as [number,number],gap:.08};
+ const original=structuredClone(source.exhibition),seed=privateSeed(source,'a'.repeat(64)),draft=starterDraft(seed),added=addPrivateRoom(draft.candidate),base=added.command.candidate,room=base.rooms.find(value=>value.id===added.roomId)!,ceiling=base.surfaces.find(s=>s.roomId===room.id&&s.type==='ceiling')!,light=newLight(room.id),binding={lightId:light.id,surfaceId:ceiling.id,anchor:[.3,.2] as [number,number],gap:.08};
  light.transform=lightAttachmentPose(ceiling,binding);
- let document=applyGeometryCommand(createGeometryState(draft.candidate),{type:'add-light',light}).present;
+ let document=applyGeometryCommand(createGeometryState(base),{type:'add-light',light}).present;
  const {id,...value}=light;document=setLightDetails(document,id,value,{fixture:'disc',range:12,aim:{kind:'rotation'}});document=setLightAttachment(document,id,binding);
  return {seed,source,original,document,lightId:id};
 }
@@ -53,4 +53,10 @@ it('retains scene equivalence for real Kelvin commands, original metadata and on
  const matching=structuredClone(f.document);delete matching.extensions![LIGHT_DETAILS_NAMESPACE];matching.lights.find(l=>l.id===f.lightId)!.color=lightKelvinLinear(4000.25);
  const next=applyGeometryCommand(createGeometryState(matching),lightTemperatureCommand(matching,f.lightId,'4000.25'));
  expect(onlyLightColorChanged(matching,next.present)).toBe(true);expect(onlyLightColorChanged(next.present,undoGeometry(next).present)).toBe(true);
+});
+
+it('shows integer Kelvin consistently without rewriting retained fractional intent on render',()=>{
+ const f=fixture(),command=lightTemperatureCommand(f.document,f.lightId,'4000.123456789'),document=applyGeometryCommand(createGeometryState(f.document),command).present,before=structuredClone(document);
+ const html=renderToStaticMarkup(<LightTemperatureControls document={document} lightId={f.lightId} disabled={false} execute={()=>{throw Error('render must not execute');}} error={()=>{}}/>);
+ expect(html).toContain('적용한 색온도: 4000 K');expect(html).toContain('aria-valuetext="4000 K"');expect(html).toContain('<output>4000 K</output>');expect(html).toMatch(/type="number"[^>]*step="1"[^>]*value="4000"/);expect(lightDetailsFor(document).find(l=>l.lightId===f.lightId)!.temperatureKelvin).toBe(4000.123456789);expect(document).toEqual(before);
 });

@@ -17,7 +17,7 @@ export function lightTemperatureCommand(document:Exhibition,lightId:string,raw:s
 export function LightTemperatureControls({document,lightId,disabled,execute,error,preview,active=true,previewing}:{document:Exhibition;lightId:string;disabled:boolean;execute:(command:GeometryCommand)=>void;error:(message:string)=>void;preview?:(command:GeometryCommand|null,lightId?:string)=>void;active?:boolean;previewing?:boolean}){
  const current=lightDetailsFor(document).find(value=>value.lightId===lightId)?.temperatureKelvin;
  const [raw,setRaw]=useState(current===undefined?'':String(current)),descriptionId=useId();
- const numeric=raw.trim()?Number(raw):NaN,inRange=Number.isFinite(numeric)&&numeric>=1000&&numeric<=20000,rangeValue=inRange?numeric:1000;
+ const numeric=raw.trim()?Number(raw):NaN,inRange=Number.isFinite(numeric)&&numeric>=1000&&numeric<=20000,rangeValue=inRange?numeric:1000,display=inRange?String(Math.round(numeric)):raw;
  const transaction=useRef<{document:Exhibition;before:string;raw:string;changed:boolean;pointer?:number;keys:Set<string>}|null>(null);
  const latest=useRef({document,disabled,active,execute,error,preview});latest.current={document,disabled,active,execute,error,preview};
  function cancel(){const pending=transaction.current;if(!pending)return;transaction.current=null;setRaw(pending.before);latest.current.preview?.(null);}
@@ -38,17 +38,17 @@ export function LightTemperatureControls({document,lightId,disabled,execute,erro
  }
  const rangeKeys=new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown']);
  function apply(){
-  if(disabled||!active)return;
+  if(disabled||!active||current!==undefined&&Number(raw)===current)return;
   try{execute(lightTemperatureCommand(document,lightId,raw));}
   catch{error('색온도는 1000~20000 K의 숫자로 입력해 주세요. 기존 조명은 유지됩니다.');}
  }
  return <form onSubmit={event=>{event.preventDefault();apply();}}>
   <fieldset disabled={disabled}>
    <legend>색온도</legend>
-   <p id={descriptionId}>{current===undefined?'직접 지정한 색상을 사용하고 있어요.':'적용한 색온도: '+current+' K'} 움직이면 바로 보이고, 손을 떼면 적용돼요.</p>
-   <label className="private-range-label">색온도 조절<input type="range" aria-label="따뜻하게 또는 차갑게" min="1000" max="20000" step="any" value={rangeValue} aria-valuetext={inRange?raw+' K':raw.trim()?'입력한 색온도를 확인하세요.':'색온도 미지정. 움직여 새 색온도를 선택하세요.'} aria-describedby={descriptionId} onPointerDown={event=>{if(disabled||!active||transaction.current){event.preventDefault();return;}begin(event.pointerId);try{event.currentTarget.setPointerCapture(event.pointerId);}catch{event.preventDefault();cancel();error('조절을 시작하지 못했어요. 다시 움직여 주세요.');}}} onPointerUp={event=>{if(transaction.current?.pointer===event.pointerId)finish();}} onPointerCancel={event=>{if(transaction.current?.pointer===event.pointerId)cancel();}} onLostPointerCapture={event=>{if(transaction.current?.pointer===event.pointerId)cancel();}} onKeyDown={event=>{if(event.key==='Escape')cancel();else if(rangeKeys.has(event.key)){if(transaction.current?.pointer!==undefined){event.preventDefault();return;}begin();transaction.current?.keys.add(event.key);}}} onKeyUp={event=>{const pending=transaction.current;if(rangeKeys.has(event.key)&&pending?.pointer===undefined){pending?.keys.delete(event.key);if(pending?.keys.size===0)finish();}}} onBlur={()=>{if(window.document.hasFocus())finish();else cancel();}} onChange={event=>changeRange(event.target.value)}/></label>
-   <div className="private-range-ends"><span>따뜻하게</span><output>{inRange?raw+' K':raw.trim()?'수치 확인 필요':'미지정'}</output><span>차갑게</span></div>
-   <details><summary>색온도 수치</summary><label>색온도 (K)<input type="number" disabled={transaction.current!==null} min="1000" max="20000" step="any" value={raw} aria-describedby={descriptionId} onChange={event=>setRaw(event.target.value)}/></label></details>
+   <p id={descriptionId}>{current===undefined?'직접 지정한 색상을 사용하고 있어요.':'적용한 색온도: '+Math.round(current)+' K'} 움직이면 바로 보이고, 손을 떼면 적용돼요.</p>
+   <label className="private-range-label">색온도 조절<input type="range" aria-label="따뜻하게 또는 차갑게" min="1000" max="20000" step="any" value={rangeValue} aria-valuetext={inRange?display+' K':raw.trim()?'입력한 색온도를 확인하세요.':'색온도 미지정. 움직여 새 색온도를 선택하세요.'} aria-describedby={descriptionId} onPointerDown={event=>{if(disabled||!active||transaction.current){event.preventDefault();return;}begin(event.pointerId);try{event.currentTarget.setPointerCapture(event.pointerId);}catch{event.preventDefault();cancel();error('조절을 시작하지 못했어요. 다시 움직여 주세요.');}}} onPointerUp={event=>{if(transaction.current?.pointer===event.pointerId)finish();}} onPointerCancel={event=>{if(transaction.current?.pointer===event.pointerId)cancel();}} onLostPointerCapture={event=>{if(transaction.current?.pointer===event.pointerId)cancel();}} onKeyDown={event=>{if(event.key==='Escape')cancel();else if(rangeKeys.has(event.key)){if(transaction.current?.pointer!==undefined){event.preventDefault();return;}begin();transaction.current?.keys.add(event.key);}}} onKeyUp={event=>{const pending=transaction.current;if(rangeKeys.has(event.key)&&pending?.pointer===undefined){pending?.keys.delete(event.key);if(pending?.keys.size===0)finish();}}} onBlur={()=>{if(window.document.hasFocus())finish();else cancel();}} onChange={event=>changeRange(event.target.value)}/></label>
+   <div className="private-range-ends"><span>따뜻하게</span><output>{inRange?display+' K':raw.trim()?'수치 확인 필요':'미지정'}</output><span>차갑게</span></div>
+   <details><summary>색온도 수치</summary><label>색온도 (K)<input type="number" disabled={transaction.current!==null} min="1000" max="20000" step="1" value={display} aria-describedby={descriptionId} onChange={event=>{const value=event.target.value;setRaw(value.trim()&&Number.isFinite(Number(value))?String(Math.round(Number(value))):value);}}/></label></details>
    <button type="submit" disabled={transaction.current!==null}>색온도 적용</button>
    <p>색상을 직접 골라 적용하면 색온도 설정은 해제돼요.</p>
   </fieldset>
