@@ -24,7 +24,7 @@ it.each([
 
 it('keeps editable zero and fractional text intact and follows the declared unit rather than guessing from light type',()=>{
  const light=newLight('11111111-1111-4111-8111-111111111111','point');light.unit='lumen';
- for(const [raw,shown,spoken] of [['0','0','0'],['0.000000123','1.23e-7','1.23 곱하기 10의 마이너스 7제곱'],['003.12500','3.125','3.125']]){
+ for(const [raw,shown,spoken] of [['0','0','0'],['0.000000123','1.23e-7','1.23 곱하기 10의 마이너스 7제곱'],['003.12500','3.125','3.125']] as const){
   const html=render(light,raw);expect(html).toContain('밝기 (lm)');expect(html).toContain(`>${shown} lm</output>`);expect(html).toContain(`aria-valuetext="${spoken} 루멘"`);expect(light.intensity).toBe(100);
  }
 });

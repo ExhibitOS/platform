@@ -19,7 +19,7 @@ it('focus and blur change presentation only, so untouched apply retains exact nu
   ['003.12500','3.125','003.12500'],
   ['1.234567890123e20','1.235 곱하기 10의 20제곱','1.234567890123 곱하기 10의 20제곱'],
   ['-0','0','-0'],
- ]){
+ ] as const){
   const bits=Number(raw),shown=lightIntensityInputText(raw),focused=lightIntensityInputText(raw,true),blurred=lightIntensityInputText(raw,false);
   expect(focused).toBe(raw);expect(blurred).toBe(shown);expect(Object.is(Number(raw),bits)).toBe(true);
   expect(lightIntensityValueText(raw,'candela')).toBe(`${shownSpoken} 칸델라`);expect(lightIntensityValueText(raw,'candela',true)).toBe(`${editingSpoken} 칸델라`);
@@ -34,7 +34,7 @@ it('retains direct editing text and invalid or empty drafts instead of coercing 
 });
 
 it('keeps each declared unit and unsupported-unit fallback independent of number formatting',()=>{
- for(const [unit,symbol,name] of [['candela','cd','칸델라'],['lumen','lm','루멘'],['lux','lx','럭스']]){
+ for(const [unit,symbol,name] of [['candela','cd','칸델라'],['lumen','lm','루멘'],['lux','lx','럭스']] as const){
   expect(lightIntensityUnit(unit).symbol).toBe(symbol);expect(lightIntensityValueText('123.123456789',unit)).toBe(`123.1 ${name}`);
  }
  expect(lightIntensityUnit('watt').symbol).toBe('watt');expect(lightIntensityUnit('watt').description).toBe('지원하지 않는 단위: watt');expect(lightIntensityUnit(undefined).name).toBe('단위 정보 없음');
