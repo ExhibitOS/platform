@@ -71,6 +71,13 @@ export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, trac
 export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected){
   if (normalOexSelected) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);
 }
+// A sealed-inventory declaration, never authority to select or run an operation.
+// oneShot means one selected operation in a newly provisioned empty workspace/session.
+export async function writeNormalOexCapability(platformRoot, normalOexSelected) {
+  if (!normalOexSelected) return;
+  const bytes = '{"format":1,"kind":"exhibitos-native-normal-oex","protocol":"normal-oex-v1","ownerChannelVersion":2,"schemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","schemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}';
+  await writeFile(join(platformRoot,'scripts/native-normal-oex-capability-v1.json'),bytes,{flag:'wx',mode:0o600});
+}
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and
 // after copying; do not copy the broader authored-asset library.
@@ -207,6 +214,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
   await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
+  await writeNormalOexCapability(platform,normalOexSelected);
   await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
   await copy(join(source,'scripts/native-owner-frames.mjs'),join(platform,'scripts/native-owner-frames.mjs'));
   // Producer capability declaration only; Manager must still admit the exact
