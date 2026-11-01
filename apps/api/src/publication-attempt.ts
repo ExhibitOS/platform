@@ -29,7 +29,14 @@ export interface ResourceReservationRecord {
  version:1;kind:'resource-reservation';claimDigest:string;receipt:DiskReservationReceipt;
  receiptDigest:string;managerBindingDigest:string;
 }
-interface ClaimState {record:ResourceClaimRecord;text:string;anchor:string;alias:string;device:bigint;inode:bigint;binding?:{text:string;anchor:string;alias:string;device:bigint;inode:bigint}}
+export interface ResourceOutcomeReport {
+ outcome:'succeeded'|'failed'|'cancelled';databaseOutcome:'committed'|'rolled-back'|'unknown';outputDigest:string|null;
+}
+export interface ResourceOutcomeRecord extends ResourceOutcomeReport {
+ version:1;kind:'resource-outcome-report';claimDigest:string;
+ reservation:{id:string;generation:string;receiptDigest:string;managerBindingDigest:string}|null;
+}
+interface ClaimState {record:ResourceClaimRecord;text:string;anchor:string;alias:string;device:bigint;inode:bigint;outcomeStarted?:boolean;mutationActive?:boolean;binding?:{text:string;anchor:string;alias:string;device:bigint;inode:bigint}}
 const issuedClaims=new WeakMap<ResourceClaimHandle,ClaimState>();
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hash=/^[0-9a-f]{64}$/;
@@ -157,16 +164,23 @@ export class PublicationAttempts {
   if(a.text!==text||b.text!==text||a.stat.dev!==b.stat.dev||a.stat.ino!==b.stat.ino||a.stat.nlink!==2n||b.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');
   const handle=Object.freeze({digest:sha256(Buffer.from(text))});issuedClaims.set(handle,{record,text,anchor,alias,device:a.stat.dev,inode:a.stat.ino});return handle;
  }
- private async activeClaim(handle:ResourceClaimHandle){
+ private async activeClaim(handle:ResourceClaimHandle,allowOutcome=false){
   const state=issuedClaims.get(handle);if(!state)throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
+  if(state.outcomeStarted&&!allowOutcome)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');
   if(canonical(await this.claimJournalIdentity())!==canonical(state.record.journal))throw Error('PUBLICATION_CLAIM_UNCERTAIN');
   for(const path of [state.anchor,state.alias]){const f=await claimFile(path);if(f.text!==state.text||f.stat.dev!==state.device||f.stat.ino!==state.inode||f.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');}
-  return state;
+  if(state.outcomeStarted&&!allowOutcome)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');return state;
+ }
+ private beginMutation(handle:ResourceClaimHandle){
+  const state=issuedClaims.get(handle);if(!state)throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
+  if(state.outcomeStarted)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');
+  if(state.mutationActive)throw Error('PUBLICATION_CLAIM_BUSY');state.mutationActive=true;return state;
  }
  /** Attach only the real provider-generated generation after pending claim.
   * No missing binding, interrupted write or prior file is adopted on retry. */
  async bindReservation(provider:PublicationDiskBudget,handle:ResourceClaimHandle,binding:DiskReservationBinding,managerBindingDigest:string):Promise<Readonly<ResourceReservationRecord>>{
   const expected=claimSnapshot(binding);if(typeof managerBindingDigest!=='string'||!hash.test(managerBindingDigest))throw Error('PUBLICATION_CLAIM_INVALID');
+  const mutation=this.beginMutation(handle);try{
   const state=await this.activeClaim(handle),ids=await this.coordinator(provider),r=state.record;
   if(canonical(ids.coordinator)!==canonical(r.coordinator)||expected.id!==r.reservationId||expected.operation!==r.operation||canonical(expected.owner)!==canonical(r.owner)||canonical(expected.plan)!==canonical(r.plan))throw Error('PUBLICATION_CLAIM_BINDING');
   const receipt=await provider.verifiedReceipt(expected),record:ResourceReservationRecord=claimSnapshot({version:1,kind:'resource-reservation',claimDigest:handle.digest,receipt,receiptDigest:diskReservationReceiptDigest(receipt),managerBindingDigest});
@@ -175,12 +189,14 @@ export class PublicationAttempts {
   if(!await absent(alias)||!await absent(anchor))throw Error('PUBLICATION_CLAIM_ALREADY_BOUND');
   await this.claimWrite(pending,text);await link(pending,anchor);await syncDir(this.root);await link(pending,alias);await syncDir(this.root);await unlink(pending);await syncDir(this.root);
   const a=await claimFile(anchor),b=await claimFile(alias);if(a.text!==text||b.text!==text||a.stat.dev!==b.stat.dev||a.stat.ino!==b.stat.ino||a.stat.nlink!==2n||b.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');
-  state.binding={text,alias,anchor,device:a.stat.dev,inode:a.stat.ino};return record;
+  await this.activeClaim(handle);state.binding={text,alias,anchor,device:a.stat.dev,inode:a.stat.ino};return record;
+  }finally{mutation.mutationActive=false;}
  }
  /** Requires the original issued handle; serialized bytes after restart are
   * inspection data, never authority to resume or replace an unresolved claim. */
- async verifyResourceClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle){
-  const state=await this.activeClaim(handle),ids=await this.coordinator(provider),r=state.record;
+ async verifyResourceClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle){return this.verifiedClaim(provider,handle);}
+ private async verifiedClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle,allowOutcome=false){
+  const state=await this.activeClaim(handle,allowOutcome),ids=await this.coordinator(provider),r=state.record;
   if(canonical(ids.coordinator)!==canonical(r.coordinator))throw Error('PUBLICATION_CLAIM_BINDING');
   if(!state.binding)throw Error('PUBLICATION_CLAIM_UNBOUND');
   for(const path of [state.binding.anchor,state.binding.alias]){const f=await claimFile(path);if(f.text!==state.binding.text||f.stat.dev!==state.binding.device||f.stat.ino!==state.binding.inode||f.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');}
@@ -189,15 +205,43 @@ export class PublicationAttempts {
   if(binding.version!==1||binding.kind!=='resource-reservation'||binding.claimDigest!==handle.digest||!hash.test(binding.managerBindingDigest)||binding.receiptDigest!==diskReservationReceiptDigest(binding.receipt)||binding.receipt.id!==r.reservationId||binding.receipt.operation!==r.operation||canonical(binding.receipt.owner)!==canonical(r.owner)||canonical(binding.receipt.plan.map(({root,bytes})=>({root,bytes})))!==canonical(r.plan))throw Error('PUBLICATION_CLAIM_BINDING');
   const live=await provider.verifiedReceipt({id:binding.receipt.id,generation:binding.receipt.generation,operation:r.operation,owner:r.owner,plan:r.plan});
   if(canonical(live)!==canonical(binding.receipt))throw Error('PUBLICATION_CLAIM_BINDING');
-  await this.activeClaim(handle);return claimSnapshot({claim:r,claimDigest:handle.digest,binding});
+  await this.activeClaim(handle,allowOutcome);return claimSnapshot({claim:r,claimDigest:handle.digest,binding});
+ }
+ /** Caller-reported outcome only: never a child-exit, DB, seal or retirement
+  * capability. The caller retains its operation fence. Starting this one-shot
+  * report refuses while binding/manifest writes are in flight; concurrent
+  * mutations on this handle also refuse rather than running across closure.
+  * Reporting irreversibly closes the live handle even if persistence fails. Invoke
+  * after final COMMIT and its last live verification; COMMIT errors are unknown,
+  * not assumed rollbacks. Reports cannot complete a job, grant retry, cleanup,
+  * rights or worker-exit authority. Claims, reservations
+  * and partial evidence stay intact; an unbound record proves no lease absence. */
+ async recordResourceOutcome(provider:PublicationDiskBudget,handle:ResourceClaimHandle,input:ResourceOutcomeReport):Promise<Readonly<ResourceOutcomeRecord>>{
+  const report=claimSnapshot(input);claimKeys(report,'databaseOutcome,outcome,outputDigest');
+  if(!['succeeded','failed','cancelled'].includes(report.outcome)||!['committed','rolled-back','unknown'].includes(report.databaseOutcome)||report.outputDigest!==null&&(typeof report.outputDigest!=='string'||!hash.test(report.outputDigest))||report.outcome==='succeeded'&&(report.databaseOutcome!=='committed'||report.outputDigest===null))throw Error('PUBLICATION_CLAIM_OUTCOME_INVALID');
+  const state=issuedClaims.get(handle);if(!state)throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
+  if(state.outcomeStarted)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');
+  if(state.mutationActive)throw Error('PUBLICATION_CLAIM_BUSY');state.outcomeStarted=true;
+  await this.activeClaim(handle,true);const ids=await this.coordinator(provider);
+  if(canonical(ids.coordinator)!==canonical(state.record.coordinator))throw Error('PUBLICATION_CLAIM_BINDING');
+  let reservation:ResourceOutcomeRecord['reservation']=null;
+  if(state.binding){const {binding}=await this.verifiedClaim(provider,handle,true);reservation={id:binding.receipt.id,generation:binding.receipt.generation,receiptDigest:binding.receiptDigest,managerBindingDigest:binding.managerBindingDigest};}
+  else if(report.outcome==='succeeded')throw Error('PUBLICATION_CLAIM_UNBOUND');
+  const record:ResourceOutcomeRecord=claimSnapshot({...report,version:1,kind:'resource-outcome-report',claimDigest:handle.digest,reservation});
+  const path=join(this.root,state.record.attemptId+'.outcome.json'),text=canonical(record);
+  await this.activeClaim(handle,true);await this.claimWrite(path,text);const actual=await claimFile(path);
+  if(actual.stat.nlink!==1n||actual.text!==text)throw Error('PUBLICATION_CLAIM_UNCERTAIN');await this.activeClaim(handle,true);
+  return record;
  }
  /** Intentionally unavailable: no trusted same-fence Manager recovery/drain
   * verifier exists. A boolean, PID, terminal row or receipt cannot unlock it. */
  async retireResourceClaim(handle:ResourceClaimHandle):Promise<never>{void handle;throw Error('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');}
  async createForClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle,input:PublicationAttempt){
+  const mutation=this.beginMutation(handle);try{
   const a=claimSnapshot(input);validate(a);const bound=await this.verifyResourceClaim(provider,handle),r=bound.claim;
   if(r.operation!=='publication'||a.attemptId!==r.attemptId||a.generation!==bound.binding.receipt.generation||a.runtimeGeneration!==r.runtimeGeneration||a.tenantId!==r.tenantId||a.userId!==r.userId||a.requestId!==r.requestId||a.exhibitionId!==r.resourceId||a.payloadHash!==r.requestDigest||canonical(a.owner)!==canonical(r.owner))throw Error('PUBLICATION_CLAIM_BINDING');
   await this.claimWrite(join(this.root,a.attemptId+'.json'),canonical(a));
+  }finally{mutation.mutationActive=false;}
  }
  /** Called while the publishing transaction holds 82003→82002, before the
   * first final put. Partial/uncertain records are retained, never adopted. */

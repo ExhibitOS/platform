@@ -91,6 +91,49 @@ it('preserves legacy manifests while claimed manifests require the bound handle'
  const sameRootOld=new PublicationAttempts(f.journalRoot);await expect(sameRootOld.create(legacy)).rejects.toThrow('PUBLICATION_CLAIM_HANDLE_REQUIRED');await expect(sameRootOld.recover({} as Pool,new FileBlobStore(f.store),legacy.attemptId,legacy.generation,verifier)).rejects.toThrow('PUBLICATION_CLAIM_RETIREMENT_UNAVAILABLE');
 });
 const childSource=`import {PublicationAttempts} from ${JSON.stringify(new URL('./publication-attempt.ts',import.meta.url).href)};import {PublicationDiskBudget} from ${JSON.stringify(new URL('./publication-disk-budget.ts',import.meta.url).href)};const [root,budgetRoot,request,phase]=JSON.parse(process.argv[1]);const j=new PublicationAttempts(root,{resourceClaims:true}),b=await PublicationDiskBudget.open(budgetRoot,{claimJournal:await j.claimJournalIdentity()}),h=await j.beginResourceClaim(b,request);if(phase==='bound'){const l=await b.acquire(request.operation,request.owner,request.reservationId,request.plan);await j.bindReservation(b,h,{id:l.id,generation:l.generation,operation:request.operation,owner:request.owner,plan:request.plan},'c'.repeat(64));}process.stdout.write(JSON.stringify(h));process.exitCode=37;`;
+it('durably reports a bound outcome once without retiring or releasing its resource',async()=>{
+ const f=await bound(),report={outcome:'succeeded' as const,databaseOutcome:'committed' as const,outputDigest:'d'.repeat(64)},record=await f.journal.recordResourceOutcome(f.budget,f.handle,report);
+ expect(record.kind).toBe('resource-outcome-report');expect(record.claimDigest).toBe(f.handle.digest);expect(record.reservation?.generation).toBe(f.lease.generation);expect(Object.isFrozen(record.reservation)).toBe(true);
+ expect(JSON.parse(await readFile(join(f.journalRoot,f.request.attemptId+'.outcome.json'),'utf8'))).toEqual(record);
+ await expect(f.journal.verifyResourceClaim(f.budget,f.handle)).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_STARTED');
+ await expect(f.journal.bindReservation(f.budget,f.handle,f.binding,'c'.repeat(64))).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_STARTED');
+ await expect(f.journal.recordResourceOutcome(f.budget,f.handle,report)).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_STARTED');
+ await expect(f.journal.beginResourceClaim(f.budget,{...f.request,attemptId:randomUUID()})).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
+ await expect(f.lease.releaseAfter(async()=>true)).rejects.toThrow('DISK_BUDGET_JOURNAL_RETIREMENT_UNAVAILABLE');await f.budget.verifyActive(f.binding);
+});
+it.each(['failed','cancelled'] as const)('retains an unbound %s report without implying that capacity is absent',async outcome=>{
+ const f=await fixture(),h=await f.journal.beginResourceClaim(f.budget,f.request),lease=await f.budget.acquire(f.request.operation,f.request.owner,f.request.reservationId,f.request.plan);
+ const record=await f.journal.recordResourceOutcome(f.budget,h,{outcome,databaseOutcome:'unknown',outputDigest:null});expect(record.reservation).toBeNull();
+ await f.budget.verifyActive({id:lease.id,generation:lease.generation,operation:f.request.operation,owner:f.request.owner,plan:f.request.plan});
+ await expect(new PublicationAttempts(f.journalRoot,{resourceClaims:true}).beginResourceClaim(f.budget,{...f.request,attemptId:randomUUID()})).rejects.toThrow('PUBLICATION_RESOURCE_CLAIMED');
+});
+it('keeps commit uncertainty explicit and rejects invalid report input before closing a handle',async()=>{
+ const f=await bound();await expect(f.journal.recordResourceOutcome(f.budget,f.handle,{outcome:'succeeded',databaseOutcome:'unknown',outputDigest:'d'.repeat(64)})).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_INVALID');
+ await f.journal.verifyResourceClaim(f.budget,f.handle);
+ const record=await f.journal.recordResourceOutcome(f.budget,f.handle,{outcome:'failed',databaseOutcome:'unknown',outputDigest:null});expect(record.databaseOutcome).toBe('unknown');await f.budget.verifyActive(f.binding);
+});
+it('preserves an existing outcome on write failure and irreversibly closes the handle',async()=>{
+ const f=await bound(),path=join(f.journalRoot,f.request.attemptId+'.outcome.json');await writeFile(path,'retained-uncertain-evidence',{mode:0o600});
+ await expect(f.journal.recordResourceOutcome(f.budget,f.handle,{outcome:'failed',databaseOutcome:'unknown',outputDigest:null})).rejects.toMatchObject({code:'EEXIST'});
+ expect(await readFile(path,'utf8')).toBe('retained-uncertain-evidence');await expect(f.journal.verifyResourceClaim(f.budget,f.handle)).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_STARTED');await f.budget.verifyActive(f.binding);
+});
+it('admits only one concurrent outcome report and never turns it into restart authority',async()=>{
+ const f=await bound(),report={outcome:'cancelled' as const,databaseOutcome:'unknown' as const,outputDigest:null};
+ const results=await Promise.allSettled([f.journal.recordResourceOutcome(f.budget,f.handle,report),f.journal.recordResourceOutcome(f.budget,f.handle,report)]);expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
+ await expect(new PublicationAttempts(f.journalRoot,{resourceClaims:true}).verifyResourceClaim(f.budget,{digest:f.handle.digest})).rejects.toThrow('PUBLICATION_CLAIM_HANDLE_REQUIRED');await f.budget.verifyActive(f.binding);
+});
+it.each(['binding','manifest'] as const)('refuses outcome closure while a %s write is in flight',async phase=>{
+ const f=await fixture(),h=await f.journal.beginResourceClaim(f.budget,f.request),lease=await f.budget.acquire(f.request.operation,f.request.owner,f.request.reservationId,f.request.plan),binding={id:lease.id,generation:lease.generation,operation:f.request.operation,owner:f.request.owner,plan:f.request.plan};
+ if(phase==='manifest')await f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64));
+ let entered!:()=>void,resume!:()=>void;const blocked=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{resume=r;});
+ const seam=f.journal as unknown as {claimWrite(path:string,text:string):Promise<void>},original=seam.claimWrite.bind(f.journal),spy=vi.spyOn(seam,'claimWrite').mockImplementation(async(path,text)=>{if(phase==='binding'?path.includes('/.pending-reservation-'):path===join(f.journalRoot,f.request.attemptId+'.json')){entered();await gate;}await original(path,text);});
+ const a:PublicationAttempt={version:1,attemptId:f.request.attemptId,generation:lease.generation,runtimeGeneration:f.request.runtimeGeneration,owner:f.request.owner,tenantId:f.request.tenantId,userId:f.request.userId,requestId:f.request.requestId,exhibitionId:f.request.resourceId,etag:'"studio-r2-'+ 'c'.repeat(64)+'"',payloadHash:f.request.requestDigest,publicationId:randomUUID(),snapshotHash:'d'.repeat(64),objects:[]};
+ const running=phase==='binding'?f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64)):f.journal.createForClaim(f.budget,h,a);
+ try{await blocked;await expect(f.journal.recordResourceOutcome(f.budget,h,{outcome:'failed',databaseOutcome:'unknown',outputDigest:null})).rejects.toThrow('PUBLICATION_CLAIM_BUSY');await expect(f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64))).rejects.toThrow('PUBLICATION_CLAIM_BUSY');expect(await readdir(f.journalRoot)).not.toContain(f.request.attemptId+'.outcome.json');}
+ finally{resume();await running;spy.mockRestore();}
+ await f.journal.verifyResourceClaim(f.budget,h);await f.journal.recordResourceOutcome(f.budget,h,{outcome:'failed',databaseOutcome:'unknown',outputDigest:null});
+ await expect(f.journal.createForClaim(f.budget,h,a)).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_STARTED');await f.budget.verifyActive(binding);
+});
 it.each(['pending','bound'])('retains %s claims after creator process exits; a restart cannot adopt authority',async phase=>{
  const f=await fixture(),failure=await promisify(execFile)(process.execPath,['--input-type=module','-e',childSource,JSON.stringify([f.journalRoot,f.budgetRoot,f.request,phase])]).then(()=>{throw Error('expected synthetic owner exit');},(error:Error&{code:number;stdout:string})=>error);expect(failure.code).toBe(37);
  const handle=JSON.parse(failure.stdout) as ResourceClaimHandle,restarted=new PublicationAttempts(f.journalRoot,{resourceClaims:true}),provider=await PublicationDiskBudget.open(f.budgetRoot,f.options);
