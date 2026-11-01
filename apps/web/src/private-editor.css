@@ -1,7 +1,7 @@
 .private-editor {
  --private-accent:#007f75; --private-ink:#172a21; --private-surface:#fff; --private-canvas:#e7ebe5; --private-line:#84938a;
  color:var(--private-ink); background:#f3f2ec; inline-size:100%; max-width:none; margin:0; padding:1rem;
- box-sizing:border-box; block-size:100dvh; min-block-size:34rem; display:flex; flex-direction:column;
+ box-sizing:border-box; font-size:1rem; block-size:100dvh; min-block-size:34rem; display:flex; flex-direction:column;
 }
 .private-editor [hidden] { display:none!important; }
 .private-editor button,.private-editor input,.private-editor select { font:inherit; }
@@ -79,6 +79,8 @@
  .private-scene-tools { padding-inline-end:0; }
  .private-panel-host { position:static; inline-size:100%; max-inline-size:none; max-block-size:48%; min-block-size:0; display:flex; flex-direction:column; flex:none; }
  .private-tool-panel { min-block-size:0; }
+ .private-tool-chooser { display:flex; overflow-x:auto; scrollbar-color:var(--private-line) var(--private-surface); }
+ .private-tool-chooser>button { flex:1 0 auto; min-inline-size:3.25rem; white-space:nowrap; }
  .private-tool-scroll { padding:.75rem; }
 }
 @media(prefers-reduced-motion:reduce) { .private-editor *, .private-editor *::before,.private-editor *::after { scroll-behavior:auto; } }
