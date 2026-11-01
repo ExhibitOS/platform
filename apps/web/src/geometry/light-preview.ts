@@ -2,7 +2,7 @@
 import {LinearSRGBColorSpace,type Light} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {GeometryCommand} from './model';
-import {LIGHT_DETAILS_NAMESPACE,TEMPLATE_NAMESPACE,validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {LIGHT_DETAILS_NAMESPACE,TEMPLATE_NAMESPACE,lightDetailsFor,validateStudioLightDetails} from '@exhibitos/studio-contract';
 
 /** Conservative equivalence for retaining an editor scene across one light-color edit. */
 export function onlyLightColorChanged(before:Exhibition,after:Exhibition):boolean{
@@ -13,11 +13,18 @@ export function onlyLightColorChanged(before:Exhibition,after:Exhibition):boolea
   if(!a||!b||a.id!==b.id)return false;
   if(JSON.stringify(a.color)!==JSON.stringify(b.color))changed.push(i);
  }
+ if(!validateStudioLightDetails(before).valid||!validateStudioLightDetails(after).valid)return false;
+ if(!changed.length){
+  const a=lightDetailsFor(before),b=lightDetailsFor(after);
+  for(let i=0;i<before.lights.length;i++){
+   const id=before.lights[i]!.id.toLowerCase();
+   if(a.find(entry=>entry.lightId.toLowerCase()===id)?.temperatureKelvin!==b.find(entry=>entry.lightId.toLowerCase()===id)?.temperatureKelvin)changed.push(i);
+  }
+ }
  if(changed.length!==1)return false;
  const i=changed[0]!;
  const valid=(v:unknown)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==='number'&&Number.isFinite(n));
  if(!valid(before.lights[i]!.color)||!valid(after.lights[i]!.color))return false;
- if(!validateStudioLightDetails(before).valid||!validateStudioLightDetails(after).valid)return false;
  try{
   const normalize=(doc:Exhibition)=>{
    const copy=structuredClone(doc),target=copy.lights[i]!.id.toLowerCase();

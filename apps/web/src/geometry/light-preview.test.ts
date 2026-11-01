@@ -24,6 +24,9 @@ it('accepts only the selected light temperature metadata and template modified f
  (after.extensions![TEMPLATE_NAMESPACE] as unknown as {modified:boolean}).modified=true;
  expect(onlyLightColorChanged(before,after)).toBe(true);
  expect(onlyLightColorChanged(after,before)).toBe(true);
+ const sameRgb=structuredClone(before);sameRgb.lights[0]!.color=lightKelvinLinear(3000);
+ expect(onlyLightColorChanged(sameRgb,after)).toBe(true);
+ expect(onlyLightColorChanged(after,sameRgb)).toBe(true);
  const altered=structuredClone(after);(altered.extensions![LIGHT_DETAILS_NAMESPACE] as unknown as {lights:{range:number}[]}).lights[0]!.range=2;
  expect(onlyLightColorChanged(before,altered)).toBe(false);
 });
