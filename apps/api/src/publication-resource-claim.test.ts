@@ -122,6 +122,18 @@ it('admits only one concurrent outcome report and never turns it into restart au
  const results=await Promise.allSettled([f.journal.recordResourceOutcome(f.budget,f.handle,report),f.journal.recordResourceOutcome(f.budget,f.handle,report)]);expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
  await expect(new PublicationAttempts(f.journalRoot,{resourceClaims:true}).verifyResourceClaim(f.budget,{digest:f.handle.digest})).rejects.toThrow('PUBLICATION_CLAIM_HANDLE_REQUIRED');await f.budget.verifyActive(f.binding);
 });
+it.each(['binding','manifest'] as const)('refuses outcome closure while a %s write is in flight',async phase=>{
+ const f=await fixture(),h=await f.journal.beginResourceClaim(f.budget,f.request),lease=await f.budget.acquire(f.request.operation,f.request.owner,f.request.reservationId,f.request.plan),binding={id:lease.id,generation:lease.generation,operation:f.request.operation,owner:f.request.owner,plan:f.request.plan};
+ if(phase==='manifest')await f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64));
+ let entered!:()=>void,resume!:()=>void;const blocked=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{resume=r;});
+ const seam=f.journal as unknown as {claimWrite(path:string,text:string):Promise<void>},original=seam.claimWrite.bind(f.journal),spy=vi.spyOn(seam,'claimWrite').mockImplementation(async(path,text)=>{if(phase==='binding'?path.includes('/.pending-reservation-'):path===join(f.journalRoot,f.request.attemptId+'.json')){entered();await gate;}await original(path,text);});
+ const a:PublicationAttempt={version:1,attemptId:f.request.attemptId,generation:lease.generation,runtimeGeneration:f.request.runtimeGeneration,owner:f.request.owner,tenantId:f.request.tenantId,userId:f.request.userId,requestId:f.request.requestId,exhibitionId:f.request.resourceId,etag:'"studio-r2-'+ 'c'.repeat(64)+'"',payloadHash:f.request.requestDigest,publicationId:randomUUID(),snapshotHash:'d'.repeat(64),objects:[]};
+ const running=phase==='binding'?f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64)):f.journal.createForClaim(f.budget,h,a);
+ try{await blocked;await expect(f.journal.recordResourceOutcome(f.budget,h,{outcome:'failed',databaseOutcome:'unknown',outputDigest:null})).rejects.toThrow('PUBLICATION_CLAIM_BUSY');await expect(f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64))).rejects.toThrow('PUBLICATION_CLAIM_BUSY');expect(await readdir(f.journalRoot)).not.toContain(f.request.attemptId+'.outcome.json');}
+ finally{resume();await running;spy.mockRestore();}
+ await f.journal.verifyResourceClaim(f.budget,h);await f.journal.recordResourceOutcome(f.budget,h,{outcome:'failed',databaseOutcome:'unknown',outputDigest:null});
+ await expect(f.journal.createForClaim(f.budget,h,a)).rejects.toThrow('PUBLICATION_CLAIM_OUTCOME_STARTED');await f.budget.verifyActive(binding);
+});
 it.each(['pending','bound'])('retains %s claims after creator process exits; a restart cannot adopt authority',async phase=>{
  const f=await fixture(),failure=await promisify(execFile)(process.execPath,['--input-type=module','-e',childSource,JSON.stringify([f.journalRoot,f.budgetRoot,f.request,phase])]).then(()=>{throw Error('expected synthetic owner exit');},(error:Error&{code:number;stdout:string})=>error);expect(failure.code).toBe(37);
  const handle=JSON.parse(failure.stdout) as ResourceClaimHandle,restarted=new PublicationAttempts(f.journalRoot,{resourceClaims:true}),provider=await PublicationDiskBudget.open(f.budgetRoot,f.options);
