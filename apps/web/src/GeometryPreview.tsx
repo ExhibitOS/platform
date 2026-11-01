@@ -31,6 +31,7 @@ import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
+import {syncPreviewLightColors} from './geometry/light-preview';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
@@ -953,7 +954,8 @@ export function GeometryPreview({
       const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
-      editingSync.current=()=>editor?.sync();
+      editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else if(changed)render();};
+      if(editingRef.current)editingSync.current();
       release = () => {
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
