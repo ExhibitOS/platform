@@ -31,6 +31,7 @@ import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
+import type {CameraInteractionMode} from './geometry/camera-mode';
 import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
 import {safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
@@ -124,6 +125,9 @@ export function GeometryPreview({
   onXrArtworks,
   onRenderState,
   onEntranceSceneReady,
+  onCameraInteractionReady,
+  onCameraInteractionReset,
+  cameraFrameToken,
   cameraRequest,
   onSelectionFindReady,
   placementPreview,
@@ -158,6 +162,9 @@ export function GeometryPreview({
   placementPreview?: PlacementPreviewInstaller;
   placementPreviewVersion?: number;
   cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right"|"ceiling";sequence:number};
+  onCameraInteractionReady?:(apply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null)=>void;
+  onCameraInteractionReset?:(reason:'hidden'|'unavailable')=>void;
+  cameraFrameToken?:string;
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
@@ -226,15 +233,20 @@ export function GeometryPreview({
   const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
+  const cameraInteractionCallbacks=useRef({onCameraInteractionReady,onCameraInteractionReset});cameraInteractionCallbacks.current={onCameraInteractionReady,onCameraInteractionReset};
+  const cameraInteractionSetter=useRef<((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null>(null);
+  const cameraAppliedToken=useRef<string|undefined>(undefined);
+  useEffect(()=>{onCameraInteractionReady?.(cameraInteractionSetter.current);return()=>onCameraInteractionReady?.(null);},[onCameraInteractionReady]);
   const privateViewCallback=useRef(onPrivateViewReady);privateViewCallback.current=onPrivateViewReady;
   const privateViewInitial=useRef(initialPrivateView);privateViewInitial.current=initialPrivateView;
   const entranceSceneCallback=useRef(onEntranceSceneReady);entranceSceneCallback.current=onEntranceSceneReady;
   const entranceScope=useRef<EntranceSceneScope|null>(null),[entranceWalking,setEntranceWalking]=useState(false);
   const editingSync=useRef<(()=>void)|null>(null);
+  const cameraInvalidate=useRef<(()=>void)|null>(null);
   const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
   const placementSync=useRef<(()=>void)|null>(null);
   useEffect(()=>{placementSync.current?.();},[placementPreviewVersion]);
-  useEffect(()=>{editingSync.current?.();},[editing,selection,document]);
+  useEffect(()=>{editingSync.current?.();cameraAppliedToken.current=cameraFrameToken;},[editing,selection,document,cameraFrameToken]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
   const [xrRunning,setXrRunning]=useState(false);
@@ -293,6 +305,7 @@ export function GeometryPreview({
     [walkMessage, setWalkMessage] = useState(
       "정지 관람입니다. 걷기 시작을 선택하세요.",
     );
+  useEffect(()=>{if(walkingMode)cameraInvalidate.current?.();},[walkingMode]);
   const [walkSettings, setWalkSettings] = useState<WalkingSettings>(() => ({
     speed: 1.3,
     eyeHeight: 1.65,
@@ -329,6 +342,7 @@ export function GeometryPreview({
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
     if (suspendNavigation) {
+      cameraInvalidate.current?.();
       sculptureOrbitRuntime.current?.actions.stop();
       suspendedWasWalking.current = committedEntry.current ?? (currentWalkMode.current.walking && !currentWalkMode.current.paused);
       committedEntry.current = null;
@@ -976,10 +990,18 @@ export function GeometryPreview({
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
-      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
-      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
-      editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else if(changed)render();};
+      const resetCameraMapping=()=>{controls.touches.ONE=three.TOUCH.ROTATE;controls.mouseButtons.LEFT=three.MOUSE.ROTATE;};
+      const editorOrbitAvailable=()=>{const bridge=editingRef.current,canvas=renderer.domElement;return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!canvas.ownerDocument.hidden&&canvas.ownerDocument.hasFocus()&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&!suspendedRef.current&&!xrActive.current&&!currentWalkMode.current.walking&&!seatedBenchRef.current&&viewingStyleRef.current==='free';};
+      const resetEditorOrbit=(ids:readonly number[])=>{if(disposed)return;controls.disconnect();for(const id of ids)if(renderer.domElement.hasPointerCapture(id))renderer.domElement.releasePointerCapture(id);controls.connect(renderer.domElement);controls.enabled=editorOrbitAvailable();};
+      const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,resetOrbit:resetEditorOrbit,resumeOrbit:()=>{if(editorOrbitAvailable())controls.enabled=true;},onCameraReset:reason=>{resetCameraMapping();cameraInteractionCallbacks.current.onCameraInteractionReset?.(reason);},previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
+      cameraInvalidate.current=editor?()=>editor.invalidate():null;
+      const cameraInteraction=(mode:CameraInteractionMode,forceReset=false,frameToken?:string,resetReason:'hidden'|'unavailable'='unavailable')=>{const bridge=editingRef.current,canvas=renderer.domElement;if(!editor||disposed)return false;if(forceReset&&mode==='object'){editor.invalidate(resetReason);resetCameraMapping();return true;}if(gpuLost||!bridge||bridge.disabled||cameraAppliedToken.current!==frameToken||bridge.document!==document&&!onlyLightColorChanged(document,bridge.document)||canvas.ownerDocument.hidden||canvas.closest('[hidden],[inert]')||canvas.style.visibility==='hidden'||suspendedRef.current||xrActive.current||currentWalkMode.current.walking||seatedBenchRef.current||viewingStyleRef.current!=='free')return false;if(!editor.setCameraMode(mode))return false;controls.touches.ONE=mode==='camera-pan'?three.TOUCH.PAN:three.TOUCH.ROTATE;controls.mouseButtons.LEFT=mode==='camera-pan'?three.MOUSE.PAN:three.MOUSE.ROTATE;return true;};
+      cameraInteractionSetter.current=editor?cameraInteraction:null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(cameraInteractionSetter.current);
+      const editorFocus=()=>{if(editorOrbitAvailable())controls.enabled=true;};
+      if(editor)window.addEventListener('focus',editorFocus);
+      editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
         sharedDetail?.dispose();
@@ -988,7 +1010,7 @@ export function GeometryPreview({
         if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
-        editor?.dispose();editingSync.current=null;
+        cameraInteractionSetter.current=null;cameraInteractionCallbacks.current.onCameraInteractionReady?.(null);cameraInvalidate.current=null;if(editor)window.removeEventListener('focus',editorFocus);editor?.dispose();editingSync.current=null;
         walkingRelease();
         cancelAnimationFrame(resumeFrame);
         detailEntry.current.resumeViewing = undefined;
@@ -1031,7 +1053,7 @@ export function GeometryPreview({
         renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
       }).catch(()=>{if(!disposed)renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environment:'unavailable',assetBudgetBytes});});
-      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current&&viewingStyleRef.current==='free'; };
+      orbitEnabled.current = (enabled) => { controls.enabled = enabled&&!xrActive.current&&!seatedBenchRef.current&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]')&&viewingStyleRef.current==='free'; };
       if (suspendedRef.current) controls.enabled = false;
       if (viewerBudget) {
         renderer.domElement.tabIndex = 0;
