@@ -37,6 +37,14 @@ export async function preparePrivateReset(seed:PrivateSeed,store:Pick<DraftStore
  return {record,geometry,copies:[record,...copies.filter(copy=>copy.id!==record.id)],listRefreshed};
 }
 
+/** Once the save commits, a failed list refresh must not report it as failed. */
+export async function preparePrivateSave(seed:PrivateSeed,store:Pick<DraftStore,'save'|'list'>,record:LocalDraft,candidate:LocalDraft['draft']['candidate'],knownCopies:LocalDraft[]){
+ await seed.source.local!.check();checkPrivateCandidate(seed,candidate);
+ const saved=await store.save({...record.draft,candidate},record.version);
+ let copies:LocalDraft[],listRefreshed=true;try{copies=await store.list();}catch{copies=knownCopies;listRefreshed=false;}
+ return {record:saved,copies:[saved,...copies.filter(copy=>copy.id!==saved.id)],listRefreshed};
+}
+
 export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
  const store=useMemo(()=>new DraftStore(seed.storeName),[seed]);
  const record=useRef<LocalDraft|null>(null),stateRef=useRef<GeometryState|null>(null);
@@ -49,7 +57,8 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
  const setMode=(value:'edit'|'walk')=>{interactionSerial.current++;modeRef.current=value;setModeState(value);};
  const setBusy=(value:boolean)=>{interactionSerial.current++;busyRef.current=value;setBusyState(value);};
  const [draftPosition,setDraftPosition]=useState(['0','0','0']),[scaleFactor,setScaleFactor]=useState('1');
- const [copies,setCopies]=useState<LocalDraft[]>([]);
+ const [copies,setCopiesState]=useState<LocalDraft[]>([]),copiesRef=useRef<LocalDraft[]>([]);
+ const setCopies=(value:LocalDraft[])=>{copiesRef.current=value;setCopiesState(value);};
  const walkAudio=useRef<ExhibitionAudio|null>(null),walkMovement=useRef(false);
  const [walkAudioState,setWalkAudioState]=useState<AudioState|null>(null);
  const [cameraRequest,setCameraRequest]=useState<ComponentProps<typeof GeometryPreview>['cameraRequest']>();
@@ -80,12 +89,12 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
 
  async function save(){
   if(busy||!record.current||!stateRef.current)return false;setBusy(true);
-  try{await seed.source.local!.check();checkPrivateCandidate(seed,stateRef.current.present);const next=await store.save({...record.current.draft,candidate:stateRef.current.present},record.current.version);record.current=next;setCopies(await store.list());setDirty(false);setNotice('이 브라우저에 저장했어요. 공개 전시는 바뀌지 않아요.');return true;}
+  try{const next=await preparePrivateSave(seed,store,record.current,stateRef.current.present,copiesRef.current);record.current=next.record;setCopies(next.copies);setDirty(false);setError('');setNotice(next.listRefreshed?'이 브라우저에 저장했어요. 공개 전시는 바뀌지 않아요.':'이 브라우저에 저장했어요. 목록을 새로 읽지 못해 확인된 사본만 표시해요.');return true;}
   catch{setError('저장하지 못했어요. 현재 편집은 유지됩니다. 다른 탭의 변경이나 저장 공간을 확인해 주세요.');return false;}finally{setBusy(false);}
  }
  async function reset(){
   if(dirty&&!(await save()))return;setBusy(true);
-  try{const next=await preparePrivateReset(seed,store,copies);record.current=next.record;stateRef.current=next.geometry;setState(next.geometry);setCopies(next.copies);setSelection({kind:'room',id:starterRoom(next.geometry.present).id});setPreview(null);setDirty(false);setResetOpen(false);setNotice(next.listRefreshed?'새 편집 사본을 만들었어요. 이전 저장본도 이 브라우저에 보존했어요.':'새 편집 사본을 만들었어요. 목록을 새로 읽지 못해 확인된 사본만 표시해요. 이전 저장본은 유지됩니다.');}catch{setError('새 사본을 저장하지 못했어요. 현재 편집은 유지됩니다.');}finally{setBusy(false);}
+  try{const next=await preparePrivateReset(seed,store,copiesRef.current);record.current=next.record;stateRef.current=next.geometry;setState(next.geometry);setCopies(next.copies);setSelection({kind:'room',id:starterRoom(next.geometry.present).id});setPreview(null);setDirty(false);setResetOpen(false);setNotice(next.listRefreshed?'새 편집 사본을 만들었어요. 이전 저장본도 이 브라우저에 보존했어요.':'새 편집 사본을 만들었어요. 목록을 새로 읽지 못해 확인된 사본만 표시해요. 이전 저장본은 유지됩니다.');}catch{setError('새 사본을 저장하지 못했어요. 현재 편집은 유지됩니다.');}finally{setBusy(false);}
  }
  async function openCopy(id:string){
   if(busy||id===record.current?.id)return;if(dirty&&!(await save()))return;setBusy(true);
