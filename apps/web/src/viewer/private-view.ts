@@ -5,6 +5,12 @@ import {privateViewKey} from './private-view-storage';
 
 /** Transient, same-tab camera handoff; world coordinates, never draft content. */
 export type PrivateView={roomId:string;position:[number,number,number];target:[number,number,number];fov:number};
+/** Keep the eye fixed when OrbitControls enforces its distance bounds. */
+export function boundedOrbitTarget(position:Vector3,target:Vector3,minDistance:number,maxDistance:number):Vector3{
+ const direction=target.clone().sub(position),distance=direction.length();
+ if(!Number.isFinite(distance)||distance<1e-9)return target.clone();
+ return position.clone().add(direction.multiplyScalar(Math.max(minDistance,Math.min(maxDistance,distance))/distance));
+}
 const vec=(v:unknown):v is [number,number,number]=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=100000);
 export function safePrivateView(doc:Exhibition,value:unknown):PrivateView|undefined{
  try{

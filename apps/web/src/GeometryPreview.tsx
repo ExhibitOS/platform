@@ -33,7 +33,7 @@ import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
 import type {CameraInteractionMode} from './geometry/camera-mode';
 import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
-import {safePrivateView,type PrivateView} from './viewer/private-view';
+import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
@@ -974,8 +974,8 @@ export function GeometryPreview({
       );
       let privateCameraRestored=false;
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
-      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
-      else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
+      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
+      else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
       privateViewCallback.current?.(()=>{
         if(disposed||xrActive.current)return;
         const position=camera.position.toArray() as [number,number,number],direction=camera.getWorldDirection(new three.Vector3()),target=camera.position.clone().add(direction).toArray() as [number,number,number];
