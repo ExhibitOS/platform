@@ -22,10 +22,10 @@ it('rejects inventory gaps before any request and closes the channel',async()=>{
  const f=fixture();await expect(createPackedOexStreamReceiver(f.manifest,[f.entries[0],{...f.entries[1]!,offset:1}],attempt,20000,f.channel)).rejects.toThrow('OEX_PACKED_STREAM');expect(f.channel.send).not.toHaveBeenCalled();expect(f.channel.close).toHaveBeenCalledOnce();
 });
 it('rejects correctly framed altered bytes at the final digest',async()=>{
- const f=fixture();f.files[0]![0]^=1;const reader=await createPackedOexStreamReceiver(f.manifest,f.entries,attempt,20000,f.channel);
+ const f=fixture();f.files[0]![0]=f.files[0]![0]!^1;const reader=await createPackedOexStreamReceiver(f.manifest,f.entries,attempt,20000,f.channel);
  await expect(reader.readNext()).rejects.toThrow('OEX_PACKED_STREAM');expect(f.channel.close).toHaveBeenCalledOnce();
 });
 it('closes on concurrent reads and never returns an in-flight entry',async()=>{
- const f=fixture();let release!:(value:Buffer)=>void;f.channel.receive.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));const reader=await createPackedOexStreamReceiver(f.manifest,f.entries,attempt,20000,f.channel);
+ const f=fixture();let release!:(value:Buffer<ArrayBuffer>)=>void;f.channel.receive.mockImplementationOnce(()=>new Promise<Buffer<ArrayBuffer>>(resolve=>{release=resolve;}));const reader=await createPackedOexStreamReceiver(f.manifest,f.entries,attempt,20000,f.channel);
  const first=reader.readNext();await Promise.resolve();await expect(reader.readNext()).rejects.toThrow('OEX_PACKED_STREAM');release(Buffer.from('{}'));await expect(first).rejects.toThrow();expect(f.channel.close).toHaveBeenCalled();
 });

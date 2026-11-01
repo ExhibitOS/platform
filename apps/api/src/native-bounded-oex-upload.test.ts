@@ -22,10 +22,10 @@ class TestAuth extends Auth{
 const apps:ReturnType<typeof Fastify>[]=[];
 afterEach(async()=>{await Promise.all(apps.splice(0).map(app=>app.close()));vi.resetAllMocks();});
 function setup(enabled=true){
- const app=Fastify();apps.push(app);app.setErrorHandler((error,_req,reply)=>reply.code(error instanceof ApiError?error.status:(error as {statusCode?:number}).statusCode??500).send({code:error.message}));
+ const app=Fastify();apps.push(app);app.setErrorHandler((error,_req,reply)=>reply.code(error instanceof ApiError?error.status:(error as {statusCode?:number}).statusCode??500).send({code:(error as Error).message}));
  const requests:FastifyRequest[]=[],parsing:string[]=[];app.addHook('onRequest',async req=>{requests.push(req);});app.addHook('preParsing',async(req,_reply,payload)=>{parsing.push(req.url);return payload;});
  const auth=new TestAuth({} as Pool),blobs=new FileBlobStore('/synthetic-unused');let live=true;
- const assertLive=vi.fn(async()=>{if(!live)throw new ApiError(409,'OWNER_LOST');}),assertDatabase=vi.fn(async(_c:PoolClient)=>{}),runScoped=vi.fn(async<T>(work:()=>Promise<T>)=>work()),cap=enabled?bindSelectedNativeUpload({assertLive,assertDatabase,runScoped},selection):undefined;
+ const assertLive=vi.fn(async()=>{if(!live)throw new ApiError(409,'OWNER_LOST');}),assertDatabase=vi.fn(async(_c:PoolClient)=>{}),scopedMock=vi.fn(async<T>(work:()=>Promise<T>)=>work()),runScoped=scopedMock as typeof scopedMock & (<T>(work:()=>Promise<T>)=>Promise<T>),cap=enabled?bindSelectedNativeUpload({assertLive,assertDatabase,runScoped},selection):undefined;
  core.create.mockResolvedValue({id:job,state:'uploading'});core.put.mockResolvedValue({index:0,received:bytes.length});core.queue.mockResolvedValue({id:job,state:'queued'});
  registerSelectedNativeOexUpload(app,auth,{mode:'local',origin,bindHost:'127.0.0.1'},blobs,cap);app.get('/ordinary',()=>({ok:true}));
  return {app,auth,blobs,cap,lose:()=>{live=false;},assertLive,assertDatabase,runScoped,parsing,requests};

@@ -20,5 +20,5 @@ it('refuses a session that expires while waiting for the job row',async()=>{
 });
 it('rechecks Session and lease after acquiring the committed row lock',async()=>{
  let probe='',checks=0;const query=vi.fn(async(sql:string,args?:unknown[])=>{if(sql.includes('set_config')){probe=String(args![0]);return {rows:[]};}if(sql.includes('transaction_isolation'))return {rows:[{isolation:'read committed',probe}]};if(sql.startsWith('SELECT j.id')){checks++;return checks===1?{rowCount:1,rows:[{id:input.jobId}]}:{rowCount:0,rows:[]};}throw Error('unexpected');});
- await expect(verifyBoundedOexLease({query} as unknown as PoolClient,s,{jobId:input.jobId,requestId:input.requestId,userId:s.userId,leaseId:id(6),archiveBytes:input.bytes,archiveSha256:input.sha256})).rejects.toThrow('OEX_LEASE_UNAVAILABLE');expect(checks).toBe(2);
+ await expect(verifyBoundedOexLease({query} as unknown as PoolClient,s,{jobId:input.jobId,requestId:input.requestId,userId:s.userId,leaseId:'10000000-0000-4000-8000-000000000006',archiveBytes:input.bytes,archiveSha256:input.sha256})).rejects.toThrow('OEX_LEASE_UNAVAILABLE');expect(checks).toBe(2);
 });
