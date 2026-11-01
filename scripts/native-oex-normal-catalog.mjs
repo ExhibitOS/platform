@@ -28,7 +28,7 @@ export async function verifyNormalOexMigration(supplementalDirectory){
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
 export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory){
- const rows=(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
+ const rows=(await pool.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
  if(!Array.isArray(rows)||!rows.some(row=>row?.name===NORMAL_OEX_MIGRATION))return undefined;
  const base=await directory(migrationDirectory);const names=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
  if(names.length!==25||rows.length!==26||names.some((name,i)=>name!==rows[i]?.name)||rows[25]?.name!==NORMAL_OEX_MIGRATION||rows[25]?.sha256!==NORMAL_OEX_SHA256)throw Error('NATIVE_OEX_CATALOG');
@@ -36,4 +36,16 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
  for(let i=0;i<names.length;i++)if(sha(await regular(join(migrationDirectory,names[i])))!==rows[i]?.sha256)throw Error('NATIVE_OEX_CATALOG');
  const after=await directory(migrationDirectory),again=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(!same(base,after)||JSON.stringify(again)!==JSON.stringify(names))throw Error('NATIVE_OEX_CATALOG');
  return supplementalDirectory;
+}
+
+/** Before ordinary native startup writes anything, reject unknown catalog rows.
+ * Caller holds migration 82001 in the surrounding transaction. */
+export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory){
+ const relation=(await client.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name;
+ if(!relation)return undefined;
+ const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ const names=new Set((await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)));
+ if(!rows.some(row=>!names.has(row.name)))return undefined;
+ const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory);
+ if(!selected)throw Error('NATIVE_OEX_CATALOG');return selected;
 }

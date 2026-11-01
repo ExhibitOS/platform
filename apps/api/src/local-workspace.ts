@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /** Private native bootstrap, never an HTTP route. Existing Auth.request, roles,
  * tenant binding, CSRF and Origin checks still authorize every CMS operation. */
-import type { Pool } from 'pg';
+import type { Pool,PoolClient } from 'pg';
 import { transaction } from '@exhibitos/storage';
 import { randomUUID } from 'node:crypto';
 import { ApiError, digest, uuid } from './auth.ts';
@@ -28,11 +28,12 @@ export function validateLocalWorkspace(value: unknown, runtimeMode: string | und
   return v;
 }
 
-export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined) {
+export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void>) {
   const v = validateLocalWorkspace(input, runtimeMode);
   return transaction(pool, async c => {
     await c.query('SELECT pg_advisory_xact_lock(82003)');
     await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+    if(beforeOpen)await beforeOpen(c);
     const existing = await c.query('SELECT * FROM local_workspaces WHERE id=$1 FOR UPDATE', [v.workspaceId]);
     if (!existing.rowCount) {
       // A new personal workspace must never claim legacy account/tenant data.

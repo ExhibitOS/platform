@@ -11,7 +11,7 @@ import { FileBlobStore, migrate, migrateInTransaction, transaction } from "../pa
 import { openLocalWorkspace, validateLocalWorkspace } from "../apps/api/dist/local-workspace.js";
 import { readNativeWorkspaceChannel } from "./native-workspace-channel.mjs";
 import {closeNativeOwnerDescriptor,openNativeOwnerChannel,unpackNativeOwnerInput} from "./native-owner-channel.mjs";
-import {NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,recognizeNormalOexCatalog,verifyNormalOexMigration} from "./native-oex-normal-catalog.mjs";
+import {NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,preflightNormalOexCatalog,verifyNormalOexMigration} from "./native-oex-normal-catalog.mjs";
 import { bootstrap, config } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
 import { loadFreezeConfig } from "../apps/api/dist/freeze.js";
@@ -169,15 +169,17 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
         if(check.rows[0]?.occupied!==false||!ownerChannel?.isOpen())throw Error('FRESH_DATABASE_OCCUPIED');
         await migrateInTransaction(c,migrationDirectory);if(normalOex){await c.query(normalMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256]);}else await migrateInTransaction(c,supplementalMigrationDirectory);if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       });
+    }else if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'){
+      const normalDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
+      await transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,normalDirectory);await migrateInTransaction(c,migrationDirectory);});
     }else await migrate(pool,migrationDirectory);
     stage = "BOOTSTRAP";
-    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
+    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE,!selectedOex&&environment.EXHIBITOS_RUNTIME_MODE==='native'?async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)));}:undefined);
     else {
       if ((await pool.query("SELECT 1 FROM local_workspaces LIMIT 1")).rowCount) throw Error("LOCAL_WORKSPACE_ACCOUNT_MODE_REFUSED");
       if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);
     }
     if(selectedOex&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
-    if(!selectedOex&&personal&&environment.EXHIBITOS_RUNTIME_MODE==='native')supplementalMigrationDirectory=await recognizeNormalOexCatalog(pool,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)));
     stage = "STORAGE"; await mkdir(blobRoot, { recursive: true, mode: 0o700 });
     stage = "SIGNING_KEY";
     const keyFile = await signingKey(configRoot), freeze = await loadFreezeConfig({ runtimeRoot: webRoot, signingKeyFile: keyFile, origin });
