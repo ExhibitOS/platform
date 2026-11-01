@@ -2,7 +2,7 @@ import {NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,checkedArchitecturalFinishRequest
 import {NATIVE_PLAQUE_INSPECTOR_CAPABILITY,checkedPlaqueInspectorRequest,nativePlaqueInspectorCandidate,type PlaqueInspectorRequest} from './native-plaque-inspector';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createRoot} from 'react-dom/client';
-import {useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useState} from 'react';
 import {GeometryPreview,type EntranceScenePreview} from './GeometryPreview';
 import {DEVICE_BUDGETS} from './viewer/loading';
 import {NativeEntranceHost} from './NativeEntranceHost';
@@ -28,10 +28,13 @@ import {NATIVE_LIGHT_DETAILS_CAPABILITY,checkedLightDetailsRequest,nativeLightDe
 import {NATIVE_SPACE_SETTINGS_CAPABILITY,checkedSpaceSettingsRequest,nativeSpaceSettingsCandidate,type SpaceSettingsRequest} from './native-space-settings';
 import {NATIVE_VIEWING_PLAN_CAPABILITY,checkedViewingPlanRequest,nativeViewingPlanCandidate,type ViewingPlanRequest} from './native-viewing-plan';
 import {NATIVE_FURNISHING_VISUALS_CAPABILITY,checkedFurnishingVisualsRequest,nativeFurnishingVisualsCandidate,type FurnishingVisualsRequest} from './native-furnishing-visuals';
+import {NATIVE_CAMERA_INTERACTION_CAPABILITY,NativeCameraInteractionGate,type CameraInteractionRequest} from './native-camera-interaction';
+import type {CameraInteractionMode} from './geometry/camera-mode';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
- accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES}>;
+ accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES;cameraInteractionMode:CameraInteractionMode}>;
+ setCameraInteraction:(v:unknown)=>Promise<CameraInteractionRequest&{accepted:true}>;
  entrancePreview:(v:unknown)=>Promise<EntrancePreviewReply>;
  entrancePreviewState:(v:unknown)=>Promise<EntrancePreviewReply>;
  furnishingVisualsV2:(v:FurnishingVisualsRequest)=>Promise<ReturnType<typeof catalogBinding>&{candidate:NativeViewportFrame['draft']['candidate']}>;
@@ -52,6 +55,8 @@ let current:NativeViewportFrame|undefined;
 let currentSession:Session|undefined;
 let receive:((frame:NativeViewportFrame,session:Session)=>void)|undefined;
 let findCurrentSelection:{frame:NativeViewportFrame;action:(id:string)=>boolean}|null=null;
+let cameraApply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null=null;
+let nativeCameraMode:CameraInteractionMode='object';
 const thumbnailQueue=new SerialThumbnailQueue(),catalogRequests=new Set<AbortController>(),seenCatalogRequests=new Set<string>();
 async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
  const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal});
@@ -65,6 +70,7 @@ function beginCatalogRequest(request:CatalogBinding){
 }
 function post(frame:NativeViewportFrame,type:string,body:unknown){window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
 let viewportChanged:(()=>void)|undefined;
+function cameraReset(reason:'hidden'|'unavailable'){if(nativeCameraMode==='object')return;nativeCameraMode='object';if(current)post(current,'camera-interaction-reset',{mode:'object',reason});viewportChanged?.();}
 let placementRendererReady=false;
 let lightPending=false;
 let benchPending=false;
@@ -90,6 +96,13 @@ const placement=new NativePlacement({frame:()=>current,notify:()=>viewportChange
   if(!current||!placementFrameCompatible(frame,current)||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
  },target:(frame,body)=>post(frame,'placement-target',body),cancelled:(frame,body)=>post(frame,'placement-cancel',body),
 });
+const cameraUnavailable=()=>document.hidden||!cameraApply||entrancePreview.active||placement.active||lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending||viewingPlanPending||furnishingPending;
+const cameraGate=new NativeCameraInteractionGate({frame:()=>current,unavailable:cameraUnavailable,authenticate:catalogSession,apply:request=>{if(!cameraApply?.(request.mode,false,`${request.epoch}:${request.sequence}`))return false;nativeCameraMode=request.mode;return true;}});
+function invalidateNativeCamera(reason:'hidden'|'unavailable'){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true,undefined,reason);cameraReset(reason);}}
+window.addEventListener('blur',()=>invalidateNativeCamera('unavailable'));
+window.addEventListener('pagehide',()=>invalidateNativeCamera('unavailable'));
+window.addEventListener('exhibitos-auth-changed',()=>invalidateNativeCamera('unavailable'));
+document.addEventListener?.('visibilitychange',()=>{if(document.hidden)invalidateNativeCamera('hidden');});
 const placementInstaller:PlacementPreviewInstaller=context=>{
  const preview=installNativePlacementPreview(placement,context);placementRendererReady=true;
  return {sync:preview.sync,dispose:()=>{placementRendererReady=false;preview.dispose();}};
@@ -109,12 +122,14 @@ window.exhibitosViewport={
   // An earlier asynchronous accept may finish after a newer one.
   if(current&&frame.sequence<=current.sequence)throw Error('VIEWPORT_FRAME_STALE');
   if(current&&freezeCanonical(current.draft)===freezeCanonical(frame.draft))frame.draft=current.draft;
-  entrancePreview.invalidate();current=frame;placement.rebind(frame);
+  if((frame.disabled||frame.presentation==='plan'||cameraUnavailable())&&nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}
+  cameraGate.advance();entrancePreview.invalidate();current=frame;placement.rebind(frame);
   if(currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt)receive?.(frame,currentSession);
   else {currentSession=session;receive?.(frame,session);}
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
-  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:NATIVE_CAPABILITIES};
+  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:NATIVE_CAPABILITIES,cameraInteractionMode:nativeCameraMode};
  },
+ setCameraInteraction:value=>cameraGate.request(value),
  placement:value=>{requireEntranceIdle();if(value?.phase==='begin'&&architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(value?.phase==='begin'&&plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
  furnishingVisualsV2:async value=>{
   requireEntranceIdle();
@@ -233,6 +248,8 @@ window.exhibitosViewport={
 };
 function Viewport(){
  const [state,setState]=useState<{frame:NativeViewportFrame;session:Session}>();
+ const cameraReady=useCallback((apply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null)=>{cameraApply=apply;if(!apply){cameraGate.invalidate();cameraReset('unavailable');}},[]);
+ const cameraWasReset=useCallback((reason:'hidden'|'unavailable')=>cameraReset(reason),[]);
  const [planPreview,setPlanPreview]=useState<NativePlanPreview|null>(null);
  const [placementVersion,setPlacementVersion]=useState(0);
  const [entranceStage,setEntranceStage]=useState<EntranceStage>();
@@ -240,34 +257,34 @@ function Viewport(){
  // GeometryPreview owns an expensive renderer effect keyed by this function.
  // Camera/selection frames must not recreate the scene or overwrite the camera.
  const appearance=useMemo(()=>(id:string)=>{const m=document?materialFor(document,id):{color:'#ffffff',roughness:1,metalness:0};const hex=m.color.slice(1);return {baseColor:[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255) as [number,number,number],roughness:m.roughness,metalness:m.metalness};},[document]);
- useEffect(()=>{viewportChanged=()=>setPlacementVersion(v=>v+1);receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');viewportChanged=undefined;receive=undefined;current=undefined;currentSession=undefined;};},[]);
+ useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentSession=undefined;};},[]);
  useEffect(()=>{if(planPreview&&state&&!nativePlanPreviewCurrent(planPreview,state.frame))setPlanPreview(null);},[state,planPreview]);
  if(!state)return <p role="status">네이티브 전시를 기다리고 있습니다.</p>;
  const {frame,session}=state;
  const intent=entrancePreview.view,previewing=entrancePreview.active;
  const plan=frame.presentation==='plan'&&!intent;
- const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:previewing||frame.disabled||plan||placement.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending,preview:null,
-  select:selection=>{if(!entrancePreview.active&&!frame.disabled&&!placement.active&&!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending)post(frame,'selection',selection);},previewChange:()=>{},
-  commit:command=>{try{if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||placement.active)return;post(frame,'candidate',geometryProposal(frame,command));}catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}},
+ const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:previewing||frame.disabled||plan||placement.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:null,
+  select:selection=>{if(!entrancePreview.active&&!frame.disabled&&!placement.active&&!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&!viewingPlanPending)post(frame,'selection',selection);},previewChange:()=>{},
+  commit:command=>{try{if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending||placement.active)return;post(frame,'candidate',geometryProposal(frame,command));}catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}},
   error:()=>post(frame,'error',{code:'VIEWPORT_EDIT_REJECTED'}),};
- const shownPreview=!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&planPreview&&nativePlanPreviewCurrent(planPreview,frame)?planPreview:null;
- const planEditor:EditorBridge={...editing,view:frame.view+':'+(plan?'plan':'3d'),disabled:previewing||frame.disabled||!plan||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending,preview:shownPreview?.command??null,
-  select:selection=>{if(!entrancePreview.active&&current===frame&&!frame.disabled&&plan&&!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending)post(frame,'selection',selection);},
+ const shownPreview=!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&!viewingPlanPending&&planPreview&&nativePlanPreviewCurrent(planPreview,frame)?planPreview:null;
+ const planEditor:EditorBridge={...editing,view:frame.view+':'+(plan?'plan':'3d'),disabled:previewing||frame.disabled||!plan||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:shownPreview?.command??null,
+  select:selection=>{if(!entrancePreview.active&&current===frame&&!frame.disabled&&plan&&!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&!viewingPlanPending)post(frame,'selection',selection);},
   previewChange:command=>{
-   if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||!command){setPlanPreview(null);return;}
+   if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending||!command){setPlanPreview(null);return;}
    try{if(current!==frame)throw Error('VIEWPORT_FRAME_STALE');const candidate=nativePlanProposal(frame,command);setPlanPreview({frame,command,candidate});}
    catch{setPlanPreview(null);post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}
   },
   commit:command=>{
    setPlanPreview(null);
-   if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending)return;
+   if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending)return;
    try{if(current!==frame)throw Error('VIEWPORT_FRAME_STALE');const candidate=nativePlanProposal(frame,command);
     if(frame.selection&&JSON.stringify(selectedItem(frame.draft.candidate,frame.selection))!==JSON.stringify(selectedItem(candidate,frame.selection)))post(frame,'candidate',candidate);
    }catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}
   },
  };
  return <><div className="native-viewport-surface" hidden={plan} inert={plan}>
-  <GeometryPreview fillHost resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
+  <GeometryPreview fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
    placementPreview={placementInstaller} placementPreviewVersion={placementVersion} appearance={appearance} onEntranceSceneReady={scene=>{entranceScene=scene??undefined;if(!scene)entrancePreview.invalidate();}} onRenderState={report=>{post(frame,'status',report);const placed=new Set(frame.draft.candidate.placements.map(p=>p.artworkRevisionId));setEntranceStage({ready:report.ready&&report.navigationReady&&(report.loaded>0||placed.size===0),error:report.navigationFailed||(report.loaded===0&&report.failed>0&&report.failed>=placed.size),message:report.message,phase:!report.ready?'space':report.loaded===0&&placed.size>0?'artwork':'navigation'});}}/>
  </div><div className="native-viewport-surface native-viewport-plan" hidden={!plan} inert={!plan}>
   <StudioFloorPlan document={shownPreview?.candidate??frame.draft.candidate} editor={planEditor}/>

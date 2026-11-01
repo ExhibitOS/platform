@@ -18,14 +18,14 @@ it.each([
  const light=newLight('11111111-1111-4111-8111-111111111111',type),raw='1234.123456789';light.intensity=Number(raw);
  expect(light.unit).toBe(unit);const html=render(light,raw);
  expect(html).toContain(`밝기 (${symbol})`);expect(html).toContain(`aria-description="단위: ${name} (${symbol})"`);
- expect(html).toContain(`aria-valuetext="${raw} ${name}"`);expect(html).toContain(`aria-label="밝기 ${raw} ${name}"`);
- expect(html).toContain(`>${raw} ${symbol}</output>`);expect(html).toContain(`max="${raw}"`);expect(html).toContain(`value="${raw}"`);expect(html).toContain('step="any"');
+ expect(html).toContain(`aria-valuetext="1234 ${name}"`);expect(html).toContain(`aria-label="밝기 1234 ${name}"`);
+ expect(html).toContain(`>1234 ${symbol}</output>`);expect(html).toContain(`max="${raw}"`);expect(html).toContain(`value="${raw}"`);expect(html).toContain('step="any"');
 });
 
 it('keeps editable zero and fractional text intact and follows the declared unit rather than guessing from light type',()=>{
  const light=newLight('11111111-1111-4111-8111-111111111111','point');light.unit='lumen';
- for(const raw of ['0','0.000000123','003.12500']){
-  const html=render(light,raw);expect(html).toContain('밝기 (lm)');expect(html).toContain(`>${raw} lm</output>`);expect(html).toContain(`aria-valuetext="${raw} 루멘"`);
+ for(const [raw,shown,spoken] of [['0','0','0'],['0.000000123','1.23e-7','1.23 곱하기 10의 마이너스 7제곱'],['003.12500','3.125','3.125']] as const){
+  const html=render(light,raw);expect(html).toContain('밝기 (lm)');expect(html).toContain(`>${shown} lm</output>`);expect(html).toContain(`aria-valuetext="${spoken} 루멘"`);expect(light.intensity).toBe(100);
  }
 });
 
