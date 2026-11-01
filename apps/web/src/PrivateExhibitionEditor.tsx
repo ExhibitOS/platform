@@ -33,8 +33,8 @@ function Thumbnail({art,seed}:{art:Artwork;seed:PrivateSeed}){
  * a newly saved record with the previous copy's still-visible geometry. */
 export async function preparePrivateReset(seed:PrivateSeed,store:Pick<DraftStore,'save'|'list'>,knownCopies:LocalDraft[]){
  const record=await store.save(starterDraft(seed)),geometry=createGeometryState(record.draft.candidate);
- let copies:LocalDraft[];try{copies=await store.list();}catch{copies=knownCopies;}
- return {record,geometry,copies:[record,...copies.filter(copy=>copy.id!==record.id)]};
+ let copies:LocalDraft[],listRefreshed=true;try{copies=await store.list();}catch{copies=knownCopies;listRefreshed=false;}
+ return {record,geometry,copies:[record,...copies.filter(copy=>copy.id!==record.id)],listRefreshed};
 }
 
 export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
@@ -85,7 +85,7 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
  }
  async function reset(){
   if(dirty&&!(await save()))return;setBusy(true);
-  try{const next=await preparePrivateReset(seed,store,copies);record.current=next.record;stateRef.current=next.geometry;setState(next.geometry);setCopies(next.copies);setSelection({kind:'room',id:starterRoom(next.geometry.present).id});setPreview(null);setDirty(false);setResetOpen(false);setNotice('새 편집 사본을 만들었어요. 이전 저장본도 이 브라우저에 보존했어요.');}catch{setError('새 사본을 저장하지 못했어요. 현재 편집은 유지됩니다.');}finally{setBusy(false);}
+  try{const next=await preparePrivateReset(seed,store,copies);record.current=next.record;stateRef.current=next.geometry;setState(next.geometry);setCopies(next.copies);setSelection({kind:'room',id:starterRoom(next.geometry.present).id});setPreview(null);setDirty(false);setResetOpen(false);setNotice(next.listRefreshed?'새 편집 사본을 만들었어요. 이전 저장본도 이 브라우저에 보존했어요.':'새 편집 사본을 만들었어요. 목록을 새로 읽지 못해 확인된 사본만 표시해요. 이전 저장본은 유지됩니다.');}catch{setError('새 사본을 저장하지 못했어요. 현재 편집은 유지됩니다.');}finally{setBusy(false);}
  }
  async function openCopy(id:string){
   if(busy||id===record.current?.id)return;if(dirty&&!(await save()))return;setBusy(true);
