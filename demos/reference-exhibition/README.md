@@ -80,3 +80,9 @@ deployment CLI is pinned in the lockfile to the same Wrangler version used by
 the existing website. `npm run deploy:reference-demo` selects this explicit
 configuration; run it only for the reviewed build and intended hosting account.
 Unknown paths remain missing rather than returning the exhibition HTML.
+
+When rolling the API token used by Cloudflare Workers Builds, register its current
+value as a build token and update this demo's existing trigger to use it. The token
+name or ID alone does not confirm that the stored value is current. Preserve other
+projects' bindings, then verify a Git-triggered build and the published index hash.
+See [Cloudflare's stale API token troubleshooting](https://developers.cloudflare.com/workers/ci-cd/builds/troubleshoot/#stale-api-token).
