@@ -1,10 +1,11 @@
 import {Matrix4,Vector3,Quaternion} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {artifactBounds,artifactCorners,alignedDoorPair} from '@exhibitos/studio-contract';
+import {artifactBounds,artifactCorners,alignedDoorPair,freezeCanonical,TEMPLATE_NAMESPACE,assertRoomEnvelopeContents} from '@exhibitos/studio-contract';
 import {newRoom,newDoor,whiteCubeSurfaces,applyGeometryCommand,createGeometryState,type GeometryCommand} from '../geometry/model';
 import {worldMatrix,matrix} from '../geometry/direct-edit';
 import {runDoorConnection,checkedDoorConnection} from './door-connection';
 
+const qualified=new WeakMap<GeometryCommand,{source:Exhibition;candidate:Exhibition;roomId:string;firstId:string;secondId:string;fingerprint:string}>();
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 
 /** Compose existing room/door commands without publishing intermediate geometry. */
@@ -31,5 +32,21 @@ export function attachedRoomCandidate(document:Exhibition,wallId:string,openingI
 export async function prepareAttachedRoom(document:Exhibition,wallId:string,openingId:string|undefined,current:()=>boolean,check=checkedDoorConnection):Promise<{roomId:string;command:GeometryCommand}|null>{
  if(!current())return null;const candidate=attachedRoomCandidate(document,wallId,openingId);let result:GeometryCommand|undefined;
  await runDoorConnection(candidate.document,candidate.firstId,candidate.secondId,current,command=>{result={type:'replace-architecture',candidate:applyGeometryCommand(createGeometryState(candidate.document),command).present};},check);
- return result&&current()?{roomId:candidate.roomId,command:result}:null;
+ if(!result||!current()||result.type!=='replace-architecture')return null;qualified.set(result,{source:document,candidate:result.candidate,roomId:candidate.roomId,firstId:candidate.firstId,secondId:candidate.secondId,fingerprint:freezeCanonical(result.candidate)});return {roomId:candidate.roomId,command:result};
+}
+
+/** Admit only this exact, still-current qualified attempt; unchanged legacy rooms
+ * do not gain a new envelope requirement merely because a neighbour was added. */
+export function assertPreparedRoom(source:Exhibition,command:GeometryCommand,roomId:string){
+ const proof=qualified.get(command);qualified.delete(command);
+ if(!proof||proof.source!==source||proof.roomId!==roomId||command.type!=='replace-architecture'||command.candidate!==proof.candidate||freezeCanonical(command.candidate)!==proof.fingerprint)throw Error('ROOM_ATTEMPT_STALE');
+ const next=command.candidate,room=next.rooms.find(value=>same(value.id,roomId));if(!room||source.rooms.some(value=>same(value.id,roomId)))throw Error('ROOM_ATTEMPT_CHANGED');
+ const surfaces=next.surfaces.filter(value=>same(value.roomId,roomId));if(surfaces.length!==6||surfaces.map(value=>value.type).sort().join(',')!=='ceiling,floor,wall,wall,wall,wall')throw Error('ROOM_ATTEMPT_CHANGED');
+ const first=next.openings.find(value=>same(value.id,proof.firstId)),second=next.openings.find(value=>same(value.id,proof.secondId)),original=source.openings.find(value=>same(value.id,proof.firstId));
+ if(!first||!second||!same(first.connectsToOpeningId??'',second.id)||!same(second.connectsToOpeningId??'',first.id)||first.exterior!==undefined||second.exterior!==undefined||!surfaces.some(value=>same(value.id,second.surfaceId)))throw Error('ROOM_ATTEMPT_CHANGED');
+ if(original){const stable=(value:typeof original)=>({...value,connectsToOpeningId:null,exterior:null});if(freezeCanonical(stable(first))!==freezeCanonical(stable(original)))throw Error('ROOM_ATTEMPT_CHANGED');}
+ else if(!source.surfaces.some(value=>same(value.id,first.surfaceId)))throw Error('ROOM_ATTEMPT_CHANGED');
+ const copy=structuredClone(next);copy.rooms=copy.rooms.filter(value=>!same(value.id,roomId));copy.surfaces=copy.surfaces.filter(value=>!same(value.roomId,roomId));copy.openings=copy.openings.filter(value=>!same(value.id,second.id)&&(!same(value.id,first.id)||!!original)).map(value=>original&&same(value.id,original.id)?structuredClone(original):value);
+ const template=copy.extensions?.[TEMPLATE_NAMESPACE] as unknown as {modified?:unknown}|undefined,oldTemplate=source.extensions?.[TEMPLATE_NAMESPACE] as unknown as {modified?:unknown}|undefined;if(template&&oldTemplate&&typeof template.modified==='boolean'&&typeof oldTemplate.modified==='boolean')template.modified=oldTemplate.modified;
+ if(freezeCanonical(copy)!==freezeCanonical(source))throw Error('ROOM_ATTEMPT_CHANGED');assertRoomEnvelopeContents(next,roomId);
 }
