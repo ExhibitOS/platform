@@ -25,6 +25,7 @@ import "./publication-immersive.css";
 import {ViewingStyles} from './viewer/ViewingStyles';
 import {createViewingSession,type ViewingRenderer,type ViewingState,type ViewingStyle,type ViewingActions,type ViewingItem} from './viewer/viewing-session';
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
+import {discardPrivateView} from './viewer/private-view-storage';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emptyThumbnails:Readonly<Record<string,string>>=Object.freeze({});
@@ -253,7 +254,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {connectionStatus}
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}
-          {mode === "3d" && privateEditorHref && <a className="publication-private-edit" href={privateEditorHref}>직접 꾸며보기</a>}
+          {privateEditorHref && <div className="publication-private-entry"><a className="publication-private-edit" href={privateEditorHref} onClick={()=>{if(mode!=="3d"||!stageReady||viewerUnavailable)discardPrivateView(value.publication.id,value.publication.revisionSha256,document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'');}}>직접 꾸며보기</a><p>이 브라우저에 개인 사본을 만들어요.</p></div>}
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
