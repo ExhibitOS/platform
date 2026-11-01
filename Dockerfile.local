@@ -23,6 +23,10 @@ COPY --from=build /opt/exhibitos/contracts ./contracts
 COPY --from=build /opt/exhibitos/package.json ./package.json
 COPY --from=build /opt/exhibitos/LICENSE ./LICENSE
 COPY --from=build /opt/exhibitos/scripts/local-runtime.mjs ./scripts/local-runtime.mjs
+COPY --from=build /opt/exhibitos/scripts/native-workspace-channel.mjs ./scripts/native-workspace-channel.mjs
+COPY --from=build /opt/exhibitos/scripts/native-owner-channel.mjs ./scripts/native-owner-channel.mjs
+COPY --from=build /opt/exhibitos/scripts/native-owner-frames.mjs ./scripts/native-owner-frames.mjs
+COPY --from=build /opt/exhibitos/scripts/native-oex-normal-catalog.mjs ./scripts/native-oex-normal-catalog.mjs
 # Runtime security fixes preserve the pinned Node/build toolchain. The final
 # service starts Node directly and does not ship the base image's npm client.
 RUN apt-get update \

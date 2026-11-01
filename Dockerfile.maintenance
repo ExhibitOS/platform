@@ -32,6 +32,7 @@ COPY --from=build /opt/exhibitos/package.json ./package.json
 COPY --from=build /opt/exhibitos/LICENSE ./LICENSE
 COPY --from=build /opt/exhibitos/apps/web/dist/THIRD_PARTY_NOTICES.txt ./THIRD_PARTY_NOTICES.txt
 COPY --from=build /opt/exhibitos/scripts/service-backup.mjs ./scripts/service-backup.mjs
+COPY --from=build /opt/exhibitos/scripts/native-oex-normal-catalog.mjs ./scripts/native-oex-normal-catalog.mjs
 COPY --from=build /opt/exhibitos/scripts/remote-backup-worker.mjs ./scripts/remote-backup-worker.mjs
 COPY --from=build /opt/exhibitos/scripts/remote-backup-entry.mjs ./scripts/remote-backup-entry.mjs
 COPY --from=build /opt/exhibitos/scripts/remote-restore-entry.mjs ./scripts/remote-restore-entry.mjs
