@@ -4,7 +4,7 @@ import type {Exhibition} from '@exhibitos/spec';
 import type {PublicPublication} from '../publication-client';
 import {newDraft} from '../drafts/example';
 import {applyGeometryCommand,createGeometryState,newRoom,whiteCubeSurfaces} from '../geometry/model';
-import {alignPlacement,newPlacement,newLight} from '../placement/model';
+import type {Draft} from '../drafts/store';
 
 export interface PrivateSeed {source:PublicPublication;indexSha256:string;storeName:string}
 /** The verified loader remains the sole source authority; edited metadata never grants asset access. */
@@ -18,26 +18,22 @@ export function checkPrivateCandidate(seed:PrivateSeed,candidate:Exhibition){
  if(!validateFurnishings(candidate).valid)throw Error('가구 참조를 확인할 수 없어요.');
  createGeometryState(candidate);
 }
-/** Add one complete room to a private clone; keep every original room, reference and unknown extension. */
-export function starterDraft(seed:PrivateSeed){
- const draft=newDraft('나의 작은 전시실'),doc=structuredClone(seed.source.exhibition);
- doc.id=draft.exhibitionId;doc.revisionId=crypto.randomUUID();doc.revision=1;doc.createdAt=draft.createdAt;
- const right=Math.max(0,...doc.rooms.map(r=>r.transform.position[0]+Math.hypot(r.dimensions.width,r.dimensions.depth)/2));
- const room=newRoom('나의 작은 전시실',{width:8,height:3.2,depth:6},{position:[Math.ceil(right)+8,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
- let state=createGeometryState(doc);state=applyGeometryCommand(state,{type:'add-room',room});
+/** Clone the verified exhibition in place; publication geometry and camera stay intact. */
+export function resetPrivateDraft(seed:PrivateSeed,current:Draft):Draft {
+ const candidate=structuredClone(seed.source.exhibition);
+ candidate.id=current.exhibitionId;candidate.revisionId=current.candidate.revisionId;
+ candidate.revision=current.candidate.revision;candidate.createdAt=current.candidate.createdAt;
+ checkPrivateCandidate(seed,candidate);return {...current,candidate};
+}
+export function starterDraft(seed:PrivateSeed){return resetPrivateDraft(seed,newDraft(seed.source.exhibition.title));}
+
+/** Explicitly add a complete empty room. A door connection is a separate existing command. */
+export function addPrivateRoom(document:Exhibition){
+ const right=Math.max(0,...document.rooms.map(room=>room.transform.position[0]+Math.hypot(room.dimensions.width,room.dimensions.depth)/2*Math.max(...room.transform.scale)));
+ const room=newRoom('새 전시실',{width:8,height:3.2,depth:6},{position:[Math.ceil(right)+8,0,0],rotation:[0,0,0,1],scale:[1,1,1]});
+ let state=applyGeometryCommand(createGeometryState(document),{type:'add-room',room});
  for(const surface of whiteCubeSurfaces(room))state=applyGeometryCommand(state,{type:'add-surface',surface});
- const wall=state.present.surfaces.find(s=>s.roomId===room.id&&s.type==='wall')!;
- const works=doc.artworks.filter(a=>a.artworkType==='image').slice(0,3);
- for(const [i,art]of works.entries()){
-  const placement=newPlacement(art,room.id);state=applyGeometryCommand(state,{type:'add-placement',placement:alignPlacement(state.present,placement,wall,[(i-(works.length-1)/2)*2.2,-.1],0)});
- }
- const light=newLight(room.id);light.transform.position=[0,2.7,0];light.intensity=140;
- state=applyGeometryCommand(state,{type:'add-light',light});
- state=applyGeometryCommand(state,{type:'set-presentation',presentation:{...presentationFor(state.present),startCamera:{roomId:room.id,position:[0,1.65,1.9],target:[0,1.5,-3],fov:60}}});
- // First selection and initial scene are the completed room; original source rooms remain recoverable.
- const candidate=state.present;candidate.rooms=[candidate.rooms.find(r=>r.id===room.id)!,...candidate.rooms.filter(r=>r.id!==room.id)];
- candidate.title='나의 작은 전시실';draft.candidate=candidate;checkPrivateCandidate(seed,candidate);
- return draft;
+ return {roomId:room.id,command:{type:'replace-architecture' as const,candidate:state.present}};
 }
 export function starterRoom(document:Exhibition){
  const camera=presentationFor(document).startCamera;

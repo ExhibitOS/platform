@@ -1,28 +1,27 @@
 import {readFileSync} from 'node:fs';
 import {it,expect} from 'vitest';
 import type {PublicPublication} from '../publication-client';
-import {privateSeed,starterDraft,starterRoom,checkPrivateCandidate} from './model';
+import {privateSeed,starterDraft,starterRoom,checkPrivateCandidate,resetPrivateDraft,addPrivateRoom} from './model';
 import {createGeometryState,applyGeometryCommand,undoGeometry,redoGeometry} from '../geometry/model';
 function source():PublicPublication{
  const root=new URL('../../../../demos/reference-exhibition/source/',import.meta.url),index=JSON.parse(readFileSync(new URL('static-publication-index.json',root),'utf8'));
  return {...JSON.parse(readFileSync(new URL(index.publication.path,root),'utf8')),local:{kind:'static',fetcher:async()=>{throw Error('No asset IO in document test');},check:async()=>{}}};
 }
-it('creates a complete private starter room while retaining source rooms, opaque extensions and approved assets',()=>{
+it('clones the same source space and camera without adding a room or changing original content',()=>{
  const input=source();input.exhibition.extensions={...input.exhibition.extensions,'org.example/preserved':{version:1,text:'retained'}};
  const original=structuredClone(input.exhibition),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed),room=starterRoom(draft.candidate);
  expect(input.exhibition).toEqual(original);expect(draft.candidate.id).not.toBe(original.id);
- expect(draft.candidate.rooms).toHaveLength(original.rooms.length+1);
- expect(draft.candidate.surfaces.filter(s=>s.roomId===room.id).map(s=>s.type).sort()).toEqual(['ceiling','floor','wall','wall','wall','wall']);
- expect(draft.candidate.placements.filter(p=>p.roomId===room.id)).toHaveLength(3);
+ expect(draft.candidate.rooms).toEqual(original.rooms);expect(draft.candidate.surfaces).toEqual(original.surfaces);expect(draft.candidate.placements).toEqual(original.placements);expect(draft.candidate.lights).toEqual(original.lights);expect(draft.candidate.title).toBe(original.title);
+ expect(room.id).toBe(starterRoom(original).id);
  expect(draft.candidate.extensions?.['org.example/preserved']).toEqual(original.extensions?.['org.example/preserved']);
  expect(draft.candidate.artworks).toEqual(original.artworks);expect(()=>checkPrivateCandidate(seed,draft.candidate)).not.toThrow();
 });
-it('isolates each publication/index revision and starts reset as a new record without replacing an earlier copy',()=>{
+it('isolates verified publication namespaces and resets only the existing private identity',()=>{
  const input=source(),seed=privateSeed(input,'a'.repeat(64)),first=starterDraft(seed),before=structuredClone(first);
  const changed=source();changed.publication.revisionSha256='c'.repeat(64);
  expect(privateSeed(changed,'a'.repeat(64)).storeName).not.toBe(seed.storeName);
  expect(privateSeed(input,'b'.repeat(64)).storeName).not.toBe(seed.storeName);
- const reset=starterDraft(seed);expect(reset.id).not.toBe(first.id);expect(reset.exhibitionId).not.toBe(first.exhibitionId);expect(first).toEqual(before);
+ const edited={...first,candidate:{...first.candidate,title:'개인 편집'}};const reset=resetPrivateDraft(seed,edited);expect(reset.id).toBe(first.id);expect(reset.exhibitionId).toBe(first.exhibitionId);expect(reset.candidate.revisionId).toBe(first.candidate.revisionId);expect(reset.candidate.title).toBe(input.exhibition.title);expect(first).toEqual(before);
 });
 it('does not let editable metadata replace immutable source rights or asset inventory',()=>{
  const input=source(),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed);
@@ -35,4 +34,12 @@ it('uses the same reversible validated command state without changing the immuta
  const original=structuredClone(input.exhibition),initial=createGeometryState(draft.candidate),{id,...value}=placement;
  const next=applyGeometryCommand(initial,{type:'set-placement',id,placement:{...value,transform:{...value.transform,position:[value.transform.position[0]+.1,value.transform.position[1],value.transform.position[2]]}}});
  checkPrivateCandidate(seed,next.present);expect(undoGeometry(next).present).toEqual(initial.present);expect(redoGeometry(undoGeometry(next)).present).toEqual(next.present);expect(input.exhibition).toEqual(original);
+});
+
+it('adds an empty complete disconnected room only on explicit command and keeps one Undo unit',()=>{
+ const seed=privateSeed(source(),'a'.repeat(64)),draft=starterDraft(seed),initial=createGeometryState(draft.candidate),result=addPrivateRoom(initial.present),next=applyGeometryCommand(initial,result.command);
+ expect(initial.present.rooms).toHaveLength(seed.source.exhibition.rooms.length);expect(next.present.rooms).toHaveLength(initial.present.rooms.length+1);
+ expect(next.present.surfaces.filter(s=>s.roomId===result.roomId).map(s=>s.type).sort()).toEqual(['ceiling','floor','wall','wall','wall','wall']);
+ expect(next.present.placements).toEqual(initial.present.placements);expect(next.present.openings).toEqual(initial.present.openings);expect(next.present.lights).toEqual(initial.present.lights);
+ expect(next.present.extensions?.['org.exhibitos.studio/presentation']).toEqual(initial.present.extensions?.['org.exhibitos.studio/presentation']);checkPrivateCandidate(seed,next.present);expect(undoGeometry(next).present).toEqual(initial.present);
 });
