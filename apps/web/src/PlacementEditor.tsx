@@ -5,6 +5,7 @@ import { newPlacement, newLight, kelvinColor, placementDimensions } from "./plac
 import { request, failureMessage } from "./cms-client";
 import type { Session, ArtworkSummary, Page } from "./cms-client";
 import { presentationFor } from "@exhibitos/studio-contract";
+import {lightIntensityUnit,lightIntensityInputText,lightIntensityValueText} from "./light-intensity-display";
 
 type Vector = [number, number, number];
 function VectorFields({
@@ -93,6 +94,7 @@ export function PlacementEditor({
     [intensity, setIntensity] = useState("100"),
     [target, setTarget] = useState(""),
     [beam, setBeam] = useState("0.6");
+  const [intensityEditing,setIntensityEditing]=useState(false);
   const [lightingError,setLightingError]=useState("");
   useEffect(()=>{if(!document.rooms.some(r=>r.id===room))setRoom(document.rooms[0]?.id??"");},[document.rooms,room]);
   const [areaWidth,setAreaWidth]=useState("1"),[areaHeight,setAreaHeight]=useState("1"),[temperature,setTemperature]=useState("6500");
@@ -433,11 +435,16 @@ export function PlacementEditor({
             <label>색온도 근사(K)<input aria-label="색온도 근사(K)" type="number" value={temperature} onChange={e=>setTemperature(e.target.value)}/></label><button onClick={()=>{try{setLightColor(kelvinColor(Number(temperature)));}catch(e){setLightingError(e instanceof Error?e.message:'색온도 오류');}}}>색온도 색상 적용</button>
             {light.type==='area'&&<><label>Area 폭(m)<input aria-label="Area 폭(m)" type="number" value={areaWidth} onChange={e=>setAreaWidth(e.target.value)}/></label><label>Area 높이(m)<input aria-label="Area 높이(m)" type="number" value={areaHeight} onChange={e=>setAreaHeight(e.target.value)}/></label></>}
             <label>
-              조명 밝기 ({light.unit})
+              조명 밝기{lightIntensityUnit(light.unit).label}
               <input
-                aria-label={`조명 밝기 (${light.unit})`}
+                aria-label={`조명 밝기${lightIntensityUnit(light.unit).label}`}
+                aria-description={lightIntensityUnit(light.unit).description+" 입력할 때 원래 정밀값을 표시해요."}
+                aria-valuetext={lightIntensityValueText(intensity,light.unit,intensityEditing)}
                 type="number"
-                value={intensity}
+                step="any"
+                value={lightIntensityInputText(intensity,intensityEditing)}
+                onFocus={()=>setIntensityEditing(true)}
+                onBlur={()=>setIntensityEditing(false)}
                 onChange={(e) => setIntensity(e.target.value)}
               />
             </label>
