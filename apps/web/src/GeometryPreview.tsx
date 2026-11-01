@@ -32,6 +32,7 @@ import {selectionKey} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
 import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
+import {safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
@@ -95,6 +96,8 @@ export function GeometryPreview({
   session,
   publicSource,
   privateCatalogue = false,
+  initialPrivateView,
+  onPrivateViewReady,
   viewerBudget,
   resourceBudget,
   suspendNavigation = false,
@@ -165,6 +168,8 @@ export function GeometryPreview({
   document: Document;
   editing?:EditorBridge;
   privateCatalogue?: boolean;
+  initialPrivateView?:PrivateView;
+  onPrivateViewReady?:(getter:(()=>PrivateView|undefined)|null)=>void;
   viewerBudget?: DeviceBudget;
   /** Editor host resource accounting; does not enable visitor navigation. */
   resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'>;
@@ -218,9 +223,11 @@ export function GeometryPreview({
   const consumedCameraRequest=useRef<number|undefined>(undefined);
   const [installationIssueCount,setInstallationIssueCount]=useState(0);
   const [materialIssueCount,setMaterialIssueCount]=useState(0);
-  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
+  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
+  const privateViewCallback=useRef(onPrivateViewReady);privateViewCallback.current=onPrivateViewReady;
+  const privateViewInitial=useRef(initialPrivateView);privateViewInitial.current=initialPrivateView;
   const entranceSceneCallback=useRef(onEntranceSceneReady);entranceSceneCallback.current=onEntranceSceneReady;
   const entranceScope=useRef<EntranceSceneScope|null>(null),[entranceWalking,setEntranceWalking]=useState(false);
   const editingSync=useRef<(()=>void)|null>(null);
@@ -951,7 +958,16 @@ export function GeometryPreview({
           ? "start"
           : "isometric",
       );
-      if(editingRef.current&&editorCamera.current?.documentId===document.id){const saved=editorCamera.current;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);controls.update();render();}
+      let privateCameraRestored=false;
+      const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
+      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
+      else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
+      privateViewCallback.current?.(()=>{
+        if(disposed||xrActive.current)return;
+        const position=camera.position.toArray() as [number,number,number],direction=camera.getWorldDirection(new three.Vector3()),target=camera.position.clone().add(direction).toArray() as [number,number,number];
+        for(const room of document.rooms){const view=safePrivateView(document,{roomId:room.id,position,target,fov:camera.fov});if(view)return view;}
+        return undefined;
+      });
       setMessage(
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
@@ -968,7 +984,8 @@ export function GeometryPreview({
       release = () => {
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
-        if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
+        privateViewCallback.current?.(null);
+        if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
         editor?.dispose();editingSync.current=null;
@@ -1121,7 +1138,7 @@ export function GeometryPreview({
         };
         const pending: WalkingActions = {
           start: () => {
-            void initialize().then(() => {
+            void initialize(undefined,privateCameraRestored).then(() => {
               if (!disposed && !xrActive.current && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.start();
             });

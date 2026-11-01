@@ -27,6 +27,7 @@ import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "
 import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap,visitorMapPose} from './viewer/visitor-map';
 import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
+import {savePrivateView,type PrivateView} from './viewer/private-view';
 import type {ViewingRenderer} from './viewer/viewing-session';
 import type {createPublicThumbnailCache} from './viewer/public-thumbnail';
 export function Viewer({
@@ -80,6 +81,18 @@ export function Viewer({
   guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
+  const privateViewGetter=useRef<(()=>PrivateView|undefined)|null>(null);
+  const registerPrivateView=useCallback((getter:(()=>PrivateView|undefined)|null)=>{privateViewGetter.current=getter;},[]);
+  useEffect(()=>{
+    if(!publication.local)return;
+    const click=(event:MouseEvent)=>{
+      const target=event.target instanceof Element?event.target.closest('a'):null;if(!target)return;
+      const url=new URL(target.href,location.href);if(url.origin!==location.origin||url.pathname!=='/studio.html')return;
+      const index=document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'';
+      savePrivateView(publication.publication.id,publication.publication.revisionSha256,index,privateViewGetter.current?.());
+    };
+    document.addEventListener('click',click,true);return()=>document.removeEventListener('click',click,true);
+  },[publication]);
   const viewingEntry = useRef<DetailEntryActions | null>(null);
   const registerViewingEntry = useCallback((actions: DetailEntryActions | null) => { viewingEntry.current = actions; onDetailEntryReady?.(actions); }, [onDetailEntryReady]);
   const map=useMemo(()=>{try{return buildVisitorMap(publication.exhibition,publication.publication);}catch{return undefined;}},[publication]);
@@ -261,6 +274,7 @@ export function Viewer({
         onMapThumbnail={immersive?receiveMapThumbnail:undefined}
         onMapReady={immersive?registerMap:undefined}
         onMapPose={immersive?reportMapPose:undefined}
+        onPrivateViewReady={registerPrivateView}
         onXrReady={xrReady}
         onXrArtworks={xrLoaded}
         document={publication.exhibition}
