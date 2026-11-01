@@ -5,6 +5,7 @@ import {validateStudioLightDetails} from './light-details.js';
 import {resolveInstallations} from './installation-resolver.js';
 import {validateStudioBenches} from './benches.js';
 import {surfacePanels} from './surface-panels.js';
+import {freezeCanonical} from './freeze.js';
 
 type Room=Exhibition['rooms'][number];
 type Surface=Exhibition['surfaces'][number];
@@ -71,11 +72,11 @@ function writeAttachments(document:Exhibition,lights:LightAttachment[]){
  document.extensions={...document.extensions,[LIGHT_ATTACHMENT_NAMESPACE]:{version:1,lights} as unknown as NonNullable<Exhibition['extensions']>[string]};
 }
 function assertAttachments(document:Exhibition){if(!validateLightAttachments(document).valid)fail('ROOM_ENVELOPE_LIGHT_ATTACHMENT',document.id,'조명 부착 정보와 저장된 위치가 달라요. 부착할 표면을 명시해 확인해 주세요.');}
-export function setLightAttachment(document:Exhibition,lightId:string,value:Omit<LightAttachment,'lightId'>|null):Exhibition {
+export function setLightAttachment(document:Exhibition,lightId:string,value:Omit<LightAttachment,'lightId'>|null,verifiedBaseline?:Exhibition):Exhibition {
  assertAttachments(document);const next=structuredClone(document),light=next.lights.find(l=>same(l.id,lightId));if(!light)fail('ROOM_ENVELOPE_REFERENCE',lightId,'조명을 다시 선택해 주세요.');
  const bindings=lightAttachmentsFor(next).filter(b=>!same(b.lightId,lightId));
  if(value){const surface=next.surfaces.find(s=>same(s.id,value.surfaceId));if(!surface)fail('ROOM_ENVELOPE_REFERENCE',value.surfaceId,'부착할 벽이나 천장을 선택해 주세요.');const binding={...structuredClone(value),lightId:light.id};light.transform=lightAttachmentPose(surface,binding);bindings.push(binding);}
- writeAttachments(next,bindings);assertAttachments(next);assertRoomEnvelopeContents(next,light.roomId);return next;
+ writeAttachments(next,bindings);assertAttachments(next);if(verifiedBaseline)assertRoomEnvelopeContentsAgainstBaseline(next,verifiedBaseline,light.roomId);else assertRoomEnvelopeContents(next,light.roomId);return next;
 }
 export function remapLightAttachments(value:StudioLightAttachments,ids:ReadonlyMap<string,string>):StudioLightAttachments {
  const mapped=(id:string)=>{const value=ids.get(id.toLowerCase());if(!uuid(value))throw Error('LIGHT_ATTACHMENT_REFERENCE');return value;};
@@ -102,7 +103,7 @@ function movedSurface(surface:Surface,kind:Side,dimensions:Room['dimensions']):S
  result.transform.position=kind==='floor'?[0,0,0]:kind==='ceiling'?[0,dimensions.height,0]:[kind==='west'?-dimensions.width/2:kind==='east'?dimensions.width/2:0,dimensions.height/2,kind==='north'?-dimensions.depth/2:kind==='south'?dimensions.depth/2:0];
  return result;
 }
-export function assertRoomEnvelopeContents(document:Exhibition,roomId:string){
+function assertRoomEnvelopeContentsCore(document:Exhibition,roomId:string,baseline?:Exhibition){
  const room=roomFor(document,roomId),d=room.dimensions;assertRoom(room);
  for(const surface of document.surfaces.filter(s=>same(s.roomId,roomId))){
   if(artifactCorners(surface.dimensions,[surface.transform]).some(p=>!inside(p,d)))fail('ROOM_ENVELOPE_SURFACE_BOUNDS',surface.id,'방을 줄이면 내부 벽이나 표면이 밖으로 나가요. 해당 표면을 먼저 조절해 주세요.');
@@ -123,16 +124,34 @@ export function assertRoomEnvelopeContents(document:Exhibition,roomId:string){
  for(const light of document.lights.filter(l=>same(l.roomId,roomId)))if(!inside(light.transform.position,d))fail('ROOM_ENVELOPE_LIGHT_BOUNDS',light.id,'자유 배치 조명이 새 방 밖으로 나가요. 조명을 먼저 옮기거나 부착할 표면을 선택해 주세요.');
  if(!validateStudioLightDetails(document).valid)fail('ROOM_ENVELOPE_LIGHT_BOUNDS',roomId,'조명 기구 전체와 비추는 방향이 새 방에 맞지 않아요. 위치·부착 간격·방향을 확인해 주세요.');
  if(!validateStudioBenches(document).valid)fail('ROOM_ENVELOPE_FURNITURE_BOUNDS',roomId,'벤치 전체가 새 방 안에 들어오지 않아요. 벤치를 먼저 옮겨 주세요.');
- assertDoorPairs(document,roomId);
+ if(baseline)for(const room of document.rooms)assertDoorPairs(document,room.id,baseline);else assertDoorPairs(document,roomId);
 }
+/** Strict default remains unchanged for normal Studio and structural producers. */
+export function assertRoomEnvelopeContents(document:Exhibition,roomId:string){assertRoomEnvelopeContentsCore(document,roomId);}
+/** Only a verified original may grandfather an identical inherited door pair. */
+export function assertRoomEnvelopeContentsAgainstBaseline(document:Exhibition,baseline:Exhibition,roomId:string){assertRoomEnvelopeContentsCore(document,roomId,baseline);}
 function doorCorners(document:Exhibition,opening:Exhibition['openings'][number]){
  const wall=document.surfaces.find(s=>same(s.id,opening.surfaceId));if(!wall)throw Error('door surface');const room=roomFor(document,wall.roomId);
  return ([-1,1] as const).flatMap(x=>([-1,1] as const).map(y=>artifactPoint([opening.offset[0]+x*opening.dimensions.width/2,opening.offset[1]+y*opening.dimensions.height/2,0],wall.transform,room.transform)));
 }
-function assertDoorPairs(document:Exhibition,roomId:string){
+function unchangedOriginalDoorPair(document:Exhibition,baseline:Exhibition,door:Exhibition['openings'][number],pair:Exhibition['openings'][number]){
+ const footprint=(source:Exhibition,id:string)=>{
+  const opening=source.openings.find(v=>same(v.id,id));if(!opening)return;
+  const wall=source.surfaces.find(v=>same(v.id,opening.surfaceId));if(!wall)return;
+  const room=source.rooms.find(v=>same(v.id,wall.roomId));if(!room)return;
+  return {opening,wall:{id:wall.id,roomId:wall.roomId,type:wall.type,dimensions:wall.dimensions,transform:wall.transform},room:{id:room.id,dimensions:room.dimensions,transform:room.transform}};
+ };
+ const oldDoor=baseline.openings.find(v=>same(v.id,door.id)),oldPair=baseline.openings.find(v=>same(v.id,pair.id));
+ if(!oldDoor||!oldPair||oldDoor.type!=='door'||oldPair.type!=='door'||!oldDoor.connectsToOpeningId||!oldPair.connectsToOpeningId||!same(oldDoor.connectsToOpeningId,oldPair.id)||!same(oldPair.connectsToOpeningId,oldDoor.id))return false;
+ const a=footprint(document,door.id),b=footprint(document,pair.id),oldA=footprint(baseline,door.id),oldB=footprint(baseline,pair.id);
+ return !!a&&!!b&&!!oldA&&!!oldB&&freezeCanonical(a)===freezeCanonical(oldA)&&freezeCanonical(b)===freezeCanonical(oldB);
+}
+function assertDoorPairs(document:Exhibition,roomId:string,baseline?:Exhibition){
  for(const door of document.openings.filter(o=>o.type==='door'&&o.connectsToOpeningId&&document.surfaces.some(s=>same(s.id,o.surfaceId)&&same(s.roomId,roomId)))){
   const pair=document.openings.find(o=>same(o.id,door.connectsToOpeningId!));
-  if(!pair||pair.type!=='door'||!pair.connectsToOpeningId||!same(pair.connectsToOpeningId,door.id)||doorCorners(document,door).some(p=>!doorCorners(document,pair).some(q=>Math.hypot(...sub(p,q))<=tolerance)))fail('ROOM_ENVELOPE_CONNECTED_DOOR',door.id,'연결된 두 문이 어긋나게 돼요. 연결을 해제하거나 두 방의 연결 구조를 함께 조절해 주세요.');
+  if(!pair||pair.type!=='door'||!pair.connectsToOpeningId||!same(pair.connectsToOpeningId,door.id))fail('ROOM_ENVELOPE_CONNECTED_DOOR',door.id,'연결된 두 문이 어긋나게 돼요. 연결을 해제하거나 두 방의 연결 구조를 함께 조절해 주세요.');
+  if(baseline&&unchangedOriginalDoorPair(document,baseline,door,pair))continue;
+  if(doorCorners(document,door).some(p=>!doorCorners(document,pair).some(q=>Math.hypot(...sub(p,q))<=tolerance)))fail('ROOM_ENVELOPE_CONNECTED_DOOR',door.id,'연결된 두 문이 어긋나게 돼요. 연결을 해제하거나 두 방의 연결 구조를 함께 조절해 주세요.');
  }
 }
 function assertNoLostWallAlignment(before:Exhibition,after:Exhibition,roomId:string){
@@ -157,9 +176,9 @@ export function resizeRoomEnvelope(document:Exhibition,roomId:string,dimensions:
  assertNoLostWallAlignment(document,next,roomId);assertRoomEnvelopeContents(next,roomId);assertAttachments(next);return next;
  }catch(error){if(error instanceof RoomEnvelopeError)throw error;fail('ROOM_ENVELOPE_GEOMETRY',roomId,'변환된 구조나 물체가 지원 범위를 벗어나요. 방과 배치의 위치·회전·크기를 확인해 주세요.');}
 }
-export function completeRoomCeiling(document:Exhibition,roomId:string):Exhibition {
+export function completeRoomCeiling(document:Exhibition,roomId:string,verifiedBaseline?:Exhibition):Exhibition {
  const room=roomFor(document,roomId);assertRoom(room);const ceilings=document.surfaces.filter(s=>same(s.roomId,roomId)&&s.type==='ceiling');
  if(ceilings.length){if(ceilings.length===1&&side(ceilings[0]!,room)==='ceiling')return structuredClone(document);fail('ROOM_ENVELOPE_AMBIGUOUS',roomId,'기존 천장의 형태나 중복을 먼저 확인해 주세요. 자동으로 덮어쓰지 않아요.');}
  const next=structuredClone(document),q=Math.SQRT1_2;next.surfaces.push({id:crypto.randomUUID(),roomId:room.id,type:'ceiling',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,room.dimensions.height,0],rotation:[q,0,0,q],scale:[1,1,1]}});
- assertRoomEnvelopeContents(next,roomId);return next;
+ if(verifiedBaseline)assertRoomEnvelopeContentsAgainstBaseline(next,verifiedBaseline,roomId);else assertRoomEnvelopeContents(next,roomId);return next;
 }

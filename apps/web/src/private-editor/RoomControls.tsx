@@ -10,7 +10,7 @@ import {runDoorConnection} from './door-connection';
 import {prepareAttachedRoom} from './attached-room';
 import {LightTemperatureControls} from './LightTemperatureControls';
 
-export function RoomControls({document,roomId,disabled,isCurrent,executeDoor,execute,select,inspectCeiling,error,selectedSurfaceId,selectedOpeningId,section,previewTemperature,temperatureDisabled,temperatureActive,temperaturePreviewing,isCurrentRoom,executeRoom}:{document:Exhibition;roomId:string;disabled:boolean;isCurrent:()=>boolean;executeDoor:(command:GeometryCommand)=>void;execute:(command:GeometryCommand)=>void;select:(selection:EditorSelection)=>void;inspectCeiling:()=>void;error:(message:string)=>void;selectedSurfaceId?:string;selectedOpeningId?:string;section?:'space'|'lighting';previewTemperature?:(command:GeometryCommand|null,lightId?:string)=>void;temperatureDisabled?:boolean;temperatureActive?:boolean;temperaturePreviewing?:boolean;isCurrentRoom:()=>boolean;executeRoom:(command:GeometryCommand,roomId:string)=>void}){
+export function RoomControls({document,verifiedDoorBaseline,roomId,disabled,isCurrent,executeDoor,execute,select,inspectCeiling,error,selectedSurfaceId,selectedOpeningId,section,previewTemperature,temperatureDisabled,temperatureActive,temperaturePreviewing,isCurrentRoom,executeRoom}:{document:Exhibition;verifiedDoorBaseline:Exhibition;roomId:string;disabled:boolean;isCurrent:()=>boolean;executeDoor:(command:GeometryCommand)=>void;execute:(command:GeometryCommand)=>void;select:(selection:EditorSelection)=>void;inspectCeiling:()=>void;error:(message:string)=>void;selectedSurfaceId?:string;selectedOpeningId?:string;section?:'space'|'lighting';previewTemperature?:(command:GeometryCommand|null,lightId?:string)=>void;temperatureDisabled?:boolean;temperatureActive?:boolean;temperaturePreviewing?:boolean;isCurrentRoom:()=>boolean;executeRoom:(command:GeometryCommand,roomId:string)=>void}){
  const [roomCheck,setRoomCheck]=useState<'idle'|'checking'|'cancelling'>('idle'),roomAttempt=useRef(0),roomBusy=useRef(false),controlsDisabled=disabled||roomCheck!=='idle';
  const room=document.rooms.find(r=>r.id===roomId)!,walls=useMemo(()=>document.surfaces.filter(s=>s.roomId===roomId&&s.type==='wall'),[document,roomId]),ceilings=document.surfaces.filter(s=>s.roomId===roomId&&s.type==='ceiling');
  const [wallId,setWallId]=useState(walls[1]?.id??walls[0]?.id??''),[lightId,setLightId]=useState('');
@@ -36,7 +36,7 @@ export function RoomControls({document,roomId,disabled,isCurrent,executeDoor,exe
   if(ceilings.length!==1)return;
   try{const light=newLight(roomId),binding={lightId:light.id,surfaceId:ceilings[0]!.id,anchor:[0,0] as [number,number],gap:.03};light.transform=lightAttachmentPose(ceilings[0]!,binding);
    let candidate=applyGeometryCommand(createGeometryState(document),{type:'add-light',light}).present;const {id,...value}=light;
-   candidate=setLightDetails(candidate,id,value,{fixture:'disc',aim:{kind:'rotation'},range:12});candidate=setLightAttachment(candidate,id,binding);
+   candidate=setLightDetails(candidate,id,value,{fixture:'disc',aim:{kind:'rotation'},range:12});candidate=setLightAttachment(candidate,id,binding,verifiedDoorBaseline);
    execute({type:'replace-architecture',candidate});setLightId(id);
   }catch(problem){error(problem instanceof RoomEnvelopeError?problem.message:'천장등의 위치와 부착 간격을 확인해 주세요. 이전 편집은 유지됩니다.');}
  }
