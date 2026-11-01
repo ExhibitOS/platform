@@ -27,7 +27,7 @@ export async function produceArtworkThumbnail(request:ThumbnailRequest,signal:Ab
  if(mime==='image/png'){
   const view=new DataView(bytes.buffer);if(bytes.length<33||[137,80,78,71,13,10,26,10].some((n,i)=>bytes[i]!==n)||view.getUint32(16)>4096||view.getUint32(20)>4096)throw Error('THUMBNAIL_IMAGE_LIMIT');
   const bitmap=await createImageBitmap(new Blob([bytes],{type:mime}));
-  try{signal.throwIfAborted();if(!bitmap.width||!bitmap.height)throw Error('THUMBNAIL_IMAGE_LIMIT');const context=canvas.getContext('2d');if(!context)throw Error('THUMBNAIL_UNAVAILABLE');const fit=Math.min(256/bitmap.width,256/bitmap.height);context.fillStyle='#f8fbfc';context.fillRect(0,0,256,256);context.drawImage(bitmap,(256-bitmap.width*fit)/2,(256-bitmap.height*fit)/2,bitmap.width*fit,bitmap.height*fit);}finally{bitmap.close();}
+  try{signal.throwIfAborted();if(!bitmap.width||!bitmap.height)throw Error('THUMBNAIL_IMAGE_LIMIT');const context=canvas.getContext('2d');if(!context)throw Error('THUMBNAIL_UNAVAILABLE');const fit=Math.min(1,256/bitmap.width,256/bitmap.height);context.fillStyle='#f8fbfc';context.fillRect(0,0,256,256);context.drawImage(bitmap,(256-bitmap.width*fit)/2,(256-bitmap.height*fit)/2,bitmap.width*fit,bitmap.height*fit);}finally{bitmap.close();}
  }else{
   const three=await import('three'),{GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');signal.throwIfAborted();
   const renderer=new three.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:true});
