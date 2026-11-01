@@ -2,6 +2,7 @@
 import {LinearSRGBColorSpace,type Light} from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {GeometryCommand} from './model';
+import {LIGHT_DETAILS_NAMESPACE,TEMPLATE_NAMESPACE,validateStudioLightDetails} from '@exhibitos/studio-contract';
 
 /** Conservative equivalence for retaining an editor scene across one light-color edit. */
 export function onlyLightColorChanged(before:Exhibition,after:Exhibition):boolean{
@@ -16,8 +17,31 @@ export function onlyLightColorChanged(before:Exhibition,after:Exhibition):boolea
  const i=changed[0]!;
  const valid=(v:unknown)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==='number'&&Number.isFinite(n));
  if(!valid(before.lights[i]!.color)||!valid(after.lights[i]!.color))return false;
- const omit=(doc:Exhibition)=>({...doc,lights:doc.lights.map((light,index)=>index===i?{...light,color:null}:light)});
- try{return JSON.stringify(omit(before))===JSON.stringify(omit(after));}catch{return false;}
+ if(!validateStudioLightDetails(before).valid||!validateStudioLightDetails(after).valid)return false;
+ try{
+  const normalize=(doc:Exhibition)=>{
+   const copy=structuredClone(doc),target=copy.lights[i]!.id.toLowerCase();
+   copy.lights[i]!.color=[0,0,0];
+   const extensions=copy.extensions as Record<string,unknown>|undefined;
+   if(extensions){
+    const details=extensions[LIGHT_DETAILS_NAMESPACE] as {version:1;lights:Record<string,unknown>[]}|undefined;
+    if(details){
+     details.lights=details.lights.flatMap(entry=>{
+      if(typeof entry.lightId!=='string'||entry.lightId.toLowerCase()!==target)return [entry];
+      const next={...entry};delete next.temperatureKelvin;
+      return next.fixture==='none'&&Object.keys(next).length===2?[]:[next];
+     });
+     if(!details.lights.length)delete extensions[LIGHT_DETAILS_NAMESPACE];
+    }
+    const template=extensions[TEMPLATE_NAMESPACE] as {modified?:unknown}|undefined;
+    if(template&&typeof template.modified==='boolean')template.modified=false;
+    if(!Object.keys(extensions).length)delete copy.extensions;
+   }
+   return copy;
+  };
+  const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,v])=>[key,canonical(v)])):value;
+  return JSON.stringify(canonical(normalize(before)))===JSON.stringify(canonical(normalize(after)));
+ }catch{return false;}
 }
 
 /** Apply only temporary authored-light colors to existing Three.js lights.
