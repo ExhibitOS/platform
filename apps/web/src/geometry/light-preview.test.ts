@@ -18,7 +18,7 @@ it('retains a scene only for an exact single-light color change',()=>{
 
 it('accepts only the selected light temperature metadata and template modified flag',()=>{
  const id='11111111-1111-4111-8111-111111111111',roomId='22222222-2222-4222-8222-222222222222';
- const before={id:'d',revisionId:'r',lights:[{id,roomId,type:'point',color:[1,1,1]}],rooms:[{id:roomId,dimensions:{width:5,height:3,depth:5}}],extensions:{[TEMPLATE_NAMESPACE]:{modified:false,license:'CC0-1.0'}}} as unknown as Exhibition;
+ const before={id:'d',revisionId:'r',lights:[{id,roomId,type:'point',color:[1,1,1],transform:{position:[0,1,0],rotation:[0,0,0,1],scale:[1,1,1]}}],rooms:[{id:roomId,dimensions:{width:5,height:3,depth:5}}],extensions:{[TEMPLATE_NAMESPACE]:{modified:false,license:'CC0-1.0'}}} as unknown as Exhibition;
  const after=structuredClone(before);after.lights[0]!.color=lightKelvinLinear(3000);
  after.extensions![LIGHT_DETAILS_NAMESPACE]={version:1,lights:[{lightId:id,fixture:'none',temperatureKelvin:3000}]} as never;
  (after.extensions![TEMPLATE_NAMESPACE] as unknown as {modified:boolean}).modified=true;
