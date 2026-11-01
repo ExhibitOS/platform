@@ -181,12 +181,13 @@ function setMap(doc: Exhibition, map: StudioMaterials): void {
 export function applyGeometryCommand(
   state: GeometryState,
   command: GeometryCommand,
+  options?: {verifiedDoorBaseline?: Exhibition},
 ): GeometryState {
   let doc = clone(state.present);
   switch (command.type) {
     case "resize-room-envelope": doc=resizeRoomEnvelope(doc,command.roomId,command.dimensions); break;
-    case "complete-room-ceiling": doc=completeRoomCeiling(doc,command.roomId); break;
-    case "set-light-attachment": doc=setLightAttachment(doc,command.lightId,command.attachment); break;
+    case "complete-room-ceiling": doc=completeRoomCeiling(doc,command.roomId,options?.verifiedDoorBaseline); break;
+    case "set-light-attachment": doc=setLightAttachment(doc,command.lightId,command.attachment,options?.verifiedDoorBaseline); break;
     case "replace-architecture": {if(command.candidate.id!==doc.id||command.candidate.revisionId!==doc.revisionId)throw new GeometryError("DOCUMENT_ID_CHANGED");doc=clone(command.candidate);break;}
     case "add-artwork": doc.artworks.push(clone(command.artwork)); break;
     case "add-placement": { doc.placements.push(clone(command.placement)); const artwork=doc.artworks.find(a=>same(a.revisionId,command.placement.artworkRevisionId)); if(artwork)doc.accessibility.artworkDescriptions.push({placementId:command.placement.id,text:artwork.metadata.description?.trim()||artwork.metadata.title}); break; }
@@ -195,7 +196,7 @@ export function applyGeometryCommand(
     case "align-placement": { const p=find(doc.placements,command.id); const result=alignPlacement(doc,p,find(doc.surfaces,command.surfaceId),command.offset,command.snap); replace(doc.placements,p.id,result); break; }
     case "add-light": doc.lights.push(clone(command.light)); break;
     case "set-light": replace(doc.lights,command.id,command.light); break;
-    case "remove-light": find(doc.lights,command.id); doc=removeLightDetails(doc,command.id);if(doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)doc=setLightAttachment(doc,command.id,null); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
+    case "remove-light": find(doc.lights,command.id); doc=removeLightDetails(doc,command.id);if(doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)doc=setLightAttachment(doc,command.id,null,options?.verifiedDoorBaseline); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
     case "set-title": doc.title=command.title; break;
     case "set-navigation": doc.navigation=clone(command.navigation); doc.accessibility.routeIds=doc.navigation.filter(r=>r.accessible).map(r=>r.id); break;
     case "set-presentation": doc.extensions={...doc.extensions,[PRESENTATION_NAMESPACE]:clone(command.presentation) as unknown as NonNullable<Exhibition["extensions"]>[string]}; break;
