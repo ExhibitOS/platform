@@ -31,6 +31,7 @@ import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
+import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
@@ -201,6 +202,14 @@ export function GeometryPreview({
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
   const editingEnabled=!!editing;
+  // Retain only an editor scene whose complete document differs in one light's
+  // color. All other transitions continue through the ordinary effect cleanup.
+  const [sceneState,setSceneState]=useState(()=>({observed:document,scene:document,editing:editingEnabled}));
+  if(sceneState.observed!==document||sceneState.editing!==editingEnabled){
+    const scene=editingEnabled&&sceneState.editing&&onlyLightColorChanged(sceneState.observed,document)?sceneState.scene:document;
+    setSceneState({observed:document,scene,editing:editingEnabled});
+  }
+  const sceneDocument=sceneState.observed===document&&sceneState.editing===editingEnabled?sceneState.scene:editingEnabled&&sceneState.editing&&onlyLightColorChanged(sceneState.observed,document)?sceneState.scene:document;
   const viewFovRef=useRef(viewFov);viewFovRef.current=viewFov;
   const resizeAction=useRef<(()=>void)|null>(null);
   useEffect(()=>{resizeAction.current?.();},[viewFov]);
@@ -218,7 +227,7 @@ export function GeometryPreview({
   const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
   const placementSync=useRef<(()=>void)|null>(null);
   useEffect(()=>{placementSync.current?.();},[placementPreviewVersion]);
-  useEffect(()=>{editingSync.current?.();},[editing,selection]);
+  useEffect(()=>{editingSync.current?.();},[editing,selection,document]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
   const [xrRunning,setXrRunning]=useState(false);
@@ -233,7 +242,7 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
-  const selectionFindAction=useRef<{document:typeof document;find:(id:string)=>boolean}|null>(null),selectionFindDocument=useRef(document);selectionFindDocument.current=document;
+  const selectionFindAction=useRef<{document:typeof document;find:(id:string)=>boolean}|null>(null),selectionFindDocument=useRef(sceneDocument);selectionFindDocument.current=sceneDocument;
   useEffect(()=>{onSelectionFindReady?.(id=>selectionFindAction.current?.document===selectionFindDocument.current?selectionFindAction.current.find(id):false);return()=>onSelectionFindReady?.(null);},[onSelectionFindReady]);
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
@@ -330,6 +339,7 @@ export function GeometryPreview({
     }
   }, [suspendNavigation]);
   useEffect(() => {
+    const document=sceneDocument;
     const abort = new AbortController();
     sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
     viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
@@ -953,7 +963,8 @@ export function GeometryPreview({
       const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
-      editingSync.current=()=>editor?.sync();
+      editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else if(changed)render();};
+      if(editingRef.current)editingSync.current();
       release = () => {
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
@@ -2285,7 +2296,7 @@ export function GeometryPreview({
       release();
     };
   }, [referenceTone,
-    document,
+    sceneDocument,
     appearance,
     session,
     publicSource,

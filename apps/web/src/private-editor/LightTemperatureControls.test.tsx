@@ -2,11 +2,12 @@
 import {readFileSync} from 'node:fs';
 import {expect,it} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {lightDetailsFor,lightKelvinLinear,setLightDetails,setLightAttachment,lightAttachmentPose,lightAttachmentsFor} from '@exhibitos/studio-contract';
+import {lightDetailsFor,lightKelvinLinear,setLightDetails,setLightAttachment,lightAttachmentPose,lightAttachmentsFor,LIGHT_DETAILS_NAMESPACE,TEMPLATE_NAMESPACE} from '@exhibitos/studio-contract';
 import {createGeometryState,applyGeometryCommand,undoGeometry,redoGeometry} from '../geometry/model';
 import {newLight} from '../placement/model';
 import type {PublicPublication} from '../publication-client';
 import {privateSeed,starterDraft,starterRoom,checkPrivateCandidate} from './model';
+import {onlyLightColorChanged} from '../geometry/light-preview';
 import {LightTemperatureControls,lightTemperatureCommand} from './LightTemperatureControls';
 
 function fixture(){
@@ -35,4 +36,21 @@ it('rejects empty, nonfinite and out-of-range input without changing the current
 it('does not infer or write a Kelvin value when displaying a custom color and labels disabled controls',()=>{
  const f=fixture(),before=structuredClone(f.document),html=renderToStaticMarkup(<LightTemperatureControls document={f.document} lightId={f.lightId} disabled execute={()=>{throw Error('render must not edit');}} error={()=>{}}/>);
  expect(html).toContain('직접 지정한 색상');expect(html).toContain('색온도 (K)');expect(html).toContain('aria-describedby=');expect(html).toContain('<fieldset disabled=');expect(html).toContain('step="any"');expect(f.document).toEqual(before);
+});
+
+it('retains scene equivalence for real Kelvin commands, original metadata and one-step history',()=>{
+ const f=fixture();
+ for(const legacy of [false,true]){
+  const before=structuredClone(f.document);
+  if(legacy)delete before.extensions![LIGHT_DETAILS_NAMESPACE];
+  before.extensions={...before.extensions,[TEMPLATE_NAMESPACE]:{version:1,name:'Synthetic room',creator:'ExhibitOS',license:'CC0-1.0',source:'https://example.com/synthetic-room',modified:false,profile:'oes-rectangles-v1'}};
+  const initial=createGeometryState(before),next=applyGeometryCommand(initial,lightTemperatureCommand(before,f.lightId,'3500.123456789'));
+  expect(onlyLightColorChanged(initial.present,next.present)).toBe(true);
+  const undone=undoGeometry(next),redone=redoGeometry(undone);
+  expect(onlyLightColorChanged(next.present,undone.present)).toBe(true);expect(onlyLightColorChanged(undone.present,redone.present)).toBe(true);
+  expect(undone.present).toEqual(before);expect(lightAttachmentsFor(next.present)).toEqual(lightAttachmentsFor(before));
+ }
+ const matching=structuredClone(f.document);delete matching.extensions![LIGHT_DETAILS_NAMESPACE];matching.lights.find(l=>l.id===f.lightId)!.color=lightKelvinLinear(4000.25);
+ const next=applyGeometryCommand(createGeometryState(matching),lightTemperatureCommand(matching,f.lightId,'4000.25'));
+ expect(onlyLightColorChanged(matching,next.present)).toBe(true);expect(onlyLightColorChanged(next.present,undoGeometry(next).present)).toBe(true);
 });
