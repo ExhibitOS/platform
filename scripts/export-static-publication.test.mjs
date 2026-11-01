@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile,mkdtemp,mkdir,writeFile,lstat,readdir,rm,symlink,truncate,copyFile } from "node:fs/promises";
+import { readFile,mkdtemp,mkdir,writeFile,lstat,readdir,rm,symlink,truncate,copyFile,realpath } from "node:fs/promises";
+import {pathToFileURL} from "node:url";
 import { tmpdir } from "node:os";
 import { join,dirname } from "node:path";
 import { randomUUID,createHash } from "node:crypto";
 import {deflateSync} from "node:zlib";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
-import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles} from '@exhibitos/studio-contract';
+import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry,applyBenchCommand,applyFurnishingCommand,furnishingsFor} from '@exhibitos/studio-contract';
+import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
 const sha=b=>createHash("sha256").update(b).digest("hex");
@@ -30,6 +32,19 @@ export async function staticFixture(){
  return {decoded,raw,id,fetcher,get reads(){return reads;}};
 }
 async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256">');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
+test('selected furnishing model and notice survive static and Pages roundtrip with fail-closed integrity',async t=>{
+ const {fixture,options,directory}=await setup(t),room=fixture.raw.exhibition.rooms[0],id=randomUUID(),viewpointId=randomUUID(),catalog=furnishingCatalogueEntry('backless-oak-bench'),{min,max}=catalog.bounds;
+ const bench={id,name:'bench',roomId:room.id,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:max[0]-min[0],depth:max[2]-min[2],height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId};
+ fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.viewer/footstep-resources':{version:1,families:['wood']}};
+ const base=applyBenchCommand(fixture.raw.exhibition,{type:'add-bench',bench,viewpoint:{id:viewpointId,name:'seat',roomId:room.id,position:[0,1.15,0],target:[0,1.15,-2],fov:50}}),doc=applyFurnishingCommand(base,{type:'set-furnishing-visual',hostKind:'bench',hostId:id,catalogId:'backless-oak-bench',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}}),asset=furnishingsFor(doc).assets[0];
+ const model=await readFile(new URL('../'+catalog.path,import.meta.url)),notice=await readFile(new URL('../'+catalog.rights.noticePath,import.meta.url));fixture.raw.exhibition=doc;fixture.raw.publication.revisionSha256=revisionHash(doc);fixture.raw.assets.push({assetId:asset.id,mime:asset.mime,url:`/api/v1/publications/${fixture.id}/assets/${asset.id}`});fixture.raw.furnishingNotices=[{assetId:asset.id,bytes:notice.length,sha256:sha(notice),mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${fixture.id}/furnishing-notices/${asset.id}`}];fixture.decoded.manifest.assets.push({id:asset.id,path:asset.path,mime:asset.mime});fixture.decoded.files.set(asset.path,model);
+ const steps=footstepResourcesFor(doc);fixture.raw.resources=steps.map(item=>({sha256:item.sha256,bytes:item.bytes,mime:item.mime,url:`/api/v1/publications/${fixture.id}/resources/${item.sha256}`}));
+ const fetcher=options.fetcher;options.fetcher=async(input,init)=>{const path=new URL(input).pathname;if(path.endsWith(`/furnishing-notices/${asset.id}`))return new Response(notice,{headers:{'content-type':'text/plain; charset=utf-8','x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256}});const step=steps.find(v=>path.endsWith(`/resources/${v.sha256}`));if(step)return new Response(await readFile(new URL('../apps/web/public/'+step.artifactPath,import.meta.url)),{headers:{'content-type':step.mime,'x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256}});return fetcher(input,init);};
+ const result=await exportStaticPublication(options),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json')));assert.equal(index.version,3);assert.equal(index.furnishingNotices.length,1);
+ const source=createPagesPublicationSource({origin:'https://synthetic.pages.dev',publicationId:fixture.id,revisionSha256:result.revisionSha256,indexSha256:result.indexSha256,fetch:async url=>{try{return new Response(await readFile(join(result.output,url.pathname)));}catch{return new Response(null,{status:404});}}});
+ assert.deepEqual((await source.asset(fixture.id,asset.id)).bytes,model);assert.deepEqual((await source.furnishingNotice(fixture.id,asset.id)).bytes,notice);assert.equal(sha((await source.resource(fixture.id,steps[0].sha256)).bytes),steps[0].sha256);await assert.rejects(source.furnishingNotice(fixture.id,randomUUID()),/PAGES_PUBLICATION_UNAVAILABLE/);
+ const bad=options.fetcher;options.fetcher=async(input,init)=>new URL(input).pathname.includes('/furnishing-notices/')?new Response(Buffer.alloc(notice.length),{headers:{'content-type':'text/plain','x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256}}):bad(input,init);await assert.rejects(exportStaticPublication({...options,output:join(directory,'bad-notice')}),/STATIC_FURNISHING_HASH/);
+});
 test('selected footsteps export exact versioned resources and remain publication scoped',async t=>{
  const {fixture,options,directory}=await setup(t),{raw,id}=fixture;
  raw.exhibition.extensions={...raw.exhibition.extensions,'org.exhibitos.viewer/footstep-resources':{version:1,families:['wood']}};
@@ -182,4 +197,150 @@ test('invalid floor references cannot bypass static profile admission',async t=>
  const {fixture,options}=await setup(t),e=fixture.raw.exhibition;
  e.extensions={...e.extensions,'org.exhibitos.studio/floors':{version:1,bindings:[{target:{kind:'surface',surfaceId:randomUUID()},preset:'wood',repeatMeters:[1.8,1.8],rotation:0}]}};fixture.raw.publication.revisionSha256=revisionHash(e);
  await assert.rejects(exportStaticPublication(options),/OEX_PROFILE_INVALID/);await assert.rejects(lstat(options.output),{code:'ENOENT'});
+});
+
+async function surfaceEditorSetup(t){
+ const state=await setup(t);state.options.privateEditor=true;
+ await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
+ for(const file of SURFACE_MATERIAL_FILES){const path=join(state.runtime,file.artifactPath);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.artifactPath,import.meta.url),path);}
+ return state;
+}
+async function exportedSurfaceFiles(options){
+ const result=await exportStaticPublication(options),manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json')));
+ const files=manifest.files.filter(file=>SURFACE_MATERIAL_FILES.some(known=>known.artifactPath===file.path));
+ for(const file of files){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ return files;
+}
+test('private editor exports complete exact registered CC0 surface packs; ordinary exports stay unchanged',async t=>{
+ const {options,directory}=await surfaceEditorSetup(t);
+ const expected=SURFACE_MATERIAL_FILES.map(file=>({path:file.artifactPath,bytes:file.bytes,sha256:file.sha256})).sort((a,b)=>a.path.localeCompare(b.path));
+ assert.deepEqual(await exportedSurfaceFiles(options),expected);
+ assert.deepEqual(await exportedSurfaceFiles({...options,privateEditor:false,output:join(directory,'ordinary')}),[]);
+});
+test('optional surface pack omission is atomic for missing, corrupt, wrong-size and nonordinary local files',async t=>{
+ for(const damage of ['missing-map','corrupt-notice','wrong-size','file-directory','file-link','directory-link'])await t.test(damage,async t=>{
+  const {runtime,options,directory}=await surfaceEditorSetup(t),pack=SURFACE_MATERIAL_PACKS[0],files=SURFACE_MATERIAL_FILES.filter(file=>file.packId===pack.id),file=damage==='corrupt-notice'?files.find(file=>file.role==='notice'):files.find(file=>file.role==='color'),path=join(runtime,file.artifactPath);
+  if(damage==='missing-map')await rm(path);
+  if(damage==='corrupt-notice'){const bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);}
+  if(damage==='wrong-size')await truncate(path,1);
+  if(damage==='file-directory'){await rm(path);await mkdir(path);}
+  if(damage==='file-link'){await rm(path);await symlink(new URL('../apps/web/public/'+file.artifactPath,import.meta.url).pathname,path);}
+  if(damage==='directory-link'){const dir=dirname(path);await rm(dir,{recursive:true});await symlink(dirname(new URL('../apps/web/public/'+file.artifactPath,import.meta.url).pathname),dir);}
+  const emitted=await exportedSurfaceFiles(options);
+  assert.deepEqual(emitted.map(file=>file.path),SURFACE_MATERIAL_FILES.filter(file=>file.packId!==pack.id).map(file=>file.artifactPath).sort((a,b)=>a.localeCompare(b)));
+  if(damage==='file-link'||damage==='directory-link')await assert.rejects(exportStaticPublication({...options,privateEditor:false,output:join(directory,'ordinary')}),/STATIC_SYMLINK/);
+ });
+});
+test('private editor still fails closed for missing or corrupt required surface packs',async t=>{
+ const {runtime,fixture,options,directory}=await surfaceEditorSetup(t),pack=SURFACE_MATERIAL_PACKS[0],wall=fixture.raw.exhibition.surfaces.find(surface=>surface.type==='wall');
+ fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.studio/materials':{version:1,surfaces:{},surfaceTextures:{[wall.id]:{pack:{id:pack.id,version:pack.version},repeatMeters:[1,1],rotation:0,normalScale:1}}}};
+ fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ assert.equal((await exportedSurfaceFiles(options)).length,SURFACE_MATERIAL_FILES.length);
+ const file=SURFACE_MATERIAL_FILES.find(file=>file.packId===pack.id&&file.role==='notice'),path=join(runtime,file.artifactPath),bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt-required')}),/STATIC_MATERIAL_INTEGRITY/);
+ await rm(path);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'missing-required')}),/STATIC_MATERIAL_MISSING/);
+});
+
+test('optional surface handling does not admit unregistered runtime files',async t=>{
+ const {runtime,options}=await surfaceEditorSetup(t);
+ await writeFile(join(runtime,dirname(SURFACE_MATERIAL_FILES[0].artifactPath),'unregistered.txt'),'unapproved');
+ await assert.rejects(exportStaticPublication(options),/STATIC_RUNTIME_UNLISTED/);
+});
+
+async function floorEditorSetup(t){
+ const state=await setup(t);state.options.privateEditor=true;
+ await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
+ for(const file of FLOOR_TEXTURE_FILES){const path=join(state.runtime,file.path);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),path);}
+ return state;
+}
+async function assertExportedFloorPacks(options,packs){
+ const result=await exportStaticPublication(options),manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'))),expected=packs.flatMap(floorTextureFiles).map(file=>({path:file.path,bytes:file.bytes,sha256:file.sha256})).sort((a,b)=>a.path.localeCompare(b.path));
+ assert.deepEqual(manifest.files.filter(file=>file.path.startsWith('floor-textures/')),expected);
+ for(const file of expected){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ const notice=manifest.files.find(file=>file.path==='floor-texture-notices.txt');
+ if(!packs.length){assert.equal(notice,undefined);await assert.rejects(lstat(join(result.output,'floor-texture-notices.txt')),{code:'ENOENT'});}
+ else{const bytes=Buffer.from(packs.map(floorTextureNotice).join('\n'));assert.deepEqual(await readFile(join(result.output,notice.path)),bytes);assert.equal(notice.bytes,bytes.length);assert.equal(notice.sha256,sha(bytes));}
+ return result;
+}
+test('private editor includes complete local floor packs with canonical ordered notices; ordinary exports omit optional packs',async t=>{
+ const {options,directory}=await floorEditorSetup(t);
+ await assertExportedFloorPacks(options,FLOOR_TEXTURE_PACKS);
+ await assertExportedFloorPacks({...options,privateEditor:false,output:join(directory,'ordinary')},[]);
+});
+test('invalid optional floor maps omit the entire pack and its notice while other packs remain available',async t=>{
+ for(const damage of ['missing','hash','size','directory','file-link','ancestor-link'])await t.test(damage,async t=>{
+  const {runtime,options,directory}=await floorEditorSetup(t),pack=FLOOR_TEXTURE_PACKS[0],file=floorTextureFiles(pack)[1],path=join(runtime,file.path);
+  if(damage==='missing')await rm(path);
+  if(damage==='hash'){const bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);}
+  if(damage==='size')await truncate(path,1);
+  if(damage==='directory'){await rm(path);await mkdir(path);}
+  if(damage==='file-link'){await rm(path);await symlink(new URL('../apps/web/public/'+file.path,import.meta.url).pathname,path);}
+  if(damage==='ancestor-link'){const dir=dirname(path);await rm(dir,{recursive:true});await symlink(dirname(new URL('../apps/web/public/'+file.path,import.meta.url).pathname),dir);}
+  await assertExportedFloorPacks(options,FLOOR_TEXTURE_PACKS.slice(1));
+  if(damage==='file-link'||damage==='ancestor-link')await assert.rejects(exportStaticPublication({...options,privateEditor:false,output:join(directory,'ordinary')}),/STATIC_SYMLINK/);
+ });
+});
+test('required floor maps still fail closed in private exports with optional packs and preserve original sound metadata',async t=>{
+ const {runtime,fixture,options,directory}=await floorEditorSetup(t),e=fixture.raw.exhibition,room=e.rooms[0],pack=FLOOR_TEXTURE_PACKS[2];
+ const floor={id:randomUUID(),roomId:room.id,type:'floor',dimensions:{width:room.dimensions.width,height:room.dimensions.depth},transform:{position:[0,0,0],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]}};e.surfaces.push(floor);
+ e.extensions={...e.extensions,'org.exhibitos.studio/floors':{version:1,bindings:[{target:{kind:'surface',surfaceId:floor.id},preset:'tile',repeatMeters:[2,3],rotation:.2,sound:{mode:'none',gain:.3}}]}};
+ fixture.raw.publication.revisionSha256=revisionHash(e);
+ // Omit an optional pack, keeping a required pack in registry order among the remaining optional packs.
+ await rm(join(runtime,floorTextureFiles(FLOOR_TEXTURE_PACKS[0])[0].path));
+ const result=await assertExportedFloorPacks(options,FLOOR_TEXTURE_PACKS.slice(1)),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'))),published=JSON.parse(await readFile(join(result.output,index.publication.path)));
+ assert.deepEqual(published.exhibition,e);assert.equal(revisionHash(published.exhibition),fixture.raw.publication.revisionSha256);
+ const path=join(runtime,floorTextureFiles(pack)[0].path),bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt-required')}),/STATIC_FLOOR_INTEGRITY/);
+ await rm(path);await assert.rejects(exportStaticPublication({...options,output:join(directory,'missing-required')}),/STATIC_FLOOR_MISSING/);
+});
+test('private optional floor handling still rejects unregistered runtime files',async t=>{
+ const {runtime,options}=await floorEditorSetup(t);
+ await writeFile(join(runtime,dirname(FLOOR_TEXTURE_FILES[0].path),'extra.png'),'unregistered');
+ await assert.rejects(exportStaticPublication(options),/STATIC_RUNTIME_UNLISTED/);
+});
+
+const benchPrefix='furnish-catalog/backless-oak-bench/1/';
+async function isolatedBenchExporter(t){
+ const state=await setup(t);state.options.privateEditor=true;
+ await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
+ // Isolate the existing compiled trusted reader's source root. Damage tests
+ // must never rename or modify the shared catalogue or another checkout.
+ const code=join(state.directory,'trusted-code'),api=join(code,'apps/api/dist');await mkdir(api,{recursive:true});await mkdir(join(code,'scripts'));
+ await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
+ for(const name of ['oex.js','cover-images.js','auth.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
+ await copyFile(new URL('../apps/api/dist/furnishings.js',import.meta.url),join(api,'furnishings.js'));
+ await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
+ const entry=furnishingCatalogueEntry('backless-oak-bench');
+ for(const path of [entry.path,entry.rights.noticePath]){const destination=join(code,path);await mkdir(dirname(destination),{recursive:true});await copyFile(new URL('../'+path,import.meta.url),destination);}
+ const {exportStaticPublication:exporter}=await import(pathToFileURL(join(code,'scripts/export-static-publication.mjs')).href);
+ return {...state,code,entry,exporter};
+}
+async function benchManifest(exporter,options){const result=await exporter(options),manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json')));return {result,entries:manifest.files.filter(file=>file.path.startsWith('furnish-catalog/'))};}
+test('private editor includes the exact approved bench model and notice pair without expanding publication inventory',async t=>{
+ const {exporter,options,directory,entry}=await isolatedBenchExporter(t),{result,entries}=await benchManifest(exporter,options);
+ const expected=[{path:benchPrefix+'LICENSE-NOTICE.txt',bytes:entry.rights.noticeBytes,sha256:entry.rights.noticeSha256},{path:benchPrefix+'model.glb',bytes:entry.bytes,sha256:entry.sha256}];
+ assert.deepEqual(entries,expected);
+ for(const file of expected){const bytes=await readFile(join(result.output,file.path));assert.equal(bytes.length,file.bytes);assert.equal(sha(bytes),file.sha256);}
+ const ordinary=await benchManifest(exporter,{...options,privateEditor:false,output:join(directory,'ordinary')});assert.deepEqual(ordinary.entries,[]);
+ assert.deepEqual(await readFile(join(result.output,'static-publication-index.json')),await readFile(join(ordinary.result.output,'static-publication-index.json')));
+});
+test('optional bench pair is omitted atomically for missing, corrupt, wrong-size or linked trusted source files',async t=>{
+ for(const damage of ['missing-model','missing-notice','corrupt-model','corrupt-notice','wrong-size','file-link','directory-link'])await t.test(damage,async t=>{
+  const {exporter,options,code,entry}=await isolatedBenchExporter(t),path=join(code,damage.includes('notice')?entry.rights.noticePath:entry.path);
+  if(damage.startsWith('missing'))await rm(path);
+  if(damage.startsWith('corrupt')){const bytes=await readFile(path);bytes[0]^=1;await writeFile(path,bytes);}
+  if(damage==='wrong-size')await truncate(path,1);
+  if(damage==='file-link'){await rm(path);await symlink(new URL('../'+entry.path,import.meta.url).pathname,path);}
+  if(damage==='directory-link'){const dir=dirname(path);await rm(dir,{recursive:true});await symlink(dirname(new URL('../'+entry.path,import.meta.url).pathname),dir);}
+  const {result,entries}=await benchManifest(exporter,options);assert.deepEqual(entries,[]);
+  await assert.rejects(lstat(join(result.output,'furnish-catalog')),{code:'ENOENT'});
+ });
+});
+test('runtime-supplied bench catalogue paths remain unlisted and cannot shadow trusted bytes',async t=>{
+ const {exporter,options,runtime}=await isolatedBenchExporter(t),path=join(runtime,benchPrefix+'model.glb');await mkdir(dirname(path),{recursive:true});await writeFile(path,'untrusted');
+ await assert.rejects(exporter(options),/STATIC_RUNTIME_UNLISTED/);
 });

@@ -6,6 +6,7 @@ import {cp, mkdir, lstat, readFile, readdir, realpath, writeFile} from 'node:fs/
 import {createHash} from 'node:crypto';
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
+import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
 const fail = code => { throw Error(code); };
@@ -39,6 +40,31 @@ async function copyTrackedTree(name, destination) {
   for (const path of paths) {
     if (!path.startsWith(name + '/') || path.includes('..') || path.includes('\\')) fail('NATIVE_PACKAGE_SOURCE_INVALID');
     await copy(join(source, path), join(destination, path));
+  }
+}
+// Only the four already-qualified catalogue pairs are part of this native
+// runtime. Verify the existing catalogue's exact bytes and notices before and
+// after copying; do not copy the broader authored-asset library.
+export async function copyNativeFurnishings(sourceRoot, platformRoot) {
+  const ids = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth'];
+  if (Object.keys(SUPPORTED_FURNISHINGS).length !== ids.length || ids.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  const seen = new Set();
+  for (const id of ids) {
+    const entry = furnishingCatalogueEntry(id);
+    if (entry.rights.licenseId !== 'CC0-1.0') fail('NATIVE_PACKAGE_FURNISHING_INVALID');
+    for (const [path, bytes, sha256] of [[entry.path, entry.bytes, entry.sha256], [entry.rights.noticePath, entry.rights.noticeBytes, entry.rights.noticeSha256]]) {
+      if (typeof path !== 'string' || !path.startsWith(`assets/furnishings/user-authored-20261027/${id}/`)
+          || !['model.glb','LICENSE-NOTICE.txt'].includes(path.split('/').at(-1)) || path.includes('..') || path.includes('\\')
+          || seen.has(path) || !Number.isSafeInteger(bytes) || bytes <= 0 || !/^[a-f0-9]{64}$/.test(sha256)) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
+      seen.add(path);
+      const input = join(sourceRoot, path), canonical = await checkedSource(input, 'file');
+      const stat = await lstat(input);
+      if (canonical !== input || stat.size !== bytes || await hash(input) !== sha256) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
+      const output = join(platformRoot, path);
+      await copy(input, output);
+      const copied = await lstat(output);
+      if (!copied.isFile() || copied.isSymbolicLink() || copied.size !== bytes || await hash(output) !== sha256) fail('NATIVE_PACKAGE_FURNISHING_INVALID');
+    }
   }
 }
 async function inventory(root, path = root) {
@@ -143,6 +169,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
   for (const name of ['database','contracts','vendor']) await copyTrackedTree(name,platform);
+  await copyNativeFurnishings(source, platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
   await copy(join(source,'scripts/native-workspace-session.mjs'),join(platform,'scripts/native-workspace-session.mjs'));

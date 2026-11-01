@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {createHash} from 'node:crypto';
+import {fstat,read,write,close} from 'node:fs';
+import {open,mkdtemp,unlink,rmdir,lstat,statfs,realpath} from 'node:fs/promises';
+import type {FileHandle} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,isAbsolute} from 'node:path';
+
+const ENTRY_LIMIT=32*1024*1024,ARCHIVE_LIMIT=512*1024*1024;
+interface StageFile {
+ write(bytes:Buffer,offset:number,length:number,position:number):Promise<{bytesWritten:number}>;
+ read(bytes:Buffer,offset:number,length:number,position:number):Promise<{bytesRead:number}>;
+ close():Promise<void>;
+}
+export interface PublicationStagedBytes {readonly offset:number;readonly length:number;readonly sha256:string}
+/**
+ * Private POSIX process-lifetime scratch: unlink the empty file before writing
+ * bytes, so process termination releases staged content without a cleanup job.
+ * This primitive does not authorize publication or persist final objects.
+ */
+export class PublicationByteStage {
+ private static inheritedUsed=false;
+ private position=0;private busy=false;private closed=false;private failed=false;
+ private idle?:Promise<void>;private signalIdle?:()=>void;private closing?:Promise<void>;
+ private readonly issued=new WeakSet<PublicationStagedBytes>();
+ private readonly file:StageFile;private readonly limit:number;
+ private constructor(file:StageFile,limit:number){this.file=file;this.limit=limit;}
+ /** Fixed worker ABI only: Manager supplies scratch as stdout/FD1 and keeps a
+  * duplicate. No path lookup, descriptor remapping or worker fsync is used.
+  * The caller must own FD1 exclusively, send ACK on another channel, and obtain
+  * Manager sync+exit/receipt proof separately. This does not grant admission. */
+ static async fromInheritedOutput(identity:{device:string;inode:string},limit=64*1024*1024){
+  if(!identity||typeof identity!=='object'||PublicationByteStage.inheritedUsed)throw Error('PUBLICATION_STAGE_DESCRIPTOR');
+  const device=Object.getOwnPropertyDescriptor(identity,'device'),inode=Object.getOwnPropertyDescriptor(identity,'inode');
+  if(!device||!inode||!Object.hasOwn(device,'value')||!Object.hasOwn(inode,'value')||typeof device.value!=='string'||typeof inode.value!=='string'||!/^\d{1,24}$/.test(device.value)||!/^\d{1,24}$/.test(inode.value)||Object.keys(identity).sort().join(',')!=='device,inode')throw Error('PUBLICATION_STAGE_DESCRIPTOR');
+  if(!Number.isSafeInteger(limit)||limit<1||limit>ARCHIVE_LIMIT)throw Error('PUBLICATION_STAGE_LIMIT');
+  // A fixed worker handles exactly one attempt. Failure never permits adopting
+  // another descriptor or reusing stdout for a later operation in this process.
+  PublicationByteStage.inheritedUsed=true;
+  const expected={device:device.value as string,inode:inode.value as string};
+  const s=await new Promise<import('node:fs').BigIntStats>((resolve,reject)=>fstat(1,{bigint:true},(error,value)=>error?reject(error):resolve(value)));
+  if(!s.isFile()||s.nlink!==0n||s.size!==0n||(s.mode&0o077n)!==0n||s.uid!==BigInt(process.getuid?.()??-1)||String(s.dev)!==expected.device||String(s.ino)!==expected.inode)throw Error('PUBLICATION_STAGE_DESCRIPTOR');
+  const file:StageFile={
+   write:(bytes,offset,length,position)=>new Promise((resolve,reject)=>write(1,bytes,offset,length,position,(error,bytesWritten)=>error?reject(error):resolve({bytesWritten}))),
+   read:(bytes,offset,length,position)=>new Promise((resolve,reject)=>read(1,bytes,offset,length,position,(error,bytesRead)=>error?reject(error):resolve({bytesRead}))),
+   close:()=>new Promise<void>((resolve,reject)=>close(1,error=>error?reject(error):resolve()))
+  };
+  return new PublicationByteStage(file,limit);
+ }
+ static async create(limit=64*1024*1024,scratchRoot?:string){
+  if(!Number.isSafeInteger(limit)||limit<1||limit>ARCHIVE_LIMIT)throw Error('PUBLICATION_STAGE_LIMIT');
+  // Optional file-admission callers must use their explicitly reserved device,
+  // never silently relocate a qualified operation to the system temp device.
+  if(scratchRoot!==undefined){const s=await lstat(scratchRoot);if(!isAbsolute(scratchRoot)||await realpath(scratchRoot)!==scratchRoot||!s.isDirectory()||s.isSymbolicLink()||(s.mode&0o077)!==0||s.uid!==process.getuid?.())throw Error('PUBLICATION_STAGE_ROOT');}
+  const dir=await mkdtemp(join(scratchRoot??tmpdir(),'exhibitos-publication-stage-')),path=join(dir,'empty');let file:FileHandle|undefined,identity:{dev:bigint;ino:bigint}|undefined;
+  try{
+   const capacity=await statfs(dir,{bigint:true});if(capacity.bsize<=0n||capacity.bavail*capacity.bsize<BigInt(limit))throw Error('PUBLICATION_STAGE_DISK');
+   file=await open(path,'wx+',0o600);identity=await file.stat({bigint:true});
+   // Do not write any asset bytes until the name has been removed.
+   await unlink(path);await rmdir(dir);return new PublicationByteStage(file,limit);
+  }catch(error){
+   await file?.close().catch(()=>{});
+   if(identity){const current=await lstat(path,{bigint:true}).catch(()=>null);if(current&&current.dev===identity.dev&&current.ino===identity.ino)await unlink(path).catch(()=>{});}
+   await rmdir(dir).catch(()=>{});throw error;
+  }
+ }
+ private begin(){this.busy=true;this.idle=new Promise<void>(resolve=>{this.signalIdle=resolve;});}
+ private end(){this.busy=false;this.signalIdle?.();this.signalIdle=undefined;this.idle=undefined;}
+ async append(input:Uint8Array):Promise<PublicationStagedBytes>{
+  if(this.closed||this.failed||this.busy)throw Error('PUBLICATION_STAGE_STATE');
+  if(!(input instanceof Uint8Array)||!input.byteLength||input.byteLength>ENTRY_LIMIT||this.position+input.byteLength>this.limit)throw Error('PUBLICATION_STAGE_LIMIT');
+  this.begin();
+  try{
+   const bytes=Buffer.from(input),offset=this.position,sha256=createHash('sha256').update(bytes).digest('hex');let written=0;
+   while(written<bytes.length){const result=await this.file.write(bytes,written,bytes.length-written,offset+written);if(!result.bytesWritten)throw Error('PUBLICATION_STAGE_IO');written+=result.bytesWritten;}
+   const ref=Object.freeze({offset,length:bytes.length,sha256});this.position+=bytes.length;this.issued.add(ref);return ref;
+  }catch(error){this.failed=true;throw error;}finally{this.end();}
+ }
+ async read(ref:PublicationStagedBytes):Promise<Buffer>{
+  if(this.closed||this.failed||this.busy||!this.issued.has(ref))throw Error('PUBLICATION_STAGE_STATE');this.begin();
+  try{
+   const bytes=Buffer.alloc(ref.length);let read=0;
+   while(read<bytes.length){const result=await this.file.read(bytes,read,bytes.length-read,ref.offset+read);if(!result.bytesRead)throw Error('PUBLICATION_STAGE_IO');read+=result.bytesRead;}
+   if(createHash('sha256').update(bytes).digest('hex')!==ref.sha256)throw Error('PUBLICATION_STAGE_INTEGRITY');return bytes;
+  }catch(error){this.failed=true;throw error;}finally{this.end();}
+ }
+ /** Metadata is authoritative only for a reference issued by this live stage.
+  * Final consumers still read and rehash the actual bytes before writing. */
+ describe(ref:PublicationStagedBytes):Readonly<{length:number;sha256:string}>{
+  if(this.closed||this.failed||this.busy||!this.issued.has(ref))throw Error('PUBLICATION_STAGE_STATE');
+  return Object.freeze({length:ref.length,sha256:ref.sha256});
+ }
+ async close(){
+  if(!this.closing){this.closed=true;const pending=this.idle;this.closing=(async()=>{await pending;await this.file.close();})();}
+  await this.closing;
+ }
+}
+
+/** Stage errors are distinguished from invalid source or authorization errors. */
+export class PublicationStageError extends Error {
+ constructor(cause:unknown){super('PUBLICATION_STAGE_FAILED',{cause});}
+}
+export type ReadinessStage=Pick<PublicationByteStage,'append'|'close'>;
+export async function stageReadinessBytes(stage:ReadinessStage|undefined,bytes:Buffer):Promise<Buffer|PublicationStagedBytes>{
+ if(!stage)return bytes;
+ try{return await stage.append(bytes);}catch(error){throw new PublicationStageError(error);}
+}
+/** Retry only staging failures using the pre-existing bounded in-memory path. */
+export async function withReadinessStage<T>(prepare:(stage?:ReadinessStage)=>Promise<T>,create:()=>Promise<ReadinessStage>=()=>PublicationByteStage.create(96*1024*1024)):Promise<T>{
+ let stage=await create().catch(()=>undefined),failure:unknown,result!:T,failed=false,cleanupFailure:unknown,cleanupFailed=false;
+ try{
+  try{result=await prepare(stage);}
+  catch(error){
+   if(!(error instanceof PublicationStageError)||!stage)throw error;
+   const failedStage=stage;stage=undefined;
+   try{await failedStage.close();}catch(cleanup){throw new AggregateError([error,cleanup],'PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanup});}
+   result=await prepare(undefined);
+  }
+ }catch(error){failure=error;failed=true;}
+ finally{try{await stage?.close();}catch(cleanup){cleanupFailure=cleanup;cleanupFailed=true;}}
+ if(cleanupFailed){if(failed)throw new AggregateError([failure,cleanupFailure],'PUBLICATION_STAGE_CLEANUP_FAILED');throw new Error('PUBLICATION_STAGE_CLEANUP_FAILED',{cause:cleanupFailure});}
+ if(failed)throw failure;return result;
+}

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { experienceFor, presentationFor, curationFor, curationDurationValid } from "@exhibitos/studio-contract";
+import { experienceFor, presentationFor, curationFor, curationDurationValid, freezeCanonical } from "@exhibitos/studio-contract";
 import type {PublicPublication} from "../publication-client";
 import type { NavigationState } from "./navigation";
 import { fetchVerifiedAsset } from "./loading";
@@ -157,6 +157,12 @@ export class ExhibitionAudio implements AudioApi {
     const start=presentationFor(publication.exhibition).startCamera;
     this.position=start?this.worldPosition(start.roomId,start.position):[0,0,0];
     this.setRoom(start?.roomId ?? publication.exhibition.rooms[0]?.id);
+  }
+  /** Private editing changes scene references, never the verified resource authority. */
+  updatePrivateExhibition(exhibition:PublicPublication['exhibition']) {
+    if(!this.publication.local || freezeCanonical(this.publication.exhibition.artworks)!==freezeCanonical(exhibition.artworks) || freezeCanonical(this.publication.exhibition.mediaAssets)!==freezeCanonical(exhibition.mediaAssets))throw Error('AUDIO_PRIVATE_SOURCE_CHANGED');
+    this.lifecycle(false,true);this.publication={...this.publication,exhibition};this.experience=experienceFor(exhibition);this.curation=curationFor(exhibition);this.floor=undefined;
+    const start=presentationFor(exhibition).startCamera;this.position=start?this.worldPosition(start.roomId,start.position):[0,0,0];this.setRoom(start?.roomId??exhibition.rooms[0]?.id,true);
   }
   voicePlayback(): VoicePlayback {
     const voice=this.state.voice;

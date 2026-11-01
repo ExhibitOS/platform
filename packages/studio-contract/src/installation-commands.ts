@@ -3,8 +3,9 @@ import type {Exhibition} from '@exhibitos/spec';
 import {artifactPoint,artifactCorners,validateArtifactPose} from './artifact-affine.js';
 import type {AffinePoint,ArtifactPose} from './artifact-affine.js';
 import {installationFor,validateStudioInstallation} from './installation.js';
+import {furnishingsFor,validateFurnishings,resolveFurnishing,furnishingPoseTransform} from './furnishings.js';
 import {installationPlane,installationArtworkBounds,installationFramePrimitives,resolveInstallations} from './installation-resolver.js';
-export type InstallationCommand={placementId:string;command:'center-artwork'|'on-top'}|{placementId:string;command:'install-height';height:number;floorSurfaceId?:string}|{placementId:string;command:'wall-gap';gap:number;wallSurfaceId:string};
+export type InstallationCommand={placementId:string;command:'center-artwork'|'on-top'|'align-on-verified-plinth'}|{placementId:string;command:'install-height';height:number;floorSurfaceId?:string}|{placementId:string;command:'wall-gap';gap:number;wallSurfaceId:string};
 const dot=(a:AffinePoint,b:AffinePoint)=>a.reduce((sum,n,i)=>sum+n*b[i]!,0);
 const sub=(a:AffinePoint,b:AffinePoint):AffinePoint=>a.map((n,i)=>n-b[i]!) as AffinePoint;
 const unit=(p:AffinePoint):AffinePoint=>{const l=Math.hypot(...p);if(l<1e-12||!Number.isFinite(l))throw Error('INSTALLATION_singular-transform');return p.map(n=>n/l) as AffinePoint;};
@@ -41,8 +42,21 @@ export function applyInstallationCommand(candidate:Exhibition,command:Installati
  if(!validateStudioInstallation(candidate).valid)throw Error('INSTALLATION_PROFILE_INVALID');
  const p=candidate.placements.find(p=>equals(p.id,command.placementId));if(!p)throw Error('INSTALLATION_placement-not-found');
  const art=candidate.artworks.find(a=>equals(a.revisionId,p.artworkRevisionId));if(!art)throw Error('INSTALLATION_placement-not-found');
- const binding=installationFor(candidate,p.id),bounds=installationArtworkBounds(art,p),delta:AffinePoint=[0,0,0];
- if(command.command==='center-artwork'||command.command==='on-top'){
+ const binding=installationFor(candidate,p.id),delta:AffinePoint=[0,0,0];let bounds:ReturnType<typeof installationArtworkBounds>;try{bounds=installationArtworkBounds(art,p);}catch(error){if(command.command==='align-on-verified-plinth')throw Error('INSTALLATION_plinth-unsupported',{cause:error});throw error;}
+ if(command.command==='align-on-verified-plinth'){
+  if(art.artworkType!=='sculpture'||!Number.isFinite(art.dimensions.depth)||!art.dimensions.depth||!validateFurnishings(candidate).valid)throw Error('INSTALLATION_plinth-unsupported');
+  const value=furnishingsFor(candidate),matches=value?.bindings.filter(b=>b.hostKind==='pedestal'&&equals(b.hostId,p.id))??[];if(matches.length!==1)throw Error('INSTALLATION_plinth-unsupported');
+  const selected=matches[0]!,asset=value!.assets.find(a=>equals(a.id,selected.assetId));if(!asset||asset.catalogId!=='rectangular-plinth'||asset.catalogVersion!==1)throw Error('INSTALLATION_plinth-unsupported');
+  let resolved:ReturnType<typeof resolveFurnishing>;try{resolved=resolveFurnishing(candidate,selected,asset);}catch{throw Error('INSTALLATION_plinth-unsupported');}
+  const functional=resolved.source.functional;if(!functional||functional.kind!=='plinth'||functional.verifiedInset.shape!=='rectangle')throw Error('INSTALLATION_plinth-unsupported');
+  const pose=furnishingPoseTransform(selected.pose),support=functional.supportPlaneY*selected.pose.scale+selected.pose.position[1];
+  delta[0]=selected.pose.position[0]-bounds.center[0];delta[1]=support-bounds.min[1];delta[2]=selected.pose.position[2]-bounds.center[2];
+  let corners:AffinePoint[];try{corners=artifactCorners(art.dimensions,[art.transform,p.transform]).map(v=>v.map((n,i)=>n+delta[i]!) as AffinePoint);}catch{throw Error('INSTALLATION_plinth-unsupported');}
+  const centerX=(functional.actualFlatBounds.min[0]+functional.actualFlatBounds.max[0])/2,centerZ=(functional.actualFlatBounds.min[2]+functional.actualFlatBounds.max[2])/2;
+  for(const point of corners){const local=inversePoint(point,pose);if(Math.abs(local[0]-centerX)>functional.verifiedInset.width/2+1e-9||Math.abs(local[2]-centerZ)>functional.verifiedInset.depth/2+1e-9)throw Error('INSTALLATION_plinth-overhang');}
+  const room=candidate.rooms.find(r=>equals(r.id,p.roomId));if(!room||corners.some(v=>Math.abs(v[0])>room.dimensions.width/2+1e-9||v[1]<-1e-9||v[1]>room.dimensions.height+1e-9||Math.abs(v[2])>room.dimensions.depth/2+1e-9))throw Error('INSTALLATION_limits-exceeded');
+  const translated={...p.transform,position:p.transform.position.map((n,i)=>n+delta[i]!) as AffinePoint};try{artifactCorners(art.dimensions,[art.transform,translated,room.transform],true);}catch{throw Error('INSTALLATION_limits-exceeded');}
+ }else if(command.command==='center-artwork'||command.command==='on-top'){
   const pedestal=binding?.pedestal;if(!pedestal||pedestal.kind==='none')throw Error('INSTALLATION_COMMAND_DENIED');
   const eligibility=resolveInstallations(candidate).find(v=>equals(v.placementId,p.id))?.issues.find(v=>v.component==='pedestal');if(eligibility)throw Error('INSTALLATION_'+eligibility.reason);
   if(command.command==='center-artwork'){delta[0]=pedestal.position[0]-bounds.center[0];delta[2]=pedestal.position[2]-bounds.center[2];}

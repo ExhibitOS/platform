@@ -2,6 +2,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import {
   removeLightDetails,
+  resizeRoomEnvelope, completeRoomCeiling, setLightAttachment, LIGHT_ATTACHMENT_NAMESPACE, type LightAttachment,
   TEMPLATE_NAMESPACE,
   MATERIAL_NAMESPACE,
   type PbrMaterial,
@@ -23,6 +24,9 @@ export interface GeometryState {
   future: Exhibition[];
 }
 export type GeometryCommand =
+  | {type:"resize-room-envelope";roomId:string;dimensions:Room["dimensions"]}
+  | {type:"complete-room-ceiling";roomId:string}
+  | {type:"set-light-attachment";lightId:string;attachment:Omit<LightAttachment,"lightId">|null}
   | SurfaceMaterialTextureCommand
   | { type: "replace-architecture"; candidate: Exhibition }
   | { type: "add-artwork"; artwork: Artwork }
@@ -180,6 +184,9 @@ export function applyGeometryCommand(
 ): GeometryState {
   let doc = clone(state.present);
   switch (command.type) {
+    case "resize-room-envelope": doc=resizeRoomEnvelope(doc,command.roomId,command.dimensions); break;
+    case "complete-room-ceiling": doc=completeRoomCeiling(doc,command.roomId); break;
+    case "set-light-attachment": doc=setLightAttachment(doc,command.lightId,command.attachment); break;
     case "replace-architecture": {if(command.candidate.id!==doc.id||command.candidate.revisionId!==doc.revisionId)throw new GeometryError("DOCUMENT_ID_CHANGED");doc=clone(command.candidate);break;}
     case "add-artwork": doc.artworks.push(clone(command.artwork)); break;
     case "add-placement": { doc.placements.push(clone(command.placement)); const artwork=doc.artworks.find(a=>same(a.revisionId,command.placement.artworkRevisionId)); if(artwork)doc.accessibility.artworkDescriptions.push({placementId:command.placement.id,text:artwork.metadata.description?.trim()||artwork.metadata.title}); break; }
@@ -188,7 +195,7 @@ export function applyGeometryCommand(
     case "align-placement": { const p=find(doc.placements,command.id); const result=alignPlacement(doc,p,find(doc.surfaces,command.surfaceId),command.offset,command.snap); replace(doc.placements,p.id,result); break; }
     case "add-light": doc.lights.push(clone(command.light)); break;
     case "set-light": replace(doc.lights,command.id,command.light); break;
-    case "remove-light": find(doc.lights,command.id); doc=removeLightDetails(doc,command.id); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
+    case "remove-light": find(doc.lights,command.id); doc=removeLightDetails(doc,command.id);if(doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)doc=setLightAttachment(doc,command.id,null); doc.lights=doc.lights.filter(p=>!same(p.id,command.id)); break;
     case "set-title": doc.title=command.title; break;
     case "set-navigation": doc.navigation=clone(command.navigation); doc.accessibility.routeIds=doc.navigation.filter(r=>r.accessible).map(r=>r.id); break;
     case "set-presentation": doc.extensions={...doc.extensions,[PRESENTATION_NAMESPACE]:clone(command.presentation) as unknown as NonNullable<Exhibition["extensions"]>[string]}; break;

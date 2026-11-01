@@ -4,7 +4,7 @@ import {lstat,open} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import {SUPPORTED_FURNISHINGS,furnishingAsset,furnishingCatalogueEntry,type FurnishingAsset,type FurnishingCatalogId} from '@exhibitos/studio-contract';
+import {SUPPORTED_FURNISHINGS,freezeCanonical,furnishingAsset,furnishingCatalogueEntry,type FurnishingAsset,type FurnishingCatalogId} from '@exhibitos/studio-contract';
 import {ApiError} from './auth.ts';
 import type {PoolClient} from 'pg';
 import type {BlobStore} from '@exhibitos/storage';
@@ -27,12 +27,24 @@ export async function readFurnishingBytes(asset:Pick<FurnishingAsset,'id'|'catal
 }
 /** Imported bytes survive reopen/backup independently of the installed library.
  * Public UUID remapping never changes the known catalogue resource identity. */
-export async function furnishingResourceBytes(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,asset:FurnishingAsset,role:'model'|'notice'){
+export async function furnishingResourcePair(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,asset:FurnishingAsset):Promise<{model:Buffer;notice:Buffer}>{
  let expected:FurnishingAsset;try{expected=furnishingAsset(asset.id,asset.catalogId);}catch{throw new ApiError(404,'FURNISHING_UNAVAILABLE');}
- if(asset.catalogVersion!==expected.catalogVersion||asset.sha256!==expected.sha256||asset.bytes!==expected.bytes||asset.rights.notice.sha256!==expected.rights.notice.sha256||asset.rights.notice.bytes!==expected.rights.notice.bytes)throw new ApiError(409,'FURNISHING_INTEGRITY');
- const entry=furnishingCatalogueEntry(asset.catalogId),path=role==='model'?entry.path:entry.rights.noticePath,bytes=role==='model'?asset.bytes:asset.rights.notice.bytes,sha256=role==='model'?asset.sha256:asset.rights.notice.sha256;
- const row=(await c.query('SELECT resource_path,bytes,sha256,object_key FROM studio_furnishing_resources WHERE tenant_id=$1 AND exhibition_id=$2 AND catalog_id=$3 AND catalog_version=$4 AND role=$5',[tenantId,exhibitionId,asset.catalogId,asset.catalogVersion,role])).rows[0];
- if(!row)return readFurnishingBytes(asset,role);
- if(row.resource_path!==path||Number(row.bytes)!==bytes||row.sha256!==sha256||typeof row.object_key!=='string'||!row.object_key.startsWith(tenantId+'/'))throw new ApiError(409,'FURNISHING_INTEGRITY');
- const data=Buffer.from(await blobs.get(row.object_key));if(data.length!==bytes||createHash('sha256').update(data).digest('hex')!==sha256)throw new ApiError(409,'FURNISHING_INTEGRITY');return data;
+ if(freezeCanonical(asset)!==freezeCanonical(expected))throw new ApiError(409,'FURNISHING_INTEGRITY');
+ const entry=furnishingCatalogueEntry(asset.catalogId);
+ const rows=(await c.query('SELECT role,resource_path,bytes,sha256,object_key FROM studio_furnishing_resources WHERE tenant_id=$1 AND exhibition_id=$2 AND catalog_id=$3 AND catalog_version=$4',[tenantId,exhibitionId,asset.catalogId,asset.catalogVersion])).rows;
+ // A restored/imported half-pair is invalid, never a reason to mix persisted
+ // and installed sources. Built-in fallback is allowed only for zero rows.
+ if(!rows.length)return {model:await readFurnishingBytes(asset,'model'),notice:await readFurnishingBytes(asset,'notice')};
+ if(rows.length!==2||new Set(rows.map(row=>row.role)).size!==2||rows.some(row=>row.role!=='model'&&row.role!=='notice'))throw new ApiError(409,'FURNISHING_INTEGRITY');
+ const read=async(role:'model'|'notice')=>{
+  const row=rows.find(row=>row.role===role),path=role==='model'?entry.path:entry.rights.noticePath,bytes=role==='model'?asset.bytes:asset.rights.notice.bytes,hash=role==='model'?asset.sha256:asset.rights.notice.sha256;
+  if(!row||row.resource_path!==path||Number(row.bytes)!==bytes||row.sha256!==hash||typeof row.object_key!=='string'||!row.object_key.startsWith(tenantId+'/'))throw new ApiError(409,'FURNISHING_INTEGRITY');
+  let data:Buffer;try{data=Buffer.from(await blobs.get(row.object_key));}catch{throw new ApiError(409,'FURNISHING_INTEGRITY');}
+  if(data.length!==bytes||createHash('sha256').update(data).digest('hex')!==hash)throw new ApiError(409,'FURNISHING_INTEGRITY');return data;
+ };
+ return {model:await read('model'),notice:await read('notice')};
+}
+export async function furnishingResourceBytes(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,asset:FurnishingAsset,role:'model'|'notice'){
+ if(role!=='model'&&role!=='notice')throw new ApiError(404,'FURNISHING_UNAVAILABLE');
+ return (await furnishingResourcePair(c,blobs,tenantId,exhibitionId,asset))[role];
 }

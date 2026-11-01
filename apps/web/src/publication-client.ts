@@ -26,6 +26,7 @@ export interface PublicAsset {
   mime: string;
 }
 export interface PublicResource {sha256:string;bytes:number;mime:string;url:string}
+export interface PublicFurnishingNotice extends PublicResource {assetId:string}
 /** Only constructed by verified offline preparation; never accepted from HTTP JSON. */
 export interface LocalPublicationSource {kind?: "static"; dynamic?: boolean; fetcher: typeof fetch; floorFetcher?:typeof fetch; retainedMaterialBytes?:number; check(): Promise<void>}
 export interface PublicPublication {
@@ -40,6 +41,7 @@ export interface PublicPublication {
   assets: PublicAsset[];
   coverVariants?: CoverVariantDescriptor;
   resources?: PublicResource[];
+  furnishingNotices?: PublicFurnishingNotice[];
 }
 export function publicationPath(session: Session, id: string) {
   return `/api/v1/tenants/${session.tenantId}/studio/exhibitions/${id}`;

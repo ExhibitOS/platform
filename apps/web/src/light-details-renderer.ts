@@ -8,7 +8,7 @@ import {lightDetailsFor,lightDetailsOrientation,lightDetailsTarget,validateStudi
  */
 export function installLightDetails(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,lights:ReadonlyMap<string,{light:Three.Light}>,editing:boolean){
   if(!validateStudioLightDetails(document).valid)throw Error('LIGHT_DETAILS_INVALID');
-  const entries=lightDetailsFor(document),groups:Three.Object3D[]=[],geometries=new Map<string,Three.BufferGeometry>(),materials=new Map<string,Three.Material>(),changes:(()=>void)[]=[];let disposed=false;
+  const fixtures=new Map<string,Three.Object3D[]>(),entries=lightDetailsFor(document),groups:Three.Object3D[]=[],geometries=new Map<string,Three.BufferGeometry>(),materials=new Map<string,Three.Material>(),changes:(()=>void)[]=[];let disposed=false;
   const geometry=(key:string,make:()=>Three.BufferGeometry)=>{let g=geometries.get(key);if(!g){g=make();geometries.set(key,g);}return g;};
   const material=(key:string,make:()=>Three.Material)=>{let m=materials.get(key);if(!m){m=make();materials.set(key,m);}return m;};
   const records:{lightId:string;fixture:string;fixtureMeshes:number;guideCount:number;target:number[]|null;penumbra:number|null;range:number|null;color:number[]}[]=[];
@@ -35,7 +35,7 @@ export function installLightDetails(three:typeof Three,document:Exhibition,rooms
         const diameter=entry.fixture==='disc'?.18:.12,depth=entry.fixture==='disc'?.04:.2,body=new three.Mesh(geometry('cylinder',()=>new three.CylinderGeometry(.5,.5,1,12)),bodyMaterial),lens=new three.Mesh(geometry('circle',()=>new three.CircleGeometry(.5,12)),lensMaterial);
         body.rotation.x=Math.PI/2;body.scale.set(diameter,depth,diameter);lens.scale.set(diameter*.84,diameter*.84,1);lens.position.z=-depth/2-.001;lens.rotation.y=Math.PI;group.add(body,lens);
       }
-      fixtureMeshes=2;for(const object of group.children){object.userData.lightId=item.id;object.userData.exhibitosLightFixture=true;}
+      fixtures.set(item.id.toLowerCase(),[group]);fixtureMeshes=2;for(const object of group.children){object.userData.lightId=item.id;object.userData.exhibitosLightFixture=true;}
     }
     // The public visitor never gets authoring lines or beam handles.
     const aimed=target??(entry.fixture!=='none'?lightDetailsTarget(document,item,entry):undefined);
@@ -51,5 +51,5 @@ export function installLightDetails(three:typeof Three,document:Exhibition,rooms
     }
     records.push({lightId:item.id,fixture:entry.fixture,fixtureMeshes,guideCount,target:aimed??null,penumbra:light instanceof three.SpotLight?light.penumbra:null,range:light instanceof three.SpotLight||light instanceof three.PointLight?light.distance:null,color:light.color.toArray()});
   }}catch(error){for(const restore of changes)restore();for(const g of groups)g.removeFromParent();for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();throw error;}
-  return {records,dispose(){if(disposed)return;disposed=true;for(const restore of changes)restore();changes.length=0;for(const g of groups)g.removeFromParent();for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();groups.length=0;geometries.clear();materials.clear();}};
+  return {records,fixtures,dispose(){if(disposed)return;disposed=true;for(const restore of changes)restore();changes.length=0;for(const g of groups)g.removeFromParent();for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();groups.length=0;fixtures.clear();geometries.clear();materials.clear();}};
 }

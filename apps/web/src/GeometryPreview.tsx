@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
+import {BENCH_RESERVE_BYTES} from './private-editor/catalog-bench';
 import "./viewer/input-surface.css";
 import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
@@ -5,6 +8,8 @@ import {SculptureOrbitControls} from './viewer/SculptureOrbitControls';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
+import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
+import {viewingPlanFor} from '@exhibitos/studio-contract';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
@@ -26,6 +31,8 @@ import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
 import {selectionKey} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
+import {onlyLightColorChanged,syncPreviewLightColors} from './geometry/light-preview';
+import {safePrivateView,type PrivateView} from './viewer/private-view';
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
@@ -88,6 +95,9 @@ export function GeometryPreview({
   appearance,
   session,
   publicSource,
+  privateCatalogue = false,
+  initialPrivateView,
+  onPrivateViewReady,
   viewerBudget,
   resourceBudget,
   suspendNavigation = false,
@@ -147,7 +157,7 @@ export function GeometryPreview({
   onEntranceSceneReady?:(preview:EntranceScenePreview|null)=>void;
   placementPreview?: PlacementPreviewInstaller;
   placementPreviewVersion?: number;
-  cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right";sequence:number};
+  cameraRequest?: {kind:"isometric"|"top"|"front"|"left"|"right"|"ceiling";sequence:number};
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
@@ -157,6 +167,9 @@ export function GeometryPreview({
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
   document: Document;
   editing?:EditorBridge;
+  privateCatalogue?: boolean;
+  initialPrivateView?:PrivateView;
+  onPrivateViewReady?:(getter:(()=>PrivateView|undefined)|null)=>void;
   viewerBudget?: DeviceBudget;
   /** Editor host resource accounting; does not enable visitor navigation. */
   resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'>;
@@ -194,6 +207,14 @@ export function GeometryPreview({
   appearance: (surfaceId: string) => SurfaceAppearance;
 }) {
   const editingEnabled=!!editing;
+  // Retain only an editor scene whose complete document differs in one light's
+  // color. All other transitions continue through the ordinary effect cleanup.
+  const [sceneState,setSceneState]=useState(()=>({observed:document,scene:document,editing:editingEnabled}));
+  if(sceneState.observed!==document||sceneState.editing!==editingEnabled){
+    const scene=editingEnabled&&sceneState.editing&&onlyLightColorChanged(sceneState.observed,document)?sceneState.scene:document;
+    setSceneState({observed:document,scene,editing:editingEnabled});
+  }
+  const sceneDocument=sceneState.observed===document&&sceneState.editing===editingEnabled?sceneState.scene:editingEnabled&&sceneState.editing&&onlyLightColorChanged(sceneState.observed,document)?sceneState.scene:document;
   const viewFovRef=useRef(viewFov);viewFovRef.current=viewFov;
   const resizeAction=useRef<(()=>void)|null>(null);
   useEffect(()=>{resizeAction.current?.();},[viewFov]);
@@ -202,16 +223,18 @@ export function GeometryPreview({
   const consumedCameraRequest=useRef<number|undefined>(undefined);
   const [installationIssueCount,setInstallationIssueCount]=useState(0);
   const [materialIssueCount,setMaterialIssueCount]=useState(0);
-  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number]}|null>(null);
+  const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
+  const privateViewCallback=useRef(onPrivateViewReady);privateViewCallback.current=onPrivateViewReady;
+  const privateViewInitial=useRef(initialPrivateView);privateViewInitial.current=initialPrivateView;
   const entranceSceneCallback=useRef(onEntranceSceneReady);entranceSceneCallback.current=onEntranceSceneReady;
   const entranceScope=useRef<EntranceSceneScope|null>(null),[entranceWalking,setEntranceWalking]=useState(false);
   const editingSync=useRef<(()=>void)|null>(null);
   const placementInstaller=useRef(placementPreview);placementInstaller.current=placementPreview;
   const placementSync=useRef<(()=>void)|null>(null);
   useEffect(()=>{placementSync.current?.();},[placementPreviewVersion]);
-  useEffect(()=>{editingSync.current?.();},[editing,selection]);
+  useEffect(()=>{editingSync.current?.();},[editing,selection,document]);
   const xrCallbacks=useRef({onXrReady,onXrArtworks});xrCallbacks.current={onXrReady,onXrArtworks};
   const xrActive=useRef(false);
   const [xrRunning,setXrRunning]=useState(false);
@@ -226,7 +249,7 @@ export function GeometryPreview({
         ) => void)
       | null
     >(null);
-  const selectionFindAction=useRef<{document:typeof document;find:(id:string)=>boolean}|null>(null),selectionFindDocument=useRef(document);selectionFindDocument.current=document;
+  const selectionFindAction=useRef<{document:typeof document;find:(id:string)=>boolean}|null>(null),selectionFindDocument=useRef(sceneDocument);selectionFindDocument.current=sceneDocument;
   useEffect(()=>{onSelectionFindReady?.(id=>selectionFindAction.current?.document===selectionFindDocument.current?selectionFindAction.current.find(id):false);return()=>onSelectionFindReady?.(null);},[onSelectionFindReady]);
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
@@ -323,6 +346,7 @@ export function GeometryPreview({
     }
   }, [suspendNavigation]);
   useEffect(() => {
+    const document=sceneDocument;
     const abort = new AbortController();
     sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
     viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
@@ -404,20 +428,26 @@ export function GeometryPreview({
       const suppliedThumbnailReserve=viewerBudget&&publicThumbnailCount?publicThumbnailReserve(publicThumbnailCount):0;
       const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
       if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
-      const availableAssetBytes=Math.max(1,(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes);
+      const beforeBench=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
+      const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
+      const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
+      const benchReserve=benchSource&&beforeBench>BENCH_RESERVE_BYTES?BENCH_RESERVE_BYTES:0;
+      const otherFurnishings=catalogOtherSources(document,benchAuthority);
+      const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;
+      const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
       const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const releaseMaterialLoadHold=(kind:'floor'|'surface')=>{
         if(disposed||gpuLost)return;
         if(kind==='floor')floorSettled=true;else surfaceSettled=true;
         const materialBytes=materialPhaseBytes(floorPlan,floorSettled)+materialPhaseBytes(surfacePlan,surfaceSettled);
         assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-materialBytes);
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
@@ -710,6 +740,8 @@ export function GeometryPreview({
       const presenceDiagnostics=()=>{renderer.domElement.dataset.realtimeAvatars=JSON.stringify([...remoteAvatars].map(([visitorId,group])=>({visitorId,position:group.position.toArray(),yaw:group.rotation.y})));};
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);void catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;});}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);void catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);});}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -774,6 +806,10 @@ export function GeometryPreview({
           );
           authoredFov = savedCamera.fov;
           applyProjection();
+        } else if(kind==='ceiling'){
+          const selection=selectionRef.current,roomId=selection?.kind==='room'?selection.id:selection?.kind==='surface'?document.surfaces.find(s=>s.id===selection.id)?.roomId:undefined;
+          const room=document.rooms.find(r=>r.id===roomId)??document.rooms[0],owner=room&&rooms.get(room.id.toLowerCase());
+          if(room&&owner){camera.position.copy(owner.localToWorld(new three.Vector3(0,Math.min(1.65,room.dimensions.height*.5),room.dimensions.depth*.3)));controls.target.copy(owner.localToWorld(new three.Vector3(0,room.dimensions.height-.01,0)));camera.near=.01;authoredFov=60;applyProjection();}
         } else if (kind === "front" && selectionRef.current) {
           const selection=selectionRef.current;
           const surfaceId =
@@ -922,7 +958,16 @@ export function GeometryPreview({
           ? "start"
           : "isometric",
       );
-      if(editingRef.current&&editorCamera.current?.documentId===document.id){const saved=editorCamera.current;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);controls.update();render();}
+      let privateCameraRestored=false;
+      const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
+      if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
+      else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
+      privateViewCallback.current?.(()=>{
+        if(disposed||xrActive.current)return;
+        const position=camera.position.toArray() as [number,number,number],direction=camera.getWorldDirection(new three.Vector3()),target=camera.position.clone().add(direction).toArray() as [number,number,number];
+        for(const room of document.rooms){const view=safePrivateView(document,{roomId:room.id,position,target,fov:camera.fov});if(view)return view;}
+        return undefined;
+      });
       setMessage(
         `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length}. 작품 bounds는 실제 치수입니다. 작품 derivative 미사용: metadata만 표시합니다.`,
       );
@@ -934,11 +979,13 @@ export function GeometryPreview({
       const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking;render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       const editor=editingRef.current ? installPreviewEditing({scene,camera,renderer,model,targets:editTargets,orbit:controls,bridge:()=>editingRef.current,previewDocument:(doc,selection)=>{if(!disposed&&selection.kind==='placement')setInstallationIssueCount(installation.preview(doc,selection.id));},render:()=>{shadowPass.invalidate();render();}}):null;
-      editingSync.current=()=>editor?.sync();
+      editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else if(changed)render();};
+      if(editingRef.current)editingSync.current();
       release = () => {
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
-        if(editingEnabled)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray()};
+        privateViewCallback.current?.(null);
+        if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
         editor?.dispose();editingSync.current=null;
@@ -1091,7 +1138,7 @@ export function GeometryPreview({
         };
         const pending: WalkingActions = {
           start: () => {
-            void initialize().then(() => {
+            void initialize(undefined,privateCameraRestored).then(() => {
               if (!disposed && !xrActive.current && !suspendedRef.current && walkingActions.current !== pending)
                 walkingActions.current?.start();
             });
@@ -2003,8 +2050,11 @@ export function GeometryPreview({
           if(!destination)return false;
           const selected=input.placementId?document.placements.find(p=>p.id.toLowerCase()===input.placementId!.toLowerCase()&&p.roomId.toLowerCase()===destination.roomId.toLowerCase()):undefined;
           if(input.placementId&&!selected)return false;
+          const authored=selected&&authoredArtworkViewpoint(viewingPlanFor(document).stops,selected.id);
+          if(authored&&authored.toLowerCase()!==destination.id.toLowerCase())return false;
           const placement=selected??prioritizePlacements(document,destination.roomId,destination.position).find(p=>p.roomId.toLowerCase()===destination.roomId.toLowerCase());
           const art=placement&&arts.find(a=>a.revisionId.toLowerCase()===placement.artworkRevisionId.toLowerCase());
+          if(selected&&!art)return false;
           const position=camera.position.clone(),quaternion=camera.quaternion.clone();
           let releaseMinimum:(()=>void)|undefined;
           try{
@@ -2012,6 +2062,13 @@ export function GeometryPreview({
             signal.throwIfAborted();
             if(art)releaseMinimum=await retainMapMinimum({id:art.revisionId,signal,pins:mapPins,waiters:mapWaiters,ready:()=>objects.has(art.revisionId)&&active.has(art.revisionId),failed:()=>!pending.has(art.revisionId)&&(failed.has(art.revisionId)||minimumBlocked.has(art.revisionId)),request:()=>request(art,false)});
             signal.throwIfAborted();
+            if(selected&&art){
+              const qualified=await walkingActions.current?.prepareViewpoint?.(destination.id);
+              signal.throwIfAborted();
+              const group=placements.get(selected.id.toLowerCase());
+              if(!qualified||!group)return false;
+              try{assertArtworkViewpoint(three,group,art.artworkType,qualified);}catch{return false;}
+            }
             if(viewingStyleRef.current!=='free'||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||seatedBenchRef.current||renderer.domElement.ownerDocument.hidden||!camera.position.equals(position)||!camera.quaternion.equals(quaternion))return false;
             return walkingActions.current?.visitViewpoint?.(destination.id,false)===true;
           }finally{releaseMinimum?.();}
@@ -2041,18 +2098,7 @@ export function GeometryPreview({
               const destination=await walkingActions.current?.prepareViewpoint?.(stop.viewpointId);
               signal.throwIfAborted();if(!destination)throw Error('VIEWING_UNSAFE_POSITION');
               const group=placements.get(placement!.id.toLowerCase());if(!group)throw Error('VIEWING_REFERENCE');
-              group.updateMatrixWorld(true);const box=new three.Box3().setFromObject(group,true);
-              if(box.isEmpty()||box.distanceToPoint(new three.Vector3(...destination.target))>.05)throw Error('VIEWING_TARGET_OUTSIDE_ARTWORK');
-              if(art.artworkType==='image'){
-                let plane:InstanceType<typeof three.Mesh>|undefined;
-                group.traverse(node=>{if(!plane&&node instanceof three.Mesh&&(Array.isArray(node.material)?node.material:[node.material]).some(m=>(m as InstanceType<typeof three.MeshBasicMaterial>).map))plane=node;});
-                if(!plane)throw Error('VIEWING_IMAGE_FRONT');
-                const determinant=plane.matrixWorld.determinant();if(!Number.isFinite(determinant)||determinant===0)throw Error('VIEWING_IMAGE_FRONT');
-                const normal=new three.Vector3(0,0,1).applyNormalMatrix(new three.Matrix3().getNormalMatrix(plane.matrixWorld));
-                if(!normal.toArray().every(Number.isFinite)||normal.lengthSq()===0)throw Error('VIEWING_IMAGE_FRONT');
-                const eye=new three.Vector3(...destination.position),centre=box.getCenter(new three.Vector3());
-                if(normal.dot(eye.sub(centre).normalize())<Math.cos(Math.PI/6))throw Error('VIEWING_IMAGE_FRONT');
-              }
+              assertArtworkViewpoint(three,group,art.artworkType,destination);
               return {commit(style){
                 if(released||signal.aborted||disposed||gpuLost||sharedDetail||suspendedRef.current||xrActive.current||!objects.has(art.revisionId))return false;
                 if(!walkingActions.current?.visitViewpoint?.(stop.viewpointId,style==='ordered'))return false;
@@ -2267,10 +2313,11 @@ export function GeometryPreview({
       release();
     };
   }, [referenceTone,
-    document,
+    sceneDocument,
     appearance,
     session,
     publicSource,
+    privateCatalogue,
     viewerBudget,
     resourceBudget,
     restart,

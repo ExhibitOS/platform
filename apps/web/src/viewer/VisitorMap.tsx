@@ -2,9 +2,11 @@
 import {useEffect,useId,useRef,useState,type FormEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
+import {authoredArtworkViewpoint} from './artwork-viewpoint';
 
 export interface VisitorMapProps {
  map:MapModel;
+ artworkStops?:readonly {placementId:string;viewpointId:string}[];
  worldPose?:ReturnType<typeof visitorMapPose>&{horizontalFovDegrees?:number};
  previews?:Readonly<Record<string,{description?:string;thumbnail?:string}>>;
  destinations:readonly {id:string;roomId:string;name:string}[];
@@ -52,7 +54,7 @@ function ArtworkThumbnail({src,kind}:{src?:string;kind:string}){
 }
 
 /** The map previews identities. Only the existing renderer owner may admit travel. */
-export function VisitorMap({map,worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel,onPreviewChange}:VisitorMapProps){
+export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel,onPreviewChange}:VisitorMapProps){
  const titleId=useId(),[selection,setSelection]=useState<MapSelection>({key:map.key}),[requestError,setRequestError]=useState<{key:string;text:string}|null>(null),requestGeneration=useRef(0),activeKey=useRef(map.key),selectionRef=useRef(selection);activeKey.current=map.key;selectionRef.current=selection;
  useEffect(()=>()=>{requestGeneration.current++;},[map.key]);
  const invalidate=()=>{requestGeneration.current++;setRequestError(null);};
@@ -66,7 +68,8 @@ export function VisitorMap({map,worldPose,previews,destinations,available,travel
  const preview=visitorMapPreview(map,selection),placement=preview?.kind==='placement'?map.placements.find(item=>same(item.id,preview.id)):undefined;
  useEffect(()=>{onPreviewChange?.(placement?.id);return()=>onPreviewChange?.(undefined);},[map.key,placement?.id,onPreviewChange]);
  const room=map.rooms.find(item=>same(item.id,placement?.roomId??(preview?.kind==='room'?preview.id:'')));
- const content=placement&&previews?.[placement.id],choices=room?destinations.filter(item=>same(item.roomId,room.id)):[];
+ const authored=placement&&authoredArtworkViewpoint(artworkStops,placement.id);
+ const content=placement&&previews?.[placement.id],choices=room?destinations.filter(item=>same(item.roomId,room.id)&&(!authored||same(item.id,authored))):[];
  const busy=travel.status==='preparing';
  const position=(p:MapPoint)=>({left:`${(p[0]-map.bounds.x)/map.bounds.width*100}%`,top:`${(p[1]-map.bounds.z)/map.bounds.depth*100}%`});
  const marker=(target:MapTarget)=>({

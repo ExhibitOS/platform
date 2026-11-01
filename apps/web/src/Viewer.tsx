@@ -6,7 +6,7 @@ import {XrControls} from './viewer/XrControls';
 import type {GeometryXrBridge,GeometryXrArtwork} from './GeometryPreview';
 import { OpeningSession, type OpeningState } from "./viewer/opening";
 import { OpeningControls } from "./viewer/OpeningControls";
-import { presentationFor } from "@exhibitos/studio-contract";
+import { presentationFor, viewingPlanFor } from "@exhibitos/studio-contract";
 import { ExhibitionPresence, advancePresenceFrame, type RealtimeState } from "./viewer/realtime";
 import { RealtimeControls } from "./viewer/RealtimeControls";
 import type { RealtimeScene } from "./GeometryPreview";
@@ -27,6 +27,7 @@ import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "
 import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap,visitorMapPose} from './viewer/visitor-map';
 import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
+import {savePrivateView,type PrivateView} from './viewer/private-view';
 import type {ViewingRenderer} from './viewer/viewing-session';
 import type {createPublicThumbnailCache} from './viewer/public-thumbnail';
 export function Viewer({
@@ -80,6 +81,18 @@ export function Viewer({
   guideRequest?: GuideRequest;
   onReducedMotionChange?: (value: boolean) => void;
 }) {
+  const privateViewGetter=useRef<(()=>PrivateView|undefined)|null>(null);
+  const registerPrivateView=useCallback((getter:(()=>PrivateView|undefined)|null)=>{privateViewGetter.current=getter;},[]);
+  useEffect(()=>{
+    if(!publication.local)return;
+    const click=(event:MouseEvent)=>{
+      const target=event.target instanceof Element?event.target.closest('a'):null;if(!target)return;
+      const url=new URL(target.href,location.href);if(url.origin!==location.origin||url.pathname!=='/studio.html')return;
+      const index=document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'';
+      savePrivateView(publication.publication.id,publication.publication.revisionSha256,index,privateViewGetter.current?.());
+    };
+    document.addEventListener('click',click,true);return()=>document.removeEventListener('click',click,true);
+  },[publication]);
   const viewingEntry = useRef<DetailEntryActions | null>(null);
   const registerViewingEntry = useCallback((actions: DetailEntryActions | null) => { viewingEntry.current = actions; onDetailEntryReady?.(actions); }, [onDetailEntryReady]);
   const map=useMemo(()=>{try{return buildVisitorMap(publication.exhibition,publication.publication);}catch{return undefined;}},[publication]);
@@ -246,7 +259,7 @@ export function Viewer({
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
       {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>{setIntroDismissed(true);viewingEntry.current?.resumeViewing?.();}} />}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
-      {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} worldPose={mapPose} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
+      {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} artworkStops={viewingPlanFor(publication.exhibition).stops} worldPose={mapPose} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
         immersive={immersive}
         onViewingReady={onViewingRendererReady}
@@ -261,6 +274,7 @@ export function Viewer({
         onMapThumbnail={immersive?receiveMapThumbnail:undefined}
         onMapReady={immersive?registerMap:undefined}
         onMapPose={immersive?reportMapPose:undefined}
+        onPrivateViewReady={registerPrivateView}
         onXrReady={xrReady}
         onXrArtworks={xrLoaded}
         document={publication.exhibition}

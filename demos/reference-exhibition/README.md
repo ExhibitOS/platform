@@ -54,9 +54,10 @@ photographic boundaries are not independently matched to the physical painted ar
 Bierstadt, Morisot and Pissarro have no source ICC profile, so display sRGB is assumed and disclosed.
 Morisot retains the photographed border and uses the reported 50.2 cm height;
 the image aspect ratio sets its display width. Its museum-reported 60 cm width
-is kept distinct from the uncalibrated photographed boundary. Morisot and Degas
-use opposite sides of the east-wall doorway. Pissarro and Vermeer are spaced apart on the west wall. Pissarro retains the whole photograph, anchored to the reported 54.3 cm height; its display width
-follows the photo aspect ratio, separately from the museum-reported 65.1 cm.
+is kept distinct from the uncalibrated photographed boundary. Morisot and Pissarro
+are displayed together in the closing room; Degas remains in the painting room.
+Pissarro retains the whole photograph, anchored to the reported 54.3 cm height;
+its display width follows the photo aspect ratio, separately from the museum-reported 65.1 cm.
 Bierstadt sits clear of the existing styled doorway wall and opening. Their full/coarse files, rights evidence and
 conversion-recipe hashes remain bound in the public metadata. This independent exhibition
 does not imply institutional sponsorship, affiliation or endorsement.

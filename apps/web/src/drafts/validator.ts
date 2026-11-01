@@ -2,7 +2,7 @@ import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {validateStudioPlaques} from '@exhibitos/studio-contract';
-import {validateStudioLightDetails} from '@exhibitos/studio-contract';
+import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import { validateStudioInstallation } from '@exhibitos/studio-contract';
@@ -34,6 +34,7 @@ export function validateDraft(document: unknown): ValidationResult {
   if(!presentation.valid)return presentation;
   const lightDetails=validateStudioLightDetails((document as Draft).candidate);
   if(!lightDetails.valid)return lightDetails;
+  const attachments=validateLightAttachments((document as Draft).candidate);if(!attachments.valid)return attachments;
   const finishes=validateArchitecturalFinishes((document as Draft).candidate);
   if(!finishes.valid)return finishes;
   const plaques=validateStudioPlaques((document as Draft).candidate);
