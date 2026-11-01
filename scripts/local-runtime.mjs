@@ -7,13 +7,17 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { generateKeyPairSync } from "node:crypto";
 import { Transform } from "node:stream";
 import { Pool } from "pg";
-import { FileBlobStore, migrate } from "../packages/storage/dist/index.js";
+import { FileBlobStore, migrate, migrateInTransaction, transaction } from "../packages/storage/dist/index.js";
 import { openLocalWorkspace, validateLocalWorkspace } from "../apps/api/dist/local-workspace.js";
 import { readNativeWorkspaceChannel } from "./native-workspace-channel.mjs";
+import {closeNativeOwnerDescriptor,openNativeOwnerChannel,unpackNativeOwnerInput} from "./native-owner-channel.mjs";
 import { bootstrap, config } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
 import { loadFreezeConfig } from "../apps/api/dist/freeze.js";
 import { Imports } from "../apps/api/dist/imports.js";
+import {createSelectedNativeUploadSlot} from "../apps/api/dist/native-bounded-oex-upload.js";
+import {createSelectedStudioPutSlot} from "../apps/api/dist/native-selected-studio-put.js";
+import {runFreshNativeOexOwner} from "../apps/api/dist/native-fresh-oex-owner.js";
 
 import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
 
@@ -43,7 +47,7 @@ async function safeStatic(root, path) {
   const details = await file.stat(); if (!details.isFile() || details.size > 16 * 1024 * 1024) { await file.close(); throw Error("STATIC_FILE_INVALID"); }
   return file;
 }
-export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
+export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disableUpgrades = false }) {
   const root = await realpath(webRoot), allowed = new Set(["basis/basis_transcoder.js", "basis/basis_transcoder.wasm", "basis/exhibitos-basis-worker.js","index.html", "native-viewport.html", "studio-sw.js", "freeze-runtime.json", "THIRD_PARTY_NOTICES.txt", "offline-server.mjs"]);
   for(const file of [...FLOOR_TEXTURE_FILES,...SURFACE_TEXTURE_FILES])allowed.add(file.path);
   for (const name of await readdir(join(root, "assets"))) if (/^[-\w.]+\.(?:js|css)$/.test(name)) allowed.add(`assets/${name}`);
@@ -83,6 +87,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000 }) {
   const upgraded = new Set();
   server.on("upgrade", (req, socket, head) => {
     const reject = code => { socket.end(`HTTP/1.1 ${code} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`); };
+    if(disableUpgrades){reject(403);return;}
     if (req.headers.host !== expectedHost || !/^\/api\/v1\/publications\/[a-f0-9-]{36}\/(?:presence|opening)$/.test(req.url ?? "") || req.headers.upgrade?.toLowerCase() !== "websocket") { reject(403); return; }
     const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !hop.has(name)));
     delete headers["sec-websocket-extensions"];headers.connection="Upgrade";headers.upgrade="websocket";
@@ -117,9 +122,17 @@ async function signingKey(directory) {
   } catch (error) { if (error.code !== "EEXIST") throw error; }
   return path;
 }
-export async function startLocalRuntime(environment = process.env, privateWorkspace) {
+export async function startLocalRuntime(environment = process.env, privateWorkspace, privateOwner) {
+  const transfer={started:false};
+  if(!privateOwner&&environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
+  try{return await startLocalRuntimeInner(environment,privateWorkspace,privateOwner,transfer);}
+  finally{if(!transfer.started&&(privateOwner||environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined))closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);}
+}
+async function startLocalRuntimeInner(environment, privateWorkspace, privateOwner, transfer) {
   const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
+  const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
+  if(freshOexTest&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
   if (environment.EXHIBITOS_AUTHORING_MODE !== undefined && !personal) throw Error("LOCAL_AUTHORING_MODE_INVALID");
   if (personal) {
     validateLocalWorkspace(privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
@@ -134,30 +147,61 @@ export async function startLocalRuntime(environment = process.env, privateWorksp
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, stage = "MIGRATIONS";
+  let app, proxy, ownerChannel, shutdown, selectedTask, ownerStopped=false, stage = "MIGRATIONS";const ownerAbort=new AbortController();
+  // This handshake is optional and grants no import authority. Legacy startup
+  // must not wait for or depend on it; failure only leaves it unavailable.
+  let ownerTask=Promise.resolve();
+  if(personal&&privateOwner&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.started=true;ownerTask=openNativeOwnerChannel(environment.EXHIBITOS_NATIVE_OWNER_FD,privateWorkspace,privateOwner,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else ownerChannel=channel;}).catch(()=>{});}
+  else if(privateOwner){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
   try {
-    await migrate(pool, migrationDirectory);
+    // The extra test schema may only be applied to a genuinely empty DB in
+    // the same authenticated fresh native owner session, before listening.
+    const supplementalMigrationDirectory=freshOexTest?fileURLToPath(new URL('../database/fresh-oex-test/',import.meta.url)):undefined;
+    if(freshOexTest){
+      stage='OWNER_CHANNEL';await ownerTask;if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+      void ownerChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}});stage='FRESH_DATABASE';
+      await transaction(pool,async c=>{
+        await c.query('SELECT pg_advisory_xact_lock(82001)');
+        const check=await c.query("SELECT EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND (n.nspname<>'public' OR EXISTS(SELECT 1 FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f')) OR EXISTS(SELECT 1 FROM pg_proc p WHERE p.pronamespace=n.oid) OR EXISTS(SELECT 1 FROM pg_type t WHERE t.typnamespace=n.oid AND t.typtype IN ('e','d','c')))) AS occupied");
+        if(check.rows[0]?.occupied!==false||!ownerChannel?.isOpen())throw Error('FRESH_DATABASE_OCCUPIED');
+        await migrateInTransaction(c,migrationDirectory);await migrateInTransaction(c,supplementalMigrationDirectory);if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+      });
+    }else await migrate(pool,migrationDirectory);
     stage = "BOOTSTRAP";
     if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
     else {
       if ((await pool.query("SELECT 1 FROM local_workspaces LIMIT 1")).rowCount) throw Error("LOCAL_WORKSPACE_ACCOUNT_MODE_REFUSED");
       if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);
     }
+    if(freshOexTest&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
     stage = "STORAGE"; await mkdir(blobRoot, { recursive: true, mode: 0o700 });
     stage = "SIGNING_KEY";
     const keyFile = await signingKey(configRoot), freeze = await loadFreezeConfig({ runtimeRoot: webRoot, signingKeyFile: keyFile, origin });
     stage = "API"; const blobs = new FileBlobStore(blobRoot);
-    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: true, lifecycle: { migrationDirectory, webRoot, blobRoot } });
+    const uploadSlot=freshOexTest?createSelectedNativeUploadSlot():undefined,saveSlot=freshOexTest?createSelectedStudioPutSlot():undefined;
+    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !freshOexTest, ...(freshOexTest?{freshOexTest:true,uploadSlot,saveSlot}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory}:{}), webRoot, blobRoot } });
     await app.listen({ host: "127.0.0.1", port: apiPort });
-    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
+    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:freshOexTest }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
+    if(freshOexTest){
+      selectedTask=runFreshNativeOexOwner({pool,databaseUrl:environment.DATABASE_URL,blobs,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,runtimeGeneration:privateOwner.runtimeGeneration,secret:Buffer.from(privateOwner.secret,'hex'),channel:ownerChannel,payloadManifestPath:fileURLToPath(new URL('../../manifest.json',import.meta.url)),uploadSlot,saveSlot,signal:ownerAbort.signal});
+      void selectedTask.catch(()=>{});
+    }
     const importer = new Imports(pool, blobs); let stopping = false, timer, running, failures = 0, closed;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
-    running = tick();
-    const close = () => closed ??= (async () => { stopping = true; clearTimeout(timer); proxy.closeUpgradedConnections(); proxy.closeAllConnections(); await new Promise(resolve => proxy.close(resolve)); await running; await app.close(); await pool.end(); })();
+    if(!freshOexTest)running = tick();
+    const close = () => closed ??= (async () => {
+      stopping=true;ownerStopped=true;ownerAbort.abort();let failed=false;
+      const attempt=async action=>{try{await action();}catch{failed=true;}};
+      await attempt(()=>ownerTask);if(ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
+      await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));
+      await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});await attempt(()=>app.close());await attempt(()=>pool.end());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
+    })();
+    shutdown=close;if(freshOexTest&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
     return { app, proxy, pool, origin, close };
-  } catch { proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
+  } catch { ownerStopped=true;ownerAbort.abort();await ownerTask;if(ownerChannel)await ownerChannel.close();proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  try { const privateWorkspace = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? await readNativeWorkspaceChannel() : undefined; const runtime = await startLocalRuntime(process.env, privateWorkspace); console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
-  catch (error) { console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
+  let handedOff=false;
+  try { const received = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? unpackNativeOwnerInput(await readNativeWorkspaceChannel()) : {}; handedOff=true;const runtime = await startLocalRuntime(process.env, received.workspace, received.ownerChannel); console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
+  catch (error) { if(!handedOff&&process.env.EXHIBITOS_AUTHORING_MODE==='personal')closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_OWNER_FD);console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
 }

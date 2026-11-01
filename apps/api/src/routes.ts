@@ -26,12 +26,16 @@ import { Freezes, type FreezeConfig } from './freeze.ts';
 import { Integrities } from './integrity.ts';
 import { fileURLToPath } from 'node:url';
 import { Oex, MAX_OEX_UPLOAD, type OexInput } from './oex.ts';
+import {FileBlobStore} from '@exhibitos/storage';
+import {registerSelectedNativeOexUploadSlot,type NativeBoundedUploadSlot} from './native-bounded-oex-upload.ts';
+import {registerSelectedStudioPutGate,runSelectedStudioPut,type SelectedStudioPutSlot} from './native-selected-studio-put.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource) {
- const settings=config(input), auth=new Auth(pool);
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot) {
+ const settings=config(input), auth=new Auth(pool),studio=new Studio();
+ if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,studio,saveSlot);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
   return cookies.length===1 ? cookies[0]!.slice(settings.cookieName.length+1) : undefined;
@@ -131,12 +135,13 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${prefix}/artworks/:id/processing-authorization`,{bodyLimit:4096,schema:{body:object({datasetDigest:{...str,pattern:'^[a-f0-9]{64}$'},requestId:id,processingConsent:{type:'boolean',const:true}})}},call(true,async(c,s,req)=>authorizeProcessingInput(c,s,(req.params as {id:string}).id,req.body as {datasetDigest:string;requestId:string;processingConsent:true},settings.origin)));
  if(store){const integrity=new Integrities(store,{migrationDirectory:fileURLToPath(new URL('../../../database/migrations/',import.meta.url))});app.get(`${prefix}/integrity`,call(false,async(c,s)=>integrity.inspect(c,s)));}
 
- const studio=new Studio(),sp=`${prefix}/studio/exhibitions`;
+ const sp=`${prefix}/studio/exhibitions`;
  app.get(sp,{schema:{querystring:object({limit:{...str,pattern:'^[0-9]{1,2}$'},cursor:id,q:{...str,maxLength:100}},[])}},call(false,async(c,s,req)=>studio.list(c,s,req.query as Record<string,string>)));
  const studioBody=object({draft:{type:'object'},requestId:id});
  app.post(sp,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const result=await studio.create(c,s,req.body as StudioInput);reply.code(201).header('etag',result.etag);return result;}));
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
- app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
+ if(freshOexTest){app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},async(req,reply)=>{const p=req.params as {id:string};const result=await runSelectedStudioPut(saveSlot!,req,reply,(c,s)=>studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match'])));reply.header('etag',result.etag);return result;});}
+ else app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
  const freezes=store&&freezeConfig?new Freezes(pool,store,freezeConfig):null;
  const requireFreeze=()=>{if(!freezes)throw new ApiError(503,'FREEZE_UNAVAILABLE');return freezes;};
@@ -152,7 +157,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${fp}/:freezeId/offline`,grantBody,call(true,async(c,s,req,reply)=>{const f=await target(c,s,req);return reply.header('content-disposition','attachment; filename="exhibition.oef"').send(await f.offline(c,s,freezeId(req),(req.body as {seconds:number}).seconds));}));
  app.post(`${fp}/:freezeId/authorize`,grantBody,call(true,async(c,s,req)=>(await target(c,s,req)).authorize(c,s,freezeId(req),(req.body as {seconds:number}).seconds)));
  for(const action of ['revoke','restore'] as const)app.post(`${fp}/:freezeId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>(await target(c,s,req)).availability(c,s,freezeId(req),action==='restore')));
- if(freezes)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
+ if(freezes&&!freshOexTest)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
  const oex=store?new Oex(pool,store):null;
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
@@ -194,6 +199,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   if(!assetId){const projection=value as {exhibition?:{extensions?:Record<string,unknown>}};if(projection?.exhibition?.extensions&&Object.hasOwn(projection.exhibition.extensions,'org.exhibitos.viewer/footstep-resources')&&profile!=='footstep-resources-v1')throw new ApiError(406,'PUBLICATION_PROFILE_UNSUPPORTED');}
   return value;
  };
+ if(!freshOexTest){
  const authorizeHost=openingHostAuthority(pool);
  const opening=registerOpening(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,authorizeHost});
  registerRealtime(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
@@ -212,6 +218,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   // issueHost and socket admission each recheck live session/owner authority.
   return opening.issueHost(params.id,subject);
  });
+ }
  app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
  app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));

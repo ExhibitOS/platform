@@ -16,6 +16,7 @@ import {buildApp} from '../apps/api/dist/app.js';
 import {Oex} from '../apps/api/dist/oex.js';
 import {Privacy} from '../apps/api/dist/privacy.js';
 import {exportStaticPublication} from './export-static-publication.mjs';
+import {verifyArtifact} from './artifact-integrity.mjs';
 const database=new URL(process.env.EXHIBITOS_TEST_DATABASE_URL??'invalid://missing');
 if(database.hostname!=='127.0.0.1'||!database.pathname.startsWith('/exhibitos_native_session_test_')||!process.env.EXHIBITOS_TEST_OUTPUT)throw Error('ISOLATED_FLOOR_RESOURCE_FIXTURE_REQUIRED');
 const output=resolve(process.env.EXHIBITOS_TEST_OUTPUT),pool=new Pool({connectionString:database.href,max:4,statement_timeout:10000});
@@ -73,7 +74,7 @@ try{
   for(const resource of maps)assert.deepEqual(await readFile(join(result.output,resource.artifactPath)),files.get(resource.artifactPath));
   assert((await readFile(join(result.output,'floor-texture-notices.txt'),'utf8')).includes('WoodFloor051'));
   const frozen=await json(request('POST',`/studio/exhibitions/${id}/freezes`,{requestId:randomUUID()},{'if-match':saved.etag}),201);
-  assert.equal(frozen.manifest.formats.oex,OEX_FLOOR_RESOURCE_VERSION);assert.equal(frozen.manifest.formats.specPackage,'0.1.0-draft.7');assert.equal(frozen.manifest.formats.specSha256,'29bb5b084788d13e57cc52541585b0bb8da26611e9a46e297a693f9dbc674cd2');
+  assert.equal(frozen.manifest.formats.oex,OEX_FLOOR_RESOURCE_VERSION);const artifact=await verifyArtifact();assert.equal(frozen.manifest.formats.specPackage,artifact.packageVersion);assert.equal(frozen.manifest.formats.specSha256,artifact.sha256);
   assert(frozen.manifest.formats.migrations.includes('018_floor_resources.sql:'+sha256(await readFile(new URL('../database/migrations/018_floor_resources.sql',import.meta.url)))));
   const bundle=await json(request('POST',`/studio/exhibitions/${id}/freezes/${frozen.id}/offline`,{seconds:300}));
   await verifyFreezeBundle(Buffer.from(JSON.stringify(bundle)),{trustedKeys:[sha256(keys.publicKey.export({format:'der',type:'spki'}))]});

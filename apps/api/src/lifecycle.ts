@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type { Pool } from 'pg';
 
-export interface LifecycleConfig { migrationDirectory: string; webRoot: string; blobRoot: string; storageCheck?: () => Promise<void> }
+export interface LifecycleConfig { migrationDirectory: string; supplementalMigrationDirectory?:string; webRoot: string; blobRoot: string; storageCheck?: () => Promise<void> }
 export interface Readiness {
   schemaVersion: '1.0.0-draft.1'; protocolVersion: '1'; platformVersion: '0.1.0'; ready: boolean;
   services: {name: string; status: 'ready' | 'unavailable'}[];
@@ -39,11 +39,10 @@ export async function readiness(pool: Pool, config: LifecycleConfig): Promise<Re
   };
   const [database, web, storage] = await Promise.all([
     probe(async () => {
-      await directory(config.migrationDirectory, constants.R_OK);
-      const names = (await readdir(config.migrationDirectory)).filter(name => /^\d+.*\.sql$/.test(name)).sort();
-      if (!names.length) throw new Error('missing migrations');
-      const expected = await Promise.all(names.map(async name => {
-        const path = join(config.migrationDirectory, name);
+      const directories=[config.migrationDirectory,...(config.supplementalMigrationDirectory?[config.supplementalMigrationDirectory]:[])],files:{name:string;path:string}[]=[];
+      for(const root of directories){await directory(root,constants.R_OK);for(const name of (await readdir(root)).filter(name=>/^\d+.*\.sql$/.test(name)))files.push({name,path:join(root,name)});}
+      files.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);if(!files.length||new Set(files.map(f=>f.name)).size!==files.length)throw new Error('missing or duplicate migrations');
+      const expected = await Promise.all(files.map(async ({name,path}) => {
         const info = await lstat(path);
         if (!info.isFile() || info.isSymbolicLink()) throw new Error('invalid migration');
         return {name, sha256: createHash('sha256').update(await readFile(path)).digest('hex')};
