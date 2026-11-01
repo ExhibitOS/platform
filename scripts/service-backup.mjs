@@ -11,6 +11,7 @@ import {Transform,Writable} from 'node:stream';
 import {Pool} from 'pg';
 import {S3Client} from '@aws-sdk/client-s3';
 import {FileBlobStore,S3BlobStore,PostgresBlobStore,collectServiceInventory} from '../packages/storage/dist/index.js';
+import {recognizeNormalOexCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256} from './native-oex-normal-catalog.mjs';
 
 const fail=code=>{throw Error(code);};
 const inside=(parent,path)=>{const rel=relative(resolve(parent),resolve(path));return rel===''||rel!== '..'&&!rel.startsWith('../')&&!rel.startsWith('..\\')&&!rel.startsWith('/');};
@@ -169,6 +170,18 @@ export async function inventorySnapshotOptions(migrationDirectory,authenticatedM
  }
  return {migrationCatalog};
 }
+/** Recognize only the exact selected-native 026 catalog already present in
+ * this database. This observes a catalog; it never applies a migration. The
+ * normal prefix and authenticated older-catalog rules remain unchanged. */
+export async function inventorySnapshotOptionsForDatabase(client,migrationDirectory,supplementalDirectory,authenticatedMigrations){
+ const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory);
+ if(!selected)return inventorySnapshotOptions(migrationDirectory,authenticatedMigrations);
+ const names=(await readdir(migrationDirectory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort(),catalog=[];
+ for(const name of names)catalog.push({name,sha256:createHash('sha256').update(await readFile(resolve(migrationDirectory,name))).digest('hex')});
+ catalog.push({name:NORMAL_OEX_MIGRATION,sha256:NORMAL_OEX_SHA256});
+ if(authenticatedMigrations!==undefined&&JSON.stringify(authenticatedMigrations)!==JSON.stringify(catalog))fail('BACKUP_MIGRATION_CATALOG');
+ return {migrationCatalog:catalog};
+}
 /** Private native job budget only. Existing CLI/environment contracts are unchanged. */
 export function remoteDumpBudget(inventory,jobBudgetBytes,maxDumpBytes){
  if(!Number.isSafeInteger(jobBudgetBytes)||jobBudgetBytes<4*1024*1024||!Number.isSafeInteger(maxDumpBytes)||maxDumpBytes<1024*1024||maxDumpBytes>32*1024**3||!Array.isArray(inventory?.objects))fail('BACKUP_RESOURCE_BUDGET');
@@ -199,7 +212,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
   if(!environment.DATABASE_URL)fail('BACKUP_DATABASE_REQUIRED');
   const manifestBytes=await privateFile(flags['--manifest-file'],16*1024*1024),backup=await import('../packages/storage/dist/index.js');
   const blobs=await storeFor(environment,command==='restore'),pool=new Pool({connectionString:environment.DATABASE_URL,connectionTimeoutMillis:15000,statement_timeout:60000});
-  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(fileURLToPath(new URL('../database/migrations/',import.meta.url)),authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
+  try{const options={pool,manifestBytes,expectedManifestSha256:flags['--manifest-sha256'],snapshot:async(c,authenticatedMigrations)=>collectServiceInventory(c,blobs.store,await inventorySnapshotOptionsForDatabase(c,fileURLToPath(new URL('../database/migrations/',import.meta.url)),fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),authenticatedMigrations))};return command==='check-restored-inventory'?await backup.verifyRestoredInventory({...options,snapshotSystemIdentifier:flags['--snapshot-system-identifier']}):await backup.verifySourceInventory(options);}
   finally{await pool.end();await blobs.dispose();}
  }
  if(command==='key-init'){if(Object.keys(flags).length!==1)fail('BACKUP_USAGE');await initializeBackupKey(keyPath);return {operation:'key-initialized'};}
@@ -216,7 +229,7 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
  try{
   const adapter=postgresAdapter(environment.DATABASE_URL,environment,abort.signal,privateOptions.beforeRestore),migrationDirectory=fileURLToPath(new URL('../database/migrations/',import.meta.url)),snapshot=async(c,authenticatedMigrations)=>{
    if(privateOptions.freezeAuthority!==undefined)await verifyBackupFreezeAuthority(c,privateOptions.freezeAuthority);
-   const inventory=await collectServiceInventory(c,blobs.store,await inventorySnapshotOptions(migrationDirectory,authenticatedMigrations));
+   const inventory=await collectServiceInventory(c,blobs.store,await inventorySnapshotOptionsForDatabase(c,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),authenticatedMigrations));
    if(command==='create'&&privateOptions.jobBudgetBytes!==undefined)environment.BACKUP_MAX_DUMP_BYTES=String(remoteDumpBudget(inventory,privateOptions.jobBudgetBytes,Number(environment.BACKUP_MAX_DUMP_BYTES??32*1024**3)));
    return inventory;
   };

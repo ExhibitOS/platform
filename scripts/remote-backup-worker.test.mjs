@@ -132,3 +132,16 @@ test('historical inventory catalog accepts only an exact known immutable prefix 
   await fs.writeFile(root+'/'+names[0],'changed helper SQL');await assert.rejects(inventorySnapshotOptions(root,catalog.slice(0,1)),/^Error: BACKUP_MIGRATION_CATALOG$/);
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+
+test('selected native backup recognizes only its exact supplemental catalog',async()=>{
+ const fs=await import('node:fs/promises'),{createHash}=await import('node:crypto'),{fileURLToPath}=await import('node:url');
+ const {inventorySnapshotOptionsForDatabase}=await import('./service-backup.mjs');
+ const base=fileURLToPath(new URL('../database/migrations/',import.meta.url)),extra=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
+ const names=(await fs.readdir(base)).filter(n=>/^\d+.*\.sql$/.test(n)).sort(),digest=b=>createHash('sha256').update(b).digest('hex');assert.equal(names.length,25);
+ const catalog=[];for(const name of names)catalog.push({name,sha256:digest(await fs.readFile(base+name))});const original=structuredClone(catalog);
+ catalog.push({name:'026_oex_file_profile.sql',sha256:digest(await fs.readFile(extra+'026_oex_file_profile.sql'))});let rows=catalog,pool={query:async()=>({rows})};
+ assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra),{migrationCatalog:catalog});assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,catalog),{migrationCatalog:catalog});
+ await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra,original),/BACKUP_MIGRATION_CATALOG/);
+ rows=original;assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra),{migrationDirectory:base});assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,original),{migrationCatalog:original});
+ rows=structuredClone(catalog);rows[25].sha256='0'.repeat(64);await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
+});

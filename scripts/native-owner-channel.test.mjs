@@ -10,6 +10,7 @@ test('keeps legacy FD0 input and accepts only the closed opt-in envelope',()=>{
  assert.deepEqual(unpackNativeOwnerInput(workspace),{workspace});
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:owner}),{workspace,ownerChannel:{runtimeGeneration:id,secret}});
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:{version:2,runtimeGeneration:id,secret,mode:'fresh-oex-test-v1'}}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:'fresh-oex-test-v1'}});
+ assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:{version:2,runtimeGeneration:id,secret,mode:'normal-oex-v1'}}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:'normal-oex-v1'}});
  assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{version:2,runtimeGeneration:id,secret,mode:'other'}}));
  assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{...owner,mode:'fresh-oex-test-v1'}}));
  assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{...owner,extra:true}}));

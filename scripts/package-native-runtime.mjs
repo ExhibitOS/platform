@@ -48,6 +48,8 @@ const OEX_SPEC_PATH='vendor/exhibitos-spec-0.1.0-draft.11-7b06dae895ea.tgz';
 const OEX_SPEC_HASH='7b06dae895ea4ef46a0ad94958945db022b65978371d4b15c161ccdcc7498b84';
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
+const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
+const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
 /** Copy a fixed checked input if Git did not already copy it. Source/destination
  * validation is point-in-time, not protection from a concurrent same-UID writer. */
 async function copyCheckedValidationFile(sourceRoot,platformRoot,tracked,path,expected){
@@ -59,12 +61,15 @@ async function copyCheckedValidationFile(sourceRoot,platformRoot,tracked,path,ex
 }
 /** Local validation only: lockfile dependency is included for every mode;
  * the supplemental isolated-test migration requires explicit opt-in. */
-export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation) {
+export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, tracked, freshOexValidation, requireOexSpec = freshOexValidation) {
   const lock=JSON.parse(await readFile(join(sourceRoot,'package-lock.json'),'utf8'));
   const spec=lock?.packages?.['']?.dependencies?.['@exhibitos/spec'];
   if (spec === `file:${OEX_SPEC_PATH}`) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_SPEC_PATH,OEX_SPEC_HASH);
-  else if (freshOexValidation) fail('NATIVE_PACKAGE_SOURCE_INVALID');
+  else if (requireOexSpec) fail('NATIVE_PACKAGE_SOURCE_INVALID');
   if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
+}
+export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected){
+  if (normalOexSelected) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);
 }
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and
@@ -150,8 +155,8 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
-export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false}) {
-  if (typeof freshOexValidation !== 'boolean') fail('NATIVE_PACKAGE_INPUT_INVALID');
+export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false}) {
+  if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
   const selection = postgresRuntimeSelection(postgresProfile);
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.version !== 'v24.21.0') fail('NATIVE_PACKAGE_TOOLCHAIN_INVALID');
   if (!isAbsolute(destination) || resolve(destination) !== destination) fail('NATIVE_PACKAGE_DESTINATION_INVALID');
@@ -194,13 +199,15 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
   const tracked = new Map();
-  const excluded = freshOexValidation ? new Set() : new Set([OEX_MIGRATION_PATH]);
+  const excluded = new Set([...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH])]);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
-  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation);
+  await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
+  await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected);
   await copyNativeFurnishings(source, platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
   await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
+  await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
   await copy(join(source,'scripts/native-owner-frames.mjs'),join(platform,'scripts/native-owner-frames.mjs'));
   // Producer capability declaration only; Manager must still admit the exact
   // inventory and runtime source, not infer compatibility from this marker.

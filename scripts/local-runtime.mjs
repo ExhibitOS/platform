@@ -11,6 +11,7 @@ import { FileBlobStore, migrate, migrateInTransaction, transaction } from "../pa
 import { openLocalWorkspace, validateLocalWorkspace } from "../apps/api/dist/local-workspace.js";
 import { readNativeWorkspaceChannel } from "./native-workspace-channel.mjs";
 import {closeNativeOwnerDescriptor,openNativeOwnerChannel,unpackNativeOwnerInput} from "./native-owner-channel.mjs";
+import {NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,recognizeNormalOexCatalog,verifyNormalOexMigration} from "./native-oex-normal-catalog.mjs";
 import { bootstrap, config } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
 import { loadFreezeConfig } from "../apps/api/dist/freeze.js";
@@ -132,7 +133,8 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
   const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
-  if(freshOexTest&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
+  const normalOex = privateOwner?.mode === 'normal-oex-v1', selectedOex=freshOexTest||normalOex;
+  if(selectedOex&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
   if (environment.EXHIBITOS_AUTHORING_MODE !== undefined && !personal) throw Error("LOCAL_AUTHORING_MODE_INVALID");
   if (personal) {
     validateLocalWorkspace(privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
@@ -154,17 +156,18 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   if(personal&&privateOwner&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.started=true;ownerTask=openNativeOwnerChannel(environment.EXHIBITOS_NATIVE_OWNER_FD,privateWorkspace,privateOwner,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else ownerChannel=channel;}).catch(()=>{});}
   else if(privateOwner){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
   try {
-    // The extra test schema may only be applied to a genuinely empty DB in
-    // the same authenticated fresh native owner session, before listening.
-    const supplementalMigrationDirectory=freshOexTest?fileURLToPath(new URL('../database/fresh-oex-test/',import.meta.url)):undefined;
-    if(freshOexTest){
+    // Either selected schema applies only to a genuinely empty DB in the
+    // same authenticated native owner session, before listening.
+    let supplementalMigrationDirectory=selectedOex?fileURLToPath(new URL(normalOex?'../database/native-oex-normal/':'../database/fresh-oex-test/',import.meta.url)):undefined;
+    const normalMigration=normalOex?await verifyNormalOexMigration(supplementalMigrationDirectory):undefined;
+    if(selectedOex){
       stage='OWNER_CHANNEL';await ownerTask;if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       void ownerChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}});stage='FRESH_DATABASE';
       await transaction(pool,async c=>{
         await c.query('SELECT pg_advisory_xact_lock(82001)');
         const check=await c.query("SELECT EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND (n.nspname<>'public' OR EXISTS(SELECT 1 FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f')) OR EXISTS(SELECT 1 FROM pg_proc p WHERE p.pronamespace=n.oid) OR EXISTS(SELECT 1 FROM pg_type t WHERE t.typnamespace=n.oid AND t.typtype IN ('e','d','c')))) AS occupied");
         if(check.rows[0]?.occupied!==false||!ownerChannel?.isOpen())throw Error('FRESH_DATABASE_OCCUPIED');
-        await migrateInTransaction(c,migrationDirectory);await migrateInTransaction(c,supplementalMigrationDirectory);if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+        await migrateInTransaction(c,migrationDirectory);if(normalOex){await c.query(normalMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256]);}else await migrateInTransaction(c,supplementalMigrationDirectory);if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       });
     }else await migrate(pool,migrationDirectory);
     stage = "BOOTSTRAP";
@@ -173,22 +176,23 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       if ((await pool.query("SELECT 1 FROM local_workspaces LIMIT 1")).rowCount) throw Error("LOCAL_WORKSPACE_ACCOUNT_MODE_REFUSED");
       if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);
     }
-    if(freshOexTest&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+    if(selectedOex&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+    if(!selectedOex&&personal&&environment.EXHIBITOS_RUNTIME_MODE==='native')supplementalMigrationDirectory=await recognizeNormalOexCatalog(pool,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)));
     stage = "STORAGE"; await mkdir(blobRoot, { recursive: true, mode: 0o700 });
     stage = "SIGNING_KEY";
     const keyFile = await signingKey(configRoot), freeze = await loadFreezeConfig({ runtimeRoot: webRoot, signingKeyFile: keyFile, origin });
     stage = "API"; const blobs = new FileBlobStore(blobRoot);
-    const uploadSlot=freshOexTest?createSelectedNativeUploadSlot():undefined,saveSlot=freshOexTest?createSelectedStudioPutSlot():undefined;
-    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !freshOexTest, ...(freshOexTest?{freshOexTest:true,uploadSlot,saveSlot}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory}:{}), webRoot, blobRoot } });
+    const uploadSlot=selectedOex?createSelectedNativeUploadSlot():undefined,saveSlot=selectedOex?createSelectedStudioPutSlot():undefined;
+    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory}:{}), webRoot, blobRoot } });
     await app.listen({ host: "127.0.0.1", port: apiPort });
-    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:freshOexTest }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
-    if(freshOexTest){
+    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
+    if(selectedOex){
       selectedTask=runFreshNativeOexOwner({pool,databaseUrl:environment.DATABASE_URL,blobs,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,runtimeGeneration:privateOwner.runtimeGeneration,secret:Buffer.from(privateOwner.secret,'hex'),channel:ownerChannel,payloadManifestPath:fileURLToPath(new URL('../../manifest.json',import.meta.url)),uploadSlot,saveSlot,signal:ownerAbort.signal});
       void selectedTask.catch(()=>{});
     }
     const importer = new Imports(pool, blobs); let stopping = false, timer, running, failures = 0, closed;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
-    if(!freshOexTest)running = tick();
+    if(!selectedOex)running = tick();
     const close = () => closed ??= (async () => {
       stopping=true;ownerStopped=true;ownerAbort.abort();let failed=false;
       const attempt=async action=>{try{await action();}catch{failed=true;}};
@@ -196,7 +200,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));
       await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});await attempt(()=>app.close());await attempt(()=>pool.end());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
     })();
-    shutdown=close;if(freshOexTest&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
+    shutdown=close;if(selectedOex&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
     return { app, proxy, pool, origin, close };
   } catch { ownerStopped=true;ownerAbort.abort();await ownerTask;if(ownerChannel)await ownerChannel.close();proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }
