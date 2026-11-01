@@ -1,4 +1,4 @@
-import {artifactCorners} from '@exhibitos/studio-contract';
+import {artifactCorners,assertRoomEnvelopeContents,assertRoomEnvelopeContentsAgainstBaseline,RoomEnvelopeError} from '@exhibitos/studio-contract';
 import {newDraft} from '../drafts/example';
 import {validateDraft} from '../drafts/validator';
 import {readFileSync} from 'node:fs';
@@ -51,4 +51,23 @@ it('places the explicit room beyond transformed bounds of a tall tilted room and
  const draft=newDraft(),document=draft.candidate,old=document.rooms[0]!;old.dimensions={width:2,height:30,depth:2};old.transform.rotation=[0,0,Math.SQRT1_2,Math.SQRT1_2];old.transform.scale=[1,1,1];
  expect(validateDraft(draft).errors).toEqual([]);const result=addPrivateRoom(document),added=result.command.candidate.rooms.find(r=>r.id===result.roomId)!;
  const right=Math.max(...artifactCorners(old.dimensions,[old.transform],true).map(p=>p[0])),left=Math.min(...artifactCorners(added.dimensions,[added.transform],true).map(p=>p[0]));expect(left).toBeGreaterThan(right);const invalid=structuredClone(document);invalid.rooms[0]!.transform.scale=[2,3,1];expect(()=>addPrivateRoom(invalid)).toThrow('INVALID_GEOMETRY');
+});
+
+it('allows unrelated edits with identical inherited doors but rejects changed or new misaligned structure',()=>{
+ const input=source(),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed),doc=draft.candidate;
+ expect(doc.openings.filter(o=>o.connectsToOpeningId)).toHaveLength(10);
+ const connected=doc.openings.find(o=>o.connectsToOpeningId)!,wall=doc.surfaces.find(s=>s.id===connected.surfaceId)!,room=doc.rooms.find(r=>r.id===wall.roomId)!;
+ expect(()=>assertRoomEnvelopeContents(doc,room.id)).toThrow(RoomEnvelopeError);
+ expect(()=>assertRoomEnvelopeContentsAgainstBaseline(doc,input.exhibition,room.id)).not.toThrow();
+ const placement=doc.placements.find(p=>p.roomId===room.id);if(placement){const {id,...rest}=placement;const moved=applyGeometryCommand(createGeometryState(doc),{type:'set-placement',id,placement:{...rest,transform:{...rest.transform,position:[rest.transform.position[0]+.1,rest.transform.position[1],rest.transform.position[2]]}}});expect(()=>assertRoomEnvelopeContentsAgainstBaseline(moved.present,input.exhibition,room.id)).not.toThrow();expect(undoGeometry(moved).present).toEqual(doc);}
+
+ const changed=structuredClone(doc);changed.openings.find(o=>o.id===connected.id)!.offset[0]+=.1;
+ expect(()=>assertRoomEnvelopeContentsAgainstBaseline(changed,input.exhibition,room.id)).toThrow(/연결된 두 문/);
+ const other=structuredClone(doc);const pair=other.openings.find(o=>o.id===connected.connectsToOpeningId)!,pairWall=other.surfaces.find(s=>s.id===pair.surfaceId)!;other.rooms.find(r=>r.id===pairWall.roomId)!.transform.position[0]+=.1;
+ expect(()=>assertRoomEnvelopeContentsAgainstBaseline(other,input.exhibition,room.id)).toThrow(/연결된 두 문/);
+ const replaced=structuredClone(doc),d=replaced.openings.find(o=>o.id===connected.id)!,p=replaced.openings.find(o=>o.id===connected.connectsToOpeningId)!;d.id=crypto.randomUUID();p.id=crypto.randomUUID();d.connectsToOpeningId=p.id;p.connectsToOpeningId=d.id;
+ expect(()=>assertRoomEnvelopeContentsAgainstBaseline(replaced,input.exhibition,room.id)).toThrow(/연결된 두 문/);
+ const badLight=structuredClone(doc);badLight.lights.push({...structuredClone(badLight.lights[0]!),id:crypto.randomUUID(),roomId:room.id,transform:{...badLight.lights[0]!.transform,position:[999,1,0]}});
+ expect(()=>assertRoomEnvelopeContentsAgainstBaseline(badLight,input.exhibition,room.id)).toThrow(/조명/);
+ expect(input.exhibition.openings).toEqual(doc.openings);
 });
