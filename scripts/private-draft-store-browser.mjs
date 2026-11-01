@@ -30,12 +30,13 @@ try{
   const reset=structuredClone(current.draft);reset.candidate.title='Reset source';
   const resetResult=await store.resetPrivate(unsaved,reset,current.version),resetPrevious=await store.privatePrevious(current.id);
   let conflict;try{await other.save(unsaved,current.version);}catch(e){conflict=e.code;}
-  const recovered=await store.recoverPrivate(resetResult.draft,resetResult.version),recoveryPrevious=await store.privatePrevious(current.id);
+  let previousConflict;try{await store.recoverPrivate(resetResult.draft,resetResult.version,1);}catch(e){previousConflict=e.code;}
+  const recovered=await store.recoverPrivate(resetResult.draft,resetResult.version,resetPrevious.version),recoveryPrevious=await store.privatePrevious(current.id);
   const archived=(await store.history(current.id)).map(r=>r.version);
   let blocked;try{new DraftStore('exhibitos-studio',{privateHistory:true});}catch(e){blocked=e.code;}
   await store.close();await other.close();
-  return {versions,previous:previous?.draft.candidate.title,reset:resetResult.draft.candidate.title,resetPrevious:resetPrevious?.draft.candidate.title,conflict,recovered:recovered.draft.candidate.title,recoveryPrevious:recoveryPrevious?.draft.candidate.title,archived,legacyVersion:original.version,blocked};
+  return {versions,previous:previous?.draft.candidate.title,reset:resetResult.draft.candidate.title,resetPrevious:resetPrevious?.draft.candidate.title,conflict,previousConflict,recovered:recovered.draft.candidate.title,recoveryPrevious:recoveryPrevious?.draft.candidate.title,archived,legacyVersion:original.version,blocked};
  },draft);
- assert.deepEqual(result.versions,[6,5,2,1]);assert.equal(result.previous,'Private 2');assert.equal(result.reset,'Reset source');assert.equal(result.resetPrevious,'Unsaved before reset');assert.equal(result.conflict,'LOCAL_CONFLICT');assert.equal(result.recovered,'Unsaved before reset');assert.equal(result.recoveryPrevious,'Reset source');assert.deepEqual(result.archived,[10,9,2,1]);assert.equal(result.blocked,'UNAVAILABLE');
+ assert.deepEqual(result.versions,[6,5,2,1]);assert.equal(result.previous,'Private 2');assert.equal(result.reset,'Reset source');assert.equal(result.resetPrevious,'Unsaved before reset');assert.equal(result.conflict,'LOCAL_CONFLICT');assert.equal(result.previousConflict,'LOCAL_CONFLICT');assert.equal(result.recovered,'Unsaved before reset');assert.equal(result.recoveryPrevious,'Reset source');assert.deepEqual(result.archived,[10,9,2,1]);assert.equal(result.blocked,'UNAVAILABLE');
  process.stdout.write(JSON.stringify({status:'PASS',browser:'Chromium',scope:'private IndexedDB opt-in, previous, reset, recovery, stale writer and legacy archive',...result})+'\n');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

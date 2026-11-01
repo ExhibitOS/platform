@@ -301,7 +301,7 @@ export class DraftStore {
   }
   /** The opt-in marker preserves all pre-existing history as an archive. Only
    * versions created after opt-in are pruned, inside the same CAS transaction. */
-  private async privateTransition(draft:Draft,expectedVersion:number,mode:'save'|'reset'|'recover'='save',beforeReset?:Draft):Promise<LocalDraft>{
+  private async privateTransition(draft:Draft,expectedVersion:number,mode:'save'|'reset'|'recover'='save',beforeReset?:Draft,expectedPrevious?:number):Promise<LocalDraft>{
     if(!this.options.privateHistory||!validateDraft(draft).valid||!Number.isSafeInteger(expectedVersion)||expectedVersion<0||expectedVersion>=Number.MAX_SAFE_INTEGER-2)throw new DraftError('INVALID_DRAFT');
     if(mode==='reset'&&(!beforeReset||!validateDraft(beforeReset).valid||beforeReset.id!==draft.id||beforeReset.exhibitionId!==draft.exhibitionId))throw new DraftError('INVALID_DRAFT');
     const db=await this.open(),tx=db.transaction(['drafts','history','legacy'],'readwrite'),done=completion(tx);
@@ -317,9 +317,11 @@ export class DraftStore {
       let input=draft;
       if(mode==='recover'){
         if(!current||marker.previous===undefined)throw new DraftError('NOT_FOUND');
+        if(marker.previous!==expectedPrevious)throw new DraftError('LOCAL_CONFLICT');
         const previous=await request(history.get([draft.id,marker.previous]));
         if(previous===undefined)throw new DraftError('NOT_FOUND');
-        input=checked(previous).draft;
+        const record=checked(previous);if(record.remote||record.draft.exhibitionId!==current.draft.exhibitionId)throw new DraftError('INVALID_DRAFT');
+        input=record.draft;
       }
       const make=(value:Draft,version:number):LocalDraft=>{
         const next=structuredClone(value);next.editVersion=version;next.updatedAt=new Date(Math.max(Date.now(),Date.parse(next.updatedAt),Date.parse(next.createdAt))).toISOString();
@@ -350,7 +352,7 @@ export class DraftStore {
     if(raw===undefined)throw new DraftError('CORRUPT_RECORD');return checked(raw);
   }
   async resetPrivate(current:Draft,reset:Draft,expectedVersion:number):Promise<LocalDraft>{return this.privateTransition(reset,expectedVersion,'reset',current);}
-  async recoverPrivate(current:Draft,expectedVersion:number):Promise<LocalDraft>{return this.privateTransition(current,expectedVersion,'recover');}
+  async recoverPrivate(current:Draft,expectedVersion:number,expectedPreviousVersion:number):Promise<LocalDraft>{return this.privateTransition(current,expectedVersion,'recover',undefined,expectedPreviousVersion);}
   async history(id: string): Promise<LocalDraft[]> {
     const db = await this.open(),
       rows: LocalDraft[] = [];
