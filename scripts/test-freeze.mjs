@@ -29,10 +29,10 @@ try {
   await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname, "009_oex.sql");
   const previousMigrations = (await pool.query("SELECT name,sha256 FROM schema_migrations ORDER BY name")).rows;
   await migrate(pool, new URL("../database/migrations/", import.meta.url).pathname);
-  await test("freeze migration adds one schema while preserving every prior checksum", async () => {
+  await test("later migrations preserve every prior freeze schema checksum", async () => {
     assert.equal(previousMigrations.length, 9);
     assert.deepEqual((await pool.query("SELECT name,sha256 FROM schema_migrations WHERE name<'010' ORDER BY name")).rows, previousMigrations);
-    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 15);
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n, 25);
   });
   const { privateKey } = generateKeyPairSync("ed25519"), keyFile = `${directory}/synthetic-signing-key.json`;
   const trustedKey = createPublicKey(privateKey);
