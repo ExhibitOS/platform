@@ -17,6 +17,7 @@ export function lightTemperatureCommand(document:Exhibition,lightId:string,raw:s
 export function LightTemperatureControls({document,lightId,disabled,execute,error}:{document:Exhibition;lightId:string;disabled:boolean;execute:(command:GeometryCommand)=>void;error:(message:string)=>void}){
  const current=lightDetailsFor(document).find(value=>value.lightId===lightId)?.temperatureKelvin;
  const [raw,setRaw]=useState(current===undefined?'':String(current)),descriptionId=useId();
+ const numeric=raw.trim()?Number(raw):NaN,inRange=Number.isFinite(numeric)&&numeric>=1000&&numeric<=20000,rangeValue=inRange?numeric:1000;
  useEffect(()=>{setRaw(current===undefined?'':String(current));},[lightId,current]);
  function apply(){
   if(disabled)return;
@@ -27,9 +28,11 @@ export function LightTemperatureControls({document,lightId,disabled,execute,erro
   <fieldset disabled={disabled}>
    <legend>색온도</legend>
    <p id={descriptionId}>{current===undefined?'직접 지정한 색상을 사용하고 있어요.':'적용한 색온도: '+current+' K'} 화면에서 보이는 색의 근사값이에요.</p>
-   <label>색온도 (K)<input type="number" min="1000" max="20000" step="any" value={raw} aria-describedby={descriptionId} onChange={event=>setRaw(event.target.value)}/></label>
+   <label className="private-range-label">색온도 조절<input type="range" aria-label="따뜻하게 또는 차갑게" min="1000" max="20000" step="any" value={rangeValue} aria-valuetext={inRange?raw+' K':raw.trim()?'입력한 색온도를 확인하세요.':'색온도 미지정. 움직여 새 색온도를 선택하세요.'} aria-describedby={descriptionId} onChange={event=>setRaw(event.target.value)}/></label>
+   <div className="private-range-ends"><span>따뜻하게</span><output>{inRange?raw+' K':raw.trim()?'수치 확인 필요':'미지정'}</output><span>차갑게</span></div>
+   <details><summary>색온도 수치</summary><label>색온도 (K)<input type="number" min="1000" max="20000" step="any" value={raw} aria-describedby={descriptionId} onChange={event=>setRaw(event.target.value)}/></label></details>
    <button type="submit">색온도 적용</button>
-   <p>색상을 직접 고르면 색온도 설정은 해제돼요.</p>
+   <p>색상을 직접 골라 적용하면 색온도 설정은 해제돼요.</p>
   </fieldset>
  </form>;
 }
