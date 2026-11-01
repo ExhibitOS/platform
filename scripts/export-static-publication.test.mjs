@@ -201,7 +201,7 @@ test('invalid floor references cannot bypass static profile admission',async t=>
 
 async function surfaceEditorSetup(t){
  const state=await setup(t);state.options.privateEditor=true;
- await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static.html'),'<html><head><meta content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
  for(const file of SURFACE_MATERIAL_FILES){const path=join(state.runtime,file.artifactPath);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.artifactPath,import.meta.url),path);}
  return state;
@@ -251,7 +251,7 @@ test('optional surface handling does not admit unregistered runtime files',async
 
 async function floorEditorSetup(t){
  const state=await setup(t);state.options.privateEditor=true;
- await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static.html'),'<html><head><meta content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
  for(const file of FLOOR_TEXTURE_FILES){const path=join(state.runtime,file.path);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),path);}
  return state;
@@ -305,14 +305,15 @@ test('private optional floor handling still rejects unregistered runtime files',
 const benchPrefix='furnish-catalog/backless-oak-bench/1/';
 async function isolatedBenchExporter(t){
  const state=await setup(t);state.options.privateEditor=true;
- await writeFile(join(state.runtime,'static.html'),'<meta content="STATIC_INDEX_SHA256"><div id="root"></div>');
+ await writeFile(join(state.runtime,'static.html'),'<html><head><meta content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
  // Isolate the existing compiled trusted reader's source root. Damage tests
  // must never rename or modify the shared catalogue or another checkout.
  const code=join(state.directory,'trusted-code'),api=join(code,'apps/api/dist');await mkdir(api,{recursive:true});await mkdir(join(code,'scripts'));
  await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
- for(const name of ['oex.js','cover-images.js','auth.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
+ for(const name of ['oex.js','cover-images.js','auth.js','approved-cover-projection.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
  await copyFile(new URL('../apps/api/dist/furnishings.js',import.meta.url),join(api,'furnishings.js'));
+ const web=join(code,'apps/web/src');await mkdir(web,{recursive:true});await copyFile(new URL('../apps/web/src/cover-variant-descriptor.mjs',import.meta.url),join(web,'cover-variant-descriptor.mjs'));
  await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
  const entry=furnishingCatalogueEntry('backless-oak-bench');
  for(const path of [entry.path,entry.rights.noticePath]){const destination=join(code,path);await mkdir(dirname(destination),{recursive:true});await copyFile(new URL('../'+path,import.meta.url),destination);}
