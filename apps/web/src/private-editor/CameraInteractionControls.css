@@ -4,6 +4,7 @@
  gap:.5rem;
  min-inline-size:0;
 }
+.private-scene-tools>.private-camera-interaction { display:grid; }
 .private-camera-interaction>button {
  min-inline-size:0;
  min-block-size:2.75rem;
