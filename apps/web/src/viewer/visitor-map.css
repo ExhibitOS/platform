@@ -37,6 +37,7 @@
 .viewer-visitor-map:not([open]){top:calc(1rem + env(safe-area-inset-top,0px))}
 @media(max-width:700px){.viewer-visitor-map:not([open]){top:calc(.75rem + env(safe-area-inset-top,0px))}}
 .visitor-map-fov{fill:var(--publication-action,#135967);fill-opacity:.08;stroke:none;pointer-events:none}
+.visitor-map-position>*{vector-effect:non-scaling-stroke}
 .visitor-map-compact .visitor-map-fov{fill:#b7dfe7;fill-opacity:.14}
 .visitor-map-compact .visitor-map-work-anchor{fill:#e4f2f5}.visitor-map-compact .visitor-map-anchor-link{stroke:#e4f2f5;stroke-opacity:.65}
 .visitor-map-anchor-link[data-active=true]{stroke:var(--publication-action,#135967);stroke-opacity:1}.visitor-map-work-anchor[data-active=true]{fill:var(--publication-action,#135967);stroke:var(--publication-paper,#f8fbfc);stroke-width:2;vector-effect:non-scaling-stroke}
