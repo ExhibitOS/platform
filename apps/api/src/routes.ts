@@ -29,6 +29,7 @@ import { Oex, MAX_OEX_UPLOAD, type OexInput } from './oex.ts';
 import {FileBlobStore} from '@exhibitos/storage';
 import {registerSelectedNativeOexUploadSlot,type NativeBoundedUploadSlot} from './native-bounded-oex-upload.ts';
 import {registerSelectedStudioPutGate,runSelectedStudioPut,type SelectedStudioPutSlot} from './native-selected-studio-put.ts';
+import {registerNativeBoundedOexExport} from './native-bounded-oex-export.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
@@ -162,6 +163,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  for(const action of ['revoke','restore'] as const)app.post(`${fp}/:freezeId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>(await target(c,s,req)).availability(c,s,freezeId(req),action==='restore')));
  if(freezes&&!freshOexTest)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
  const oex=store?new Oex(pool,store,nativeOexWorkspace):null;
+ if(nativeOexWorkspace&&nativeBoundedEditing&&store instanceof FileBlobStore&&oex)registerNativeBoundedOexExport(app,{auth,config:input,context:nativeOexWorkspace,blobRoot:store.root,oex,guard:req=>guarded(req,true),token});
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
  app.post(`${sp}/:id/oex/export`,{schema:{body:object({})}},call(true,async(c,s,req,reply)=>{const bytes=await requireOex().export(c,s,jobId(req),requiredMatch(req.headers['if-match']));return reply.header('content-type','application/vnd.exhibitos.oex+zip').header('content-disposition','attachment; filename="exhibition.oex"').send(bytes);}));

@@ -18,6 +18,14 @@ describe('public service health contract', () => {
     expect(()=>buildApp({pool,auth:local,freshOexTest:true,nativeOexWorkspace:context,nativeBoundedEditing:true})).toThrow('NATIVE_OEX_CONFIGURATION');
     expect(()=>buildApp({pool,auth:{mode:'network',origin:'https://example.org',bindHost:'127.0.0.1'},freshOexTest:true,nativeOexWorkspace:context})).toThrow('NATIVE_OEX_CONFIGURATION');
   });
+  it('registers the bounded export only for owned local native editing and still requires a session',async()=>{
+    const tenant=crypto.randomUUID(),id=crypto.randomUUID(),context={workspaceId:crypto.randomUUID(),tenantId:tenant,principalId:crypto.randomUUID()} as NativeOexWorkspaceContext,pool={} as Pool,auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},blobs=new FileBlobStore('/synthetic-unused');
+    const normal=buildApp({pool,auth,blobs});apps.push(normal);const native=buildApp({pool,auth,blobs,nativeOexWorkspace:context,nativeBoundedEditing:true});apps.push(native);
+    const url=`/api/v1/tenants/${tenant}/studio/exhibitions/${id}/native-oex/export`,headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200','if-match':'\"studio-r1-'+ 'a'.repeat(64)+'\"'};
+    expect((await normal.inject({method:'POST',url,headers,payload:{}})).statusCode).toBe(404);
+    expect((await native.inject({method:'POST',url,headers,payload:{}})).statusCode).toBe(401);
+    expect((await native.inject({method:'POST',url,headers:{...headers,origin:'http://example.invalid'},payload:{}})).statusCode).toBe(403);
+  });
   it('returns the authenticated saved row policy without changing the Studio response',async()=>{
     const tenant=crypto.randomUUID(),user=crypto.randomUUID(),workspaceId=crypto.randomUUID(),token='a'.repeat(43),draft=newDraft();
     const session={id:crypto.randomUUID(),user_id:user,tenant_id:tenant,role:'artist',csrf_hash:'',csrf_token:'',expires_at:new Date('2099-01-01T00:00:00Z')};

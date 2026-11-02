@@ -31,7 +31,7 @@ import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {transaction,sha256,type BlobStore} from '@exhibitos/storage';
-import {writeOex,validateExhibition,validateFurnishingInventory,packageFurnishingAssetManifest,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
+import {writeOex,writeOexFile,validateExhibition,validateFurnishingInventory,packageFurnishingAssetManifest,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
 import {SPACE_STILL_NAMESPACE,spaceStillFor} from '@exhibitos/spec/space-still';
 import {CoverImages,coverImageAsset,validateCoverImage} from './cover-images.ts';
 import {DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,curationDurationValid,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails,creationYearFor} from '@exhibitos/studio-contract';
@@ -58,9 +58,9 @@ const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&
 export function portableOexSnapshot(candidate:Exhibition){const result=structuredClone(candidate);for(const a of result.artworks)if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}return result;}
 export interface ImportedPreviewOmission {artworkId:string;assetId:string;sha256:string}
 /** Remove only an unreferenced optional imported preview, preserving the draft. */
-export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPreviewOmission[]){
+export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPreviewOmission[],archiveProfile?:'bounded-file-v1'){
  if(!Array.isArray(omissions)||omissions.length>source.artworks.length)throw new ApiError(409,'FREEZE_INTEGRITY');
- checkOexProfile(source,true);const result=structuredClone(source),seen=new Set<string>();
+ checkOexProfile(source,true,archiveProfile);const result=structuredClone(source),seen=new Set<string>();
  for(const omission of omissions){
   if(!object(omission)||Object.keys(omission).sort().join(',')!=='artworkId,assetId,sha256'||typeof omission.artworkId!=='string'||typeof omission.assetId!=='string'||typeof omission.sha256!=='string'||!/^[a-f0-9]{64}$/.test(omission.sha256))throw new ApiError(409,'FREEZE_INTEGRITY');
   const key=omission.artworkId.toLowerCase(),art=result.artworks.find(a=>a.id.toLowerCase()===key),preview=art&&artworkThumbnailFor(art);
@@ -70,7 +70,7 @@ export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPrev
   const scan=(v:unknown,field='')=>{if(typeof v==='string'&&((REFERENCE_FIELDS.has(field)&&v.toLowerCase()===preview.id.toLowerCase())||(field==='path'&&v.toLowerCase()===preview.path.toLowerCase())))referenced=true;else if(Array.isArray(v))for(const item of v)scan(item,field);else if(object(v))for(const [key,item]of Object.entries(v))scan(item,key);};
   scan(result);if(referenced)throw new ApiError(409,'FREEZE_INTEGRITY');
  }
- checkOexProfile(result,true);return result;
+ checkOexProfile(result,true,archiveProfile);return result;
 }
 /** A pinned authority can add only the exact optional images to the original scene. */
 export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPin[]){
@@ -249,6 +249,36 @@ export class Oex {
   else {await c.query("UPDATE oex_import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);}
   return this.view((await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);
  }
+ /** Require current CMS state, rather than historical scene authority. */
+ private async currentExportArtwork(c:PoolClient,s:Session,a:Exhibition['artworks'][number]):Promise<ArtworkMetadata>{
+  const binding=a.extensions?.[CMS]as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
+  if(!binding||binding.tenantId?.toLowerCase()!==s.tenantId.toLowerCase()||binding.artworkId?.toLowerCase()!==a.id.toLowerCase()||binding.revision!==a.revision)throw new ApiError(422,'CMS_BINDING_REQUIRED');
+  const current=await this.cms.ownArtwork(c,s,a.id);const approval=(await c.query('SELECT * FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,a.id,a.revision])).rows[0];
+  if(!current.cms_managed||current.revision!==a.revision||current.approved_revision!==a.revision||current.approved_asset_id?.toLowerCase()!==a.primaryAssetId.toLowerCase()||!approval||!validMetadata(current.metadata)||!equal(approval.snapshot.metadata,current.metadata)||!equal(current.metadata.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  const m=current.metadata as ArtworkMetadata;
+  if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  const primary=a.assets.find(x=>x.id.toLowerCase()===a.primaryAssetId.toLowerCase())!;
+  if(!equal({id:primary.id.toLowerCase(),sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.snapshot.asset?.id?.toLowerCase(),sha256:approval.snapshot.asset?.sha256,bytes:approval.snapshot.asset?.bytes,mime:approval.snapshot.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  if(!approvedImportedThumbnail(a,approval.snapshot))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  return m;
+ }
+ /** Check the live owner record before either reading or revalidating bytes. */
+ private async currentExportAssetRecord(c:PoolClient,s:Session,a:Exhibition['artworks'][number],asset:Exhibition['artworks'][number]['assets'][number],m:ArtworkMetadata){
+  const stored=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];
+  if(!stored||stored.sha256!==asset.sha256||Number(stored.bytes)!==asset.bytes||stored.mime!==asset.mime||!equal(stored.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  if(!allowedRights(m.rights,'export')||!allowedRights(stored.rights,'export')||!allowedRights(a.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');return stored;
+ }
+ /** Load and validate one currently approved asset without retaining other assets. */
+ private async currentExportAsset(c:PoolClient,s:Session,a:Exhibition['artworks'][number],asset:Exhibition['artworks'][number]['assets'][number],m:ArtworkMetadata){
+  const stored=await this.currentExportAssetRecord(c,s,a,asset,m);const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');await checkAssetBytes(a,asset.id,bytes,asset.mime);
+  return {bytes,storedRights:stored.rights as unknown};
+ }
+ private async currentExportPreview(c:PoolClient,s:Session,a:Exhibition['artworks'][number],asset:NonNullable<ReturnType<typeof artworkThumbnailFor>>){
+  const stored=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[s.tenantId,a.id,asset.id])).rows[0];
+  if(!stored||stored.sha256!==asset.sha256||Number(stored.bytes)!==asset.bytes||stored.mime!==asset.mime||!equal(stored.rights,a.rights)||!allowedRights(stored.rights,'export')||!allowedRights(stored.rights,'display'))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');await validateThumbnailBytes(bytes);
+  if(!allowedRights(stored.rights,'export')||!allowedRights(stored.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');return {bytes,storedRights:stored.rights as unknown};
+ }
  async export(c:PoolClient,s:Session,id:string,match:string):Promise<Buffer>{return (await this.exportDetailed(c,s,id,match)).bytes;}
  async exportDetailed(c:PoolClient,s:Session,id:string,match:string):Promise<{bytes:Buffer;pins:FrozenThumbnailPin[];omittedImported:ImportedPreviewOmission[]}>{
   const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
@@ -259,24 +289,14 @@ export class Oex {
   const rights:unknown[]=[];let total=0;
   const pendingImported:{artwork:Exhibition['artworks'][number];asset:NonNullable<ReturnType<typeof artworkThumbnailFor>>}[]=[];
   for(const a of e.artworks){
-   const binding=a.extensions?.[CMS]as {tenantId?:string;artworkId?:string;revision?:number}|undefined;
-   if(!binding||binding.tenantId?.toLowerCase()!==s.tenantId.toLowerCase()||binding.artworkId?.toLowerCase()!==a.id.toLowerCase()||binding.revision!==a.revision)throw new ApiError(422,'CMS_BINDING_REQUIRED');
-   const current=await this.cms.ownArtwork(c,s,a.id);const approval=(await c.query('SELECT * FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,a.id,a.revision])).rows[0];
-   if(!current.cms_managed||current.revision!==a.revision||current.approved_revision!==a.revision||current.approved_asset_id?.toLowerCase()!==a.primaryAssetId.toLowerCase()||!approval||!validMetadata(current.metadata)||!equal(approval.snapshot.metadata,current.metadata)||!equal(current.metadata.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
-   const m=current.metadata as ArtworkMetadata;
-   if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
-   const primary=a.assets.find(x=>x.id.toLowerCase()===a.primaryAssetId.toLowerCase())!;
-   if(!equal({id:primary.id.toLowerCase(),sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.snapshot.asset?.id?.toLowerCase(),sha256:approval.snapshot.asset?.sha256,bytes:approval.snapshot.asset?.bytes,mime:approval.snapshot.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
-   if(!approvedImportedThumbnail(a,approval.snapshot))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   const m=await this.currentExportArtwork(c,s,a);
    const optional=artworkThumbnailFor(a);
    for(const asset of a.assets){
     if(optional&&asset.id.toLowerCase()===optional.id.toLowerCase()){
      try{withoutImportedPreviews(original,[{artworkId:a.id,assetId:optional.id,sha256:optional.sha256}]);pendingImported.push({artwork:structuredClone(a),asset:optional});continue;}catch{/* A referenced preview remains required. */}
     }
-    const stored=(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",[s.tenantId,a.id,asset.id])).rows[0];
-    if(!stored||stored.sha256!==asset.sha256||Number(stored.bytes)!==asset.bytes||stored.mime!==asset.mime||!equal(stored.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
-    if(!allowedRights(m.rights,'export')||!allowedRights(stored.rights,'export')||!allowedRights(a.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
-    rights.push(m.rights,stored.rights,a.rights);const bytes=Buffer.from(await this.blobs.get(stored.object_key));if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');await checkAssetBytes(a,asset.id,bytes,asset.mime);total+=bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(asset.path)&&sha256(files.get(asset.path)!)!==asset.sha256)throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(asset.path,bytes);
+    const {bytes,storedRights}=await this.currentExportAsset(c,s,a,asset,m);
+    rights.push(m.rights,storedRights,a.rights);total+=bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(asset.path)&&sha256(files.get(asset.path)!)!==asset.sha256)throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(asset.path,bytes);
    }
    if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}
   }
@@ -352,6 +372,80 @@ export class Oex {
   }
   if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
   return {bytes,pins,omittedImported};
+ }
+ /** Internal producer. The caller owns a fresh private destination, the live
+  * authenticated transaction, cancellation, the file and its actual drain.
+  * This method must not be exposed directly as an HTTP route. Retained imported
+  * previews are checked; generated optional thumbnail pins are not added. */
+ async exportBoundedFile(c:PoolClient,s:Session,id:string,match:string,destination:string,signal:AbortSignal){
+  signal.throwIfAborted();const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
+  const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
+  if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
+  const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1');
+  const inputs=new Map<string,()=>Promise<Uint8Array>>(),artworkInputs=new Map<string,Array<()=>Promise<Uint8Array>>>(),rights:unknown[]=[],previewRights:unknown[]=[],omitted:ImportedPreviewOmission[]=[];
+  const add=(path:string,load:()=>Promise<Uint8Array>)=>{if(inputs.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');inputs.set(path,load);};
+  for(const a of original.artworks){
+   const m=await this.currentExportArtwork(c,s,a),optional=artworkThumbnailFor(a);
+   for(const asset of a.assets){
+    if(optional&&asset.id.toLowerCase()===optional.id.toLowerCase()){
+     const omission={artworkId:a.id,assetId:optional.id,sha256:optional.sha256};let removable=false;
+     try{withoutImportedPreviews(original,[...omitted,omission],'bounded-file-v1');removable=true;}catch{/* Referenced previews remain required. */}
+     if(removable){
+      try{await this.currentExportPreview(c,s,a,optional);const loaders=artworkInputs.get(asset.path)??[];loaders.push(async()=>{signal.throwIfAborted();const {bytes,storedRights}=await this.currentExportPreview(c,s,a,optional);previewRights.push(storedRights);signal.throwIfAborted();return bytes;});artworkInputs.set(asset.path,loaders);}
+      catch{signal.throwIfAborted();omitted.push(omission);}continue;
+     }
+    }
+    const loaders=artworkInputs.get(asset.path)??[];loaders.push(async()=>{signal.throwIfAborted();const {bytes,storedRights}=await this.currentExportAsset(c,s,a,asset,m);rights.push(m.rights,storedRights,a.rights);signal.throwIfAborted();return bytes;});artworkInputs.set(asset.path,loaders);
+   }
+  }
+  for(const [path,loaders] of artworkInputs)add(path,async()=>{let first:Uint8Array|undefined;for(const load of loaders){const bytes=await load();if(first&&sha256(first)!==sha256(bytes))throw new ApiError(422,'OEX_PATH_CONFLICT');first??=bytes;}if(!first)throw new ApiError(422,'OEX_PATH_CONFLICT');return first;});
+  for(const m of original.mediaAssets)add(m.path,async()=>{
+   signal.throwIfAborted();const source=(await c.query("SELECT * FROM studio_audio WHERE tenant_id=$1 AND exhibition_id=$2 AND id=$3 AND state='approved' AND NOT revoked",[s.tenantId,id,m.id])).rows[0]as AudioRow|undefined;
+   const approval=(await c.query('SELECT snapshot FROM audio_approvals WHERE tenant_id=$1 AND audio_id=$2',[s.tenantId,m.id])).rows[0]?.snapshot;
+   if(!source||!approval||!equal(approval,audioMedia(source))||!equal(audioMedia(source),m))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   if(!allowedRights(source.rights,'export')||!allowedRights(m.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
+   const bytes=Buffer.from(await this.blobs.get(source.object_key));if(bytes.length!==m.bytes||sha256(bytes)!==m.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+   if(!curationDurationValid(original,m.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,'CURATION_AUDIO_DURATION');rights.push(source.rights,m.rights);signal.throwIfAborted();return bytes;
+  });
+  const still=spaceStillFor(original);if(still)add(still.path,async()=>{
+   signal.throwIfAborted();const source=await new CoverImages(this.blobs).approvedBytes(c,s,id,still.id,'export');
+   if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   if(!allowedRights(still.rights,'export')||!allowedRights(source.row.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');rights.push(still.rights,source.row.rights);signal.throwIfAborted();return source.bytes;
+  });
+  for(const asset of furnishingsFor(original)?.assets??[]){for(const role of ['model','notice'] as const){const path=role==='model'?asset.path:asset.rights.notice.path;add(path,async()=>{signal.throwIfAborted();const pair=await furnishingResourcePair(c,this.blobs,s.tenantId,id,asset);signal.throwIfAborted();return pair[role];});}}
+  for(const resource of packageFloorResourceManifest(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await floorResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
+  for(const resource of packageSurfaceMaterialManifest(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
+  for(const resource of footstepResourcesFor(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
+  const exhibition=portableOexSnapshot(withoutImportedPreviews(original,omitted,'bounded-file-v1'));checkOexProfile(exhibition,false,'bounded-file-v1');signal.throwIfAborted();
+  const result=await writeOexFile(exhibition,{paths:[...inputs.keys()],get:async path=>{signal.throwIfAborted();const load=inputs.get(path);if(!load)throw new ApiError(422,'OEX_PATH_CONFLICT');return load();}},destination,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}});
+  // Return the completed file to its owner even on late cancellation: the
+  // owner must first bind the created inode before checking signal/rights.
+  const checkRights=()=>{if(rights.some(r=>!allowedRights(r,'export'))||previewRights.some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');};
+  return {...result,omittedImported:omitted,checkRights};
+ }
+ /** Recheck live authorization after a private file has been staged and the
+  * original authentication transaction has committed. No payload is reread. */
+ async revalidateBoundedExport(c:PoolClient,s:Session,id:string,match:string,omitted:ImportedPreviewOmission[]){
+  const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
+  const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
+  if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
+  const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1');
+  const retained=withoutImportedPreviews(original,omitted,'bounded-file-v1'),rights:unknown[]=[],displayRights:unknown[]=[];
+  for(const a of original.artworks){
+   const m=await this.currentExportArtwork(c,s,a),current=retained.artworks.find(x=>x.id===a.id);if(!current)throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   for(const asset of current.assets){const stored=await this.currentExportAssetRecord(c,s,a,asset,m);rights.push(m.rights,stored.rights,a.rights);const preview=artworkThumbnailFor(a);if(preview?.id.toLowerCase()===asset.id.toLowerCase()){if(!allowedRights(stored.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');displayRights.push(stored.rights);}}
+  }
+  for(const m of original.mediaAssets){
+   const source=(await c.query("SELECT * FROM studio_audio WHERE tenant_id=$1 AND exhibition_id=$2 AND id=$3 AND state='approved' AND NOT revoked",[s.tenantId,id,m.id])).rows[0]as AudioRow|undefined;
+   const approval=(await c.query('SELECT snapshot FROM audio_approvals WHERE tenant_id=$1 AND audio_id=$2',[s.tenantId,m.id])).rows[0]?.snapshot;
+   if(!source||!approval||!equal(approval,audioMedia(source))||!equal(audioMedia(source),m))throw new ApiError(409,'OEX_SOURCE_CHANGED');if(!allowedRights(source.rights,'export')||!allowedRights(m.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');rights.push(source.rights,m.rights);
+  }
+  const still=spaceStillFor(original);if(still){const source=await new CoverImages(this.blobs).approved(c,s,id,still.id,'export');if(!equal(coverImageAsset(source),still))throw new ApiError(409,'OEX_SOURCE_CHANGED');if(!allowedRights(still.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');rights.push(source.rights,still.rights);}
+  for(const asset of furnishingsFor(original)?.assets??[])await furnishingResourcePair(c,this.blobs,s.tenantId,id,asset);
+  for(const resource of packageFloorResourceManifest(original))await floorResourceBytes(c,this.blobs,s.tenantId,id,resource);
+  for(const resource of packageSurfaceMaterialManifest(original))await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);
+  for(const resource of footstepResourcesFor(original))await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);
+  const checkRights=()=>{if(rights.some(r=>!allowedRights(r,'export'))||displayRights.some(r=>!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');};checkRights();return checkRights;
  }
  /** Omission never makes an unapproved imported preview authoritative. */
  async authorizeOmissions(c:PoolClient,s:Session,source:Exhibition,omissions:ImportedPreviewOmission[]){

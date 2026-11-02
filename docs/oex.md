@@ -54,6 +54,17 @@ before granting export rights or distributing an archive.
 
 ## Limits and recovery
 
+The owned local native runtime has a separate bounded-file export endpoint for
+its authenticated personal workspace. It writes the saved revision as a
+`bounded-file-v1` archive, up to 512MiB, and streams the validated file with a
+digest. The ordinary web export and import remain subject to their existing
+64MiB limits. This endpoint is not itself a native user-interface control or a
+claim that all clients can import the bounded profile. Imported optional
+previews are retained when authorized; automatically generated thumbnail pins
+are not added by this endpoint. If a previous private staging file cannot be
+safely identified after an interrupted operation, the workspace refuses a new
+bounded export until its owner resolves that specific state.
+
 Archive/upload and Platform decoded total are bounded64MiB. The public reader
 also enforces256files,100MiB per expanded file,256MiB expanded total and100:1
 compression ratio; the tighter Platform total applies to service imports.
