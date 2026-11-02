@@ -35,7 +35,7 @@ it('binds actual journal and provider records to the simulated owned-channel exc
   await expect(sendOexClaimReady(result,lease,verifyLease)).rejects.toThrow('OEX_OWNER_CLAIM');
   const identity={correlationId:result.correlationId,attemptId:request.attemptId,runtimeGeneration:request.runtimeGeneration,generation:request.generation,reservationId:request.reservationId,reservationGeneration:result.receipt.generation,receiptDigest:result.receiptDigest};
   await expect(requestSelectedSettlement({} as typeof result,identity)).rejects.toThrow('OEX_SELECTED_SETTLEMENT');
-  const authority=await requestSelectedSettlement(result,identity);await expect(requestSelectedSettlement(result,identity)).rejects.toThrow('OEX_SELECTED_SETTLEMENT');await journal.settleSelectedOex(provider,result.handle,authority,{exhibitionId:id(15),requestId:id(16),etag:'\"studio-r2-'+ 'd'.repeat(64)+'\"'});await sendSelectedSettlementReceipt(authority);
+  const authority=await requestSelectedSettlement(result,identity);await expect(requestSelectedSettlement(result,identity)).rejects.toThrow('OEX_SELECTED_SETTLEMENT');await journal.settleSelectedOex(provider,result.handle,authority,{exhibitionId:id(15),requestId:id(16),etag:'"studio-r2-'+ 'd'.repeat(64)+'"'});await sendSelectedSettlementReceipt(authority);
   expect((await readdir(budgetRoot!)).filter(n=>n.startsWith('lease-'))).toEqual([]);
   const names=await readdir(journalRoot!);expect(names).toContain(request.attemptId+'.settlement-terminal.json');expect(names).toContain(request.attemptId+'.reservation-released.json');expect(names.some(n=>n.startsWith('resource-'))).toBe(false);
   await expect(provider.releaseSelectedOex(result.binding,result.handle.digest,authority)).rejects.toThrow('OEX_SELECTED_SETTLEMENT');

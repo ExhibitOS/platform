@@ -6,7 +6,7 @@ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 function fixture(count=1){
  const selection={version:1,kind:'upload-selection',correlationId:id(1),runtimeGeneration:id(2),workspaceId:id(3),tenantId:id(4),principalId:id(5),requestId:id(6),archiveBytes:67108865,archiveSha256:'a'.repeat(64)};
  const expiry=new Date('2099-01-01T00:00:00Z'),query=vi.fn(async(sql:string)=>sql.startsWith('SELECT a.id')?{rowCount:count,rows:Array.from({length:count},(_,i)=>({id:id(7+i),expires_at:expiry}))}:{rows:[]}),client={query,release:vi.fn()},pool={options:{connectionTimeoutMillis:5000},connect:vi.fn(async()=>client)} as unknown as Pool;
- const channel={send:vi.fn(async(_v:Uint8Array)=>{}),receive:vi.fn(async()=>Buffer.from(JSON.stringify(selection))),close:vi.fn(async()=>{})},install=vi.fn(async()=>{}),verifyOwner=vi.fn(async()=>{}),assertDatabase=vi.fn(async()=>{});
+ const channel={send:vi.fn(async(_v:Uint8Array)=>{void _v;}),receive:vi.fn(async()=>Buffer.from(JSON.stringify(selection))),close:vi.fn(async()=>{})},install=vi.fn(async()=>{}),verifyOwner=vi.fn(async()=>{}),assertDatabase=vi.fn(async()=>{});
  return {selection,pool,channel,install,verifyOwner,assertDatabase};
 }
 it.skipIf(!process.getuid?.())('binds the sole current personal server Session and echoes the exact selection',async()=>{

@@ -16,7 +16,7 @@ async function fixture(){
  const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
  // Projection tests use opaque qualified bytes; binary decoding is a separate integration check.
  const bytes=Buffer.from('qualified synthetic still boundary witness');
- const asset:SpaceStillAsset={id,path:`space-still/${id}/image.png`,mime:'image/png',bytes:bytes.length,sha256:sha256(bytes),rights:{...structuredClone(candidate.artworks[0]!.rights),creditLine:id}};
+ const asset:SpaceStillAsset={id,path:`space-still/${id}/image.png`,mime:'image/png',bytes:bytes.length,sha256:sha256(bytes),rights:{...structuredClone(candidate.artworks[0]!.rights as Record<string,unknown>),creditLine:id} as SpaceStillAsset['rights']};
  candidate.extensions={...candidate.extensions,[N]:{version:1,asset},[ENTRANCE_NAMESPACE]:{version:1,artist:id,introduction:'Independent space still',imageAssetId:id.toUpperCase(),imageAlt:id,mobilePosition:'center'}};
  return {candidate,bytes,asset};
 }
@@ -60,7 +60,8 @@ it('owner-scoped live cover approval gates distinguish display/export, revocatio
  });
  const client={query} as unknown as PoolClient;
  expect((await service.approved(client,session,exhibitionId,id)).id).toBe(id);expect(access).toHaveBeenCalledWith(client,session,exhibitionId);
- row={...row,rights:{...row.rights,permissions:{...row.rights.permissions,display:false,export:true}}};snapshot=coverImageAsset(row);
+ const rights=row.rights as {permissions:Record<string,unknown>};
+ row={...row,rights:{...rights,permissions:{...rights.permissions,display:false,export:true}} as SpaceStillAsset['rights']};snapshot=coverImageAsset(row);
  await expect(service.approved(client,session,exhibitionId,id)).rejects.toMatchObject({code:'COVER_IMAGE_RIGHTS_DENIED'});
  expect((await service.approved(client,session,exhibitionId,id,'export')).id).toBe(id);
  row={...row,revoked:true};await expect(service.approved(client,session,exhibitionId,id,'export')).rejects.toMatchObject({code:'COVER_IMAGE_RIGHTS_DENIED'});

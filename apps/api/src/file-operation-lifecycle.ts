@@ -40,7 +40,8 @@ export class FileOperationLifecycle implements FileOperationRunner {
   const identity=identitySnapshot(input);signal.throwIfAborted();
   if(this.active>=this.capacity)throw Error('FILE_OPERATION_BUSY');
   this.active++;
-  let client:PoolClient|undefined,locked=false,broken=false,inTransaction=false,committing=false,completed=false;
+  let client:PoolClient|undefined,locked=false,broken=false,inTransaction=false,committing=false;
+  let completedOutput:TResult;
   const lost=new AbortController(),combined=AbortSignal.any([signal,lost.signal]);
   const disconnected=()=>{broken=true;lost.abort();};
   const transaction=async<T>(work:()=>Promise<T>):Promise<T>=>{
@@ -79,14 +80,15 @@ export class FileOperationLifecycle implements FileOperationRunner {
     await hooks.checkBeforeCommit(client!,identity);combined.throwIfAborted();return output;
    });
    if(hooks.afterCommit)try{combined.throwIfAborted();await hooks.afterCommit(identity,output,combined);}catch(error){throw Error('FILE_OPERATION_POSTCOMMIT_FAILED',{cause:error});}
-   completed=true;return output;
+   completedOutput=output;
   }finally{
    if(client){
     if(locked&&!broken){if(identity.operation==='oex-import')traceNativeOexSelected('unlock-start');try{const r=await client.query('SELECT pg_advisory_unlock(hashtextextended($1,0)) AS unlocked',[`exhibitos:file-operation:${identity.tenantId}:${identity.resourceId}`]);if(r.rows[0]?.unlocked!==true){broken=true;if(identity.operation==='oex-import')traceNativeOexSelected('unlock-failed');}else if(identity.operation==='oex-import')traceNativeOexSelected('unlock-returned');}catch{broken=true;if(identity.operation==='oex-import')traceNativeOexSelected('unlock-failed');}}else if(identity.operation==='oex-import')traceNativeOexSelected('unlock-skipped');
     client.removeListener('error',disconnected);client.release(broken);
    }
    this.active--;
-   if(completed&&broken)throw Error('FILE_OPERATION_FENCE_RELEASE_UNCERTAIN');
   }
+  if(broken)throw Error('FILE_OPERATION_FENCE_RELEASE_UNCERTAIN');
+  return completedOutput;
  }
 }

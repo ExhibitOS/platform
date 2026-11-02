@@ -11,7 +11,7 @@
 .viewer-visitor-map svg{display:block;width:100%;height:100%;overflow:visible}.visitor-map-compact svg{overflow:hidden;filter:drop-shadow(0 1px 1px #071c24)}
 .visitor-map-room{fill:var(--publication-paper,#f8fbfc);stroke:currentColor;stroke-width:1;vector-effect:non-scaling-stroke}
 .visitor-map-door{stroke:var(--publication-action,#135967);stroke-width:4;vector-effect:non-scaling-stroke}.visitor-map-connection{stroke:currentColor;stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
-.visitor-map-work{fill:currentColor}.visitor-map-position{fill:var(--publication-action,#135967);stroke:var(--publication-action,#135967);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linecap:round}
+.visitor-map-work,.visitor-map-work-anchor{fill:currentColor}.visitor-map-anchor-link{stroke:currentColor;stroke-opacity:.55;stroke-width:1;vector-effect:non-scaling-stroke;pointer-events:none}.visitor-map-position{fill:var(--publication-action,#135967);stroke:var(--publication-paper,#f8fbfc);stroke-width:1.5;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .visitor-map-compact .visitor-map-room{fill:none;stroke:#f2f8f9;stroke-width:1.5}.visitor-map-compact .visitor-map-door{stroke:#b7dfe7;stroke-width:3}.visitor-map-compact .visitor-map-connection{stroke:#e4f2f5}.visitor-map-compact .visitor-map-work{fill:#e4f2f5}.visitor-map-compact .visitor-map-position{fill:#f8fbfc;stroke:#143e49;stroke-width:2}
 .viewer-visitor-map[open]{width:min(30rem,calc(100vw - 2rem - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));max-height:calc(100svh - 7rem - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;padding:.75rem 1rem;background:var(--publication-paper,#f8fbfc);box-shadow:0 5px 20px #182d3226;border-radius:.75rem;scrollbar-color:var(--publication-action,#135967) transparent}
 .viewer-visitor-map[open] .visitor-map-compact{display:none}.viewer-visitor-map[open] .visitor-map-toggle{background:transparent;color:inherit}.viewer-visitor-map>section{display:grid;gap:.75rem;padding:.5rem 0;min-width:0}
@@ -36,8 +36,11 @@
 /* The compact overview shares the safe top/left inset; the expanded panel keeps its own clearance. */
 .viewer-visitor-map:not([open]){top:calc(1rem + env(safe-area-inset-top,0px))}
 @media(max-width:700px){.viewer-visitor-map:not([open]){top:calc(.75rem + env(safe-area-inset-top,0px))}}
-.visitor-map-fov{fill:var(--publication-action,#135967);fill-opacity:.12;stroke:none;pointer-events:none}
-.visitor-map-compact .visitor-map-fov{fill:#b7dfe7;fill-opacity:.22}
+.visitor-map-fov{fill:var(--publication-action,#135967);fill-opacity:.08;stroke:none;pointer-events:none}
+.visitor-map-position>*{vector-effect:non-scaling-stroke}
+.visitor-map-compact .visitor-map-fov{fill:#b7dfe7;fill-opacity:.14}
+.visitor-map-compact .visitor-map-work-anchor{fill:#e4f2f5}.visitor-map-compact .visitor-map-anchor-link{stroke:#e4f2f5;stroke-opacity:.65}
+.visitor-map-anchor-link[data-active=true]{stroke:var(--publication-action,#135967);stroke-opacity:1}.visitor-map-work-anchor[data-active=true]{fill:var(--publication-action,#135967);stroke:var(--publication-paper,#f8fbfc);stroke-width:2;vector-effect:non-scaling-stroke}
 
 .visitor-map-nearby{display:block;width:100%;height:100%}.visitor-map-overview{display:none;width:100%;height:100%}
 @media(pointer:fine){.viewer-visitor-map .visitor-map-nearby{display:none}.viewer-visitor-map .visitor-map-overview{display:block}}
