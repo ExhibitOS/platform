@@ -26,14 +26,13 @@ function setup(selected=true){
  const app=Fastify();apps.push(app);const requests:FastifyRequest[]=[],parsing:string[]=[];
  app.setErrorHandler((e,_req,reply)=>reply.code(e instanceof ApiError?e.status:(e as {statusCode?:number}).statusCode??500).send({code:(e as Error).message}));
  app.addHook('onRequest',async req=>{requests.push(req);});app.addHook('preParsing',async(req,_reply,payload)=>{parsing.push(req.url);return payload;});
- let auth:TestAuth;
  let reads=0;const readRows=vi.fn(()=>[{id:auth.session.id,user_id:auth.session.userId,tenant_id:auth.session.tenantId,role:auth.session.role,csrf_token:'synthetic',expires_at:new Date('2099-01-01T00:00:00Z')}]);
  const query=vi.fn(async(sql:string)=>{if(sql.includes('FROM auth_sessions')){reads++;return {rows:readRows(),rowCount:1};}if(sql==='COMMIT')await auth.afterWork?.();return {rows:[],rowCount:0};});
  const release=vi.fn(),pool={connect:vi.fn(async()=>({query,release}))} as unknown as Pool;
- auth=new TestAuth(pool);const studio=new Studio(),slot=createSelectedStudioPutSlot();
+ const auth=new TestAuth(pool);const studio=new Studio(),slot=createSelectedStudioPutSlot();
  const get=vi.spyOn(studio,'get').mockImplementation(async()=>structuredClone(initial));
  const put=vi.spyOn(studio,'put').mockImplementation(async()=>({...structuredClone(initial),revision:2}));
- let live=true;const scopedMock=vi.fn(async<T>(work:()=>Promise<T>)=>work()),owner={assertCommittedImport:vi.fn(async(_claim:Readonly<SelectedStudioClaim>)=>{}),assertDatabase:vi.fn(async(_c:PoolClient)=>{}),assertLive:vi.fn(async()=>{if(!live)throw new ApiError(409,'OWNER_LOST');}),runScoped:scopedMock as typeof scopedMock & (<T>(work:()=>Promise<T>)=>Promise<T>)};
+ let live=true;const scopedMock=vi.fn(async<T>(work:()=>Promise<T>)=>work()),owner={assertCommittedImport:vi.fn(async(_claim:Readonly<SelectedStudioClaim>)=>{void _claim;}),assertDatabase:vi.fn(async(_c:PoolClient)=>{void _c;}),assertLive:vi.fn(async()=>{if(!live)throw new ApiError(409,'OWNER_LOST');}),runScoped:scopedMock as typeof scopedMock & (<T>(work:()=>Promise<T>)=>Promise<T>)};
  if(selected)registerSelectedStudioPutGate(app,auth,{mode:'local',origin,bindHost:'127.0.0.1'},studio,slot);
  app.put('/api/v1/tenants/:tenantId/studio/exhibitions/:id',{bodyLimit:1048576},async(req,reply)=>{
   if(!selected)return {ordinary:true};return runSelectedStudioPut(slot,req,reply,async(c,s)=>{const result=await studio.put(c,s,(req.params as {id:string}).id,req.body as ReturnType<typeof body>,req.headers['if-match'] as string);reply.header('etag',result.etag);return result;});
