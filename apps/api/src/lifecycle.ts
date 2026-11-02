@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type { Pool } from 'pg';
 
-export interface LifecycleConfig { migrationDirectory: string; supplementalMigrationDirectory?:string; webRoot: string; blobRoot: string; storageCheck?: () => Promise<void> }
+export interface LifecycleConfig { migrationDirectory: string; supplementalMigrationDirectory?:string; supplementalMigrationNames?:readonly string[]; webRoot: string; blobRoot: string; storageCheck?: () => Promise<void> }
 export interface Readiness {
   schemaVersion: '1.0.0-draft.1'; protocolVersion: '1'; platformVersion: '0.1.0'; ready: boolean;
   services: {name: string; status: 'ready' | 'unavailable'}[];
@@ -40,7 +40,7 @@ export async function readiness(pool: Pool, config: LifecycleConfig): Promise<Re
   const [database, web, storage] = await Promise.all([
     probe(async () => {
       const directories=[config.migrationDirectory,...(config.supplementalMigrationDirectory?[config.supplementalMigrationDirectory]:[])],files:{name:string;path:string}[]=[];
-      for(const root of directories){await directory(root,constants.R_OK);for(const name of (await readdir(root)).filter(name=>/^\d+.*\.sql$/.test(name)))files.push({name,path:join(root,name)});}
+      for(const root of directories){await directory(root,constants.R_OK);let names=(await readdir(root)).filter(name=>/^\d+.*\.sql$/.test(name));if(root===config.supplementalMigrationDirectory&&config.supplementalMigrationNames){const selected=config.supplementalMigrationNames;if(!selected.length||new Set(selected).size!==selected.length||selected.some(name=>!/^\d+.*\.sql$/.test(name)||!names.includes(name)))throw new Error('invalid supplemental catalog');names=[...selected];}for(const name of names)files.push({name,path:join(root,name)});}
       files.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);if(!files.length||new Set(files.map(f=>f.name)).size!==files.length)throw new Error('missing or duplicate migrations');
       const expected = await Promise.all(files.map(async ({name,path}) => {
         const info = await lstat(path);

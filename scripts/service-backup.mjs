@@ -11,7 +11,7 @@ import {Transform,Writable} from 'node:stream';
 import {Pool} from 'pg';
 import {S3Client} from '@aws-sdk/client-s3';
 import {FileBlobStore,S3BlobStore,PostgresBlobStore,collectServiceInventory} from '../packages/storage/dist/index.js';
-import {recognizeNormalOexCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256} from './native-oex-normal-catalog.mjs';
+import {recognizeNormalOexCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256} from './native-oex-normal-catalog.mjs';
 
 const fail=code=>{throw Error(code);};
 const inside=(parent,path)=>{const rel=relative(resolve(parent),resolve(path));return rel===''||rel!== '..'&&!rel.startsWith('../')&&!rel.startsWith('..\\')&&!rel.startsWith('/');};
@@ -179,6 +179,8 @@ export async function inventorySnapshotOptionsForDatabase(client,migrationDirect
  const names=(await readdir(migrationDirectory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort(),catalog=[];
  for(const name of names)catalog.push({name,sha256:createHash('sha256').update(await readFile(resolve(migrationDirectory,name))).digest('hex')});
  catalog.push({name:NORMAL_OEX_MIGRATION,sha256:NORMAL_OEX_SHA256});
+ const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ if(rows.some(row=>row.name===NORMAL_OEX_PROVENANCE_MIGRATION))catalog.push({name:NORMAL_OEX_PROVENANCE_MIGRATION,sha256:NORMAL_OEX_PROVENANCE_SHA256});
  if(authenticatedMigrations!==undefined&&JSON.stringify(authenticatedMigrations)!==JSON.stringify(catalog))fail('BACKUP_MIGRATION_CATALOG');
  return {migrationCatalog:catalog};
 }
