@@ -240,6 +240,9 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const work=(async()=>{try{
    const result=await auth.request(token(req),p.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,mutate,async(c,s)=>{
     if(!nativeExportWorkspace||!(store instanceof FileBlobStore)||s.tenantId!==nativeExportWorkspace.tenantId||s.userId!==nativeExportWorkspace.principalId)throw new ApiError(403,'FORBIDDEN');
+    // Readiness can populate derivative caches. Follow the existing auth →
+    // maintenance lock order so backups cannot snapshot midway through it.
+    if(!mutate)await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     await nativeExportWorkspace.assertDatabase(c);
     if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!);if(existing){if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');return existing;}}
     {
