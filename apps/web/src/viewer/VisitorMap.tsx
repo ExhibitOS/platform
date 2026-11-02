@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent} from 'react';
+import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent,type PointerEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
@@ -106,7 +106,9 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
  const releaseFocus=(event:FocusEvent<HTMLButtonElement>)=>{if(focusedMarker.current===event.currentTarget)focusedMarker.current=null;};
  const marker=(target:MapTarget)=>({
   'aria-pressed':selection.key===map.key&&selection.selected?.kind===target.kind&&same(selection.selected.id,target.id),
-  onPointerEnter:()=>dispatch({type:'hover',target}),onPointerLeave:()=>dispatch({type:'leave',target}),
+  // Touch hover ends before its compatibility click; toggling the preview then
+  // can move a scrolled map under the tap. Touch selects through the click only.
+  onPointerEnter:(event:PointerEvent<HTMLButtonElement>)=>{if(event.pointerType!=='touch')dispatch({type:'hover',target});},onPointerLeave:(event:PointerEvent<HTMLButtonElement>)=>{if(event.pointerType!=='touch')dispatch({type:'leave',target});},
   onFocus:(event:FocusEvent<HTMLButtonElement>)=>{focusedMarker.current=target.kind==='placement'?event.currentTarget:null;dispatch({type:'focus',target});},onClick:()=>dispatch({type:'select',target}),
   onBlur:releaseFocus,
  });
