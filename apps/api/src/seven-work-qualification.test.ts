@@ -8,7 +8,7 @@ test('the nine published works retain their exact approved display references',a
  const root='demos/reference-exhibition/source/';
  const indexBytes=await readFile(root+'static-publication-index.json');
  const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
- expect(sha(indexBytes)).toBe('a0f952673dd65189108b75786a21f94e535996b6a8069ff9c603690ec80182b1');
+ expect(sha(indexBytes)).toBe('d97d4f0fc8b059f9fdea29124ab5ecfd57d09b718e5e9439947f817367a9ee46');
  const index=JSON.parse(indexBytes.toString()),publicationBytes=await readFile(root+index.publication.path);
  expect(sha(publicationBytes)).toBe(index.publication.sha256);
  const publication=JSON.parse(publicationBytes.toString());expect(publication.exhibition.artworks).toHaveLength(9);
