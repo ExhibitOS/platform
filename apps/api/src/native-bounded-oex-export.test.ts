@@ -27,7 +27,7 @@ it('closes and removes a known inode when the first authentication commit fails'
  const x=await setup({failCommit:true});try{const r=await x.request();expect(r.statusCode).toBe(500);await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});}finally{await x.app.close();await rm(x.root,{recursive:true,force:true});}
 });
 it('retains an uncertain producer file without returning bytes',async()=>{
- const x=await setup({failProducer:true});try{const r=await x.request();expect(r.statusCode).toBe(500);expect(await readFile(join(x.stage,'archive.oex'))).toEqual(x.bytes);}finally{await x.app.close();await rm(x.root,{recursive:true,force:true});}
+ const x=await setup({failProducer:true});try{const r=await x.request();expect(r.statusCode).toBe(409);expect(r.json().code).toBe('NATIVE_OEX_EXPORT_FILE_UNCERTAIN');expect(await readFile(join(x.stage,'archive.oex'))).toEqual(x.bytes);}finally{await x.app.close();await rm(x.root,{recursive:true,force:true});}
 });
 it('refuses a changed session before sending and disposes the known staged inode',async()=>{
  const x=await setup({otherSession:true});try{const r=await x.request();expect(r.statusCode).toBe(403);expect(r.rawPayload).not.toEqual(x.bytes);await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});}finally{await x.app.close();await rm(x.root,{recursive:true,force:true});}

@@ -30,9 +30,9 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
   const work=(async()=>{
    const dispose=async()=>{
     if(opened)await opened.close();
-    if(stage){const ds=await lstat(stage,{bigint:true}).catch(()=>undefined);if(!ds||ds.dev!==stageDev||ds.ino!==stageIno||!ds.isDirectory())throw Error('NATIVE_OEX_EXPORT_STAGE_UNCERTAIN');
+    if(stage){const ds=await lstat(stage,{bigint:true}).catch(()=>undefined);if(!ds||ds.dev!==stageDev||ds.ino!==stageIno||!ds.isDirectory())throw new ApiError(409,'NATIVE_OEX_EXPORT_STAGE_UNCERTAIN');
      const path=join(stage,'archive.oex'),file=await lstat(path,{bigint:true}).catch((error:NodeJS.ErrnoException)=>{if(error.code==='ENOENT')return undefined;throw error;});
-     if(file){if(!knownFile||!file.isFile()||file.dev!==knownFile.dev||file.ino!==knownFile.ino)throw Error('NATIVE_OEX_EXPORT_FILE_UNCERTAIN');await unlink(path);}await rmdir(stage);
+     if(file){if(!knownFile||!file.isFile()||file.dev!==knownFile.dev||file.ino!==knownFile.ino)throw new ApiError(409,'NATIVE_OEX_EXPORT_FILE_UNCERTAIN');await unlink(path);}await rmdir(stage);
     }
    };
    try{
@@ -53,7 +53,7 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
     });
     controller.signal.throwIfAborted();const selected=owned;
     const authority=await auth.request(token(req),p.tenantId,csrf,true,async(c,s)=>{if(s.id!==selected.sessionId||s.role!==selected.role||s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(403,'FORBIDDEN');await context.assertDatabase(c);const checkRights=await oex.revalidateBoundedExport(c,s,p.id,match,selected.omitted);controller.signal.throwIfAborted();return {expiresAt:s.expiresAt,checkRights};});
-    if(!Number.isFinite(Date.parse(authority.expiresAt))||Date.now()>=Date.parse(authority.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');authority.checkRights();const directory=await lstat(selected.stage,{bigint:true});if(directory.dev!==selected.stageDev||directory.ino!==selected.stageIno||!directory.isDirectory())throw Error('NATIVE_OEX_EXPORT_STAGE_UNCERTAIN');
+    if(!Number.isFinite(Date.parse(authority.expiresAt))||Date.now()>=Date.parse(authority.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');authority.checkRights();const directory=await lstat(selected.stage,{bigint:true});if(directory.dev!==selected.stageDev||directory.ino!==selected.stageIno||!directory.isDirectory())throw new ApiError(409,'NATIVE_OEX_EXPORT_STAGE_UNCERTAIN');
     const st=await selected.handle.stat({bigint:true}),named=await lstat(selected.path,{bigint:true});if(st.dev!==selected.fileDev||st.ino!==selected.fileIno||named.dev!==selected.fileDev||named.ino!==selected.fileIno||st.size!==BigInt(selected.bytes)||st.mtimeNs!==selected.mtimeNs||st.ctimeNs!==selected.ctimeNs)throw Error('NATIVE_OEX_EXPORT_CHANGED');
     controller.signal.throwIfAborted();if(Date.now()>=Date.parse(authority.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');authority.checkRights();reply.hijack();reply.raw.writeHead(200,{'content-type':'application/vnd.exhibitos.oex+zip','content-disposition':'attachment; filename="exhibition.oex"','content-length':String(selected.bytes),'cache-control':'no-store','x-exhibitos-oex-profile':'bounded-file-v1','x-exhibitos-oex-sha256':selected.sha256,'x-content-type-options':'nosniff'});
     await pipeline(selected.handle.createReadStream({autoClose:false,start:0,end:selected.bytes-1}),reply.raw,{signal:controller.signal});if(!reply.raw.writableFinished)throw Error('NATIVE_OEX_EXPORT_DRAIN');const drained=await selected.handle.stat({bigint:true});if(drained.dev!==selected.fileDev||drained.ino!==selected.fileIno||drained.size!==BigInt(selected.bytes)||drained.mtimeNs!==selected.mtimeNs||drained.ctimeNs!==selected.ctimeNs)throw Error('NATIVE_OEX_EXPORT_CHANGED');
