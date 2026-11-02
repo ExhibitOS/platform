@@ -6,7 +6,7 @@ function chunk(kind:string,body:Buffer){const h=Buffer.alloc(8),tail=Buffer.allo
 function png(edge=2048,rgba=false,idatCount=1){const h=Buffer.alloc(13);h.writeUInt32BE(edge);h.writeUInt32BE(edge,4);h[8]=8;h[9]=rgba?6:2;const compressed=deflateSync(Buffer.alloc((edge*(rgba?4:3)+1)*edge)),packets=Array.from({length:idatCount},(_,i)=>chunk('IDAT',compressed.subarray(Math.floor(i*compressed.length/idatCount),Math.floor((i+1)*compressed.length/idatCount))));return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',h),...packets,chunk('IEND',Buffer.alloc(0))]);}
 function fixture(options:{edge?:number;allEdge?:number;rgba?:boolean;crc?:boolean;alias?:boolean;sampler?:number;partialSampler?:boolean;legacySampler?:boolean;idatCount?:number}={}){
  const positions=Buffer.from(new Float32Array([0,0,0,1,0,0,0,1,0]).buffer),normals=Buffer.from(new Float32Array([0,0,1,0,0,1,0,0,1]).buffer),uv=Buffer.from(new Float32Array([0,0,1,0,0,1]).buffer),indices=Buffer.from(new Uint16Array([0,1,2]).buffer),image=png(options.allEdge),images=[image,png(options.edge??2048,options.rgba,options.idatCount),image];
- if(options.crc)images[1]![images[1]!.length-1]^=1;
+ if(options.crc){const damaged=images[1]!;damaged[damaged.length-1]=damaged[damaged.length-1]!^1;}
  const parts:Buffer[]=[],views:{buffer:number;byteOffset:number;byteLength:number}[]=[];let offset=0;
  for(const data of [positions,normals,uv,indices,...images]){views.push({buffer:0,byteOffset:offset,byteLength:data.length});const padded=Buffer.alloc(Math.ceil(data.length/4)*4);data.copy(padded);parts.push(padded);offset+=padded.length;}
  const texture=(source:number)=>({source,...(options.sampler!==undefined||options.partialSampler||options.legacySampler?{sampler:0}:{})});

@@ -12,7 +12,7 @@ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const session={tenantId:id(1),userId:id(2),role:'artist'} as Session,job=id(3),key=`${session.tenantId}/oex-staging/${job}/chunk-0`;
 const data=Buffer.from('synthetic chunk'),digest=createHash('sha256').update(data).digest('hex');
 it('creates one fixed-profile job with exact chunk keys and rejects changed retries',async()=>{
- let prior:unknown,probe='';const query=vi.fn(async(sql:string,args?:unknown[])=>{
+ let prior:unknown=undefined,probe='';const query=vi.fn(async(sql:string,args?:unknown[])=>{
   if(sql.includes("set_config('exhibitos.oex_tx_probe'")){probe=args![0] as string;return {rows:[]};}
   if(sql.includes("current_setting('transaction_isolation')"))return {rows:[{isolation:'read committed',probe}]};
   if(sql.includes('WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3'))return {rows:prior?[prior]:[]};

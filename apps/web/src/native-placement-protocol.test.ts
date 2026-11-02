@@ -22,6 +22,7 @@ it('rejects stale account/frame, plan/disabled state, and replacement of an exis
 });
 it('commit/cancel use the original intent identity and a fresh bound request, with no arbitrary pose',()=>{
  const f=frame(),r=begin(f),{artworkId,expectedRevision,placementId,roomId,targetKind,...common}=r;
+ void artworkId;void expectedRevision;void placementId;void roomId;void targetKind;
  const commit={...common,requestId:id(),phase:'commit',placementRequestId:r.requestId,targetToken:id()};expect(checkedPlacementRequest(commit,f)).toEqual(commit);
  expect(()=>checkedPlacementRequest({...commit,transform:{}},f)).toThrow();expect(()=>checkedPlacementRequest({...commit,targetToken:null},f)).toThrow();
  const cancel={...common,requestId:id(),phase:'cancel',placementRequestId:r.requestId};expect(checkedPlacementRequest(cancel,f)).toEqual(cancel);
@@ -33,7 +34,7 @@ it('sequence-only same canonical frames rebind while draft, camera, selection an
 });
 it('reads only the existing authenticated approved snapshot route and checks the CMS integer binding',async()=>{
  const f=frame(),r=begin(f),art=syntheticArtwork('image');art.id=r.artworkId;art.extensions={'org.exhibitos.studio/cms':{tenantId:r.tenantId,artworkId:r.artworkId,revision:r.expectedRevision}};
- const fetcher=vi.fn(async(_url:RequestInfo|URL,_init?:RequestInit)=>Response.json({artwork:art}));vi.stubGlobal('fetch',fetcher);
+ const fetcher=vi.fn(async(_url:RequestInfo|URL,_init?:RequestInit)=>{void _url;void _init;return Response.json({artwork:art});});vi.stubGlobal('fetch',fetcher);
  expect(await approvedPlacementArtwork(r,new AbortController().signal)).toEqual(art);
  expect(fetcher.mock.calls[0]?.[0]).toBe(`/api/v1/tenants/${r.tenantId}/studio/artworks/${r.artworkId}`);
  const denied=structuredClone(art);(denied.extensions!['org.exhibitos.studio/cms'] as {revision:number}).revision++;
