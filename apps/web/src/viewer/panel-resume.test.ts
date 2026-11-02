@@ -20,16 +20,31 @@ test("only a distinct empty-space click can consume an active panel pause once",
   expect(click(gate)).toBe(true);
   expect(click(gate)).toBe(false);
 });
-test("prior stopped sessions and explicit stops cannot acquire panel resume", () => {
+test("background stops retain existing eligibility but cannot create it", () => {
   for (const reason of ["window", "hidden", "blur"] as const) {
-    const gate = panelPaused();
+    const gate = createPanelResumeGate(); gate.mode(true, false); gate.background();
     gate.mode(true, true, reason);
-    gate.mode(true, true, "panel");
-    expect(click(gate)).toBe(false);
+    expect(gate.movement(false)).toBe(false);
+    expect(gate.movement(true)).toBe(true);
+    const stopped = createPanelResumeGate(); stopped.background(); stopped.mode(true, true, reason);
+    expect(stopped.movement(true)).toBe(false);
   }
   const stationary = createPanelResumeGate();
   stationary.mode(false, true, "panel");
   expect(click(stationary)).toBe(false);
+});
+test("backgrounding a panel pause cannot resume merely by closing the panel", () => {
+  for (const reason of ["window", "hidden", "blur"] as const) {
+    for (const eventFirst of [true, false]) {
+      const gate = panelPaused();
+      if (eventFirst) gate.background();
+      gate.mode(true, true, reason);
+      if (!eventFirst) gate.background();
+      expect(gate.panelClosed()).toBe(false);
+      expect(gate.movement(false)).toBe(false);
+      expect(gate.movement(true)).toBe(true);
+    }
+  }
 });
 test("drag returning to start, cancellation, and release outside canvas reject resume", () => {
   const gate = panelPaused();
@@ -54,12 +69,12 @@ test("tab-away, modal, error, or closed-panel invalidation rejects pending click
   expect(click(gate)).toBe(false);
 });
 
-test("movement consumes only a panel-owned resumable session, never another stop", () => {
+test("movement consumes an eligible session only once", () => {
  const gate=panelPaused();expect(gate.canResume()).toBe(true);
  expect(gate.movement(false)).toBe(false);expect(gate.movement(true)).toBe(true);
  expect(gate.movement(true)).toBe(false);expect(click(gate)).toBe(false);
  for(const reason of ["window","hidden","blur"] as const){
-  const stopped=panelPaused();stopped.mode(true,true,reason);expect(stopped.movement(true)).toBe(false);
+  const stopped=panelPaused();stopped.mode(true,true,reason);expect(stopped.movement(true)).toBe(true);
  }
 });
 
@@ -74,10 +89,10 @@ test("Esc, explicit pause and native unlock allow only a later deliberate gestur
   gate.mode(true,false); gate.mode(true,true,reason); expect(click(gate)).toBe(true);
  }
 });
-test("native unlock after Esc retains eligibility but tab-away and stopped modes clear it", () => {
+test("native unlock and tab-away retain deliberate resume eligibility; stopped modes clear it", () => {
  const gate=createPanelResumeGate();gate.mode(true,false);gate.mode(true,true,"escape");
  gate.mode(true,true,"pointerlock");expect(gate.requiresPanel()).toBe(false);expect(gate.canResume()).toBe(true);
- gate.mode(true,true,"window");expect(gate.canResume()).toBe(false);
+ gate.background();gate.mode(true,true,"window");expect(gate.canResume()).toBe(true);
  gate.mode(false,true,"escape");expect(gate.movement(true)).toBe(false);
 });
 
@@ -92,7 +107,7 @@ test("a second Escape cancels a pending click without revoking explicit key resu
 
 test("last panel close releases only the temporary panel cause, once", () => {
  const gate=panelPaused();expect(gate.panelClosed()).toBe(true);expect(gate.panelClosed()).toBe(false);
- for(const reason of ["escape","user","hidden","window","blur"] as const){
+ for(const reason of ["escape","user"] as const){
   const stopped=panelPaused();stopped.mode(true,true,reason);stopped.mode(true,true,"panel");
   expect(stopped.panelClosed()).toBe(false);
  }

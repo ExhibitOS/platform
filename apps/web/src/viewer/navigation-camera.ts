@@ -22,6 +22,7 @@ export async function createWalkingCamera({
   onState,
   isPanelFocus,
   resumeMovement,
+  resumeDrag,
   onSeat,
 }: {
   document: Exhibition;
@@ -36,6 +37,7 @@ export async function createWalkingCamera({
   onState?: (state: NavigationState) => void;
   isPanelFocus?: (target: EventTarget | null) => boolean;
   resumeMovement?: () => boolean;
+  resumeDrag?: () => boolean;
   onSeat?: (benchId:string|null) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
@@ -119,7 +121,7 @@ export async function createWalkingCamera({
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus, resumeMovement);
+  }, isPanelFocus, resumeMovement, resumeDrag);
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);
@@ -177,7 +179,7 @@ export async function createWalkingCamera({
       const state=controller.reset({position:destination.position,yaw:destination.yaw});
       pitch=Math.atan2(destination.target[1]-state.eyePosition[1],Math.hypot(destination.target[0]-state.eyePosition[0],destination.target[2]-state.eyePosition[2]));
       targetPitch=pitch;targetYaw=state.yaw;orderedViewing=ordered;orderedViewpointId=ordered?id:undefined;walking=true;paused=true;
-      controls.enabled=false;canvas.style.touchAction=ordered?'manipulation':previousTouchAction;
+      controls.enabled=false;canvas.style.touchAction=ordered?'manipulation':'none';
       camera.fov=destination.fov;camera.updateProjectionMatrix();
       camera.position.fromArray(state.eyePosition);camera.rotation.set(pitch,state.yaw,0,'YXZ');controls.target.fromArray(destination.target);
       onMode(walking,true,'panel');apply();return true;
