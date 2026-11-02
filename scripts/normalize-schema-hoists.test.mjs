@@ -38,4 +38,6 @@ test('fails closed on unsupported uninitialized or multi-declarator duplicates',
  assert.throws(()=>normalizeSchemaHoists('function x(){var _valid0=1;var _valid0;}'),/SCHEMA_HOIST_SHAPE/);
  assert.throws(()=>normalizeSchemaHoists('function x(){var _valid0=1;var _valid0=2,other=3;}'),/SCHEMA_HOIST_SHAPE/);
  assert.throws(()=>normalizeSchemaHoists('function x(){var _valid0=1;var other=3,_valid0=2;}'),/SCHEMA_HOIST_SHAPE/);
+ assert.throws(()=>normalizeSchemaHoists('function x(){var _valid0=1;var {x:_valid0}={x:2};}'),/SCHEMA_HOIST_SHAPE/);
+ assert.throws(()=>normalizeSchemaHoists('function x(){var _valid0=1;var [..._valid0]=[2];}'),/SCHEMA_HOIST_SHAPE/);
 });
