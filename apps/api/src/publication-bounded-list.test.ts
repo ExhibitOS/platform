@@ -16,7 +16,6 @@ it('lists publications for an authenticated bounded import without widening ordi
  // Same aggregate shape as the isolated 512 MiB witness: one small sculpture,
  // 42 equal-sized images and one smaller image, with no real artwork bytes.
  draft.candidate.artworks=Array.from({length:44},(_,i)=>{const a=structuredClone(i===0?sculpture:image);a.id=crypto.randomUUID();a.revisionId=crypto.randomUUID();a.assets[0]!.id=crypto.randomUUID();a.primaryAssetId=a.assets[0]!.id;a.assets[0]!.path=`synthetic-${i}.${i===0?'glb':'png'}`;a.assets[0]!.bytes=i===0?1516:i===43?8026503:12588868;return a;});
- if(process.env.EXHIBITOS_TEST_DRAFT_JSON)Object.assign(draft,JSON.parse(await readFile(process.env.EXHIBITOS_TEST_DRAFT_JSON,'utf8')));
  expect(validateLifecycle(draft).errors).toEqual([expect.objectContaining({code:'ASSET_TOTAL_LIMIT',path:'/candidate/artworks'})]);
  expect(validateLifecycle(draft,undefined,{archiveProfile:'bounded-file-v1'}).valid).toBe(true);
  const provenance={workspace_id:workspaceId,principal_id:session.userId,import_job_id:job,request_id:request,source_sha256:'a'.repeat(64),archive_profile:'bounded-file-v1',source_database_system_id:'42',source_database_oid:'16384',attempt_id:attempt,claim_sha256:'b'.repeat(64),payload_manifest_sha256:'c'.repeat(64),user_id:session.userId,payload_sha256:'a'.repeat(64),job_profile:'bounded-file-v1',oex_format:'1.0.0-draft.9',state:'complete',result_exhibition:draft.exhibitionId,workspace_tenant:session.tenantId,workspace_principal:session.userId};
