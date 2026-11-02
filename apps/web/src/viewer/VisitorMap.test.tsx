@@ -80,3 +80,17 @@ it('fits every full-plan corner within the desktop circle without following or r
  expect(overview(renderToStaticMarkup(<VisitorMap {...value}/>))).toEqual(first);
  expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
 });
+it('keeps wall anchors at their true points while moving thumbnail buttons inside their own room',()=>{
+ const value=props();value.map={...map,placements:[{...map.placements[0]!,point:[4,0]}]};
+ const original=structuredClone(value.map),html=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(html).toContain('visitor-map-anchor-link');expect(html).toContain('cx="4" cy="0"');
+ const marker=html.match(/class="visitor-map-marker" style="left:([^%]+)%;top:([^%]+)%/)!
+ expect(Number(marker[1])).toBeLessThan(90);expect(html).toContain('value="placement/placement"');
+ expect(value.map).toEqual(original);expect(value.onGo).not.toHaveBeenCalled();
+});
+it('retains every narrow-room identity in the existing selector instead of overflowing the room with thumbnails',()=>{
+ const value=props();value.map={...map,rooms:[{id:'room',name:'좁은 방',outline:[[0,-3],[.3,-3],[.3,3],[0,3]]}],placements:[{...map.placements[0]!,point:[.15,0]}]};
+ const html=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(html).toContain('좁은 구간의 작품은 아래 목록에서 고를 수 있어요.');expect(html).toContain('value="placement/placement"');
+ expect(html).not.toContain('class="visitor-map-marker"');expect(html).toContain('visitor-map-work-anchor');
+});

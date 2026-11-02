@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {useEffect,useId,useRef,useState,type FormEvent} from 'react';
+import {useEffect,useId,useMemo,useRef,useState,type FormEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
+import {layoutMapMarkers,mapFanRadius,type DisplayMarker} from './map-display-layout';
 
 export interface VisitorMapProps {
  map:MapModel;
@@ -21,21 +22,25 @@ const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const sameTarget=(a:MapTarget|undefined,b:MapTarget|undefined)=>a===undefined?b===undefined:b!==undefined&&a.kind===b.kind&&same(a.id,b.id);
 const middle=(points:MapPoint[]):MapPoint=>[points.reduce((n,p)=>n+p[0],0)/points.length,points.reduce((n,p)=>n+p[1],0)/points.length];
 
-function Schematic({map,worldPose,local=false,overview=false}:{map:MapModel;worldPose:VisitorMapProps['worldPose'];local?:boolean;overview?:boolean}){
+function Schematic({map,worldPose,local=false,overview=false,markers,activePlacementId}:{map:MapModel;worldPose:VisitorMapProps['worldPose'];local?:boolean;overview?:boolean;markers?:DisplayMarker[];activePlacementId?:string}){
+ const svg=useRef<SVGSVGElement>(null),[pixels,setPixels]=useState(192);
+ useEffect(()=>{const element=svg.current;if(!element||typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(()=>{if(element.clientWidth>0)setPixels(element.clientWidth);});observer.observe(element);return()=>observer.disconnect();},[]);
  const {x,z,width,depth}=map.bounds;
  // World X/Z stays north-up. Only the crop follows the existing camera snapshot.
  const diameter=Math.max(8,Math.min(20,Math.max(width,depth)*.55));
- const center=worldPose?.point??[x+width/2,z+depth/2],unit=local?diameter:Math.max(width,depth),radius=unit*(local ? .018 : .012);
+ const overviewSpan=Math.hypot(width,depth)*1.12;
+ const center=worldPose?.point??[x+width/2,z+depth/2],span=overview?overviewSpan:local?diameter:width,unitPerPixel=span/pixels,radius=unitPerPixel*2;
+ const compactMarkers=useMemo(()=>layoutMapMarkers(map,width/span*pixels,depth/span*pixels,6),[map,width,depth,span,pixels]);
+ const display=markers??compactMarkers;
  const fov=worldPose?.horizontalFovDegrees,directionLength=worldPose&&Math.hypot(...worldPose.direction);
  // The sector indicates the actual camera angle, not a ray-traced visibility range.
  const sector=worldPose&&fov!==undefined&&Number.isFinite(fov)&&fov>0&&fov<180&&directionLength&&Number.isFinite(directionLength)?(()=>{
-  const angle=Math.atan2(worldPose.direction[1],worldPose.direction[0]),half=fov*Math.PI/360,reach=unit*.38,[px,pz]=worldPose.point;
+  const angle=Math.atan2(worldPose.direction[1],worldPose.direction[0]),half=fov*Math.PI/360,reach=mapFanRadius(span,pixels),[px,pz]=worldPose.point;
   return `M ${px} ${pz} L ${px+Math.cos(angle-half)*reach} ${pz+Math.sin(angle-half)*reach} A ${reach} ${reach} 0 0 1 ${px+Math.cos(angle+half)*reach} ${pz+Math.sin(angle+half)*reach} Z`;
  })():undefined;
  // A diagonal-sized square keeps every plan corner inside the circular clip.
- const overviewSpan=Math.hypot(width,depth)*1.12;
  const viewBox=overview?`${x+width/2-overviewSpan/2} ${z+depth/2-overviewSpan/2} ${overviewSpan} ${overviewSpan}`:local?`${center[0]-diameter/2} ${center[1]-diameter/2} ${diameter} ${diameter}`:`${x} ${z} ${width} ${depth}`;
- return <svg viewBox={viewBox} aria-hidden="true" focusable="false">
+ return <svg ref={svg} viewBox={viewBox} aria-hidden="true" focusable="false">
   {map.rooms.map(room=><polygon key={room.id} className="visitor-map-room" points={room.outline.map(p=>p.join(',')).join(' ')}/>)}
   {map.doors.map(door=>{
    const paired=door.connection&&map.doors.find(other=>same(other.id,door.connection!.doorId));
@@ -43,8 +48,15 @@ function Schematic({map,worldPose,local=false,overview=false}:{map:MapModel;worl
    return <g key={door.id}><line className="visitor-map-door" x1={door.edge[0][0]} y1={door.edge[0][1]} x2={door.edge[1][0]} y2={door.edge[1][1]}/>{paired&&b&&door.id<paired.id&&<line className="visitor-map-connection" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]}/>}</g>;
   })}
   {sector&&<path className="visitor-map-fov" d={sector}/>}
-  {map.placements.map(item=><circle key={item.id} className="visitor-map-work" cx={item.point[0]} cy={item.point[1]} r={radius}/>)}
-  {worldPose&&<g className="visitor-map-position"><circle cx={worldPose.point[0]} cy={worldPose.point[1]} r={radius*1.4}/></g>}
+  {display.map(item=><g key={item.id}>
+   {item.point&&Math.hypot(item.point[0]-item.anchor[0],item.point[1]-item.anchor[1])>unitPerPixel&&<line className="visitor-map-anchor-link" data-active={item.id===activePlacementId} x1={item.anchor[0]} y1={item.anchor[1]} x2={item.point[0]} y2={item.point[1]}/>}
+   <circle className="visitor-map-work-anchor" data-active={item.id===activePlacementId} cx={item.anchor[0]} cy={item.anchor[1]} r={unitPerPixel*1.2}/>
+   {!markers&&item.point&&<circle className="visitor-map-work" cx={item.point[0]} cy={item.point[1]} r={radius}/>}
+  </g>)}
+  {worldPose&&<g className="visitor-map-position"><circle cx={worldPose.point[0]} cy={worldPose.point[1]} r={unitPerPixel*3.5}/>{directionLength&&Number.isFinite(directionLength)?(()=>{
+   const [dx,dz]=worldPose.direction.map(v=>v/directionLength) as MapPoint,[px,pz]=worldPose.point,u=unitPerPixel;
+   return <path d={`M ${px+dx*12*u} ${pz+dz*12*u} L ${px+dx*5*u-dz*3*u} ${pz+dz*5*u+dx*3*u} L ${px+dx*5*u+dz*3*u} ${pz+dz*5*u-dx*3*u} Z`}/>;
+  })():null}</g>}
  </svg>;
 }
 
@@ -55,6 +67,11 @@ function ArtworkThumbnail({src,kind}:{src?:string;kind:string}){
 
 /** The map previews identities. Only the existing renderer owner may admit travel. */
 export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel,onPreviewChange}:VisitorMapProps){
+ const expanded=useRef<HTMLDivElement>(null),[mapWidth,setMapWidth]=useState(320);
+ useEffect(()=>{const element=expanded.current;if(!element||typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(()=>{if(element.clientWidth>0)setMapWidth(element.clientWidth);});observer.observe(element);return()=>observer.disconnect();},[]);
+ const displayMarkers=useMemo(()=>layoutMapMarkers(map,mapWidth,mapWidth*map.bounds.depth/map.bounds.width),[map,mapWidth]);
+ const displayById=new Map(displayMarkers.map(marker=>[marker.id,marker]));
+ const crowded=displayMarkers.some(marker=>!marker.point);
  const titleId=useId(),[selection,setSelection]=useState<MapSelection>({key:map.key}),[requestError,setRequestError]=useState<{key:string;text:string}|null>(null),requestGeneration=useRef(0),activeKey=useRef(map.key),selectionRef=useRef(selection);activeKey.current=map.key;selectionRef.current=selection;
  useEffect(()=>()=>{requestGeneration.current++;},[map.key]);
  const invalidate=()=>{requestGeneration.current++;setRequestError(null);};
@@ -91,12 +108,13 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
   <section aria-labelledby={titleId}>
    <h2 id={titleId}>전시 지도</h2>
    <p className="visitor-map-note">작품을 골라 설명과 관람 위치를 확인하세요.</p>
-   <div className="visitor-map-expanded" style={{aspectRatio:`${map.bounds.width}/${map.bounds.depth}`}}><Schematic map={map} worldPose={worldPose}/>
+   <div ref={expanded} className="visitor-map-expanded" style={{aspectRatio:`${map.bounds.width}/${map.bounds.depth}`}}><Schematic map={map} worldPose={worldPose} markers={displayMarkers} activePlacementId={placement?.id}/>
     <div className="visitor-map-markers" role="group" aria-label="공간과 작품">
      {map.rooms.map(item=><button key={item.id} type="button" className="visitor-map-room-label" style={position(middle(item.outline))} aria-label={item.name} title={item.name} {...marker({kind:'room',id:item.id})}><span aria-hidden="true"/></button>)}
-     {map.placements.map(item=><button key={item.id} type="button" className="visitor-map-marker" style={position(item.point)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>)}
+     {map.placements.map(item=>{const display=displayById.get(item.id)?.point;return display&&<button key={item.id} type="button" className="visitor-map-marker" style={position(display)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>;})}
     </div>
    </div>
+   {crowded&&<p className="visitor-map-note">좁은 구간의 작품은 아래 목록에서 고를 수 있어요.</p>}
    <label className="visitor-map-target-select">지도에서 고르기<select value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
     const chosen=[...map.rooms.map(item=>({kind:'room' as const,id:item.id})),...map.placements.map(item=>({kind:'placement' as const,id:item.id}))].find(target=>`${target.kind}/${target.id}`===event.target.value);
     if(chosen)dispatch({type:'select',target:chosen});else dispatch({type:'dismiss'});
