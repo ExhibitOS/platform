@@ -8,6 +8,7 @@ export function createWalkingInput(
   onCaptureError: (message: string) => void,
   isPanelFocus: (target: EventTarget | null) => boolean = () => false,
   resumeMovement: () => boolean = () => false,
+  resumeDrag: () => boolean = resumeMovement,
 ) {
   const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
@@ -124,7 +125,7 @@ export function createWalkingInput(
       if (Math.hypot(event.clientX - look.x, event.clientY - look.y) <= 5) return;
       const gesture = look;
       if (!enabled) {
-        if (!resumeMovement() || !enabled) { clearLook(); return; }
+        if (!resumeDrag() || !enabled) { clearLook(); return; }
         canvas.setPointerCapture(event.pointerId); // enable releases stale capture; retain this intentional drag.
       }
       look = { ...gesture, pending: false }; // enable clears old input; retain only THIS intentional drag.

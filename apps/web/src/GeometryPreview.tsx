@@ -1097,6 +1097,7 @@ export function GeometryPreview({
                 // identifies this temporary obstruction without erasing its base stop.
                 isPanelFocus: target => committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
                 resumeMovement: () => viewingStyleRef.current==='free'&&(panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
+                resumeDrag: () => viewingStyleRef.current==='free'&&(panelResume?.drag(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 settings: { ...walkSettingsRef.current },
                 render,
                 onState: (state) => {

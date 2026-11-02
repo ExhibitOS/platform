@@ -2,14 +2,24 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWalkingInput } from './navigation-input';
 afterEach(() => vi.unstubAllGlobals());
-function fixture(resume?: () => boolean) {
+function fixture(resume?: () => boolean, resumeDrag?: () => boolean) {
   const doc = Object.assign(new EventTarget(), { activeElement: null as unknown, pointerLockElement: null as unknown, hidden:false, exitPointerLock:vi.fn(() => {doc.pointerLockElement=null;}) });
   const captures=new Set<number>();
   const canvas = Object.assign(new EventTarget(), { focus:vi.fn(()=>{doc.activeElement=canvas;}), requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn((id:number)=>{captures.add(id);}),hasPointerCapture:(id:number)=>captures.has(id),releasePointerCapture:vi.fn((id:number)=>{captures.delete(id);}) });
   vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
-  const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error,undefined,resume);
+  const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error,undefined,resume,resumeDrag);
   input.enable();return {doc,canvas,input,pause,error};
 }
+test('a distinct drag can resume without restoring held motion or requesting pointer lock',()=>{
+  const keyResume=vi.fn(()=>false), dragResume=vi.fn(()=>{f.input.enable();return true;});
+  const f=fixture(keyResume,dragResume);f.input.press('forward',1);f.input.pause('panel');
+  const pointer=(type:string,x:number)=>f.canvas.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:7,pointerType:'touch',isPrimary:true,button:0,clientX:x,clientY:20}));
+  pointer('pointerdown',20);pointer('pointermove',23);expect(dragResume).not.toHaveBeenCalled();
+  pointer('pointermove',30);expect(dragResume).toHaveBeenCalledOnce();expect(keyResume).not.toHaveBeenCalled();
+  expect(f.input.sample(.1)).toMatchObject({forward:0,right:0,yawDelta:-.04});
+  expect(f.canvas.requestPointerLock).not.toHaveBeenCalled();
+  pointer('pointercancel',30);pointer('pointermove',60);expect(f.input.sample(.1).yawDelta).toBe(0);f.input.dispose();
+});
 test('pending capture after pause then resume releases stale native lock',async()=>{
   const {doc,canvas,input}=fixture();let finish!:()=>void;
   canvas.requestPointerLock.mockImplementation(()=>new Promise<void>(r=>{finish=r;}));

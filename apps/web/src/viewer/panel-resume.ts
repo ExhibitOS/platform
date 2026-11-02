@@ -15,6 +15,11 @@ export function createPanelResumeGate() {
         stopGeneration++; eligible = walking && retained; panelOwned = false;
       } else if (reason === "panel") {
         if (active) { eligible = walking; panelOwned = true; }
+      } else if (reason === "window" || reason === "hidden" || reason === "blur") {
+        // Backgrounding stops motion, but a later fresh input may resume an
+        // already resumable session. It must never create eligibility from rest.
+        eligible = walking && retained; panelOwned = false;
+        stopGeneration++;
       } else if (reason !== "settings" || !eligible) {
         eligible = false; panelOwned = false;
         if (paused) stopGeneration++;
@@ -24,6 +29,7 @@ export function createPanelResumeGate() {
       cancel();
     },
     invalidate() { active = false; eligible = false; panelOwned = false; stopGeneration++; cancel(); },
+    background() { eligible = active || eligible; active = false; panelOwned = false; stopGeneration++; cancel(); },
     cancel,
     canResume: () => eligible,
     isActive: () => active,
@@ -63,7 +69,7 @@ export function createPanelResumeGate() {
 export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: WalkingPauseReason) => void, resume: () => void, availabilityChanged: (available: boolean) => void = () => {}, allowed: () => boolean = () => true) {
   const root = canvas.closest(".publication-shell");
   const gate = createPanelResumeGate(), pointers = new Set<number>();
-  let gestureBlocked = false;
+  let gestureBlocked = false, resumingDrag = false;
   let panelFocus = false, focusTimer: ReturnType<typeof setTimeout> | undefined;
   const panels = () => [...(root?.querySelectorAll<HTMLDetailsElement>("details[data-visitor-panel]") ?? [])];
   const owns = (target: EventTarget | null) => target instanceof Element &&
@@ -98,6 +104,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   };
   const cancel = () => gate.cancel();
   const invalid = () => { gate.invalidate(); pointers.clear(); gestureBlocked = false; panelFocus = false; availabilityChanged(false); };
+  const background = () => { gate.background(); pointers.clear(); gestureBlocked = false; panelFocus = false; availabilityChanged(false); };
   const key = (event: KeyboardEvent) => {
     if (event.key !== "Escape") return;
     // The input listener pauses the current session. A repeated Escape must not
@@ -105,11 +112,12 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
     if (root?.querySelector('dialog[open], [aria-modal="true"]')) invalid();
     else { gate.cancel(); if (root?.contains(document.activeElement)) pause("escape"); }
   };
-  const hidden = () => { if (document.hidden) invalid(); };
+  const hidden = () => { if (document.hidden) background(); else availabilityChanged(canResume()); };
   const cancelled = (event: PointerEvent) => { pointers.delete(event.pointerId); if (!pointers.size) gestureBlocked = false; cancel(); };
   const toggle = () => {
     if (open()) pause();
     else if (safe() && gate.panelClosed()) resume();
+    else if (canResume() && owns(document.activeElement)) canvas.focus({ preventScroll: true });
     availabilityChanged(canResume());
   };
   document.addEventListener("pointerdown", down, true);
@@ -122,20 +130,29 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   document.addEventListener("scroll", cancel, true);
   document.addEventListener("contextmenu", cancel, true);
   root?.addEventListener("toggle", toggle, true);
-  window.addEventListener("blur", invalid);
+  window.addEventListener("blur", background);
+  const focus = () => availabilityChanged(canResume());
+  window.addEventListener("focus", focus);
   const safe = () => allowed() && !document.hidden &&
     !root?.querySelector('dialog[open], [aria-modal="true"], [inert] canvas');
   const canResume = () => gate.canResume() && !open() && safe();
   return {
     mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
       gate.mode(walking, paused, reason);
-      if (walking && !paused && open()) queueMicrotask(() => { if (open() && gate.isActive()) pause(); });
+      if (walking && !paused && open() && !resumingDrag) queueMicrotask(() => { if (open() && gate.isActive()) pause(); });
       availabilityChanged(canResume());
     },
     canResume,
     movement(allowed: boolean) {
       if (!gate.movement(allowed && !gestureBlocked && pointers.size <= 1 && canResume())) return false;
       resume();
+      return true;
+    },
+    drag(allowed: boolean) {
+      if (!gate.movement(allowed && !gestureBlocked && pointers.size <= 1 && safe())) return false;
+      resumingDrag = true;
+      try { resume(); } finally { resumingDrag = false; }
+      availabilityChanged(canResume());
       return true;
     },
     intent() {
@@ -167,7 +184,8 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
       document.removeEventListener("scroll", cancel, true);
       document.removeEventListener("contextmenu", cancel, true);
       root?.removeEventListener("toggle", toggle, true);
-      window.removeEventListener("blur", invalid);
+      window.removeEventListener("blur", background);
+      window.removeEventListener("focus", focus);
     },
   };
 }
