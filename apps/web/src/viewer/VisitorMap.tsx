@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {useEffect,useId,useMemo,useRef,useState,type FormEvent} from 'react';
+import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
-import {layoutMapMarkers,mapFanRadius,type DisplayMarker} from './map-display-layout';
+import {layoutMapMarkers,mapFanRadius,reconcileMapMarkerPreview,type DisplayMarker} from './map-display-layout';
 
 export interface VisitorMapProps {
  map:MapModel;
@@ -68,11 +68,21 @@ function ArtworkThumbnail({src,kind}:{src?:string;kind:string}){
 /** The map previews identities. Only the existing renderer owner may admit travel. */
 export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel,onPreviewChange}:VisitorMapProps){
  const expanded=useRef<HTMLDivElement>(null),[mapWidth,setMapWidth]=useState(320);
+ const targetSelect=useRef<HTMLSelectElement>(null),focusedMarker=useRef<HTMLButtonElement|null>(null);
  useEffect(()=>{const element=expanded.current;if(!element||typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(()=>{if(element.clientWidth>0)setMapWidth(element.clientWidth);});observer.observe(element);return()=>observer.disconnect();},[]);
  const displayMarkers=useMemo(()=>layoutMapMarkers(map,mapWidth,mapWidth*map.bounds.depth/map.bounds.width),[map,mapWidth]);
  const displayById=new Map(displayMarkers.map(marker=>[marker.id,marker]));
  const crowded=displayMarkers.some(marker=>!marker.point);
  const titleId=useId(),[selection,setSelection]=useState<MapSelection>({key:map.key}),[requestError,setRequestError]=useState<{key:string;text:string}|null>(null),requestGeneration=useRef(0),activeKey=useRef(map.key),selectionRef=useRef(selection);activeKey.current=map.key;selectionRef.current=selection;
+ useEffect(()=>{
+  const previous=selectionRef.current;if(previous.key!==map.key)return;
+  const next=reconcileMapMarkerPreview(previous,new Set(displayMarkers.filter(m=>m.point).map(m=>m.id)));
+  if(next===previous)return;
+  const lostFocus=previous.focused&&!next.focused,oldElement=focusedMarker.current;
+  selectionRef.current=next;setSelection(next);requestGeneration.current++;setRequestError(null);
+  // Never steal focus from another control or panel chosen during the resize.
+  if(lostFocus&&oldElement&&!oldElement.isConnected&&document.activeElement===document.body)targetSelect.current?.focus({preventScroll:true});
+ },[map.key,displayMarkers]);
  useEffect(()=>()=>{requestGeneration.current++;},[map.key]);
  const invalidate=()=>{requestGeneration.current++;setRequestError(null);};
  const cancel=()=>{invalidate();onCancel();};
@@ -92,7 +102,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
  const marker=(target:MapTarget)=>({
   'aria-pressed':selection.key===map.key&&selection.selected?.kind===target.kind&&same(selection.selected.id,target.id),
   onPointerEnter:()=>dispatch({type:'hover',target}),onPointerLeave:()=>dispatch({type:'leave',target}),
-  onFocus:()=>dispatch({type:'focus',target}),onClick:()=>dispatch({type:'select',target}),
+  onFocus:(event:FocusEvent<HTMLButtonElement>)=>{focusedMarker.current=target.kind==='placement'?event.currentTarget:null;dispatch({type:'focus',target});},onClick:()=>dispatch({type:'select',target}),
  });
  const go=(event:FormEvent<HTMLFormElement>)=>{
   event.preventDefault();
@@ -115,7 +125,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
     </div>
    </div>
    {crowded&&<p className="visitor-map-note">좁은 구간의 작품은 아래 목록에서 고를 수 있어요.</p>}
-   <label className="visitor-map-target-select">지도에서 고르기<select value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
+   <label className="visitor-map-target-select">지도에서 고르기<select ref={targetSelect} value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{focusedMarker.current=null;if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
     const chosen=[...map.rooms.map(item=>({kind:'room' as const,id:item.id})),...map.placements.map(item=>({kind:'placement' as const,id:item.id}))].find(target=>`${target.kind}/${target.id}`===event.target.value);
     if(chosen)dispatch({type:'select',target:chosen});else dispatch({type:'dismiss'});
    }}><option value="">공간 또는 작품 선택</option><optgroup label="공간">{map.rooms.map(item=><option key={item.id} value={`room/${item.id}`}>{item.name}</option>)}</optgroup><optgroup label="작품">{map.placements.map(item=><option key={item.id} value={`placement/${item.id}`}>{item.title}</option>)}</optgroup></select></label>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type {MapPoint,VisitorMap} from './visitor-map';
+import type {MapPoint,MapSelection,VisitorMap} from './visitor-map';
 
 type Placement=VisitorMap['placements'][number]&{facing?:MapPoint};
 export interface DisplayMarker {id:string;anchor:MapPoint;point?:MapPoint}
@@ -10,6 +10,16 @@ const distance=(a:MapPoint,b:MapPoint)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 /** Visual range only. Never a camera far plane, visibility or travel distance. */
 export function mapFanRadius(worldSpan:number,pixelSpan:number){
  return Math.min(2,worldSpan*.12,24*worldSpan/Math.max(1,pixelSpan));
+}
+
+/** Unmounting a responsive marker need not fire blur/pointerleave. Keep the
+ * explicit selection, but never let an invisible temporary preview shadow it.
+ */
+export function reconcileMapMarkerPreview(value:MapSelection,visible:ReadonlySet<string>):MapSelection{
+ const vanished=(target:MapSelection['focused'])=>target?.kind==='placement'&&!visible.has(target.id);
+ if(!vanished(value.hovered)&&!vanished(value.focused))return value;
+ const next={...value};if(vanished(next.hovered))delete next.hovered;if(vanished(next.focused))delete next.focused;
+ return next;
 }
 
 /** Room-constrained label positions. Input points and identities remain untouched.

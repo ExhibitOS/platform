@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import type {MapPoint,VisitorMap} from './visitor-map';
-import {layoutMapMarkers,mapFanRadius} from './map-display-layout';
+import {layoutMapMarkers,mapFanRadius,reconcileMapMarkerPreview} from './map-display-layout';
+import {visitorMapPreview,type MapSelection} from './visitor-map';
 
 const room=(id:string,x:number,width=4,depth=6)=>({id,name:id,outline:[[x,0],[x+width,0],[x+width,depth],[x,depth]] as MapPoint[]});
 function plan():VisitorMap{return {key:'test',bounds:{x:0,z:0,width:8,depth:6},rooms:[room('west',0),room('east',4)],doors:[],placements:[]};}
@@ -57,4 +58,12 @@ it('uses image facing to lay out corner collisions along the corresponding room 
  map.placements=[image('a','west',[0,0],[1,0]),image('b','west',[0,0],[1,0])];
  const alongLeft=layoutMapMarkers(map,400,300)[1]!.point!;
  expect(alongTop[0]).toBeGreaterThan(alongLeft[0]);expect(alongTop[1]).toBeLessThan(alongLeft[1]);
+});
+it('drops vanished hover/focus after resize so another explicit fallback selection controls the preview',()=>{
+ const map=plan();map.placements=[image('old','west',[0,0]),image('chosen','east',[8,0])];
+ const before:MapSelection={key:map.key,hovered:{kind:'placement',id:'old'},focused:{kind:'placement',id:'old'},selected:{kind:'placement',id:'chosen'}};
+ const next=reconcileMapMarkerPreview(before,new Set(['chosen']));
+ expect(visitorMapPreview(map,next)).toEqual({kind:'placement',id:'chosen'});
+ expect(before.focused?.id).toBe('old');expect(before.hovered?.id).toBe('old');expect(next.selected).toBe(before.selected);
+ expect(reconcileMapMarkerPreview(before,new Set(['old','chosen']))).toBe(before);
 });
