@@ -40,3 +40,11 @@ for(const abrupt of [false,true]) test(abrupt?'owner SIGKILL closes inherited pi
   }
   if(cleanupError)throw cleanupError;
 });
+
+test('rejects unknown private export options before fetching or writing',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'exhibitos-static-option-'));
+ const child=spawn(process.execPath,[wrapper,'http://127.0.0.1:9','00000000-0000-4000-8000-000000000001',join(root,'runtime'),join(root,'output'),'--unknown'],{stdio:['pipe','ignore','pipe']});
+ let error='';child.stderr.on('data',bytes=>{error+=bytes;});
+ try{assert.deepEqual(await once(child,'exit'),[1,null]);assert.match(error,/STATIC_NATIVE_USAGE/);await assert.rejects(access(join(root,'output')));}
+ finally{child.stdin.destroy();await rm(root,{recursive:true,force:true});}
+});

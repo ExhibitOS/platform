@@ -14,8 +14,8 @@ try {
   // the write end open; even SIGKILL closes it and ends this bounded child.
   process.stdin.resume();
   const [origin, publicationId, runtimeRoot, output, ...extra] = process.argv.slice(2);
-  if (!origin || !publicationId || !runtimeRoot || !output || extra.length) throw Error('STATIC_NATIVE_USAGE');
-  const receipt = await exportStaticPublication({origin,publicationId,runtimeRoot,output});
+  if (!origin || !publicationId || !runtimeRoot || !output || extra.length > 1 || (extra.length === 1 && extra[0] !== '--private-editor')) throw Error('STATIC_NATIVE_USAGE');
+  const receipt = await exportStaticPublication({origin,publicationId,runtimeRoot,output,privateEditor:extra[0] === '--private-editor'});
   finished = true;
   console.log(JSON.stringify(receipt));
 } catch (error) {
