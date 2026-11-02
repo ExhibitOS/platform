@@ -58,3 +58,23 @@ it('projects the existing world pose and yaw without a camera or frame loop',()=
  const pose=visitorMapPose([12,1.65,-7],Math.PI/2)!;expect(pose.point).toEqual([12,-7]);expect(pose.direction[0]).toBeCloseTo(-1);expect(pose.direction[1]).toBeCloseTo(0);
  expect(visitorMapPose([NaN,0,0],0)).toBeUndefined();expect(visitorMapPose([0,0,0],Infinity)).toBeUndefined();
 });
+it('provides image-plane front direction for display placement without changing source coordinates',()=>{
+ const {doc,room,art,p}=fixture(),before=structuredClone(doc);
+ expect(buildVisitorMap(doc,source).placements[0]!.facing).toEqual([0,1]);expect(doc).toEqual(before);
+ // Room nonuniform scale and two noncommuting quarter-turns compose to -Z.
+ room.transform={...identity(),position:[10,0,20],rotation:[0,Math.SQRT1_2,0,Math.SQRT1_2],scale:[2,1,3]};
+ art.transform={...identity(),rotation:[0,Math.SQRT1_2,0,Math.SQRT1_2]};
+ const facing=buildVisitorMap(doc,source).placements[0]!.facing!;expect(facing[0]).toBeCloseTo(0);expect(facing[1]).toBeCloseTo(-1);expect(Math.hypot(...facing)).toBeCloseTo(1);
+ const sculpture=syntheticArtwork('sculpture');doc.artworks=[sculpture];p.artworkRevisionId=sculpture.revisionId;expect(buildVisitorMap(doc,source).placements[0]!.facing).toBeUndefined();
+});
+it('does not infer a horizontal facing for an image plane lying flat',()=>{
+ const {doc,art}=fixture();art.transform={...identity(),rotation:[Math.SQRT1_2,0,0,Math.SQRT1_2]};expect(buildVisitorMap(doc,source).placements[0]!.facing).toBeUndefined();
+});
+it('uses the image-plane normal under tilted noncommuting rotations and nonuniform room scale',()=>{
+ const {doc,room,art,p}=fixture(),s=Math.sin(Math.PI/8),c=Math.cos(Math.PI/8);
+ art.transform={...identity(),rotation:[s,0,0,c]};p.transform={...identity(),rotation:[0,s,0,c]};room.transform={...identity(),scale:[2,1,3]};
+ const facing=buildVisitorMap(doc,source).placements[0]!.facing!;expect(facing[0]).toBeCloseTo(3/Math.sqrt(13));expect(facing[1]).toBeCloseTo(2/Math.sqrt(13));
+});
+it('retains the anchor and omits direction when a tangent sample exceeds the affine envelope',()=>{
+ const {doc,art}=fixture();art.transform={...identity(),position:[10000,0,0]};const placement=buildVisitorMap(doc,source).placements[0]!;expect(placement.point[0]).toBe(10000);expect(placement.facing).toBeUndefined();
+});

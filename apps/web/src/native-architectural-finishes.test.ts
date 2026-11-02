@@ -6,7 +6,7 @@ import {checkedFrame,nativeGeometryAction} from './native-viewport-protocol';
 import {nativeArchitecturalFinishCandidate,checkedArchitecturalFinishRequest,type ArchitecturalFinishRequest} from './native-architectural-finishes';
 import {wallFinishesFor} from '@exhibitos/studio-contract';
 function sample(){
-  const draft=newDraft(),roomId=draft.candidate.rooms[0]!.id;
+  const draft=newDraft();
   draft.candidate.surfaces=whiteCubeSurfaces(draft.candidate.rooms[0]!);
   const frame=checkedFrame({version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
   const request:ArchitecturalFinishRequest={version:1,epoch:frame.epoch,sequence:frame.sequence,tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),type:'set-wall-finish',wall:{surfaceId:draft.candidate.surfaces[0]!.id,depth:.12,preset:'painted-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}};

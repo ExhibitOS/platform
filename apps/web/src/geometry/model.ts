@@ -10,10 +10,10 @@ import {
   surfaceTextureMaterialMap,
   type SurfaceMaterialTextureCommand,
 } from "@exhibitos/studio-contract";
-import { alignPlacement, type Placement, type Light } from "../placement/model";
+import { alignPlacement, type Placement, type Light } from "../placement/model.js";
 import { PRESENTATION_NAMESPACE, type StudioPresentation } from "@exhibitos/studio-contract";
 import type { Artwork } from "@exhibitos/spec";
-import { validateDraft } from "../drafts/validator";
+import { validateDraft } from "../drafts/validator.js";
 export type Room = Exhibition["rooms"][number];
 export type Surface = Exhibition["surfaces"][number];
 export type Opening = Exhibition["openings"][number];
@@ -52,11 +52,12 @@ export type GeometryCommand =
   | { type: "connect-doors"; firstId: string; secondId: string }
   | { type: "disconnect-door"; id: string };
 export class GeometryError extends Error {
-  constructor(
-    public code: string,
-    public issues: unknown = [],
-  ) {
+  code: string;
+  issues: unknown;
+  constructor(code: string, issues: unknown = []) {
     super(code);
+    this.code = code;
+    this.issues = issues;
     this.name = "GeometryError";
   }
 }

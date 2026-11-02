@@ -90,6 +90,28 @@ it('withholds success if the owned advisory unlock cannot be confirmed',async()=
  expect(f.calls.at(-1)).toBe('destroy');
 });
 
+it('preserves the operation failure when advisory unlock is not confirmed',async()=>{
+ for(const mode of ['false','throw']){
+  const f=fixture(),query=f.client.query;
+  f.client.query=async(sql,params)=>{if(sql.includes('pg_advisory_unlock')){if(mode==='throw')throw Error('unlock failed');return {rows:[{unlocked:false}]};}return query(sql,params);};
+  f.hooks.prepare=async()=>{throw Error('PREPARE_FAILED');};
+  await expect(new FileOperationLifecycle(f.pool,1,1000).runOperation(identity(),f.hooks,new AbortController().signal)).rejects.toThrow('PREPARE_FAILED');
+  expect(f.calls.at(-1)).toBe('destroy');
+ }
+});
+it('withholds success when advisory unlock throws and preserves postcommit failure precedence',async()=>{
+ const f=fixture(),query=f.client.query;
+ f.client.query=async(sql,params)=>{if(sql.includes('pg_advisory_unlock'))throw Error('unlock failed');return query(sql,params);};
+ await expect(new FileOperationLifecycle(f.pool,1,1000).runOperation(identity(),f.hooks,new AbortController().signal)).rejects.toThrow('FILE_OPERATION_FENCE_RELEASE_UNCERTAIN');expect(f.calls.at(-1)).toBe('destroy');
+ const g=fixture(),gquery=g.client.query;g.client.query=async(sql,params)=>sql.includes('pg_advisory_unlock')?{rows:[{unlocked:false}]}:gquery(sql,params);g.hooks.afterCommit=async()=>{throw Error('postcommit');};
+ await expect(new FileOperationLifecycle(g.pool,1,1000).runOperation(identity(),g.hooks,new AbortController().signal)).rejects.toThrow('FILE_OPERATION_POSTCOMMIT_FAILED');expect(g.calls.at(-1)).toBe('destroy');
+});
+it('preserves a release failure over success or an operation failure',async()=>{
+ for(const failed of [false,true]){
+  const f=fixture();if(failed)f.hooks.prepare=async()=>{throw Error('PREPARE_FAILED');};f.client.release=()=>{throw Error('RELEASE_FAILED');};
+  await expect(new FileOperationLifecycle(f.pool,1,1000).runOperation(identity(),f.hooks,new AbortController().signal)).rejects.toThrow('RELEASE_FAILED');
+ }
+});
 it.each(['resolved','rejected'] as const)('does not continue when cancellation races a %s final COMMIT',async outcome=>{
  const f=fixture(),abort=new AbortController(),query=f.client.query;
  let commits=0,started!:()=>void,finish!:(value?:unknown)=>void,fail!:(reason?:unknown)=>void;

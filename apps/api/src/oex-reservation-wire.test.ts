@@ -7,7 +7,7 @@ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const receipt:DiskReservationReceipt={version:1,id:id(1),generation:id(2),operation:'oex-import',owner:{databaseSystemId:'1',databaseOid:'2',storeRoot:'/synthetic/store',storeDevice:'3',storeInode:'4'},plan:[{root:'/synthetic/stage',device:'3',bytes:1024}]};
 const bytes=encodeDiskReservationReceipt(receipt),digest=createHash('sha256').update(bytes).digest('hex');
 function fixture(request:object={version:1,kind:'read-receipt',correlationId:id(4),attemptId:id(3),offset:0,length:bytes.length}){
- return {send:vi.fn(async(_payload:Uint8Array)=>{}),receive:vi.fn(async()=>Buffer.from(JSON.stringify(request))),close:vi.fn(async()=>{})};
+ return {send:vi.fn(async(_payload:Uint8Array)=>{void _payload;}),receive:vi.fn(async()=>Buffer.from(JSON.stringify(request))),close:vi.fn(async()=>{})};
 }
 it('sends the exact portable provider receipt with the challenged digest',async()=>{
  const c=fixture();await sendOexReservationReceipt(c,receipt,id(5),id(3),digest);

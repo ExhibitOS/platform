@@ -35,8 +35,15 @@ const safeBackupErrors = new Set([
 export function nativeBackupErrorCode(error) {
   return safeBackupErrors.has(error?.message) ? error.message : 'NATIVE_BACKUP_FAILED';
 }
+function hasForbiddenTocControls(toc) {
+  for (const character of toc) {
+    const code = character.codePointAt(0);
+    if (code <= 8 || (code >= 11 && code <= 31) || code === 127) return true;
+  }
+  return false;
+}
 export function nativeRestoreExtensions(toc) {
-  if (typeof toc !== 'string' || Buffer.byteLength(toc) > TOC_LIMIT || !toc.endsWith('\n') || /[\x00-\x08\x0b-\x1f\x7f]/.test(toc)) throw tocInvalid();
+  if (typeof toc !== 'string' || Buffer.byteLength(toc) > TOC_LIMIT || !toc.endsWith('\n') || hasForbiddenTocControls(toc)) throw tocInvalid();
   const extensions = new Set(); let entries = 0;
   for (const line of toc.split('\n')) {
     if (!line || line.startsWith(';')) continue;
