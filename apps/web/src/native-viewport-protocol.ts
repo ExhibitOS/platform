@@ -3,7 +3,7 @@ import type {Draft} from './drafts/store';
 import {validateDraft} from './drafts/validator';
 import {applyGeometryCommand,createGeometryState,newRoom} from './geometry/model';
 import {newLight} from './placement/model';
-import type {EditorSelection,EditMode} from './geometry/direct-edit';
+import {alignedWall,type EditorSelection,type EditMode} from './geometry/direct-edit';
 import type {GeometryCommand} from './geometry/model';
 import {freezeCanonical,isPbrMaterial,isSurfaceTextureBinding} from '@exhibitos/studio-contract';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -33,15 +33,20 @@ const commands=new Set(['set-room','set-surface','set-opening','set-material','s
 export function geometryProposal(frame:NativeViewportFrame,command:GeometryCommand,bounded=false):Draft['candidate'] {
  if(frame.disabled||!commands.has(command.type))throw Error('VIEWPORT_COMMAND_DENIED');
  if(bounded){
-  if(command.type!=='set-placement'||frame.selection?.kind!=='placement'||frame.selection.id!==command.id)throw Error('VIEWPORT_COMMAND_DENIED');
+  if((command.type!=='set-placement'&&command.type!=='align-placement')||frame.selection?.kind!=='placement'||frame.selection.id!==command.id)throw Error('VIEWPORT_COMMAND_DENIED');
   const before=frame.draft.candidate.placements.find(p=>p.id===command.id);if(!before)throw Error('VIEWPORT_COMMAND_DENIED');
-  const {id:_id,transform:_transform,...other}=before,{transform:_next,...proposed}=command.placement;void _id;void _transform;void _next;
-  if(freezeCanonical(other)!==freezeCanonical(proposed))throw Error('VIEWPORT_COMMAND_DENIED');
+  if(command.type==='set-placement'){
+   if(Object.keys(command).sort().join(',')!=='id,placement,type')throw Error('VIEWPORT_COMMAND_DENIED');
+   const {id:_id,transform:_transform,...other}=before,{transform:_next,...proposed}=command.placement;void _id;void _transform;void _next;
+   if(freezeCanonical(other)!==freezeCanonical(proposed))throw Error('VIEWPORT_COMMAND_DENIED');
+  }else{
+   if(Object.keys(command).sort().join(',')!=='id,offset,snap,surfaceId,type'||command.snap!==0||!Array.isArray(command.offset)||command.offset.length!==2||!command.offset.every(Number.isFinite)||alignedWall(frame.draft.candidate,frame.selection)?.id!==command.surfaceId)throw Error('VIEWPORT_COMMAND_DENIED');
+  }
  }
  const archiveProfile=bounded?'bounded-file-v1' as const:undefined;
  const result=applyGeometryCommand(createGeometryState(frame.draft.candidate,archiveProfile),command,{archiveProfile}).present;
- if(bounded&&command.type==='set-placement'){
-  const expected=structuredClone(frame.draft.candidate),placement=expected.placements.find(p=>p.id===command.id);if(!placement)throw Error('VIEWPORT_COMMAND_DENIED');placement.transform=structuredClone(command.placement.transform);
+ if(bounded&&(command.type==='set-placement'||command.type==='align-placement')){
+  const expected=structuredClone(frame.draft.candidate),placement=expected.placements.find(p=>p.id===command.id),updated=result.placements.find(p=>p.id===command.id);if(!placement||!updated)throw Error('VIEWPORT_COMMAND_DENIED');placement.transform=structuredClone(updated.transform);
   if(freezeCanonical(result)!==freezeCanonical(expected))throw Error('VIEWPORT_COMMAND_DENIED');
  }
  return result;

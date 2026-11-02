@@ -9,6 +9,8 @@ export type Pose=Exhibition['rooms'][number]['transform'];
 export interface EditorBridge {
  document:Exhibition;selection:EditorSelection|null;mode:EditMode;view:string;disabled:boolean;preview:GeometryCommand|null;
  select:(selection:EditorSelection)=>void;previewChange:(command:GeometryCommand|null)=>void;commit:(command:GeometryCommand)=>void;error:(message:string)=>void;
+ /** Optional scoped validation for transient preview; host must also guard commit. */
+ propose?:(command:GeometryCommand)=>Exhibition;
  /** Set only for the active, validated transient authored-light preview. */
  previewLightId?:string;
  uprightRooms?:boolean;
