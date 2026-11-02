@@ -13,8 +13,8 @@ import { validateLifecycle } from "./exhibition-validation.mjs";
 export type Draft = Extract<Lifecycle, { kind: "exhibition-draft" }>;
 import { validateViewerCuration, validateViewerExperience, validateArchitecture, validateStudioMaterials, validateStudioPresentation, validateViewerLod } from "@exhibitos/studio-contract";
 import type { ValidationResult } from "@exhibitos/spec";
-export function validateDraft(document: unknown): ValidationResult {
-  const result = validateLifecycle(document);
+export function validateDraft(document: unknown, archiveProfile?: 'bounded-file-v1'): ValidationResult {
+  const result = validateLifecycle(document, {archiveProfile});
   if (!result.valid) return result;
   const viewing=validateViewingPlan((document as Draft).candidate);
   if(!viewing.valid)return viewing;

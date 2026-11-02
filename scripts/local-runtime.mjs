@@ -189,14 +189,14 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     let supplementalMigrationNames;
     if(supplementalMigrationDirectory&&!freshOexTest){const rows=(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;const provenance=rows.find(row=>row.name===NORMAL_OEX_PROVENANCE_MIGRATION);if(provenance&&provenance.sha256!==NORMAL_OEX_PROVENANCE_SHA256)throw Error('NATIVE_OEX_CATALOG');supplementalMigrationNames=[NORMAL_OEX_MIGRATION,...(provenance?[NORMAL_OEX_PROVENANCE_MIGRATION]:[])];}
     if(normalOexV2&&(!ownerChannel?.isOpen()||!supplementalMigrationNames?.includes(NORMAL_OEX_PROVENANCE_MIGRATION)))throw Error('NATIVE_OEX_CATALOG');
-    const nativeOexWorkspace=normalOexV2?await transaction(pool,async c=>{
+    const nativeOexWorkspace=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&supplementalMigrationNames?.includes(NORMAL_OEX_PROVENANCE_MIGRATION)?await transaction(pool,async c=>{
       await c.query('SELECT pg_advisory_xact_lock(82001)');
-      if(!ownerChannel?.isOpen()||!await preflightNormalOexCatalog(c,migrationDirectory,supplementalMigrationDirectory))throw Error('NATIVE_OEX_CATALOG');
+      if(normalOexV2&&!ownerChannel?.isOpen()||!await preflightNormalOexCatalog(c,migrationDirectory,supplementalMigrationDirectory))throw Error('NATIVE_OEX_CATALOG');
       const context=await bindNativeOexWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot});
-      if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');return context;
+      if(normalOexV2&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');return context;
     }):undefined;
     const uploadSlot=selectedOex?createSelectedNativeUploadSlot():undefined,saveSlot=selectedOex?createSelectedStudioPutSlot():undefined;
-    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}), webRoot, blobRoot } });
+    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}), webRoot, blobRoot } });
     await app.listen({ host: "127.0.0.1", port: apiPort });
     stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
     if(selectedOex){

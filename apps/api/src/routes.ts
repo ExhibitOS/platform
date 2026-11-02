@@ -33,9 +33,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext) {
- const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace);
- if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,studio,saveSlot);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false) {
+ if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
+ const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing);
+ if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,studio,saveSlot,!!nativeOexWorkspace);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
   return cookies.length===1 ? cookies[0]!.slice(settings.cookieName.length+1) : undefined;
@@ -140,6 +141,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const studioBody=object({draft:{type:'object'},requestId:id});
  app.post(sp,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const result=await studio.create(c,s,req.body as StudioInput);reply.code(201).header('etag',result.etag);return result;}));
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
+ if(nativeOexWorkspace)app.get(`${sp}/:id/native-viewport-policy`,call(false,async(c,s,req)=>studio.nativeViewportPolicy(c,s,(req.params as {id:string}).id)));
+ if(nativeOexWorkspace)app.post(`${sp}/:id/native-viewport-check`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req)=>studio.validateNativeViewport(c,s,(req.params as {id:string}).id,req.body as StudioInput,req.headers['if-match']===undefined?undefined:requiredMatch(req.headers['if-match']))));
  if(freshOexTest){app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},async(req,reply)=>{const p=req.params as {id:string};const result=await runSelectedStudioPut(saveSlot!,req,reply,(c,s)=>studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match'])));reply.header('etag',result.etag);return result;});}
  else app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
@@ -191,7 +194,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${coverPath}/:imageId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.approve(c,s,p.id,p.imageId,(req.body as {revision:number}).revision);}));
  app.get(`${coverPath}/:imageId/preview`,{schema:{querystring:object({expectedSha256:{...str,pattern:'^[a-f0-9]{64}$'}})}},call(false,async(c,s,req,reply)=>{const p=coverParams(req),result=await covers.preview(c,s,p.id,p.imageId,(req.query as {expectedSha256:string}).expectedSha256);reply.header('content-type','image/png').header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode','none').header('x-exhibitos-watermarked','false').header('x-exhibitos-cover-sha256',result.sourceSha256);return result.bytes;}));
  for(const action of ['revoke','restore'] as const)app.post(`${coverPath}/:imageId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.availability(c,s,p.id,p.imageId,action==='restore');}));
- const publications=new Publications(pool,store);
+ const publications=new Publications(pool,store,nativeOexWorkspace);
  app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
  app.get(`${prefix}/studio/publications/:id/editing-draft`,call(false,async(c,s,req,reply)=>{const result=await publications.editingDraft(c,s,(req.params as {id:string}).id);reply.header('etag',result.etag);return result;}));
  const readPublic=async(id:string,assetId?:string,profile?:string)=>{
@@ -220,7 +223,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  });
  }
  app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
- app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.list(c,s,(req.params as {id:string}).id)));
+ app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.listForRead(c,s,(req.params as {id:string}).id)));
  app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));
  for(const action of ['unpublish','republish'] as const)app.post(`${prefix}/studio/publications/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>publications[action](c,s,(req.params as {id:string}).id)));
  if(federationConfig){

@@ -132,7 +132,7 @@ export function whiteCubeSurfaces(room: Room): Surface[] {
     surface("ceiling", w, d, [0, h, 0], [q, 0, 0, q]),
   ];
 }
-function checked(candidate: Exhibition): void {
+function checked(candidate: Exhibition,archiveProfile?:'bounded-file-v1'): void {
   const time = "2026-01-01T00:00:00.000Z";
   const validation = validateDraft({
     schemaVersion: "1.0.0-draft.1",
@@ -143,12 +143,12 @@ function checked(candidate: Exhibition): void {
     createdAt: time,
     updatedAt: time,
     candidate,
-  });
+  },archiveProfile);
   if (!validation.valid)
     throw new GeometryError("INVALID_GEOMETRY", validation.errors);
 }
-export function createGeometryState(candidate: Exhibition): GeometryState {
-  checked(candidate);
+export function createGeometryState(candidate: Exhibition,archiveProfile?:'bounded-file-v1'): GeometryState {
+  checked(candidate,archiveProfile);
   return { present: clone(candidate), past: [], future: [] };
 }
 function find<T extends { id: string }>(items: T[], id: string): T {
@@ -181,7 +181,7 @@ function setMap(doc: Exhibition, map: StudioMaterials): void {
 export function applyGeometryCommand(
   state: GeometryState,
   command: GeometryCommand,
-  options?: {verifiedDoorBaseline?: Exhibition},
+  options?: {verifiedDoorBaseline?: Exhibition;archiveProfile?:'bounded-file-v1'},
 ): GeometryState {
   let doc = clone(state.present);
   switch (command.type) {
@@ -300,7 +300,7 @@ export function applyGeometryCommand(
     }
   }
   if(doc.extensions?.[TEMPLATE_NAMESPACE]){const provenance=doc.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};provenance.modified=true;}
-  checked(doc);
+  checked(doc,options?.archiveProfile);
   return {
     present: doc,
     past: [...state.past, clone(state.present)].slice(-20),

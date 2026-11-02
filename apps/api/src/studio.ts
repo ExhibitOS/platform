@@ -64,6 +64,18 @@ function checked(input: StudioInput, bounded=false) {
   )
     throw new ApiError(422, "DRAFT_INVALID");
 }
+/** Only one existing placement transform can change in the bounded slice. */
+function boundedPlacementOnly(before:Draft,after:Draft):boolean {
+ const a=structuredClone(before),b=structuredClone(after),left=a.candidate.placements,right=b.candidate.placements;
+ if(left.length!==right.length)return false;
+ let changed=0;
+ for(let i=0;i<left.length;i++){
+  const old=left[i]!,next=right[i]!;if(old.id!==next.id)return false;
+  if(!isDeepStrictEqual(old.transform,next.transform)){if(++changed>1)return false;old.transform=structuredClone(next.transform);}
+ }
+ a.editVersion=b.editVersion;a.updatedAt=b.updatedAt;
+ return isDeepStrictEqual(a,b);
+}
 export function etag(revision: number, draft: Draft) {
   return `"studio-r${revision}-${hash(draft)}"`;
 }
@@ -78,7 +90,12 @@ export function requiredMatch(value: unknown): string {
 }
 export class Studio {
   private readonly nativeOexWorkspace:NativeOexWorkspaceContext|undefined;
-  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext) {this.nativeOexWorkspace=nativeOexWorkspace;}
+  private readonly nativeBoundedEditing:boolean;
+  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;}
+  private boundedCapability(s:Session,row:{id:string;revision:number;metadata:Draft}) {
+    if(!this.nativeOexWorkspace||!this.nativeBoundedEditing)throw new ApiError(403,'FORBIDDEN');
+    return {version:1 as const,kind:'native-bounded-edit-v1' as const,tenantId:s.tenantId,principalId:s.userId,workspaceId:this.nativeOexWorkspace.workspaceId,exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata)};
+  }
   private role(s: Session) {
     if (!["admin", "curator", "artist"].includes(s.role))
       throw new ApiError(403, "FORBIDDEN");
@@ -135,6 +152,22 @@ export class Studio {
       etag: etag(row.revision, row.metadata),
       draft: row.metadata,
     };
+  }
+  /** The persisted, owner-bound provenance controls profile selection. */
+  async validateNativeViewport(c:PoolClient,s:Session,id:string,input:StudioInput,match?:string) {
+    const row=await this.access(c,s,id);
+    if(!row.nativeBounded)throw new ApiError(403,'FORBIDDEN');
+    if(typeof input.draft?.exhibitionId!=='string'||typeof input.draft?.id!=='string'||input.draft.exhibitionId.toLowerCase()!==id.toLowerCase()||input.draft.id.toLowerCase()!==row.metadata.id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
+    checked(input,true);
+    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
+    return {valid:true as const};
+  }
+  async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
+    if(!this.nativeOexWorkspace)throw new ApiError(404,'NOT_FOUND');
+    const row=await this.access(c,s,id),ordinary=validateLifecycle(row.metadata);
+    if(!ordinary.valid&&(!row.nativeBounded||!ordinary.errors.length||!ordinary.errors.every(error=>error.code==='ASSET_TOTAL_LIMIT'&&error.path==='/candidate/artworks')))throw new ApiError(409,'DRAFT_CORRUPT');
+    const boundedProfile=!!row.nativeBounded,boundedEditRequired=boundedProfile&&!ordinary.valid,editable=boundedEditRequired&&this.nativeBoundedEditing;
+    return {exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata),boundedReadOnly:boundedEditRequired&&!editable,boundedProfile,boundedEditRequired,...(editable?{editingCapability:this.boundedCapability(s,row)}:{})};
   }
   private async receipt(
     c: PoolClient,
@@ -230,7 +263,7 @@ export class Studio {
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!isDeepStrictEqual(row.metadata,input.draft))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?boundedPlacementOnly(row.metadata,input.draft):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()

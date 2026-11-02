@@ -112,14 +112,18 @@ const uploadPath='/api/v1/tenants/:tenantId/native-oex/imports';
  * This scope must contain ALL mutation routes. No slot => caller must leave
  * ordinary registration unchanged. Upload paths still require their own
  * private capability checks; matching a route here grants no upload authority.
- * After arming begins even upload writes are denied. No new HTTP route exists. */
-export function registerSelectedStudioPutGate(app:FastifyInstance,auth:Auth,input:AuthConfig,studio:Studio,slot:SelectedStudioPutSlot):void{
+ * After arming begins even upload writes are denied. The optional exact
+ * native viewport check performs authenticated validation only, never a write. */
+export function registerSelectedStudioPutGate(app:FastifyInstance,auth:Auth,input:AuthConfig,studio:Studio,slot:SelectedStudioPutSlot,allowNativeViewportCheck=false):void{
  const entry=state(slot),settings=config(input);
  if(entry.binding||entry.attempted||entry.closed||settings.mode!=='local'||!(auth instanceof Auth)||!(studio instanceof Studio))throw Error('NATIVE_STUDIO_CONFIGURATION');
  entry.binding={auth,studio,settings};
  app.addHook('onRequest',async(req,reply)=>{
   if(req.method==='GET'||req.method==='HEAD')return;
   const route=req.routeOptions.url;
+  // This endpoint performs only authenticated, provenance-bound validation;
+  // it never creates a draft or grants a selected PUT slot.
+  if(allowNativeViewportCheck&&req.method==='POST'&&route===studioPath+'/native-viewport-check')return;
   if(!entry.attempted&&!entry.closed&&(req.method==='POST'&&(route===uploadPath||route===uploadPath+'/:id/queue')||req.method==='PUT'&&route===uploadPath+'/:id/chunks/:index'))return;
   reply.header('cache-control','no-store');
   if(req.method!=='PUT'||route!==studioPath)throw new ApiError(403,'NATIVE_SELECTED_WRITE_DENIED');

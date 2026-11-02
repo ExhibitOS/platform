@@ -12,9 +12,9 @@ function sample(){
  const artwork=syntheticArtwork('image'),surface=frame.draft.candidate.surfaces.find(s=>s.type==='wall')!;
  const request:PlacementBegin={version:1,epoch:frame.epoch,sequence:frame.sequence,tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),phase:'begin',artworkId:artwork.id,expectedRevision:2,placementId:crypto.randomUUID(),roomId:room.id,targetKind:'wall'};
  const source=vi.fn(async()=>structuredClone(artwork)),authenticate=vi.fn(async()=>{}),notify=vi.fn(),target=vi.fn(),cancelled=vi.fn();
- const placement=new NativePlacement({frame:()=>frame,source,authenticate,notify,target,cancelled});
+ let suspended=false;const placement=new NativePlacement({frame:()=>frame,source,authenticate,notify,target,cancelled,suspended:()=>suspended});
  const bound=(phase:'commit'|'cancel')=>({version:1 as const,epoch:frame.epoch,sequence:frame.sequence,tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),phase,placementRequestId:request.requestId});
- return {placement,request,artwork,surface,source,authenticate,target,cancelled,bound,frame:()=>frame,rebind:(next:NativeViewportFrame)=>{frame=next;placement.rebind(next);}};
+ return {placement,request,artwork,surface,source,authenticate,target,cancelled,bound,frame:()=>frame,suspend:(value:boolean)=>{suspended=value;},rebind:(next:NativeViewportFrame)=>{frame=next;placement.rebind(next);}};
 }
 it('returns one checked Placement after begin and commit rights/auth refresh, without changing host inventory or history',async()=>{
  const s=sample(),before=structuredClone(s.frame());await s.placement.request(s.request);s.placement.choose(s.surface.id,[0,0]);const token=s.placement.snapshot()!.target!.token;
@@ -33,6 +33,11 @@ it('same canonical sequence-only rebinding keeps the selected target, while a re
  const s=sample();await s.placement.request(s.request);s.placement.choose(s.surface.id,[0,0]);const token=s.placement.snapshot()!.target!.token;
  s.rebind({...s.frame(),sequence:4});expect(s.placement.snapshot()!.target!.token).toBe(token);
  s.rebind({...s.frame(),sequence:5,cameraSequence:1});expect(s.placement.active).toBe(false);expect(s.cancelled).toHaveBeenCalledTimes(1);
+});
+it('ignores preview clicks while frame acceptance is pending and preserves the prior target',async()=>{
+ const s=sample();await s.placement.request(s.request);s.placement.choose(s.surface.id,[0,0]);const target=s.placement.snapshot()!.target,events=s.target.mock.calls.length;
+ s.suspend(true);s.placement.choose(s.surface.id,[.2,0]);expect(s.placement.snapshot()!.target).toBe(target);expect(s.target).toHaveBeenCalledTimes(events);
+ s.rebind({...s.frame(),sequence:4});s.suspend(false);expect(s.placement.snapshot()!.target).toBe(target);expect(s.cancelled).not.toHaveBeenCalled();
 });
 it('cancellation during the approved-source fetch fences late completion and remains an idempotent bound cancel',async()=>{
  const s=sample();let release!:(value:typeof s.artwork)=>void;s.source.mockImplementation(()=>new Promise(resolve=>{release=resolve;}));

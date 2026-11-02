@@ -4,6 +4,8 @@ import type {PlaqueInspectorRequest} from './native-plaque-inspector';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {afterEach,expect,it,vi} from 'vitest';
 import {newDraft} from './drafts/example';
+import {readFile} from 'node:fs/promises';
+import {fixtureURL,readOex} from '@exhibitos/spec';
 import {newLight} from './placement/model';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import type {LightInspectorRequest} from './native-light-inspector';
@@ -27,6 +29,56 @@ async function sample(withWalls=false){
  const begin:PlacementBegin={version:1,epoch:frame.epoch,sequence:frame.sequence,tenantId:frame.tenantId,principalId:frame.principalId,requestId:crypto.randomUUID(),phase:'begin',artworkId:crypto.randomUUID(),expectedRevision:1,placementId:crypto.randomUUID(),roomId:light.roomId,targetKind:'wall'};
  return {vm,frame,request,begin,session,fetcher,accepted};
 }
+async function oversizedFrame(base:NativeViewportFrame):Promise<NativeViewportFrame>{
+ const f=structuredClone(base),sample=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),image=sample.exhibition.artworks.find(a=>a.artworkType==='image')!;
+ f.sequence++;f.draft.candidate.artworks=Array.from({length:10},(_,i)=>{const a=structuredClone(image);a.id=crypto.randomUUID();a.revisionId=crypto.randomUUID();a.assets[0]!.id=crypto.randomUUID();a.primaryAssetId=a.assets[0]!.id;a.assets[0]!.path=`synthetic-${i}.png`;a.assets[0]!.bytes=32*1024*1024;return a;});return f;
+}
+it('requires server authority for a bounded viewport and rejects stale or denied results',async()=>{
+ const s=await sample(),large=await oversizedFrame(s.frame),session=()=>Response.json({tenantId:large.tenantId,userId:large.principalId,role:'admin',csrfToken:'csrf',expiresAt:'2099-01-01T00:00:00Z'});
+ s.fetcher.mockImplementation(async(input)=>String(input).includes('native-viewport-check')?new Response('',{status:403}):session());
+ await expect(s.vm.accept(large)).rejects.toThrow('VIEWPORT_FRAME_INVALID');
+ s.fetcher.mockImplementation(async(input)=>String(input).includes('native-viewport-check')?Response.json({valid:true}):session());
+ const accepted=await s.vm.accept(large);expect(accepted).toMatchObject({accepted:true,boundedReadOnly:true});
+ expect(accepted.capabilities).not.toContain('place-artwork-v1');expect(accepted.capabilities).toContain('find-selection-v1');
+ expect(()=>s.vm.action({type:'add-light',roomId:large.draft.candidate.rooms[0]!.id})).toThrow('VIEWPORT_BOUNDED_READ_ONLY');
+ let release!:(response:Response)=>void;
+ s.fetcher.mockImplementation(async(input)=>String(input).includes('native-viewport-check')?new Promise(r=>{release=r;}):session());
+ const pending=s.vm.accept({...large,sequence:3});await vi.waitFor(()=>expect(release).toBeDefined());
+ expect(()=>s.vm.action({type:'add-light',roomId:large.draft.candidate.rooms[0]!.id})).toThrow('VIEWPORT_BOUNDED_READ_ONLY');
+ s.fetcher.mockImplementation(async()=>session());await s.vm.accept({...s.frame,sequence:4});release(Response.json({valid:true}));
+ await expect(pending).rejects.toThrow('VIEWPORT_FRAME_STALE');
+});
+it('enables only scoped bounded placement editing after the exact saved ETag is validated',async()=>{
+ const s=await sample(),large=await oversizedFrame(s.frame),workspaceId=crypto.randomUUID(),baseETag='"studio-r2-'+ 'a'.repeat(64)+'"';
+ Object.assign(large,{workspaceId,baseETag});
+ const capability={version:1,kind:'native-bounded-edit-v1',tenantId:large.tenantId,principalId:large.principalId,workspaceId,exhibitionId:large.draft.exhibitionId,revision:2,etag:baseETag};
+ const session=()=>Response.json({tenantId:large.tenantId,userId:large.principalId,role:'admin',csrfToken:'csrf',expiresAt:'2099-01-01T00:00:00Z'});
+ s.fetcher.mockImplementation(async(input,init)=>{if(String(input).includes('native-viewport-check')){expect((init?.headers as Record<string,string>)['if-match']).toBe(baseETag);return Response.json({valid:true,editingCapability:capability});}return session();});
+ const ack=await s.vm.accept(large);expect(ack).toMatchObject({boundedReadOnly:false,editingCapability:capability});expect(ack.capabilities).not.toContain('place-artwork-v1');
+ expect(()=>s.vm.action({type:'add-light',roomId:large.draft.candidate.rooms[0]!.id})).toThrow('VIEWPORT_BOUNDED_READ_ONLY');
+ s.fetcher.mockImplementation(async(input)=>String(input).includes('native-viewport-check')?Response.json({valid:true,editingCapability:{...capability,workspaceId:crypto.randomUUID()}}):session());
+ await expect(s.vm.accept({...large,sequence:3})).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');
+ s.fetcher.mockImplementation(async(input)=>String(input).includes('native-viewport-check')?Response.json({valid:true}):session());
+ expect(await s.vm.accept({...large,sequence:4})).toMatchObject({boundedReadOnly:true});
+});
+it('retains the ordinary path for a valid single asset larger than 32 MiB',async()=>{
+ const s=await sample(),frame=await oversizedFrame(s.frame);frame.draft.candidate.artworks=frame.draft.candidate.artworks.slice(0,1);frame.draft.candidate.artworks[0]!.assets[0]!.bytes=33*1024*1024;
+ expect(await s.vm.accept(frame)).toMatchObject({accepted:true,boundedReadOnly:false});expect(s.fetcher).toHaveBeenCalledTimes(1);expect(String(s.fetcher.mock.calls[0]![0])).toBe('/api/v1/auth/session');
+});
+it('invalidates a pending accept on auth change and allows a newly authenticated ordinary frame',async()=>{
+ const s=await sample();let release!:(response:Response)=>void;s.fetcher.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
+ const pending=s.vm.accept({...s.frame,sequence:2}),rejected=expect(pending).rejects.toThrow('VIEWPORT_FRAME_STALE');
+ window.dispatchEvent(new Event('exhibitos-auth-changed'));release(s.session());await rejected;
+ s.fetcher.mockImplementation(async()=>s.session());expect((await s.vm.accept({...s.frame,sequence:3})).boundedReadOnly).toBe(false);
+ expect(()=>s.vm.action({type:'add-light',roomId:s.frame.draft.candidate.rooms[0]!.id})).not.toThrow();
+});
+it('does not complete an older editing intent while a later frame awaits approval',async()=>{
+ const s=await sample(),large=await oversizedFrame(s.frame);let releaseIntent!:(response:Response)=>void,releaseCheck!:(response:Response)=>void;
+ const session=()=>Response.json({tenantId:large.tenantId,userId:large.principalId,role:'admin',csrfToken:'csrf',expiresAt:'2099-01-01T00:00:00Z'});let first=true;
+ s.fetcher.mockImplementation(async(input)=>{if(first){first=false;return new Promise(r=>{releaseIntent=r;});}return String(input).includes('native-viewport-check')?new Promise(r=>{releaseCheck=r;}):session();});
+ const old=s.vm.lightInspector(s.request),rejected=expect(old).rejects.toThrow('VIEWPORT_SCOPE_CHANGED');const next=s.vm.accept(large);
+ await vi.waitFor(()=>expect(releaseCheck).toBeDefined());releaseIntent(session());await rejected;releaseCheck(Response.json({valid:true}));expect((await next).boundedReadOnly).toBe(true);
+});
 it('the wired pending light request excludes placement begin, duplicate light and ordinary mutation, then releases after its checked reply',async()=>{
  const s=await sample();let resolve!:(response:Response)=>void;
  s.fetcher.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));const pending=s.vm.lightInspector(s.request);

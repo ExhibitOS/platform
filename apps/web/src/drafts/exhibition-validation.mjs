@@ -206,7 +206,8 @@ export function assetInventory(revision) {
     key(a.id) < key(b.id) ? -1 : key(a.id) > key(b.id) ? 1 : 0,
   );
 }
-export function validateExhibition(revision, { publicationTime } = {}) {
+export function validateExhibition(revision, { publicationTime, archiveProfile } = {}) {
+  if (archiveProfile !== undefined && archiveProfile !== 'bounded-file-v1') return result([issue('UNSUPPORTED_ARCHIVE_PROFILE','/archiveProfile','Unsupported archive validation profile')]);
   const safety = jsonErrors(revision);
   if (safety.length) return result(safety);
   if (revision?.schemaVersion !== EXHIBITION_VERSION)
@@ -302,12 +303,13 @@ export function validateExhibition(revision, { publicationTime } = {}) {
     allAssets.set(key(asset.id), { signature, asset });
     paths.set(asset.path, signature);
   }
-  if (
-    assetInventory(revision).reduce((sum, asset) => sum + asset.bytes, 0) >
-    MAX_ASSET_TOTAL_BYTES
-  )
+  const assets = assetInventory(revision);
+  if (archiveProfile === 'bounded-file-v1' && assets.some(asset => asset.bytes > (32*1024*1024)))
+    errors.push(issue('ASSET_FILE_LIMIT', '/artworks', `Profile asset exceeds ${(32*1024*1024)/1048576}MiB`));
+  const assetTotalLimit = archiveProfile === 'bounded-file-v1' ? (512*1024*1024) : MAX_ASSET_TOTAL_BYTES;
+  if (assets.reduce((sum, asset) => sum + asset.bytes, 0) > assetTotalLimit)
     errors.push(
-      issue("ASSET_TOTAL_LIMIT", "/artworks", "Unique assets exceed 256MiB"),
+      issue("ASSET_TOTAL_LIMIT", "/artworks", `Unique assets exceed ${assetTotalLimit} bytes`),
     );
   revision.rooms.forEach((room, i) =>
     checkTransform(room.transform, `/rooms/${i}/transform`, errors, true),
@@ -765,7 +767,7 @@ export function validateExhibition(revision, { publicationTime } = {}) {
           );
   return result(errors);
 }
-export function validateLifecycle(document) {
+export function validateLifecycle(document, { archiveProfile } = {}) {
   const safety = jsonErrors(document);
   if (safety.length) return result(safety);
   if (document?.schemaVersion !== EXHIBITION_VERSION)
@@ -792,7 +794,7 @@ export function validateLifecycle(document) {
     if (document[field] !== undefined)
       checkTemporal(document[field], "/" + field, errors);
   if (document.kind === "exhibition-draft") {
-    const checked = validateExhibition(document.candidate);
+    const checked = validateExhibition(document.candidate, { archiveProfile });
     errors.push(
       ...checked.errors.map((error) => ({
         ...error,
