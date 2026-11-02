@@ -31,7 +31,7 @@ export function layoutMapMarkers(map:VisitorMap,width:number,height:number,marke
  const scale:MapPoint=[width/map.bounds.width,height/map.bounds.depth];
  const pixel=(p:MapPoint):MapPoint=>[(p[0]-map.bounds.x)*scale[0],(p[1]-map.bounds.z)*scale[1]];
  const world=(p:MapPoint):MapPoint=>[p[0]/scale[0]+map.bounds.x,p[1]/scale[1]+map.bounds.z];
- const placed=new Map<string,MapPoint>(),half=markerSize/2+2,spacing=markerSize+4;
+ const placed=new Map<string,MapPoint>(),half=markerSize/2+6,spacing=markerSize+4;
  const rooms=new Map(map.rooms.map(room=>[room.id.toLowerCase(),room]));
  for(const room of rooms.values()){
   const polygon=room.outline.map(pixel);
