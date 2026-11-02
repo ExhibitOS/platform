@@ -9,7 +9,7 @@ import {attachNativeOwnerFrames} from './native-owner-frames.mjs';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hex=/^[a-f0-9]{64}$/;
 const closed=(value,keys)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).length===keys.length&&keys.every(key=>Object.hasOwn(value,key));
-export function closeNativeOwnerDescriptor(fdText){if(typeof fdText==='string'&&/^(?:[1-9][0-9]{1,3})$/.test(fdText)&&Number(fdText)<=1023)try{closeSync(Number(fdText));}catch{}}
+export function closeNativeOwnerDescriptor(fdText){if(typeof fdText==='string'&&/^(?:[1-9][0-9]{1,3})$/.test(fdText)&&Number(fdText)<=1023)try{closeSync(Number(fdText));}catch{/* The descriptor may already have been closed. */}}
 
 /** Legacy FD0 data remains unchanged. The envelope is an opt-in fixed ABI. */
 export function unpackNativeOwnerInput(input){
