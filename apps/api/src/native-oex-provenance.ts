@@ -35,6 +35,20 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  }} satisfies NativeOexWorkspaceContext);
 }
 
+/** Private default-native workspace binding for local file export. It does not
+ * grant bounded-import provenance, migrate a database or authorize a request. */
+export interface NativeLocalExportContext {
+ readonly workspaceId:string;readonly tenantId:string;readonly principalId:string;
+ assertDatabase(client:PoolClient):Promise<void>;
+}
+export async function bindNativeLocalExportWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string}):Promise<NativeLocalExportContext>{
+ const {workspaceId,tenantId,principalId,ownerUid,blobRoot}=input;for(const value of [workspaceId,tenantId,principalId]){uuid(value);if(value!==value.toLowerCase())throw new ApiError(403,'FORBIDDEN');}
+ if(!Number.isSafeInteger(ownerUid)||ownerUid<=0||ownerUid!==process.getuid?.()||typeof blobRoot!=='string')throw new ApiError(403,'FORBIDDEN');
+ const verify=async(client:PoolClient)=>{const r=await client.query('SELECT 1 FROM local_workspaces WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND mac_uid=$4',[workspaceId,tenantId,principalId,ownerUid]);if(r.rowCount!==1)throw new ApiError(403,'FORBIDDEN');};
+ await verify(c);const owner=await publicationDiskOwner(c,blobRoot);
+ return Object.freeze({workspaceId,tenantId,principalId,assertDatabase:async(client:PoolClient)=>{await verify(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}});
+}
+
 /** Called only after the normal Studio tenant/role access check. A missing
  * record retains the ordinary limit. A malformed or mismatched record fails
  * closed; a row by itself is never authorization. */

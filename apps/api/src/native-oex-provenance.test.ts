@@ -2,7 +2,7 @@
 import {expect,it,vi} from 'vitest';
 import type {PoolClient} from 'pg';
 import type {Session} from './auth.ts';
-import {bindNativeOexWorkspace,consumeNativeSelectedDraftGrant,hasNativeBoundedProvenance,issueNativeSelectedDraftGrant,recordNativeSelectedProvenance,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import {bindNativeLocalExportWorkspace,bindNativeOexWorkspace,consumeNativeSelectedDraftGrant,hasNativeBoundedProvenance,issueNativeSelectedDraftGrant,recordNativeSelectedProvenance,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 vi.mock('./publication-attempt.ts',()=>({publicationDiskOwner:vi.fn(async()=>({databaseSystemId:'42',databaseOid:'16384',storeRoot:'/synthetic',storeDevice:'1',storeInode:'2'}))}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const session={id:id(1),tenantId:id(2),userId:id(3),role:'admin',csrfToken:'',expiresAt:'2099-01-01T00:00:00Z'} as Session;
@@ -26,6 +26,10 @@ it('retains the ordinary limit without a context or binding and rejects mismatch
  await expect(hasNativeBoundedProvenance(f.c,{...session,tenantId:id(7)},id(6),f.context)).rejects.toMatchObject({code:'FORBIDDEN'});expect(f.query).not.toHaveBeenCalled();
  f.query.mockResolvedValueOnce({rowCount:0,rows:[]});expect(await hasNativeBoundedProvenance(f.c,session,id(6),f.context)).toBe(false);
  f.row.result_exhibition=id(7);await expect(hasNativeBoundedProvenance(f.c,session,id(6),f.context)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
+});
+it('binds default native export to the existing workspace and UID without supplemental migration',async()=>{
+ let valid=true;const query=vi.fn(async(sql:string)=>{if(sql.includes('schema_migrations'))throw Error('unexpected migration query');return valid?{rows:[{}],rowCount:1}:{rows:[],rowCount:0};});const c={query} as unknown as PoolClient;
+ const args={workspaceId:id(4),tenantId:id(2),principalId:id(3),ownerUid:process.getuid!(),blobRoot:'/synthetic'},context=await bindNativeLocalExportWorkspace(c,args);await context.assertDatabase(c);expect(context).toMatchObject({workspaceId:id(4),tenantId:id(2),principalId:id(3)});valid=false;await expect(context.assertDatabase(c)).rejects.toMatchObject({code:'FORBIDDEN'});
 });
 it('requires the exact applied 026 and 027 hashes at bind and during later fenced checks',async()=>{
  const rows=[{name:'026_oex_file_profile.sql',sha256:'9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112'},{name:'027_oex_exhibition_provenance.sql',sha256:'09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7'}];

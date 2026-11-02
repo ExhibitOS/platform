@@ -5,8 +5,9 @@ import type { AuthConfig } from './auth.ts';
 import { readiness, type LifecycleConfig } from './lifecycle.ts';
 
 // A fresh instance per caller keeps tests isolated and avoids listening on import.
-export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@exhibitos/storage').BlobStore;oexWorker?:boolean;freeze?:import('./freeze.ts').FreezeConfig;lifecycle?:LifecycleConfig;federation?:import('./federation.ts').FederationConfig;publicationSource?:import('./publication.ts').PublicationSource;freshOexTest?:true;uploadSlot?:import('./native-bounded-oex-upload.ts').NativeBoundedUploadSlot;saveSlot?:import('./native-selected-studio-put.ts').SelectedStudioPutSlot;nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext;nativeBoundedEditing?:boolean}) {
+export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@exhibitos/storage').BlobStore;oexWorker?:boolean;freeze?:import('./freeze.ts').FreezeConfig;lifecycle?:LifecycleConfig;federation?:import('./federation.ts').FederationConfig;publicationSource?:import('./publication.ts').PublicationSource;freshOexTest?:true;uploadSlot?:import('./native-bounded-oex-upload.ts').NativeBoundedUploadSlot;saveSlot?:import('./native-selected-studio-put.ts').SelectedStudioPutSlot;nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext;nativeBoundedEditing?:boolean;nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext}) {
   if(options?.nativeOexWorkspace&&options.auth.mode!=='local'||options?.nativeBoundedEditing&&(!options.nativeOexWorkspace||options.freshOexTest))throw Error('NATIVE_OEX_CONFIGURATION');
+  if(options?.nativeExportWorkspace&&(options.auth.mode!=='local'||options.freshOexTest))throw Error('NATIVE_OEX_CONFIGURATION');
   if(options?.freshOexTest&&options.oexWorker)throw Error('OEX_TEST_WORKER_UNAVAILABLE');
   const app = Fastify({ bodyLimit: 1024 * 1024, trustProxy: false, ajv: {customOptions:{removeAdditional:false,coerceTypes:false}} });
   app.get('/api/v1/health', {
@@ -33,7 +34,7 @@ export function buildApp(options?: {pool:Pool;auth:AuthConfig;blobs?:import('@ex
       }
     });
   }
-  if (options) registerAuth(app,options.pool,options.auth,options.blobs,options.oexWorker,options.freeze,options.federation,options.publicationSource,options.freshOexTest,options.uploadSlot,options.saveSlot,options.nativeOexWorkspace,options.nativeBoundedEditing);
+  if (options) registerAuth(app,options.pool,options.auth,options.blobs,options.oexWorker,options.freeze,options.federation,options.publicationSource,options.freshOexTest,options.uploadSlot,options.saveSlot,options.nativeOexWorkspace,options.nativeBoundedEditing,options.nativeExportWorkspace);
   if (options?.lifecycle) app.get('/api/v1/readiness', async (_request, reply) => {
     reply.header('cache-control', 'no-store');
     const result = await readiness(options.pool, options.lifecycle!);
