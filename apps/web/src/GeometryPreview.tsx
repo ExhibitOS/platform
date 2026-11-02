@@ -1,3 +1,4 @@
+import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture} from './scene-snapshot';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
 import {BENCH_RESERVE_BYTES} from './private-editor/catalog-bench';
@@ -28,7 +29,7 @@ import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
 import {DEFAULT_REFERENCE_TONE,applyReferenceOutput,installReferenceEnvironment,environmentEstimate,type ReferenceTone} from './viewer/render-quality';
 import type {EditorBridge,EditorSelection} from './geometry/direct-edit';
-import {selectionKey} from './geometry/direct-edit';
+import {selectionKey,localPose} from './geometry/direct-edit';
 import {floorInteriorView} from './geometry/floor-view';
 import {installPreviewEditing} from './geometry/preview-editing';
 import type {CameraInteractionMode} from './geometry/camera-mode';
@@ -101,6 +102,7 @@ export function GeometryPreview({
   onPrivateViewReady,
   viewerBudget,
   resourceBudget,
+  onSceneSnapshotReady,
   suspendNavigation = false,
   onNavigationState,
   onCameraPose,
@@ -180,6 +182,7 @@ export function GeometryPreview({
   viewerBudget?: DeviceBudget;
   /** Editor host resource accounting; does not enable visitor navigation. */
   resourceBudget?: Pick<DeviceBudget,'maxCacheBytes'|'maxTransitionBytes'|'maxTextureSize'>;
+  onSceneSnapshotReady?:(source:{document:Document;capture:SceneSnapshotCapture;idle():boolean}|null)=>void;
   suspendNavigation?: boolean;
   onNavigationState?: (state: NavigationState) => void;
   onCameraPose?: (position: [number,number,number],yaw: number) => void;
@@ -360,7 +363,10 @@ export function GeometryPreview({
       suspendedWasWalking.current = false;
     }
   }, [suspendNavigation]);
-  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost]);
+  const snapshotCallback=useRef(onSceneSnapshotReady);snapshotCallback.current=onSceneSnapshotReady;
+  const snapshotEnabled=!!onSceneSnapshotReady;
+  const snapshotFrameToken=useRef(cameraFrameToken);snapshotFrameToken.current=cameraFrameToken;
+  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
   const qualityRebuildReady=useRef(false);
   useEffect(() => {
     const document=sceneDocument;
@@ -446,7 +452,8 @@ export function GeometryPreview({
       const suppliedThumbnailReserve=viewerBudget&&publicThumbnailCount?publicThumbnailReserve(publicThumbnailCount):0;
       const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
       if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
-      const beforeBench=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
+      const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
+      const beforeBench=beforeSnapshot;
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
       const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
       const benchReserve=benchSource&&beforeBench>BENCH_RESERVE_BYTES?BENCH_RESERVE_BYTES:0;
@@ -457,15 +464,17 @@ export function GeometryPreview({
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
-      let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      // Snapshot admission must not lower existing floor/surface/catalog quality.
+      const snapshotReserve=snapshotEnabled&&availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
+      let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes-snapshotReserve);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const releaseMaterialLoadHold=(kind:'floor'|'surface')=>{
         if(disposed||gpuLost)return;
         if(kind==='floor')floorSettled=true;else surfaceSettled=true;
         const materialBytes=materialPhaseBytes(floorPlan,floorSettled)+materialPhaseBytes(surfacePlan,surfaceSettled);
-        assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-materialBytes);
+        assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve);
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
@@ -527,7 +536,7 @@ export function GeometryPreview({
         });
         const outline = new three.LineSegments(edges, material);
         outline.position.y = room.dimensions.height / 2;
-        outline.userData.dimensionReference={...room.dimensions};group.userData.dimensionOutline=outline;
+        outline.userData.sceneSnapshotOverlay=true;outline.userData.dimensionReference={...room.dimensions};group.userData.dimensionOutline=outline;
         group.add(outline);
         owned.push(box, edges, material);
         const binding=floorFor(document,{roomId:room.id});
@@ -587,7 +596,7 @@ export function GeometryPreview({
             color:"#203d2c",
           }),
           line = new three.LineSegments(edges, material);
-        line.userData.editorSelection={kind:"opening",id:opening.id};editTargets.set(selectionKey(line.userData.editorSelection),line);
+        line.userData.sceneSnapshotOverlay=true;line.userData.editorSelection={kind:"opening",id:opening.id};editTargets.set(selectionKey(line.userData.editorSelection),line);
         line.position.set(opening.offset[0], opening.offset[1], 0.002);
         surfaces.get(opening.surfaceId.toLowerCase())?.add(line);
         owned.push(geometry, edges, material);
@@ -1012,6 +1021,7 @@ export function GeometryPreview({
       editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
+        snapshotCallback.current?.(null);
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         privateViewCallback.current?.(null);
@@ -1517,6 +1527,7 @@ export function GeometryPreview({
           }
           if(artwork.artworkType!=="image"){const centered=centerMetricModel(three,object);object=centered.object;object.userData.metricGeometry=centered.measured;}
           const metricGeometry=object.userData.metricGeometry;const artifact=artifactMetricModel(three,object,artwork.transform);object=artifact.object;object.userData.metricGeometry=metricGeometry;object.userData.artifactGeometry=artifact.measured;
+          object.userData.viewerAssetId=inventory.id;
           object.userData.viewer = {
             triangles,
             decodedBytes,
@@ -1535,6 +1546,19 @@ export function GeometryPreview({
           throw error;
         }
       };
+      if(snapshotEnabled&&snapshotReserve===SCENE_SNAPSHOT_RESERVE_BYTES){
+        const posesMatch=()=>{try{for(const target of editTargets.values()){const selection=target.userData.editorSelection as EditorSelection|undefined;if(!selection)continue;const expected=localPose(document,selection);if(target.position.distanceToSquared(new three.Vector3(...expected.position))>1e-12||target.scale.distanceToSquared(new three.Vector3(...expected.scale))>1e-12||1-Math.abs(target.quaternion.clone().normalize().dot(new three.Quaternion(...expected.rotation).normalize()))>1e-8)return false;}return true;}catch{return false;}};
+        const valid=()=>!disposed&&!gpuLost&&!xrActive.current&&!sharedDetail&&!entranceScope.current&&!suspendedRef.current&&!renderer.domElement.ownerDocument.hidden&&renderer.domElement.isConnected&&!renderer.domElement.closest('[hidden],[inert]')&&!editor?.busy&&!editingRef.current?.preview&&cameraAppliedToken.current===snapshotFrameToken.current&&(!editingRef.current||editingRef.current.document===document||onlyLightColorChanged(document,editingRef.current.document))&&posesMatch();
+        snapshotCallback.current?.({get document(){return editingRef.current?.document??document;},idle:valid,capture:async(request,signal)=>{
+          if(request.width!==640||request.height!==360||!valid())throw Error('SCENE_SNAPSHOT_UNAVAILABLE');
+          const placement=document.placements.find(p=>p.id===request.placementId),view=presentationFor(document).viewpoints.find(v=>v.id===request.viewpointId);
+          const group=placements.get(request.placementId.toLowerCase()),art=document.artworks.find(a=>a.revisionId===placement?.artworkRevisionId);
+          const admitted=group?.children.find(node=>node.userData.viewer&&typeof node.userData.viewerAssetId==='string'),assetId=admitted?.userData.viewerAssetId as string|undefined;
+          if(!placement||!view||view.roomId!==placement.roomId||!group||!art||!assetId||!art.assets.some(a=>a.id===assetId))throw Error('SCENE_SNAPSHOT_TARGET_NOT_READY');
+          const pose=viewpointPose(document,request.viewpointId);
+          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:{viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov},target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+        }});
+      }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
         const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,render,
           load:async(artwork,signal)=>{
@@ -2365,6 +2389,7 @@ export function GeometryPreview({
     editingEnabled,
     immersive,
     fillHost,
+    snapshotEnabled,
   ]);
   const ControlsFrame = immersive || compactControls ? "details" : "div";
   return (
