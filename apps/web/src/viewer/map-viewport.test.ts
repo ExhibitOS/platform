@@ -14,7 +14,7 @@ it('anchors cursor and pinch-centroid zoom in the same world coordinates at any 
 it('keeps zoom bounded, cannot pan the exhibition entirely away, and rejects malformed saved bounds',()=>{
  const close=zoomMapViewport(map,map.bounds,1e9);expect(close.width).toBe(2.5);expect(zoomMapViewport(map,close,1e-9)).toEqual(map.bounds);
  const pan=panMapViewport(map,close,1e9,-1e9);expect(pan.x+pan.width/2).toBe(20);expect(pan.z+pan.depth/2).toBe(0);
- expect(boundMapViewport(map,{...close,width:NaN})).toEqual(map.bounds);
+ expect(boundMapViewport(map,{...close,width:NaN})).toEqual(map.bounds);expect(boundMapViewport(map,{width:5,depth:5} as typeof close)).toEqual(map.bounds);
 });
 it('restores only this tab and exact publication revision, preserving IDs without assets or stale revision state',()=>{
  const records=new Map<string,string>();vi.stubGlobal('sessionStorage',{getItem:(key:string)=>records.get(key)??null,setItem:(key:string,value:string)=>records.set(key,value),removeItem:(key:string)=>records.delete(key)});
