@@ -92,7 +92,7 @@ it('keeps wall anchors at their true points while moving thumbnail buttons insid
 it('exposes narrow-room artwork in an accessible named group and the existing selector without shrinking map targets',()=>{
  const value=props();value.map={...map,rooms:[{id:'room',name:'좁은 방',outline:[[0,-3],[.3,-3],[.3,3],[0,3]]}],placements:[{...map.placements[0]!,point:[.15,0]}]};
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(html).toContain('겹친 작품 목록');expect(html).toContain('좁은 방 · 겹친 작품 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
+ expect(html).toContain('지도 작품 목록');expect(html).toContain('좁은 방 · 목록 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
  expect(html).not.toContain('class="visitor-map-marker"');expect(html).toContain('visitor-map-work-anchor');
 });
 
