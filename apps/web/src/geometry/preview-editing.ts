@@ -9,6 +9,10 @@ function visual(target:Object3D,doc:EditorBridge['document'],selection:EditorSel
  pose(target,localPose(doc,selection));
  if(selection.kind==='room'){const room=doc.rooms.find(r=>r.id===selection.id),outline=target.userData.dimensionOutline as Object3D|undefined,base=outline?.userData.dimensionReference;if(room&&outline&&base){outline.scale.set(room.dimensions.width/base.width,room.dimensions.height/base.height,room.dimensions.depth/base.depth);outline.position.y=room.dimensions.height/2;outline.updateMatrixWorld(true);}}
 }
+/** Preview uses the same host-scoped proposal as commit when one exists. */
+export function previewGeometryProposal(bridge:EditorBridge,command:GeometryCommand) {
+ return bridge.propose?bridge.propose(command):applyGeometryCommand(createGeometryState(bridge.document),command).present;
+}
 /** Editor-only adapter over the existing renderer and command model. No Viewer install. */
 export function installPreviewEditing({scene,camera,renderer,model,targets,orbit,bridge,previewDocument,render,resetOrbit,resumeOrbit,onCameraReset}:{scene:Scene;camera:Camera;renderer:WebGLRenderer;model:Object3D;targets:Map<string,Object3D>;orbit:{enabled:boolean};bridge:()=>EditorBridge|undefined;previewDocument?:(doc:EditorBridge['document'],selection:EditorSelection)=>void;render:()=>void;resetOrbit?:(ids:readonly number[])=>void;resumeOrbit?:()=>void;onCameraReset?:(reason:'hidden'|'unavailable')=>void}){
  const control=new TransformControls(camera,renderer.domElement);scene.add(control.getHelper());
@@ -26,7 +30,7 @@ export function installPreviewEditing({scene,camera,renderer,model,targets,orbit
   if(active&&(active.doc!==b.document||active.mode!==b.mode||active.view!==b.view||!b.selection||selectionKey(active.selection)!==selectionKey(b.selection)||b.disabled)){cancel();}
   const key=b.selection?selectionKey(b.selection):'',target=targets.get(key);
   if(lastVisual&&(!target||lastVisual!==target)&&!active){const old=lastVisual.userData.editorSelection as EditorSelection|undefined;if(old)try{visual(lastVisual,b.document,old);previewDocument?.(b.document,old);}catch{/* removed target */}}
-  if(target&&!active&&b.selection){let doc=b.document;try{if(b.preview)doc=applyGeometryCommand(createGeometryState(doc),b.preview).present;visual(target,doc,b.selection);previewDocument?.(doc,b.selection);lastVisual=target;}catch(error){report(error);}}
+  if(target&&!active&&b.selection){let doc=b.document;try{if(b.preview)doc=previewGeometryProposal(b,b.preview);visual(target,doc,b.selection);previewDocument?.(doc,b.selection);lastVisual=target;}catch(error){report(error);}}
   const freePose=(()=>{try{return !b.selection||!alignedWall(b.document,b.selection);}catch{return false;}})(),rotateAllowed=b.selection?.kind!=='opening'&&freePose;
   if(target&&!b.disabled&&cameraMode==='object'&&b.mode!=='dimensions'&&(b.mode!=='rotate'||rotateAllowed)){if(control.object!==target)control.attach(target);if(control.mode!==b.mode)control.setMode(b.mode);control.setSpace('local');const upright=!!b.uprightRooms&&b.selection?.kind==='room'&&b.mode==='rotate';control.showX=!upright;control.showY=true;control.showZ=!upright&&b.selection?.kind!=='opening'&&freePose;}
   else control.detach();
@@ -36,7 +40,7 @@ export function installPreviewEditing({scene,camera,renderer,model,targets,orbit
  control.addEventListener('mouseDown',()=>{const b=bridge(),target=control.object;if(!b||b.disabled||!b.selection||!target)return;active={doc:b.document,selection:structuredClone(b.selection),mode:b.mode,view:b.view,target,pose:localPose(b.document,b.selection),command:null,orbit:orbit.enabled};orbit.enabled=false;});
  control.addEventListener('objectChange',()=>{
   const a=active,b=bridge();if(!a||!b)return;if(a.doc!==b.document){cancel();return;}
-  try{const raw:Pose={position:a.target.position.toArray(),rotation:a.target.quaternion.clone().normalize().toArray(),scale:[...a.pose.scale]};const command=commandForPose(a.doc,a.selection,raw),candidate=applyGeometryCommand(createGeometryState(a.doc),command).present;pose(a.target,localPose(candidate,a.selection));previewDocument?.(candidate,a.selection);a.command=command;b.previewChange(command);highlight?.update();render();}
+  try{const raw:Pose={position:a.target.position.toArray(),rotation:a.target.quaternion.clone().normalize().toArray(),scale:[...a.pose.scale]};const command=commandForPose(a.doc,a.selection,raw),candidate=previewGeometryProposal(b,command);pose(a.target,localPose(candidate,a.selection));previewDocument?.(candidate,a.selection);a.command=command;b.previewChange(command);highlight?.update();render();}
   catch(error){a.command=null;pose(a.target,a.pose);previewDocument?.(a.doc,a.selection);b.previewChange(null);report(error);render();}
  });
  control.addEventListener('mouseUp',()=>{const a=active,b=bridge();active=null;if(!a)return;orbit.enabled=a.orbit;b?.previewChange(null);if(b&&!b.disabled&&a.doc===b.document&&b.selection&&selectionKey(a.selection)===selectionKey(b.selection)&&a.command)b.commit(a.command);else {pose(a.target,a.pose);previewDocument?.(a.doc,a.selection);}render();});

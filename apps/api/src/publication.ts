@@ -277,10 +277,11 @@ export interface PublicationSource {
 }
 export class Publications {
     readonly studio = new Studio();
+    private readonly listingStudio: Studio;
     readonly cms: Cms;
     readonly pool: Pool;
     readonly blobs: BlobStore | undefined;
-    constructor(pool: Pool, blobs?: BlobStore) { this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); }
+    constructor(pool: Pool, blobs?: BlobStore, nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext) { this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); this.listingStudio = new Studio(nativeOexWorkspace); }
     private summary(row: PublicationRow) { return { publicationId: row.id, publicUrl: `/p/${row.id}`, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: row.status }; }
     private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864) {
         if(!Number.isSafeInteger(budget)||budget<1||budget>536870912||budget>67108864&&!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
@@ -493,7 +494,9 @@ export class Publications {
             status: "published" as const,
         })) };
     }
-    async list(c: PoolClient, s: Session, id: string) { await this.studio.access(c, s, id); return { items: (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 ORDER BY p.published_at DESC LIMIT 100", [s.tenantId, id])).rows.map(r => this.summary(r)) }; }
+    private async listUsing(c: PoolClient, s: Session, id: string, studio: Studio) { await studio.access(c, s, id); return { items: (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 ORDER BY p.published_at DESC LIMIT 100", [s.tenantId, id])).rows.map(r => this.summary(r)) }; }
+    async list(c: PoolClient, s: Session, id: string) { return this.listUsing(c,s,id,this.studio); }
+    async listForRead(c: PoolClient, s: Session, id: string) { return this.listUsing(c,s,id,this.listingStudio); }
     /** Existing server authoring identity, never an inferred native origin or
      * a restoration of the selected public snapshot. Opening makes no edit. */
     async editingDraft(c: PoolClient, s: Session, id: string) {

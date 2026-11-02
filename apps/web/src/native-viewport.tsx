@@ -14,7 +14,8 @@ import {StudioFloorPlan} from './StudioFloorPlan';
 import {freezeCanonical,materialFor,SURFACE_MATERIAL_TEXTURE_CAPABILITY} from '@exhibitos/studio-contract';
 import type {Session} from './cms-client';
 import {selectedItem,type EditorBridge} from './geometry/direct-edit';
-import {checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
+import {checkedBoundedEditing,checkedFrame,geometryProposal,nativeGeometryAction,nativePlanProposal,nativePlanPreviewCurrent,NATIVE_VIEWPORT_PRESENTATIONS,type NativePlanPreview,type NativeViewportFrame,type NativeGeometryAction,type NativeBoundedEditingCapability} from './native-viewport-protocol';
+import {validateDraft} from './drafts/validator';
 import {nativeInstallationAction,NATIVE_PLINTH_ENVELOPE_CAPABILITY,type NativeInstallationAction} from './native-installation-action';
 import {checkedCatalogRequest,catalogBinding,SerialThumbnailQueue,NATIVE_CATALOG_CAPABILITIES,type ThumbnailRequest,type FindRequest,type CatalogBinding} from './native-catalog-protocol';
 import {produceArtworkThumbnail} from './native-artwork-thumbnail';
@@ -33,7 +34,7 @@ import type {CameraInteractionMode} from './geometry/camera-mode';
 import './native-viewport.css';
 const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
- accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:typeof NATIVE_CAPABILITIES;cameraInteractionMode:CameraInteractionMode}>;
+ accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:readonly string[];cameraInteractionMode:CameraInteractionMode;boundedReadOnly:boolean;editingCapability?:NativeBoundedEditingCapability}>;
  setCameraInteraction:(v:unknown)=>Promise<CameraInteractionRequest&{accepted:true}>;
  entrancePreview:(v:unknown)=>Promise<EntrancePreviewReply>;
  entrancePreviewState:(v:unknown)=>Promise<EntrancePreviewReply>;
@@ -52,6 +53,19 @@ declare global {interface Window {exhibitosViewport?:{
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
 
 let current:NativeViewportFrame|undefined;
+let currentReadOnly=false;
+let currentBoundedEditable=false;
+let acceptGeneration=0;
+let acceptPending=false;
+let authorityGeneration=0;
+const acceptSettled=new EventTarget();
+async function waitForAccept(signal:AbortSignal){
+ while(acceptPending){signal.throwIfAborted();await new Promise<void>((resolve,reject)=>{
+  const done=()=>{acceptSettled.removeEventListener('settled',done);signal.removeEventListener('abort',aborted);resolve();};
+  const aborted=()=>{acceptSettled.removeEventListener('settled',done);signal.removeEventListener('abort',aborted);reject(signal.reason);};
+  acceptSettled.addEventListener('settled',done,{once:true});signal.addEventListener('abort',aborted,{once:true});if(signal.aborted)aborted();
+ });}signal.throwIfAborted();
+}
 let currentSession:Session|undefined;
 let receive:((frame:NativeViewportFrame,session:Session)=>void)|undefined;
 let findCurrentSelection:{frame:NativeViewportFrame;action:(id:string)=>boolean}|null=null;
@@ -59,9 +73,10 @@ let cameraApply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:str
 let nativeCameraMode:CameraInteractionMode='object';
 const thumbnailQueue=new SerialThumbnailQueue(),catalogRequests=new Set<AbortController>(),seenCatalogRequests=new Set<string>();
 async function catalogSession(frame:NativeViewportFrame,signal:AbortSignal){
+ const generation=acceptGeneration;
  const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal});
  if(!response.ok)throw Error('VIEWPORT_SESSION_REQUIRED');const session=await response.json() as Session;
- if(current!==frame||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
+ if(generation!==acceptGeneration||acceptPending||current!==frame||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
 }
 function beginCatalogRequest(request:CatalogBinding){
  if(seenCatalogRequests.has(request.requestId))throw Error('CATALOG_REQUEST_REPLAY');
@@ -89,11 +104,14 @@ const entrancePreview=new NativeEntrancePreview({frame:()=>current,authenticate:
  },
 });
 const requireEntranceIdle=()=>{if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
+const requireEditable=()=>{requireEntranceIdle();if(acceptPending||currentReadOnly||currentBoundedEditable)throw Error('VIEWPORT_BOUNDED_READ_ONLY');};
 const placement=new NativePlacement({frame:()=>current,notify:()=>viewportChanged?.(),
+ suspended:()=>acceptPending||currentReadOnly,
  authenticate:async(frame,signal)=>{
+  const authority=authorityGeneration;
   const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal});
   if(!response.ok)throw Error('VIEWPORT_SESSION_REQUIRED');const session=await response.json() as Session;
-  if(!current||!placementFrameCompatible(frame,current)||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
+  await waitForAccept(signal);if(authority!==authorityGeneration||currentReadOnly||!current||!currentSession||!placementFrameCompatible(frame,current)||session.tenantId!==frame.tenantId||session.userId!==frame.principalId||session.csrfToken!==currentSession.csrfToken||session.expiresAt!==currentSession.expiresAt||session.role!==currentSession.role||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');signal.throwIfAborted();
  },target:(frame,body)=>post(frame,'placement-target',body),cancelled:(frame,body)=>post(frame,'placement-cancel',body),
 });
 const cameraUnavailable=()=>document.hidden||!cameraApply||entrancePreview.active||placement.active||lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending||viewingPlanPending||furnishingPending;
@@ -108,38 +126,60 @@ const placementInstaller:PlacementPreviewInstaller=context=>{
  return {sync:preview.sync,dispose:()=>{placementRendererReady=false;preview.dispose();}};
 };
 window.addEventListener('pagehide',()=>placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.'));
+const invalidatePendingAccept=()=>{acceptGeneration++;authorityGeneration++;acceptPending=false;currentReadOnly=true;currentBoundedEditable=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();};
+window.addEventListener('pagehide',invalidatePendingAccept);
+window.addEventListener('exhibitos-auth-changed',invalidatePendingAccept);
 window.addEventListener('pagehide',()=>entrancePreview.invalidate());
 window.addEventListener('exhibitos-auth-changed',()=>entrancePreview.invalidate());
 window.exhibitosViewport={
  entrancePreview:value=>entrancePreview.request(value),
  entrancePreviewState:value=>entrancePreview.state(value),
  accept:async value=>{
-  const frame=checkedFrame(value,current);
+  const generation=++acceptGeneration;acceptPending=true;if(currentBoundedEditable){currentBoundedEditable=false;currentReadOnly=true;}viewportChanged?.();
+  try{let frame:NativeViewportFrame,needsAuthority=false,editingCapability:NativeBoundedEditingCapability|undefined;
+  try{frame=checkedFrame(value,current);}catch{
+   frame=checkedFrame(value,current,'bounded-file-v1');const ordinary=validateDraft(frame.draft);
+   if(ordinary.valid||!ordinary.errors.length||!ordinary.errors.every(e=>e.code==='ASSET_TOTAL_LIMIT'&&e.path==='/candidate/artworks'))throw Error('VIEWPORT_FRAME_INVALID');
+   needsAuthority=true;
+  }
   const response=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000)});
   if(!response.ok)throw Error('VIEWPORT_SESSION_REQUIRED');
   const session=await response.json() as Session;
   if(session.tenantId!==frame.tenantId||session.userId!==frame.principalId||!['admin','artist','curator'].includes(session.role))throw Error('VIEWPORT_SCOPE_CHANGED');
+  if(needsAuthority){
+   const draft=JSON.stringify(frame.draft),body=JSON.stringify({draft:frame.draft,requestId:crypto.randomUUID()});
+   const checked=await fetch(`/api/v1/tenants/${frame.tenantId}/studio/exhibitions/${frame.draft.exhibitionId}/native-viewport-check`,{method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000),headers:{'content-type':'application/json','x-csrf-token':session.csrfToken,...(frame.baseETag?{'if-match':frame.baseETag}:{})},body});
+   if(!checked.ok)throw Error('VIEWPORT_FRAME_INVALID');const validated=await checked.json() as {valid?:unknown;editingCapability?:unknown};
+   if(validated.valid!==true||draft!==JSON.stringify(frame.draft))throw Error('VIEWPORT_FRAME_INVALID');
+   if(Object.hasOwn(validated,'editingCapability'))editingCapability=checkedBoundedEditing(validated.editingCapability,frame);
+   const again=await fetch('/api/v1/auth/session',{credentials:'same-origin',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000)});
+   if(!again.ok)throw Error('VIEWPORT_SESSION_REQUIRED');const live=await again.json() as Session;
+   if(live.tenantId!==session.tenantId||live.userId!==session.userId||live.role!==session.role||live.csrfToken!==session.csrfToken||live.expiresAt!==session.expiresAt)throw Error('VIEWPORT_SCOPE_CHANGED');
+  }
+  if(generation!==acceptGeneration)throw Error('VIEWPORT_FRAME_STALE');
   // An earlier asynchronous accept may finish after a newer one.
   if(current&&frame.sequence<=current.sequence)throw Error('VIEWPORT_FRAME_STALE');
   if(current&&freezeCanonical(current.draft)===freezeCanonical(frame.draft))frame.draft=current.draft;
   if((frame.disabled||frame.presentation==='plan'||cameraUnavailable())&&nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}
-  cameraGate.advance();entrancePreview.invalidate();current=frame;placement.rebind(frame);
+  acceptPending=false;if(needsAuthority&&placement.active)placement.cancel('큰 전시는 보기 전용이어서 배치를 취소했어요.');
+  cameraGate.advance();entrancePreview.invalidate();current=frame;currentBoundedEditable=needsAuthority&&!!editingCapability;currentReadOnly=needsAuthority&&!editingCapability;placement.rebind(frame);
   if(currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt)receive?.(frame,currentSession);
   else {currentSession=session;receive?.(frame,session);}
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
-  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:NATIVE_CAPABILITIES,cameraInteractionMode:nativeCameraMode};
+  return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:NATIVE_CAPABILITIES,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
+  }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
  },
  setCameraInteraction:value=>cameraGate.request(value),
- placement:value=>{requireEntranceIdle();if(value?.phase==='begin'&&architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(value?.phase==='begin'&&plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
+ placement:value=>{requireEditable();if(value?.phase==='begin'&&architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(value?.phase==='begin'&&plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
  furnishingVisualsV2:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(placement.active||lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending)throw Error('VIEWPORT_INTENT_ACTIVE');
   const frame=current,request=checkedFurnishingVisualsRequest(value,frame),{abort,signal}=beginCatalogRequest(request);furnishingPending=true;viewportChanged?.();
   try{await catalogSession(frame!,signal);const candidate=nativeFurnishingVisualsCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),candidate};}
   finally{furnishingPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  viewingPlan:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
@@ -152,7 +192,7 @@ window.exhibitosViewport={
   finally{viewingPlanPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  spaceSettings:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
@@ -165,7 +205,7 @@ window.exhibitosViewport={
   finally{spaceSettingsPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  lightDetails:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');
@@ -177,7 +217,7 @@ window.exhibitosViewport={
   finally{lightDetailsPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  architecturalFinishes:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
@@ -189,7 +229,7 @@ window.exhibitosViewport={
   finally{architecturalPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  plaqueInspector:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
@@ -201,7 +241,7 @@ window.exhibitosViewport={
   finally{plaquePending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  benchInspector:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
@@ -213,7 +253,7 @@ window.exhibitosViewport={
   finally{benchPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
  lightInspector:async value=>{
-  requireEntranceIdle();
+  requireEditable();
   if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');
   if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');
   if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');
@@ -244,7 +284,7 @@ window.exhibitosViewport={
   try{await catalogSession(frame!,signal);const finder=findCurrentSelection;if(!finder||finder.frame!==frame||!finder.action(request.selection.id))throw Error('VIEWPORT_SELECTION_NOT_READY');return {...catalogBinding(request),selection:request.selection,accepted:true};}
   finally{catalogRequests.delete(abort);abort.abort();}
  },
- action:action=>{requireEntranceIdle();if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(!current)throw Error('VIEWPORT_NOT_READY');if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');return action?.type==='installation-command'?nativeInstallationAction(current,action):nativeGeometryAction(current,action);},
+ action:action=>{requireEditable();if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(!current)throw Error('VIEWPORT_NOT_READY');if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');return action?.type==='installation-command'?nativeInstallationAction(current,action):nativeGeometryAction(current,action);},
 };
 function Viewport(){
  const [state,setState]=useState<{frame:NativeViewportFrame;session:Session}>();
@@ -257,27 +297,28 @@ function Viewport(){
  // GeometryPreview owns an expensive renderer effect keyed by this function.
  // Camera/selection frames must not recreate the scene or overwrite the camera.
  const appearance=useMemo(()=>(id:string)=>{const m=document?materialFor(document,id):{color:'#ffffff',roughness:1,metalness:0};const hex=m.color.slice(1);return {baseColor:[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255) as [number,number,number],roughness:m.roughness,metalness:m.metalness};},[document]);
- useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentSession=undefined;};},[]);
+ useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
  useEffect(()=>{if(planPreview&&state&&!nativePlanPreviewCurrent(planPreview,state.frame))setPlanPreview(null);},[state,planPreview]);
  if(!state)return <p role="status">네이티브 전시를 기다리고 있습니다.</p>;
  const {frame,session}=state;
  const intent=entrancePreview.view,previewing=entrancePreview.active;
- const plan=frame.presentation==='plan'&&!intent;
- const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:previewing||frame.disabled||plan||placement.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:null,
+ const plan=frame.presentation==='plan'&&!intent,boundedReadOnly=current!==frame||acceptPending||currentReadOnly;
+ const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:previewing||boundedReadOnly||frame.disabled||plan||placement.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:null,
+  ...(currentBoundedEditable?{propose:(command:import('./geometry/model').GeometryCommand)=>{if(current!==frame||acceptPending||currentReadOnly||!currentBoundedEditable||frame.disabled)throw Error('VIEWPORT_SCOPE_CHANGED');return geometryProposal(frame,command,true);}}:{}),
   select:selection=>{if(!entrancePreview.active&&!frame.disabled&&!placement.active&&!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&!viewingPlanPending)post(frame,'selection',selection);},previewChange:()=>{},
-  commit:command=>{try{if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending||placement.active)return;post(frame,'candidate',geometryProposal(frame,command));}catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}},
+  commit:command=>{try{if(current!==frame||acceptPending||currentReadOnly||boundedReadOnly||frame.disabled||entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending||placement.active)return;post(frame,'candidate',geometryProposal(frame,command,currentBoundedEditable));}catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}},
   error:()=>post(frame,'error',{code:'VIEWPORT_EDIT_REJECTED'}),};
  const shownPreview=!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&!viewingPlanPending&&planPreview&&nativePlanPreviewCurrent(planPreview,frame)?planPreview:null;
- const planEditor:EditorBridge={...editing,view:frame.view+':'+(plan?'plan':'3d'),disabled:previewing||frame.disabled||!plan||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:shownPreview?.command??null,
+ const planEditor:EditorBridge={...editing,view:frame.view+':'+(plan?'plan':'3d'),disabled:previewing||boundedReadOnly||currentBoundedEditable||frame.disabled||!plan||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:shownPreview?.command??null,
   select:selection=>{if(!entrancePreview.active&&current===frame&&!frame.disabled&&plan&&!furnishingPending&&!lightPending&&!architecturalPending&&!plaquePending&&!benchPending&&!spaceSettingsPending&&!lightDetailsPending&&!viewingPlanPending)post(frame,'selection',selection);},
   previewChange:command=>{
-   if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending||!command){setPlanPreview(null);return;}
+   if(boundedReadOnly||currentBoundedEditable||entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending||!command){setPlanPreview(null);return;}
    try{if(current!==frame)throw Error('VIEWPORT_FRAME_STALE');const candidate=nativePlanProposal(frame,command);setPlanPreview({frame,command,candidate});}
    catch{setPlanPreview(null);post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}
   },
   commit:command=>{
    setPlanPreview(null);
-   if(entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending)return;
+   if(boundedReadOnly||currentBoundedEditable||entrancePreview.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending)return;
    try{if(current!==frame)throw Error('VIEWPORT_FRAME_STALE');const candidate=nativePlanProposal(frame,command);
     if(frame.selection&&JSON.stringify(selectedItem(frame.draft.candidate,frame.selection))!==JSON.stringify(selectedItem(candidate,frame.selection)))post(frame,'candidate',candidate);
    }catch{post(frame,'error',{code:'VIEWPORT_COMMAND_REJECTED'});}

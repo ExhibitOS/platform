@@ -4,6 +4,8 @@ import {newDraft} from './drafts/example';
 import {checkedFrame,nativeGeometryAction,geometryProposal,type NativeViewportFrame,type NativeGeometryAction} from './native-viewport-protocol';
 import {newDoor,applyGeometryCommand,createGeometryState,undoGeometry} from './geometry/model';
 import {MATERIAL_NAMESPACE,materialFor,DEFAULT_MATERIAL,surfaceTextureDefaults,surfaceTextureFor} from '@exhibitos/studio-contract';
+import {readFile} from 'node:fs/promises';
+import {fixtureURL,readOex} from '@exhibitos/spec';
 const uuid=()=>crypto.randomUUID();
 const frame=():NativeViewportFrame=>({version:1,epoch:uuid(),sequence:1,tenantId:uuid(),principalId:uuid(),draft:newDraft(),selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
 function selectedArchitecture() {
@@ -23,6 +25,13 @@ function selectedArchitecture() {
  return {f,actions};
 }
 describe('native viewport frame and shared geometry proposal boundary',()=>{
+ it('keeps ordinary frame limit while permitting a separately-authorized bounded draft',async()=>{
+  const f=frame(),sample=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),image=sample.exhibition.artworks.find(a=>a.artworkType==='image')!;
+  f.draft.candidate.artworks=Array.from({length:10},(_,i)=>{const a=structuredClone(image);a.id=uuid();a.revisionId=uuid();a.assets[0]!.id=uuid();a.primaryAssetId=a.assets[0]!.id;a.assets[0]!.path=`test-${i}.png`;a.assets[0]!.bytes=32*1024*1024;return a;});
+  expect(()=>checkedFrame(f)).toThrow('VIEWPORT_FRAME_INVALID');expect(checkedFrame(f,undefined,'bounded-file-v1').draft.candidate.artworks).toHaveLength(10);
+  f.draft.candidate.artworks[0]!.assets[0]!.bytes=32*1024*1024+1;expect(()=>checkedFrame(f,undefined,'bounded-file-v1')).toThrow('VIEWPORT_FRAME_INVALID');
+  f.draft.candidate.artworks=f.draft.candidate.artworks.slice(0,1);expect(checkedFrame(f).draft.candidate.artworks).toHaveLength(1);
+ });
  it('sets and removes only the selected surface material through the existing validated command path',()=>{
   const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces[0]!.id,otherId=f.draft.candidate.surfaces[1]!.id;
   const other={color:'#123456',roughness:.3,metalness:.1},material={color:'#abcdef',roughness:0,metalness:1};

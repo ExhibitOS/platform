@@ -18,6 +18,7 @@ interface Hooks {
  notify:()=>void;
  target:(frame:NativeViewportFrame,target:PlacementTarget)=>void;
  cancelled:(frame:NativeViewportFrame,body:{placementRequestId:string;reason:string})=>void;
+ suspended?:()=>boolean;
  source?:typeof approvedPlacementArtwork;
 }
 /** One temporary intent. Only a checked Placement leaves it; host draft/history stay owned by native. */
@@ -56,7 +57,7 @@ export class NativePlacement {
   this.hooks.target(intent.frame,{placementRequestId:intent.request.requestId,targetToken:null,surfaceId:null,offset:null,valid:false,reason:reason.slice(0,160)});
  }
  choose(surfaceId:string|null,offset:[number,number]|null){
-  const intent=this.intent;if(!intent?.artwork||intent.committing)return;
+  const intent=this.intent;if(this.hooks.suspended?.()||!intent?.artwork||intent.committing)return;
   try{
    this.current(intent);
    if(!surfaceId||!offset){this.invalid(intent,`선택한 공간의 ${intent.request.targetKind==='wall'?'벽':'바닥'}을 직접 클릭하세요.`);return;}

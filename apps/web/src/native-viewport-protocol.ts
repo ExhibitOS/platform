@@ -3,28 +3,53 @@ import type {Draft} from './drafts/store';
 import {validateDraft} from './drafts/validator';
 import {applyGeometryCommand,createGeometryState,newRoom} from './geometry/model';
 import {newLight} from './placement/model';
-import type {EditorSelection,EditMode} from './geometry/direct-edit';
+import {alignedWall,type EditorSelection,type EditMode} from './geometry/direct-edit';
 import type {GeometryCommand} from './geometry/model';
-import {isPbrMaterial,isSurfaceTextureBinding} from '@exhibitos/studio-contract';
+import {freezeCanonical,isPbrMaterial,isSurfaceTextureBinding} from '@exhibitos/studio-contract';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export const NATIVE_VIEWPORT_PRESENTATIONS=['3d','plan'] as const;
 export interface NativeViewportFrame {
  version:1;epoch:string;sequence:number;tenantId:string;principalId:string;draft:Draft;
  selection:EditorSelection|null;mode:EditMode;view:'isometric'|'top'|'front'|'left'|'right';cameraSequence:number;transparent:boolean;disabled:boolean;
  presentation?:typeof NATIVE_VIEWPORT_PRESENTATIONS[number];
+ workspaceId?:string;baseETag?:string;
 }
-export function checkedFrame(value:unknown,previous?:NativeViewportFrame):NativeViewportFrame {
+export interface NativeBoundedEditingCapability {version:1;kind:'native-bounded-edit-v1';tenantId:string;principalId:string;workspaceId:string;exhibitionId:string;revision:number;etag:string}
+export function checkedBoundedEditing(value:unknown,frame:NativeViewportFrame):NativeBoundedEditingCapability {
+ if(!value||typeof value!=='object'||Array.isArray(value))throw Error('VIEWPORT_SCOPE_CHANGED');
+ const v=value as NativeBoundedEditingCapability;
+ if(Object.keys(v).sort().join(',')!=='etag,exhibitionId,kind,principalId,revision,tenantId,version,workspaceId'||v.version!==1||v.kind!=='native-bounded-edit-v1'||v.tenantId!==frame.tenantId||v.principalId!==frame.principalId||v.workspaceId!==frame.workspaceId||v.exhibitionId!==frame.draft.exhibitionId||v.etag!==frame.baseETag||!Number.isSafeInteger(v.revision)||v.revision<1||!v.etag.startsWith(`"studio-r${v.revision}-`))throw Error('VIEWPORT_SCOPE_CHANGED');
+ return structuredClone(v);
+}
+export function checkedFrame(value:unknown,previous?:NativeViewportFrame,archiveProfile?:'bounded-file-v1'):NativeViewportFrame {
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('VIEWPORT_FRAME_INVALID');
  const v=value as NativeViewportFrame;
- if(Object.keys(v).filter(k=>k!=='presentation').sort().join(',')!=='cameraSequence,disabled,draft,epoch,mode,principalId,selection,sequence,tenantId,transparent,version,view'||Object.hasOwn(v,'presentation')&&v.presentation!=='3d'&&v.presentation!=='plan'||v.version!==1||!uuid.test(v.epoch)||!uuid.test(v.tenantId)||!uuid.test(v.principalId)||!Number.isSafeInteger(v.sequence)||v.sequence<1||!['translate','rotate','dimensions'].includes(v.mode)||!['isometric','top','front','left','right'].includes(v.view)||!Number.isSafeInteger(v.cameraSequence)||v.cameraSequence<0||typeof v.transparent!=='boolean'||typeof v.disabled!=='boolean'||new TextEncoder().encode(JSON.stringify(v)).length>1100000||!validateDraft(v.draft).valid)throw Error('VIEWPORT_FRAME_INVALID');
+ if(Object.keys(v).filter(k=>!['presentation','workspaceId','baseETag'].includes(k)).sort().join(',')!=='cameraSequence,disabled,draft,epoch,mode,principalId,selection,sequence,tenantId,transparent,version,view'||Object.hasOwn(v,'presentation')&&v.presentation!=='3d'&&v.presentation!=='plan'||Object.hasOwn(v,'workspaceId')!==Object.hasOwn(v,'baseETag')||Object.hasOwn(v,'workspaceId')&&(typeof v.workspaceId!=='string'||!uuid.test(v.workspaceId)||typeof v.baseETag!=='string'||!/^"studio-r[1-9][0-9]*-[a-f0-9]{64}"$/.test(v.baseETag))||v.version!==1||!uuid.test(v.epoch)||!uuid.test(v.tenantId)||!uuid.test(v.principalId)||!Number.isSafeInteger(v.sequence)||v.sequence<1||!['translate','rotate','dimensions'].includes(v.mode)||!['isometric','top','front','left','right'].includes(v.view)||!Number.isSafeInteger(v.cameraSequence)||v.cameraSequence<0||typeof v.transparent!=='boolean'||typeof v.disabled!=='boolean'||new TextEncoder().encode(JSON.stringify(v)).length>1100000||!validateDraft(v.draft,archiveProfile).valid)throw Error('VIEWPORT_FRAME_INVALID');
  if(previous&&(v.epoch!==previous.epoch||v.tenantId!==previous.tenantId||v.principalId!==previous.principalId||v.sequence<=previous.sequence))throw Error('VIEWPORT_FRAME_STALE');
  if(v.selection!==null){const s=v.selection;if(Object.keys(s).sort().join(',')!=='id,kind'||!uuid.test(s.id)||!['room','surface','opening','placement'].includes(s.kind))throw Error('VIEWPORT_SELECTION_INVALID');const rows={room:v.draft.candidate.rooms,surface:v.draft.candidate.surfaces,opening:v.draft.candidate.openings,placement:v.draft.candidate.placements}[s.kind];if(!rows.some(r=>r.id===s.id))throw Error('VIEWPORT_SELECTION_INVALID');}
  return structuredClone(v);
 }
 const commands=new Set(['set-room','set-surface','set-opening','set-material','set-material-texture','set-placement','align-placement','white-cube','add-room','add-light']);
-export function geometryProposal(frame:NativeViewportFrame,command:GeometryCommand):Draft['candidate'] {
+export function geometryProposal(frame:NativeViewportFrame,command:GeometryCommand,bounded=false):Draft['candidate'] {
  if(frame.disabled||!commands.has(command.type))throw Error('VIEWPORT_COMMAND_DENIED');
- return applyGeometryCommand(createGeometryState(frame.draft.candidate),command).present;
+ if(bounded){
+  if((command.type!=='set-placement'&&command.type!=='align-placement')||frame.selection?.kind!=='placement'||frame.selection.id!==command.id)throw Error('VIEWPORT_COMMAND_DENIED');
+  const before=frame.draft.candidate.placements.find(p=>p.id===command.id);if(!before)throw Error('VIEWPORT_COMMAND_DENIED');
+  if(command.type==='set-placement'){
+   if(Object.keys(command).sort().join(',')!=='id,placement,type')throw Error('VIEWPORT_COMMAND_DENIED');
+   const {id:_id,transform:_transform,...other}=before,{transform:_next,...proposed}=command.placement;void _id;void _transform;void _next;
+   if(freezeCanonical(other)!==freezeCanonical(proposed))throw Error('VIEWPORT_COMMAND_DENIED');
+  }else{
+   if(Object.keys(command).sort().join(',')!=='id,offset,snap,surfaceId,type'||command.snap!==0||!Array.isArray(command.offset)||command.offset.length!==2||!command.offset.every(Number.isFinite)||alignedWall(frame.draft.candidate,frame.selection)?.id!==command.surfaceId)throw Error('VIEWPORT_COMMAND_DENIED');
+  }
+ }
+ const archiveProfile=bounded?'bounded-file-v1' as const:undefined;
+ const result=applyGeometryCommand(createGeometryState(frame.draft.candidate,archiveProfile),command,{archiveProfile}).present;
+ if(bounded&&(command.type==='set-placement'||command.type==='align-placement')){
+  const expected=structuredClone(frame.draft.candidate),placement=expected.placements.find(p=>p.id===command.id),updated=result.placements.find(p=>p.id===command.id);if(!placement||!updated)throw Error('VIEWPORT_COMMAND_DENIED');placement.transform=structuredClone(updated.transform);
+  if(freezeCanonical(result)!==freezeCanonical(expected))throw Error('VIEWPORT_COMMAND_DENIED');
+ }
+ return result;
 }
 export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room';name:string}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'|'set-material-texture'}>;
 export function nativeGeometryAction(frame:NativeViewportFrame,action:NativeGeometryAction):Draft['candidate'] {
