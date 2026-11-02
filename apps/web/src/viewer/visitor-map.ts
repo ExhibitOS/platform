@@ -9,7 +9,7 @@ export interface VisitorMap {
  key:string;
  rooms:{id:string;name:string;outline:MapPoint[]}[];
  doors:{id:string;roomId:string;edge:[MapPoint,MapPoint];connection?:{doorId:string;roomId:string}}[];
- placements:{id:string;roomId:string;title:string;artworkType:string;point:MapPoint}[];
+ placements:{id:string;roomId:string;title:string;artworkType:string;point:MapPoint;facing?:MapPoint}[];
  bounds:{x:number;z:number;width:number;depth:number};
 }
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
@@ -36,10 +36,22 @@ export function buildVisitorMap(document:Exhibition,source:Pick<PublicPublicatio
   const paired=other?.type==='door'&&other.connectsToOpeningId&&same(other.connectsToOpeningId,o.id)&&otherWall?.type==='wall'&&!same(otherWall.roomId,r.id);
   return {id:o.id,roomId:r.id,edge,...(paired?{connection:{doorId:other!.id,roomId:room(otherWall!.roomId).id}}:{})};
  });
+ // Image meshes use their local +Z as the front. Project the normal formed by
+ // the transformed plane tangents; this remains correct under nonuniform scale.
+ // A near-horizontal or unsupported plane leaves only the original anchor.
+ const imageFacing=(art:Exhibition['artworks'][number],p:Exhibition['placements'][number],r:Exhibition['rooms'][number]):MapPoint|undefined=>{
+  try {
+   const o=artifactPoint([0,0,0],art.transform,p.transform,r.transform),x=artifactPoint([1,0,0],art.transform,p.transform,r.transform),y=artifactPoint([0,1,0],art.transform,p.transform,r.transform);
+   const u=x.map((n,i)=>n-o[i]!),v=y.map((n,i)=>n-o[i]!),nx=u[1]!*v[2]!-u[2]!*v[1]!,ny=u[2]!*v[0]!-u[0]!*v[2]!,nz=u[0]!*v[1]!-u[1]!*v[0]!,horizontal=Math.hypot(nx,nz),length=Math.hypot(nx,ny,nz);
+   if(!Number.isFinite(length)||length===0||horizontal<=length*1e-7)return undefined;
+   return [nx/horizontal,nz/horizontal];
+  } catch { return undefined; }
+ };
  const placements=document.placements.map(p=>{
   const art=document.artworks.find(a=>same(a.revisionId,p.artworkRevisionId));if(!art)return unsupported();
   const r=room(p.roomId);
-  return {id:p.id,roomId:r.id,title:art.metadata.title,artworkType:art.artworkType,point:point(artifactPoint([0,0,0],art.transform,p.transform,r.transform))};
+  const facing=art.artworkType==='image'?imageFacing(art,p,r):undefined;
+  return {id:p.id,roomId:r.id,title:art.metadata.title,artworkType:art.artworkType,point:point(artifactPoint([0,0,0],art.transform,p.transform,r.transform)),...(facing?{facing}:{})};
  });
  const points=[...rooms.flatMap(r=>r.outline),...doors.flatMap(d=>d.edge),...placements.map(p=>p.point)];
  const xs=points.map(p=>p[0]),zs=points.map(p=>p[1]);
