@@ -267,6 +267,8 @@ export function GeometryPreview({
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const mapCallbacks=useRef({onMapReady,onMapPose,onMapThumbnail});mapCallbacks.current={onMapReady,onMapPose,onMapThumbnail};
+  const mapPoseRefresh=useRef<(()=>void)|null>(null),mapPoseOwner=useRef(publicSource);mapPoseOwner.current=publicSource;
+  useEffect(()=>{mapPoseRefresh.current?.();},[onMapPose,suspendNavigation]);
   const mapThumbnailEnabled=useRef(mapThumbnailsEnabled);mapThumbnailEnabled.current=mapThumbnailsEnabled;
   const suppliedThumbnailRef=useRef(suppliedThumbnails);suppliedThumbnailRef.current=suppliedThumbnails;
   const publicThumbnailCacheRef=useRef(thumbnailCache);publicThumbnailCacheRef.current=thumbnailCache;
@@ -732,6 +734,13 @@ export function GeometryPreview({
         frame: number;
       } = { started: 0, samples: [], frame: 0 };
       let projectionStamp = "", framePixelBudget:number|undefined;
+      const mapPoseEuler=new three.Euler();
+      const publishMapPose=()=>{
+        const callback=mapCallbacks.current.onMapPose,canvas=renderer.domElement;
+        if(!callback||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||mapPoseOwner.current!==publicSource||canvas.ownerDocument.hidden||!canvas.isConnected||canvas.style.visibility==='hidden'||canvas.closest('[hidden],[inert]'))return;
+        callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI);
+      };
+      const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       const render = () => {
         if(sharedDetail){if(!disposed&&!gpuLost)sharedDetail.render();return;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
@@ -741,6 +750,9 @@ export function GeometryPreview({
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
+          // Only the current camera snapshot rides an existing rendered frame.
+          // Loading, thumbnail and quality accounting retain their 200ms cadence.
+          publishMapPose();
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
           navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
@@ -1012,6 +1024,8 @@ export function GeometryPreview({
       editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
+        if(mapPoseRefresh.current===publishMapPose)mapPoseRefresh.current=null;
+        renderer.domElement.ownerDocument.removeEventListener('visibilitychange',mapPoseVisibility);
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         privateViewCallback.current?.(null);
@@ -1049,6 +1063,8 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      mapPoseRefresh.current=publishMapPose;
+      if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
       void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});}).finally(()=>releaseMaterialLoadHold('floor'));
       void surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}}).finally(()=>releaseMaterialLoadHold('surface'));
       // Async environment setup starts only AFTER scene teardown is registered.
@@ -2258,7 +2274,7 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI);}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
