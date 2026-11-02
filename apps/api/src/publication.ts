@@ -7,6 +7,7 @@ import {ArtworkThumbnailReceipts} from './artwork-thumbnail-receipts.ts';
 import {cachedDisplayDerivative} from './display-derivative-cache.ts';
 import {withReadinessStage,stageReadinessBytes,PublicationStageError,type PublicationStagedBytes,type ReadinessStage} from './publication-byte-stage.ts';
 import {PublicationFileOperation} from './publication-file-operation.ts';
+import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
@@ -457,7 +458,7 @@ export class Publications {
         if(stage)for(const p of prepared)if(p.thumbnail)p.thumbnail={...p.thumbnail,bytes:await store(p.thumbnail.bytes as Buffer)};
         return { issues: errors, prepared, media, cover,furnishings,at };
     }
-    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation) {
+    async ready(c: PoolClient, s: Session, id: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage) {
         try{
         const row = await this.studio.access(c, s, id);
         // Larger aggregates require private disk staging. Unsupported
@@ -471,8 +472,10 @@ export class Publications {
          return result;
         };
         if(fileOperation){
-         if(!(fileOperation instanceof PublicationFileOperation))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
-         const match=etag(row.revision,row.metadata),stage=await fileOperation.claim(c,s,this.blobs,'readiness',id,match),result=await prepare(stage,fileOperation.budget);
+         if(!(fileOperation instanceof PublicationFileOperation)&&!(fileOperation instanceof NativeLocalPublicationStage))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+         const match=etag(row.revision,row.metadata),stage=await fileOperation.claim(c,s,this.blobs,'readiness',id,match);
+         if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.markEffectsPossible();
+         const result=await prepare(stage,fileOperation.budget);
          await stage.close();await fileOperation.verify(c,s,this.blobs,'readiness',id,match);const final=await complete(result);fileOperation.assertClaimed();return final;
         }
         return await withReadinessStage(prepare);
@@ -509,7 +512,15 @@ export class Publications {
     }
     private async owned(c: PoolClient, s: Session, id: string): Promise<PublicationRow> { uuid(id); const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF s", [s.tenantId, id])).rows[0]; if (!row)
         throw new ApiError(403, "FORBIDDEN"); await this.studio.access(c, s, row.exhibition_id); return row; }
-    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation) {
+    /** Authenticated exact-request lookup; never adopts or retires a stage. */
+    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string){
+        uuid(requestId);await this.studio.access(c,s,id);
+        const payloadHash=sha256(Buffer.from(JSON.stringify({id,requestId,match})));
+        const receipt=(await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3",[s.tenantId,s.userId,requestId])).rows[0];
+        if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
+        return this.summary(await this.owned(c,s,receipt.publication_id));
+    }
+    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage) {
         try{
         uuid(requestId);
         const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify({ id, requestId, match })));
@@ -533,12 +544,13 @@ export class Publications {
         }
         // Legacy publication retains its bounded memory path. Staging is only
         // selected by an explicitly admitted context, with no silent fallback.
-        if(fileOperation&&!(fileOperation instanceof PublicationFileOperation))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+        if(fileOperation&&!(fileOperation instanceof PublicationFileOperation)&&!(fileOperation instanceof NativeLocalPublicationStage))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
         const stage=fileOperation?await fileOperation.claim(c,s,this.blobs,'publish',id,match,requestId):undefined;
         try{
         const load=async(bytes:PublicationBytes):Promise<Buffer>=>{if(Buffer.isBuffer(bytes))return bytes;if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.read(bytes);};
         const put=async(key:string,bytes:PublicationBytes)=>{const loaded=await load(bytes);fileOperation?.assertClaimed();await this.blobs!.put(key,loaded);fileOperation?.assertClaimed();};
         const byteHash=(bytes:PublicationBytes)=>{if(Buffer.isBuffer(bytes))return sha256(bytes);if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.describe(bytes).sha256;};
+        if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.markEffectsPossible();
         const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");

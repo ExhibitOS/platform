@@ -18,7 +18,8 @@ import { Publications } from './publication.ts';
 import { registerRealtime } from './realtime.ts';
 import { registerOpening } from './opening.ts';
 import { openingHostAuthority } from './opening-authority.ts';
-import { Studio, requiredMatch, type StudioInput } from './studio.ts';
+import { Studio, etag, requiredMatch, type StudioInput } from './studio.ts';
+import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
 import {MAX_PREPARED_IMAGE_BYTES,PREPARED_IMAGE_SCHEMA} from './prepared-image.ts';
@@ -71,7 +72,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   if(params.tenantId) uuid(params.tenantId);
   return auth.request(token(req),params.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,mutate,(client,s)=>work(client,s,req,reply));
  };
- app.get('/api/v1/auth/session',call(false,async(c,s)=>{if(nativeExportWorkspace&&store instanceof FileBlobStore&&s.tenantId===nativeExportWorkspace.tenantId&&s.userId===nativeExportWorkspace.principalId){try{await nativeExportWorkspace.assertDatabase(c);return {...s,nativeOexExportProfile:'bounded-file-v1'};}catch{/* Keep the existing session usable without advertising an unavailable route. */}}return s;}));
+ app.get('/api/v1/auth/session',call(false,async(c,s)=>{if(nativeExportWorkspace&&store instanceof FileBlobStore&&s.tenantId===nativeExportWorkspace.tenantId&&s.userId===nativeExportWorkspace.principalId){try{await nativeExportWorkspace.assertDatabase(c);return {...s,nativeOexExportProfile:'bounded-file-v1',nativePublicationProfile:'bounded-local-v1'};}catch{/* Keep the existing session usable without advertising an unavailable route. */}}return s;}));
  app.post('/api/v1/auth/logout',call(true,async(client,s,_req,reply)=>{
   await client.query('UPDATE auth_sessions SET revoked=true WHERE id=$1',[s.id]);
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
@@ -224,9 +225,41 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   return opening.issueHost(params.id,subject);
  });
  }
- app.get(`${sp}/:id/ready`,call(false,async(c,s,req)=>publications.ready(c,s,(req.params as {id:string}).id)));
+ const activePublications=new Set<Promise<unknown>>();let closingPublications=false;
+ app.addHook('preClose',async()=>{closingPublications=true;});
+ app.addHook('onClose',async()=>{await Promise.allSettled([...activePublications]);});
+ const localPublication=(kind:'readiness'|'publish')=>async(req:FastifyRequest,reply:FastifyReply)=>{
+  const mutate=kind==='publish';guarded(req,mutate);reply.header('cache-control','no-store');
+  const p=req.params as {tenantId:string;id:string};uuid(p.tenantId);uuid(p.id);
+  const requestId=mutate?(req.body as {requestId:string}).requestId:undefined;if(requestId)uuid(requestId);
+  const profile=req.headers['x-exhibitos-publication-profile'];if(profile!==undefined&&profile!=='bounded-local-v1')throw new ApiError(400,'INVALID_INPUT');
+  const match=mutate||profile!==undefined?requiredMatch(req.headers['if-match']):undefined;
+  if(profile===undefined)return call(mutate,async(c,s,_request,response)=>{if(!mutate)return publications.ready(c,s,p.id);const result=await publications.publish(c,s,p.id,requestId!,match!);response.code(201);return result;})(req,reply);
+  if(closingPublications)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+  let operation:NativeLocalPublicationStage|undefined,committed=false;
+  const work=(async()=>{try{
+   const result=await auth.request(token(req),p.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,mutate,async(c,s)=>{
+    if(!nativeExportWorkspace||!(store instanceof FileBlobStore)||s.tenantId!==nativeExportWorkspace.tenantId||s.userId!==nativeExportWorkspace.principalId)throw new ApiError(403,'FORBIDDEN');
+    // Readiness can populate derivative caches. Follow the existing auth →
+    // maintenance lock order so backups cannot snapshot midway through it.
+    if(!mutate)await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+    await nativeExportWorkspace.assertDatabase(c);
+    if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!);if(existing){if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');return existing;}}
+    {
+     const row=await studio.access(c,s,p.id),current=etag(row.revision,row.metadata);if(match&&match!==current)throw new ApiError(412,'REMOTE_CONFLICT');
+     operation=await NativeLocalPublicationStage.create(c,s,nativeExportWorkspace,store,kind,p.id,current,requestId);
+    }
+    const result=await (mutate?publications.publish(c,s,p.id,requestId!,match!,operation):publications.ready(c,s,p.id,operation));
+    if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');
+    return result;
+   });
+   committed=true;await operation?.finish(true);if(mutate)reply.code(201);return result;
+  }catch(error){if(!committed)await operation?.finish(false);throw error;}})();
+  activePublications.add(work);try{return await work;}finally{activePublications.delete(work);}
+ };
+ app.get(`${sp}/:id/ready`,localPublication('readiness'));
  app.get(`${sp}/:id/publications`,call(false,async(c,s,req)=>publications.listForRead(c,s,(req.params as {id:string}).id)));
- app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},call(true,async(c,s,req,reply)=>{const result=await publications.publish(c,s,(req.params as {id:string}).id,(req.body as {requestId:string}).requestId,requiredMatch(req.headers['if-match']));reply.code(201);return result;}));
+ app.post(`${sp}/:id/publications`,{schema:{body:object({requestId:id})}},localPublication('publish'));
  for(const action of ['unpublish','republish'] as const)app.post(`${prefix}/studio/publications/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>publications[action](c,s,(req.params as {id:string}).id)));
  if(federationConfig){
   const federation=new Federation(pool,federationConfig),rates=new Map<string,{count:number;until:number}>();
