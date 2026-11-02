@@ -33,8 +33,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot) {
- const settings=config(input), auth=new Auth(pool),studio=new Studio();
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext) {
+ const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace);
  if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,studio,saveSlot);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
@@ -158,7 +158,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${fp}/:freezeId/authorize`,grantBody,call(true,async(c,s,req)=>(await target(c,s,req)).authorize(c,s,freezeId(req),(req.body as {seconds:number}).seconds)));
  for(const action of ['revoke','restore'] as const)app.post(`${fp}/:freezeId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>(await target(c,s,req)).availability(c,s,freezeId(req),action==='restore')));
  if(freezes&&!freshOexTest)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
- const oex=store?new Oex(pool,store):null;
+ const oex=store?new Oex(pool,store,nativeOexWorkspace):null;
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
  app.post(`${sp}/:id/oex/export`,{schema:{body:object({})}},call(true,async(c,s,req,reply)=>{const bytes=await requireOex().export(c,s,jobId(req),requiredMatch(req.headers['if-match']));return reply.header('content-type','application/vnd.exhibitos.oex+zip').header('content-disposition','attachment; filename="exhibition.oex"').send(bytes);}));

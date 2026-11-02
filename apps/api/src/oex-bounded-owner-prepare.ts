@@ -27,7 +27,7 @@ type Lease=Awaited<ReturnType<typeof claimBoundedOexLease>>;
  * Caller owns the real Manager Session, writer exclusion and runtime lifecycle.
  * Failure keeps claim, reservation, journal and all partial bytes. Returned
  * metadata is not itself a DB attachment or release capability. */
-export async function prepareBoundedOexFromOwner(input:{pool:Pool;blobs:FileBlobStore;journal:PublicationAttempts;provider:PublicationDiskBudget;bound:Bound;lease:Lease;session:Session;workspaceId:string;workerDigest:string;channel:Channel;verifyOwner:()=>Promise<void>;signal:AbortSignal;diagnostic?:NativeOexDiagnostic}){
+export async function prepareBoundedOexFromOwner(input:{pool:Pool;blobs:FileBlobStore;journal:PublicationAttempts;provider:PublicationDiskBudget;bound:Bound;lease:Lease;session:Session;workspaceId:string;workerDigest:string;channel:Channel;verifyOwner:()=>Promise<void>;signal:AbortSignal;diagnostic?:NativeOexDiagnostic;nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext}){
  const {pool,journal,provider,bound,channel,signal,verifyOwner,workspaceId,workerDigest,diagnostic}=input,s=structuredClone(input.session),lease=structuredClone(input.lease),blobs=pinPublicationFileStore(input.blobs);
  let abort:undefined|(()=>void);
  try{
@@ -51,7 +51,7 @@ export async function prepareBoundedOexFromOwner(input:{pool:Pool;blobs:FileBlob
   diagnostic?.step('metadata-received');
   // This one representative path must remain readable by the existing Studio
   // create/get/put validators. Full 256–512 MiB scene support is separate.
-  diagnostic?.step('scene-validation-start');if(!validateExhibition(ack.exhibition).valid)throw Error('OEX_TEST_SCENE_UNSUPPORTED');diagnostic?.step('scene-validation-passed');
+  diagnostic?.step('scene-validation-start');if(!validateExhibition(ack.exhibition,input.nativeOexWorkspace?{archiveProfile:'bounded-file-v1'}:undefined).valid)throw Error('OEX_TEST_SCENE_UNSUPPORTED');diagnostic?.step('scene-validation-passed');
   diagnostic?.step('inventory-live-start');await live();diagnostic?.step('inventory-transaction-start');const sourceKeys=await transaction(pool,async c=>{await c.query("SELECT set_config('lock_timeout','5000ms',true),set_config('statement_timeout','10000ms',true)");await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');if(!samePublicationDiskOwner(await publicationDiskOwner(c,blobs.root),claim.owner))throw Error('OEX_BOUNDED_PREPARE');await verifyBoundedOexLease(c,s,lease);const keys=await recordBoundedOexDestinations(c,s,lease.jobId,lease.leaseId,claim.attemptId,ack.entries.map(e=>e.path));signal.throwIfAborted();return keys;});diagnostic?.step('inventory-transaction-returned');
   diagnostic?.step('receiver-live-start');await live();diagnostic?.step('receiver-start');const reader=await createPackedOexStreamReceiver(ack.manifest,ack.entries,claim.attemptId,512*1024*1024,channel);diagnostic?.step('receiver-returned');
   diagnostic?.step('consume-start');

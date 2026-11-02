@@ -3,6 +3,7 @@ import type {PoolClient} from 'pg';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {publicationDiskOwner} from './publication-attempt.ts';
 import {isDeepStrictEqual} from 'node:util';
+import {createHash} from 'node:crypto';
 
 /** Runtime-private context issued only after the native workspace and exact
  * supplemental catalog have been checked. HTTP fields cannot select it. */
@@ -57,3 +58,35 @@ export async function hasNativeBoundedProvenance(c:PoolClient,s:Session,exhibiti
  await context.assertDatabase(c);return true;
 }
 
+
+/** A one-shot selected-import ticket is bound to the actual transaction,
+ * authorized Session, source job and exact draft. It is never serialized. */
+declare const selectedDraftBrand:unique symbol;
+export type NativeSelectedDraftGrant=Readonly<{readonly [selectedDraftBrand]:true}>;
+type SelectedBinding={workspaceId:string;tenantId:string;principalId:string;jobId:string;attemptId:string;sourceSha256:string;claimSha256:string;payloadManifestSha256:string;sourceDatabaseSystemId:string;sourceDatabaseOid:string;exhibitionId:string};
+type GrantState={client:PoolClient;sessionId:string;binding:Readonly<SelectedBinding>;draftHash:string;used:boolean;recorded:boolean;assertLive:()=>Promise<void>};
+const grants=new WeakMap<NativeSelectedDraftGrant,GrantState>();
+const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b))):v);
+function draftDigest(draft:unknown){return createHash('sha256').update(canonical(draft)).digest('hex');}
+/** The private caller MUST already hold the selected owner claim and PG
+ * operation fence; assertLive revalidates that actual issued claim. */
+export async function issueNativeSelectedDraftGrant(c:PoolClient,s:Session,draft:unknown,input:SelectedBinding,assertLive:()=>Promise<void>):Promise<NativeSelectedDraftGrant>{
+ const binding=structuredClone(input),hex=/^[a-f0-9]{64}$/;
+ for(const v of [binding.workspaceId,binding.tenantId,binding.principalId,binding.jobId,binding.attemptId,binding.exhibitionId]){uuid(v);if(v!==v.toLowerCase())throw new ApiError(403,'FORBIDDEN');}
+ if(!draft||typeof draft!=='object'||(draft as {exhibitionId?:unknown}).exhibitionId!==binding.exhibitionId||binding.tenantId!==s.tenantId||binding.principalId!==s.userId||typeof assertLive!=='function'||![binding.sourceSha256,binding.claimSha256,binding.payloadManifestSha256].every(v=>hex.test(v))||![binding.sourceDatabaseSystemId,binding.sourceDatabaseOid].every(v=>/^[0-9]{1,24}$/.test(v)))throw new ApiError(403,'FORBIDDEN');
+ const draftHash=draftDigest(draft);
+ await assertLive();
+ const r=await c.query("SELECT 1 FROM local_workspaces w JOIN oex_import_jobs j ON (j.tenant_id,j.user_id)=(w.tenant_id,w.user_id) WHERE w.id=$1 AND w.tenant_id=$2 AND w.user_id=$3 AND j.id=$4 AND j.state='processing' AND j.archive_profile='bounded-file-v1' AND j.oex_format='1.0.0-draft.9' AND j.payload_sha256=$5 FOR UPDATE OF j",[binding.workspaceId,s.tenantId,s.userId,binding.jobId,binding.sourceSha256]);
+ if(r.rowCount!==1)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');await assertLive();
+ const grant=Object.freeze(Object.create(null)) as NativeSelectedDraftGrant;
+ grants.set(grant,{client:c,sessionId:s.id,binding:Object.freeze(binding),draftHash,used:false,recorded:false,assertLive});return grant;
+}
+export async function consumeNativeSelectedDraftGrant(grant:NativeSelectedDraftGrant,c:PoolClient,s:Session,draft:unknown):Promise<void>{
+ const state=grants.get(grant);if(!state||state.used||state.client!==c||state.sessionId!==s.id||state.binding.tenantId!==s.tenantId||state.binding.principalId!==s.userId||draftDigest(draft)!==state.draftHash)throw new ApiError(403,'FORBIDDEN');
+ state.used=true;await state.assertLive();
+}
+export async function recordNativeSelectedProvenance(grant:NativeSelectedDraftGrant,c:PoolClient,s:Session,exhibitionId:string):Promise<void>{
+ const state=grants.get(grant);if(!state||!state.used||state.recorded||state.client!==c||state.sessionId!==s.id||state.binding.exhibitionId!==exhibitionId)throw new ApiError(403,'FORBIDDEN');
+ state.recorded=true;await state.assertLive();const b=state.binding;
+ await c.query('INSERT INTO native_oex_exhibition_provenance(tenant_id,workspace_id,principal_id,exhibition_id,import_job_id,attempt_id,source_database_system_id,source_database_oid,claim_sha256,payload_manifest_sha256,source_sha256,archive_profile) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,\'bounded-file-v1\')',[b.tenantId,b.workspaceId,b.principalId,b.exhibitionId,b.jobId,b.attemptId,b.sourceDatabaseSystemId,b.sourceDatabaseOid,b.claimSha256,b.payloadManifestSha256,b.sourceSha256]);await state.assertLive();
+}
