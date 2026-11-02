@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {createMapThumbnailPreview,createMapThumbnailRoster,imageMapThumbnail,MAP_THUMBNAIL_RESERVE_BYTES,MAP_THUMBNAIL_ROSTER_LIMIT,mapThumbnailRosterReserve} from './map-thumbnail';
+import {createMapThumbnailPreview,createMapThumbnailRoster,imageMapThumbnail,mapThumbnailItems,MAP_THUMBNAIL_RESERVE_BYTES,MAP_THUMBNAIL_ROSTER_LIMIT,mapThumbnailRosterReserve} from './map-thumbnail';
 
 it('encodes an admitted GPU-oriented bitmap into one bounded upright DOM thumbnail without owning its source',()=>{
  const image={width:2048,height:1024,close:vi.fn()} as unknown as ImageBitmap;
@@ -10,6 +10,34 @@ it('encodes an admitted GPU-oriented bitmap into one bounded upright DOM thumbna
  expect(scale).toHaveBeenCalledWith(1,-1);expect(draw).toHaveBeenCalledWith(image,0,-48,96,48);
  expect(encode).toHaveBeenCalledWith('image/png');expect(canvas.width).toBe(0);expect(canvas.height).toBe(0);expect(image.close).not.toHaveBeenCalled();
  expect(MAP_THUMBNAIL_RESERVE_BYTES).toBeGreaterThan(96*96*4*4+65536*2);
+});
+
+it('retains a valid roster during repeated encoding pauses without reading or retaining source images',()=>{
+ let allowed=true,valid=true,now=0;const image={close:vi.fn()} as unknown as ImageBitmap,lookup=vi.fn(()=>image),encode=vi.fn(()=> 'data:image/png;base64,cGl4ZWxz'),changed=vi.fn();
+ const roster=createMapThumbnailRoster({ids:['a','b'],allowed:()=>allowed,valid:()=>valid,image:lookup,encode,changed,now:()=>now});
+ roster.refresh();const value=changed.mock.lastCall![0],lookups=lookup.mock.calls.length;
+ allowed=false;for(let i=0;i<3;i++){now+=200;roster.refresh();}
+ expect(changed).toHaveBeenCalledTimes(1);expect(changed.mock.lastCall![0]).toBe(value);expect(lookup).toHaveBeenCalledTimes(lookups);expect(encode).toHaveBeenCalledTimes(1);expect(image.close).not.toHaveBeenCalled();
+ allowed=true;roster.refresh();expect(encode).toHaveBeenCalledTimes(2);expect(changed.mock.lastCall![0]).toHaveLength(2);
+ allowed=false;valid=false;roster.refresh();expect(changed).toHaveBeenLastCalledWith([]);
+ roster.dispose();const calls=lookup.mock.calls.length;roster.refresh();expect(lookup).toHaveBeenCalledTimes(calls);
+});
+
+it('prunes generated duplicates for supplied thumbnails while paused and clears on revocation or disposal',()=>{
+ let allowed=true,valid=true,now=0;const supplied=new Set<string>(),encode=vi.fn(()=> 'generated'),changed=vi.fn();
+ const roster=createMapThumbnailRoster({ids:['a','b'],allowed:()=>allowed,valid:()=>valid,exclude:id=>supplied.has(id),image:()=>({} as ImageBitmap),encode,changed,now:()=>now});
+ roster.refresh();now=200;roster.refresh();allowed=false;supplied.add('a');roster.refresh();
+ expect(changed).toHaveBeenLastCalledWith([{placementId:'b',thumbnail:'generated'}]);expect(encode).toHaveBeenCalledTimes(2);
+ valid=false;roster.refresh();expect(changed).toHaveBeenLastCalledWith([]);allowed=true;roster.refresh();expect(encode).toHaveBeenCalledTimes(2);
+ valid=true;now=400;roster.refresh();expect(encode).toHaveBeenCalledTimes(3);allowed=false;roster.dispose();expect(changed).toHaveBeenLastCalledWith([]);roster.refresh();expect(encode).toHaveBeenCalledTimes(3);
+});
+
+it('never exposes a retained roster for another publication or revision, even when placement IDs match',()=>{
+ const value={publicationId:'PUB-A',revisionSha256:'revision-a',items:[{placementId:'same-placement',thumbnail:'generated'}]};
+ expect(mapThumbnailItems(value,{id:'pub-a',revisionSha256:'revision-a'})).toBe(value.items);
+ expect(mapThumbnailItems(value,{id:'pub-b',revisionSha256:'revision-a'})).toEqual([]);
+ expect(mapThumbnailItems(value,{id:'pub-a',revisionSha256:'revision-b'})).toEqual([]);
+ expect(mapThumbnailItems(null,{id:'pub-a',revisionSha256:'revision-a'})).toEqual([]);
 });
 it('rejects missing context, oversized output and failed canvas encoding without closing source images',()=>{
  const image={width:1,height:1,close:vi.fn()} as unknown as ImageBitmap;
