@@ -2,6 +2,7 @@
 import {expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {VisitorMap,type VisitorMapProps} from './VisitorMap';
+import {createMapPoseSource} from './map-pose';
 import type {VisitorMap as MapModel} from './visitor-map';
 const map:MapModel={key:'publication/revision',rooms:[{id:'room',name:'첫 공간',outline:[[-4,-3],[4,-3],[4,3],[-4,3]]}],doors:[],placements:[{id:'placement',roomId:'room',title:'선택할 작품',artworkType:'image',point:[2,-2]}],bounds:{x:-5,z:-4,width:10,depth:8}};
 function props():VisitorMapProps{return {map,worldPose:{point:[0,0],direction:[0,-1]},destinations:[],available:false,travel:{status:'idle',message:''},onDetails:vi.fn(),onGo:vi.fn(async()=>false),onCancel:vi.fn()};}
@@ -93,4 +94,11 @@ it('exposes narrow-room artwork in an accessible named group and the existing se
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
  expect(html).toContain('겹친 작품 목록');expect(html).toContain('좁은 방 · 겹친 작품 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
  expect(html).not.toContain('class="visitor-map-marker"');expect(html).toContain('visitor-map-work-anchor');
+});
+
+it('accepts only the matching pose owner and keeps static map identities when the camera source clears',()=>{
+ const value=props(),source=createMapPoseSource(map.key);value.worldPose=undefined;value.poseSource=source;source.publish([1,1.65,2],0,60);
+ const live=renderToStaticMarkup(<VisitorMap {...value}/>);expect(live).toContain('cx="1" cy="2"');expect(live).toContain('visitor-map-fov');
+ source.clear();const cleared=renderToStaticMarkup(<VisitorMap {...value}/>);expect(cleared).not.toContain('visitor-map-fov');expect(cleared).toContain('value="placement/placement"');expect(cleared).toContain('visitor-map-work-anchor');
+ const wrong=createMapPoseSource('other/revision');wrong.publish([99,1.65,99],1,60);value.poseSource=wrong;expect(renderToStaticMarkup(<VisitorMap {...value}/>)).not.toContain('cx="99"');
 });

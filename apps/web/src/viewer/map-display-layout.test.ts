@@ -94,3 +94,9 @@ it('does not overlap 44px targets when distinct rooms share the same plan projec
  const map=plan();map.rooms=[room('west',0),room('upstairs',0)];map.placements=[image('one','west',[2,3]),image('two','upstairs',[2,3])];const result=layoutMapMarkers(map,400,300);
  expect(result.filter(m=>m.point)).toHaveLength(1);expect(result).toHaveLength(2);expect(result[1]!.anchor).toEqual([2,3]);
 });
+
+it('keeps established targets through a small spacing margin without admitting overlapping new targets',()=>{
+ const map=plan();map.rooms=[room('west',0,8,6)];map.placements=[image('a','west',[1,3]),image('b','west',[1.96,3])];
+ expect(layoutMapMarkers(map,400,300).filter(m=>m.point)).toHaveLength(1);expect(layoutMapMarkers(map,400,300,44,new Set(['a','b'])).filter(m=>m.point)).toHaveLength(2);
+ map.placements[1]!.point=[1.88,3];expect(layoutMapMarkers(map,400,300,44,new Set(['a','b'])).filter(m=>m.point)).toHaveLength(1);
+});
