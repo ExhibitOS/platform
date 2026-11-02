@@ -242,6 +242,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   // Authored entrance themes use this trusted build-time companion, never code
   // from a caller-provided runtime directory or a public exhibition payload.
   await copy(join(source,'apps/web/dist-cover-shell'),join(platform,'apps/web/dist-cover-shell'));
+  await copy(join(source,'apps/web/src/cover-variant-descriptor.mjs'),join(platform,'apps/web/src/cover-variant-descriptor.mjs'));
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));
   await copy(join(source,'LICENSE'),join(platform,'LICENSE'));
