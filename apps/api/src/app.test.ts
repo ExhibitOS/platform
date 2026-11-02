@@ -21,7 +21,7 @@ describe('public service health contract', () => {
   it('registers the bounded export only for owned local native editing and still requires a session',async()=>{
     const tenant=crypto.randomUUID(),id=crypto.randomUUID(),context={workspaceId:crypto.randomUUID(),tenantId:tenant,principalId:crypto.randomUUID()} as NativeOexWorkspaceContext,pool={} as Pool,auth={mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},blobs=new FileBlobStore('/synthetic-unused');
     const normal=buildApp({pool,auth,blobs});apps.push(normal);const native=buildApp({pool,auth,blobs,nativeOexWorkspace:context,nativeBoundedEditing:true});apps.push(native);
-    const url=`/api/v1/tenants/${tenant}/studio/exhibitions/${id}/native-oex/export`,headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200','if-match':'\"studio-r1-'+ 'a'.repeat(64)+'\"'};
+    const url=`/api/v1/tenants/${tenant}/studio/exhibitions/${id}/native-oex/export`,headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200','if-match':'"studio-r1-'+ 'a'.repeat(64)+'"'};
     expect((await normal.inject({method:'POST',url,headers,payload:{}})).statusCode).toBe(404);
     expect((await native.inject({method:'POST',url,headers,payload:{}})).statusCode).toBe(401);
     expect((await native.inject({method:'POST',url,headers:{...headers,origin:'http://example.invalid'},payload:{}})).statusCode).toBe(403);

@@ -4,7 +4,7 @@ import {constants} from 'node:fs';
 import {lstat,mkdir,open,realpath,rmdir,statfs,unlink} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {pipeline} from 'node:stream/promises';
-import type {FastifyInstance,FastifyReply,FastifyRequest} from 'fastify';
+import type {FastifyInstance,FastifyRequest} from 'fastify';
 import type {PoolClient} from 'pg';
 import {Auth,ApiError,uuid,type AuthConfig,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
@@ -28,6 +28,13 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
   const abort=()=>controller.abort(),closed=()=>{if(!reply.raw.writableFinished)abort();};req.raw.once('aborted',abort);reply.raw.once('close',closed);if(req.raw.aborted||reply.raw.destroyed)abort();
   const csrf=typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined;
   const work=(async()=>{
+   const dispose=async()=>{
+    if(opened)await opened.close();
+    if(stage){const ds=await lstat(stage,{bigint:true}).catch(()=>undefined);if(!ds||ds.dev!==stageDev||ds.ino!==stageIno||!ds.isDirectory())throw Error('NATIVE_OEX_EXPORT_STAGE_UNCERTAIN');
+     const path=join(stage,'archive.oex'),file=await lstat(path,{bigint:true}).catch((error:NodeJS.ErrnoException)=>{if(error.code==='ENOENT')return undefined;throw error;});
+     if(file){if(!knownFile||!file.isFile()||file.dev!==knownFile.dev||file.ino!==knownFile.ino)throw Error('NATIVE_OEX_EXPORT_FILE_UNCERTAIN');await unlink(path);}await rmdir(stage);
+    }
+   };
    try{
     owned=await auth.request(token(req),p.tenantId,csrf,true,async(c:PoolClient,s:Session)=>{
      if(context.workspaceId!==context.workspaceId.toLowerCase()||s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(403,'FORBIDDEN');await context.assertDatabase(c);controller.signal.throwIfAborted();
@@ -53,11 +60,7 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
    }catch(error){if(controller.signal.aborted||reply.raw.headersSent)reply.raw.destroy();throw error;}
    finally{
     req.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);controllers.delete(controller);
-    if(opened)await opened.close();
-    if(stage){const ds=await lstat(stage,{bigint:true}).catch(()=>undefined);if(!ds||ds.dev!==stageDev||ds.ino!==stageIno||!ds.isDirectory())throw Error('NATIVE_OEX_EXPORT_STAGE_UNCERTAIN');
-     const path=join(stage,'archive.oex'),file=await lstat(path,{bigint:true}).catch((error:NodeJS.ErrnoException)=>{if(error.code==='ENOENT')return undefined;throw error;});
-     if(file){if(!knownFile||!file.isFile()||file.dev!==knownFile.dev||file.ino!==knownFile.ino)throw Error('NATIVE_OEX_EXPORT_FILE_UNCERTAIN');await unlink(path);}await rmdir(stage);
-    }
+    await dispose();
    }
   })();active.add(work);try{await work;}finally{active.delete(work);}return reply;
  });
