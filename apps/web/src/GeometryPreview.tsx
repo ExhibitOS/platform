@@ -19,7 +19,7 @@ import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type Stud
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
-import {createMapThumbnailRoster,mapThumbnailRosterReserve} from './viewer/map-thumbnail';
+import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor} from '@exhibitos/studio-contract';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
@@ -150,7 +150,7 @@ export function GeometryPreview({
   mapThumbnailsEnabled?:boolean;
   thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   suppliedThumbnails?:Readonly<Record<string,string>>;
-  onMapThumbnail?:(value:{revisionSha256:string;items:ReadonlyArray<{placementId:string;thumbnail:string}>}|null)=>void;
+  onMapThumbnail?:(value:MapThumbnailSnapshot|null)=>void;
   onViewingReady?:(renderer:ViewingRenderer|null)=>void;
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
@@ -271,7 +271,7 @@ export function GeometryPreview({
   const suppliedThumbnailRef=useRef(suppliedThumbnails);suppliedThumbnailRef.current=suppliedThumbnails;
   const publicThumbnailCacheRef=useRef(thumbnailCache);publicThumbnailCacheRef.current=thumbnailCache;
   const mapThumbnailRefresh=useRef<(()=>void)|null>(null);
-  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapThumbnailsEnabled,suppliedThumbnails]);
+  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapThumbnailsEnabled,suppliedThumbnails,suspendNavigation]);
   const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
@@ -1565,9 +1565,11 @@ export function GeometryPreview({
               a && all.findIndex((b) => b.revisionId === a.revisionId) === i,
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
+        const mapThumbnailValid=()=>!!mapCallbacks.current.onMapThumbnail&&!!mapThumbnailEnabled.current&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden';
         const mapThumbnail=createMapThumbnailRoster({
           ids:mapImageIds,
-          allowed:()=>!!onMapThumbnail&&!!mapThumbnailEnabled.current&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden',
+          valid:mapThumbnailValid,
+          allowed:()=>mapThumbnailValid()&&!suspendedRef.current,
           exclude:id=>{const p=document.placements.find(v=>v.id.toLowerCase()===id.toLowerCase());return !!p&&!!suppliedThumbnailRef.current?.[p.artworkRevisionId.toLowerCase()];},
           image:id=>{
             const placement=document.placements.find(p=>p.id.toLowerCase()===id.toLowerCase());
@@ -1577,7 +1579,7 @@ export function GeometryPreview({
             objects.get(art.revisionId)?.traverse(node=>{if(!image&&node instanceof three.Mesh){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){const candidate=(material as InstanceType<typeof three.MeshStandardMaterial>).map?.image;if(candidate instanceof ImageBitmap){image=candidate;break;}}}});
             return image;
           },
-          changed:items=>mapCallbacks.current.onMapThumbnail?.(items.length?{items,revisionSha256:publicSource.revisionSha256}:null),
+          changed:items=>mapCallbacks.current.onMapThumbnail?.(items.length?{publicationId:publicSource.publicationId,items,revisionSha256:publicSource.revisionSha256}:null),
         });
         mapThumbnailRefresh.current=mapThumbnail.refresh;
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();

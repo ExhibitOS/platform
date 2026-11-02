@@ -27,6 +27,7 @@ import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "
 import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap,visitorMapPose} from './viewer/visitor-map';
 import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
+import {mapThumbnailItems,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {savePrivateView,type PrivateView} from './viewer/private-view';
 import type {ViewingRenderer} from './viewer/viewing-session';
 import type {createPublicThumbnailCache} from './viewer/public-thumbnail';
@@ -101,9 +102,9 @@ export function Viewer({
   const [mapPose,setMapPose]=useState<(NonNullable<ReturnType<typeof visitorMapPose>>&{horizontalFovDegrees:number})>();
   const [mapTravelState,setMapTravelState]=useState<MapTravelState>({status:'idle',message:''});
   const mapDestinations=useMemo(()=>presentationFor(publication.exhibition).viewpoints.map(({id,roomId,name})=>({id,roomId,name})),[publication]);
-  const [mapThumbnail,setMapThumbnail]=useState<{revisionSha256:string;items:ReadonlyArray<{placementId:string;thumbnail:string}>}|null>(null);
+  const [mapThumbnail,setMapThumbnail]=useState<MapThumbnailSnapshot|null>(null);
   const receiveMapThumbnail=useCallback((value:typeof mapThumbnail)=>setMapThumbnail(value),[]);
-  const mapPreviews=useMemo(()=>Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:artworkThumbnails[p.artworkRevisionId.toLowerCase()]??(mapThumbnail?.revisionSha256===publication.publication.revisionSha256?mapThumbnail.items.find(item=>item.placementId===p.id)?.thumbnail:undefined)}])),[publication,mapThumbnail,artworkThumbnails]);
+  const mapPreviews=useMemo(()=>{const generated=mapThumbnailItems(mapThumbnail,publication.publication);return Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:artworkThumbnails[p.artworkRevisionId.toLowerCase()]??generated.find(item=>item.placementId===p.id)?.thumbnail}]));},[publication,mapThumbnail,artworkThumbnails]);
   const mapTravel=useMemo(()=>map?createMapTravel(map,mapDestinations,()=>mapBridge.current,setMapTravelState):undefined,[map,mapDestinations]);
   useEffect(()=>{onMapCancelReady?.(mapTravel?.cancel??null);return()=>onMapCancelReady?.(null);},[mapTravel,onMapCancelReady]);
   useEffect(()=>{
@@ -270,7 +271,7 @@ export function Viewer({
         onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
         onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
-        mapThumbnailsEnabled={mapEnabled&&!suspendNavigation}
+        mapThumbnailsEnabled={mapEnabled}
         onMapThumbnail={immersive?receiveMapThumbnail:undefined}
         onMapReady={immersive?registerMap:undefined}
         onMapPose={immersive?reportMapPose:undefined}
