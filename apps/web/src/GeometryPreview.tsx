@@ -46,7 +46,7 @@ import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import {
   AssetScheduler, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
   MemoryAssetCache,
@@ -230,6 +230,7 @@ export function GeometryPreview({
   const consumedCameraRequest=useRef<number|undefined>(undefined);
   const [installationIssueCount,setInstallationIssueCount]=useState(0);
   const [materialIssueCount,setMaterialIssueCount]=useState(0);
+  const publicQualityView=useRef<{scope:object;document:Document;budget:typeof viewerBudget;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number;walking:boolean}|null>(null);
   const editorCamera=useRef<{documentId:string;position:[number,number,number];quaternion:[number,number,number,number];target:[number,number,number];fov:number}|null>(null);
   const selectionRef=useRef(selection);selectionRef.current=selection;
   const editingRef=useRef(editing);editingRef.current=editing;
@@ -337,7 +338,7 @@ export function GeometryPreview({
   useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&walkingMode),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
+  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -359,8 +360,11 @@ export function GeometryPreview({
       suspendedWasWalking.current = false;
     }
   }, [suspendNavigation]);
+  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost]);
+  const qualityRebuildReady=useRef(false);
   useEffect(() => {
     const document=sceneDocument;
+    qualityRebuildReady.current=false;
     const abort = new AbortController();
     sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
     viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
@@ -928,9 +932,12 @@ export function GeometryPreview({
       };
       renderer.domElement.addEventListener("webglcontextlost", lost);
       host.current.replaceChildren(renderer.domElement);
+      const qualityView=publicQualityView.current;
+      const restoreQuality=immersive&&qualityView?.scope===qualityScope&&qualityView.document===document&&qualityView.budget!==viewerBudget?qualityView:undefined;
+
       // Panel scope requires the attached public canvas; before attachment its
       // closest publication shell is null.
-      if (immersive) panelResume = installPanelResume(renderer.domElement, (reason = "panel") => walkingActions.current?.pause(reason), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); }, () => !disposed && !gpuLost && !suspendedRef.current && !xrActive.current&&viewingStyleRef.current==='free');
+      if (immersive) panelResume = installPanelResume(renderer.domElement, (reason = "panel") => walkingActions.current?.pause(reason), () => walkingActions.current?.start(), available => { if(!disposed)setPanelResumeAvailable(available); }, () => !disposed && !gpuLost && !suspendedRef.current && !xrActive.current&&viewingStyleRef.current==='free', !!restoreQuality?.walking);
       detailEntry.current.resumeViewing = () => {
         const intent = panelResume?.intent();
         cancelAnimationFrame(resumeFrame);
@@ -973,6 +980,7 @@ export function GeometryPreview({
           : "isometric",
       );
       let privateCameraRestored=false;
+      if(restoreQuality){camera.position.fromArray(restoreQuality.position);camera.quaternion.fromArray(restoreQuality.quaternion);controls.target.fromArray(restoreQuality.target);authoredFov=restoreQuality.fov;applyProjection();controls.update();render();}
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
       if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
       else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
@@ -1007,6 +1015,8 @@ export function GeometryPreview({
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         privateViewCallback.current?.(null);
+        if(immersive&&viewerBudget&&!seatedBenchRef.current&&!xrActive.current&&viewingStyleRef.current==='free')publicQualityView.current={scope:qualityScope,document,budget:viewerBudget,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:camera.position.clone().add(camera.getWorldDirection(new three.Vector3()).multiplyScalar(2)).toArray(),fov:authoredFov,walking:currentWalkMode.current.walking};
+        else publicQualityView.current=null;
         if(editingEnabled||privateCatalogue)editorCamera.current={documentId:document.id,position:camera.position.toArray(),quaternion:camera.quaternion.toArray(),target:controls.target.toArray(),fov:camera.fov};
         xrCallbacks.current.onXrReady?.(null);xrCallbacks.current.onXrArtworks?.([]);renderer.setAnimationLoop(null);xrActive.current=false;xrArtworks.clear();
         placementRelease();placementSync.current=null;
@@ -1090,6 +1100,8 @@ export function GeometryPreview({
                 document,
                 camera,
                 initialCamera,
+                initialWalking:restoreQuality?.walking,
+                signal:abort.signal,
                 controls,
                 canvas: renderer.domElement,
                 // A dialog may focus before the suspension effect, and Safari can
@@ -1101,6 +1113,7 @@ export function GeometryPreview({
                 settings: { ...walkSettingsRef.current },
                 render,
                 onState: (state) => {
+                  if(disposed)return;
                   navigationCallbacks.current.onNavigationState?.(state);
                   const cb = navigationCallbacks.current;
                   if (cb.proximityDetail && cb.onArtworkSelect && !suspendedRef.current && !state.paused) {
@@ -1119,6 +1132,7 @@ export function GeometryPreview({
                 onSeat:id=>{if(!disposed){seatedBenchRef.current=id;setSeatedBenchId(id);}},
                 onViewpointFov:fov=>{authoredFov=fov;applyProjection();},
                 onMode: (walking, paused, reason) => {
+                  if(disposed)return;
                   panelResume?.mode(walking, paused, reason);
                   currentWalkMode.current = { walking, paused };
                   navigationCallbacks.current.onNavigationMode?.(walking, paused);
@@ -1142,6 +1156,7 @@ export function GeometryPreview({
                   canResumeInput: () => viewingStyleRef.current==='free' && !gpuLost && !suspendedRef.current && !xrActive.current && !!panelResume?.canResume(),
                   resumeInput: () => viewingStyleRef.current==='free' && (panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 };
+              if(restoreQuality)qualityRebuildReady.current=true;
               setWalkPreparation('ready');
             })()
               .catch(() => {
@@ -1194,6 +1209,7 @@ export function GeometryPreview({
           release: () => {},
         };
         walkingActions.current = pending;
+        if(restoreQuality)void initialize(undefined,true);
       }
       // A native preview borrows this exact scene/camera. It never changes the
       // renderer effect's document, budget, immersive or editing dependencies.

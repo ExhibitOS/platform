@@ -3,8 +3,8 @@ import type { WalkingPauseReason } from "./navigation-input";
 
 // Temporary panel obstruction clears on last close. Explicit stops retain their own
 // cause and need a fresh deliberate input; no stored keys, gesture or velocity replay.
-export function createPanelResumeGate() {
-  let active = false, eligible = false, panelOwned = false, stopGeneration = 0;
+export function createPanelResumeGate(restoredWalking = false) {
+  let active = false, eligible = restoredWalking, panelOwned = false, stopGeneration = 0;
   let gesture: { id: number; x: number; y: number; released: boolean } | undefined;
   const cancel = () => { gesture = undefined; };
   return {
@@ -66,9 +66,9 @@ export function createPanelResumeGate() {
   };
 }
 
-export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: WalkingPauseReason) => void, resume: () => void, availabilityChanged: (available: boolean) => void = () => {}, allowed: () => boolean = () => true) {
+export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: WalkingPauseReason) => void, resume: () => void, availabilityChanged: (available: boolean) => void = () => {}, allowed: () => boolean = () => true, restoredWalking = false) {
   const root = canvas.closest(".publication-shell");
-  const gate = createPanelResumeGate(), pointers = new Set<number>();
+  const gate = createPanelResumeGate(restoredWalking), pointers = new Set<number>();
   let gestureBlocked = false, resumingDrag = false;
   let panelFocus = false, focusTimer: ReturnType<typeof setTimeout> | undefined;
   const panels = () => [...(root?.querySelectorAll<HTMLDetailsElement>("details[data-visitor-panel]") ?? [])];

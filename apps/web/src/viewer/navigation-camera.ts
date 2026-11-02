@@ -13,6 +13,8 @@ export async function createWalkingCamera({
   document,
   camera,
   initialCamera,
+  initialWalking,
+  signal,
   controls,
   canvas,
   settings,
@@ -29,6 +31,9 @@ export async function createWalkingCamera({
   document: Exhibition;
   camera: PerspectiveCamera;
   initialCamera?: PerspectiveCamera;
+  /** Rebuild an existing view in a paused state without scheduling movement. */
+  initialWalking?: boolean;
+  signal?: AbortSignal;
   controls: OrbitControls;
   canvas: HTMLCanvasElement;
   settings: WalkingSettings;
@@ -44,7 +49,9 @@ export async function createWalkingCamera({
    * existing responsive/user display policy before this visit renders. */
   onViewpointFov?: (fov:number) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
+  signal?.throwIfAborted();
   const { Euler, Vector3 } = await import("three");
+  signal?.throwIfAborted();
   const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
   const angles = defaultEntry ? new Euler(0, 0, 0, "YXZ") : new Euler().setFromQuaternion((initialCamera ?? camera).quaternion, "YXZ");
   const controller = await createNavigationController(document, {
@@ -52,6 +59,7 @@ export async function createWalkingCamera({
     yaw: angles.y,
     ...settings,
   });
+  if(signal?.aborted){controller.dispose();signal.throwIfAborted();}
   canvas.dataset.navigationProfile = JSON.stringify({
     physicsVersion: controller.physicsVersion,
     ...NAVIGATION_PROFILE,
@@ -77,7 +85,7 @@ export async function createWalkingCamera({
   });
   const previousTouchAction = canvas.style.touchAction;
   let disposed = false,
-    walking = false,
+    walking = initialWalking ?? false,
     paused = true,
     pitch = angles.x,
     targetPitch = angles.x,
@@ -302,6 +310,7 @@ export async function createWalkingCamera({
     move: (id, right, forward) => {if(!orderedViewing)input.move(id,right,forward);},
     release: (id) => input.release(id),
   };
+  if(initialWalking!==undefined){if(walking)controls.enabled=false;onMode(walking,true,'settings');}
   publish();
   onMessage("정지 관람 중입니다. 걷기 시작을 선택하면 실제 충돌이 적용됩니다.");
   return {
