@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent,type PointerEvent} from 'react';
+import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent,type MouseEvent,type PointerEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
@@ -72,6 +72,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
  const roomId=scope?.key===map.key&&map.rooms.some(r=>same(r.id,scope.roomId))?scope.roomId:undefined;
  const drawing=useMemo(()=>mapRoomViewport(map,roomId),[map,roomId]);
  const targetSelect=useRef<HTMLSelectElement>(null),focusedMarker=useRef<HTMLButtonElement|null>(null);
+ const pointerFocus=useRef<{button:HTMLButtonElement;touch:boolean}|null>(null);
  useEffect(()=>{const element=expanded.current;if(!element||typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(()=>{if(element.clientWidth>0)setMapWidth(element.clientWidth);});observer.observe(element);return()=>observer.disconnect();},[]);
  const displayMarkers=useMemo(()=>layoutMapMarkers(drawing,mapWidth,mapWidth*drawing.bounds.depth/drawing.bounds.width),[drawing,mapWidth]);
  const displayById=new Map(displayMarkers.map(marker=>[marker.id,marker]));
@@ -95,6 +96,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
   selectionRef.current=next;setSelection(next);
  };
  const clearTemporary=()=>{focusedMarker.current=null;const value=selectionRef.current;if(value.focused)dispatch({type:'blur',target:value.focused});if(value.hovered)dispatch({type:'leave',target:value.hovered});};
+ const activate=(target:MapTarget,button:HTMLButtonElement)=>{pointerFocus.current=null;clearTemporary();focusedMarker.current=button;dispatch({type:'select',target});};
  const zoomRoom=(id:string)=>{clearTemporary();setScope(id?{key:map.key,roomId:id}:undefined);scopeSelect.current?.focus({preventScroll:true});};
  const preview=visitorMapPreview(map,selection),placement=preview?.kind==='placement'?map.placements.find(item=>same(item.id,preview.id)):undefined;
  useEffect(()=>{onPreviewChange?.(placement?.id);return()=>onPreviewChange?.(undefined);},[map.key,placement?.id,onPreviewChange]);
@@ -103,13 +105,15 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
  const content=placement&&previews?.[placement.id],choices=room?destinations.filter(item=>same(item.roomId,room.id)&&(!authored||same(item.id,authored))):[];
  const busy=travel.status==='preparing';
  const position=(p:MapPoint)=>({left:`${(p[0]-drawing.bounds.x)/drawing.bounds.width*100}%`,top:`${(p[1]-drawing.bounds.z)/drawing.bounds.depth*100}%`});
- const releaseFocus=(event:FocusEvent<HTMLButtonElement>)=>{if(focusedMarker.current===event.currentTarget)focusedMarker.current=null;};
+ const pointerButton={onPointerDown:(event:PointerEvent<HTMLButtonElement>)=>{pointerFocus.current={button:event.currentTarget,touch:event.pointerType==='touch'};},onPointerCancel:()=>{pointerFocus.current=null;}};
+ const releaseFocus=(event:FocusEvent<HTMLButtonElement>)=>{if(focusedMarker.current===event.currentTarget)focusedMarker.current=null;if(pointerFocus.current?.button===event.currentTarget)pointerFocus.current=null;};
  const marker=(target:MapTarget)=>({
+  ...pointerButton,
   'aria-pressed':selection.key===map.key&&selection.selected?.kind===target.kind&&same(selection.selected.id,target.id),
   // Touch hover ends before its compatibility click; toggling the preview then
   // can move a scrolled map under the tap. Touch selects through the click only.
   onPointerEnter:(event:PointerEvent<HTMLButtonElement>)=>{if(event.pointerType!=='touch')dispatch({type:'hover',target});},onPointerLeave:(event:PointerEvent<HTMLButtonElement>)=>{if(event.pointerType!=='touch')dispatch({type:'leave',target});},
-  onFocus:(event:FocusEvent<HTMLButtonElement>)=>{focusedMarker.current=target.kind==='placement'?event.currentTarget:null;dispatch({type:'focus',target});},onClick:()=>dispatch({type:'select',target}),
+  onFocus:(event:FocusEvent<HTMLButtonElement>)=>{focusedMarker.current=target.kind==='placement'?event.currentTarget:null;if(pointerFocus.current?.button!==event.currentTarget||!pointerFocus.current.touch)dispatch({type:'focus',target});},onClick:(event:MouseEvent<HTMLButtonElement>)=>activate(target,event.currentTarget),
   onBlur:releaseFocus,
  });
  const go=(event:FormEvent<HTMLFormElement>)=>{
@@ -135,7 +139,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
    {overflow.length>0&&<div className="visitor-map-overflow" role="group" aria-label="겹친 작품 목록"><p className="visitor-map-note">겹친 작품은 공간을 확대하거나 목록에서 고르세요.</p>{overflow.map(({room,items})=><details key={`${map.key}/${roomId??''}/${room.id}`} open={!!roomId}>
     <summary><svg className="visitor-map-group-toggle" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg><span>{room.name} · 겹친 작품 {items.length}개</span><span className="visitor-map-group-thumbnails" aria-hidden="true">{items.slice(0,3).map(item=><span key={item.id} className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span>)}</span></summary>
     {!roomId&&<button type="button" className="visitor-map-room-zoom" onClick={()=>zoomRoom(room.id)}>이 공간 확대</button>}
-    <ul>{items.map(item=><li key={item.id}><button type="button" className="visitor-map-list-target" aria-pressed={selection.key===map.key&&selection.selected?.kind==='placement'&&same(selection.selected.id,item.id)} onFocus={event=>{clearTemporary();focusedMarker.current=event.currentTarget;}} onBlur={releaseFocus} onClick={()=>dispatch({type:'select',target:{kind:'placement',id:item.id}})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span><span>{item.title}</span></button></li>)}</ul>
+    <ul>{items.map(item=><li key={item.id}><button type="button" className="visitor-map-list-target" aria-pressed={selection.key===map.key&&selection.selected?.kind==='placement'&&same(selection.selected.id,item.id)} {...pointerButton} onFocus={event=>{if(pointerFocus.current?.button!==event.currentTarget)clearTemporary();focusedMarker.current=event.currentTarget;}} onBlur={releaseFocus} onClick={event=>activate({kind:'placement',id:item.id},event.currentTarget)}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span><span>{item.title}</span></button></li>)}</ul>
    </details>)}</div>}
    <label className="visitor-map-target-select">지도에서 고르기<select ref={targetSelect} value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{focusedMarker.current=null;if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
     const chosen=[...map.rooms.map(item=>({kind:'room' as const,id:item.id})),...map.placements.map(item=>({kind:'placement' as const,id:item.id}))].find(target=>`${target.kind}/${target.id}`===event.target.value);
