@@ -116,6 +116,8 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   return x>=28&&x<=mapWidth-28&&z>=28&&z<=height-28?marker:{id:marker.id,anchor:marker.anchor};
  }),[drawing,mapWidth,map.key,view]);
  useEffect(()=>{retainedMarkers.current={key:map.key,ids:new Set(displayMarkers.filter(m=>m.point).map(m=>m.id))};},[map.key,displayMarkers]);
+ const overflowHost=useRef<HTMLDivElement>(null);
+ useEffect(()=>{if(roomId)for(const group of overflowHost.current?.querySelectorAll<HTMLDetailsElement>('details[data-room-id]')??[])if(group.dataset.roomId===roomId)group.open=true;},[map.key,roomId]);
  const displayById=new Map(displayMarkers.map(marker=>[marker.id,marker]));
  const overflow=drawing.rooms.map(room=>({room,items:drawing.placements.filter(p=>same(p.roomId,room.id)&&!displayById.get(p.id)?.point)})).filter(group=>group.items.length>0);
  const titleId=useId(),[selection,setSelection]=useState<MapSelection>({key:map.key,selected:restored?.selected}),[requestError,setRequestError]=useState<{key:string;text:string}|null>(null),requestGeneration=useRef(0),activeKey=useRef(map.key),selectionRef=useRef(selection);activeKey.current=map.key;selectionRef.current=selection;
@@ -146,10 +148,16 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   const host=expanded.current;if(!host)return;
   type Point={x:number;y:number;startX:number;startY:number};
   const points=new Map<number,Point>(),captured=new Set<number>();let dragging=false,suppress=false;
+  const panel=host.closest<HTMLElement>('.viewer-visitor-map'),content=panel?.querySelector<HTMLElement>(':scope>section');
+  let heldHeight:string|undefined,heldAnchor:string|undefined;
+  // A shrinking list must not clamp the panel scroll position and move the
+  // viewport under a stationary wheel/pinch anchor. Hold only while engaged.
+  const hold=()=>{if(content&&heldHeight===undefined){heldHeight=content.style.minHeight;content.style.minHeight=getComputedStyle(content).height;if(panel){heldAnchor=panel.style.getPropertyValue('overflow-anchor');panel.style.setProperty('overflow-anchor','none');}}};
+  const releaseHeight=()=>{if(content&&heldHeight!==undefined){content.style.minHeight=heldHeight;heldHeight=undefined;if(panel){if(heldAnchor)panel.style.setProperty('overflow-anchor',heldAnchor);else panel.style.removeProperty('overflow-anchor');heldAnchor=undefined;}}};
   const usable=()=>!!host.closest('details[open]')&&!host.closest('[inert],[hidden]')&&!document.hidden;
-  const clear=()=>{if(points.size)suppress=true;points.clear();dragging=false;delete host.dataset.dragging;for(const id of captured)if(host.hasPointerCapture(id))host.releasePointerCapture(id);captured.clear();};
+  const clear=()=>{releaseHeight();if(points.size)suppress=true;points.clear();dragging=false;delete host.dataset.dragging;for(const id of captured)if(host.hasPointerCapture(id))host.releasePointerCapture(id);captured.clear();};
   gestureClear.current=clear;
-  const establish=()=>{if(dragging)return;dragging=true;suppress=true;host.focus({preventScroll:true});clearTemporary();host.dataset.dragging='true';for(const id of points.keys())try{host.setPointerCapture(id);captured.add(id);}catch{/* The global pointer listener still ends this gesture. */}};
+  const establish=()=>{if(dragging)return;dragging=true;suppress=true;hold();host.focus({preventScroll:true});clearTemporary();host.dataset.dragging='true';for(const id of points.keys())try{host.setPointerCapture(id);captured.add(id);}catch{/* The global pointer listener still ends this gesture. */}};
   const down=(e:globalThis.PointerEvent)=>{if(!usable()||e.button!==0||e.ctrlKey||e.metaKey||e.altKey)return;if(!points.size)suppress=false;if(points.size>=2)return;points.set(e.pointerId,{x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY});if(e.target===host||e.target instanceof SVGElement)host.focus({preventScroll:true});if(points.size===2)establish();};
   const move=(e:globalThis.PointerEvent)=>{
    const old=points.get(e.pointerId);if(!old)return;if(!usable()){clear();return;}
@@ -162,10 +170,10 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   const end=(e:globalThis.PointerEvent)=>{if(!points.has(e.pointerId))return;points.delete(e.pointerId);if(captured.delete(e.pointerId)&&host.hasPointerCapture(e.pointerId))host.releasePointerCapture(e.pointerId);if(e.type==='pointercancel'){suppress=true;clear();}else if(!points.size){dragging=false;delete host.dataset.dragging;}};
   const lost=(e:globalThis.PointerEvent)=>{if(points.has(e.pointerId)&&captured.has(e.pointerId))clear();};
   const click=(e:globalThis.MouseEvent)=>{if(suppress&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();}};
-  const wheel=(e:WheelEvent)=>{if(!usable())return;e.preventDefault();e.stopPropagation();host.focus({preventScroll:true});const box=host.getBoundingClientRect(),unit=e.deltaMode===1?16:e.deltaMode===2?box.height:1,v=viewRef.current;clearTemporary();if(!e.ctrlKey&&!e.metaKey&&(e.shiftKey||e.deltaX!==0)){viewportAction.current(panMapViewport(map,v,(e.deltaX||e.deltaY)*unit/box.width*v.width,e.shiftKey?0:e.deltaY*unit/box.height*v.depth));}else viewportAction.current(zoomMapViewport(map,v,Math.exp(-Math.max(-300,Math.min(300,e.deltaY*unit))*.002),[(e.clientX-box.left)/box.width,(e.clientY-box.top)/box.height]));};
+  const wheel=(e:WheelEvent)=>{if(!usable())return;e.preventDefault();e.stopPropagation();hold();host.focus({preventScroll:true});const box=host.getBoundingClientRect(),unit=e.deltaMode===1?16:e.deltaMode===2?box.height:1,v=viewRef.current;clearTemporary();if(!e.ctrlKey&&!e.metaKey&&(e.shiftKey||e.deltaX!==0)){viewportAction.current(panMapViewport(map,v,(e.deltaX||e.deltaY)*unit/box.width*v.width,e.shiftKey?0:e.deltaY*unit/box.height*v.depth));}else viewportAction.current(zoomMapViewport(map,v,Math.exp(-Math.max(-300,Math.min(300,e.deltaY*unit))*.002),[(e.clientX-box.left)/box.width,(e.clientY-box.top)/box.height]));};
   const key=(e:KeyboardEvent)=>{if(e.target!==host||e.ctrlKey||e.metaKey||e.altKey||!usable())return;const v=viewRef.current,box=host.getBoundingClientRect();let next:MapViewport|undefined;
    if(e.key==='+'||e.key==='=')next=zoomMapViewport(map,v,1.5);else if(e.key==='-')next=zoomMapViewport(map,v,1/1.5);else if(e.key==='Home'||e.key==='0')next=map.bounds;else if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))next=panMapViewport(map,v,(e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0)*v.width*48/box.width,(e.key==='ArrowDown'?1:e.key==='ArrowUp'?-1:0)*v.depth*48/box.height);
-   if(next){e.preventDefault();e.stopPropagation();clearTemporary();viewportAction.current(next);}
+   if(next){e.preventDefault();e.stopPropagation();hold();clearTemporary();viewportAction.current(next);}
   };
   const visibility=()=>{if(document.hidden)clear();};
   const focusout=(e:globalThis.FocusEvent)=>{if(!(e.relatedTarget instanceof Node&&host.contains(e.relatedTarget)))clear();};
@@ -218,7 +226,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
      {drawing.placements.map(item=>{const display=displayById.get(item.id)?.point;return display&&<button key={item.id} type="button" className="visitor-map-marker" style={position(display)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>;})}
     </div>
    </div>
-   {overflow.length>0&&<div className="visitor-map-overflow" role="group" aria-label="지도 작품 목록"><p className="visitor-map-note">공간을 확대하거나 목록에서 작품을 고르세요.</p>{overflow.map(({room,items})=><details key={`${map.key}/${roomId??''}/${room.id}`} open={!!roomId}>
+   {overflow.length>0&&<div ref={overflowHost} className="visitor-map-overflow" role="group" aria-label="지도 작품 목록"><p className="visitor-map-note">공간을 확대하거나 목록에서 작품을 고르세요.</p>{overflow.map(({room,items})=><details key={`${map.key}/${room.id}`} data-room-id={room.id}>
     <summary><svg className="visitor-map-group-toggle" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg><span>{room.name} · 목록 {items.length}개</span><span className="visitor-map-group-thumbnails" aria-hidden="true">{items.slice(0,3).map(item=><span key={item.id} className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span>)}</span></summary>
     {!roomId&&<button type="button" className="visitor-map-room-zoom" onClick={()=>zoomRoom(room.id)}>이 공간 확대</button>}
     <ul>{items.map(item=><li key={item.id}><button type="button" className="visitor-map-list-target" aria-pressed={selection.key===map.key&&selection.selected?.kind==='placement'&&same(selection.selected.id,item.id)} {...pointerButton} onFocus={event=>{const fromPointer=pointerFocus.current?.button===event.currentTarget;if(fromPointer)pointerFocus.current=null;else clearTemporary();focusedMarker.current=event.currentTarget;}} onBlur={releaseFocus} onClick={event=>activate({kind:'placement',id:item.id},event.currentTarget)}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span><span>{item.title}</span></button></li>)}</ul>
