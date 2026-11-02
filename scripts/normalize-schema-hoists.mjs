@@ -12,7 +12,7 @@ export function normalizeSchemaHoists(source) {
     plugins:{schema:{rules:{hoists:{create(context){
       const code=context.sourceCode;
       return {VariableDeclaration(node){
-        if(node.kind!=='var'||node.declarations[0]?.id?.name!=='_valid0')return;
+        if(node.kind!=='var'||!node.declarations.some(declaration=>declaration.id.type==='Identifier'&&declaration.id.name==='_valid0'))return;
         let scope=code.getScope(node),variable;
         while(scope&&!variable){variable=scope.set.get('_valid0');scope=scope.upper;}
         if(!variable||variable.defs.length<2)return;
