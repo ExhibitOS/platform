@@ -79,6 +79,8 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected) 
   if (!normalOexSelected) return;
   const bytes = '{"format":1,"kind":"exhibitos-native-normal-oex","protocol":"normal-oex-v1","ownerChannelVersion":2,"schemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","schemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}';
   await writeFile(join(platformRoot,'scripts/native-normal-oex-capability-v1.json'),bytes,{flag:'wx',mode:0o600});
+  const v2='{"format":1,"kind":"exhibitos-native-normal-oex-027","protocol":"normal-oex-027-v2","ownerChannelVersion":2,"baseSchemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","baseSchemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","schemaPath":"platform/database/native-oex-normal/027_oex_exhibition_provenance.sql","schemaSHA256":"09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}';
+  await writeFile(join(platformRoot,'scripts/native-normal-oex-027-capability-v2.json'),v2,{flag:'wx',mode:0o600});
 }
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and

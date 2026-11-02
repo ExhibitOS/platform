@@ -223,9 +223,9 @@ export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map
  });
 }
 export class Oex {
- readonly studio=new Studio();readonly cms:Cms;
+ readonly studio:Studio;readonly cms:Cms;
  readonly pool:Pool;readonly blobs:BlobStore;
- constructor(pool:Pool,blobs:BlobStore){this.pool=pool;this.blobs=blobs;this.cms=new Cms(blobs);}
+ constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext){this.pool=pool;this.blobs=blobs;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace);}
  private role(s:Session){if(!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');}
  view(row:Job){return {id:row.id,state:row.state,errorCode:row.error_code,attempts:row.attempts,result:row.result,cleanupPending:row.cleanup_pending};}
  async access(c:PoolClient,s:Session,id:string):Promise<Job>{this.role(s);uuid(id);const row=(await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id])).rows[0];if(!row||(s.role!=='admin'&&row.user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');return row;}
@@ -412,7 +412,7 @@ export class Oex {
   * inventory, byte qualification, all blob writes and actual owned-worker drain.
   * Inputs are trusted component metadata, never HTTP/worker ACK authority.
   * No blob IO, owned transaction, aggregate buffers or publication is created. */
- async attachPrepared(c:PoolClient,s:Session,job:OexImportAttachmentJob,prepared:PreparedOexImportAttachment){
+ async attachPrepared(c:PoolClient,s:Session,job:OexImportAttachmentJob,prepared:PreparedOexImportAttachment,selectedGrant?:(draft:Draft)=>Promise<import('./native-oex-provenance.ts').NativeSelectedDraftGrant>){
   this.role(s);const {id,leaseId:lease,payloadSha256}=job,at=new Date().toISOString(),e=structuredClone(prepared.exhibition),keys=new Map(prepared.keys),mediaDurations=new Map(prepared.mediaDurations);
   const {idMap,assetAliases,floorResources,materialResources,footstepResources}=structuredClone({idMap:prepared.idMap,assetAliases:prepared.assetAliases,floorResources:prepared.floorResources,materialResources:prepared.materialResources,footstepResources:prepared.footstepResources});
   const sourceStill=spaceStillFor(e),grants:unknown[]=[...e.artworks.map(a=>a.rights),...e.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
@@ -437,7 +437,9 @@ export class Oex {
     for(const m of e.mediaAssets)m.path=`media/${m.id}/audio.wav`;
     const still=spaceStillFor(e),stillKey=still?keys.get(still.path):undefined;
     if(still){still.path=`space-still/${still.id}/image.png`;const inventory=e.extensions![SPACE_STILL_NAMESPACE] as unknown as {asset:typeof still};inventory.asset=still;}
-    const response=await this.studio.create(c,s,{draft,requestId:randomUUID()});
+    const grant=selectedGrant?await selectedGrant(draft):undefined;
+    const response=await this.studio.create(c,s,{draft,requestId:randomUUID()},grant);
+    if(grant){const {recordNativeSelectedProvenance}=await import('./native-oex-provenance.ts');await recordNativeSelectedProvenance(grant,c,s,e.id);}
     for(const m of e.mediaAssets){
      const source=mediaSources.get(m.id)!,key=source.key;
      if(typeof source.duration!=='number'||!Number.isFinite(source.duration)||source.duration<=0||!curationDurationValid(e,m.id,source.duration))throw new ApiError(422,'CURATION_AUDIO_DURATION');

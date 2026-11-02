@@ -4,10 +4,16 @@ import type {Pool} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
 import {createSelectedNativeUploadSlot} from './native-bounded-oex-upload.ts';
 import {createSelectedStudioPutSlot} from './native-selected-studio-put.ts';
+import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
 const apps: ReturnType<typeof buildApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map(app => app.close())); });
 describe('public service health contract', () => {
+  it('refuses selected 027 context outside the isolated local selected runtime',()=>{
+    const context={} as NativeOexWorkspaceContext,pool={} as Pool;
+    expect(()=>buildApp({pool,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},nativeOexWorkspace:context})).toThrow('NATIVE_OEX_CONFIGURATION');
+    expect(()=>buildApp({pool,auth:{mode:'network',origin:'https://example.org',bindHost:'127.0.0.1'},freshOexTest:true,nativeOexWorkspace:context})).toThrow('NATIVE_OEX_CONFIGURATION');
+  });
   it('refuses all client mutations in the private fresh OEX mode',async()=>{
     const app=buildApp({pool:{} as Pool,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},freshOexTest:true,blobs:new FileBlobStore('/synthetic-unused'),uploadSlot:createSelectedNativeUploadSlot(),saveSlot:createSelectedStudioPutSlot()});apps.push(app);
     expect((await app.inject({method:'GET',url:'/api/v1/health'})).statusCode).toBe(200);expect(app.server.listenerCount('upgrade')).toBe(0);

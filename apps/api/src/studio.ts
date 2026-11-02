@@ -11,6 +11,8 @@ import {validateSpatialProfile} from '@exhibitos/studio-contract';
 import { validateViewerCuration, validateArchitecture, validateStudioMaterials, validateStudioPresentation, validateViewerLod, validateViewerExperience, validateArtworkDetails } from "@exhibitos/studio-contract";
 import {validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import { createHash, randomUUID } from "node:crypto";
+import {isDeepStrictEqual} from "node:util";
+import {consumeNativeSelectedDraftGrant,hasNativeBoundedProvenance,type NativeOexWorkspaceContext,type NativeSelectedDraftGrant} from "./native-oex-provenance.ts";
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
 import { ApiError, uuid, type Session } from "./auth.ts";
@@ -44,11 +46,11 @@ function sorted(value: unknown): string {
 }
 const hash = (value: unknown) =>
   createHash("sha256").update(sorted(value)).digest("hex");
-function checked(input: StudioInput) {
+function checked(input: StudioInput, bounded=false) {
   uuid(input.requestId);
   if (
     input.draft?.kind !== "exhibition-draft" ||
-    !validateLifecycle(input.draft).valid ||
+    !validateLifecycle(input.draft,undefined,bounded?{archiveProfile:"bounded-file-v1"}:undefined).valid ||
     !validateArchitecture(input.draft.candidate).valid ||
     !validateStudioMaterials(input.draft.candidate).valid ||
     !validateStudioPresentation(input.draft.candidate).valid ||
@@ -75,6 +77,8 @@ export function requiredMatch(value: unknown): string {
   return value;
 }
 export class Studio {
+  private readonly nativeOexWorkspace:NativeOexWorkspaceContext|undefined;
+  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext) {this.nativeOexWorkspace=nativeOexWorkspace;}
   private role(s: Session) {
     if (!["admin", "curator", "artist"].includes(s.role))
       throw new ApiError(403, "FORBIDDEN");
@@ -107,9 +111,10 @@ export class Studio {
     const row = result.rows[0];
     if (!row || (s.role !== "admin" && row.studio_owner_user_id !== s.userId))
       throw new ApiError(403, "FORBIDDEN");
+    const nativeBounded=await hasNativeBoundedProvenance(c,s,id,this.nativeOexWorkspace);
     if (
       row.metadata?.kind !== "exhibition-draft" ||
-      !validateLifecycle(row.metadata).valid ||
+      !validateLifecycle(row.metadata,undefined,nativeBounded?{archiveProfile:"bounded-file-v1"}:undefined).valid ||
       !validateArchitecture(row.metadata.candidate).valid ||
       !validateStudioMaterials(row.metadata.candidate).valid ||
       !validateStudioFloors(row.metadata.candidate).valid ||
@@ -121,7 +126,7 @@ export class Studio {
       row.metadata.candidate.artworks.some((a:unknown)=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid)
     )
       throw new ApiError(409, "DRAFT_CORRUPT");
-    return row;
+    return nativeBounded?{...row,nativeBounded:true}:row;
   }
   async get(c: PoolClient, s: Session, id: string): Promise<StudioResponse> {
     const row = await this.access(c, s, id);
@@ -183,9 +188,11 @@ export class Studio {
     c: PoolClient,
     s: Session,
     input: StudioInput,
+    selectedGrant?:NativeSelectedDraftGrant,
   ): Promise<StudioResponse> {
     this.role(s);
-    checked(input);
+    if(selectedGrant)await consumeNativeSelectedDraftGrant(selectedGrant,c,s,input.draft);
+    checked(input,!!selectedGrant);
     const payloadHash = hash({ method: "POST", input });
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
@@ -218,8 +225,12 @@ export class Studio {
     input: StudioInput,
     match: string,
   ): Promise<StudioResponse> {
-    checked(input);
+    if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
+    if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
+    // Producer-only slice permits the selected identical confirmation save,
+    // not edits exceeding ordinary validation before scoped edit is integrated.
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!isDeepStrictEqual(row.metadata,input.draft))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
