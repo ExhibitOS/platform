@@ -9,7 +9,7 @@ test('retains one ordered property Get per field, primitive receiver, defaults a
  for(const fn of [original,changed]){
   const gets=[],context=new Proxy({instancePath:'/x',rootData:'r'},{get(target,key,receiver){gets.push(String(key));return Reflect.get(target,key,receiver);}});
   assert.deepEqual(fn('data',context),['data','/x','r']);assert.deepEqual(gets,['instancePath','parentData','parentDataProperty','rootData','dynamicAnchors']);
-  let receiver;const getterContext={get parentData(){receiver=this;return 7;}};fn('data',getterContext);assert.equal(receiver,getterContext);
+  const getterContext={get parentData(){assert.equal(this,getterContext);return 7;}};fn('data',getterContext);
   assert.throws(()=>fn('data',null),TypeError);
   const sentinel=new Error('sentinel');assert.throws(()=>fn('data',new Proxy({},{get(_target,key){if(key==='parentDataProperty')throw sentinel;return undefined;}})),e=>e===sentinel);
  }
