@@ -38,12 +38,12 @@ export function reconcileMapMarkerPreview(value:MapSelection,visible:ReadonlySet
  * targets use the existing room/list paths instead of extra rows or wall guesses.
  * Sculpture targets stay at their actual floor anchor, or use the list.
  */
-export function layoutMapMarkers(map:VisitorMap,width:number,height:number,markerSize=44):DisplayMarker[]{
+export function layoutMapMarkers(map:VisitorMap,width:number,height:number,markerSize=44,retained?:ReadonlySet<string>):DisplayMarker[]{
  if(!(width>0&&height>0&&map.bounds.width>0&&map.bounds.depth>0))return map.placements.map(p=>({id:p.id,anchor:p.point}));
  const scale:MapPoint=[width/map.bounds.width,height/map.bounds.depth];
  const pixel=(p:MapPoint):MapPoint=>[(p[0]-map.bounds.x)*scale[0],(p[1]-map.bounds.z)*scale[1]];
  const world=(p:MapPoint):MapPoint=>[p[0]/scale[0]+map.bounds.x,p[1]/scale[1]+map.bounds.z];
- const placed=new Map<string,MapPoint>(),half=markerSize/2+6,spacing=markerSize+4;
+ const placed=new Map<string,MapPoint>(),half=markerSize/2+6,occupied:{point:MapPoint;retained:boolean}[]=[];
  for(const room of map.rooms){
   const polygon=room.outline.map(pixel);
   const area=polygon.reduce((sum,a,i)=>{const b=polygon[(i+1)%polygon.length]!;return sum+a[0]*b[1]-b[0]*a[1];},0);
@@ -53,8 +53,7 @@ export function layoutMapMarkers(map:VisitorMap,width:number,height:number,marke
   const signed=(p:MapPoint,e:Edge)=>dot([p[0]-e.a[0],p[1]-e.a[1]],e.normal);
   const inset=(e:Edge)=>half*(Math.abs(e.normal[0])+Math.abs(e.normal[1]));
   const inside=(p:MapPoint)=>edges.every(e=>signed(p,e)>=inset(e)-1e-5);
-  const occupied:MapPoint[]=[];
-  const items=map.placements.filter(p=>p.roomId.toLowerCase()===room.id.toLowerCase()).slice().sort((a,b)=>a.point[0]-b.point[0]||a.point[1]-b.point[1]||a.id.localeCompare(b.id));
+  const items=map.placements.filter(p=>p.roomId.toLowerCase()===room.id.toLowerCase()).slice().sort((a,b)=>Number(retained?.has(b.id)??false)-Number(retained?.has(a.id)??false)||a.point[0]-b.point[0]||a.point[1]-b.point[1]||a.id.localeCompare(b.id));
   for(const item of items){
    const anchor=pixel(item.point);let point=anchor;
    if(item.artworkType==='image'&&item.facing){
@@ -71,8 +70,8 @@ export function layoutMapMarkers(map:VisitorMap,width:number,height:number,marke
     if(move>markerSize)continue;
     point=[anchor[0]+direction[0]*move,anchor[1]+direction[1]*move];
    }
-   if(!inside(point)||occupied.some(q=>Math.abs(point[0]-q[0])<spacing&&Math.abs(point[1]-q[1])<spacing))continue;
-   placed.set(item.id,world(point));occupied.push(point);
+   if(!inside(point)||occupied.some(q=>{const spacing=markerSize+(q.retained&&retained?.has(item.id)?2:6);return Math.abs(point[0]-q.point[0])<spacing&&Math.abs(point[1]-q.point[1])<spacing;}))continue;
+   placed.set(item.id,world(point));occupied.push({point,retained:retained?.has(item.id)??false});
   }
  }
  return map.placements.map(p=>({id:p.id,anchor:p.point,point:placed.get(p.id)}));

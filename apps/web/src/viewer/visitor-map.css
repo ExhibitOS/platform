@@ -49,3 +49,5 @@
 @media(pointer:fine) and (min-width:701px) and (min-height:480px){.viewer-visitor-map:not([open]){width:12rem}.viewer-visitor-map:not([open]) summary{width:12rem;height:12rem}}
 
 .viewer-visitor-map .visitor-map-overflow summary::after{content:none}
+
+.visitor-map-expanded{overflow:hidden;touch-action:none;cursor:grab}.visitor-map-expanded[data-dragging=true]{cursor:grabbing}.visitor-map-expanded:focus-visible{outline:3px solid var(--publication-action,#135967);outline-offset:3px}.visitor-map-tools{display:flex;flex-wrap:wrap;gap:.5rem}.visitor-map-tools button{min-width:44px;min-height:44px}.visitor-map-expanded[data-dragging=true] .visitor-map-marker{cursor:grabbing}

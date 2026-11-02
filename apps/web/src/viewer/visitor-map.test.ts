@@ -70,11 +70,16 @@ it('provides image-plane front direction for display placement without changing 
 it('does not infer a horizontal facing for an image plane lying flat',()=>{
  const {doc,art}=fixture();art.transform={...identity(),rotation:[Math.SQRT1_2,0,0,Math.SQRT1_2]};expect(buildVisitorMap(doc,source).placements[0]!.facing).toBeUndefined();
 });
-it('uses the image-plane normal under tilted noncommuting rotations and nonuniform room scale',()=>{
+it('omits a misleading projected normal under tilted noncommuting rotations and nonuniform room scale',()=>{
  const {doc,room,art,p}=fixture(),s=Math.sin(Math.PI/8),c=Math.cos(Math.PI/8);
  art.transform={...identity(),rotation:[s,0,0,c]};p.transform={...identity(),rotation:[0,s,0,c]};room.transform={...identity(),scale:[2,1,3]};
- const facing=buildVisitorMap(doc,source).placements[0]!.facing!;expect(facing[0]).toBeCloseTo(3/Math.sqrt(13));expect(facing[1]).toBeCloseTo(2/Math.sqrt(13));
+ expect(buildVisitorMap(doc,source).placements[0]!.facing).toBeUndefined();
 });
 it('retains the anchor and omits direction when a tangent sample exceeds the affine envelope',()=>{
  const {doc,art}=fixture();art.transform={...identity(),position:[10000,0,0]};const placement=buildVisitorMap(doc,source).placements[0]!;expect(placement.point[0]).toBe(10000);expect(placement.facing).toBeUndefined();
+});
+
+it('suppresses a tilted projected normal instead of inventing an along-wall direction',()=>{
+ const {doc,room,art,p}=fixture();room.transform={...identity(),scale:[2,1,3]};p.transform={...identity(),rotation:[Math.sin(.2),0,0,Math.cos(.2)]};art.transform={...identity(),rotation:[0,0,Math.sin(.3),Math.cos(.3)]};
+ const before=structuredClone(doc),map=buildVisitorMap(doc,source);expect(map.placements[0]!.facing).toBeUndefined();expect(doc).toEqual(before);
 });

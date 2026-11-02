@@ -89,3 +89,8 @@ it('drops vanished hover/focus after resize so another explicit fallback selecti
  expect(before.focused?.id).toBe('old');expect(before.hovered?.id).toBe('old');expect(next.selected).toBe(before.selected);
  expect(reconcileMapMarkerPreview(before,new Set(['old','chosen']))).toBe(before);
 });
+
+it('does not overlap 44px targets when distinct rooms share the same plan projection',()=>{
+ const map=plan();map.rooms=[room('west',0),room('upstairs',0)];map.placements=[image('one','west',[2,3]),image('two','upstairs',[2,3])];const result=layoutMapMarkers(map,400,300);
+ expect(result.filter(m=>m.point)).toHaveLength(1);expect(result).toHaveLength(2);expect(result[1]!.anchor).toEqual([2,3]);
+});
