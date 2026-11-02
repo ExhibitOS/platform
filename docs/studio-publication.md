@@ -2,9 +2,22 @@
 
 Publication is an explicit server action on a saved remote Studio draft. Local edits, online reconnection and CMS approval alone do not publish. Confirm the server account, save/compare the remote revision, then request its READY report. The report contains the exact strong ETag and bounded issue code/path/message/remediation entries. Correct the listed fields and save again. Publish repeats server authorization, the ETag check and full readiness validation; a previously green report is not authorization to publish a newer revision.
 
+The owned local native runtime may advertise `nativePublicationProfile` as
+`bounded-local-v1`. A client that explicitly selects it sends
+`X-ExhibitOS-Publication-Profile: bounded-local-v1` and the saved strong
+`If-Match` on both readiness and publish; the local staged path permits up to
+128MiB of qualified bytes. Requests without this profile retain the ordinary
+64MiB limit. The selected path preserves the same authorization, current
+approval and display-grant checks. It checks available local space at admission;
+that observation is not a reservation against other processes. If preparation
+or commit has an uncertain result, the owned marker and any possibly written
+objects remain in place and later selected work fails closed. A known committed
+request can still be queried using its original request ID. This does not add
+general crash recovery or authorize deleting cache or publication objects.
+
 ## READY profile
 
-Full public geometry, references, artwork rights at publication time, accessibility metadata and Platform material/presentation extensions must validate. Each artwork must exactly match a current reviewed immutable CMS snapshot from this tenant, with qualified GLB/PNG display bytes and current artwork/asset display grants. Arbitrary inventory URLs, edited snapshot rights/dimensions, unapproved assets and unsupported audio/media publication fail closed with corrective guidance. This stage qualifies noncommercial display; it does not grant commercial, original-download or export rights. At most64 artworks and64MiB total qualified derivative bytes are published. Existing preview complexity bounds still apply.
+Full public geometry, references, artwork rights at publication time, accessibility metadata and Platform material/presentation extensions must validate. Each artwork must exactly match a current reviewed immutable CMS snapshot from this tenant, with qualified GLB/PNG display bytes and current artwork/asset display grants. Arbitrary inventory URLs, edited snapshot rights/dimensions, unapproved assets and unsupported audio/media publication fail closed with corrective guidance. This stage qualifies noncommercial display; it does not grant commercial, original-download or export rights. The ordinary path permits at most64 artworks and64MiB total qualified derivative bytes. Existing preview complexity bounds still apply.
 
 The optional `approved-open-access-demo-v1` display policy must match the server's immutable exact-file approval, primary inventory and rights-evidence digest. Model exceptions additionally require an explicitly model-typed sculpture record: the currently selected Old Arrow Maker canonical file is full-only, 20,000 triangles and at most512 texture pixels per edge. Publication reads its current approved primary through the existing CMS authority checks, runs the strict GLB decoder, measures the actual geometry/textures and copies those exact bytes, then rechecks the current snapshot and original bytes. This path preserves authored dimensions, coordinates and credit metadata; it does not calibrate or rescale the sculpture. All other GLBs and ordinary CMS previews retain the default visible display-copy mark. Client policy declarations or CC0 labels alone grant no exception, and original download/export permissions remain separate. Existing device and cumulative memory budgets still apply; source qualification does not establish compact-device, visual-quality or public-demo acceptance.
 
