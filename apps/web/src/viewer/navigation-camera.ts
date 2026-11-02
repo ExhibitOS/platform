@@ -24,6 +24,7 @@ export async function createWalkingCamera({
   resumeMovement,
   resumeDrag,
   onSeat,
+  onViewpointFov,
 }: {
   document: Exhibition;
   camera: PerspectiveCamera;
@@ -39,6 +40,9 @@ export async function createWalkingCamera({
   resumeMovement?: () => boolean;
   resumeDrag?: () => boolean;
   onSeat?: (benchId:string|null) => void;
+  /** The embedding projection owner retains the authored FOV and applies its
+   * existing responsive/user display policy before this visit renders. */
+  onViewpointFov?: (fov:number) => void;
 }): Promise<{ actions: WalkingActions; dispose: () => void }> {
   const { Euler, Vector3 } = await import("three");
   const defaultEntry = !initialCamera && !presentationFor(document).startCamera;
@@ -170,6 +174,10 @@ export async function createWalkingCamera({
     if(disposed||seated)return undefined;
     try{const authored=viewpointPose(document,id),position=controller.qualifiedStandingEye(authored.position);if(!position)return undefined;const angle=Math.atan2(authored.target[1]-position[1],Math.hypot(authored.target[0]-position[0],authored.target[2]-position[2]));return Math.abs(angle)<=1.396?{...authored,position}:undefined;}catch{return undefined;}
   };
+  const applyViewpointFov = (fov:number) => {
+    if(onViewpointFov)onViewpointFov(fov);
+    else {camera.fov=fov;camera.updateProjectionMatrix();}
+  };
   const actions: WalkingActions = {
     start,
     prepareViewpoint:async id=>prepareViewpoint(id),
@@ -180,7 +188,7 @@ export async function createWalkingCamera({
       pitch=Math.atan2(destination.target[1]-state.eyePosition[1],Math.hypot(destination.target[0]-state.eyePosition[0],destination.target[2]-state.eyePosition[2]));
       targetPitch=pitch;targetYaw=state.yaw;orderedViewing=ordered;orderedViewpointId=ordered?id:undefined;walking=true;paused=true;
       controls.enabled=false;canvas.style.touchAction=ordered?'manipulation':'none';
-      camera.fov=destination.fov;camera.updateProjectionMatrix();
+      applyViewpointFov(destination.fov);
       camera.position.fromArray(state.eyePosition);camera.rotation.set(pitch,state.yaw,0,'YXZ');controls.target.fromArray(destination.target);
       onMode(walking,true,'panel');apply();return true;
     },
@@ -190,7 +198,7 @@ export async function createWalkingCamera({
       if(!base||!destination||!controller.standingSegmentClear(controller.state().eyePosition,destination.position))return false;
       const state=controller.reset({position:destination.position,yaw:destination.yaw});
       pitch=Math.atan2(base.target[1]-state.eyePosition[1],Math.hypot(base.target[0]-state.eyePosition[0],base.target[2]-state.eyePosition[2]));targetPitch=pitch;targetYaw=state.yaw;
-      controls.enabled=false;controls.target.fromArray(base.target);camera.fov=base.fov;camera.updateProjectionMatrix();apply();return true;
+      controls.enabled=false;controls.target.fromArray(base.target);applyViewpointFov(base.fov);apply();return true;
     },
     freeViewing:()=>{if(disposed||seated)return false;if(!orderedViewing)return true;orderedViewing=false;orderedViewpointId=undefined;walking=true;controls.enabled=false;canvas.style.touchAction='none';onMode(true,true,'settings');publish();return true;},
     sit: benchId => {
