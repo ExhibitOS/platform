@@ -67,3 +67,11 @@ test('resume is bound to one valid physical candidate identifier',()=>{
   for(const id of [undefined,'','0','-1','01','+123','1e3','18446744073709551616'])assert.throws(()=>nativeRestoreIdentifier({EXHIBITOS_NATIVE_RESTORE_SYSTEM_IDENTIFIER:id}),/CANDIDATE_DATABASE_ID_INVALID/);
   assert.equal(nativeRestoreIdentifier({EXHIBITOS_NATIVE_RESTORE_SYSTEM_IDENTIFIER:'123'}),'123');
 });
+test('TOC control-byte policy preserves all ASCII and Unicode boundaries',()=>{
+  for(let code=0;code<128;code++){
+    const value=`;${String.fromCharCode(code)}\n${toc}`;
+    if(code<=8||(code>=11&&code<=31)||code===127)assert.throws(()=>nativeRestoreExtensions(value),/TOC_INVALID/,`code ${code}`);
+    else assert.deepEqual(nativeRestoreExtensions(value),['plpgsql'],`code ${code}`);
+  }
+  for(const value of ['é','한','😀','\ud800','\udfff'])assert.deepEqual(nativeRestoreExtensions(`;${value}\n${toc}`),['plpgsql']);
+});

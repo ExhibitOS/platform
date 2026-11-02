@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Exhibition } from '@exhibitos/spec';
 import { artifactCorners, artifactPoint, createConvexCollision } from './artifact-affine.js';
-import type { AffinePoint, ArtifactPose } from './artifact-affine.js';
+import type { ArtifactPose } from './artifact-affine.js';
 import { benchesFor, validateStudioBenches } from './benches.js';
 import type { StudioBench } from './benches.js';
 

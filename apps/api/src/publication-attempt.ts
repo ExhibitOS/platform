@@ -250,7 +250,7 @@ export class PublicationAttempts {
    const verified=await this.verifiedClaim(provider,handle),state=await this.activeClaim(handle),r=verified.claim,receipt=verified.binding.receipt;
    if(r.operation!=='oex-import'||r.purpose!=='import'||state!==mutation)throw Error('PUBLICATION_CLAIM_BINDING');
    const binding:DiskReservationBinding={id:receipt.id,generation:receipt.generation,operation:r.operation,owner:r.owner,plan:r.plan};
-   if(!outcome||!uuid.test(outcome.exhibitionId)||!uuid.test(outcome.requestId)||!/^\"studio-r[1-9][0-9]*-[0-9a-f]{64}\"$/.test(outcome.etag))throw Error('PUBLICATION_CLAIM_INVALID');
+   if(!outcome||!uuid.test(outcome.exhibitionId)||!uuid.test(outcome.requestId)||!/^"studio-r[1-9][0-9]*-[0-9a-f]{64}"$/.test(outcome.etag))throw Error('PUBLICATION_CLAIM_INVALID');
    await verifySelectedSettlement(authority,binding,handle.digest);
    const record=claimSnapshot({version:1,kind:'selected-oex-settlement',databaseOutcome:'committed',save:outcome,claimDigest:handle.digest,claim:r,receiptDigest:verified.binding.receiptDigest,managerBindingDigest:verified.binding.managerBindingDigest,reservation:receipt});
    const text=canonical(record),intent=join(this.root,r.attemptId+'.settlement-terminal.json'),terminal=join(this.root,r.attemptId+'.reservation-released.json');
