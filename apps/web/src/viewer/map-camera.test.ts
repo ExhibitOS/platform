@@ -7,6 +7,7 @@ import {newDraft} from '../drafts/example';
 import {applyGeometryCommand,createGeometryState} from '../geometry/model';
 import {createWalkingCamera} from './navigation-camera';
 import type {NavigationState} from './navigation';
+import {visitingFov} from './framing';
 afterEach(()=>vi.unstubAllGlobals());
 it('the ready map boundary uses real floor/capsule clearance, preserves a refused camera and commits only a paused authored view',async()=>{
  const draft=newDraft().candidate,roomId=draft.rooms[0]!.id,document=applyGeometryCommand(createGeometryState(draft),{type:'white-cube',roomId}).present;
@@ -27,4 +28,30 @@ it('the ready map boundary uses real floor/capsule clearance, preserves a refuse
   expect(adapter.actions.visitViewpoint!(safe,false)).toBe(true);expect(camera.position.x).toBeCloseTo(1);expect(camera.position.z).toBeCloseTo(1);expect(camera.fov).toBe(50);expect(mode.mock.lastCall).toEqual([true,true,'panel']);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});
  }finally{adapter.dispose();}
  const stopped=camera.position.toArray();expect(adapter.actions.visitViewpoint!(safe,false)).toBe(false);expect(camera.position.toArray()).toEqual(stopped);
+});
+
+it.each([undefined,42])('keeps the visited authored FOV through responsive projection and ordered orbit (preference %s)',async preferred=>{
+ const draft=newDraft().candidate,roomId=draft.rooms[0]!.id,document=applyGeometryCommand(createGeometryState(draft),{type:'white-cube',roomId}).present;
+ document.artworks=[];document.placements=[];
+ const safe=crypto.randomUUID(),unsafe=crypto.randomUUID();
+ document.extensions={...document.extensions,[PRESENTATION_NAMESPACE]:{version:1,credits:'',viewpoints:[{id:safe,name:'Visit',roomId,position:[1,1.65,1],target:[1,1,0],fov:50},{id:unsafe,name:'Inside wall',roomId,position:[0,1.65,-3.99],target:[0,1,0],fov:30}]}};
+ const original=structuredClone(document.extensions),owner=Object.assign(new EventTarget(),{activeElement:null as unknown,pointerLockElement:null as unknown,hidden:false,exitPointerLock:vi.fn()});
+ const canvas=Object.assign(new EventTarget(),{dataset:{} as Record<string,string>,style:{touchAction:''},focus:vi.fn(()=>{owner.activeElement=canvas;}),getBoundingClientRect:()=>({left:0,width:100})}) as unknown as HTMLCanvasElement;
+ vi.stubGlobal('document',owner);vi.stubGlobal('window',Object.assign(new EventTarget(),{performance}));vi.stubGlobal('requestAnimationFrame',vi.fn(()=>1));vi.stubGlobal('cancelAnimationFrame',vi.fn());
+ const camera=new PerspectiveCamera(63,16/9,.01,100);camera.position.set(0,1.65,3);camera.lookAt(0,1,0);
+ const controls={enabled:true,target:new Vector3(0,1,0),update(){}} as OrbitControls;
+ let authoredFov=63;
+ const project=()=>{camera.fov=visitingFov(authoredFov,preferred,camera.aspect);camera.updateProjectionMatrix();};
+ const onViewpointFov=vi.fn((fov:number)=>{authoredFov=fov;project();});
+ const adapter=await createWalkingCamera({document,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion:true},render(){},onMode(){},onMessage(){},onViewpointFov});
+ try{
+  expect(adapter.actions.visitViewpoint!(unsafe,false)).toBe(false);expect(onViewpointFov).not.toHaveBeenCalled();expect(authoredFov).toBe(63);
+  for(const ordered of [false,true]){
+   expect(adapter.actions.visitViewpoint!(safe,ordered)).toBe(true);expect(authoredFov).toBe(50);expect(camera.fov).toBeCloseTo(visitingFov(50,preferred,camera.aspect));
+   const position=camera.position.toArray(),rotation=camera.quaternion.toArray();
+   for(const aspect of [390/844,844/390,16/9]){camera.aspect=aspect;project();expect(camera.fov).toBeCloseTo(visitingFov(50,preferred,aspect));expect(camera.position.toArray()).toEqual(position);expect(camera.quaternion.toArray()).toEqual(rotation);}
+  }
+  expect(adapter.actions.orbitViewpoint!(safe,.05)).toBe(true);expect(authoredFov).toBe(50);expect(camera.fov).toBeCloseTo(visitingFov(50,preferred,camera.aspect));
+  expect(document.extensions).toEqual(original);
+ }finally{adapter.dispose();}
 });
