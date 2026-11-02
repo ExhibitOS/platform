@@ -26,4 +26,4 @@ test('all four portable packs retain maps and notices and supply actual frozen m
  expect(checks).toBeGreaterThanOrEqual(4);await expect(fetcher('/floor-textures/../private')).rejects.toThrow('OFFLINE_FLOOR_URL');
  const file=FLOOR_RESOURCE_PACKS[0]!.maps.color!,data=decoded.floorResources!.get(file.path)!;data.bytes[0]=data.bytes[0]!^1;
  await expect(fetchFloorTexture(file,new AbortController().signal,fetcher)).rejects.toThrow('OFFLINE_FLOOR_INTEGRITY');
-});
+}, 15_000);

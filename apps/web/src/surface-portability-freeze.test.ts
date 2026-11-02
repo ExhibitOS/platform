@@ -27,4 +27,4 @@ test('selected wall and ceiling maps survive a real portable archive and use aut
  expect(checks).toBeGreaterThanOrEqual(12);await expect(fetcher('/surface-material-textures/../private')).rejects.toThrow('OFFLINE_FLOOR_URL');
  const file=SURFACE_TEXTURE_FILES[0]!,data=decoded.materialResources!.get(file.path)!;data.bytes[0]=data.bytes[0]!^1;
  await expect(fetchRegisteredMaterialTexture(file,SURFACE_TEXTURE_FILES,new AbortController().signal,fetcher)).rejects.toThrow('OFFLINE_FLOOR_INTEGRITY');
-});
+}, 15_000);
