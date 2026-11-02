@@ -3,7 +3,7 @@ import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent} 
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
-import {layoutMapMarkers,mapFanRadius,reconcileMapMarkerPreview,type DisplayMarker} from './map-display-layout';
+import {layoutMapMarkers,mapFanRadius,mapRoomViewport,reconcileMapMarkerPreview,type DisplayMarker} from './map-display-layout';
 
 export interface VisitorMapProps {
  map:MapModel;
@@ -68,11 +68,14 @@ function ArtworkThumbnail({src,kind}:{src?:string;kind:string}){
 /** The map previews identities. Only the existing renderer owner may admit travel. */
 export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,available,travel,onDetails,onGo,onCancel,onPreviewChange}:VisitorMapProps){
  const expanded=useRef<HTMLDivElement>(null),[mapWidth,setMapWidth]=useState(320);
+ const scopeSelect=useRef<HTMLSelectElement>(null),[scope,setScope]=useState<{key:string;roomId:string}>();
+ const roomId=scope?.key===map.key&&map.rooms.some(r=>same(r.id,scope.roomId))?scope.roomId:undefined;
+ const drawing=useMemo(()=>mapRoomViewport(map,roomId),[map,roomId]);
  const targetSelect=useRef<HTMLSelectElement>(null),focusedMarker=useRef<HTMLButtonElement|null>(null);
  useEffect(()=>{const element=expanded.current;if(!element||typeof ResizeObserver==='undefined')return;const observer=new ResizeObserver(()=>{if(element.clientWidth>0)setMapWidth(element.clientWidth);});observer.observe(element);return()=>observer.disconnect();},[]);
- const displayMarkers=useMemo(()=>layoutMapMarkers(map,mapWidth,mapWidth*map.bounds.depth/map.bounds.width),[map,mapWidth]);
+ const displayMarkers=useMemo(()=>layoutMapMarkers(drawing,mapWidth,mapWidth*drawing.bounds.depth/drawing.bounds.width),[drawing,mapWidth]);
  const displayById=new Map(displayMarkers.map(marker=>[marker.id,marker]));
- const crowded=displayMarkers.some(marker=>!marker.point);
+ const overflow=drawing.rooms.map(room=>({room,items:drawing.placements.filter(p=>same(p.roomId,room.id)&&!displayById.get(p.id)?.point)})).filter(group=>group.items.length>0);
  const titleId=useId(),[selection,setSelection]=useState<MapSelection>({key:map.key}),[requestError,setRequestError]=useState<{key:string;text:string}|null>(null),requestGeneration=useRef(0),activeKey=useRef(map.key),selectionRef=useRef(selection);activeKey.current=map.key;selectionRef.current=selection;
  useEffect(()=>{
   const previous=selectionRef.current;if(previous.key!==map.key)return;
@@ -92,13 +95,15 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
   if(intent.type==='select'&&travel.status==='preparing')onCancel();
   selectionRef.current=next;setSelection(next);
  };
+ const clearTemporary=()=>{focusedMarker.current=null;const value=selectionRef.current;if(value.focused)dispatch({type:'blur',target:value.focused});if(value.hovered)dispatch({type:'leave',target:value.hovered});};
+ const zoomRoom=(id:string)=>{clearTemporary();setScope(id?{key:map.key,roomId:id}:undefined);scopeSelect.current?.focus({preventScroll:true});};
  const preview=visitorMapPreview(map,selection),placement=preview?.kind==='placement'?map.placements.find(item=>same(item.id,preview.id)):undefined;
  useEffect(()=>{onPreviewChange?.(placement?.id);return()=>onPreviewChange?.(undefined);},[map.key,placement?.id,onPreviewChange]);
  const room=map.rooms.find(item=>same(item.id,placement?.roomId??(preview?.kind==='room'?preview.id:'')));
  const authored=placement&&authoredArtworkViewpoint(artworkStops,placement.id);
  const content=placement&&previews?.[placement.id],choices=room?destinations.filter(item=>same(item.roomId,room.id)&&(!authored||same(item.id,authored))):[];
  const busy=travel.status==='preparing';
- const position=(p:MapPoint)=>({left:`${(p[0]-map.bounds.x)/map.bounds.width*100}%`,top:`${(p[1]-map.bounds.z)/map.bounds.depth*100}%`});
+ const position=(p:MapPoint)=>({left:`${(p[0]-drawing.bounds.x)/drawing.bounds.width*100}%`,top:`${(p[1]-drawing.bounds.z)/drawing.bounds.depth*100}%`});
  const marker=(target:MapTarget)=>({
   'aria-pressed':selection.key===map.key&&selection.selected?.kind===target.kind&&same(selection.selected.id,target.id),
   onPointerEnter:()=>dispatch({type:'hover',target}),onPointerLeave:()=>dispatch({type:'leave',target}),
@@ -118,13 +123,17 @@ export function VisitorMap({map,artworkStops=[],worldPose,previews,destinations,
   <section aria-labelledby={titleId}>
    <h2 id={titleId}>전시 지도</h2>
    <p className="visitor-map-note">작품을 골라 설명과 관람 위치를 확인하세요.</p>
-   <div ref={expanded} className="visitor-map-expanded" style={{aspectRatio:`${map.bounds.width}/${map.bounds.depth}`}}><Schematic map={map} worldPose={worldPose} markers={displayMarkers} activePlacementId={placement?.id}/>
+   <div className="visitor-map-scope"><label>공간 확대<select ref={scopeSelect} value={roomId??''} onFocus={clearTemporary} onChange={event=>zoomRoom(event.target.value)}><option value="">전체 지도</option>{map.rooms.map(room=><option key={room.id} value={room.id}>{room.name}</option>)}</select></label>{roomId&&<button type="button" onClick={()=>zoomRoom('')}>전체 지도</button>}</div>
+   <div ref={expanded} className="visitor-map-expanded" style={{aspectRatio:`${drawing.bounds.width}/${drawing.bounds.depth}`}}><Schematic map={drawing} worldPose={worldPose} markers={displayMarkers} activePlacementId={placement?.id}/>
     <div className="visitor-map-markers" role="group" aria-label="공간과 작품">
-     {map.rooms.map(item=><button key={item.id} type="button" className="visitor-map-room-label" style={position(middle(item.outline))} aria-label={item.name} title={item.name} {...marker({kind:'room',id:item.id})}><span aria-hidden="true"/></button>)}
-     {map.placements.map(item=>{const display=displayById.get(item.id)?.point;return display&&<button key={item.id} type="button" className="visitor-map-marker" style={position(display)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>;})}
+     {drawing.placements.map(item=>{const display=displayById.get(item.id)?.point;return display&&<button key={item.id} type="button" className="visitor-map-marker" style={position(display)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>;})}
     </div>
    </div>
-   {crowded&&<p className="visitor-map-note">좁은 구간의 작품은 아래 목록에서 고를 수 있어요.</p>}
+   {overflow.length>0&&<div className="visitor-map-overflow" aria-label="겹친 작품 목록"><p className="visitor-map-note">겹친 작품은 공간을 확대하거나 목록에서 고르세요.</p>{overflow.map(({room,items})=><details key={`${map.key}/${roomId??''}/${room.id}`} open={!!roomId}>
+    <summary><svg className="visitor-map-group-toggle" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg><span>{room.name} · 겹친 작품 {items.length}개</span><span className="visitor-map-group-thumbnails" aria-hidden="true">{items.slice(0,3).map(item=><span key={item.id} className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span>)}</span></summary>
+    {!roomId&&<button type="button" className="visitor-map-room-zoom" onClick={()=>zoomRoom(room.id)}>이 공간 확대</button>}
+    <ul>{items.map(item=><li key={item.id}><button type="button" className="visitor-map-list-target" aria-pressed={selection.key===map.key&&selection.selected?.kind==='placement'&&same(selection.selected.id,item.id)} onFocus={clearTemporary} onClick={()=>dispatch({type:'select',target:{kind:'placement',id:item.id}})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span><span>{item.title}</span></button></li>)}</ul>
+   </details>)}</div>}
    <label className="visitor-map-target-select">지도에서 고르기<select ref={targetSelect} value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{focusedMarker.current=null;if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
     const chosen=[...map.rooms.map(item=>({kind:'room' as const,id:item.id})),...map.placements.map(item=>({kind:'placement' as const,id:item.id}))].find(target=>`${target.kind}/${target.id}`===event.target.value);
     if(chosen)dispatch({type:'select',target:chosen});else dispatch({type:'dismiss'});

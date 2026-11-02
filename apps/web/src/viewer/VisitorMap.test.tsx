@@ -37,7 +37,7 @@ it('uses only supplied real thumbnails while retaining named keyboard controls a
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
  expect(html).toContain('aria-label="전시 지도"');expect(html).toContain('visitor-map-plus');
  expect(html).toContain('src="blob:verified-coarse"');expect(html).toContain('loading="lazy"');
- expect(html).toContain('aria-label="선택할 작품"');expect(html).toContain('aria-label="첫 공간"');
+ expect(html).toContain('aria-label="선택할 작품"');expect(html).toContain('<option value="room">첫 공간</option>');expect(html).not.toContain('visitor-map-room-label');
  expect(html).not.toContain(description);expect(html).not.toContain('펼치기');
  expect(value.onGo).not.toHaveBeenCalled();expect(value.onDetails).not.toHaveBeenCalled();
  expect(value.onPreviewChange).not.toHaveBeenCalled();
@@ -88,9 +88,9 @@ it('keeps wall anchors at their true points while moving thumbnail buttons insid
  expect(Number(marker[1])).toBeLessThan(90);expect(html).toContain('value="placement/placement"');
  expect(value.map).toEqual(original);expect(value.onGo).not.toHaveBeenCalled();
 });
-it('retains every narrow-room identity in the existing selector instead of overflowing the room with thumbnails',()=>{
+it('exposes narrow-room artwork in an accessible named group and the existing selector without shrinking map targets',()=>{
  const value=props();value.map={...map,rooms:[{id:'room',name:'좁은 방',outline:[[0,-3],[.3,-3],[.3,3],[0,3]]}],placements:[{...map.placements[0]!,point:[.15,0]}]};
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(html).toContain('좁은 구간의 작품은 아래 목록에서 고를 수 있어요.');expect(html).toContain('value="placement/placement"');
+ expect(html).toContain('겹친 작품 목록');expect(html).toContain('좁은 방 · 겹친 작품 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
  expect(html).not.toContain('class="visitor-map-marker"');expect(html).toContain('visitor-map-work-anchor');
 });
