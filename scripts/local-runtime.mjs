@@ -19,7 +19,7 @@ import { Imports } from "../apps/api/dist/imports.js";
 import {createSelectedNativeUploadSlot} from "../apps/api/dist/native-bounded-oex-upload.js";
 import {createSelectedStudioPutSlot} from "../apps/api/dist/native-selected-studio-put.js";
 import {runFreshNativeOexOwner} from "../apps/api/dist/native-fresh-oex-owner.js";
-import {bindNativeOexWorkspace} from "../apps/api/dist/native-oex-provenance.js";
+import {bindNativeOexWorkspace,bindNativeLocalExportWorkspace} from "../apps/api/dist/native-oex-provenance.js";
 
 import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
 
@@ -195,8 +195,13 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       const context=await bindNativeOexWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot});
       if(normalOexV2&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');return context;
     }):undefined;
+    let nativeExportWorkspace;
+    if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&!selectedOex){
+      try{nativeExportWorkspace=await transaction(pool,c=>bindNativeLocalExportWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot}));}
+      catch{console.warn('Native bounded file export is unavailable for this workspace.');}
+    }
     const uploadSlot=selectedOex?createSelectedNativeUploadSlot():undefined,saveSlot=selectedOex?createSelectedStudioPutSlot():undefined;
-    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}), webRoot, blobRoot } });
+    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}), webRoot, blobRoot } });
     await app.listen({ host: "127.0.0.1", port: apiPort });
     stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
     if(selectedOex){

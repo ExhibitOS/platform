@@ -65,6 +65,16 @@ are not added by this endpoint. If a previous private staging file cannot be
 safely identified after an interrupted operation, the workspace refuses a new
 bounded export until its owner resolves that specific state.
 
+The local session advertises `nativeOexExportProfile` only when the existing
+personal workspace and its database and blob store are bound. A native client
+uses a fresh request UUID for one POST and retains it until the same session
+can query the terminal receipt with the same draft ETag. A `complete` receipt
+means the server stream and owned staging cleanup finished; the client must
+still verify and close its own file. Receipts are process-local and can become
+unknown after restart or replacement, so an unknown response is not evidence
+that an earlier request did not run. The `attempt-not-admitted` header applies
+only to that HTTP attempt, not to the history of its UUID.
+
 Archive/upload and Platform decoded total are bounded64MiB. The public reader
 also enforces256files,100MiB per expanded file,256MiB expanded total and100:1
 compression ratio; the tighter Platform total applies to service imports.
