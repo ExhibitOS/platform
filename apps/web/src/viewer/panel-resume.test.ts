@@ -123,3 +123,9 @@ test("guide skip and exhibition return use the same intent, fenced by newer stop
   const hidden=panelPaused(),backgroundIntent=hidden.intent();hidden.invalidate();expect(backgroundIntent(true),action).toBe(false);
  }
 });
+
+
+test('restores only intentional input eligibility, never panel-close automatic movement',()=>{
+ const restored=createPanelResumeGate(true);restored.mode(true,true,'settings');expect(restored.canResume()).toBe(true);expect(restored.panelClosed()).toBe(false);expect(restored.movement(false)).toBe(false);expect(restored.movement(true)).toBe(true);expect(restored.movement(true)).toBe(false);
+ const stationary=createPanelResumeGate(false);stationary.mode(false,true,'settings');expect(stationary.canResume()).toBe(false);
+});

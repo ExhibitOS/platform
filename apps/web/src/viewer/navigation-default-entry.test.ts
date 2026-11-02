@@ -17,7 +17,7 @@ function canvasFixture(){
  let frame:FrameRequestCallback|undefined;
  vi.stubGlobal('document',doc);vi.stubGlobal('window',Object.assign(new EventTarget(),{performance}));
  vi.stubGlobal('requestAnimationFrame',vi.fn((next:FrameRequestCallback)=>{frame=next;return 1;}));vi.stubGlobal('cancelAnimationFrame',vi.fn());
- return {canvas:canvas as unknown as HTMLCanvasElement,tick:()=>{if(!frame)throw Error('NO_FRAME');frame(performance.now()+30);}};
+ return {doc,canvas:canvas as unknown as HTMLCanvasElement,tick:()=>{if(!frame)throw Error('NO_FRAME');frame(performance.now()+30);}};
 }
 const settings={speed:1.3 as const,eyeHeight:1.6,reducedMotion:true};
 
@@ -60,4 +60,21 @@ it('retains strict refusal for unsafe authored poses and scenes with no usable s
  await expect(createNavigationController(authored,{})).rejects.toThrow('NAVIGATION_SPAWN_UNSAFE');
  const low=room();low.rooms[0]!.dimensions.height=1;await expect(createNavigationController(low,{})).rejects.toThrow('NAVIGATION_SPAWN_UNSAFE');
  const noFloor=room();noFloor.surfaces.find(s=>s.type==='floor')!.transform.rotation=[0,0,0,1];await expect(createNavigationController(noFloor,{})).rejects.toThrow('NAVIGATION_SPAWN_UNSAFE');
+});
+
+
+it.each([true,false])('rebuilds a quality-switched view paused with prior walking=%s and no movement frame',async walking=>{
+ const document=room(),camera=new PerspectiveCamera(48);camera.position.set(1,1.6,2);camera.rotation.set(-.15,.7,0,'YXZ');
+ const before=camera.clone(),{doc,canvas,tick}=canvasFixture(),controls={enabled:true,target:new Vector3(),update:vi.fn()},onMode=vi.fn();
+ const runtime=await createWalkingCamera({document,camera,initialCamera:camera.clone(),initialWalking:walking,controls:controls as unknown as OrbitControls,canvas,settings,render:vi.fn(),onMode,onMessage:vi.fn()});
+ try{
+  const state=JSON.parse(canvas.dataset.navigationState!);expect(state).toMatchObject({walking,paused:true,grounded:true,velocity:[0,0,0]});expect(onMode).toHaveBeenCalledWith(walking,true,'settings');expect(camera.position.toArray()).toEqual(before.position.toArray());expect(camera.quaternion.toArray()).toEqual(before.quaternion.toArray());expect(()=>tick()).toThrow('NO_FRAME');expect(controls.enabled).toBe(!walking);expect(doc.activeElement).toBe(null);
+  runtime.actions.start();tick();expect(JSON.parse(canvas.dataset.navigationState!)).toMatchObject({walking:true,paused:false});expect(camera.position.x).toBeCloseTo(before.position.x,8);expect(camera.position.z).toBeCloseTo(before.position.z,8);
+ }finally{runtime.dispose();}
+});
+
+
+it('discards an aborted quality initialization before publishing input or mode',async()=>{
+ const document=room(),camera=new PerspectiveCamera(48),{canvas,doc}=canvasFixture(),controls={enabled:false,target:new Vector3(),update:vi.fn()},onMode=vi.fn(),abort=new AbortController();camera.position.set(1,1.6,2);
+ const pending=createWalkingCamera({document,camera,initialCamera:camera.clone(),initialWalking:true,signal:abort.signal,controls:controls as unknown as OrbitControls,canvas,settings,render:vi.fn(),onMode,onMessage:vi.fn()});abort.abort();await expect(pending).rejects.toMatchObject({name:'AbortError'});expect(onMode).not.toHaveBeenCalled();expect(canvas.dataset.navigationState).toBeUndefined();expect(doc.activeElement).toBe(null);expect(controls.enabled).toBe(false);
 });
