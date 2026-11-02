@@ -81,9 +81,9 @@ it('fits every full-plan corner within the desktop circle without following or r
  expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
 });
 it('keeps wall anchors at their true points while moving thumbnail buttons inside their own room',()=>{
- const value=props();value.map={...map,placements:[{...map.placements[0]!,point:[4,0]}]};
+ const value=props();value.map={...map,placements:[{...map.placements[0]!,point:[4,0],facing:[-1,0]}]};
  const original=structuredClone(value.map),html=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(html).toContain('visitor-map-anchor-link');expect(html).toContain('cx="4" cy="0"');
+ expect(html).not.toContain('visitor-map-anchor-link');expect(html).toContain('visitor-map-work-direction');expect(html).toContain('cx="4" cy="0"');
  const marker=html.match(/class="visitor-map-marker" style="left:([^%]+)%;top:([^%]+)%/)!
  expect(Number(marker[1])).toBeLessThan(90);expect(html).toContain('value="placement/placement"');
  expect(value.map).toEqual(original);expect(value.onGo).not.toHaveBeenCalled();

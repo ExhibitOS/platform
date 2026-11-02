@@ -29,9 +29,8 @@ function Schematic({map,worldPose,local=false,overview=false,markers,activePlace
  // World X/Z stays north-up. Only the crop follows the existing camera snapshot.
  const diameter=Math.max(8,Math.min(20,Math.max(width,depth)*.55));
  const overviewSpan=Math.hypot(width,depth)*1.12;
- const center=worldPose?.point??[x+width/2,z+depth/2],span=overview?overviewSpan:local?diameter:width,unitPerPixel=span/pixels,radius=unitPerPixel*2;
- const compactMarkers=useMemo(()=>layoutMapMarkers(map,width/span*pixels,depth/span*pixels,6),[map,width,depth,span,pixels]);
- const display=markers??compactMarkers;
+ const center=worldPose?.point??[x+width/2,z+depth/2],span=overview?overviewSpan:local?diameter:width,unitPerPixel=span/pixels;
+ const display:DisplayMarker[]=markers??map.placements.map(p=>({id:p.id,anchor:p.point}));
  const fov=worldPose?.horizontalFovDegrees,directionLength=worldPose&&Math.hypot(...worldPose.direction);
  // The sector indicates the actual camera angle, not a ray-traced visibility range.
  const sector=worldPose&&fov!==undefined&&Number.isFinite(fov)&&fov>0&&fov<180&&directionLength&&Number.isFinite(directionLength)?(()=>{
@@ -49,9 +48,15 @@ function Schematic({map,worldPose,local=false,overview=false,markers,activePlace
   })}
   {sector&&<path className="visitor-map-fov" d={sector}/>}
   {display.map(item=><g key={item.id}>
-   {item.point&&Math.hypot(item.point[0]-item.anchor[0],item.point[1]-item.anchor[1])>unitPerPixel&&<line className="visitor-map-anchor-link" data-active={item.id===activePlacementId} x1={item.anchor[0]} y1={item.anchor[1]} x2={item.point[0]} y2={item.point[1]}/>}
+   {markers&&item.id===activePlacementId&&item.point&&Math.hypot(item.point[0]-item.anchor[0],item.point[1]-item.anchor[1])>unitPerPixel&&<line className="visitor-map-anchor-link" data-active={item.id===activePlacementId} x1={item.anchor[0]} y1={item.anchor[1]} x2={item.point[0]} y2={item.point[1]}/>}
    <circle className="visitor-map-work-anchor" data-active={item.id===activePlacementId} cx={item.anchor[0]} cy={item.anchor[1]} r={unitPerPixel*1.2}/>
-   {!markers&&item.point&&<circle className="visitor-map-work" cx={item.point[0]} cy={item.point[1]} r={radius}/>}
+   {!markers&&(()=>{
+    const placement=map.placements.find(p=>p.id===item.id),facing=placement?.artworkType==='image'?placement.facing:undefined;
+    if(!facing)return null;
+    const length=Math.hypot(...facing);if(!Number.isFinite(length)||length<1e-7)return null;
+    const [x,z]=item.anchor,dx=-facing[1]/length*3*unitPerPixel,dz=facing[0]/length*3*unitPerPixel;
+    return <line className="visitor-map-work-direction" x1={x-dx} y1={z-dz} x2={x+dx} y2={z+dz}/>;
+   })()}
   </g>)}
   {worldPose&&<g className="visitor-map-position"><circle cx={worldPose.point[0]} cy={worldPose.point[1]} r={unitPerPixel*3.5}/>{directionLength&&Number.isFinite(directionLength)?(()=>{
    const [dx,dz]=worldPose.direction.map(v=>v/directionLength) as MapPoint,[px,pz]=worldPose.point,u=unitPerPixel;

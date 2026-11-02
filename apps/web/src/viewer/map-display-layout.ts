@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type {MapPoint,MapSelection,VisitorMap} from './visitor-map';
 
-type Placement=VisitorMap['placements'][number]&{facing?:MapPoint};
 export interface DisplayMarker {id:string;anchor:MapPoint;point?:MapPoint}
-type Edge={a:MapPoint;normal:MapPoint;tangent:MapPoint};
+type Edge={a:MapPoint;normal:MapPoint};
 const dot=(a:MapPoint,b:MapPoint)=>a[0]*b[0]+a[1]*b[1];
 const distance=(a:MapPoint,b:MapPoint)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
 
@@ -33,9 +32,11 @@ export function reconcileMapMarkerPreview(value:MapSelection,visible:ReadonlySet
  return next;
 }
 
-/** Room-constrained label positions. Input points and identities remain untouched.
- * Optional facing is the producer's actual image-plane normal, not a guessed
- * GLB front. Legacy data uses only its own room boundary as a visual fallback.
+/** Display targets never establish a wall attachment. Images may move only
+ * along their actual plane normal, just far enough to fit inside their room.
+ * This leaves the along-plane coordinate/order exact. Dense or unsupported
+ * targets use the existing room/list paths instead of extra rows or wall guesses.
+ * Sculpture targets stay at their actual floor anchor, or use the list.
  */
 export function layoutMapMarkers(map:VisitorMap,width:number,height:number,markerSize=44):DisplayMarker[]{
  if(!(width>0&&height>0&&map.bounds.width>0&&map.bounds.depth>0))return map.placements.map(p=>({id:p.id,anchor:p.point}));
@@ -43,45 +44,35 @@ export function layoutMapMarkers(map:VisitorMap,width:number,height:number,marke
  const pixel=(p:MapPoint):MapPoint=>[(p[0]-map.bounds.x)*scale[0],(p[1]-map.bounds.z)*scale[1]];
  const world=(p:MapPoint):MapPoint=>[p[0]/scale[0]+map.bounds.x,p[1]/scale[1]+map.bounds.z];
  const placed=new Map<string,MapPoint>(),half=markerSize/2+6,spacing=markerSize+4;
- const rooms=new Map(map.rooms.map(room=>[room.id.toLowerCase(),room]));
- for(const room of rooms.values()){
+ for(const room of map.rooms){
   const polygon=room.outline.map(pixel);
   const area=polygon.reduce((sum,a,i)=>{const b=polygon[(i+1)%polygon.length]!;return sum+a[0]*b[1]-b[0]*a[1];},0);
   if(!Number.isFinite(area)||Math.abs(area)<1e-6)continue;
-  const edges:Edge[]=polygon.map((a,i)=>{const b=polygon[(i+1)%polygon.length]!,length=distance(a,b),sign=area>0?1:-1;return {a,tangent:[(b[0]-a[0])/length,(b[1]-a[1])/length] as MapPoint,normal:[-(b[1]-a[1])*sign/length,(b[0]-a[0])*sign/length] as MapPoint};});
+  const edges:Edge[]=polygon.map((a,i)=>{const b=polygon[(i+1)%polygon.length]!,length=distance(a,b),sign=area>0?1:-1;return {a,normal:[-(b[1]-a[1])*sign/length,(b[0]-a[0])*sign/length] as MapPoint};});
   if(edges.some(e=>!e.normal.every(Number.isFinite)))continue;
   const signed=(p:MapPoint,e:Edge)=>dot([p[0]-e.a[0],p[1]-e.a[1]],e.normal);
-  // The support of an axis-aligned square against each inward half-plane keeps
-  // the complete visual/hit target inside rotated rooms, including corners.
   const inset=(e:Edge)=>half*(Math.abs(e.normal[0])+Math.abs(e.normal[1]));
   const inside=(p:MapPoint)=>edges.every(e=>signed(p,e)>=inset(e)-1e-5);
-  const constrain=(value:MapPoint)=>{
-   const p:MapPoint=[...value];
-   for(let pass=0;pass<12;pass++)for(const e of edges){const missing=inset(e)-signed(p,e);if(missing>0){p[0]+=e.normal[0]*missing;p[1]+=e.normal[1]*missing;}}
-   return inside(p)?p:undefined;
-  };
-  // Room controls live outside the drawing. They never evict an artwork target.
   const occupied:MapPoint[]=[];
-  const items=map.placements.filter(p=>p.roomId.toLowerCase()===room.id.toLowerCase()).slice().sort((a,b)=>a.id.localeCompare(b.id));
+  const items=map.placements.filter(p=>p.roomId.toLowerCase()===room.id.toLowerCase()).slice().sort((a,b)=>a.point[0]-b.point[0]||a.point[1]-b.point[1]||a.id.localeCompare(b.id));
   for(const item of items){
-   const anchor=pixel(item.point),facing=(item as Placement).facing;
-   const direction:MapPoint|undefined=facing&&facing.every(Number.isFinite)&&Math.hypot(...facing)>1e-6?[facing[0]*scale[0],facing[1]*scale[1]]:undefined;
-   const near=edges.slice().sort((a,b)=>Math.abs(signed(anchor,a))-Math.abs(signed(anchor,b)));
-   // At a corner the image face disambiguates the room-side layout axis.
-   // This does not create a wall binding or change the artwork's actual anchor.
-   const closest=Math.abs(signed(anchor,near[0]!));
-   const candidates=near.filter(e=>Math.abs(signed(anchor,e))<=closest+markerSize);
-   const edge=item.artworkType==='image'&&direction?candidates.sort((a,b)=>dot(b.normal,direction)-dot(a.normal,direction))[0]!:near[0]!;
-   const base=constrain(anchor);if(!base)continue;
-   const choices:MapPoint[]=[];
-   for(let row=0;row<=6;row++)for(let along=-6;along<=6;along++){
-    if(row+Math.abs(along)>6)continue;
-    const p=constrain([base[0]+(edge.normal[0]*row+edge.tangent[0]*along)*spacing,base[1]+(edge.normal[1]*row+edge.tangent[1]*along)*spacing]);
-    if(p&&!choices.some(q=>distance(p,q)<1))choices.push(p);
+   const anchor=pixel(item.point);let point=anchor;
+   if(item.artworkType==='image'&&item.facing){
+    const direction:MapPoint=[item.facing[0]*scale[0],item.facing[1]*scale[1]],length=Math.hypot(...direction);
+    if(!Number.isFinite(length)||length<1e-6)continue;
+    direction[0]/=length;direction[1]/=length;
+    let move=0;
+    for(const edge of edges){
+     const missing=inset(edge)-signed(anchor,edge),toward=dot(direction,edge.normal);
+     if(missing>1e-5){if(toward<=1e-7){move=Infinity;break;}move=Math.max(move,missing/toward);}
+    }
+    // A single target-width is the entire display displacement budget. Never
+    // slide along a wall, search other walls, or pack another inward row.
+    if(move>markerSize)continue;
+    point=[anchor[0]+direction[0]*move,anchor[1]+direction[1]*move];
    }
-   choices.sort((a,b)=>distance(a,anchor)-distance(b,anchor));
-   const point=choices.find(p=>occupied.every(q=>Math.abs(p[0]-q[0])>=spacing||Math.abs(p[1]-q[1])>=spacing));
-   if(point){placed.set(item.id,world(point));occupied.push(point);}
+   if(!inside(point)||occupied.some(q=>Math.abs(point[0]-q[0])<spacing&&Math.abs(point[1]-q[1])<spacing))continue;
+   placed.set(item.id,world(point));occupied.push(point);
   }
  }
  return map.placements.map(p=>({id:p.id,anchor:p.point,point:placed.get(p.id)}));
