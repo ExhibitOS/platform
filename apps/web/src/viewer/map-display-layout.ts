@@ -12,6 +12,17 @@ export function mapFanRadius(worldSpan:number,pixelSpan:number){
  return Math.min(2,worldSpan*.12,24*worldSpan/Math.max(1,pixelSpan));
 }
 
+/** A drawing viewport only. Room/artwork anchors and travel identities are not
+ * transformed. A square keeps long rooms usable without a tall mobile panel. */
+export function mapRoomViewport(map:VisitorMap,roomId:string|undefined):VisitorMap{
+ const room=roomId&&map.rooms.find(r=>r.id.toLowerCase()===roomId.toLowerCase());
+ if(!room)return map;
+ const xs=room.outline.map(p=>p[0]),zs=room.outline.map(p=>p[1]);
+ const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs),span=Math.max(maxX-minX,maxZ-minZ)*1.1;
+ if(!Number.isFinite(span)||span<=0)return map;
+ return {...map,rooms:[room],doors:map.doors.filter(d=>d.roomId.toLowerCase()===room.id.toLowerCase()),placements:map.placements.filter(p=>p.roomId.toLowerCase()===room.id.toLowerCase()),bounds:{x:(minX+maxX-span)/2,z:(minZ+maxZ-span)/2,width:span,depth:span}};
+}
+
 /** Unmounting a responsive marker need not fire blur/pointerleave. Keep the
  * explicit selection, but never let an invisible temporary preview shadow it.
  */
@@ -49,8 +60,8 @@ export function layoutMapMarkers(map:VisitorMap,width:number,height:number,marke
    for(let pass=0;pass<12;pass++)for(const e of edges){const missing=inset(e)-signed(p,e);if(missing>0){p[0]+=e.normal[0]*missing;p[1]+=e.normal[1]*missing;}}
    return inside(p)?p:undefined;
   };
-  // Keep the incumbent room selector available as well as the artwork targets.
-  const occupied:MapPoint[]=[[polygon.reduce((s,p)=>s+p[0],0)/polygon.length,polygon.reduce((s,p)=>s+p[1],0)/polygon.length]];
+  // Room controls live outside the drawing. They never evict an artwork target.
+  const occupied:MapPoint[]=[];
   const items=map.placements.filter(p=>p.roomId.toLowerCase()===room.id.toLowerCase()).slice().sort((a,b)=>a.id.localeCompare(b.id));
   for(const item of items){
    const anchor=pixel(item.point),facing=(item as Placement).facing;

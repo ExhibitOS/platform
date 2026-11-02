@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
 import type {MapPoint,VisitorMap} from './visitor-map';
-import {layoutMapMarkers,mapFanRadius,reconcileMapMarkerPreview} from './map-display-layout';
+import {layoutMapMarkers,mapFanRadius,mapRoomViewport,reconcileMapMarkerPreview} from './map-display-layout';
 import {visitorMapPreview,type MapSelection} from './visitor-map';
 
 const room=(id:string,x:number,width=4,depth=6)=>({id,name:id,outline:[[x,0],[x+width,0],[x+width,depth],[x,depth]] as MapPoint[]});
@@ -24,15 +24,29 @@ it('puts opposing shared-wall images inside their own rooms and retains exact an
  expect(map).toEqual(original);expect(markers.map(m=>m.id)).toEqual(['a','b']);
 });
 
-it('separates a dense wall row without crossing the wall, room corners or room selector',()=>{
+it('separates a dense wall row without crossing the wall or room corners',()=>{
  const map=plan();map.rooms=[room('west',0,8,6)];map.placements=Array.from({length:7},(_,i)=>image('art'+i,'west',[1.8+i*.13,.01],[0,1]));
  const result=layoutMapMarkers(map,400,300).filter(m=>m.point);
  expect(result.length).toBe(7);
  for(const [i,m] of result.entries()){
   const [x,z]=m.point!;expect(x).toBeGreaterThanOrEqual(.48);expect(x).toBeLessThanOrEqual(7.52);expect(z).toBeGreaterThanOrEqual(.48);expect(z).toBeLessThanOrEqual(5.52);
-  expect(Math.abs(x-4)>=.96||Math.abs(z-3)>=.96).toBe(true);
   for(const n of result.slice(i+1))expect(Math.abs(x-n.point![0])>=.96-1e-8||Math.abs(z-n.point![1])>=.96-1e-8).toBe(true);
  }
+});
+
+it('does not evict a complete artwork target to reserve a room-centre control',()=>{
+ const map=plan();map.rooms=[room('small',0,1.5,1.5)];map.placements=[image('one','small',[.01,.75],[1,0])];
+ const result=layoutMapMarkers(map,320,240);
+ expect(result[0]!.point).toBeDefined();expect(result[0]!.anchor).toEqual([.01,.75]);
+});
+
+it('zooms only the drawing scope, preserves real identities/anchors and returns the original overview',()=>{
+ const map=plan();map.placements=[image('a','west',[4,2],[-1,0]),image('b','east',[4,2],[1,0])];
+ const original=structuredClone(map),zoom=mapRoomViewport(map,'WEST');
+ expect(zoom.key).toBe(map.key);expect(zoom.rooms).toEqual([map.rooms[0]]);expect(zoom.placements).toEqual([map.placements[0]]);
+ expect(zoom.placements[0]).toBe(map.placements[0]);expect(zoom.bounds.width).toBe(zoom.bounds.depth);
+ for(const [x,z] of zoom.rooms[0]!.outline){expect(x).toBeGreaterThan(zoom.bounds.x);expect(x).toBeLessThan(zoom.bounds.x+zoom.bounds.width);expect(z).toBeGreaterThan(zoom.bounds.z);expect(z).toBeLessThan(zoom.bounds.z+zoom.bounds.depth);}
+ expect(mapRoomViewport(map,undefined)).toBe(map);expect(mapRoomViewport(map,'missing')).toBe(map);expect(map).toEqual(original);
 });
 
 it('keeps complete axis-aligned thumbnail targets inside a rotated room',()=>{
