@@ -3,15 +3,20 @@
 These are the exact public, approved display derivatives from the existing
 reference exhibition, not original photographs or private production material.
 The publication revision and static index hashes are pinned in `publication.json`.
-The index, publication metadata, sixteen PNG display derivatives, and one GLB display
-model are Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository.
+The index, publication metadata, and all 25 registered display asset entries are
+Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. These
+are the exact reviewed twelve-work publication inputs. The four registered audio
+and notice resources are included as well, for 30 content-addressed data files.
+The input index is `4f31bc7132d6b71bcc7fefe741ebf66ba09512f9bacd1cf4ed261fde78a57c01`;
+the publication is `96d4a2f3-5196-4b4c-8fb7-62e6e09205ae`, revision
+`472e33b301770b26431a55dd6eb81087c9e351878988e073bfbc9bc501682b3a`.
 
 The pinned publication also includes two registered CC0 concrete footstep WAVs
 and the shared CC0 license and provenance notices. The publication resource
 channel verifies their sizes and SHA-256 values. Visitors explicitly enable
 both sound and footsteps before sample requests; walking triggers playback.
 
-The eight paintings are provided by The Metropolitan Museum of Art, New York under
+The eleven paintings are provided by The Metropolitan Museum of Art, New York under
 CC0-1.0. Their original credit lines, rights, provenance, full and coarse display
 asset hashes remain in the publication metadata:
 
@@ -23,6 +28,9 @@ asset hashes remain in the publication metadata:
 - Albert Bierstadt, *Sunrise on the Matterhorn*, after 1875 — https://www.metmuseum.org/art/collection/search/10158
 - Berthe Morisot, *Young Woman Knitting*, ca. 1883 — https://www.metmuseum.org/art/collection/search/437159
 - Camille Pissarro, *Morning, An Overcast Day, Rouen*, 1896 — https://www.metmuseum.org/art/collection/search/437308
+- Gustave Courbet, *The Hidden Brook*, ca. 1873–77 — https://www.metmuseum.org/art/collection/search/436013
+- Édouard Manet, *The Brioche*, 1870 — https://www.metmuseum.org/art/collection/search/436946
+- John Singer Sargent, *Egyptian Woman*, 1890–91 — Gift of Mrs. Francis Ormond, 1950
 
 The sculpture is Edmonia Lewis, *Old Arrow Maker*, modeled 1866, marble,
 Smithsonian American Art Museum, Gift of Mr. and Mrs. Norman Robbins, 1983.95.179.
@@ -47,8 +55,8 @@ The original 2.4m opening passes through the whole depth; the same solid boxes
 are used for visible geometry and walking collision, without a threshold.
 Reported institutional dimensions and the digital model bounds are distinguished
 in the description; physical scale has not been independently calibrated.
-The nine-artist introduction, descriptions, rights, credits and display
-policy remain in the generated publication metadata. The five added paintings keep
+The exhibition introduction, descriptions, rights, credits and display
+policy remain in the generated publication metadata. The paintings keep
 the complete photograph and its aspect ratio, anchored to the reported height;
 photographic boundaries are not independently matched to the physical painted area.
 Bierstadt, Morisot and Pissarro have no source ICC profile, so display sRGB is assumed and disclosed.
@@ -61,6 +69,14 @@ its display width follows the photo aspect ratio, separately from the museum-rep
 Bierstadt sits clear of the existing styled doorway wall and opening. Their full/coarse files, rights evidence and
 conversion-recipe hashes remain bound in the public metadata. This independent exhibition
 does not imply institutional sponsorship, affiliation or endorsement.
+
+Sargent retains the approved complete photograph without cropping or stretching.
+Its displayed height is .648m and its photo-aspect width is approximately .5452m;
+the museum-reported .533m width is a separate measurement. The photographed painted
+boundary is not independently calibrated. The approved full 1599×1900, coarse,
+and thumbnail PNG bytes are preserved with their existing registered hashes.
+Automatic quality may retain the coarse image under its budget; selecting higher
+quality uses the existing Viewer policy and does not change these content inputs.
 
 Use Node 24.21.0 and npm 11.19.0, then `npm ci` and
 `npm run build:reference-demo` from the repository root. The output is a new
