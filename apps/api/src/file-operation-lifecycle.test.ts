@@ -89,3 +89,17 @@ it('withholds success if the owned advisory unlock cannot be confirmed',async()=
  await expect(new FileOperationLifecycle(f.pool,1,1000).runOperation(identity(),f.hooks,new AbortController().signal)).rejects.toThrow('FILE_OPERATION_FENCE_RELEASE_UNCERTAIN');
  expect(f.calls.at(-1)).toBe('destroy');
 });
+
+it.each(['resolved','rejected'] as const)('does not continue when cancellation races a %s final COMMIT',async outcome=>{
+ const f=fixture(),abort=new AbortController(),query=f.client.query;
+ let commits=0,started!:()=>void,finish!:(value?:unknown)=>void,fail!:(reason?:unknown)=>void;
+ const reached=new Promise<void>(resolve=>{started=resolve;});
+ const held=new Promise<unknown>((resolve,reject)=>{finish=resolve;fail=reject;});
+ f.client.query=async(sql,params)=>{if(sql==='COMMIT'&&++commits===2){f.calls.push(sql);started();return held;}return query(sql,params);};
+ f.hooks.afterCommit=async()=>{f.calls.push('after-commit');};
+ const operation=new FileOperationLifecycle(f.pool,1,1000).runOperation(identity(),f.hooks,abort.signal);
+ await reached;abort.abort();if(outcome==='resolved')finish({rows:[],rowCount:1});else fail(Error('connection lost'));
+ await expect(operation).rejects.toThrow(outcome==='resolved'?'FILE_OPERATION_POSTCOMMIT_FAILED':'FILE_OPERATION_COMMIT_UNCERTAIN');
+ expect(f.calls).not.toContain('after-commit');expect(f.calls).not.toContain('ROLLBACK');
+ if(outcome==='rejected')expect(f.calls.at(-1)).toBe('destroy');
+});
