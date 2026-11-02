@@ -22,7 +22,7 @@
     "test": "vitest run",
     "build": "npm run notices && npm run build --workspace @exhibitos/studio-contract && npm run build --workspace @exhibitos/storage && npm run build --workspace @exhibitos/api && npm run build --workspace @exhibitos/web",
     "test:e2e": "playwright test",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:embedded-png-profile && npm run test:contracts && npm run test:packaging",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run test:embedded-png-profile && npm run test:contracts && npm run test:packaging && npm run test:schema-generator",
     "measure:baseline": "node scripts/measure-baseline.mjs",
     "notices": "node scripts/write-notices.mjs",
     "test:contracts": "node --test scripts/contract-consumer.test.mjs",
@@ -56,7 +56,8 @@
     "test:packaging": "node --test scripts/package-local-runtime.test.mjs scripts/license-checkout.test.mjs",
     "test:processing-authorization": "node scripts/test-processing-authorization.mjs",
     "test:embedded-png-profile": "node --test scripts/embedded-png-profile.test.mjs",
-    "test:metric-previews": "node scripts/test-metric-previews.mjs"
+    "test:metric-previews": "node scripts/test-metric-previews.mjs",
+    "test:schema-generator": "node --test scripts/normalize-schema-hoists.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
