@@ -1117,6 +1117,7 @@ export function GeometryPreview({
                   }
                 },
                 onSeat:id=>{if(!disposed){seatedBenchRef.current=id;setSeatedBenchId(id);}},
+                onViewpointFov:fov=>{authoredFov=fov;applyProjection();},
                 onMode: (walking, paused, reason) => {
                   panelResume?.mode(walking, paused, reason);
                   currentWalkMode.current = { walking, paused };
