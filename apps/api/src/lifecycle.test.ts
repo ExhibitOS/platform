@@ -65,3 +65,15 @@ it('rejects zero available local blocks and recovers without creating storage ob
   expect(recovered.services.find(service => service.name === 'storage')?.status).toBe('ready');
   expect(await readdir(config.blobRoot)).toEqual([]);
 });
+
+it('checks only the applied supplemental catalog while rejecting drift and unexpected database rows',async()=>{
+ const {config,pool,rows}=await fixture(),supplemental=join(config.migrationDirectory,'..','selected');await mkdir(supplemental);
+ const a='SELECT 26;',b='SELECT 27;',digest=(v:string)=>createHash('sha256').update(v).digest('hex');
+ await writeFile(join(supplemental,'026.sql'),a);await writeFile(join(supplemental,'027.sql'),b);rows.push({name:'026.sql',sha256:digest(a)});
+ const options={...config,supplementalMigrationDirectory:supplemental,supplementalMigrationNames:['026.sql']};
+ expect((await readiness(pool,options)).ready).toBe(true);
+ rows.push({name:'027.sql',sha256:digest(b)});expect((await readiness(pool,options)).ready).toBe(false);
+ const both={...options,supplementalMigrationNames:['026.sql','027.sql']};expect((await readiness(pool,both)).ready).toBe(true);
+ rows[2]!.sha256='0'.repeat(64);expect((await readiness(pool,both)).ready).toBe(false);rows.pop();expect((await readiness(pool,both)).ready).toBe(false);
+ expect((await readiness(pool,{...options,supplementalMigrationNames:['026.sql','026.sql']})).ready).toBe(false);
+});

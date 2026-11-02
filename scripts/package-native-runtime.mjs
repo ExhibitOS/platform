@@ -49,6 +49,8 @@ const OEX_SPEC_HASH='7b06dae895ea4ef46a0ad94958945db022b65978371d4b15c161ccdcc74
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
 const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
+const NORMAL_OEX_PROVENANCE_PATH='database/native-oex-normal/027_oex_exhibition_provenance.sql';
+const NORMAL_OEX_PROVENANCE_HASH='09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7';
 const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
 /** Copy a fixed checked input if Git did not already copy it. Source/destination
  * validation is point-in-time, not protection from a concurrent same-UID writer. */
@@ -69,7 +71,7 @@ export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, trac
   if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
 }
 export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected){
-  if (normalOexSelected) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);
+  if (normalOexSelected) {await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_PROVENANCE_HASH);}
 }
 // A sealed-inventory declaration, never authority to select or run an operation.
 // oneShot means one selected operation in a newly provisioned empty workspace/session.
@@ -206,7 +208,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
   const tracked = new Map();
-  const excluded = new Set([...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH])]);
+  const excluded = new Set([...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH])]);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
   await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected);

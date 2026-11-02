@@ -142,6 +142,8 @@ test('selected native backup recognizes only its exact supplemental catalog',asy
  catalog.push({name:'026_oex_file_profile.sql',sha256:digest(await fs.readFile(extra+'026_oex_file_profile.sql'))});let rows=catalog,pool={query:async()=>({rows})};
  assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra),{migrationCatalog:catalog});assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,catalog),{migrationCatalog:catalog});
  await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra,original),/BACKUP_MIGRATION_CATALOG/);
+ const full=[...catalog,{name:'027_oex_exhibition_provenance.sql',sha256:digest(await fs.readFile(extra+'027_oex_exhibition_provenance.sql'))}];rows=full;assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,full),{migrationCatalog:full});
+ const invalid=structuredClone(full);invalid[26].sha256='0'.repeat(64);rows=invalid;await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
  rows=original;assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra),{migrationDirectory:base});assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,original),{migrationCatalog:original});
  rows=structuredClone(catalog);rows[25].sha256='0'.repeat(64);await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
 });
