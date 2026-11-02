@@ -18,7 +18,7 @@ function setup(pending=false){
  const choose=vi.fn(),cancel=vi.fn(()=>{intent=null!;});
  const placement={get active(){return !!intent;},snapshot:()=>intent,choose,cancel} as unknown as NativePlacement;
  const asset={object,release};let resolve!:(value:typeof asset)=>void;
- const load=vi.fn((_artwork:Artwork,_signal:AbortSignal)=>pending?new Promise<typeof asset>(r=>{resolve=r;}):Promise.resolve(asset));
+ const load=vi.fn((_artwork:Artwork,_signal:AbortSignal)=>{void _artwork;void _signal;return pending?new Promise<typeof asset>(r=>{resolve=r;}):Promise.resolve(asset);});
  const preview=installNativePlacementPreview(placement,{scene,model,camera,renderer:{domElement:canvas} as unknown as WebGLRenderer,rooms:new Map([['room',room]]),surfaces:new Map([['wall',surface]]),load,render:vi.fn()});
  const event=(type:string,x=100,y=100,extra={})=>{const e=Object.assign(new Event(type,{cancelable:true}),{button:0,pointerId:1,isPrimary:true,clientX:x,clientY:y,...extra});canvas.dispatchEvent(e);return e;};
  const click=(x=100,y=100)=>{event('pointerdown',x,y);event('pointerup',x,y);event('click',x,y);};
