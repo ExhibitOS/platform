@@ -58,6 +58,7 @@ export function Viewer({
   choiceRequired = false,
   orderedAvailable = false,
   choicePending = false,
+  focusEntry,
   onChoicePresented,
   hintAlreadyShown = false,
   onHintShown,
@@ -75,6 +76,8 @@ export function Viewer({
   choiceRequired?:boolean;
   orderedAvailable?:boolean;
   choicePending?:boolean;
+  focusEntry?:()=>boolean;
+
   onChoicePresented?:()=>void;
   hintAlreadyShown?:boolean;
   onHintShown?:()=>void;
@@ -279,11 +282,12 @@ export function Viewer({
   );
   return (
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
-      {immersive && <ViewerInputGuide key={`${publication.publication.id}/${publication.publication.revisionSha256}`} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={false} requestSequence={guideSequence} viewingStyle={viewingStyle} showIntro={!introDismissed&&helpReady&&!suspendNavigation&&!choiceRequired&&!choicePending} ready={helpReady&&!suspendNavigation} choiceRequired={choiceRequired} orderedAvailable={orderedAvailable} onChoicePresented={onChoicePresented} onChooseStyle={onChooseViewingStyle} reducedMotion={!!reducedMotion} observeActivity={observeGuideActivity} hintAlreadyShown={hintAlreadyShown} onHintShown={onHintShown} onDismiss={()=>setIntroDismissed(true)}/>}
+      {immersive && <ViewerInputGuide key={`${publication.publication.id}/${publication.publication.revisionSha256}`} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={false} focusEntry={focusEntry} requestSequence={guideSequence} viewingStyle={viewingStyle} showIntro={!introDismissed&&helpReady&&!suspendNavigation&&!choiceRequired&&!choicePending} ready={helpReady&&!suspendNavigation} choiceRequired={choiceRequired} orderedAvailable={orderedAvailable} onChoicePresented={onChoicePresented} onChooseStyle={onChooseViewingStyle} reducedMotion={!!reducedMotion} observeActivity={observeGuideActivity} hintAlreadyShown={hintAlreadyShown} onHintShown={onHintShown} onDismiss={()=>setIntroDismissed(true)}/>}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} artworkStops={viewingPlanFor(publication.exhibition).stops} poseSource={mapPoseSource} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
         immersive={immersive}
+        focusEntry={focusEntry}
         onViewingReady={onViewingRendererReady}
         thumbnailCache={thumbnailCache}
         suppliedThumbnails={artworkThumbnails}

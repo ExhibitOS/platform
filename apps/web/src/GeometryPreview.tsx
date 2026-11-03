@@ -141,6 +141,7 @@ export function GeometryPreview({
   compactControls = false,
   referenceTone = DEFAULT_REFERENCE_TONE,
   immersive = false,
+  focusEntry,
   controlsHost,
   viewFov,
   inputMode = "auto",
@@ -159,6 +160,7 @@ export function GeometryPreview({
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
   immersive?: boolean;
+  focusEntry?:()=>boolean;
   controlsHost?: HTMLElement|null;
   viewFov?: number;
   onSelectionFindReady?: (action:((id:string)=>boolean)|null)=>void;
@@ -343,7 +345,7 @@ export function GeometryPreview({
   const viewingStyleRef=useRef<ViewingStyle>('free');
   const [viewingStyle,setViewingStyle]=useState<ViewingStyle>('free');
   const enteredWalking=useRef(false);
-  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
+  useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start(focusEntry);}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation,focusEntry]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
   useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
@@ -1218,10 +1220,10 @@ export function GeometryPreview({
           await initialization;
         };
         const pending: WalkingActions = {
-          start: () => {
+          start: (shouldFocus) => {
             void initialize(undefined,privateCameraRestored).then(() => {
               if (!disposed && !xrActive.current && !suspendedRef.current && walkingActions.current !== pending)
-                walkingActions.current?.start();
+                walkingActions.current?.start(shouldFocus);
             });
           },
           capture: () => {
@@ -1279,7 +1281,7 @@ export function GeometryPreview({
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
                 if(closed||disposed||signal.aborted){created.dispose();signal.throwIfAborted();throw Error('ENTRANCE_SCENE_STALE');}
-                adapter=created;walkingActions.current=created.actions;setWalkPreparation('ready');created.actions.start();
+                adapter=created;walkingActions.current=created.actions;setWalkPreparation('ready');created.actions.start(focusEntry);
               }catch(error){if(!closed&&!signal.aborted)setWalkPreparation('failed');throw error;}
               finally{preparing=false;if(!closed)setWalkLoading(false);}
             },

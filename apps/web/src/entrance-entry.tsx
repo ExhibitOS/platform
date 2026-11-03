@@ -21,8 +21,8 @@ export function useEntranceEntry(){
  useEffect(()=>()=>{generation.current++;},[]);
  return {mode,modeRef,begin,cancel,stageReady,entryFailed,longEntry,entryPhase,stageMessage,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState};
 }
-export function EntranceEntryOverlay({entry,transition,speed,statusRef,onCancel,onText}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;onCancel:()=>void;onText:()=>void}){
- useEffect(()=>{if(!entry.stageReady&&!entry.entryFailed)statusRef.current?.focus({preventScroll:true});},[entry.stageReady,entry.entryFailed,entry.entryAttempt,statusRef]);
+export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStatus,onCancel,onText}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;focusStatus?:()=>boolean;onCancel:()=>void;onText:()=>void}){
+ useEffect(()=>{if(!entry.stageReady&&!entry.entryFailed&&focusStatus?.()!==false)statusRef.current?.focus({preventScroll:true});},[entry.stageReady,entry.entryFailed,entry.entryAttempt,statusRef,focusStatus]);
  return <div className="publication-entry-overlay" data-ready={entry.stageReady} data-transition={transition} style={{'--entry-transition-duration':`${(transition==='doors'?220:transition==='panels'?180:140)/speed}ms`} as CSSProperties} data-door-effect={transition!=='none'} data-failed={entry.entryFailed}>
   {transition!=='none'&&<div className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>}
   {!entry.stageReady&&<div className="publication-entry-recovery">

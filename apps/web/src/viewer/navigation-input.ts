@@ -165,12 +165,12 @@ export function createWalkingInput(
   canvas.addEventListener("pointercancel", pointerend);
   canvas.addEventListener("lostpointercapture", pointerend);
   return {
-    enable() {
+    enable(focus=true) {
       captureGeneration++;
       clear();
       enabled = true;
       hadLock = document.pointerLockElement === canvas;
-      canvas.focus({ preventScroll: true });
+      if(focus)canvas.focus({ preventScroll: true });
     },
     pause(reason: WalkingPauseReason = "user") {
       stop(reason);

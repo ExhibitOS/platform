@@ -60,7 +60,7 @@ function GuideRows({keys,free,brief=false}:{keys:boolean;free:boolean;brief?:boo
   {!brief&&<li><span className="viewer-help-visual" aria-hidden="true">{keys?<kbd>Esc</kbd>:<ViewerIcon name="paused"/>}</span><span><strong>멈추기</strong>{keys?'Esc나 화면 이탈로 멈춰요.':'화면을 벗어나면 이동과 소리가 멈춰요.'} {free?'멈춘 뒤에는 메뉴의 시점 조정에서 이동을 시작하거나 재개하세요.':'소리는 별도 소리 패널에서 선택해요.'}</span></li>}
  </ul>;
 }
-export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,viewingStyle='free',showIntro=false,ready=false,choiceRequired=false,orderedAvailable=false,onChoicePresented,onChooseStyle,reducedMotion=false,observeActivity,hintAlreadyShown=false,onHintShown}:{mode:ResolvedViewerInputMode;replayed:boolean;onDismiss:()=>void;requestSequence?:number;viewingStyle?:'free'|'ordered';showIntro?:boolean;ready?:boolean;choiceRequired?:boolean;orderedAvailable?:boolean;onChoicePresented?:()=>void;onChooseStyle?:(style:'free'|'ordered')=>void;reducedMotion?:boolean;observeActivity?:ObserveHintActivity;hintAlreadyShown?:boolean;onHintShown?:()=>void}){
+export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,viewingStyle='free',showIntro=false,ready=false,choiceRequired=false,focusEntry,orderedAvailable=false,onChoicePresented,onChooseStyle,reducedMotion=false,observeActivity,hintAlreadyShown=false,onHintShown}:{mode:ResolvedViewerInputMode;replayed:boolean;onDismiss:()=>void;requestSequence?:number;viewingStyle?:'free'|'ordered';showIntro?:boolean;ready?:boolean;choiceRequired?:boolean;focusEntry?:()=>boolean;orderedAvailable?:boolean;onChoicePresented?:()=>void;onChooseStyle?:(style:'free'|'ordered')=>void;reducedMotion?:boolean;observeActivity?:ObserveHintActivity;hintAlreadyShown?:boolean;onHintShown?:()=>void}){
  const panel=useRef<HTMLDetailsElement>(null),summary=useRef<HTMLElement>(null),heading=useRef<HTMLHeadingElement>(null),previous=useRef<HTMLElement|null>(null),explicit=useRef(false),id=useId();
  const initialHintSeen=useRef(hintAlreadyShown),hintLifetime=useRef<HintLifetime>({done:false});
  const [hintCompleted,setHintCompleted]=useState(false);
@@ -76,8 +76,9 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
   const root=panel.current?.closest('.publication-shell');
   const other=[...(root?.querySelectorAll<HTMLDetailsElement>('details[data-visitor-panel][open]')??[])].some(p=>p!==panel.current&&!p.closest('[hidden],[inert]'));
   if(other)return;
-  previous.current=document.activeElement instanceof HTMLElement?document.activeElement:null;explicit.current=false;setPhase('choice');if(panel.current)panel.current.open=true;queueMicrotask(()=>{if(panel.current?.open)heading.current?.focus({preventScroll:true});});callbacks.current.onChoicePresented?.();
+  previous.current=document.activeElement instanceof HTMLElement?document.activeElement:null;explicit.current=false;setPhase('choice');if(panel.current)panel.current.open=true;callbacks.current.onChoicePresented?.();
  },[ready,choiceRequired,panelTick]);
+ useEffect(()=>{if(phase==='choice'&&panel.current?.open&&focusEntry?.()!==false)heading.current?.focus({preventScroll:true});},[phase,focusEntry]);
  useEffect(()=>{
   if(!open||phase!=='choice'||!ready||!free||autoChoiceRetired.current)return;
   let started=false,timer:ReturnType<typeof setTimeout>|undefined;
@@ -98,8 +99,9 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
  const close=()=>{if(phase==='choice'){choose('free');return;}cancelChoice();explicit.current=true;if(panel.current)panel.current.open=false;restore();};
  const dismissIntro=()=>{onDismiss();document.querySelector<HTMLElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});};
  useEffect(()=>{const lifetime=hintLifetime.current;if(lifetime.startedAt!==undefined&&!lifetime.done&&(!showIntro||open||mode==='touch'||!free)){lifetime.done=true;setHintCompleted(true);}},[showIntro,open,mode,free]);
- const choose=(style:'free'|'ordered')=>{if(style==='ordered'&&!orderedAvailable)return;cancelChoice();explicit.current=false;if(panel.current)panel.current.open=false;setPhase('help');callbacks.current.onChooseStyle?.(style);restore(true);};
+ const choose=(style:'free'|'ordered')=>{if(style==='ordered'&&!orderedAvailable)return;cancelChoice();explicit.current=false;if(panel.current)panel.current.open=false;setPhase('help');callbacks.current.onChooseStyle?.(style);if(focusEntry?.()!==false)restore(true);};
  return <>
+  <span className="viewer-entry-announcement" role="status">{open&&phase==='choice'&&focusEntry?.()===false?'관람 방식을 골라보세요':''}</span>
   {showIntro&&phase==='help'&&!open&&mode!=='touch'&&free&&!initialHintSeen.current&&!hintCompleted&&!hintLifetime.current.done&&<DesktopHints onComplete={()=>setHintCompleted(true)} reducedMotion={reducedMotion} observeActivity={observeActivity} lifetime={hintLifetime.current} onShown={onHintShown}/>}
   {showIntro&&phase==='help'&&!open&&!hintCompleted&&!initialHintSeen.current&&(mode==='touch'||!free)&&<aside className="viewer-input-brief" aria-label="가볍게 둘러보기" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismissIntro();}}}>
    <header><h2>가볍게 둘러보기</h2><button type="button" className="viewer-guide-close" aria-label="안내 닫고 관람하기" onClick={dismissIntro}><ViewerIcon name="close"/></button></header>
