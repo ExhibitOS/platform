@@ -26,10 +26,16 @@ import {ViewingStyles} from './viewer/ViewingStyles';
 import {createViewingSession,type ViewingRenderer,type ViewingState,type ViewingStyle,type ViewingActions,type ViewingItem} from './viewer/viewing-session';
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {discardPrivateView} from './viewer/private-view-storage';
+import {publicationTime} from './publication-time';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emptyThumbnails:Readonly<Record<string,string>>=Object.freeze({});
-export function PublicPublication({ id, initial, connectionStatus, privateEditorHref }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode; privateEditorHref?:string }) {
+function PublicationRecordTime({value,source}:{value:unknown;source:'publication'|'file'|'output'}){
+ const time=publicationTime(value),name=source==='publication'?'공개 기록':source==='output'?'출력 생성':'전시 파일 기록';
+ const description=source==='publication'?'전시 공개 기록의 시각이며, 웹 배포나 개장 시각과 다를 수 있어요.':source==='output'?'오프라인 출력의 생성 시각이며, 공개일을 뜻하지 않아요.':'전시 파일에 기록된 시각이며, 웹 배포나 개장 시각을 뜻하지 않아요.';
+ return <><p>{name} {time.kind==='date'?'날짜':'시각'} {time.dateTime?<time dateTime={time.dateTime}>{time.text}</time>:time.text}</p><p className="cms-note">{description}</p></>;
+}
+export function PublicPublication({ id, initial, connectionStatus, privateEditorHref,recordTimeKind }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode; privateEditorHref?:string;recordTimeKind?:'output-generated' }) {
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
@@ -273,8 +279,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </section>
           {mode === "text" && <button onClick={() => {setMenuOpen(false);modeChanged.current=true;entry.cancel();}}>전시 표지로</button>}
           <details className="publication-record">
-            <summary>전시 공개 정보</summary>
-            <p>공개일 {value.publication.publishedAt}</p>
+            <summary>전시 정보</summary>
+            <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
             <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
             <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
           </details>
@@ -334,8 +340,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {benchesFor(value.exhibition).length>0&&<section aria-label="벤치 감상 지점"><h2>벤치 감상 지점</h2><p>공간 관람에서 벤치를 직접 선택해 앉거나 이전 위치로 돌아갈 수 있어요. 작품 설명은 이 목록에서 계속 읽을 수 있어요.</p><ul>{benchesFor(value.exhibition).map(bench=><li key={bench.id}>{bench.name} · {presentationFor(value.exhibition).viewpoints.find(v=>v.id.toLowerCase()===bench.viewpointId.toLowerCase())?.name}</li>)}</ul></section>}
           <p className="cms-note">공간 이동이 어렵다면 작품 목록에서 작품을 선택해 감상할 수 있어요. 소리 없이도 설명을 읽을 수 있어요.</p>
           <details className="publication-record">
-            <summary>전시 공개 정보</summary>
-            <p>공개일 {value.publication.publishedAt}</p>
+            <summary>전시 정보</summary>
+            <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
             <p>{initial?.local?.kind === "static" ? "공개 시점의 전시 파일입니다. 권리 변경은 게시자가 새 배포로 반영합니다." : initial ? "서명과 유효한 오프라인 표시 기한을 확인했습니다." : "서버가 현재 공개 상태와 전시 권리를 확인했습니다."}</p>
             <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
             <button disabled={loading} onClick={() => void load()}>{initial?.local?.kind === "static" ? "전시 파일 다시 확인" : initial ? "오프라인 표시 기한 다시 확인" : "공개 상태 다시 확인"}</button>

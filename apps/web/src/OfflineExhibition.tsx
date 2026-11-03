@@ -111,6 +111,6 @@ export function OfflineExhibition(){
  <label>오프라인 전시 파일<input aria-label="오프라인 전시 파일" type="file" accept=".oef,application/json" disabled={!authority||busy} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;if(file.size>MAX_FREEZE_BYTES){setMessage('파일 크기 한도를 초과했습니다.');return;}void importFile(file);}}/></label>
  {portable&&<button disabled={!authority||busy} onClick={()=>void importPortable()}>로컬 서명 패키지 준비</button>}
  <ul>{records.map(r=><li key={r.key}>{r.title} · 표시 기한 {r.expiresAt}<button disabled={busy} onClick={()=>void open(r)}>고정 전시 열기</button>{!authority?.portableMode&&<button disabled={busy} onClick={()=>void renew(r)}>원본 서버에서 표시 기한 갱신</button>}</li>)}</ul>
- {active&&<><p>표시 기한 <time>{active.deadline}</time></p><button onClick={()=>close('관람을 닫았습니다. 저장된 원본 사본은 유지합니다.')}>오프라인 관람 닫기</button>{validating ? <p role="status">현재 계정과 권리를 다시 확인하는 동안 관람을 멈춥니다.</p> : <PublicPublication id={active.value.publication.id} initial={active.value}/>}</>}
+ {active&&<><p>표시 기한 <time>{active.deadline}</time></p><button onClick={()=>close('관람을 닫았습니다. 저장된 원본 사본은 유지합니다.')}>오프라인 관람 닫기</button>{validating ? <p role="status">현재 계정과 권리를 다시 확인하는 동안 관람을 멈춥니다.</p> : <PublicPublication id={active.value.publication.id} initial={active.value} recordTimeKind="output-generated"/>}</>}
  </section>;
 }
