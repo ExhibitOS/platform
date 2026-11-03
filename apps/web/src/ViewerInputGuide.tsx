@@ -95,7 +95,7 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
   return()=>{stop(started);if(cancelAutoChoice.current===stop)cancelAutoChoice.current=()=>{};document.removeEventListener('visibilitychange',hidden);window.removeEventListener('blur',blur);root?.removeEventListener('wheel',reading,true);root?.removeEventListener('scroll',reading,true);};
  },[open,phase,ready,free]);
  const restore=(choice=false)=>{const target=previous.current,canvas=document.querySelector<HTMLElement>('canvas[aria-label="전시 공간 3D 미리보기"]');(choice?canvas:(target?.isConnected&&!target.closest('details:not([open]),[inert],[hidden]'))?target:summary.current)?.focus({preventScroll:true});};
- const close=()=>{cancelChoice();explicit.current=true;if(panel.current)panel.current.open=false;restore(phase==='choice');};
+ const close=()=>{if(phase==='choice'){choose('free');return;}cancelChoice();explicit.current=true;if(panel.current)panel.current.open=false;restore(phase==='choice');};
  const dismissIntro=()=>{onDismiss();document.querySelector<HTMLElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});};
  useEffect(()=>{const lifetime=hintLifetime.current;if(lifetime.startedAt!==undefined&&!lifetime.done&&(!showIntro||open||mode==='touch'||!free)){lifetime.done=true;setHintCompleted(true);}},[showIntro,open,mode,free]);
  const choose=(style:'free'|'ordered')=>{if(style==='ordered'&&!orderedAvailable)return;cancelChoice();explicit.current=false;if(panel.current)panel.current.open=false;setPhase('help');callbacks.current.onChooseStyle?.(style);restore(true);};

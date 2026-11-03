@@ -208,6 +208,11 @@ main.publication-shell .viewer-help-choice-buttons button{color:var(--publicatio
 .publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu)[open]) .viewer-visitor-map:not([open])>summary,
 .publication-mode-3d:has(dialog[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)>summary{visibility:hidden;pointer-events:none}
 .publication-mode-cover .publication-menu{top:max(1.25rem,env(safe-area-inset-top,0px));right:max(clamp(1.25rem,3vw,3rem),env(safe-area-inset-right,0px))}
+/* Keep the public cover's one44px trigger at its viewport anchor; the open
+   panel must not grow its containing block or move the close action. */
+main.publication-shell.publication-mode-cover .publication-menu{position:fixed;width:44px;height:44px}
+main.publication-shell.publication-mode-cover .publication-menu-panel{position:absolute;right:0;top:calc(100% + .5rem);margin-top:0}
+main.publication-shell.publication-mode-cover .publication-menu>summary:focus-visible{outline-color:var(--publication-ink)}
 .publication-mode-cover .publication-menu-panel{box-sizing:border-box;width:min(25rem,calc(100vw - 2 * max(1.25rem,env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))));max-height:calc(100svh - max(1.25rem,env(safe-area-inset-top,0px)) - 44px - .5rem - max(1rem,env(safe-area-inset-bottom,0px)))}
 .publication-mode-cover .publication-menu>summary{position:relative;display:grid;place-items:center;isolation:isolate;width:44px;height:44px;box-sizing:border-box;padding:0;border:0;border-radius:50%;background:transparent;color:var(--publication-ink);box-shadow:none}
 .publication-mode-cover .publication-menu>summary::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .78)}
@@ -233,3 +238,7 @@ main.publication-shell .publication-guide>button svg{width:20px;height:20px;flex
 main.publication-shell.publication-static-error{padding:clamp(1.5rem,5vw,4rem)}
 .publication-static-error>h1{max-width:22ch;margin:0 0 1rem;font-size:clamp(1.75rem,4vw,2.75rem);line-height:1.2;letter-spacing:normal}
 .publication-static-error>p{max-width:60ch;margin:0 0 1.25rem}
+
+main.publication-shell .publication-plaque-links ul{list-style:none;margin:0;padding:0}
+main.publication-shell .publication-plaque-links li{margin:0;padding:0}
+main.publication-shell .publication-plaque-detail{display:block;margin-top:.15rem;font-size:.875rem;font-weight:400;line-height:1.5;color:var(--publication-muted);overflow-wrap:anywhere}

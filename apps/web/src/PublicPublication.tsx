@@ -293,7 +293,12 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <details className="publication-info-menu"><summary>전시 정보</summary>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
-          {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
+          {plaqueLinks.length>0&&<section className="publication-plaque-links" aria-label="공간 명판"><ul>{plaqueLinks.map((plaque,index)=>{
+            const content=plaqueContent(value.exhibition,plaque),roomName=value.exhibition.rooms.find(room=>room.id.toLowerCase()===plaque.roomId.toLowerCase())?.name??content.title;
+            const kind=plaque.source.kind==='artwork'?'작품 안내':plaque.source.kind==='exhibition'?'전시 안내':'공간 안내';
+            const multipleInRoom=plaqueLinks.some(other=>other!==plaque&&other.roomId.toLowerCase()===plaque.roomId.toLowerCase());
+            return <li key={plaque.id}><button aria-label={`${roomName} ${kind}${plaqueLinks.length>1?` ${index+1}`:''}: ${content.title}`} onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{roomName}{(multipleInRoom||plaque.source.kind==='artwork')&&<span className="publication-plaque-detail">{content.title===roomName?kind:content.title}</span>}</button></li>;
+          })}</ul></section>}
           <details className="publication-record">
             <summary>파일 기록</summary>
             <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
