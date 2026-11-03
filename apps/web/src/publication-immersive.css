@@ -139,11 +139,14 @@ main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) bu
 /* Text disclosures share one label column and one fixed indicator column.
    Keep this inside the menu/audio bodies: map chevrons and HUD icons differ. */
 main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu,.publication-info-menu,.publication-record,.viewer-options),
+main.publication-shell .publication-menu-panel .geometry-controls section.viewer-options>details,
 main.publication-shell .viewer-audio-body :is(.viewer-options,.viewer-audio-zone>details){box-sizing:border-box;inline-size:100%;min-inline-size:0}
 main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu,.publication-info-menu,.publication-record,.viewer-options)>summary,
+main.publication-shell .publication-menu-panel .geometry-controls section.viewer-options>details>summary,
 main.publication-shell .publication-menu-panel .publication-guide details>summary,
 main.publication-shell .viewer-audio-body :is(.viewer-options,.viewer-audio-zone>details)>summary{position:relative;display:block;box-sizing:border-box;inline-size:100%;min-inline-size:0;min-block-size:44px;margin:0;padding:.65rem 2.25rem .65rem .25rem;border-radius:0;background:transparent;box-shadow:none;color:var(--publication-ink);font-size:1rem;font-weight:600;line-height:1.5;text-align:start;white-space:normal;overflow-wrap:anywhere}
 main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu,.publication-info-menu,.publication-record,.viewer-options)>summary::after,
+main.publication-shell .publication-menu-panel .geometry-controls section.viewer-options>details>summary::after,
 main.publication-shell .publication-menu-panel .publication-guide details>summary::after,
 main.publication-shell .viewer-audio-body :is(.viewer-options,.viewer-audio-zone>details)>summary::after{position:absolute;inset-inline-end:.25rem;top:50%;transform:translateY(-50%);display:grid;place-items:center;inline-size:1.25rem;block-size:1.5rem;margin:0;font-size:1rem;font-weight:600;line-height:1}
 main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu){margin:0;padding:0}
