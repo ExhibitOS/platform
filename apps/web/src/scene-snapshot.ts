@@ -33,13 +33,19 @@ export async function captureScenePng(input:{three:typeof Three;renderer:Three.W
   if(triangles<=32768){const hits=ray.intersectObjects(meshes,false);const targetHit=hits.find(hit=>nodes.has(hit.object));if(targetHit)centerRay=hits.some(hit=>!nodes.has(hit.object)&&hit.distance<targetHit.distance-.001)?'blocked':'clear';}
  }
  const target=new three.WebGLRenderTarget(640,360,{depthBuffer:true,stencilBuffer:false,samples:0});target.texture.colorSpace=three.SRGBColorSpace;
+ // Render-target rectangles are physical pixels. Renderer.setViewport uses
+ // logical screen pixels and applies DPR again, cropping this target at DPR>1.
+ target.viewport.set(0,0,640,360);target.scissor.set(0,0,640,360);target.scissorTest=false;
  let canvas:HTMLCanvasElement|undefined;
  try{
  const saved={target:renderer.getRenderTarget(),face:renderer.getActiveCubeFace(),mip:renderer.getActiveMipmapLevel(),viewport:renderer.getViewport(new three.Vector4()),scissor:renderer.getScissor(new three.Vector4()),scissorTest:renderer.getScissorTest(),autoClear:renderer.autoClear};
  const pixels=new Uint8Array(640*360*4),flipped=new Uint8ClampedArray(pixels.length);
  canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;
-  try{check();renderer.setRenderTarget(target);renderer.setViewport(0,0,640,360);renderer.setScissorTest(false);renderer.autoClear=true;input.withoutOverlays(()=>{renderer.render(scene,camera);renderer.readRenderTargetPixels(target,0,0,640,360,pixels);});}
-  finally{renderer.setRenderTarget(saved.target,saved.face,saved.mip);renderer.setViewport(saved.viewport);renderer.setScissor(saved.scissor);renderer.setScissorTest(saved.scissorTest);renderer.autoClear=saved.autoClear;}
+  try{check();renderer.setRenderTarget(target);renderer.autoClear=true;input.withoutOverlays(()=>{renderer.render(scene,camera);renderer.readRenderTargetPixels(target,0,0,640,360,pixels);});}
+  // No logical screen rectangles or DPR changed during capture. Restore screen
+  // setters only AFTER rebinding (including fractional-DPR round semantics).
+  // A parent target instead restores its own physical target rectangles.
+  finally{renderer.setRenderTarget(saved.target,saved.face,saved.mip);if(!saved.target){renderer.setViewport(saved.viewport);renderer.setScissor(saved.scissor);renderer.setScissorTest(saved.scissorTest);}renderer.autoClear=saved.autoClear;}
   for(let row=0;row<360;row++)flipped.set(pixels.subarray(row*640*4,(row+1)*640*4),(359-row)*640*4);
   const context=canvas.getContext('2d');if(!context)throw Error('SCENE_SNAPSHOT_UNAVAILABLE');context.putImageData(new ImageData(flipped,640,360),0,0);
   const blob=await new Promise<Blob>((resolve,reject)=>{

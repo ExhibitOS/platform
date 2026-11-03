@@ -1550,7 +1550,9 @@ export function GeometryPreview({
         const posesMatch=()=>{try{for(const target of editTargets.values()){const selection=target.userData.editorSelection as EditorSelection|undefined;if(!selection)continue;const expected=localPose(document,selection);if(target.position.distanceToSquared(new three.Vector3(...expected.position))>1e-12||target.scale.distanceToSquared(new three.Vector3(...expected.scale))>1e-12||1-Math.abs(target.quaternion.clone().normalize().dot(new three.Quaternion(...expected.rotation).normalize()))>1e-8)return false;}return true;}catch{return false;}};
         const valid=()=>!disposed&&!gpuLost&&!xrActive.current&&!sharedDetail&&!entranceScope.current&&!suspendedRef.current&&!renderer.domElement.ownerDocument.hidden&&renderer.domElement.isConnected&&!renderer.domElement.closest('[hidden],[inert]')&&!editor?.busy&&!editingRef.current?.preview&&cameraAppliedToken.current===snapshotFrameToken.current&&(!editingRef.current||editingRef.current.document===document||onlyLightColorChanged(document,editingRef.current.document))&&posesMatch();
         snapshotCallback.current?.({get document(){return editingRef.current?.document??document;},idle:valid,capture:async(request,signal)=>{
-          if(request.width!==640||request.height!==360||!valid())throw Error('SCENE_SNAPSHOT_UNAVAILABLE');
+          // The native owner captures only its idle screen, never a nested
+          // render target belonging to another render pass.
+          if(request.width!==640||request.height!==360||!valid()||renderer.getRenderTarget()!==null)throw Error('SCENE_SNAPSHOT_UNAVAILABLE');
           const placement=document.placements.find(p=>p.id===request.placementId),view=presentationFor(document).viewpoints.find(v=>v.id===request.viewpointId);
           const group=placements.get(request.placementId.toLowerCase()),art=document.artworks.find(a=>a.revisionId===placement?.artworkRevisionId);
           const admitted=group?.children.find(node=>node.userData.viewer&&typeof node.userData.viewerAssetId==='string'),assetId=admitted?.userData.viewerAssetId as string|undefined;
