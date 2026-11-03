@@ -681,7 +681,7 @@ test('audio settings render optional effects unchecked when no state exists',asy
  const {renderToStaticMarkup}=await import('react-dom/server');const {createElement}=await import('react');
  const {AudioControls}=await import('./AudioControls');
  const html=renderToStaticMarkup(createElement(AudioControls,{audio:null,state:null,zones:[]}));
- assert(!html.includes('checked='));assert.match(html,/발소리 \(걸을 때, 선택\)/);assert.match(html,/방 잔향/);
+ assert(!/<input\b[^>]*\schecked(?:=|[\s/>])/.test(html));assert(!html.includes('aria-checked="true"'));assert.match(html,/role="switch"[^>]*aria-checked="false"/);assert.match(html,/발소리 사용/);assert.match(html,/방 잔향 사용/);
 });
 
 
