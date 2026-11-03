@@ -151,6 +151,7 @@ export function Viewer({
   const observeGuideActivity=useCallback((listener:(pose:HintPose)=>void)=>{guideActivity.current=listener;if(guidePose.current)listener(guidePose.current);return()=>{if(guideActivity.current===listener)guideActivity.current=null;};},[]);
   const [inputMode,setInputMode]=useState<ViewerInputMode>("auto");
   const [coarsePointer]=useMediaPreference("(pointer: coarse)");
+  const entryCoarsePointer=useRef(coarsePointer);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const analyticsConsentRef = useRef(false);
   useEffect(() => {
@@ -268,6 +269,7 @@ export function Viewer({
       selectedDeviceBudget(profile,{
         deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory,
         pixelRatio:devicePixelRatio,
+        coarsePointer:entryCoarsePointer.current,
       }),
     [profile],
   );

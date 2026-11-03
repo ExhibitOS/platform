@@ -18,6 +18,14 @@ test('automatic headroom uses bounded residency and transition limits in known m
  for(const memory of [undefined,2,Infinity,NaN])expect(deviceBudget({deviceMemory:memory}).maxTransitionBytes).toBeUndefined();
  expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(DEVICE_BUDGETS.compact);
 });
+test('touch auto without a memory hint uses bounded steady and transition headroom',()=>{
+ const touch={coarsePointer:true};
+ expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024});
+ expect(deviceBudget({...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
+ expect(deviceBudget({coarsePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
+ expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);
+ expect(selectedDeviceBudget('desktop',touch)).toEqual(DESKTOP_NEAR_BUDGET);
+});
 test('a narrow canvas cannot classify the same capacity as a lower-memory device',()=>{
  for(const deviceMemory of [undefined,2,4,8]){
   const wide={viewportWidth:1280,deviceMemory},narrow={viewportWidth:461,deviceMemory};
