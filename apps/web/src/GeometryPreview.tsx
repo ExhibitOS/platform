@@ -2367,6 +2367,9 @@ export function GeometryPreview({
         update();
         return;
       }
+      // The local/native path uses the same bounded readout as public loading,
+      // without adopting the public scheduler or its revision-based counters.
+      const localStages=createPreparationStages(document.artworks);
       for (const placement of document.placements) {
         const artwork = document.artworks.find(
           (a) =>
@@ -2375,10 +2378,17 @@ export function GeometryPreview({
         );
         const group = placements.get(placement.id.toLowerCase());
         if (!artwork || !group) continue;
+        const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);
+        const localStage=(value:string,error?:unknown)=>{
+          if(disposed||!inventory)return;
+          localStages.record(inventory.id,value,error);
+          renderer.domElement.dataset.viewerState=JSON.stringify({preparationStages:localStages.snapshot()});
+        };
         try {
           let source = sources.get(artwork.revisionId);
           if (!source) {
-            source = loadArtwork(artwork);
+            localStage('queued');localStage('fetch-verify');
+            source = loadArtwork(artwork,undefined,abort.signal,undefined,localStage);
             sources.set(artwork.revisionId, source);
           }
           const object = await source;
@@ -2394,8 +2404,10 @@ export function GeometryPreview({
           rendered++;
           shadowPass.invalidate();
           render();
-        } catch {
+          localStage('display-attached-render-requested');
+        } catch (error) {
           unavailable++;
+          localStage(abort.signal.aborted?'cancelled-settled':'failed',abort.signal.aborted?undefined:error);
         }
         if (!disposed) {
           setAssetReport({loaded:rendered,failed:unavailable});
