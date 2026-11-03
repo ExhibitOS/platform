@@ -1160,7 +1160,17 @@ export function GeometryPreview({
                     else if (!placement) nearPlacement = undefined;
                   }
                 },
-                onSeat:id=>{if(!disposed){seatedBenchRef.current=id;setSeatedBenchId(id);}},
+                resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
+                  panelResume.movement(!gpuLost && !suspendedRef.current && !xrActive.current),
+                wasWalkingBeforeSeat:()=>panelResume?.wasWalkingBeforeSeat()??false,
+                onSeat:id=>{
+                  if(disposed)return;
+                  seatedBenchRef.current=id;setSeatedBenchId(id);
+                  if(id){
+                    const menu=renderer.domElement.closest(".publication-shell")?.querySelector<HTMLDetailsElement>("details.publication-menu[open]");
+                    if(menu)menu.open=false;
+                  }
+                },
                 onViewpointFov:fov=>{authoredFov=fov;applyProjection();},
                 onMode: (walking, paused, reason) => {
                   if(disposed)return;
@@ -2499,6 +2509,12 @@ export function GeometryPreview({
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
       {materialIssueCount>0&&<p role="status">마감 텍스처 {materialIssueCount}종의 표시를 완료하지 못했어요. 저장된 재질 설정은 유지됩니다.</p>}
       {seatedBenchId&&<button ref={benchReturnButton} className="bench-return" disabled={suspendNavigation} onClick={()=>walkingActions.current?.stand?.()}>일어서서 이전 위치로 돌아가기</button>}
+      {immersive && ready && viewingStyle==='free' && !seatedBenchId && !xrRunning && !suspendNavigation &&
+        walkPaused && !panelResumeAvailable && (
+          <button className="viewer-navigation-resume" onClick={()=>walkingActions.current?.start()}>
+            {walkingMode ? "걷기 일시 정지 · 이동·시점 조작 재개" : "정지 관람 · 걷기 시작"}
+          </button>
+        )}
       <div className="geometry-stage watermark-display-stage">
         <div className="geometry-render-host" ref={host} />
         <WatermarkOverlay candidate={document}/>
@@ -2586,7 +2602,7 @@ export function GeometryPreview({
       )}
       {viewerBudget && viewingStyle==='free' && benchesFor(document).length>0 && (
         <section aria-label="앉아서 감상" className="viewer-options">
-          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 돌아온 뒤 걷기는 직접 재개하세요.</p>{benchesFor(document).map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
+          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 일어서면 이전 위치로 돌아갑니다.</p>{benchesFor(document).map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
         </section>
       )}
       {viewerBudget && viewingStyle==='free' && presentationFor(document).viewpoints.length>0 && (

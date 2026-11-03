@@ -4,36 +4,41 @@ import type { WalkingPauseReason } from "./navigation-input";
 // Temporary panel obstruction clears on last close. Explicit stops retain their own
 // cause and need a fresh deliberate input; no stored keys, gesture or velocity replay.
 export function createPanelResumeGate(restoredWalking = false) {
-  let active = false, eligible = restoredWalking, panelOwned = false, stopGeneration = 0;
+  let active = false, eligible = restoredWalking, panelOwned = false, benchReturn = false, stopGeneration = 0;
   let gesture: { id: number; x: number; y: number; released: boolean } | undefined;
   const cancel = () => { gesture = undefined; };
   return {
     mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
       const explicitPause = reason === "escape" || reason === "pointerlock" || reason === "user";
       const retained = active || eligible;
-      if (explicitPause) {
+      if (reason === "bench-return") {
+        stopGeneration++; eligible = walking; panelOwned = false; benchReturn = walking;
+      } else if (explicitPause) {
+        benchReturn = false;
         stopGeneration++; eligible = walking && retained; panelOwned = false;
       } else if (reason === "panel") {
-        if (active) { eligible = walking; panelOwned = true; }
+        if (active) { eligible = walking; panelOwned = true; benchReturn = false; }
       } else if (reason === "window" || reason === "hidden" || reason === "blur") {
         // Backgrounding stops motion, but a later fresh input may resume an
         // already resumable session. It must never create eligibility from rest.
         eligible = walking && retained; panelOwned = false;
         stopGeneration++;
       } else if (reason !== "settings" || !eligible) {
-        eligible = false; panelOwned = false;
+        eligible = false; panelOwned = false; benchReturn = false;
         if (paused) stopGeneration++;
       }
-      if (!walking) { eligible = false; panelOwned = false; }
+      if (!walking) { eligible = false; panelOwned = false; benchReturn = false; }
       active = walking && !paused;
       cancel();
     },
-    invalidate() { active = false; eligible = false; panelOwned = false; stopGeneration++; cancel(); },
+    invalidate() { active = false; eligible = false; panelOwned = false; benchReturn = false; stopGeneration++; cancel(); },
     background() { eligible = active || eligible; active = false; panelOwned = false; stopGeneration++; cancel(); },
     cancel,
     canResume: () => eligible,
     isActive: () => active,
     requiresPanel: () => panelOwned,
+    wasWalkingBeforeSeat: () => active || panelOwned,
+    isBenchReturn: () => benchReturn,
     panelClosed() {
       if (!panelOwned || !eligible) return false;
       panelOwned = false; eligible = false; cancel(); return true;
@@ -152,13 +157,15 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
       availabilityChanged(canResume());
     },
     canResume,
+    wasWalkingBeforeSeat: gate.wasWalkingBeforeSeat,
+    isBenchReturn: gate.isBenchReturn,
     movement(allowed: boolean) {
       if (!gate.movement(allowed && !gestureBlocked && pointers.size <= 1 && canResume())) return false;
       resume();
       return true;
     },
     drag(allowed: boolean) {
-      if (!gate.movement(allowed && !gestureBlocked && pointers.size <= 1 && safe())) return false;
+      if (!gate.movement(allowed && !gestureBlocked && pointers.size <= 1 && safe() && (!gate.isBenchReturn() || !open()))) return false;
       resumingDrag = true;
       try { resume(); } finally { resumingDrag = false; }
       availabilityChanged(canResume());
