@@ -2,7 +2,7 @@
 import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent,type MouseEvent,type PointerEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
-import {createMapContext} from './map-context';
+import {createMapContext,interpolateMapContext} from './map-context';
 import {ViewerIcon} from './ViewerIcon';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
 import {useMediaPreference} from '../publication-accessibility';
@@ -36,8 +36,9 @@ function Schematic({map,worldPose,poseSource,active=true,local=false,overview=fa
  const positionGroup=useRef<SVGGElement>(null),positionCircle=useRef<SVGCircleElement>(null),arrowPath=useRef<SVGPathElement>(null),sectorPath=useRef<SVGPathElement>(null);
  // World X/Z stays north-up. Compact context changes only on room entry.
  const context=useMemo(()=>local?createMapContext(map):undefined,[map,local]);
- const contextRef=useRef<{roomId?:string;bounds:MapViewport;key?:string;pixels?:number}|undefined>(undefined);
- const initialContext=context?.select(pose?.point,contextRef.current?.key===map.key?contextRef.current.roomId:undefined)??{bounds:map.bounds};
+ const contextRef=useRef<{map:MapModel;roomId?:string;bounds:MapViewport}|undefined>(undefined);
+ if(contextRef.current?.map!==map){const initial=context?.select(pose?.point)??{bounds:map.bounds};contextRef.current={map,...initial};}
+ const initialContext=contextRef.current!;
  const diameter=initialContext.bounds.width;
  const overviewSpan=Math.hypot(width,depth)*1.12;
  const span=overview?overviewSpan:local?diameter:width,unitPerPixel=span/pixels;
@@ -54,25 +55,24 @@ function Schematic({map,worldPose,poseSource,active=true,local=false,overview=fa
  };
  const {sector,arrow}=glyph(pose);
  useEffect(()=>{
-  if(!active)return;
-  const update=()=>{
-   const host=svg.current;if(!host||document.hidden||host.closest('[inert],[hidden]'))return;
-   const value=source?source.getSnapshot():worldPose;
-   const crop=context?.select(value?.point,contextRef.current?.key===map.key?contextRef.current.roomId:undefined);
-   const drawing=glyph(value,crop?.bounds.width??span);
-   if(crop){
-    const previous=contextRef.current;contextRef.current={...crop,key:map.key,pixels};
-    if(previous?.bounds!==crop.bounds||previous?.pixels!==pixels){
-     host.setAttribute('viewBox',`${crop.bounds.x} ${crop.bounds.z} ${crop.bounds.width} ${crop.bounds.depth}`);
-     const u=crop.bounds.width/pixels;
-     positionCircle.current?.setAttribute('r',String(u*3.5));
-     // Only pixel-sized symbols change on a room transition/resize. Static
-     // room polygons and artwork coordinates remain untouched between frames.
-     host.querySelectorAll<SVGCircleElement>('.visitor-map-work-anchor').forEach(anchor=>anchor.setAttribute('r',String(u*1.2)));
-     for(const line of host.querySelectorAll<SVGLineElement>('.visitor-map-work-direction')){
-      const item=map.placements.find(p=>p.id===line.dataset.placementId),facing=item?.facing,length=facing&&Math.hypot(...facing);
-      if(item&&facing&&length){const dx=-facing[1]/length*3*u,dz=facing[0]/length*3*u;line.setAttribute('x1',String(item.point[0]-dx));line.setAttribute('y1',String(item.point[1]-dz));line.setAttribute('x2',String(item.point[0]+dx));line.setAttribute('y2',String(item.point[1]+dz));}
-     }
+  const host=svg.current;if(!host)return;
+  const state=contextRef.current!;
+  let frame=0,wasVisible=false,foreground=document.hasFocus(),animation:{from:MapViewport;to:MapViewport;at:number}|undefined,lastSpan:number|undefined;
+  const root=host.closest<HTMLElement>('.publication-shell');
+  const latest=()=>source?source.getSnapshot():worldPose;
+  const visible=()=>active&&foreground&&!document.hidden&&!host.closest('[inert],[hidden]')&&host.getClientRects().length>0&&getComputedStyle(host).visibility!=='hidden';
+  const stop=()=>{cancelAnimationFrame(frame);frame=0;animation=undefined;};
+  const draw=(value:VisitorMapProps['worldPose'],bounds:MapViewport)=>{
+   if(context)host.setAttribute('viewBox',`${bounds.x} ${bounds.z} ${bounds.width} ${bounds.depth}`);
+   const worldSpan=context?bounds.width:overview?Math.hypot(map.bounds.width,map.bounds.depth)*1.12:map.bounds.width;
+   const drawing=glyph(value,worldSpan);
+   if(lastSpan!==worldSpan){
+    lastSpan=worldSpan;const u=worldSpan/pixels;
+    positionCircle.current?.setAttribute('r',String(u*3.5));
+    host.querySelectorAll<SVGCircleElement>('.visitor-map-work-anchor').forEach(anchor=>anchor.setAttribute('r',String(u*1.2)));
+    for(const line of host.querySelectorAll<SVGLineElement>('.visitor-map-work-direction')){
+     const item=map.placements.find(p=>p.id===line.dataset.placementId),facing=item?.facing,length=facing&&Math.hypot(...facing);
+     if(item&&facing&&length){const dx=-facing[1]/length*3*u,dz=facing[0]/length*3*u;line.setAttribute('x1',String(item.point[0]-dx));line.setAttribute('y1',String(item.point[1]-dz));line.setAttribute('x2',String(item.point[0]+dx));line.setAttribute('y2',String(item.point[1]+dz));}
     }
    }
    if(positionGroup.current)positionGroup.current.style.display=value?'':'none';
@@ -80,9 +80,35 @@ function Schematic({map,worldPose,poseSource,active=true,local=false,overview=fa
    if(arrowPath.current){arrowPath.current.setAttribute('d',drawing.arrow??'');arrowPath.current.style.display=drawing.arrow?'':'none';}
    if(sectorPath.current){sectorPath.current.setAttribute('d',drawing.sector??'');sectorPath.current.style.display=drawing.sector?'':'none';if(drawing.sector)sectorPath.current.setAttribute('class','visitor-map-fov');else sectorPath.current.removeAttribute('class');}
   };
-  update();const unsubscribe=source?.subscribe(update);document.addEventListener('visibilitychange',update);
-  return()=>{unsubscribe?.();document.removeEventListener('visibilitychange',update);};
- },[source,worldPose,active,local,context,span,pixels,unitPerPixel]);
+  const tick=(now:number)=>{
+   frame=0;if(!animation)return;
+   if(!visible()){stop();wasVisible=false;return;}
+   const progress=Math.min(1,(now-animation.at)/280);
+   state.bounds=interpolateMapContext(animation.from,animation.to,progress);
+   draw(latest(),state.bounds);
+   if(progress<1)frame=requestAnimationFrame(tick);else animation=undefined;
+  };
+  let target=state.bounds;
+  const update=()=>{
+   const value=latest(),crop=context?.select(value?.point,state.roomId);
+   if(crop)state.roomId=crop.roomId;
+   if(!visible()){stop();wasVisible=false;state.bounds=crop?.bounds??state.bounds;target=state.bounds;return;}
+   if(crop){
+    const immediate=!wasVisible||root?.dataset.reducedMotion==='true'||!value||!('continuous' in value)||value.continuous!==true;
+    if(immediate){stop();state.bounds=crop.bounds;target=crop.bounds;}
+    else if(target!==crop.bounds){target=crop.bounds;animation={from:state.bounds,to:target,at:performance.now()};if(!frame)frame=requestAnimationFrame(tick);}
+   }
+   wasVisible=true;draw(value,state.bounds);
+  };
+  const background=()=>{foreground=false;stop();wasVisible=false;};
+  const foregrounded=()=>{foreground=true;update();};
+  update();const unsubscribe=source?.subscribe(update);
+  document.addEventListener('visibilitychange',update);root?.addEventListener('toggle',update,true);window.addEventListener('blur',background);window.addEventListener('focus',foregrounded);
+  // Observe only ancestors. SVG pose writes never feed an observer/frame loop.
+  const observer=typeof MutationObserver==='undefined'?undefined:new MutationObserver(update);
+  for(let node:Element|null=host.parentElement;node;node=node.parentElement){observer?.observe(node,{attributes:true,attributeFilter:['hidden','inert','class','style','data-reduced-motion']});if(node===root)break;}
+  return()=>{stop();wasVisible=false;unsubscribe?.();observer?.disconnect();document.removeEventListener('visibilitychange',update);root?.removeEventListener('toggle',update,true);window.removeEventListener('blur',background);window.removeEventListener('focus',foregrounded);};
+ },[map,source,worldPose,active,local,overview,context,pixels]);
  // A diagonal-sized square keeps every plan corner inside the circular clip.
  const viewBox=overview?`${x+width/2-overviewSpan/2} ${z+depth/2-overviewSpan/2} ${overviewSpan} ${overviewSpan}`:local?`${initialContext.bounds.x} ${initialContext.bounds.z} ${diameter} ${diameter}`:`${x} ${z} ${width} ${depth}`;
  return <svg ref={svg} viewBox={viewBox} aria-hidden="true" focusable="false">

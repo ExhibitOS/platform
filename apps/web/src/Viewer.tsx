@@ -135,8 +135,8 @@ export function Viewer({
   },[mapTravel]);
   useEffect(()=>{if(suspendNavigation||!mapEnabled)mapTravel?.cancel();},[suspendNavigation,mapEnabled,mapTravel]);
   const registerMap=useCallback((bridge:MapTravelBridge|null)=>{if(mapBridge.current&&mapBridge.current!==bridge)mapTravel?.cancel();mapBridge.current=bridge;setMapAvailable(!!bridge);if(!bridge){mapPoseSource.clear();setMapStageReady(false);}},[mapTravel,mapPoseSource]);
-  const reportMapPose=useCallback((position:[number,number,number],yaw:number,horizontalFovDegrees:number)=>{
-    mapPoseSource.publish(position,yaw,horizontalFovDegrees);
+  const reportMapPose=useCallback((position:[number,number,number],yaw:number,horizontalFovDegrees:number,continuous?:boolean)=>{
+    mapPoseSource.publish(position,yaw,horizontalFovDegrees,continuous);
   },[mapPoseSource]);
   const analytics = useRef<ViewerAnalytics | null>(null);
   const [viewFov,setViewFov]=useState<number|"authored">(48);
