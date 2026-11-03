@@ -303,7 +303,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
             onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
-          {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
+          {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
