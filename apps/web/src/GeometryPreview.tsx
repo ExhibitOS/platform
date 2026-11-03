@@ -185,7 +185,7 @@ export function GeometryPreview({
   onSceneSnapshotReady?:(source:{document:Document;capture:SceneSnapshotCapture;idle():boolean}|null)=>void;
   suspendNavigation?: boolean;
   onNavigationState?: (state: NavigationState) => void;
-  onCameraPose?: (position: [number,number,number],yaw: number) => void;
+  onCameraPose?: (position: [number,number,number],yaw: number,pitch?: number) => void;
   onMapReady?: (bridge:MapTravelBridge|null) => void;
   onMapPose?: (position:[number,number,number],yaw:number,horizontalFovDegrees:number) => void;
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
@@ -764,7 +764,8 @@ export function GeometryPreview({
           publishMapPose();
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
-          navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
+          const cameraRotation = new three.Euler().setFromQuaternion(camera.quaternion,"YXZ");
+          navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],cameraRotation.y,cameraRotation.x);
           if (trace.started)
             trace.samples.push({
               at,
