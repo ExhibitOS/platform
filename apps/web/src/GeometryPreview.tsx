@@ -2509,6 +2509,12 @@ export function GeometryPreview({
       {installationIssueCount>0&&<p role="status">받침대·프레임 {installationIssueCount}개를 표시하지 못했어요. 작품과 텍스트는 계속 볼 수 있어요.</p>}
       {materialIssueCount>0&&<p role="status">마감 텍스처 {materialIssueCount}종의 표시를 완료하지 못했어요. 저장된 재질 설정은 유지됩니다.</p>}
       {seatedBenchId&&<button ref={benchReturnButton} className="bench-return" disabled={suspendNavigation} onClick={()=>walkingActions.current?.stand?.()}>일어서서 이전 위치로 돌아가기</button>}
+      {immersive && ready && viewingStyle==='free' && !seatedBenchId && !xrRunning && !suspendNavigation &&
+        walkPaused && !panelResumeAvailable && (
+          <button className="viewer-navigation-resume" onClick={()=>walkingActions.current?.start()}>
+            {walkingMode ? "걷기 일시 정지 · 이동·시점 조작 재개" : "정지 관람 · 걷기 시작"}
+          </button>
+        )}
       <div className="geometry-stage watermark-display-stage">
         <div className="geometry-render-host" ref={host} />
         <WatermarkOverlay candidate={document}/>
