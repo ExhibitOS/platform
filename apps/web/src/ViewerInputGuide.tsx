@@ -79,8 +79,8 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
  useEffect(()=>{const lifetime=hintLifetime.current;if(lifetime.startedAt!==undefined&&!lifetime.done&&(!showIntro||open||mode==='touch'||!free)){lifetime.done=true;setHintCompleted(true);}},[showIntro,open,mode,free]);
  const choose=(style:'free'|'ordered')=>{if(style==='ordered'&&!orderedAvailable)return;explicit.current=false;if(panel.current)panel.current.open=false;setPhase('help');callbacks.current.onChooseStyle?.(style);restore(true);};
  return <>
-  {showIntro&&!open&&mode!=='touch'&&free&&!initialHintSeen.current&&!hintCompleted&&!hintLifetime.current.done&&<DesktopHints onComplete={()=>setHintCompleted(true)} reducedMotion={reducedMotion} observeActivity={observeActivity} lifetime={hintLifetime.current} onShown={onHintShown}/>}
-  {showIntro&&!open&&!hintCompleted&&!initialHintSeen.current&&(mode==='touch'||!free)&&<aside className="viewer-input-brief" aria-label="가볍게 둘러보기" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismissIntro();}}}>
+  {showIntro&&phase==='help'&&!open&&mode!=='touch'&&free&&!initialHintSeen.current&&!hintCompleted&&!hintLifetime.current.done&&<DesktopHints onComplete={()=>setHintCompleted(true)} reducedMotion={reducedMotion} observeActivity={observeActivity} lifetime={hintLifetime.current} onShown={onHintShown}/>}
+  {showIntro&&phase==='help'&&!open&&!hintCompleted&&!initialHintSeen.current&&(mode==='touch'||!free)&&<aside className="viewer-input-brief" aria-label="가볍게 둘러보기" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismissIntro();}}}>
    <header><h2>가볍게 둘러보기</h2><button type="button" className="viewer-guide-close" aria-label="안내 닫고 관람하기" onClick={dismissIntro}><ViewerIcon name="close"/></button></header>
    <GuideRows keys={mode!=='touch'} free={free} brief/>
   </aside>}
