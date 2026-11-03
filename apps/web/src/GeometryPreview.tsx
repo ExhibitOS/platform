@@ -1844,7 +1844,7 @@ export function GeometryPreview({
           if(art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
           requested.add(art.revisionId);
           let imageTarget:ReturnType<typeof selectedImageDetail>;
-          let imageBudget=viewerBudget;
+          let imageBudget:DeviceBudget;
           let inventory: (typeof art.assets)[number];
           try {
             imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
