@@ -6,7 +6,8 @@ import {ViewerIcon,type ViewerIconName} from './ViewerIcon';
 
 export function audioMenuStatus(state:AudioState|null|undefined):{label:string;icon:ViewerIconName}{
  if(!state?.enabled)return {label:'소리 사용 전',icon:'silent'};
- if(state.muted||state.volume===0)return {label:'소리 꺼짐',icon:'silent'};
+ if(state.muted)return {label:'소리 꺼짐',icon:'silent'};
+ if(state.volume===0)return {label:'음량 0',icon:'silent'};
  if(state.suspended||state.context!=='running')return {label:'소리 일시 정지',icon:'paused'};
  return {label:'소리 켜짐',icon:'speaker'};
 }
