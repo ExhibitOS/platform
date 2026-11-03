@@ -181,3 +181,12 @@
 .publication-mode-3d:has(.viewer-audio-menu[open]) .viewer-input-help:not([open])>summary,
 .publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu)[open]) .viewer-visitor-map:not([open])>summary,
 .publication-mode-3d:has(dialog[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)>summary{visibility:hidden;pointer-events:none}
+.publication-mode-cover .publication-menu{top:max(1.25rem,env(safe-area-inset-top,0px));right:max(clamp(1.25rem,3vw,3rem),env(safe-area-inset-right,0px))}
+.publication-mode-cover .publication-menu-panel{box-sizing:border-box;width:min(25rem,calc(100vw - 2 * max(1.25rem,env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))));max-height:calc(100svh - max(1.25rem,env(safe-area-inset-top,0px)) - 44px - .5rem - max(1rem,env(safe-area-inset-bottom,0px)))}
+.publication-mode-cover .publication-menu>summary{position:relative;display:grid;place-items:center;isolation:isolate;width:44px;height:44px;box-sizing:border-box;padding:0;border:0;border-radius:50%;background:transparent;color:var(--publication-ink);box-shadow:none}
+.publication-mode-cover .publication-menu>summary::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .78)}
+.publication-mode-cover .publication-menu[open]>summary{color:var(--publication-paper)}
+.publication-mode-cover .publication-menu[open]>summary::before{background:rgb(24 45 50 / .82)}
+.publication-shell.publication-mode-cover .publication-menu>summary::after,.publication-shell.publication-mode-cover .publication-menu[open]>summary::after{content:none;display:none}
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.publication-mode-cover .publication-menu>summary::before{background:var(--publication-paper)}.publication-mode-cover .publication-menu[open]>summary::before{background:var(--publication-ink)}}
+.publication-mode-cover.publication-high-contrast .publication-menu>summary::before{background:var(--publication-paper)}.publication-mode-cover.publication-high-contrast .publication-menu[open]>summary::before{background:var(--publication-ink)}
