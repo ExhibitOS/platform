@@ -30,3 +30,23 @@ test('selection frames cannot clear an unacknowledged visual edit before verifie
  const s=sample(),edited=structuredClone(s.frame);edited.sequence=3;edited.draft.candidate.title='Pending host edit';const pending={epoch:s.frame.epoch,sequence:s.frame.sequence,candidate:freezeCanonical(edited.draft.candidate)},selectionOnly={...s.frame,sequence:2};
  expect(snapshotEditSettled(pending,selectionOnly,false)).toBe(false);expect(snapshotEditSettled(pending,selectionOnly,true)).toBe(true);expect(snapshotEditSettled(pending,s.frame,true)).toBe(false);expect(snapshotEditSettled(pending,{...selectionOnly,epoch:crypto.randomUUID()},true)).toBe(false);expect(snapshotEditSettled(pending,edited,false)).toBe(true);
 });
+
+test('inspection can target an approved room without a saved stop while retaining saved/session/export guards',async()=>{
+ const s=sample(),before=structuredClone(s.frame),{viewpointId,...base}=s.request;
+ const request={...base,inspectionCamera:{roomId:s.frame.draft.candidate.placements[0]!.roomId,position:[0,1.2,2],target:[0,1.2,0],fov:50}};
+ s.frame.draft.candidate.extensions!['org.exhibitos.studio/presentation']={version:1,credits:'',viewpoints:[]};
+ const frozen=structuredClone(s.frame);expect(checkedSceneSnapshotRequest(request,s.frame)).toEqual(request);
+ expect(()=>checkedSceneSnapshotRequest({...base,viewpointId},s.frame)).toThrow('SCENE_SNAPSHOT_TARGET_INVALID');
+ expect((await checkedSavedScene(s.frame,checkedSceneSnapshotRequest(request,s.frame),new AbortController().signal)).revision).toBe(9);
+ expect(s.frame).toEqual(frozen);expect(s.frame.draft.candidate.artworks).toEqual(before.draft.candidate.artworks);
+ const original=s.fetcher.getMockImplementation()!;s.fetcher.mockImplementation(async input=>String(input).endsWith('/display')?Response.json({id:s.art.id,revision:1,export:false}):original(input));
+ await expect(checkedSavedScene(s.frame,checkedSceneSnapshotRequest(request,s.frame),new AbortController().signal)).rejects.toThrow('SCENE_SNAPSHOT_RIGHTS_UNVERIFIED');
+});
+
+test('camera modes are closed and do not relax the saved-viewpoint same-room rule',()=>{
+ const s=sample(),{viewpointId,...base}=s.request,room=s.frame.draft.candidate.rooms[0]!,other={...structuredClone(room),id:crypto.randomUUID()};s.frame.draft.candidate.rooms.push(other);
+ const inspectionCamera={roomId:room.id,position:[0,1.2,2],target:[0,1.2,0],fov:50};
+ for(const value of [{...base,inspectionCamera,viewpointId},{...base,inspectionCamera:{...inspectionCamera,roomId:other.id}},{...base,inspectionCamera,sequence:2},{...base,inspectionCamera,url:'https://example.org/'}])expect(()=>checkedSceneSnapshotRequest(value,s.frame)).toThrow();
+ const presentation=s.frame.draft.candidate.extensions!['org.exhibitos.studio/presentation'] as unknown as {viewpoints:{roomId:string}[]};presentation.viewpoints[0]!.roomId=other.id;
+ expect(()=>checkedSceneSnapshotRequest(s.request,s.frame)).toThrow('SCENE_SNAPSHOT_TARGET_INVALID');
+});

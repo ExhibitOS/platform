@@ -1,4 +1,5 @@
-import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture} from './scene-snapshot';
+import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera} from './scene-snapshot';
+import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
 import {BENCH_RESERVE_BYTES} from './private-editor/catalog-bench';
@@ -1569,12 +1570,21 @@ export function GeometryPreview({
           // The native owner captures only its idle screen, never a nested
           // render target belonging to another render pass.
           if(request.width!==640||request.height!==360||!valid()||renderer.getRenderTarget()!==null)throw Error('SCENE_SNAPSHOT_UNAVAILABLE');
-          const placement=document.placements.find(p=>p.id===request.placementId),view=presentationFor(document).viewpoints.find(v=>v.id===request.viewpointId);
+          const placement=document.placements.find(p=>p.id===request.placementId);
           const group=placements.get(request.placementId.toLowerCase()),art=document.artworks.find(a=>a.revisionId===placement?.artworkRevisionId);
           const admitted=group?.children.find(node=>node.userData.viewer&&typeof node.userData.viewerAssetId==='string'),assetId=admitted?.userData.viewerAssetId as string|undefined;
-          if(!placement||!view||view.roomId!==placement.roomId||!group||!art||!assetId||!art.assets.some(a=>a.id===assetId))throw Error('SCENE_SNAPSHOT_TARGET_NOT_READY');
-          const pose=viewpointPose(document,request.viewpointId);
-          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:{viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov},target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+          if(!placement||!group||!art||!assetId||!art.assets.some(a=>a.id===assetId))throw Error('SCENE_SNAPSHOT_TARGET_NOT_READY');
+          let snapshotCamera:SceneSnapshotCamera;
+          if('inspectionCamera' in request){
+            snapshotCamera=inspectionCameraPose(document,placement.id,request.inspectionCamera);
+            assertArtworkViewpoint(three,group,art.artworkType,snapshotCamera);
+          }else{
+            const view=presentationFor(document).viewpoints.find(v=>v.id===request.viewpointId);
+            if(!view||view.roomId!==placement.roomId)throw Error('SCENE_SNAPSHOT_TARGET_NOT_READY');
+            const pose=viewpointPose(document,request.viewpointId);
+            snapshotCamera={viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov};
+          }
+          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
         }});
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
