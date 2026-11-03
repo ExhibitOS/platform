@@ -51,7 +51,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   };
   const stopVoice=()=>{voiceGeneration.current++;setVoicePending(null);onVoiceStop();setVoiceStatus("음성 설명을 정지했어요.");};
   const currentVoice=voices.some(v=>sameId(v.assetId,voicePlayback?.assetId??undefined));
-  const playbackStatus=voiceStatus||(voicePending?"음성 설명을 준비하고 있어요.":currentVoice&&voicePlayback?.status==='playing'?"음성 설명 재생 중":currentVoice&&voicePlayback?.status==='unavailable'?"음성 설명을 재생할 수 없어요. 대본을 읽어 주세요.":currentVoice&&voicePlayback?.status==='ended'?"음성 설명을 끝까지 들었어요.":"");
+  const playbackStatus=voiceStatus||(voicePending?"음성 설명을 준비하고 있어요.":currentVoice&&voicePlayback?.status==='playing'?"음성 설명 재생 중":currentVoice&&voicePlayback?.status==='unavailable'?"음성 설명을 재생할 수 없어요. 대본을 읽어 주세요.":currentVoice&&voicePlayback?.status==='ended'?"음성 설명을 끝까지 들었어요.":currentVoice&&voicePlayback?.status==='stopped'?"음성 설명을 정지했어요.":"");
   return <dialog ref={dialog} className="artwork-detail" data-with-preview={renderPreview} aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
     <header><button autoFocus className="viewer-guide-close artwork-detail-close" aria-label="전시로 돌아가기" title="전시로 돌아가기" onClick={onClose}><ViewerIcon name="close"/></button></header>
     <div className="artwork-detail-body">

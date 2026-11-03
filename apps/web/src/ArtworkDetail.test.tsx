@@ -94,6 +94,7 @@ it('shows actual voice playback state and keeps transcripts available without au
   expect(html).toContain('aria-label="음성 설명 재생 (ko)"');expect(html).toContain('aria-label="음성 설명 정지 (ko)"');
   expect(html.includes('음성 설명 재생 중')).toBe(status==='playing');
   if(status==='unavailable')expect(html).toContain('음성 설명을 재생할 수 없어요.');
+  if(status==='stopped')expect(html).toContain('음성 설명을 정지했어요.');
   expect(html).not.toContain('음성 설명 일시 정지');
  }
  const text=renderToStaticMarkup(<ArtworkDetail {...props} renderPreview={false}/>);
