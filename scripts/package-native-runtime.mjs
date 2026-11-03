@@ -166,8 +166,8 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
-export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false}) {
-  if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
+export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false}) {
+  if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || typeof privateStaticEditor !== 'boolean' || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
   const selection = postgresRuntimeSelection(postgresProfile);
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.version !== 'v24.21.0') fail('NATIVE_PACKAGE_TOOLCHAIN_INVALID');
   if (!isAbsolute(destination) || resolve(destination) !== destination) fail('NATIVE_PACKAGE_DESTINATION_INVALID');
@@ -231,13 +231,18 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copy(join(source,'scripts/service-backup.mjs'),join(platform,'scripts/service-backup.mjs'));
   await copy(join(source,'scripts/native-service-backup.mjs'),join(platform,'scripts/native-service-backup.mjs'));
   // The native publication worker uses the existing public-projection exporter
-  // and Viewer-only static build. Neither npm nor a developer checkout is needed
+  // and static build. Neither npm nor a developer checkout is needed
   // on the user's Mac; these files join the exact runtime inventory below.
   const staticRoot = join(source,'apps/web/dist-static');
   const staticEntry = await lstat(join(staticRoot,'static.html'));
   if (!staticEntry.isFile() || staticEntry.isSymbolicLink()) fail('NATIVE_PACKAGE_STATIC_VIEWER_INVALID');
-  try { await lstat(join(staticRoot,'static-studio.html')); fail('NATIVE_PACKAGE_STATIC_VIEWER_INVALID'); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const studioEntry = await lstat(join(staticRoot,'static-studio.html')).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
+  if (privateStaticEditor ? !studioEntry?.isFile() || studioEntry.isSymbolicLink() : studioEntry !== null) {
+    fail('NATIVE_PACKAGE_STATIC_VIEWER_INVALID');
+  }
   await copy(staticRoot,join(platform,'apps/web/dist-static'));
   // Authored entrance themes use this trusted build-time companion, never code
   // from a caller-provided runtime directory or a public exhibition payload.
