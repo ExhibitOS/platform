@@ -47,7 +47,7 @@ export function WalkingControls({
 }) {
   return (
     <section className="walking-controls" aria-label="걷기 조작">
-      <p>이동을 멈추고 다시 걷거나 정지 관람으로 전환할 수 있어요. 이동이 어려우면 작품 목록으로 감상할 수 있어요.</p>
+      <p>잠시 멈추거나 정지 관람으로 바꿀 수 있어요. 자세한 조작은 아래 이동 방법·설정에서 확인하세요.</p>
       <div className="cms-actions">
         <button
           disabled={!available || (walking && !paused)}
