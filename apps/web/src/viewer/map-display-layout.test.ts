@@ -24,10 +24,10 @@ it('puts opposing shared-wall images inside their own rooms and retains exact an
  expect(map).toEqual(original);expect(markers.map(m=>m.id)).toEqual(['a','b']);
 });
 
-it('separates a dense wall row without crossing the wall or room corners',()=>{
+it('keeps a dense wall row close to its anchors and leaves collisions for the existing list',()=>{
  const map=plan();map.rooms=[room('west',0,8,6)];map.placements=Array.from({length:7},(_,i)=>image('art'+i,'west',[1.8+i*.13,.01],[0,1]));
  const result=layoutMapMarkers(map,400,300).filter(m=>m.point);
- expect(result.length).toBe(7);
+ expect(result.length).toBe(1);expect(layoutMapMarkers(map,400,300)).toHaveLength(7);
  for(const [i,m] of result.entries()){
   const [x,z]=m.point!;expect(x).toBeGreaterThanOrEqual(.48);expect(x).toBeLessThanOrEqual(7.52);expect(z).toBeGreaterThanOrEqual(.48);expect(z).toBeLessThanOrEqual(5.52);
   for(const n of result.slice(i+1))expect(Math.abs(x-n.point![0])>=.96-1e-8||Math.abs(z-n.point![1])>=.96-1e-8).toBe(true);
@@ -52,9 +52,9 @@ it('zooms only the drawing scope, preserves real identities/anchors and returns 
 it('keeps complete axis-aligned thumbnail targets inside a rotated room',()=>{
  const map=plan(),rotate=([x,z]:MapPoint):MapPoint=>[(x-z)/Math.sqrt(2)+4,(x+z)/Math.sqrt(2)];
  map.rooms=[{id:'r',name:'rotated',outline:room('r',0,3,3).outline.map(rotate)}];map.bounds={x:0,z:0,width:8,depth:8};map.placements=[image('one','r',rotate([0,1]),[1,1]),image('two','r',rotate([.1,1.1]),[1,1])];
- const result=layoutMapMarkers(map,480,480);expect(result.every(m=>m.point)).toBe(true);
+ const result=layoutMapMarkers(map,480,480);expect(result.filter(m=>m.point)).toHaveLength(1);
  const polygon=map.rooms[0]!.outline;
- for(const m of result)for(const dx of [-24/60,24/60])for(const dz of [-24/60,24/60])for(let i=0;i<4;i++){
+ for(const m of result.filter(m=>m.point))for(const dx of [-24/60,24/60])for(const dz of [-24/60,24/60])for(let i=0;i<4;i++){
   const a=polygon[i]!,b=polygon[(i+1)%4]!,p:MapPoint=[m.point![0]+dx,m.point![1]+dz];
   expect((b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0])).toBeGreaterThanOrEqual(-1e-6);
  }
@@ -66,12 +66,20 @@ it('keeps identities selectable through the existing list when a narrow room can
  expect(map.placements[0]!.roomId).toBe('narrow');
 });
 
-it('uses image facing to lay out corner collisions along the corresponding room side',()=>{
- const map=plan();map.rooms=[room('west',0,8,6)];map.placements=[image('a','west',[0,0],[0,1]),image('b','west',[0,0],[0,1])];
- const alongTop=layoutMapMarkers(map,400,300)[1]!.point!;
- map.placements=[image('a','west',[0,0],[1,0]),image('b','west',[0,0],[1,0])];
- const alongLeft=layoutMapMarkers(map,400,300)[1]!.point!;
- expect(alongTop[0]).toBeGreaterThan(alongLeft[0]);expect(alongTop[1]).toBeLessThan(alongLeft[1]);
+it('never guesses another wall or moves along an artwork plane to make a corner fit',()=>{
+ const map=plan();map.rooms=[room('west',0,8,6)];map.placements=[image('a','west',[0,0],[0,1]),image('b','west',[0,0],[1,0]),image('unbound','west',[0,3])];
+ expect(layoutMapMarkers(map,400,300).every(m=>!m.point)).toBe(true);
+});
+it('preserves same-plane order exactly, with only one bounded normal inset and unchanged identities',()=>{
+ const map=plan();map.rooms=[room('west',0,8,6)];map.placements=[image('z','west',[1,.01],[0,1]),image('a','west',[3,.01],[0,1]),image('m','west',[5,.01],[0,1])];
+ const before=structuredClone(map),markers=layoutMapMarkers(map,400,300);
+ expect(markers.map(m=>m.id)).toEqual(['z','a','m']);
+ for(const m of markers){expect(m.point![0]).toBe(m.anchor[0]);expect((m.point![1]-m.anchor[1])*50).toBeLessThanOrEqual(44);expect(m.point![1]).toBeGreaterThan(m.anchor[1]);}
+ expect(markers.map(m=>m.point![0])).toEqual([1,3,5]);expect(map).toEqual(before);
+});
+it('never moves a sculpture floor anchor, even when a nearby wall target cannot fit',()=>{
+ const map=plan();map.rooms=[room('west',0,8,6)];map.placements=[{...image('sculpture','west',[3,3]),artworkType:'sculpture'},{...image('tight','west',[.1,3],[1,0]),artworkType:'sculpture'}];
+ const markers=layoutMapMarkers(map,400,300);expect(markers[0]!.point).toEqual([3,3]);expect(markers[1]!.point).toBeUndefined();expect(markers[1]!.anchor).toEqual([.1,3]);
 });
 it('drops vanished hover/focus after resize so another explicit fallback selection controls the preview',()=>{
  const map=plan();map.placements=[image('old','west',[0,0]),image('chosen','east',[8,0])];
@@ -80,4 +88,15 @@ it('drops vanished hover/focus after resize so another explicit fallback selecti
  expect(visitorMapPreview(map,next)).toEqual({kind:'placement',id:'chosen'});
  expect(before.focused?.id).toBe('old');expect(before.hovered?.id).toBe('old');expect(next.selected).toBe(before.selected);
  expect(reconcileMapMarkerPreview(before,new Set(['old','chosen']))).toBe(before);
+});
+
+it('does not overlap 44px targets when distinct rooms share the same plan projection',()=>{
+ const map=plan();map.rooms=[room('west',0),room('upstairs',0)];map.placements=[image('one','west',[2,3]),image('two','upstairs',[2,3])];const result=layoutMapMarkers(map,400,300);
+ expect(result.filter(m=>m.point)).toHaveLength(1);expect(result).toHaveLength(2);expect(result[1]!.anchor).toEqual([2,3]);
+});
+
+it('keeps established targets through a small spacing margin without admitting overlapping new targets',()=>{
+ const map=plan();map.rooms=[room('west',0,8,6)];map.placements=[image('a','west',[1,3]),image('b','west',[1.96,3])];
+ expect(layoutMapMarkers(map,400,300).filter(m=>m.point)).toHaveLength(1);expect(layoutMapMarkers(map,400,300,44,new Set(['a','b'])).filter(m=>m.point)).toHaveLength(2);
+ map.placements[1]!.point=[1.88,3];expect(layoutMapMarkers(map,400,300,44,new Set(['a','b'])).filter(m=>m.point)).toHaveLength(1);
 });

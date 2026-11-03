@@ -38,12 +38,13 @@ export function buildVisitorMap(document:Exhibition,source:Pick<PublicPublicatio
  });
  // Image meshes use their local +Z as the front. Project the normal formed by
  // the transformed plane tangents; this remains correct under nonuniform scale.
- // A near-horizontal or unsupported plane leaves only the original anchor.
+ // A tilted or unsupported plane leaves only the original anchor; a horizontal
+ // normal is perpendicular to the projected image tangent only for vertical planes.
  const imageFacing=(art:Exhibition['artworks'][number],p:Exhibition['placements'][number],r:Exhibition['rooms'][number]):MapPoint|undefined=>{
   try {
    const o=artifactPoint([0,0,0],art.transform,p.transform,r.transform),x=artifactPoint([1,0,0],art.transform,p.transform,r.transform),y=artifactPoint([0,1,0],art.transform,p.transform,r.transform);
    const u=x.map((n,i)=>n-o[i]!),v=y.map((n,i)=>n-o[i]!),nx=u[1]!*v[2]!-u[2]!*v[1]!,ny=u[2]!*v[0]!-u[0]!*v[2]!,nz=u[0]!*v[1]!-u[1]!*v[0]!,horizontal=Math.hypot(nx,nz),length=Math.hypot(nx,ny,nz);
-   if(!Number.isFinite(length)||length===0||horizontal<=length*1e-7)return undefined;
+   if(!Number.isFinite(length)||length===0||horizontal<=length*1e-7||Math.abs(ny)>length*1e-7)return undefined;
    return [nx/horizontal,nz/horizontal];
   } catch { return undefined; }
  };

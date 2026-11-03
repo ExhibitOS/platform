@@ -2,6 +2,7 @@
 import {expect,it,vi} from 'vitest';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {VisitorMap,type VisitorMapProps} from './VisitorMap';
+import {createMapPoseSource} from './map-pose';
 import type {VisitorMap as MapModel} from './visitor-map';
 const map:MapModel={key:'publication/revision',rooms:[{id:'room',name:'첫 공간',outline:[[-4,-3],[4,-3],[4,3],[-4,3]]}],doors:[],placements:[{id:'placement',roomId:'room',title:'선택할 작품',artworkType:'image',point:[2,-2]}],bounds:{x:-5,z:-4,width:10,depth:8}};
 function props():VisitorMapProps{return {map,worldPose:{point:[0,0],direction:[0,-1]},destinations:[],available:false,travel:{status:'idle',message:''},onDetails:vi.fn(),onGo:vi.fn(async()=>false),onCancel:vi.fn()};}
@@ -81,9 +82,9 @@ it('fits every full-plan corner within the desktop circle without following or r
  expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
 });
 it('keeps wall anchors at their true points while moving thumbnail buttons inside their own room',()=>{
- const value=props();value.map={...map,placements:[{...map.placements[0]!,point:[4,0]}]};
+ const value=props();value.map={...map,placements:[{...map.placements[0]!,point:[4,0],facing:[-1,0]}]};
  const original=structuredClone(value.map),html=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(html).toContain('visitor-map-anchor-link');expect(html).toContain('cx="4" cy="0"');
+ expect(html).not.toContain('visitor-map-anchor-link');expect(html).toContain('visitor-map-work-direction');expect(html).toContain('cx="4" cy="0"');
  const marker=html.match(/class="visitor-map-marker" style="left:([^%]+)%;top:([^%]+)%/)!
  expect(Number(marker[1])).toBeLessThan(90);expect(html).toContain('value="placement/placement"');
  expect(value.map).toEqual(original);expect(value.onGo).not.toHaveBeenCalled();
@@ -91,6 +92,13 @@ it('keeps wall anchors at their true points while moving thumbnail buttons insid
 it('exposes narrow-room artwork in an accessible named group and the existing selector without shrinking map targets',()=>{
  const value=props();value.map={...map,rooms:[{id:'room',name:'좁은 방',outline:[[0,-3],[.3,-3],[.3,3],[0,3]]}],placements:[{...map.placements[0]!,point:[.15,0]}]};
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(html).toContain('겹친 작품 목록');expect(html).toContain('좁은 방 · 겹친 작품 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
+ expect(html).toContain('지도 작품 목록');expect(html).toContain('좁은 방 · 목록 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
  expect(html).not.toContain('class="visitor-map-marker"');expect(html).toContain('visitor-map-work-anchor');
+});
+
+it('accepts only the matching pose owner and keeps static map identities when the camera source clears',()=>{
+ const value=props(),source=createMapPoseSource(map.key);value.worldPose=undefined;value.poseSource=source;source.publish([1,1.65,2],0,60);
+ const live=renderToStaticMarkup(<VisitorMap {...value}/>);expect(live).toContain('cx="1" cy="2"');expect(live).toContain('visitor-map-fov');
+ source.clear();const cleared=renderToStaticMarkup(<VisitorMap {...value}/>);expect(cleared).not.toContain('visitor-map-fov');expect(cleared).toContain('value="placement/placement"');expect(cleared).toContain('visitor-map-work-anchor');
+ const wrong=createMapPoseSource('other/revision');wrong.publish([99,1.65,99],1,60);value.poseSource=wrong;expect(renderToStaticMarkup(<VisitorMap {...value}/>)).not.toContain('cx="99"');
 });
