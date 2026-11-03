@@ -76,3 +76,6 @@
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary:active::before{border-color:var(--publication-action);border-width:2px}
 @media(prefers-reduced-transparency:reduce){.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary::before{background:var(--publication-paper)}.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)[open]>summary::before{background:var(--publication-ink)}}
 .publication-mode-3d .viewer-audio-menu:not([open]){background:transparent;box-shadow:none;overflow:visible}
+/* An open panel's empty header width must not shield the nearby map toggle. */
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu){pointer-events:none}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>:is(summary,.publication-menu-panel,.viewer-audio-body){pointer-events:auto}
