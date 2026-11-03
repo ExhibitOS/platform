@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { recordedStepPolicy, type StepConditions, type VerifiedStepSample } from "./recorded-step-policy.ts";
+import { recordedStepPolicy, RecordedStepSession, type StepConditions, type VerifiedStepSample } from "./recorded-step-policy.ts";
 const conditions: StepConditions = { visitorFootstepsEnabled: true, enabled: true, muted: false,
   visible: true, audible: true, detail: false, contextRunning: true, voicePlaying: false };
 const history = { nextSide: "left" as const };
@@ -18,14 +18,38 @@ test("single clip keeps its natural end and permits the only available ID", () =
   assert.equal(p.wallDurationSeconds, 0.7); assert.equal(p.fadeOutStartSeconds + p.fadeOutSeconds, 0.7);
   assert.equal(p.nextHistory.nextSide, "right");
 });
-test("two clips exclude the previous ID at either random endpoint", () => {
+test("two clips retain the previous selection instead of forcing A/B alternation", () => {
   for (const selection of [0, 1, -Infinity, Infinity]) {
     const result = recordedStepPolicy([sample("a"), sample("b")], conditions,
       { nextSide: "right", previousId: "b" }, { ...random, selection });
     assert.equal(result.play, true);
-    if (result.play) { assert.equal(result.plan.sampleId, "a"); assert.equal(result.plan.side, "right");
+    if (result.play) { assert.equal(result.plan.sampleId, "b"); assert.equal(result.plan.side, "right");
       assert.equal(result.plan.nextHistory.nextSide, "left"); }
   }
+});
+test('a session draws lazily once per material/bank/revision and reuses the choice after other floors',()=>{
+  const session=new RecordedStepSession();let draws=0;
+  const random=()=>{draws++;return .9;};
+  assert.equal(session.select('wood/bank1/rev1',['a','b'],random),'b');
+  assert.equal(session.select('tile/bank2/rev1',['c','d'],random),'d');
+  for(let i=0;i<20;i++)assert.equal(session.select('wood/bank1/rev1',['a','b'],random),'b');
+  assert.equal(draws,2);
+  assert.equal(session.select('wood/bank1/rev2',['a','b'],random),'b');assert.equal(draws,3);
+  assert.equal(new RecordedStepSession().select('wood/bank1/rev1',['a','b'],()=>0),'a');
+});
+test('failure advances a fixed approved bank order once, without redrawing or retrying failed clips',()=>{
+  const session=new RecordedStepSession();let draws=0;const random=()=>{draws++;return .4;};
+  assert.equal(session.select('bank',['a','b','c'],random),'b');
+  session.failed('bank','unrelated');assert.equal(session.select('bank',['a','b','c'],random),'b');
+  session.failed('bank','b');session.failed('bank','b');assert.equal(session.select('bank',['a','b','c'],random),'c');
+  session.failed('bank','c');assert.equal(session.select('bank',['a','b','c'],random),'a');
+  session.failed('bank','a');for(let i=0;i<20;i++)assert.equal(session.select('bank',['a','b','c'],random),undefined);
+  assert.equal(draws,1);
+});
+test('empty, invalid and single-file banks never need a random draw',()=>{
+  const session=new RecordedStepSession(),random=()=>{throw Error('Unexpected random draw');};
+  for(const ids of [[],['a','a'],[''],Array.from({length:17},(_,i)=>String(i))])assert.equal(session.select(JSON.stringify(ids),ids,random),undefined);
+  assert.equal(session.select('single',['a'],random),'a');session.failed('single','a');assert.equal(session.select('single',['a'],random),undefined);
 });
 test("empty, excessive, duplicate and invalid clip metadata fail closed", () => {
   assert.deepEqual(recordedStepPolicy([], conditions, history, random), { play: false, reason: "empty" });

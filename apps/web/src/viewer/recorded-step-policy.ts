@@ -39,6 +39,27 @@ export type StepDecision = { play: false; reason: "visitor-off" | "inaudible" | 
 function unit(value: number): number {
   return Number.isNaN(value) ? 0.5 : Math.max(0, Math.min(1, value));
 }
+
+/** One lazy draw per material/bank/revision in one viewing runtime. Failed
+ * recordings advance through that fixed order once; pauses never reset it. */
+export class RecordedStepSession {
+  private banks = new Map<string, { order: string[]; index: number }>();
+  select(key: string, ids: readonly string[], random: () => number): string | undefined {
+    let bank = this.banks.get(key);
+    if (!bank) {
+      const validIds = ids.length <= RECORDED_STEP_LIMITS.maxSamples && new Set(ids).size === ids.length &&
+        ids.every(id => typeof id === 'string' && id.length > 0 && id.length <= RECORDED_STEP_LIMITS.maxIdLength);
+      const start = validIds && ids.length > 1 ? Math.min(ids.length - 1, Math.floor(unit(random()) * ids.length)) : 0;
+      const order = validIds ? [...ids.slice(start), ...ids.slice(0, start)] : [];
+      bank = { order, index: 0 }; this.banks.set(key, bank);
+    }
+    return bank.order[bank.index];
+  }
+  failed(key: string, id: string) {
+    const bank = this.banks.get(key);
+    if (bank?.order[bank.index] === id) bank.index++;
+  }
+}
 function valid(sample: VerifiedStepSample): boolean {
   if (!sample || sample.verified !== true || typeof sample.id !== "string" ||
     sample.id.length === 0 || sample.id.length > RECORDED_STEP_LIMITS.maxIdLength ||
@@ -68,9 +89,8 @@ export function recordedStepPolicy(samples: readonly VerifiedStepSample[], condi
     if (!valid(sample) || ids.has(sample.id)) return { play: false, reason: "invalid-samples" };
     ids.add(sample.id);
   }
-  const eligible = samples.length >= 2 ? samples.filter(sample => sample.id !== history.previousId) : samples;
-  const index = Math.min(eligible.length - 1, Math.floor(unit(random.selection) * eligible.length));
-  const sample = eligible[index]!;
+  const index = Math.min(samples.length - 1, Math.floor(unit(random.selection) * samples.length));
+  const sample = samples.find(sample => sample.id === history.previousId) ?? samples[index]!;
   const offsetSeconds = sample.segment?.startSeconds ?? 0;
   const mediaDurationSeconds = (sample.segment?.endSeconds ?? sample.durationSeconds) - offsetSeconds;
   const playbackRate = 0.98 + unit(random.rate) * 0.04;
