@@ -1680,6 +1680,9 @@ export function GeometryPreview({
         const pending=new Map<string,string>(), transitions=new Map<string,DetailTransition>(), retryAfter=new Map<string,number>(), awaySince=new Map<string,number>();
         const attention=new ArtworkAttention();
         const prepared=new Map<string,{artId:string;object:InstanceType<typeof three.Object3D>;lastUseful:number}>();
+        // Keep only the verified header cost when expendable encoded bytes are
+        // evicted. Losing the bytes must not restart an impossible warm fetch.
+        const imageDecodeCeilings=new Map<string,number>();
         const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key));
         const stage=stages.record;
         let currentArtwork:string|undefined;
@@ -1765,9 +1768,13 @@ export function GeometryPreview({
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
-                await readArtworkBytes(t.art,t.inventory,signal);
+                const bytes=await readArtworkBytes(t.art,t.inventory,signal),budget=t.imageBudget??viewerBudget;
                 signal.throwIfAborted();
                 stage(t.inventory.id,'verified-download',undefined,key);
+                checkImageDecode(bytes,t.art,t.inventory,budget);
+                const ceiling=assetDecodeReserve(t.art,t.inventory,budget,bytes)+t.inventory.bytes;
+                if(!Number.isSafeInteger(ceiling)||ceiling<0)throw Error('IMAGE_DECODE_BUDGET');
+                imageDecodeCeilings.set(`${t.inventory.id}/${budget.maxTextureSize}`,ceiling);
                 return {key};
               }
               const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget);
@@ -1903,13 +1910,15 @@ export function GeometryPreview({
           let downloadOnly=false;
           if(!ready&&full&&authoredImagePair(art)){
             try{
-              const ceiling=cached?assetDecodeReserve(art,inventory,imageBudget,cached):imageFullDecodeCeiling(art,inventory,imageBudget)!;
+              const costKey=`${inventory.id}/${imageBudget.maxTextureSize}`,known=imageDecodeCeilings.get(costKey);
+              const ceiling=cached?assetDecodeReserve(art,inventory,imageBudget,cached):known??imageFullDecodeCeiling(art,inventory,imageBudget)!;
+              if(cached){const retained=ceiling+inventory.bytes;if(!Number.isSafeInteger(retained)||retained<0)throw Error('IMAGE_DECODE_BUDGET');imageDecodeCeilings.set(costKey,retained);}
               // A speculative load cannot spend a peer's retained preparation.
               const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
               // Fetch a verified header first when the conservative declared square cannot fit.
               const preflightLimit=detailPromotion?requestLimits({detailPromotion,imageBudget}).transition:assetBudgetBytes;
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>preflightLimit;
-              if(downloadOnly&&cached){
+              if(downloadOnly&&(cached||known!==undefined)){
                 if(art.revisionId===demandContext().owner){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
                 if(!active.has(art.revisionId))request(art,false,prepareOnly);return;
               }
