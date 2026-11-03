@@ -2,6 +2,8 @@
 import {useEffect,useId,useMemo,useRef,useState,type FocusEvent,type FormEvent,type MouseEvent,type PointerEvent} from 'react';
 import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type MapSelection,type MapTarget,type VisitorMap as MapModel,visitorMapPose} from './visitor-map';
 import './visitor-map.css';
+import {createMapContext} from './map-context';
+import {ViewerIcon} from './ViewerIcon';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
 import {useMediaPreference} from '../publication-accessibility';
 import type {MapPoseSource} from './map-pose';
@@ -32,17 +34,21 @@ function Schematic({map,worldPose,poseSource,active=true,local=false,overview=fa
  const {x,z,width,depth}=map.bounds;
  const source=poseSource?.key===map.key?poseSource:undefined,pose=source?source.getSnapshot():worldPose;
  const positionGroup=useRef<SVGGElement>(null),positionCircle=useRef<SVGCircleElement>(null),arrowPath=useRef<SVGPathElement>(null),sectorPath=useRef<SVGPathElement>(null);
- // World X/Z stays north-up. Only the crop follows the existing camera snapshot.
- const diameter=Math.max(8,Math.min(20,Math.max(width,depth)*.55));
+ // World X/Z stays north-up. Compact context changes only on room entry.
+ const context=useMemo(()=>local?createMapContext(map):undefined,[map,local]);
+ const contextRef=useRef<{roomId?:string;bounds:MapViewport;key?:string;pixels?:number}|undefined>(undefined);
+ const initialContext=context?.select(pose?.point,contextRef.current?.key===map.key?contextRef.current.roomId:undefined)??{bounds:map.bounds};
+ const diameter=initialContext.bounds.width;
  const overviewSpan=Math.hypot(width,depth)*1.12;
- const center=pose?.point??[x+width/2,z+depth/2],span=overview?overviewSpan:local?diameter:width,unitPerPixel=span/pixels;
+ const span=overview?overviewSpan:local?diameter:width,unitPerPixel=span/pixels;
  const display:DisplayMarker[]=markers??map.placements.map(p=>({id:p.id,anchor:p.point}));
- const glyph=(value:VisitorMapProps['worldPose'])=>{
+ const glyph=(value:VisitorMapProps['worldPose'],worldSpan=span)=>{
+  const unitPerPixel=worldSpan/pixels;
   const fov=value?.horizontalFovDegrees,length=value&&Math.hypot(...value.direction);let sector:string|undefined,arrow:string|undefined;
   if(value&&length&&Number.isFinite(length)){
    const [dx,dz]=value.direction.map(v=>v/length) as MapPoint,[px,pz]=value.point,u=unitPerPixel;
    arrow=`M ${px+dx*12*u} ${pz+dz*12*u} L ${px+dx*5*u-dz*3*u} ${pz+dz*5*u+dx*3*u} L ${px+dx*5*u+dz*3*u} ${pz+dz*5*u-dx*3*u} Z`;
-   if(fov!==undefined&&Number.isFinite(fov)&&fov>0&&fov<180){const angle=Math.atan2(dz,dx),half=fov*Math.PI/360,reach=mapFanRadius(span,pixels);sector=`M ${px} ${pz} L ${px+Math.cos(angle-half)*reach} ${pz+Math.sin(angle-half)*reach} A ${reach} ${reach} 0 0 1 ${px+Math.cos(angle+half)*reach} ${pz+Math.sin(angle+half)*reach} Z`;}
+   if(fov!==undefined&&Number.isFinite(fov)&&fov>0&&fov<180){const angle=Math.atan2(dz,dx),half=fov*Math.PI/360,reach=mapFanRadius(worldSpan,pixels);sector=`M ${px} ${pz} L ${px+Math.cos(angle-half)*reach} ${pz+Math.sin(angle-half)*reach} A ${reach} ${reach} 0 0 1 ${px+Math.cos(angle+half)*reach} ${pz+Math.sin(angle+half)*reach} Z`;}
   }
   return {sector,arrow};
  };
@@ -51,18 +57,34 @@ function Schematic({map,worldPose,poseSource,active=true,local=false,overview=fa
   if(!active)return;
   const update=()=>{
    const host=svg.current;if(!host||document.hidden||host.closest('[inert],[hidden]'))return;
-   const value=source?source.getSnapshot():worldPose,drawing=glyph(value);
+   const value=source?source.getSnapshot():worldPose;
+   const crop=context?.select(value?.point,contextRef.current?.key===map.key?contextRef.current.roomId:undefined);
+   const drawing=glyph(value,crop?.bounds.width??span);
+   if(crop){
+    const previous=contextRef.current;contextRef.current={...crop,key:map.key,pixels};
+    if(previous?.bounds!==crop.bounds||previous?.pixels!==pixels){
+     host.setAttribute('viewBox',`${crop.bounds.x} ${crop.bounds.z} ${crop.bounds.width} ${crop.bounds.depth}`);
+     const u=crop.bounds.width/pixels;
+     positionCircle.current?.setAttribute('r',String(u*3.5));
+     // Only pixel-sized symbols change on a room transition/resize. Static
+     // room polygons and artwork coordinates remain untouched between frames.
+     host.querySelectorAll<SVGCircleElement>('.visitor-map-work-anchor').forEach(anchor=>anchor.setAttribute('r',String(u*1.2)));
+     for(const line of host.querySelectorAll<SVGLineElement>('.visitor-map-work-direction')){
+      const item=map.placements.find(p=>p.id===line.dataset.placementId),facing=item?.facing,length=facing&&Math.hypot(...facing);
+      if(item&&facing&&length){const dx=-facing[1]/length*3*u,dz=facing[0]/length*3*u;line.setAttribute('x1',String(item.point[0]-dx));line.setAttribute('y1',String(item.point[1]-dz));line.setAttribute('x2',String(item.point[0]+dx));line.setAttribute('y2',String(item.point[1]+dz));}
+     }
+    }
+   }
    if(positionGroup.current)positionGroup.current.style.display=value?'':'none';
    if(value){positionCircle.current?.setAttribute('cx',String(value.point[0]));positionCircle.current?.setAttribute('cy',String(value.point[1]));}
    if(arrowPath.current){arrowPath.current.setAttribute('d',drawing.arrow??'');arrowPath.current.style.display=drawing.arrow?'':'none';}
    if(sectorPath.current){sectorPath.current.setAttribute('d',drawing.sector??'');sectorPath.current.style.display=drawing.sector?'':'none';if(drawing.sector)sectorPath.current.setAttribute('class','visitor-map-fov');else sectorPath.current.removeAttribute('class');}
-   if(local){const [px,pz]=value?.point??[x+width/2,z+depth/2];host.setAttribute('viewBox',`${px-diameter/2} ${pz-diameter/2} ${diameter} ${diameter}`);}
   };
   update();const unsubscribe=source?.subscribe(update);document.addEventListener('visibilitychange',update);
   return()=>{unsubscribe?.();document.removeEventListener('visibilitychange',update);};
- },[source,worldPose,active,local,x,z,width,depth,diameter,span,pixels,unitPerPixel]);
+ },[source,worldPose,active,local,context,span,pixels,unitPerPixel]);
  // A diagonal-sized square keeps every plan corner inside the circular clip.
- const viewBox=overview?`${x+width/2-overviewSpan/2} ${z+depth/2-overviewSpan/2} ${overviewSpan} ${overviewSpan}`:local?`${center[0]-diameter/2} ${center[1]-diameter/2} ${diameter} ${diameter}`:`${x} ${z} ${width} ${depth}`;
+ const viewBox=overview?`${x+width/2-overviewSpan/2} ${z+depth/2-overviewSpan/2} ${overviewSpan} ${overviewSpan}`:local?`${initialContext.bounds.x} ${initialContext.bounds.z} ${diameter} ${diameter}`:`${x} ${z} ${width} ${depth}`;
  return <svg ref={svg} viewBox={viewBox} aria-hidden="true" focusable="false">
   {map.rooms.map(room=><polygon key={room.id} className="visitor-map-room" points={room.outline.map(p=>p.join(',')).join(' ')}/>)}
   {map.doors.map(door=>{
@@ -79,7 +101,7 @@ function Schematic({map,worldPose,poseSource,active=true,local=false,overview=fa
     if(!facing)return null;
     const length=Math.hypot(...facing);if(!Number.isFinite(length)||length<1e-7)return null;
     const [x,z]=item.anchor,dx=-facing[1]/length*3*unitPerPixel,dz=facing[0]/length*3*unitPerPixel;
-    return <line className="visitor-map-work-direction" x1={x-dx} y1={z-dz} x2={x+dx} y2={z+dz}/>;
+    return <line className="visitor-map-work-direction" data-placement-id={item.id} x1={x-dx} y1={z-dz} x2={x+dx} y2={z+dz}/>;
    })()}
   </g>)}
   <g ref={positionGroup} className="visitor-map-position" style={{display:pose?undefined:'none'}}><circle ref={positionCircle} cx={pose?.point[0]??0} cy={pose?.point[1]??0} r={unitPerPixel*3.5}/><path ref={arrowPath} d={arrow} style={{display:arrow?undefined:'none'}}/></g>
@@ -102,6 +124,25 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
  const [openState,setOpenState]=useState({key:map.key,open:restored?.open??false});
  const open=openState.key===map.key?openState.open:restored?.open??false;
  const gestureClear=useRef<(()=>void)|null>(null);
+ const help=useRef<HTMLDetailsElement>(null),[helpOpen,setHelpOpen]=useState(false);
+ const mapPanel=useRef<HTMLDetailsElement>(null);
+ useEffect(()=>{const panel=mapPanel.current;if(!panel||typeof ResizeObserver==='undefined')return;const nodes=panel.querySelectorAll<HTMLElement>(':scope>summary,:scope>.visitor-map-tools');const update=()=>panel.style.setProperty('--map-header-height',`${[...nodes].reduce((height,node)=>height+node.getBoundingClientRect().height,0)}px`);const observer=new ResizeObserver(update);nodes.forEach(node=>observer.observe(node));update();return()=>observer.disconnect();},[]);
+ useEffect(()=>{
+  let dismissed=false;
+  const consume=(event:Event)=>{event.preventDefault();event.stopImmediatePropagation();};
+  const down=(event:globalThis.PointerEvent)=>{
+   dismissed=false;const element=help.current;
+   if(!element?.open||element.contains(event.target as Node))return;
+   dismissed=true;consume(event);element.open=false;setHelpOpen(false);element.querySelector('summary')?.focus({preventScroll:true});
+  };
+  const end=(event:Event)=>{if(dismissed)consume(event);};
+  // Keep the whole dismissal sequence consumed after closing the help. Its
+  // compatibility click must never select an artwork or start a canvas gesture.
+  const click=(event:Event)=>{if(dismissed){consume(event);dismissed=false;}};
+  const cancel=()=>{dismissed=false;};
+  document.addEventListener('pointerdown',down,true);document.addEventListener('pointerup',end,true);document.addEventListener('click',click,true);document.addEventListener('pointercancel',cancel,true);
+  return()=>{document.removeEventListener('pointerdown',down,true);document.removeEventListener('pointerup',end,true);document.removeEventListener('click',click,true);document.removeEventListener('pointercancel',cancel,true);};
+ },[]);
  const scopeSelect=useRef<HTMLSelectElement>(null),[scope,setScope]=useState<{key:string;roomId?:string}>({key:map.key,roomId:restored?.roomId});
  const roomId=scope?.key===map.key&&scope.roomId&&map.rooms.some(r=>same(r.id,scope.roomId!))?scope.roomId:undefined;
  const drawing=useMemo(()=>({...map,bounds:view}),[map,view]);
@@ -148,7 +189,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   const host=expanded.current;if(!host)return;
   type Point={x:number;y:number;startX:number;startY:number};
   const points=new Map<number,Point>(),captured=new Set<number>();let dragging=false,suppress=false;
-  const panel=host.closest<HTMLElement>('.viewer-visitor-map'),content=panel?.querySelector<HTMLElement>(':scope>section');
+  const panel=host.closest<HTMLElement>('.viewer-visitor-map')?.querySelector<HTMLElement>(':scope>section'),content=panel?.querySelector<HTMLElement>(':scope>.visitor-map-body');
   let heldHeight:string|undefined,heldAnchor:string|undefined;
   // A shrinking list must not clamp the panel scroll position and move the
   // viewport under a stationary wheel/pinch anchor. Hold only while engaged.
@@ -211,17 +252,24 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   const generation=++requestGeneration.current,key=map.key;setRequestError(null);
   void onGo(preview,id).catch(()=>{if(generation===requestGeneration.current&&key===activeKey.current)setRequestError({key,text:'관람 위치를 열지 못했어요. 다시 선택해 주세요.'});});
  };
- return <details className="viewer-visitor-map" open={open} data-visitor-panel onBlur={event=>{
+ return <details ref={mapPanel} name="exhibitos-visitor-panel" className="viewer-visitor-map" open={open} data-visitor-panel onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(help.current?.open){help.current.open=false;setHelpOpen(false);help.current.querySelector('summary')?.focus();}else{event.currentTarget.open=false;event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus();}}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onBlur={event=>{
   if(!(event.relatedTarget instanceof Node&&event.currentTarget.contains(event.relatedTarget))&&selection.focused)dispatch({type:'blur',target:selection.focused});
- }} onToggle={event=>{setOpenState({key:map.key,open:event.currentTarget.open});if(!event.currentTarget.open){clearTemporary();gestureClear.current?.();cancel();}}}>
-  <summary aria-label="전시 지도"><span className="visitor-map-title">전시 지도</span><span className="visitor-map-compact"><span className="visitor-map-nearby"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&!finePointer} local/></span><span className="visitor-map-overview"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&finePointer} overview/></span></span><span className="visitor-map-toggle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 12h12"/><path className="visitor-map-plus" d="M12 6v12"/></svg></span></summary>
-  <section aria-labelledby={titleId}>
+ }} onToggle={event=>{if(event.target!==event.currentTarget)return;setOpenState({key:map.key,open:event.currentTarget.open});if(!event.currentTarget.open){clearTemporary();gestureClear.current?.();if(help.current)help.current.open=false;setHelpOpen(false);cancel();}}}>
+  <summary aria-label="전시 지도" title={open?'지도 닫기':'지도 열기'} aria-expanded={open} aria-controls={`${titleId}-body`}><span className="visitor-map-title">전시 지도</span><span className="visitor-map-compact"><span className="visitor-map-nearby"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&!finePointer} local/></span><span className="visitor-map-overview"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&finePointer} overview/></span></span><span className="visitor-map-toggle" aria-hidden="true">{open?<ViewerIcon name="close"/>:<svg viewBox="0 0 24 24"><path d="M6 12h12"/><path className="visitor-map-plus" d="M12 6v12"/></svg>}</span></summary>
+  <div className="visitor-map-tools" role="group" aria-label="지도 보기">
+   <button type="button" aria-label="지도 확대" title="지도 확대" onClick={()=>changeViewport(zoomMapViewport(map,view,1.5))}><ViewerIcon name="plus"/></button>
+   <button type="button" aria-label="지도 축소" title="지도 축소" onClick={()=>changeViewport(zoomMapViewport(map,view,1/1.5))}><ViewerIcon name="minus"/></button>
+   <button type="button" aria-label="전체 지도" title="전체 지도" onClick={()=>zoomRoom('')}><ViewerIcon name="fit"/></button>
+   <button type="button" aria-label="현재 위치로 지도 중심 이동" title="현재 위치" disabled={!poseSource&&!worldPose} onClick={()=>{const pose=poseSource?.key===map.key?poseSource.getSnapshot():worldPose;if(pose)changeViewport({...view,x:pose.point[0]-view.width/2,z:pose.point[1]-view.depth/2});}}><ViewerIcon name="location"/></button>
+   <details ref={help} className="visitor-map-help" open={helpOpen} data-visitor-panel onToggle={event=>{if(event.currentTarget===event.target)setHelpOpen(event.currentTarget.open);}}>
+    <summary aria-label="지도 도움말" title="지도 도움말" aria-expanded={helpOpen} aria-controls={`${titleId}-help`}><ViewerIcon name="help"/></summary>
+    <div id={`${titleId}-help`}><div className="visitor-map-help-heading"><h3>지도 도움말</h3><button type="button" aria-label="지도 도움말 닫기" onClick={()=>{if(help.current)help.current.open=false;setHelpOpen(false);help.current?.querySelector('summary')?.focus();}}><ViewerIcon name="close"/></button></div><p id={`${titleId}-navigation`}>드래그로 이동하고 휠이나 두 손가락으로 확대하세요. 방향키·확대·축소 키와 Home도 사용할 수 있어요.</p><p>작품을 골라 설명과 관람 위치를 확인하세요. 현재 위치는 지도의 중심만 옮겨요.</p></div>
+   </details>
+  </div>
+  <section id={`${titleId}-body`} aria-labelledby={titleId}><div className="visitor-map-body">
    <h2 id={titleId}>전시 지도</h2>
-   <p className="visitor-map-note">작품을 골라 설명과 관람 위치를 확인하세요.</p>
    <div className="visitor-map-scope"><label>공간 확대<select ref={scopeSelect} value={roomId??''} onFocus={clearTemporary} onChange={event=>zoomRoom(event.target.value)}><option value="">전체 지도</option>{map.rooms.map(room=><option key={room.id} value={room.id}>{room.name}</option>)}</select></label></div>
-   <div className="visitor-map-tools" role="group" aria-label="지도 보기"><button type="button" aria-label="지도 확대" onClick={()=>changeViewport(zoomMapViewport(map,view,1.5))}>확대</button><button type="button" aria-label="지도 축소" onClick={()=>changeViewport(zoomMapViewport(map,view,1/1.5))}>축소</button><button type="button" onClick={()=>zoomRoom('')}>전체 지도</button><button type="button" disabled={!poseSource&&!worldPose} onClick={()=>{const pose=poseSource?.key===map.key?poseSource.getSnapshot():worldPose;if(pose)changeViewport({...view,x:pose.point[0]-view.width/2,z:pose.point[1]-view.depth/2});}}>현재 위치</button></div>
-   <p className="visitor-map-note" id={`${titleId}-navigation`}>드래그로 이동하고 휠이나 두 손가락으로 확대하세요. 방향키·확대·축소 키와 Home도 사용할 수 있어요.</p>
-   <div ref={expanded} className="visitor-map-expanded" data-map-viewport={JSON.stringify(view)} tabIndex={0} role="group" aria-label="지도 탐색" aria-describedby={`${titleId}-navigation`} onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>event.stopPropagation()} style={{aspectRatio:`${drawing.bounds.width}/${drawing.bounds.depth}`}}><Schematic map={drawing} worldPose={worldPose} poseSource={poseSource} active={open&&available} markers={displayMarkers} activePlacementId={connector?.kind==='placement'?connector.id:undefined}/>
+   <div ref={expanded} className="visitor-map-expanded" data-map-viewport={JSON.stringify(view)} tabIndex={0} role="group" aria-label="지도 탐색" onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key!=='Escape')event.stopPropagation();}} style={{aspectRatio:`${drawing.bounds.width}/${drawing.bounds.depth}`}}><Schematic map={drawing} worldPose={worldPose} poseSource={poseSource} active={open&&available} markers={displayMarkers} activePlacementId={connector?.kind==='placement'?connector.id:undefined}/>
     <div className="visitor-map-markers" role="group" aria-label="공간과 작품">
      {drawing.placements.map(item=>{const display=displayById.get(item.id)?.point;return display&&<button key={item.id} type="button" className="visitor-map-marker" style={position(display)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>;})}
     </div>
@@ -246,6 +294,6 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
    {travel.message&&<p role={travel.status==='blocked'?'alert':'status'}>{travel.message}</p>}
    {requestError?.key===map.key&&<p role="alert">{requestError.text}</p>}
    {busy&&<button type="button" onClick={cancel}>이동 취소</button>}
-  </section>
+  </div></section>
  </details>;
 }

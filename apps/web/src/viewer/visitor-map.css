@@ -51,3 +51,30 @@
 .viewer-visitor-map .visitor-map-overflow summary::after{content:none}
 
 .visitor-map-expanded{overflow:hidden;touch-action:none;cursor:grab}.visitor-map-expanded[data-dragging=true]{cursor:grabbing}.visitor-map-expanded:focus-visible{outline:3px solid var(--publication-action,#135967);outline-offset:3px}.visitor-map-tools{display:flex;flex-wrap:wrap;gap:.5rem}.visitor-map-tools button{min-width:44px;min-height:44px}.visitor-map-expanded[data-dragging=true] .visitor-map-marker{cursor:grabbing}
+
+/* Keep the title/close and compact tools outside the scrolling artwork body. */
+.viewer-visitor-map[open]{--map-panel-top:calc(5.5rem + env(safe-area-inset-top,0px));overflow:hidden;padding-block:.5rem;top:var(--map-panel-top)}
+.viewer-visitor-map[open]>.visitor-map-tools{display:flex;justify-content:flex-end;gap:0;position:relative;padding-block:.25rem}
+.viewer-visitor-map:not([open])>.visitor-map-tools{display:none}
+.viewer-visitor-map[open]>summary{gap:.5rem}
+.viewer-visitor-map[open] .visitor-map-title{min-width:0;overflow-wrap:anywhere}
+.viewer-visitor-map[open]>section{max-height:calc(100svh - var(--map-panel-top) - var(--map-header-height,104px) - 2rem - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;box-sizing:border-box;padding:.5rem .25rem;scrollbar-gutter:stable}
+.viewer-visitor-map .visitor-map-tools :is(button,summary){display:grid;place-items:center;box-sizing:border-box;min-width:44px;width:44px;min-height:44px;height:44px;margin:0;padding:.5rem;border:0;border-radius:4px;color:var(--publication-ink,#182d32);background:transparent;cursor:pointer}
+.viewer-visitor-map .visitor-map-tools button:disabled{opacity:.45;cursor:default}
+.viewer-visitor-map .visitor-map-tools :is(button,summary):hover{background:rgb(19 89 103 / .08)}
+.viewer-visitor-map .visitor-map-tools .viewer-control-icon{width:22px;height:22px}
+.viewer-visitor-map .visitor-map-help>summary::after{content:none}
+.visitor-map-help>div{position:absolute;right:0;top:100%;z-index:5;width:min(26rem,100%);max-height:calc(100svh - var(--map-panel-top) - var(--map-header-height,104px) - 2rem - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;box-sizing:border-box;background:var(--publication-paper,#f8fbfc);padding:.75rem;box-shadow:0 5px 20px #182d3226;border-radius:4px;font-size:.875rem;line-height:1.5}
+.visitor-map-help-heading{position:sticky;top:-.75rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem;background:var(--publication-paper,#f8fbfc)}
+.visitor-map-help p+p{margin-top:.75rem}
+@media(max-width:700px){.viewer-visitor-map[open]{--map-panel-top:calc(9rem + env(safe-area-inset-top,0px))}}
+.viewer-visitor-map .visitor-map-tools :is(button,summary){position:relative;isolation:isolate;background:transparent;border-radius:50%}
+.viewer-visitor-map .visitor-map-tools :is(button,summary)::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .24);border-radius:50%;background:rgb(24 45 50 / .05)}
+.viewer-visitor-map .visitor-map-tools :is(button,summary):hover{background:transparent}
+.viewer-visitor-map .visitor-map-tools :is(button,summary):hover::before{background:rgb(24 45 50 / .12)}
+.viewer-visitor-map .visitor-map-tools :is(button,summary):active::before{border:2px solid var(--publication-action,#135967)}
+.viewer-visitor-map .visitor-map-help[open]>summary::before{background:rgb(24 45 50 / .12);border-color:currentColor}
+@media(prefers-reduced-transparency:reduce){.viewer-visitor-map .visitor-map-tools :is(button,summary)::before{background:var(--publication-paper,#f8fbfc)}}
+.viewer-visitor-map[open]{max-height:calc(100svh - var(--map-panel-top) - 1rem - env(safe-area-inset-bottom,0px))}
+.viewer-visitor-map[open]>section{display:block}
+.visitor-map-body{display:grid;gap:.75rem;min-width:0}

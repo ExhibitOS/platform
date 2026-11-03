@@ -1,7 +1,8 @@
+import {ViewerIcon} from './viewer/ViewerIcon';
 import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from "react";
 import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor, artworkThumbnailFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
@@ -75,6 +76,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   },[value,thumbnailCache,mode]);
   const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuPanelId=useId();
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   useLayoutEffect(()=>{
     if(mode!=='3d')return;
@@ -254,9 +256,9 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </EntranceCover></div>
           {mode==="3d"&&!viewerUnavailable&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={runtime!.effects.transition} speed={runtime!.effects.speed} statusRef={entryStatus} onCancel={cancelEntry} onText={showTextArtworks}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
-          <details data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => setMenuOpen(event.currentTarget.open)}>
-          <summary>{mode === "3d" ? "메뉴" : "전시 정보"}</summary>
-          <div className="publication-menu-panel">
+          <details name={mode==='3d'?'exhibitos-visitor-panel':undefined} data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => {if(event.target===event.currentTarget)setMenuOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setMenuOpen(false);event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+          <summary aria-label={mode==='3d'?'메뉴':undefined} title={mode==='3d'?'메뉴':undefined} aria-expanded={menuOpen} aria-controls={menuPanelId}>{mode === "3d" ? <ViewerIcon name={menuOpen?'close':'menu'}/> : "전시 정보"}</summary>
+          <div className="publication-menu-panel" id={menuPanelId}>
           {connectionStatus}
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}

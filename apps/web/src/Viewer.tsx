@@ -20,7 +20,7 @@ import { GeometryPreview } from "./GeometryPreview";
 import type { SurfaceAppearance, DetailEntryActions } from "./GeometryPreview";
 import type { PublicPublication } from "./publication-client";
 import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio";
-import { AudioControls } from "./viewer/AudioControls";
+import { AudioMenu } from "./viewer/AudioMenu";
 import { selectedDeviceBudget } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "./ViewerInputGuide";
@@ -309,7 +309,7 @@ export function Viewer({
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(walking&&!paused)onNavigationActive?.();if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
-      <details data-visitor-panel={immersive ? "" : undefined} className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} /></details>
+      <AudioMenu immersive={immersive} audio={audio.current} state={audioState} zones={publication.exhibition.audioZones}/>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<details className="viewer-settings-menu"><summary>관람 설정</summary>
       {immersive && <button onClick={()=>{setIntroDismissed(false);setGuideSequence(n=>n+1);}}>조작 안내 다시 보기</button>}
       <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
