@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { join } from "node:path";
 import { denseCubeGlb, syntheticPng } from "./viewer-fixtures.mjs";
 import { derivative } from "../apps/api/dist/derivative.js";
 import { measureFullVariant, viewerVariants } from "../apps/api/dist/viewer-variants.js";
@@ -18,4 +21,16 @@ test("coarse RGB PNG retains a validated sRGB intent", async () => {
   assert.deepEqual(result.bytes.subarray(33, 46), full.subarray(33, 46));
   assert.equal(result.bytes.toString("ascii", 37, 41), "sRGB");
   await assert.rejects(viewerVariants(syntheticPng(1024, 4), "image/png"), /COARSE_UNAVAILABLE/);
+});
+
+test("coarse worker starts from a bundle path with spaces and non-ASCII", async (t) => {
+  const dist = new URL("../apps/api/dist/", import.meta.url);
+  const bundle = await mkdtemp(fileURLToPath(new URL("검증 앱 ", dist)));
+  t.after(() => rm(bundle, { recursive: true, force: true }));
+  for (const file of ["viewer-variants.js", "viewer-variant-worker.js", "png-pixels.js"]) {
+    await copyFile(new URL(file, dist), join(bundle, file));
+  }
+  const { viewerVariants: packagedVariants } = await import(pathToFileURL(join(bundle, "viewer-variants.js")).href);
+  const result = await packagedVariants(syntheticPng(1024, 0), "image/png");
+  assert.deepEqual(result.coarse, { textureSize: 512 });
 });
