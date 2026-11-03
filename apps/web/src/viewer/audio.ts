@@ -142,6 +142,7 @@ export class ExhibitionAudio implements AudioApi {
   private availabilityTimer?: ReturnType<typeof setInterval>;
   private detail = false;
   private allowed = new Set<string>();
+  private nonStepAllowed = new Set<string>();
   private floor?:string;
   private stepSession = new RecordedStepSession();
   private failedStepPreloads=new Set<string>();
@@ -384,6 +385,7 @@ export class ExhibitionAudio implements AudioApi {
     const rooms = new Set([id, doc.rooms[index + 1]?.id].filter(Boolean));
     this.allowed = new Set(this.state.zoneTransitions?doc.audioZones.filter(z => rooms.has(z.roomId)).map(z => z.assetId):[]);
     for(const voice of this.experience.voices) {const placement=doc.placements.find(p=>p.id===voice.placementId);if(placement&&rooms.has(placement.roomId))this.allowed.add(voice.assetId);}
+    this.nonStepAllowed = new Set(this.allowed);
     for (const entry of this.state.footstepsEnabled?this.experience.footsteps:[]) {
       const surface=doc.surfaces.find(s=>s.id===entry.surfaceId);if(!surface||!rooms.has(surface.roomId))continue;
       const resolved=resolveFootsteps(doc,surface.roomId,surface.id,entry);
@@ -396,7 +398,7 @@ export class ExhibitionAudio implements AudioApi {
   }
   private preloadTargets(){
     const bank=this.selectedStepBank(),priority=bank?.id?[bank.id]:[];
-    const other=[...this.allowed].filter(id=>this.experience.voices.some(v=>v.assetId===id)||this.state.zoneTransitions&&this.publication.exhibition.audioZones.some(z=>z.assetId===id));
+    const other=[...this.nonStepAllowed];
     return [...new Set([...priority,...other])].filter(id=>this.allowed.has(id)&&!this.failedStepPreloads.has(id)&&!this.pressureDeferredSteps.has(id)).slice(0,8);
   }
   private preload() {
