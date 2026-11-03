@@ -19,7 +19,7 @@ it('keeps cancellation and a blocked result accessible independently of map sele
 });
 it('does not invent thumbnails or destination controls from room and placement metadata',()=>{
  const html=renderToStaticMarkup(<VisitorMap {...props()}/>);
- expect(html).not.toContain('<img');expect(html).toContain('지도에서 고르기');expect(html).not.toContain('선택한 위치로 이동');expect(html).not.toContain('안전한');
+ expect(html).not.toContain('<img');expect(html).toContain('공간·작품 선택');expect(html).not.toContain('선택한 위치로 이동');expect(html).not.toContain('안전한');
 });
 it('keeps the compact room context fixed while actual position and direction move',()=>{
  const value=props(),crop=(html:string)=>html.match(/class="visitor-map-nearby"><svg viewBox="([^"]+)"/)![1];
@@ -33,7 +33,7 @@ it('uses only supplied real thumbnails while retaining named keyboard controls a
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
  expect(html).toContain('aria-label="전시 지도"');expect(html).toContain('visitor-map-plus');
  expect(html).toContain('src="blob:verified-coarse"');expect(html).toContain('loading="lazy"');
- expect(html).toContain('aria-label="선택할 작품"');expect(html).toContain('<option value="room">첫 공간</option>');expect(html).not.toContain('visitor-map-room-label');
+ expect(html).toContain('aria-label="선택할 작품"');expect(html).toContain('<option value="room/room">첫 공간</option>');expect(html).not.toContain('visitor-map-room-label');
  expect(html).not.toContain(description);expect(html).not.toContain('펼치기');
  expect(value.onGo).not.toHaveBeenCalled();expect(value.onDetails).not.toHaveBeenCalled();
  expect(value.onPreviewChange).not.toHaveBeenCalled();
@@ -87,7 +87,7 @@ it('keeps wall anchors at their true points while moving thumbnail buttons insid
 it('exposes narrow-room artwork in an accessible named group and the existing selector without shrinking map targets',()=>{
  const value=props();value.map={...map,rooms:[{id:'room',name:'좁은 방',outline:[[0,-3],[.3,-3],[.3,3],[0,3]]}],placements:[{...map.placements[0]!,point:[.15,0]}]};
  const html=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(html).toContain('지도 작품 목록');expect(html).toContain('좁은 방 · 목록 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간 확대');expect(html).toContain('공간 확대');expect(html).toContain('value="placement/placement"');
+ expect(html).toContain('지도 작품 목록');expect(html).toContain('좁은 방 · 목록 1개');expect(html).toContain('visitor-map-list-target');expect(html).toContain('이 공간에 맞춤');expect(html).not.toContain('visitor-map-scope');expect(html).toContain('value="placement/placement"');
  expect(html).not.toContain('class="visitor-map-marker"');expect(html).toContain('visitor-map-work-anchor');
 });
 
@@ -96,4 +96,12 @@ it('accepts only the matching pose owner and keeps static map identities when th
  const live=renderToStaticMarkup(<VisitorMap {...value}/>);expect(live).toContain('cx="1" cy="2"');expect(live).toContain('visitor-map-fov');
  source.clear();const cleared=renderToStaticMarkup(<VisitorMap {...value}/>);expect(cleared).not.toContain('visitor-map-fov');expect(cleared).toContain('value="placement/placement"');expect(cleared).toContain('visitor-map-work-anchor');
  const wrong=createMapPoseSource('other/revision');wrong.publish([99,1.65,99],1,60);value.poseSource=wrong;expect(renderToStaticMarkup(<VisitorMap {...value}/>)).not.toContain('cx="99"');
+});
+
+it('keeps the compact tools with the drawing frame and routes repeated hints to help',()=>{
+ const html=renderToStaticMarkup(<VisitorMap {...props()}/>);
+ expect(html.indexOf('visitor-map-stage')).toBeLessThan(html.indexOf('visitor-map-tools'));
+ expect(html.indexOf('visitor-map-tools')).toBeLessThan(html.indexOf('visitor-map-expanded'));
+ expect(html).not.toContain('visitor-map-scope');expect(html).not.toContain('공간을 확대하거나 목록에서 작품을 고르세요.');
+ expect(html).toContain('공간·작품 선택');expect(html).toContain('지도 도움말');
 });

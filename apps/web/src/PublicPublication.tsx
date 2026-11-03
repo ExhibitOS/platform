@@ -95,7 +95,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [highContrast, setHighContrast] = useMediaPreference("(prefers-contrast: more)");
   const viewingHeading = useRef<HTMLHeadingElement>(null);
   const [viewingFocusRequest,setViewingFocusRequest]=useState(0);
-  useEffect(()=>{if(viewingFocusRequest)viewingHeading.current?.focus();},[viewingFocusRequest]);
+  useEffect(()=>{if(!viewingFocusRequest)return;const heading=viewingHeading.current,panel=heading?.closest<HTMLDetailsElement>('.publication-accessibility-menu');if(panel)panel.open=true;heading?.focus();},[viewingFocusRequest]);
   const guideHeading = useRef<HTMLHeadingElement>(null);
   const modeChanged = useRef(false);
   useEffect(() => {
@@ -108,7 +108,6 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
-  const [coverViewingStyle,setCoverViewingStyle]=useState<ViewingStyle>('free');
   const preferredViewingStyle=useRef<ViewingStyle>('free');
   const cancelMapTravel=useRef<(()=>void)|null>(null);
   const registerMapCancel=useCallback((cancel:(()=>void)|null)=>{cancelMapTravel.current=cancel;},[]);
@@ -116,7 +115,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [viewingState,setViewingState]=useState<ViewingState>({style:'free',status:'idle',message:''});
   const [viewingReady,setViewingReady]=useState(false);
   useEffect(()=>{
-    preferredViewingStyle.current='free';setCoverViewingStyle('free');setViewingState({style:'free',status:'idle',message:''});
+    preferredViewingStyle.current='free';setViewingState({style:'free',status:'idle',message:''});
     return()=>{viewingSession.current?.dispose();viewingSession.current=null;};
   },[value?.publication.id,value?.publication.revisionSha256]);
   const registerViewing=useCallback((renderer:ViewingRenderer|null)=>{
@@ -126,9 +125,9 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     viewingSession.current=current;setViewingState(current.state());
     if(preferredViewingStyle.current==='ordered'){cancelMapTravel.current?.();current.actions.setStyle('ordered');}
   },[value]);
-  const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;setCoverViewingStyle(style);};
+  const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;if(value)setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceMade:true}));};
   const viewingActions:ViewingActions={setStyle(style){cancelMapTravel.current?.();chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>{cancelMapTravel.current?.();viewingSession.current?.actions.step(direction);},select:placementId=>{cancelMapTravel.current?.();viewingSession.current?.actions.select(placementId);},cancel:()=>viewingSession.current?.actions.cancel()};
-  const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean}|null>(null);
+  const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean;choiceShown?:boolean;choiceMade?:boolean;hintShown?:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
@@ -250,7 +249,6 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
 
             <div className="publication-entry-actions">
-              {mode==='cover'&&<ViewingStyles variant="cover" state={{style:coverViewingStyle,status:'idle',message:''}} items={viewingItems} available={viewingPlan.stops.length>0} actions={{...viewingActions,setStyle:chooseViewingStyle}}/>}
               {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
             </div>
           </EntranceCover></div>
@@ -263,12 +261,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}
           {privateEditorHref && <div className="publication-private-entry"><a className="publication-private-edit" href={privateEditorHref} onClick={()=>{if(mode!=="3d"||!stageReady||viewerUnavailable)discardPrivateView(value.publication.id,value.publication.revisionSha256,document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'');}}>직접 꾸며보기</a><p>이 브라우저에 개인 사본을 만들어요.</p></div>}
-          <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
-          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
-          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
-          {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
-          <section aria-label="관람 방식과 접근성 설정">
+          <section className="publication-settings-menu" aria-label="설정"><h2>설정</h2>
+          <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
+          <details className="publication-accessibility-menu"><summary>접근성</summary><section aria-label="관람 방식과 접근성 설정">
             {runtime!.design.translations.length>0&&<label>표지 언어<select value={entranceLocale} onChange={e=>setEntranceLocale(e.target.value)}><option value="">원문</option>{runtime!.design.translations.map(t=><option key={t.locale} value={t.locale}>{t.locale}</option>)}</select></label>}
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
                 <p>글·목록 관람에서는 3D 공간과 음성을 불러오지 않습니다. 준비된 작은 미리보기와 함께 설명, 대본, 치수와 권리를 읽을 수 있습니다.</p>
@@ -279,20 +275,27 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
               <label><input type="checkbox" checked={proximityDetail} onChange={e => setProximityDetail(e.target.checked)} />작품에 가까워지면 상세 보기 자동 열기 (기본 꺼짐)</label>
             </>}
           </section>
-          {mode === "text" && <button onClick={() => {setMenuOpen(false);modeChanged.current=true;entry.cancel();}}>전시 표지로</button>}
+          </details></section>
+          <details className="publication-info-menu"><summary>전시 정보</summary>
+          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
+          <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
+          {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
           <details className="publication-record">
-            <summary>전시 정보</summary>
+            <summary>파일 기록</summary>
             <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
             <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
             <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
           </details>
+          </details>
+          {mode === "text" && <button onClick={() => {setMenuOpen(false);modeChanged.current=true;entry.cancel();}}>전시 표지로</button>}
+
           </div></details>
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
+            <Viewer helpReady={mode==='3d'&&stageReady&&viewingReady&&!entry.entryFailed&&!viewerUnavailable} choiceRequired={!(guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&(guideDismissal.choiceShown||guideDismissal.choiceMade||guideDismissal.dismissed))&&viewingState.style==='free'&&preferredViewingStyle.current==='free'} orderedAvailable={viewingReady&&viewingPlan.stops.length>0} choicePending={viewingState.status==='preparing'} onChoicePresented={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceShown:true}))} onChooseViewingStyle={style=>{if(style===viewingState.style)chooseViewingStyle(style);else viewingActions.setStyle(style);}} hintAlreadyShown={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&!!guideDismissal.hintShown} onHintShown={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),hintShown:true}))} viewingStyle={viewingState.style} onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
-              onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}
+              onGuideDismissedChange={dismissed=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{}),publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed}))}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary></div>}
