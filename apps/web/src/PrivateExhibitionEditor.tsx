@@ -93,7 +93,10 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
   let live=true;
   void (async()=>{
    await seed.source.local!.check();const rows=await store.list();
-   const selectedId=readActiveCopy(seed.storeName),saved=rows.find(row=>row.id===selectedId)??rows[0]??await store.save(starterDraft(seed));checkPrivateCandidate(seed,saved.draft.candidate);
+   const selectedId=readActiveCopy(seed.storeName);
+   const existing=rows.find(row=>row.id===selectedId)??rows[0];
+   if(!existing&&seed.existingOnly)throw Error('PRIVATE_COPY_MISSING');
+   const saved=existing??await store.save(starterDraft(seed));checkPrivateCandidate(seed,saved.draft.candidate);
    let previous:LocalDraft|null;try{previous=await store.privatePrevious(saved.id);if(previous)checkPrivateCandidate(seed,previous.draft.candidate);}catch{previous=null;}
    if(!live)return;setPreviousAvailable(previous!==null);rememberActiveCopy(seed.storeName,saved.id);record.current=saved;setCopies(rows.length?rows:[saved]);const next=createGeometryState(saved.draft.candidate);stateRef.current=next;setState(next);setSelection({kind:'room',id:safePrivateView(next.present,seed.initialView)?.roomId??starterRoom(next.present).id});setNotice('이 브라우저만의 편집 사본이에요. 공개 전시는 바뀌지 않아요.');
   })().catch(()=>{if(live)setError('편집 사본을 열 수 없어요. 기존 저장본은 유지됩니다. 페이지를 다시 열어 확인해 주세요.');});

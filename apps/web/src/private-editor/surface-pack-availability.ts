@@ -20,6 +20,6 @@ export async function loadAvailableSurfacePacks(seed:PrivateSeed,signal:AbortSig
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];let total=0;
   try{for(;;){const {done,value}=await reader.read();if(done)break;total+=value.byteLength;if(total>4*1024*1024){await reader.cancel();return [];}chunks.push(value);}}finally{reader.releaseLock();}
   const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  return availableSurfacePacks(JSON.parse(new TextDecoder().decode(bytes)),seed);
+  return availableSurfacePacks(JSON.parse(new TextDecoder().decode(bytes)),seed.catalogueBase??seed);
  }catch{return [];}
 }

@@ -49,7 +49,7 @@ test('deployment guard admits only current main and authenticated, complete data
   if(name==='corrupt runtime')await writeFile(join(f.output,'index.html'),'corrupt');
   if(name==='altered headers')await writeFile(join(f.output,'_headers'),'bad');
   if(name==='runtime manifest changed'){const p=join(f.output,'static-export-manifest.json');const m=JSON.parse(await readFile(p));m.extra='valid runtime metadata';await writeFile(p,JSON.stringify(m));}
-  const run=()=>deployReferenceDemo({env,output:f.output,remoteHead:async()=>{if(name==='git failure')throw Error('git failed');return name==='newer during validation'&&++reads===2?'c'.repeat(40):remote;},checkoutHead:async()=>name==='wrong checkout'?'d'.repeat(40):commit,deploy:async()=>{calls++;},log:s=>log.push(s)});
+  const run=()=>deployReferenceDemo({env,output:f.output,approvedBases:[],remoteHead:async()=>{if(name==='git failure')throw Error('git failed');return name==='newer during validation'&&++reads===2?'c'.repeat(40):remote;},checkoutHead:async()=>name==='wrong checkout'?'d'.repeat(40):commit,deploy:async()=>{calls++;},log:s=>log.push(s)});
   if(name==='approved'||name==='runtime manifest changed'){
    assert.equal(await run(),'deployed');assert.equal(calls,1);
    const proof=JSON.parse(log[0]);assert.equal(proof.indexSha256,f.pin);assert.equal(proof.publicationId,'synthetic');assert.equal(proof.sourceCommit,commit);assert.match(proof.manifestSha256,/^[a-f0-9]{64}$/);

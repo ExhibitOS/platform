@@ -8,23 +8,34 @@ import {validateCoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 import {packageFurnishingNoticeManifest} from './vendor/furnishings-v1.mjs';
 interface FileEntry {path:string;bytes:number;sha256:string;mime:string;assetId?:string}
 const hash=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes)))].map(x=>x.toString(16).padStart(2,"0")).join("");
-async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false){
+async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false,base=""){
  if(!/^data\/[a-f0-9]{64}\.(json|bin)$/.test(path)&&path!=="static-publication-index.json")throw Error("STATIC_PATH");
  // Only exact content-addressed paths are read with the normal HTTP cache.
  // The mutable index always bypasses it; each response is still hashed below.
- const response=await fetch("/"+path,{credentials:"omit",cache:cacheEligible?'default':'no-store',signal:signal??AbortSignal.timeout(30000),redirect:"error"});
+ const response=await fetch(base+"/"+path,{credentials:"omit",cache:cacheEligible?'default':'no-store',signal:signal??AbortSignal.timeout(30000),redirect:"error"});
  if(!response.ok||!response.body)throw Error("STATIC_RESPONSE");const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
  try{for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
  const result=new Uint8Array(length);let offset=0;for(const c of chunks){result.set(c,offset);offset+=c.length;}return result;
 }
-export async function loadStaticPublication():Promise<PublicPublication>{
- const expected=document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
+type StaticIndex={version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[]};
+const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
+async function verifiedIndex(expected:string|undefined,base=""):Promise<StaticIndex>{
  if(!expected||! /^[a-f0-9]{64}$/.test(expected))throw Error("STATIC_INDEX");
- const bytes=await read("static-publication-index.json",1048576);if(await hash(bytes)!==expected)throw Error("STATIC_INDEX_HASH");
- const index=JSON.parse(new TextDecoder().decode(bytes)) as {version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[]};
+ const bytes=await read("static-publication-index.json",1048576,undefined,false,base);
+ if(await hash(bytes)!==expected)throw Error("STATIC_INDEX_HASH");
+ return JSON.parse(new TextDecoder().decode(bytes)) as StaticIndex;
+}
+function assetInventory(index:StaticIndex){
+ const rows=(entries:FileEntry[]=[])=>entries.map(e=>JSON.stringify([e.path,e.sha256,e.bytes,e.mime])).sort();
+ return JSON.stringify([rows(index.assets),rows(index.resources),rows(index.furnishingNotices)]);
+}
+export async function loadStaticPublication(previousIndex?: string):Promise<PublicPublication>{
+ const archive=previousIndex&&/^[a-f0-9]{64}$/.test(previousIndex)?`/private-copy-bases/${previousIndex}`:"";
+ const index=await verifiedIndex(previousIndex??indexMeta(),archive);
+ if(previousIndex&&assetInventory(index)!==assetInventory(await verifiedIndex(indexMeta())))throw Error("STATIC_PREVIOUS_ASSETS");
  if(![1,2,3].includes(index.version)||!Array.isArray(index.assets)||index.assets.length>20000||index.version===1&&(index.resources!==undefined||index.furnishingNotices!==undefined)||index.version===2&&(!Array.isArray(index.resources)||index.resources.length>13||index.furnishingNotices!==undefined)||index.version===3&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>13)))throw Error("STATIC_INDEX");
  if(!index.publication||! /^[a-f0-9]{64}$/.test(index.publication.sha256)||!Number.isSafeInteger(index.publication.bytes)||index.publication.bytes<1||index.publication.bytes>1048576||index.publication.mime!=='application/json')throw Error("STATIC_INDEX");
- const p=await read(index.publication.path,index.publication.bytes,undefined,index.publication.path===`data/${index.publication.sha256}.json`);if(p.length!==index.publication.bytes||await hash(p)!==index.publication.sha256)throw Error("STATIC_PUBLICATION_HASH");
+ const p=await read(index.publication.path,index.publication.bytes,undefined,!archive&&index.publication.path===`data/${index.publication.sha256}.json`,archive);if(p.length!==index.publication.bytes||await hash(p)!==index.publication.sha256)throw Error("STATIC_PUBLICATION_HASH");
  const value=JSON.parse(new TextDecoder().decode(p)) as PublicPublication,draft=newDraft();draft.exhibitionId=value.exhibition.id;draft.candidate=value.exhibition;
  if(value.publication.status!=="published"||!validateDraft(draft).valid||!validateFurnishings(value.exhibition).valid||!validFootstepPublication(value)||await hash(new TextEncoder().encode(freezeCanonical(value.exhibition)))!==value.publication.revisionSha256)throw Error("STATIC_PUBLICATION");
  const ids=new Set<string>();for(const entry of index.assets){if(!entry.assetId||ids.has(entry.assetId)||!Number.isSafeInteger(entry.bytes)||entry.bytes<1||entry.bytes>25*1024*1024||! /^[a-f0-9]{64}$/.test(entry.sha256))throw Error("STATIC_ASSET");ids.add(entry.assetId);}
