@@ -1,3 +1,5 @@
+import {NATIVE_SCENE_SNAPSHOT_CAPABILITY,checkedSceneSnapshotRequest,checkedSavedScene,snapshotCandidateHash,sceneSnapshotBinding,snapshotEditSettled,type SceneSnapshotRequest,type SceneSnapshotReply} from './native-scene-snapshot';
+import type {SceneSnapshotCapture} from './scene-snapshot';
 import {NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,checkedArchitecturalFinishRequest,nativeArchitecturalFinishCandidate,type ArchitecturalFinishRequest} from './native-architectural-finishes';
 import {NATIVE_PLAQUE_INSPECTOR_CAPABILITY,checkedPlaqueInspectorRequest,nativePlaqueInspectorCandidate,type PlaqueInspectorRequest} from './native-plaque-inspector';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -32,7 +34,7 @@ import {NATIVE_FURNISHING_VISUALS_CAPABILITY,checkedFurnishingVisualsRequest,nat
 import {NATIVE_CAMERA_INTERACTION_CAPABILITY,NativeCameraInteractionGate,type CameraInteractionRequest} from './native-camera-interaction';
 import type {CameraInteractionMode} from './geometry/camera-mode';
 import './native-viewport.css';
-const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY] as const;
+const NATIVE_CAPABILITIES=[...NATIVE_CATALOG_CAPABILITIES,NATIVE_PLACEMENT_CAPABILITY,NATIVE_LIGHT_INSPECTOR_CAPABILITY,NATIVE_BENCH_INSPECTOR_CAPABILITY,NATIVE_LIGHT_DETAILS_CAPABILITY,NATIVE_PLAQUE_INSPECTOR_CAPABILITY,NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,NATIVE_SPACE_SETTINGS_CAPABILITY,NATIVE_VIEWING_PLAN_CAPABILITY,NATIVE_ENTRANCE_PREVIEW_CAPABILITY,SURFACE_MATERIAL_TEXTURE_CAPABILITY,NATIVE_FURNISHING_VISUALS_CAPABILITY,NATIVE_PLINTH_ENVELOPE_CAPABILITY,NATIVE_CAMERA_INTERACTION_CAPABILITY,NATIVE_SCENE_SNAPSHOT_CAPABILITY] as const;
 declare global {interface Window {exhibitosViewport?:{
  accept:(v:unknown)=>Promise<{accepted:true;presentations:typeof NATIVE_VIEWPORT_PRESENTATIONS;capabilities:readonly string[];cameraInteractionMode:CameraInteractionMode;boundedReadOnly:boolean;editingCapability?:NativeBoundedEditingCapability}>;
  setCameraInteraction:(v:unknown)=>Promise<CameraInteractionRequest&{accepted:true}>;
@@ -48,6 +50,7 @@ declare global {interface Window {exhibitosViewport?:{
  benchInspector:(v:BenchInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{benchId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  lightInspector:(v:LightInspectorRequest)=>Promise<ReturnType<typeof catalogBinding>&{lightId:string;candidate:NativeViewportFrame['draft']['candidate']}>;
  placement:(v:PlacementRequest)=>ReturnType<NativePlacement['request']>;
+ sceneSnapshot:(v:SceneSnapshotRequest)=>Promise<SceneSnapshotReply>;
  thumbnail:(v:ThumbnailRequest)=>Promise<ReturnType<typeof catalogBinding>&{artworkId:string;revision:number;pngBase64:string;width:number;height:number}>;
  findSelection:(v:FindRequest)=>Promise<ReturnType<typeof catalogBinding>&{selection:FindRequest['selection'];accepted:true}>;
 };webkit?:{messageHandlers?:{exhibitosViewport?:{postMessage:(v:unknown)=>void}}}}}
@@ -83,9 +86,13 @@ function beginCatalogRequest(request:CatalogBinding){
  seenCatalogRequests.add(request.requestId);if(seenCatalogRequests.size>128)seenCatalogRequests.delete(seenCatalogRequests.values().next().value!);
  const abort=new AbortController();catalogRequests.add(abort);return {abort,signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])};
 }
-function post(frame:NativeViewportFrame,type:string,body:unknown){window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
+function post(frame:NativeViewportFrame,type:string,body:unknown){if(frame===current&&type==='candidate'){pendingEditorCommit={epoch:frame.epoch,sequence:frame.sequence,candidate:freezeCanonical(body)};activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_EDIT_CHANGED'));}if(frame===current&&type==='selection')activeSnapshotAbort?.abort(Error('SCENE_SNAPSHOT_SELECTION_CHANGED'));window.webkit?.messageHandlers?.exhibitosViewport?.postMessage({version:1,epoch:frame.epoch,sequence:frame.sequence,type,body});}
 let viewportChanged:(()=>void)|undefined;
 function cameraReset(reason:'hidden'|'unavailable'){if(nativeCameraMode==='object')return;nativeCameraMode='object';if(current)post(current,'camera-interaction-reset',{mode:'object',reason});viewportChanged?.();}
+let snapshotSource:{document:NativeViewportFrame['draft']['candidate'];capture:SceneSnapshotCapture;idle():boolean}|null=null;
+let snapshotBusy=false;
+let pendingEditorCommit:{epoch:string;sequence:number;candidate:string}|undefined;
+let activeSnapshotAbort:AbortController|undefined;
 let placementRendererReady=false;
 let lightPending=false;
 let benchPending=false;
@@ -103,7 +110,7 @@ const entrancePreview=new NativeEntrancePreview({frame:()=>current,authenticate:
   const box=root.getBoundingClientRect();return {mode:'editor',imageStatus:'absent',viewport:{width:innerWidth,height:innerHeight},snapshotRect:{x:box.x,y:box.y,width:box.width,height:box.height}};
  },
 });
-const requireEntranceIdle=()=>{if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
+const requireEntranceIdle=()=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');if(entrancePreview.active)throw Error('ENTRANCE_PREVIEW_ACTIVE');if(viewingPlanPending)throw Error('VIEWING_PLAN_INTENT_ACTIVE');if(furnishingPending)throw Error('FURNISHING_INTENT_ACTIVE');};
 const requireEditable=()=>{requireEntranceIdle();if(acceptPending||currentReadOnly||currentBoundedEditable)throw Error('VIEWPORT_BOUNDED_READ_ONLY');};
 const placement=new NativePlacement({frame:()=>current,notify:()=>viewportChanged?.(),
  suspended:()=>acceptPending||currentReadOnly,
@@ -162,14 +169,14 @@ window.exhibitosViewport={
   if(current&&freezeCanonical(current.draft)===freezeCanonical(frame.draft))frame.draft=current.draft;
   if((frame.disabled||frame.presentation==='plan'||cameraUnavailable())&&nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}
   acceptPending=false;if(needsAuthority&&placement.active)placement.cancel('큰 전시는 보기 전용이어서 배치를 취소했어요.');
-  cameraGate.advance();entrancePreview.invalidate();current=frame;currentBoundedEditable=needsAuthority&&!!editingCapability;currentReadOnly=needsAuthority&&!editingCapability;placement.rebind(frame);
+  cameraGate.advance();entrancePreview.invalidate();current=frame;if(pendingEditorCommit&&snapshotEditSettled(pendingEditorCommit,frame,false))pendingEditorCommit=undefined;currentBoundedEditable=needsAuthority&&!!editingCapability;currentReadOnly=needsAuthority&&!editingCapability;placement.rebind(frame);
   if(currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt)receive?.(frame,currentSession);
   else {currentSession=session;receive?.(frame,session);}
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
   return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:NATIVE_CAPABILITIES,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
   }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
  },
- setCameraInteraction:value=>cameraGate.request(value),
+ setCameraInteraction:value=>{if(snapshotBusy)throw Error('SCENE_SNAPSHOT_ACTIVE');return cameraGate.request(value);},
  placement:value=>{requireEditable();if(value?.phase==='begin'&&architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(value?.phase==='begin'&&plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(value?.phase==='begin'&&lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(value?.phase==='begin'&&benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(value?.phase==='begin'&&!placementRendererReady)throw Error('PLACEMENT_RENDERER_NOT_READY');return placement.request(value);},
  furnishingVisualsV2:async value=>{
   requireEditable();
@@ -264,6 +271,26 @@ window.exhibitosViewport={
   try{await catalogSession(frame!,signal);const candidate=nativeLightInspectorCandidate(frame!,request);await catalogSession(frame!,signal);return {...catalogBinding(request),lightId:request.lightId,candidate};}
   finally{lightPending=false;viewportChanged?.();catalogRequests.delete(abort);abort.abort();}
  },
+ sceneSnapshot:async value=>{
+  requireEntranceIdle();
+  const frame=current,source=snapshotSource;
+  // A newer unchanged frame may be an explicit rollback, but only after the
+  // renderer has applied it and proved all editable target poses match it.
+  if(pendingEditorCommit&&frame&&snapshotEditSettled(pendingEditorCommit,frame,!!source?.idle()&&freezeCanonical(source.document)===freezeCanonical(frame.draft.candidate)))pendingEditorCommit=undefined;
+  if(acceptPending||pendingEditorCommit||document.hidden||placement.active||lightPending||benchPending||plaquePending||architecturalPending||lightDetailsPending||spaceSettingsPending)throw Error('SCENE_SNAPSHOT_UNAVAILABLE');
+  const request=checkedSceneSnapshotRequest(value,frame);
+  if(!source||!source.idle()||freezeCanonical(source.document)!==freezeCanonical(frame!.draft.candidate))throw Error('SCENE_SNAPSHOT_NOT_READY');
+  const {abort,signal}=beginCatalogRequest(request);snapshotBusy=true;activeSnapshotAbort=abort;
+  const valid=()=>!signal.aborted&&!document.hidden&&!acceptPending&&!pendingEditorCommit&&current===frame&&snapshotSource===source&&source.idle()&&!placement.active&&!lightPending&&!benchPending&&!plaquePending&&!architecturalPending&&!lightDetailsPending&&!spaceSettingsPending&&!viewingPlanPending&&!furnishingPending;
+  try{
+   await catalogSession(frame!,signal);const saved=await checkedSavedScene(frame!,request,signal);const candidateSha256=await snapshotCandidateHash(frame!);
+   if(!valid())throw Error('SCENE_SNAPSHOT_STALE');
+   const image=await source.capture(request,signal);
+   await catalogSession(frame!,signal);const after=await checkedSavedScene(frame!,request,signal);
+   if(!valid()||freezeCanonical(saved)!==freezeCanonical(after))throw Error('SCENE_SNAPSHOT_STALE');
+   return {...sceneSnapshotBinding(request),saved,candidateSha256,...image};
+  }finally{snapshotBusy=false;if(activeSnapshotAbort===abort)activeSnapshotAbort=undefined;catalogRequests.delete(abort);abort.abort();}
+ },
  thumbnail:async value=>{
   requireEntranceIdle();
   const frame=current,request=checkedCatalogRequest(value,frame,'thumbnail');const {abort,signal}=beginCatalogRequest(request);
@@ -297,7 +324,7 @@ function Viewport(){
  // GeometryPreview owns an expensive renderer effect keyed by this function.
  // Camera/selection frames must not recreate the scene or overwrite the camera.
  const appearance=useMemo(()=>(id:string)=>{const m=document?materialFor(document,id):{color:'#ffffff',roughness:1,metalness:0};const hex=m.color.slice(1);return {baseColor:[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255) as [number,number,number],roughness:m.roughness,metalness:m.metalness};},[document]);
- useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
+ useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;snapshotSource=null;pendingEditorCommit=undefined;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
  useEffect(()=>{if(planPreview&&state&&!nativePlanPreviewCurrent(planPreview,state.frame))setPlanPreview(null);},[state,planPreview]);
  if(!state)return <p role="status">네이티브 전시를 기다리고 있습니다.</p>;
  const {frame,session}=state;
@@ -325,7 +352,7 @@ function Viewport(){
   },
  };
  return <><div className="native-viewport-surface" hidden={plan} inert={plan}>
-  <GeometryPreview fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
+  <GeometryPreview onSceneSnapshotReady={source=>{snapshotSource=source;}} fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
    placementPreview={placementInstaller} placementPreviewVersion={placementVersion} appearance={appearance} onEntranceSceneReady={scene=>{entranceScene=scene??undefined;if(!scene)entrancePreview.invalidate();}} onRenderState={report=>{post(frame,'status',report);const placed=new Set(frame.draft.candidate.placements.map(p=>p.artworkRevisionId));setEntranceStage({ready:report.ready&&report.navigationReady&&(report.loaded>0||placed.size===0),error:report.navigationFailed||(report.loaded===0&&report.failed>0&&report.failed>=placed.size),message:report.message,phase:!report.ready?'space':report.loaded===0&&placed.size>0?'artwork':'navigation'});}}/>
  </div><div className="native-viewport-surface native-viewport-plan" hidden={!plan} inert={!plan}>
   <StudioFloorPlan document={shownPreview?.candidate??frame.draft.candidate} editor={planEditor}/>

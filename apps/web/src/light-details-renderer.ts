@@ -47,7 +47,7 @@ export function installLightDetails(three:typeof Three,document:Exhibition,rooms
         for(let i=0;i<12;i++){const a=i*Math.PI/6,b=(i+1)*Math.PI/6,p=new three.Vector3(Math.cos(a)*radius,Math.sin(a)*radius,-distance).applyQuaternion(rotation).add(from),q=new three.Vector3(Math.cos(b)*radius,Math.sin(b)*radius,-distance).applyQuaternion(rotation).add(from);points.push(...p.toArray(),...q.toArray(),...from.toArray(),...p.toArray());}
       }
       const g=new three.BufferGeometry();geometries.set('guide:'+item.id,g);g.setAttribute('position',new three.Float32BufferAttribute(points,3));
-      const line=new three.LineSegments(g,material('guide',()=>new three.LineBasicMaterial({color:'#b57826',transparent:true,opacity:.6})));parent.add(line);groups.push(line);guideCount=1;
+      const line=new three.LineSegments(g,material('guide',()=>new three.LineBasicMaterial({color:'#b57826',transparent:true,opacity:.6})));line.userData.sceneSnapshotOverlay=true;parent.add(line);groups.push(line);guideCount=1;
     }
     records.push({lightId:item.id,fixture:entry.fixture,fixtureMeshes,guideCount,target:aimed??null,penumbra:light instanceof three.SpotLight?light.penumbra:null,range:light instanceof three.SpotLight||light instanceof three.PointLight?light.distance:null,color:light.color.toArray()});
   }}catch(error){for(const restore of changes)restore();for(const g of groups)g.removeFromParent();for(const g of geometries.values())g.dispose();for(const m of materials.values())m.dispose();throw error;}
