@@ -109,9 +109,9 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
     if (event.key !== "Escape") return;
     // The input listener pauses the current session. A repeated Escape must not
     // erase that explicit resume choice; closing a mandatory dialog still does.
-    if (root?.querySelector('dialog.artwork-detail[open]') &&
-        !root.querySelector('dialog[open]:not(.artwork-detail), [aria-modal="true"]:not(.artwork-detail)')) {
-      // A viewer dialog's native cancel handler will close its obstruction.
+    if ((root?.querySelector('dialog.artwork-detail[open]') || open()) &&
+        !root?.querySelector('dialog[open]:not(.artwork-detail), [aria-modal="true"]:not(.artwork-detail)')) {
+      // A viewer dialog or panel's own handler will close its obstruction.
       // Keep only the prior fresh-input eligibility; pause still clears every
       // held key, pointer, joystick and pending capture before that close.
       gate.cancel(); pause("panel");

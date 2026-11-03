@@ -140,9 +140,9 @@ test('outside dismissal requires the same panel and a short unmoved completed ge
  g.begin(1,20,30,panel,0);g.cancel();expect(g.end(1,20,30,panel,true,100)).toBe(false);
 });
 
-test('viewer dialog Escape preserves fresh-input intent while unknown modals and hidden displays block it',()=>{
- let viewer=false,unknown=false;const doc=Object.assign(new EventTarget(),{activeElement:null as unknown,hidden:false});
- const root=Object.assign(new EventTarget(),{contains:(target:unknown)=>target===canvas,querySelectorAll:()=>[],querySelector:(selector:string)=>{
+test('viewer dialog and parent panel Escape preserve return intent while explicit stops and unknown modals fence it',()=>{
+ let viewer=false,unknown=false,parent=false;const doc=Object.assign(new EventTarget(),{activeElement:null as unknown,hidden:false});
+ const root=Object.assign(new EventTarget(),{contains:(target:unknown)=>target===canvas,querySelectorAll:()=>parent?[{open:true}]:[],querySelector:(selector:string)=>{
   if(selector==='dialog.artwork-detail[open]')return viewer?{}:null;
   if(selector.includes(':not(.artwork-detail)'))return unknown?{}:null;
   return viewer||unknown?{}:null;
@@ -152,11 +152,12 @@ test('viewer dialog Escape preserves fresh-input intent while unknown modals and
  const resume=vi.fn(),reasons:(string|undefined)[]=[];
  const handler=installPanelResume(canvas as unknown as HTMLCanvasElement,reason=>{reasons.push(reason);handler.mode(true,true,reason);},resume);
  const escape=()=>doc.dispatchEvent(Object.assign(new Event('keydown'),{key:'Escape'}));
- handler.mode(true,false);handler.mode(true,true,'panel');viewer=true;escape();
+ handler.mode(true,false);handler.mode(true,true,'panel');const returnIntent=handler.intent();viewer=true;parent=true;escape();
  expect(reasons.at(-1)).toBe('panel');expect(resume).not.toHaveBeenCalled();viewer=false;
- const returnIntent=handler.intent();canvas.style.visibility='hidden';expect(returnIntent()).toBe(false);canvas.style.visibility='';expect(returnIntent()).toBe(true);expect(resume).toHaveBeenCalledOnce();
+ expect(returnIntent()).toBe(false);escape();expect(reasons.at(-1)).toBe('panel');expect(returnIntent()).toBe(false);parent=false;
+ canvas.style.visibility='hidden';expect(returnIntent()).toBe(false);canvas.style.visibility='';expect(returnIntent()).toBe(true);expect(returnIntent()).toBe(false);expect(resume).toHaveBeenCalledOnce();
  handler.mode(true,false);handler.mode(true,true,'panel');unknown=true;escape();unknown=false;expect(handler.intent()()).toBe(false);
- handler.mode(true,false);escape();expect(reasons.at(-1)).toBe('escape');expect(handler.movement(true)).toBe(true);
+ handler.mode(true,false);const stoppedIntent=handler.intent();escape();expect(reasons.at(-1)).toBe('escape');expect(stoppedIntent()).toBe(false);expect(handler.movement(true)).toBe(true);
  handler.dispose();
 });
 
