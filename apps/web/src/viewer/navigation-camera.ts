@@ -171,19 +171,20 @@ export async function createWalkingCamera({
     else onMessage("걷기 중입니다. Esc 또는 일시 정지로 멈출 수 있습니다.");
     frame = requestAnimationFrame(tick);
   };
-  const start = () => {
+  const start = (shouldFocus?:()=>boolean) => {
     if (disposed || seated || orderedViewing) return;
     walking = true;
     captureMessage = "";
     paused = false;
     controls.enabled = false;
     canvas.style.touchAction = "none";
-    input.enable();
+    const focus=shouldFocus?.()!==false;
+    input.enable(focus);
     onMode(true, false);
     last = performance.now();
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(tick);
-    onMessage("걷기를 시작했습니다. 화면에 초점이 있습니다.");
+    onMessage(focus?"걷기를 시작했습니다. 화면에 초점이 있습니다.":"걷기를 시작했습니다.");
   };
   const prepareViewpoint = (id:string) => {
     if(disposed||seated)return undefined;

@@ -7,7 +7,7 @@ export interface WalkingSettings {
   reducedMotion: boolean;
 }
 export interface WalkingActions {
-  start: () => void;
+  start: (shouldFocus?:()=>boolean) => void;
   canResumeInput?: () => boolean;
   resumeInput?: () => boolean;
   teleport?: (viewpointId: string) => void;
