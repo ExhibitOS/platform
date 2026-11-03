@@ -1797,6 +1797,11 @@ export function GeometryPreview({
         const cancelPublicThumbnail=()=>{if(publicThumbnailTask){scheduler.cancel(publicThumbnailTask);publicThumbnailTask=undefined;}};
         const update = () => {
           if (disposed || gpuLost) return;
+          const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
+          const selectedLimits=detailArt?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(detailArt,viewerBudget)?.budget}):undefined;
+          // A verified download-only preparation may settle without an object.
+          // Its expendable encoded cache must also fit the current steady scope.
+          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=(selectedLimits?.resident??assetBudgetBytes))break;byteCache.delete(asset.id);}
           const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
@@ -1814,8 +1819,6 @@ export function GeometryPreview({
           ).length;
           setAssetReport(previous=>previous.loaded===loaded&&previous.failed===failed.size?previous:{loaded,failed:failed.size});
           mapThumbnail.refresh();
-          const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
-          const selectedLimits=detailArt?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(detailArt,viewerBudget)?.budget}):undefined;
           renderer.domElement.dataset.viewerState = JSON.stringify({
             loadedPlacements: loaded,
             authoredLights: document.lights.length,

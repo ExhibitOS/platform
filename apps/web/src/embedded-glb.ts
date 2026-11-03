@@ -1,5 +1,16 @@
 import {embeddedBasisPairs,ordinaryPngRoleSet} from '@exhibitos/studio-contract';
 import type { LoadingManager, Texture } from 'three';
+/** Kept separate so legacy scopes do not newly capture the manager/handlers. */
+function parsedPngBacking(manager:LoadingManager,handlers:RegExp[],owned:Set<string>,assertLoaded:()=>void,bytes:ArrayBuffer){
+  let backing:ArrayBuffer|undefined=bytes;
+  const reject=():never=>{throw Error('EXTERNAL_RESOURCE_REJECTED');};
+  return {get bytes():ArrayBuffer{return backing??reject();},releaseEncoded(){
+    // Geometry keeps its own backing. Do not detach it or close scene images.
+    assertLoaded();backing=undefined;
+    for(const pattern of handlers)manager.removeHandler(pattern);handlers.length=0;
+    owned.clear();manager.setURLModifier(()=>reject());return true;
+  }};
+}
 /** Each GLB image is served from a predeclared immutable embedded buffer, never a URL supplied by the model. */
 export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, compressed?: {parse(bytes:ArrayBuffer,onLoad:(texture:Texture)=>void,onError:(error:unknown)=>void):void}) {
   const bytes = new Uint8Array(input), view = new DataView(input);
@@ -48,16 +59,7 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
   }
   const ktx2Loader=compressed?{load(url:string,onLoad:(texture:Texture)=>void,_progress:unknown,onError:(error:unknown)=>void){const data=compressedImages.get(url);if(!data||disposed){onError(Error('EXTERNAL_RESOURCE_REJECTED'));return;}compressed.parse(data.slice().buffer,texture=>{if(disposed){texture.dispose();onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}textures.add(texture);onLoad(texture);},onError);}}:undefined;
   manager.setURLModifier(url=>{if(owned.has(url))return url;return reject();});
-  const json=new TextEncoder().encode(JSON.stringify(doc)), padded=Math.ceil(json.length/4)*4, bin=bytes.subarray(start);if(padded>1048576||28+padded+bin.length>33554432)reject();let result:ArrayBuffer|undefined=new ArrayBuffer(28+padded+bin.length);const out=new Uint8Array(result), header=new DataView(result);header.setUint32(0,0x46546c67,true);header.setUint32(4,2,true);header.setUint32(8,out.length,true);header.setUint32(12,padded,true);header.setUint32(16,0x4e4f534a,true);out.fill(32,20,20+padded);out.set(json,20);header.setUint32(20+padded,bin.length,true);header.setUint32(24+padded,0x004e4942,true);out.set(bin,28+padded);
-  return {get bytes():ArrayBuffer{return result??reject();},dispose,assertLoaded,ktx2Loader,
-    releaseEncoded(){
-      if(!phasedPng)return false;
-      // Only after every strict ordinary PNG finished decoding. Geometry views
-      // retain their own backing; never detach it or close live scene images.
-      assertLoaded();result=undefined;
-      for(const pattern of handlers)manager.removeHandler(pattern);handlers.length=0;
-      owned.clear();manager.setURLModifier(()=>reject());
-      return true;
-    },
-  };
+  const json=new TextEncoder().encode(JSON.stringify(doc)), padded=Math.ceil(json.length/4)*4, bin=bytes.subarray(start);if(padded>1048576||28+padded+bin.length>33554432)reject();const result=new ArrayBuffer(28+padded+bin.length), out=new Uint8Array(result), header=new DataView(result);header.setUint32(0,0x46546c67,true);header.setUint32(4,2,true);header.setUint32(8,out.length,true);header.setUint32(12,padded,true);header.setUint32(16,0x4e4f534a,true);out.fill(32,20,20+padded);out.set(json,20);header.setUint32(20+padded,bin.length,true);header.setUint32(24+padded,0x004e4942,true);out.set(bin,28+padded);
+  if(!phasedPng)return {bytes:result,dispose,assertLoaded,releaseEncoded:()=>false,ktx2Loader};
+  return Object.assign(parsedPngBacking(manager,handlers,owned,assertLoaded,result),{dispose,assertLoaded,ktx2Loader});
 }
