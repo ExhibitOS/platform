@@ -38,3 +38,12 @@ export function createMapContext(map:VisitorMap){
   return {roomId:found?.id??gap?.id,bounds:found?.crop??gap?.crop??fallback};
  }};
 }
+
+
+/** Interpolate the display crop only; real world pose and room identity are untouched. */
+export function interpolateMapContext(from:VisitorMap['bounds'],to:VisitorMap['bounds'],progress:number):VisitorMap['bounds']{
+ if(progress<=0)return from;if(progress>=1)return to;
+ const t=progress,ease=t*t*(3-2*t),mix=(a:number,b:number)=>a+(b-a)*ease;
+ const width=mix(from.width,to.width),depth=mix(from.depth,to.depth);
+ return {x:mix(from.x+from.width/2,to.x+to.width/2)-width/2,z:mix(from.z+from.depth/2,to.z+to.depth/2)-depth/2,width,depth};
+}

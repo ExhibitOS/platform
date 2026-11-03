@@ -188,7 +188,7 @@ export function GeometryPreview({
   onNavigationState?: (state: NavigationState) => void;
   onCameraPose?: (position: [number,number,number],yaw: number,pitch?: number) => void;
   onMapReady?: (bridge:MapTravelBridge|null) => void;
-  onMapPose?: (position:[number,number,number],yaw:number,horizontalFovDegrees:number) => void;
+  onMapPose?: (position:[number,number,number],yaw:number,horizontalFovDegrees:number,continuous?:boolean) => void;
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
   onPlaqueSelect?: (id:string)=>void;
@@ -748,7 +748,7 @@ export function GeometryPreview({
       const publishMapPose=()=>{
         const callback=mapCallbacks.current.onMapPose,canvas=renderer.domElement;
         if(!callback||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||mapPoseOwner.current!==publicSource||canvas.ownerDocument.hidden||!canvas.isConnected||canvas.style.visibility==='hidden'||canvas.closest('[hidden],[inert]'))return;
-        callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI);
+        callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI,currentWalkMode.current.walking&&!currentWalkMode.current.paused);
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       const render = () => {
@@ -1163,6 +1163,7 @@ export function GeometryPreview({
                   if(disposed)return;
                   panelResume?.mode(walking, paused, reason);
                   currentWalkMode.current = { walking, paused };
+                  publishMapPose();
                   navigationCallbacks.current.onNavigationMode?.(walking, paused);
                   if (!disposed) {
                     setWalkingMode(walking);

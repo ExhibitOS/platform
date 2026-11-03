@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {createMapContext} from './map-context';
+import {createMapContext,interpolateMapContext} from './map-context';
 import type {VisitorMap} from './visitor-map';
 const map:VisitorMap={key:'pub/rev',rooms:[{id:'large',name:'Large',outline:[[0,0],[40,0],[40,20],[0,20]]},{id:'narrow',name:'Narrow',outline:[[40,0],[42,0],[42,20],[40,20]]}],doors:[{id:'a',roomId:'large',edge:[[40,9],[40,11]],connection:{doorId:'b',roomId:'narrow'}},{id:'b',roomId:'narrow',edge:[[40,9],[40,11]],connection:{doorId:'a',roomId:'large'}}],placements:[],bounds:{x:-1,z:-1,width:44,depth:22}};
 it('fits the current room corners and both sides of the door inside a north-up circle',()=>{
@@ -37,4 +37,14 @@ it('keeps large square corners clear of the real 44px toggle in a 128px circle',
   // Actual CSS: right:-2px, top:-2px, 44px diameter => centre(108,20).
   expect(Math.hypot(x-108,z-20)).toBeGreaterThan(22+2);
  }
+});
+
+
+it('retargets centre and span from the displayed crop without delaying the real point',()=>{
+ const context=createMapContext(map),from=context.select([39.9,10]).bounds,to=context.select([40.3,10],'large').bounds;
+ expect(interpolateMapContext(from,to,0)).toEqual(from);expect(interpolateMapContext(from,to,1)).toEqual(to);
+ const half=interpolateMapContext(from,to,.5);
+ expect(half.width).toBeCloseTo((from.width+to.width)/2);expect(half.x+half.width/2).toBeCloseTo((from.x+from.width/2+to.x+to.width/2)/2);
+ const retarget=interpolateMapContext(half,from,0);expect(retarget).toEqual(half);
+ for(const t of [0,.1,.5,.9,1]){const b=interpolateMapContext(from,to,t);expect(b.width).toBe(b.depth);expect(Math.hypot(40.3-b.x-b.width/2,10-b.z-b.depth/2)).toBeLessThan(b.width*.43);}
 });
