@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
 import {createHash} from 'node:crypto';
-import {preparedImageInput,preparedImageHeader} from './prepared-image.ts';
+import {preparedImageInput,preparedImageHeader,type PreparedImage} from './prepared-image.ts';
 import {Imports} from './imports.ts';
 import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from '@exhibitos/storage';
 import type {Session} from './auth.ts';
 const hex='1'.repeat(64);
-const receipt=()=>({mime:'image/png',bytes:123,sha256:hex,recipe:{version:1,role:'baseColor',sampling:'nearest-centre',colourMeaning:'srgb-assumed',recipeSha256:createHash('sha256').update('{"colourMeaning":"srgb-assumed","role":"baseColor","sampling":"nearest-centre","version":1}').digest('hex'),settingsSha256:hex,sourcePixelsSha256:'2'.repeat(64),outputPixelsSha256:'3'.repeat(64),toolVersion:'ExhibitOSManager.ImageIO/1/macOS-27.0.1'}});
+const receipt=():PreparedImage=>({mime:'image/png',bytes:123,sha256:hex,recipe:{version:1,role:'baseColor',sampling:'nearest-centre',colourMeaning:'srgb-assumed',recipeSha256:createHash('sha256').update('{"colourMeaning":"srgb-assumed","role":"baseColor","sampling":"nearest-centre","version":1}').digest('hex'),settingsSha256:hex,sourcePixelsSha256:'2'.repeat(64),outputPixelsSha256:'3'.repeat(64),toolVersion:'ExhibitOSManager.ImageIO/1/macOS-27.0.1'}});
 test('binds the agreed canonical recipe without promoting client provenance to authority',()=>{
  const input=receipt();expect(preparedImageInput(input)).toBe(input);expect(preparedImageInput(undefined)).toBeUndefined();
  expect(()=>preparedImageInput({...input,verified:true})).toThrow('INVALID_DERIVED_INPUT');
