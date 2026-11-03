@@ -15,7 +15,15 @@ function selectedImageCapacity(budget:DeviceBudget,memory:number|undefined):Devi
  // scene/cache budgets, or grants new capacity to unknown/constrained devices.
  return {...budget,...(memory!==undefined&&Number.isFinite(memory)&&memory>4?{selectedImage:{maxCacheBytes:Math.max(budget.maxCacheBytes,96*1024*1024),maxTransitionBytes:Math.max(budget.maxTransitionBytes??budget.maxCacheBytes,128*1024*1024)}}:{})};
 }
-export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return selectedImageCapacity(DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"],input.deviceMemory);}
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {
+ const memory=input.deviceMemory;
+ const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
+ // Limits bound tracked allocations. They do not reserve memory up front.
+ if(memory!==undefined&&Number.isFinite(memory)&&memory>=8)
+  return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
+ if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
+ return selectedImageCapacity(budget,memory);
+}
 /** Explicit existing high-quality choice only. Auto and known constrained devices
  * retain their previous triangle/resident limits. Explicit desktop uses the
  * development starting budget (192 MiB steady / 256 MiB transition); actual
@@ -23,7 +31,13 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  if(profile==='auto')return deviceBudget(input);
- if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return selectedImageCapacity(DESKTOP_NEAR_BUDGET,input.deviceMemory);
+ if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
+  const memory=input.deviceMemory;
+  const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
+    ?{...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024}
+    :DESKTOP_NEAR_BUDGET;
+  return selectedImageCapacity(budget,memory);
+ }
  return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}

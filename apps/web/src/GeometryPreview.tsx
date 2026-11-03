@@ -1720,12 +1720,49 @@ export function GeometryPreview({
           if(increased)for(const id of materialBudgetDeferred){retryAfter.delete(id);failed.delete(id);materialBudgetDeferred.delete(id);}
         };
         growAssetLimits();
+        const evictOffroomArtwork=(id:string)=>{
+          const old=objects.get(id),assetId=active.get(id);
+          if(!old)return;
+          for(const placement of ordered.filter(item=>item.artworkRevisionId===id)){
+            const group=placements.get(placement.id.toLowerCase());
+            if(group){group.clear();for(const bound of placeholders.get(placement.id.toLowerCase())??[])group.add(bound);}
+          }
+          const retained=minimumObjects.get(id);
+          if(retained){minimumObjects.delete(id);destroy(retained.object);}
+          objects.delete(id);active.delete(id);requested.delete(id);desired.delete(id);xrArtworks.delete(id);
+          destroy(old);
+          if(assetId){byteCache.delete(assetId);stage(assetId,'evicted-offroom-minimum');}
+        };
+        const reclaimOffroom=(target:string,deficit:()=>number)=>{
+          if(deficit()<=0)return;
+          const candidates=[...objects.keys()].filter(id=>id!==target&&id!==currentArtwork&&id!==viewingCurrentArt&&id!==detailPinnedArtwork&&
+            !mapPins.has(id)&&!viewingPins.has(id)&&!pending.has(id)&&observedVisible.get(id)===false&&observedEligible.get(id)===false);
+          // Leave the old working set intact when this phase cannot fit even
+          // after reclaiming all eligible off-room display resources.
+          const reclaimable=candidates.reduce((sum,id)=>sum+
+            (objects.get(id)?.userData.viewer?.decodedBytes??0)+
+            (minimumObjects.get(id)?.object.userData.viewer?.decodedBytes??0),0);
+          if(reclaimable<deficit())return;
+          candidates.sort((a,b)=>(lastAttended.get(a)??0)-(lastAttended.get(b)??0));
+          let changed=false;
+          for(const id of candidates){
+            if(deficit()<=0)break;
+            evictOffroomArtwork(id);changed=true;
+          }
+          if(changed){xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);shadowPass.invalidate();render();}
+        };
+        const neededMinimum=(task: {art: Document["artworks"][number];prepareOnly:boolean;detailPromotion?:boolean})=>{
+          const id=task.art.revisionId;
+          return !task.prepareOnly&&!task.detailPromotion&&!active.has(id)&&
+            (observedVisible.get(id)===true||observedEligible.get(id)===true||mapPins.has(id)||viewingPins.has(id));
+        };
         const reserve=(key:string,bytes:number)=>{
-          const limit=requestLimits(tasks.get(key)).transition;
+          const task=tasks.get(key),limit=requestLimits(task).transition;
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=limit)break;byteCache.delete(asset.id);}
           if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=limit)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
+          if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           peak.reserve(key,bytes,limit);
         };
         const tasks = new Map<
@@ -1926,7 +1963,7 @@ export function GeometryPreview({
               // A speculative load cannot spend a peer's retained preparation.
               const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
               // Fetch a verified header first when the conservative declared square cannot fit.
-              const preflightLimit=detailPromotion?requestLimits({detailPromotion,imageBudget}).transition:assetBudgetBytes;
+              const preflightLimit=requestLimits({detailPromotion,imageBudget}).transition;
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>preflightLimit;
               if(downloadOnly&&(cached||known!==undefined)){
                 if(art.revisionId===demandContext().owner){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
@@ -1956,7 +1993,9 @@ export function GeometryPreview({
               }
               const steady=requestLimits(task).resident;
               if(object.userData.viewer?.decodeBackingReleased)for(const asset of arts.flatMap(work=>work.assets)){if(peak.total()+(object.userData.viewer.decodedBytes??0)<=steady)break;byteCache.delete(asset.id);}
-              if(peak.total()+(object.userData.viewer?.decodedBytes??0)>steady){
+              const deficit=()=>peak.total()+(object.userData.viewer?.decodedBytes??0)-steady;
+              if(neededMinimum(task))reclaimOffroom(art.revisionId,deficit);
+              if(deficit()>0){
                 discardResult(result);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
@@ -2045,14 +2084,8 @@ export function GeometryPreview({
           reclaiming.add(candidate.id);
           if(!candidate.evict){retryAfter.delete(candidate.id);request(art,false);return;}
           const key=pending.get(candidate.id);if(key){scheduler.cancel(key);pending.delete(candidate.id);}
-          desired.delete(candidate.id);
-          const old=objects.get(candidate.id),oldAsset=active.get(candidate.id);
-          for(const p of ordered.filter(p=>p.artworkRevisionId===candidate.id)){
-            const group=placements.get(p.id.toLowerCase());if(group){group.clear();for(const bound of placeholders.get(p.id.toLowerCase())??[])group.add(bound);}
-          }
-          objects.delete(candidate.id);active.delete(candidate.id);requested.delete(candidate.id);xrArtworks.delete(candidate.id);
+          evictOffroomArtwork(candidate.id);
           xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
-          if(old)destroy(old);if(oldAsset)byteCache.delete(oldAsset);
           shadowPass.invalidate();render();
         };
         let materialReductionPending=false;
@@ -2173,10 +2206,10 @@ export function GeometryPreview({
               if(now-since>=5000){
                 const key=pending.get(art.revisionId);if(key){scheduler.cancel(key);pending.delete(art.revisionId);}
                 desired.delete(art.revisionId);
-                const old=objects.get(art.revisionId);if(old){
-                  for(const p of ordered.filter(p=>p.artworkRevisionId===art.revisionId)){const group=placements.get(p.id.toLowerCase());if(group){group.clear();for(const bound of placeholders.get(p.id.toLowerCase())??[])group.add(bound);}}
-                  const retained=minimumObjects.get(art.revisionId);if(retained){minimumObjects.delete(art.revisionId);destroy(retained.object);}
-                  objects.delete(art.revisionId);const id=active.get(art.revisionId);active.delete(art.revisionId);requested.delete(art.revisionId);xrArtworks.delete(art.revisionId);xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);destroy(old);if(id)byteCache.delete(id);shadowPass.invalidate();render();
+                if(objects.has(art.revisionId)){
+                  evictOffroomArtwork(art.revisionId);
+                  xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
+                  shadowPass.invalidate();render();
                 }
                 continue;
               }
