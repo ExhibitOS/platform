@@ -153,6 +153,10 @@
 .publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open],dialog[open]) .viewer-first-hints{display:none}
 @media(prefers-reduced-motion:reduce){.viewer-first-hints{display:none;transition:none}}
 .viewer-first-keys kbd{background:rgb(248 251 252 / .85);opacity:.8}
+.viewer-first-keys .viewer-help-keypad{width:min(var(--first-hint-width,14rem),calc(100vw - 3rem));grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:.35rem}
+.viewer-first-keys .viewer-help-keypad kbd{aspect-ratio:1;font-size:clamp(1rem,2vw,1.6rem)}
+.viewer-first-mouse{width:min(var(--first-hint-width,14rem),calc(100vw - 3rem));box-sizing:border-box;padding:.65rem;gap:.6rem;text-align:center;font-size:1rem}
+.viewer-first-mouse svg{width:5.5rem;height:6.875rem}
 .viewer-first-mouse{background:rgb(248 251 252 / .78);padding:.25rem .35rem;border-radius:3px}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.viewer-first-keys kbd,.viewer-first-mouse{background:var(--publication-paper);opacity:1}}
 .publication-high-contrast .viewer-first-keys kbd,.publication-high-contrast .viewer-first-mouse{background:var(--publication-paper);opacity:1}
@@ -163,3 +167,26 @@
 .publication-shell .viewer-audio-stop{display:inline-flex;align-items:center;gap:.5rem}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.viewer-secondary-icon::before{background:var(--publication-paper)}}
 .publication-high-contrast .viewer-secondary-icon::before{background:var(--publication-paper)}
+.publication-mode-3d .viewer-input-help[data-help-phase=choice][open]{position:fixed;left:50%;top:50%;right:auto;transform:translate(-50%,-50%);width:min(28rem,calc(100vw - 2rem - 2 * max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))));max-width:none}
+.viewer-input-help[data-help-phase=choice][open]>.viewer-input-help-body{width:100%;max-height:calc(100svh - 2rem - 2 * max(env(safe-area-inset-top,0px),env(safe-area-inset-bottom,0px)));margin:0}
+.viewer-input-help[data-help-phase=choice][open]>summary{position:absolute;right:.5rem;top:.5rem;z-index:1}
+.viewer-input-help[data-help-phase=choice][open] h2{padding-right:3rem;min-height:2rem;display:flex;align-items:center}
+.viewer-help-choice-notice{font-size:.8125rem;line-height:1.5;margin:.75rem 0 0;color:var(--publication-muted)}
+.publication-shell>footer{flex-wrap:wrap;padding-bottom:max(1.25rem,env(safe-area-inset-bottom,0px))}
+.publication-utility-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.25rem 1rem;margin-left:auto}
+.publication-utility-links a{display:inline-flex;align-items:center;min-height:44px;color:inherit}
+.publication-shell .publication-panel-link{display:block;padding:.75rem 0;min-height:44px;background:transparent;color:var(--publication-ink);border:0;text-decoration:underline;text-underline-offset:.2em}
+/* Hide triggers covered by a panel; the remaining outside controls can still switch panels. */
+.publication-mode-3d:has(.publication-menu[open]) :is(.viewer-audio-menu,.viewer-input-help):not([open])>summary,
+.publication-mode-3d:has(.viewer-audio-menu[open]) .viewer-input-help:not([open])>summary,
+.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu)[open]) .viewer-visitor-map:not([open])>summary,
+.publication-mode-3d:has(dialog[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)>summary{visibility:hidden;pointer-events:none}
+.publication-mode-cover .publication-menu{top:max(1.25rem,env(safe-area-inset-top,0px));right:max(clamp(1.25rem,3vw,3rem),env(safe-area-inset-right,0px))}
+.publication-mode-cover .publication-menu-panel{box-sizing:border-box;width:min(25rem,calc(100vw - 2 * max(1.25rem,env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))));max-height:calc(100svh - max(1.25rem,env(safe-area-inset-top,0px)) - 44px - .5rem - max(1rem,env(safe-area-inset-bottom,0px)))}
+.publication-mode-cover .publication-menu>summary{position:relative;display:grid;place-items:center;isolation:isolate;width:44px;height:44px;box-sizing:border-box;padding:0;border:0;border-radius:50%;background:transparent;color:var(--publication-ink);box-shadow:none}
+.publication-mode-cover .publication-menu>summary::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .78)}
+.publication-mode-cover .publication-menu[open]>summary{color:var(--publication-paper)}
+.publication-mode-cover .publication-menu[open]>summary::before{background:rgb(24 45 50 / .82)}
+.publication-shell.publication-mode-cover .publication-menu>summary::after,.publication-shell.publication-mode-cover .publication-menu[open]>summary::after{content:none;display:none}
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.publication-mode-cover .publication-menu>summary::before{background:var(--publication-paper)}.publication-mode-cover .publication-menu[open]>summary::before{background:var(--publication-ink)}}
+.publication-mode-cover.publication-high-contrast .publication-menu>summary::before{background:var(--publication-paper)}.publication-mode-cover.publication-high-contrast .publication-menu[open]>summary::before{background:var(--publication-ink)}

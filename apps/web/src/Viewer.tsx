@@ -291,7 +291,7 @@ export function Viewer({
         inputMode={inputMode}
         onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
-        onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
+        onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.error&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&!state.error&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:!!state.error||state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
         mapThumbnailsEnabled={mapEnabled}
         onMapThumbnail={immersive?receiveMapThumbnail:undefined}
         onMapReady={immersive?registerMap:undefined}

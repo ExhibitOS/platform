@@ -109,7 +109,13 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
     if (event.key !== "Escape") return;
     // The input listener pauses the current session. A repeated Escape must not
     // erase that explicit resume choice; closing a mandatory dialog still does.
-    if (root?.querySelector('dialog[open], [aria-modal="true"]')) invalid();
+    if ((root?.querySelector('dialog.artwork-detail[open]') || open()) &&
+        !root?.querySelector('dialog[open]:not(.artwork-detail), [aria-modal="true"]:not(.artwork-detail)')) {
+      // A viewer dialog or panel's own handler will close its obstruction.
+      // Keep only the prior fresh-input eligibility; pause still clears every
+      // held key, pointer, joystick and pending capture before that close.
+      gate.cancel(); pause("panel");
+    } else if (root?.querySelector('dialog[open], [aria-modal="true"]')) invalid();
     else { gate.cancel(); if (root?.contains(document.activeElement)) pause("escape"); }
   };
   const hidden = () => { if (document.hidden) background(); else availabilityChanged(canResume()); };
@@ -122,8 +128,10 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   };
   document.addEventListener("pointerdown", down, true);
   document.addEventListener("pointermove", move, true);
-  document.addEventListener("pointerup", up, true);
-  document.addEventListener("pointercancel", cancelled, true);
+  // Observe actual contact termination before document-level panel dismissal
+  // consumes it. Capture loss alone can occur while the contact is still down.
+  window.addEventListener("pointerup", up, true);
+  window.addEventListener("pointercancel", cancelled, true);
   document.addEventListener("keydown", key, true);
   document.addEventListener("visibilitychange", hidden);
   document.addEventListener("wheel", cancel, true);
@@ -133,7 +141,8 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   window.addEventListener("blur", background);
   const focus = () => availabilityChanged(canResume());
   window.addEventListener("focus", focus);
-  const safe = () => allowed() && !document.hidden &&
+  const safe = () => allowed() && !document.hidden && canvas.isConnected && canvas.style.visibility !== "hidden" &&
+    !canvas.closest('[hidden], [inert]') &&
     !root?.querySelector('dialog[open], [aria-modal="true"], [inert] canvas');
   const canResume = () => gate.canResume() && !open() && safe();
   return {
@@ -176,8 +185,8 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
       invalid(); clearTimeout(focusTimer);
       document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("pointermove", move, true);
-      document.removeEventListener("pointerup", up, true);
-      document.removeEventListener("pointercancel", cancelled, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", cancelled, true);
       document.removeEventListener("keydown", key, true);
       document.removeEventListener("visibilitychange", hidden);
       document.removeEventListener("wheel", cancel, true);
@@ -187,5 +196,105 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
       window.removeEventListener("blur", background);
       window.removeEventListener("focus", focus);
     },
+  };
+}
+
+/** The outside gesture is separate from the next deliberate navigation input. */
+export function createPanelDismissalGesture() {
+  let gesture:{id:number;x:number;y:number;panel:HTMLElement;at:number;valid:boolean}|undefined;
+  const move=(id:number,x:number,y:number)=>{if(gesture?.id===id&&Math.hypot(x-gesture.x,y-gesture.y)>6)gesture.valid=false;};
+  return {
+    begin(id:number,x:number,y:number,panel:HTMLElement,at:number){gesture={id,x,y,panel,at,valid:true};},
+    move,
+    cancel(){gesture=undefined;},
+    end(id:number,x:number,y:number,panel:HTMLElement|null,outside:boolean,at:number){
+      if(gesture?.id!==id)return false;
+      move(id,x,y);const previous=gesture;gesture=undefined;
+      return previous.valid&&previous.panel===panel&&outside&&at>=previous.at&&at-previous.at<500;
+    },
+  };
+}
+
+/** Escape belongs to a native selection popup before its surrounding panel. */
+export function panelEscapeFromControl(target:EventTarget|null) {
+  return typeof Element!=='undefined'&&target instanceof Element&&!!target.closest('select, option, [role="combobox"], [role="listbox"]');
+}
+
+/** One owner on the publication root, including when walking is unavailable.
+ * Native summary/cancel handlers retain React state, voice and focus cleanup. */
+export function installPanelDismissal(root:HTMLElement) {
+  const doc=root.ownerDocument,gesture=createPanelDismissalGesture(),pointers=new Set<number>();
+  let outsidePointer:number|undefined,suppressed:{x:number;y:number;until:number}|undefined;
+  const consume=(event:Event)=>{event.preventDefault();event.stopImmediatePropagation();};
+  // Keep the underlying canvas from starting on this sequence, without
+  // cancelling native scrolling, pinch or long-press defaults while tracking.
+  const shield=(event:Event)=>event.stopPropagation();
+  const visible=(panel:HTMLElement)=>panel.isConnected&&!panel.closest('[hidden], [inert], details:not([open])')&&panel.getClientRects().length>0;
+  const active=():HTMLElement|null=>{
+    if(!root.isConnected||doc.hidden)return null;
+    const modals=[...doc.querySelectorAll<HTMLElement>('dialog[open], [aria-modal="true"]')].filter(visible);
+    if(modals.length){const top=modals.at(-1)!;return root.contains(top)&&top.matches('dialog.artwork-detail[open]')?top:null;}
+    const panels=[...root.querySelectorAll<HTMLElement>('details[data-visitor-panel][open]')].filter(visible);
+    return panels.filter(panel=>!panels.some(child=>child!==panel&&panel.contains(child))).at(-1)??null;
+  };
+  const inside=(panel:HTMLElement,event:PointerEvent)=>{
+    const target=event.target;
+    if(!(target instanceof Node))return false;
+    if(panel.matches('dialog')&&target===panel){const b=panel.getBoundingClientRect();return event.clientX>=b.left&&event.clientX<=b.right&&event.clientY>=b.top&&event.clientY<=b.bottom;}
+    if(panel.contains(target))return true;
+    // Portals already tied to an in-panel native/ARIA control remain internal.
+    return [...panel.querySelectorAll('[aria-controls], [aria-owns]')].some(control=>
+      `${control.getAttribute('aria-controls')??''} ${control.getAttribute('aria-owns')??''}`.split(/\s+/).filter(Boolean).some(id=>doc.getElementById(id)?.contains(target)));
+  };
+  const otherTrigger=(panel:HTMLElement,event:PointerEvent)=>{
+    const summary=event.target instanceof Element?event.target.closest('summary'):null;
+    const owner=summary?.parentElement;
+    return !!owner&&root.contains(owner)&&owner!==panel&&!owner.contains(panel)&&owner.matches('details[data-visitor-panel]')&&
+      !summary?.closest('[hidden], [inert]')&&!!summary?.getClientRects().length;
+  };
+  const dismiss=(panel:HTMLElement)=>{
+    if(panel.matches('dialog.artwork-detail')){panel.dispatchEvent(new Event('cancel',{cancelable:true}));return;}
+    const summary=panel.querySelector<HTMLElement>(':scope>summary');
+    summary?.click();
+    if(!(panel as HTMLDetailsElement).open&&panel.contains(doc.activeElement))summary?.focus({preventScroll:true});
+  };
+  const down=(event:PointerEvent)=>{
+    suppressed=undefined;pointers.add(event.pointerId);
+    if(pointers.size>1){gesture.cancel();if(outsidePointer!==undefined)shield(event);return;}
+    outsidePointer=undefined;gesture.cancel();
+    if(!event.isTrusted||event.isPrimary===false||event.button!==0||event.altKey||event.ctrlKey||event.metaKey)return;
+    const panel=active();if(!panel||inside(panel,event)||otherTrigger(panel,event))return;
+    // This trusted outside intent also retires the choice's inactivity timer
+    // through its existing non-initial-focus handler, even if the gesture drags.
+    if(panel.matches('.viewer-input-help[data-help-phase="choice"]'))panel.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});
+    outsidePointer=event.pointerId;gesture.begin(event.pointerId,event.clientX,event.clientY,panel,performance.now());shield(event);
+  };
+  const move=(event:PointerEvent)=>{
+    if(outsidePointer===undefined)return;
+    if(event.altKey||event.ctrlKey||event.metaKey)gesture.cancel();
+    for(const sample of event.getCoalescedEvents?.()??[event])gesture.move(sample.pointerId,sample.clientX,sample.clientY);
+    gesture.move(event.pointerId,event.clientX,event.clientY);shield(event);
+  };
+  const up=(event:PointerEvent)=>{
+    pointers.delete(event.pointerId);if(outsidePointer===undefined)return;
+    const panel=active();
+    const close=gesture.end(event.pointerId,event.clientX,event.clientY,panel,!!panel&&!inside(panel,event)&&!event.altKey&&!event.ctrlKey&&!event.metaKey,performance.now());
+    if(close)consume(event);else shield(event);
+    if(event.pointerId===outsidePointer){outsidePointer=undefined;suppressed={x:event.clientX,y:event.clientY,until:performance.now()+500};}
+    if(close&&panel)dismiss(panel);
+  };
+  const cancel=(event:PointerEvent)=>{pointers.delete(event.pointerId);gesture.cancel();if(event.pointerId===outsidePointer){outsidePointer=undefined;suppressed={x:event.clientX,y:event.clientY,until:performance.now()+500};shield(event);}};
+  const click=(event:MouseEvent)=>{
+    if(!event.isTrusted||event.detail===0||!suppressed)return;
+    const previous=suppressed;suppressed=undefined;
+    if(performance.now()<=previous.until&&Math.hypot(event.clientX-previous.x,event.clientY-previous.y)<=6)consume(event);
+  };
+  const interrupt=()=>gesture.cancel();
+  const reset=()=>{gesture.cancel();pointers.clear();outsidePointer=undefined;suppressed=undefined;};
+  doc.addEventListener('pointerdown',down,true);doc.addEventListener('pointermove',move,true);doc.addEventListener('pointerup',up,true);doc.addEventListener('pointercancel',cancel,true);doc.addEventListener('click',click,true);
+  doc.addEventListener('wheel',interrupt,true);doc.addEventListener('scroll',interrupt,true);doc.addEventListener('contextmenu',interrupt,true);doc.addEventListener('visibilitychange',reset);window.addEventListener('blur',reset);
+  return ()=>{
+    reset();doc.removeEventListener('pointerdown',down,true);doc.removeEventListener('pointermove',move,true);doc.removeEventListener('pointerup',up,true);doc.removeEventListener('pointercancel',cancel,true);doc.removeEventListener('click',click,true);
+    doc.removeEventListener('wheel',interrupt,true);doc.removeEventListener('scroll',interrupt,true);doc.removeEventListener('contextmenu',interrupt,true);doc.removeEventListener('visibilitychange',reset);window.removeEventListener('blur',reset);
   };
 }

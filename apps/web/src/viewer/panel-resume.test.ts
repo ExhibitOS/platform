@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { expect, test } from "vitest";
-import { createPanelResumeGate } from "./panel-resume";
+import { afterEach, expect, test, vi } from "vitest";
+import { createPanelResumeGate,createPanelDismissalGesture,installPanelResume,installPanelDismissal,panelEscapeFromControl } from "./panel-resume";
+afterEach(()=>vi.unstubAllGlobals());
 
 function panelPaused() {
   const gate = createPanelResumeGate();
@@ -128,4 +129,94 @@ test("guide skip and exhibition return use the same intent, fenced by newer stop
 test('restores only intentional input eligibility, never panel-close automatic movement',()=>{
  const restored=createPanelResumeGate(true);restored.mode(true,true,'settings');expect(restored.canResume()).toBe(true);expect(restored.panelClosed()).toBe(false);expect(restored.movement(false)).toBe(false);expect(restored.movement(true)).toBe(true);expect(restored.movement(true)).toBe(false);
  const stationary=createPanelResumeGate(false);stationary.mode(false,true,'settings');expect(stationary.canResume()).toBe(false);
+});
+
+test('outside dismissal requires the same panel and a short unmoved completed gesture',()=>{
+ const panel={} as HTMLElement,other={} as HTMLElement,g=createPanelDismissalGesture();
+ g.begin(1,20,30,panel,0);expect(g.end(1,21,31,panel,true,100)).toBe(true);
+ expect(g.end(1,21,31,panel,true,110)).toBe(false);
+ for(const [target,outside,at] of [[other,true,100],[panel,false,100],[panel,true,500]] as const){g.begin(1,20,30,panel,0);expect(g.end(1,20,30,target,outside,at)).toBe(false);}
+ g.begin(1,20,30,panel,0);g.move(1,40,30);g.move(1,20,30);expect(g.end(1,20,30,panel,true,100)).toBe(false);
+ g.begin(1,20,30,panel,0);g.cancel();expect(g.end(1,20,30,panel,true,100)).toBe(false);
+});
+
+test('viewer dialog and parent panel Escape preserve return intent while explicit stops and unknown modals fence it',()=>{
+ let viewer=false,unknown=false,parent=false;const doc=Object.assign(new EventTarget(),{activeElement:null as unknown,hidden:false});
+ const root=Object.assign(new EventTarget(),{contains:(target:unknown)=>target===canvas,querySelectorAll:()=>parent?[{open:true}]:[],querySelector:(selector:string)=>{
+  if(selector==='dialog.artwork-detail[open]')return viewer?{}:null;
+  if(selector.includes(':not(.artwork-detail)'))return unknown?{}:null;
+  return viewer||unknown?{}:null;
+ }});
+ const canvas={isConnected:true,style:{visibility:''},closest:(selector:string)=>selector==='.publication-shell'?root:null,focus:vi.fn()};doc.activeElement=canvas;
+ vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
+ const resume=vi.fn(),reasons:(string|undefined)[]=[];
+ const handler=installPanelResume(canvas as unknown as HTMLCanvasElement,reason=>{reasons.push(reason);handler.mode(true,true,reason);},resume);
+ const escape=()=>doc.dispatchEvent(Object.assign(new Event('keydown'),{key:'Escape'}));
+ handler.mode(true,false);handler.mode(true,true,'panel');const returnIntent=handler.intent();viewer=true;parent=true;escape();
+ expect(reasons.at(-1)).toBe('panel');expect(resume).not.toHaveBeenCalled();viewer=false;
+ expect(returnIntent()).toBe(false);escape();expect(reasons.at(-1)).toBe('panel');expect(returnIntent()).toBe(false);parent=false;
+ canvas.style.visibility='hidden';expect(returnIntent()).toBe(false);canvas.style.visibility='';expect(returnIntent()).toBe(true);expect(returnIntent()).toBe(false);expect(resume).toHaveBeenCalledOnce();
+ handler.mode(true,false);handler.mode(true,true,'panel');unknown=true;escape();unknown=false;expect(handler.intent()()).toBe(false);
+ handler.mode(true,false);const stoppedIntent=handler.intent();escape();expect(reasons.at(-1)).toBe('escape');expect(stoppedIntent()).toBe(false);expect(handler.movement(true)).toBe(true);
+ handler.dispose();
+});
+
+test('native selection Escape is left to its control rather than closing the panel',()=>{
+ class Control{constructor(private native:boolean){}closest(){return this.native?this:null;}}
+ vi.stubGlobal('Element',Control);
+ expect(panelEscapeFromControl(new Control(true) as unknown as EventTarget)).toBe(true);
+ expect(panelEscapeFromControl(new Control(false) as unknown as EventTarget)).toBe(false);
+ expect(panelEscapeFromControl(null)).toBe(false);
+});
+
+test('actual touch release is observed before panel dismissal consumes it, while capture loss retains the contact',()=>{
+ const doc=Object.assign(new EventTarget(),{activeElement:null as unknown,hidden:false});
+ const root=Object.assign(new EventTarget(),{contains:(target:unknown)=>target===canvas,querySelectorAll:()=>[],querySelector:()=>null});
+ const canvas={isConnected:true,style:{visibility:''},closest:(selector:string)=>selector==='.publication-shell'?root:null,focus:vi.fn()};doc.activeElement=canvas;
+ const win=new EventTarget();vi.stubGlobal('document',doc);vi.stubGlobal('window',win);
+ // The root dismissal listener is installed first and owns the closing release.
+ doc.addEventListener('pointerup',event=>event.stopImmediatePropagation(),true);
+ const resume=vi.fn(),handler=installPanelResume(canvas as unknown as HTMLCanvasElement,vi.fn(),resume);
+ handler.mode(true,false);handler.mode(true,true,'panel');
+ const pointer=(type:string,pointerId:number)=>{
+  // Native capture visits Window before Document, regardless of install order.
+  if(type==='pointerup'||type==='pointercancel')win.dispatchEvent(Object.assign(new Event(type),{pointerId}));
+  doc.dispatchEvent(Object.assign(new Event(type),{pointerId}));
+ };
+ pointer('pointerdown',2);pointer('pointerup',2);pointer('lostpointercapture',2);
+ expect(resume).not.toHaveBeenCalled();
+ pointer('pointerdown',3);
+ expect(handler.movement(true)).toBe(true);expect(resume).toHaveBeenCalledOnce();
+ pointer('pointerup',3);handler.mode(true,false);handler.mode(true,true,'panel');
+ pointer('pointerdown',4);pointer('lostpointercapture',4);pointer('pointerdown',5);
+ expect(handler.movement(true)).toBe(false);
+ pointer('pointerup',4);pointer('pointercancel',5);pointer('pointerdown',6);
+ expect(handler.movement(true)).toBe(true);expect(resume).toHaveBeenCalledTimes(2);
+ handler.dispose();
+});
+
+
+test('outside tracking preserves native defaults until a short closing release is confirmed',()=>{
+ class DomNode{contains(target:unknown):boolean{return target===this;}closest(){return null;}}
+ vi.stubGlobal('Node',DomNode);vi.stubGlobal('Element',DomNode);
+ const doc=Object.assign(new EventTarget(),{hidden:false,activeElement:null,querySelectorAll:()=>[],getElementById:()=>null});
+ const summary={click:()=>{panel.open=false;},focus:vi.fn()};
+ const panel=Object.assign(new DomNode(),{isConnected:true,open:true,getClientRects:()=>[{}],matches:()=>false,querySelectorAll:()=>[],querySelector:()=>summary});
+ const root=Object.assign(new DomNode(),{ownerDocument:doc,isConnected:true,querySelectorAll:()=>panel.open?[panel]:[]});
+ vi.stubGlobal('window',new EventTarget());
+ const dispose=installPanelDismissal(root as unknown as HTMLElement);
+ const send=(type:string,x=10,id=1)=>{
+  const event=Object.assign(new Event(type,{cancelable:true}),{pointerId:id,isPrimary:id===1,button:0,clientX:x,clientY:10,altKey:false,ctrlKey:false,metaKey:false,detail:1});
+  Object.defineProperty(event,'isTrusted',{value:true});doc.dispatchEvent(event);return event;
+ };
+ expect(send('pointerdown').defaultPrevented).toBe(false);
+ expect(send('pointermove',30).defaultPrevented).toBe(false);
+ expect(send('pointerup',30).defaultPrevented).toBe(false);expect(panel.open).toBe(true);
+ expect(send('click',30).defaultPrevented).toBe(true);
+ send('pointerdown');send('pointerdown',20,2);
+ expect(send('pointermove',30).defaultPrevented).toBe(false);
+ expect(send('pointerup',30).defaultPrevented).toBe(false);send('pointerup',20,2);expect(panel.open).toBe(true);
+ send('pointerdown');expect(send('pointercancel').defaultPrevented).toBe(false);expect(panel.open).toBe(true);
+ send('pointerdown');expect(send('pointerup').defaultPrevented).toBe(true);expect(panel.open).toBe(false);
+ dispose();
 });

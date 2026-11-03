@@ -4,6 +4,7 @@ import { creationYearFor, experienceFor, curationFor, formatArtworkDimensions } 
 import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
+import {ViewerIcon} from "./viewer/ViewerIcon";
 import { TimedTranscript } from "./TimedTranscript";
 import type { VoicePlayback } from "./viewer/audio";
 import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
@@ -21,6 +22,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   close.current = onClose; stop.current = onVoiceStop;
   const voiceGeneration = useRef(0);
   const [voiceStatus, setVoiceStatus] = useState("");
+  const [voicePending,setVoicePending]=useState<string|null>(null);
   const placement = publication.exhibition.placements.find(p => sameId(p.id, placementId));
   const artwork = publication.exhibition.artworks.find(a => sameId(a.revisionId, placement?.artworkRevisionId));
   const experience = useMemo(() => experienceFor(publication.exhibition), [publication]);
@@ -36,46 +38,46 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
     return () => { voiceGeneration.current++; stop.current(); element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, []);
   if (!artwork) return <dialog ref={dialog} className="artwork-detail" aria-label="작품 상세 보기 오류" onCancel={e => { e.preventDefault(); close.current(); }}>
-    <p>선택한 작품을 이 전시에서 확인할 수 없어요. 전시로 돌아가 다른 작품을 선택해 주세요.</p><button autoFocus onClick={onClose}>전시로 돌아가기</button>
+    <header><button autoFocus className="viewer-guide-close artwork-detail-close" aria-label="전시로 돌아가기" title="전시로 돌아가기" onClick={onClose}><ViewerIcon name="close"/></button></header><div className="artwork-detail-body"><p>선택한 작품을 이 전시에서 확인할 수 없어요. 전시로 돌아가 다른 작품을 선택해 주세요.</p></div>
   </dialog>;
   const description = publication.exhibition.accessibility.artworkDescriptions.find(a => sameId(a.placementId, placementId))?.text ?? artwork.metadata.description;
   const created = artwork.provenance.events.find(event => event.type === "created");
   const creationYear = creationYearFor(artwork) ?? created?.at.slice(0, 4);
-  return <dialog ref={dialog} className="artwork-detail" aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
-    <header><h2 id="artwork-detail-title">{artwork.metadata.title}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
-    <p>{artwork.metadata.artist}</p>
-    {renderPreview && <ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} placementId={placementId} sharedPreview={sharedPreview} />}
-    <details className="artwork-detail-record" aria-label="작품 설명" open><summary>작품 설명 {artwork.metadata.language && `(${artwork.metadata.language})`}</summary><p className="detail-text">{description ?? "설명이 등록되지 않았습니다."}</p></details>
-    <dl>
-      <dt>기록된 크기</dt><dd>{formatArtworkDimensions(artwork.dimensions)}</dd>
-      <dt>재료·기법</dt><dd>{artwork.metadata.medium ?? "미기록"}</dd>
-      <dt>제작 연도 (공개 제작 기록)</dt><dd data-testid="artwork-creation-year">{creationYear ?? "미기록"}</dd>
-      <dt>권리자</dt><dd>{artwork.rights.holder}</dd><dt>권리·출처 표기</dt><dd>{artwork.rights.creditLine}</dd>
-      <dt>라이선스</dt><dd>{artwork.rights.licenseId ?? artwork.rights.licenseText}</dd>
-    </dl>
-
-    {experience.translations.filter(t => sameId(t.placementId, placementId)).map(t => <section key={t.locale} aria-label={`번역 ${t.locale}`} lang={t.locale}>
-      <h3>번역 ({t.locale}) · {t.title}</h3><p className="detail-text">{t.description}</p><p>작품 설명과 구분된 번역문입니다.</p>
-    </section>)}
-    <details className="artwork-detail-record" open={!renderPreview}><summary>작품 음성 설명 · 대본</summary>
-      {!renderPreview && <p>글·목록 관람에서는 음성을 요청하지 않습니다. 작품 설명은 위에서 읽을 수 있습니다.</p>}
-      {experience.voices.filter(v => sameId(v.placementId, placementId)).map(v => <div key={`${v.assetId}-${v.locale}`}>
-        {renderPreview && <><button onClick={() => { const current = ++voiceGeneration.current; setVoiceStatus("작품 음성 설명을 확인합니다."); void onVoicePlay(v.assetId).then(() => { if (voiceGeneration.current === current) setVoiceStatus("작품 음성 설명을 재생합니다."); }).catch(() => { if (voiceGeneration.current === current) setVoiceStatus("작품 음성 설명을 재생할 수 없습니다. 대본을 읽어주세요."); }); }}>작품 음성 설명 듣기 ({v.locale})</button>
-        <button onClick={() => { voiceGeneration.current++; onVoiceStop(); setVoiceStatus("작품 음성 설명을 정지했습니다."); }}>작품 음성 설명 정지</button></>}
-        <p lang={v.locale} className="detail-text">대본 ({v.locale}): {v.transcript}</p>
-        {curation.transcripts.filter(t=>sameId(t.placementId,placementId)&&t.locale===v.locale).map(t=><TimedTranscript key={t.locale} transcript={t} assetId={v.assetId} playback={voicePlayback} />)}
-      </div>)}
-      {!experience.voices.some(v => sameId(v.placementId, placementId)) && <p>등록된 작품 음성 설명이 없습니다. 위 설명을 읽어주세요.</p>}
-      <p role="status">{voiceStatus}</p>
-    </details>
-    <section aria-label="작품 공간 주석"><h3>작품 공간 주석</h3><p>{renderPreview ? "금색 점을 설명하는 글이에요. 정확한 위치 정보는 아래에서 확인할 수 있어요." : "주석 위치는 작품 중심을 원점으로 한 미터 좌표입니다."}</p>
-      <ol>{annotations.map(a => { const anchor = anchors.find(p => sameId(p.id, a.id)); return <li key={a.id}>{a.text} {anchor ? <details className="artwork-annotation-position"><summary>작품 안의 위치</summary><span>작품 중심에서 ({anchor.position.join(", ")}) m</span></details> : <span> · 좌표 미등록</span>}{curation.annotationTranslations.filter(t=>sameId(t.annotationId,a.id)).map(t=><p key={t.locale} lang={t.locale}>별도 주석 번역 ({t.locale}): {t.text}</p>)}</li>; })}</ol>
-    </section>
-    <details className="artwork-detail-record"><summary>작품의 제작·전시 이력</summary>
-    <section aria-label="공개 provenance"><h3>공개 제작·전시 이력</h3><ul>{artwork.provenance.events.map(event => <li key={event.id}>{event.at} · {event.type} · {event.description}</li>)}</ul>
-      <p>현재 공개된 작품의 이력입니다. 비공개 원본·저장소·계정 정보는 요청하지 않습니다.</p>
-    </section>
-    </details>
-    <p>{renderPreview ? "전시로 돌아가면 전시의 기존 위치와 시점으로 돌아갑니다. 이전에 정지한 관람은 정지 상태를 유지합니다." : "전시로 돌아가면 선택한 작품의 목록으로 돌아갑니다."}</p>
+  const voices=experience.voices.filter(v=>sameId(v.placementId,placementId));
+  const translations=experience.translations.filter(t=>sameId(t.placementId,placementId));
+  const requestVoice=(assetId:string)=>{
+    const current=++voiceGeneration.current;setVoicePending(assetId);setVoiceStatus("");
+    void (async()=>{try{await onVoicePlay(assetId);}catch{if(voiceGeneration.current===current)setVoiceStatus("음성 설명을 재생할 수 없어요. 대본을 읽어 주세요.");}finally{if(voiceGeneration.current===current)setVoicePending(null);}})();
+  };
+  const stopVoice=()=>{voiceGeneration.current++;setVoicePending(null);onVoiceStop();setVoiceStatus("음성 설명을 정지했어요.");};
+  const currentVoice=voices.some(v=>sameId(v.assetId,voicePlayback?.assetId??undefined));
+  const playbackStatus=voiceStatus||(voicePending?"음성 설명을 준비하고 있어요.":currentVoice&&voicePlayback?.status==='playing'?"음성 설명 재생 중":currentVoice&&voicePlayback?.status==='unavailable'?"음성 설명을 재생할 수 없어요. 대본을 읽어 주세요.":currentVoice&&voicePlayback?.status==='ended'?"음성 설명을 끝까지 들었어요.":currentVoice&&voicePlayback?.status==='stopped'?"음성 설명을 정지했어요.":"");
+  return <dialog ref={dialog} className="artwork-detail" data-with-preview={renderPreview} aria-labelledby="artwork-detail-title" onCancel={e => { e.preventDefault(); close.current(); }}>
+    <header><button autoFocus className="viewer-guide-close artwork-detail-close" aria-label="전시로 돌아가기" title="전시로 돌아가기" onClick={onClose}><ViewerIcon name="close"/></button></header>
+    <div className="artwork-detail-body">
+      {renderPreview&&<div className="artwork-detail-media"><ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} placementId={placementId} sharedPreview={sharedPreview}/></div>}
+      <div className="artwork-detail-content">
+        <h2 id="artwork-detail-title">{artwork.metadata.title}</h2>
+        <p className="artwork-detail-artist">{artwork.metadata.artist}</p>
+        <dl className="artwork-detail-facts">
+          {creationYear&&<><dt>제작 연도</dt><dd data-testid="artwork-creation-year">{creationYear}</dd></>}
+          {artwork.metadata.medium&&<><dt>재료·기법</dt><dd>{artwork.metadata.medium}</dd></>}
+          <dt>기록된 크기</dt><dd>{formatArtworkDimensions(artwork.dimensions)}</dd>
+        </dl>
+        <section aria-label="작품 설명"><h3>작품 설명</h3><p className="detail-text">{description??"설명이 등록되지 않았습니다."}</p></section>
+        {voices.length>0&&<section className="artwork-detail-voices" aria-label="작품 음성 설명"><h3>음성 설명</h3>
+          {!renderPreview&&<p>글·목록 관람에서는 음성을 요청하지 않습니다. 대본을 읽을 수 있어요.</p>}
+          {voices.map(v=>{const playing=sameId(v.assetId,voicePlayback?.assetId??undefined)&&voicePlayback?.status==='playing';return <div key={`${v.assetId}-${v.locale}`} className="artwork-detail-voice" role="group" aria-label={`음성 설명 (${v.locale})`}>
+            {renderPreview&&<div className="artwork-detail-voice-controls"><button type="button" className="viewer-secondary-icon" aria-label={`음성 설명 재생 (${v.locale})`} title={`음성 설명 재생 (${v.locale})`} disabled={!!voicePending||playing} aria-busy={voicePending===v.assetId} onClick={()=>requestVoice(v.assetId)}><ViewerIcon name="play"/></button><button type="button" className="viewer-secondary-icon" aria-label={`음성 설명 정지 (${v.locale})`} title={`음성 설명 정지 (${v.locale})`} disabled={!playing&&voicePending!==v.assetId} onClick={stopVoice}><ViewerIcon name="stop"/></button><span>{v.locale}</span></div>}
+            <details className="artwork-detail-record" open={!renderPreview}><summary>대본 ({v.locale})</summary><p lang={v.locale} className="detail-text">{v.transcript}</p>{curation.transcripts.filter(t=>sameId(t.placementId,placementId)&&t.locale===v.locale).map(t=><TimedTranscript key={t.locale} transcript={t} assetId={v.assetId} playback={voicePlayback}/>)}</details>
+          </div>;})}
+          {renderPreview&&<p role="status">{playbackStatus}</p>}
+        </section>}
+        {translations.map(t=><details key={t.locale} className="artwork-detail-record"><summary>번역 ({t.locale})</summary><section aria-label={`번역 ${t.locale}`} lang={t.locale}><h3>{t.title}</h3><p className="detail-text">{t.description}</p><p>작품 설명과 구분된 번역문입니다.</p></section></details>)}
+        <section className="artwork-detail-rights" aria-label="권리·출처"><h3>권리·출처</h3><dl><dt>권리자</dt><dd>{artwork.rights.holder}</dd><dt>권리·출처 표기</dt><dd>{artwork.rights.creditLine}</dd><dt>라이선스</dt><dd>{artwork.rights.licenseId??artwork.rights.licenseText}</dd></dl></section>
+        {annotations.length>0&&<details className="artwork-detail-record"><summary>작품 주석 ({annotations.length})</summary><section aria-label="작품 공간 주석"><ol>{annotations.map(a=>{const anchor=anchors.find(p=>sameId(p.id,a.id));return <li key={a.id}>{a.text} {anchor?<details className="artwork-annotation-position"><summary>작품 안의 위치</summary><span>작품 중심에서 ({anchor.position.join(", ")}) m</span></details>:<span> · 좌표 미등록</span>}{curation.annotationTranslations.filter(t=>sameId(t.annotationId,a.id)).map(t=><p key={t.locale} lang={t.locale}>별도 주석 번역 ({t.locale}): {t.text}</p>)}</li>;})}</ol></section></details>}
+        {artwork.provenance.events.length>0&&<details className="artwork-detail-record"><summary>작품의 제작·전시 이력</summary><section aria-label="공개 provenance"><ul>{artwork.provenance.events.map(event=><li key={event.id}>{event.at} · {event.type} · {event.description}</li>)}</ul><p>현재 공개된 작품의 이력입니다. 비공개 원본·저장소·계정 정보는 요청하지 않습니다.</p></section></details>}
+      </div>
+    </div>
   </dialog>;
 }

@@ -28,6 +28,7 @@ import {createViewingSession,type ViewingRenderer,type ViewingState,type Viewing
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {discardPrivateView} from './viewer/private-view-storage';
 import {publicationTime} from './publication-time';
+import {installPanelDismissal,panelEscapeFromControl} from './viewer/panel-resume';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emptyThumbnails:Readonly<Record<string,string>>=Object.freeze({});
@@ -41,6 +42,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
   const generation = useRef(0);
+  const publicationRoot=useRef<HTMLElement>(null);
+  useEffect(()=>{if(publicationRoot.current&&value?.publication.id)return installPanelDismissal(publicationRoot.current);},[value?.publication.id,value?.publication.revisionSha256]);
   const entry=useEntranceEntry(),{mode,modeRef,stageReady,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState}=entry;
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
   const [thumbnailOwner,setThumbnailOwner]=useState<{key:string;cache:ReturnType<typeof createPublicThumbnailCache>}|null>(null);
@@ -76,7 +79,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   },[value,thumbnailCache,mode]);
   const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuPanelId=useId();
+  const menuPanelId=useId(),menuFocusReturn=useRef(false);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   useLayoutEffect(()=>{
     if(mode!=='3d')return;
@@ -129,6 +132,18 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const viewingActions:ViewingActions={setStyle(style){cancelMapTravel.current?.();chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>{cancelMapTravel.current?.();viewingSession.current?.actions.step(direction);},select:placementId=>{cancelMapTravel.current?.();viewingSession.current?.actions.select(placementId);},cancel:()=>viewingSession.current?.actions.cancel()};
   const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean;choiceShown?:boolean;choiceMade?:boolean;hintShown?:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
+  useEffect(()=>{
+    if(!menuFocusReturn.current)return;
+    menuFocusReturn.current=false;
+    if(mode!=="3d"||!stageReady||viewerUnavailable||menuOpen||selectedId||overview)return;
+    const root=publicationRoot.current;
+    const frame=requestAnimationFrame(()=>{
+      if(!root?.isConnected||root!==publicationRoot.current||menuRef.current||document.hidden||!root.querySelector('.publication-menu')?.contains(document.activeElement)||root.querySelector('details[data-visitor-panel][open]')||document.querySelector('dialog[open], [aria-modal="true"]'))return;
+      const canvas=root.querySelector<HTMLCanvasElement>('canvas[aria-label="전시 공간 3D 미리보기"]');
+      if(canvas?.isConnected&&canvas.getClientRects().length&&!canvas.closest('[hidden], [inert]')&&getComputedStyle(canvas).visibility!=="hidden")canvas.focus({preventScroll:true});
+    });
+    return()=>cancelAnimationFrame(frame);
+  },[menuOpen,mode,stageReady,viewerUnavailable,selectedId,overview,value?.publication.id,value?.publication.revisionSha256]);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
   const sharedDetailPreview=useCallback<SharedDetailPreview>(request=>{
@@ -234,8 +249,9 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const viewingItems:ViewingItem[]=value?viewingPlacements.map(p=>({placementId:p.id,title:value.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.title??'작품',roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간',thumbnail:thumbnails[p.artworkRevisionId.toLowerCase()]})):[];
   const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
+  const publicEntryTransition=runtime&&(runtime.authored||runtime.settings.presentation!==undefined)?runtime.effects.transition:'none';
   return (
-    <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
+    <main ref={publicationRoot} className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
       <nav className="publication-skip-links" aria-label="바로 가기">
         <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
@@ -244,18 +260,15 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
       {error && <button disabled={loading} onClick={() => void load()}>다시 시도</button>}
       {value && (
         <article>
-          <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`,'--entry-ticket-height':`${entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&viewerUnavailable}>
+          <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`,'--entry-ticket-height':`${entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
           <EntranceCover key={value.publication.revisionSha256} publication={value} locale={entranceLocale} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
-
-            <div className="publication-entry-actions">
-              {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
-            </div>
+            {null}
           </EntranceCover></div>
-          {mode==="3d"&&!viewerUnavailable&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={runtime!.effects.transition} speed={runtime!.effects.speed} statusRef={entryStatus} onCancel={cancelEntry} onText={showTextArtworks}/>}
+          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={publicEntryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} onCancel={cancelEntry} onText={showTextArtworks}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
-          <details name={mode==='3d'?'exhibitos-visitor-panel':undefined} data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => {if(event.target===event.currentTarget)setMenuOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();setMenuOpen(false);event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
-          <summary aria-label={mode==='3d'?'메뉴':undefined} title={mode==='3d'?'메뉴':undefined} aria-expanded={menuOpen} aria-controls={menuPanelId}>{mode === "3d" ? <ViewerIcon name={menuOpen?'close':'menu'}/> : "전시 정보"}</summary>
+          <details name={mode==='3d'?'exhibitos-visitor-panel':undefined} data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => {if(event.target===event.currentTarget)setMenuOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panelEscapeFromControl(event.target)){event.preventDefault();event.stopPropagation();menuFocusReturn.current=mode==='3d'&&stageReady&&menuOpen;setMenuOpen(false);event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+          <summary aria-label={mode==='3d'?'메뉴':mode==='cover'?(menuOpen?'전시 정보 닫기':'전시 정보 열기'):undefined} title={mode==='3d'?'메뉴':mode==='cover'?(menuOpen?'전시 정보 닫기':'전시 정보 열기'):undefined} aria-expanded={menuOpen} aria-controls={menuPanelId}>{mode==='3d'?<ViewerIcon name={menuOpen?'close':'menu'}/>:mode==='cover'?<ViewerIcon name={menuOpen?'close':'info'}/>:"전시 정보"}</summary>
           <div className="publication-menu-panel" id={menuPanelId}>
           {connectionStatus}
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
@@ -264,6 +277,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section className="publication-settings-menu" aria-label="설정"><h2>설정</h2>
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
+          {mode==='3d'&&<button type="button" className="publication-panel-link" onClick={()=>{const panel=publicationRoot.current?.querySelector<HTMLDetailsElement>('.viewer-audio-menu');if(panel){panel.open=true;queueMicrotask(()=>{if(panel.open&&panel.isConnected&&publicationRoot.current?.contains(panel))panel.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});});}}}>소리 설정</button>}
           <details className="publication-accessibility-menu"><summary>접근성</summary><section aria-label="관람 방식과 접근성 설정">
             {runtime!.design.translations.length>0&&<label>표지 언어<select value={entranceLocale} onChange={e=>setEntranceLocale(e.target.value)}><option value="">원문</option>{runtime!.design.translations.map(t=><option key={t.locale} value={t.locale}>{t.locale}</option>)}</select></label>}
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
@@ -301,7 +315,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
             onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
-          {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
+          {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
             <h2 id="publication-artworks" tabIndex={-1}>작품 목록</h2>
@@ -357,7 +371,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
       )}
       <footer>
         <span className="publication-brand" role="img" aria-label="ExhibitOS"><ViewerMark /><ExhibitOSWordmark /></span>
-        <a href="/THIRD_PARTY_NOTICES.txt">제3자 고지</a>
+        <nav className="publication-utility-links" aria-label="관람과 고지">
+          {value&&mode==='cover'&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
+          <a href="/THIRD_PARTY_NOTICES.txt">제3자 고지</a>
+        </nav>
       </footer>
     </main>
   );
@@ -374,12 +391,15 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
   }, []);
   const room=typeof mode==='object'?publication.exhibition.rooms.find(r=>r.id.toLowerCase()===mode.roomId.toLowerCase()):undefined;
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
-    <header><h2 id="exhibition-overview-title">{room?"공간 안내":mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
+    <header><button autoFocus className="viewer-guide-close artwork-detail-close" aria-label="전시로 돌아가기" title="전시로 돌아가기" onClick={onClose}><ViewerIcon name="close"/></button></header>
+    <div className="artwork-detail-body"><div className="artwork-detail-content">
+    <h2 id="exhibition-overview-title">{room?"공간 안내":mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2>
     <h3>{room?room.name:publication.exhibition.title}</h3>
     {room?<p>작품 목록에서 이 공간의 작품 설명과 권리 정보를 읽을 수 있어요.</p>:mode === "opening" ? <>{entranceFor(publication.exhibition).introduction && <p className="detail-text">{entranceFor(publication.exhibition).introduction}</p>}{textMode && <p>현재 텍스트로 관람하고 있어요. 작품 목록에서 설명과 대본을 읽을 수 있어요. 공간을 보려면 소개를 닫고 입장하기를 선택하세요.</p>}<h3>관람 방법</h3><p>걷기를 선택한 뒤 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 소개를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
       <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
       <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
       <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>
       <p>공개 revision {publication.publication.revisionSha256}</p></>}
+    </div></div>
   </dialog>;
 }

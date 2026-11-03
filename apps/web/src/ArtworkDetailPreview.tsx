@@ -3,6 +3,7 @@ import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,metricCameraFit,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import {WatermarkOverlay} from './WatermarkOverlay';
+import {ViewerIcon} from './viewer/ViewerIcon';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useId, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
@@ -251,23 +252,26 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
     return () => { disposed = true; abort.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", visible);
       cancelAnimationFrame(frame); observer?.disconnect(); renderer?.domElement.remove(); renderer?.dispose(); release(); };
   }, [publication, artwork, anchors, referenceTone,sharedPreview,flat]);
+  const actionSize={minWidth:44,minHeight:44};
+  const helpControl=<details className="detail-help"><summary className="detail-control-icon" style={actionSize} aria-label={flat?'이미지 조작 안내':'작품 조작 안내'} title={flat?'이미지 조작 안내':'작품 조작 안내'}><ViewerIcon name="help"/></summary>
+      <p>{flat?'두 번 누르거나 확대·축소 버튼을 사용하세요. 두 손가락 확대, 휠·트랙패드와 방향키도 사용할 수 있습니다. 이미지 비율은 유지되며 확대 한도는 준비된 이미지 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'두 손가락으로 확대할 수 있습니다. 키보드는 방향키·+/−, Home으로 초기화하며 슬라이더도 방향키로 조작할 수 있습니다. 작품의 미터 단위 좌표를 유지하는 디지털 미리보기이며 화면의 물리적 크기와는 다릅니다.'}</p>
+    </details>;
   return <section aria-label={flat?'작품 정면 이미지 확대':'작품 확대 및 회전'}>
     <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label={flat?'작품 이미지 확대 및 이동 조작':'작품 회전 및 확대 조작'} aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
     <p id={hint} className="detail-gesture-hint">{flat?'확대한 뒤 드래그해 살펴보세요.':'드래그해 회전하며 살펴보세요.'}</p>
     {error && <p role="status">{error}</p>}
     {flat?<div className="detail-image-controls" aria-label="이미지 확대">
-      <button disabled={zoom<=1} onClick={()=>changeView({...controls.current,zoom:zoom/1.25})} aria-label="작품 이미지 축소">축소</button>
+      <button disabled={zoom<=1} onClick={()=>changeView({...controls.current,zoom:zoom/1.25})} aria-label="작품 이미지 축소" title="축소" className="detail-control-icon" style={actionSize}><ViewerIcon name="minus"/></button>
       <output aria-live="off">{Math.round(zoom*100)}%</output>
-      <button disabled={zoom>=maxZoom} onClick={()=>changeView({...controls.current,zoom:zoom*1.25})} aria-label="작품 이미지 확대">확대</button>
-      <button onClick={()=>changeView({...INITIAL_DETAIL_VIEW,panX:0,panY:0})}>전체 보기</button>
+      <button disabled={zoom>=maxZoom} onClick={()=>changeView({...controls.current,zoom:zoom*1.25})} aria-label="작품 이미지 확대" title="확대" className="detail-control-icon" style={actionSize}><ViewerIcon name="plus"/></button>
+      <button onClick={()=>changeView({...INITIAL_DETAIL_VIEW,panX:0,panY:0})} aria-label="작품 이미지 전체 보기" title="전체 보기" className="detail-control-icon" style={actionSize}><ViewerIcon name="fit"/></button>
+      {helpControl}
     </div>:<>
       <label>작품 회전 {Math.round(yaw)}° <input aria-label="작품 회전" type="range" min="-180" max="180" step="5" value={yaw} onChange={e => changeView({ ...controls.current, yaw: Number(e.target.value) })} /></label>
       <label>작품 상하 회전 {Math.round(pitch)}° <input aria-label="작품 상하 회전" type="range" min="-90" max="90" step="5" value={pitch} onChange={e => changeView({ ...controls.current, pitch: Number(e.target.value) })} /></label>
       <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => changeView({ ...controls.current, zoom: Number(e.target.value) })} /></label>
-      <button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })}>상세 시점 초기화</button>
+      <div className="detail-sculpture-actions"><button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })} aria-label="상세 시점 초기화" title="상세 시점 초기화" className="detail-control-icon" style={actionSize}><ViewerIcon name="fit"/></button>{helpControl}</div>
     </>}
-    <details className="detail-help"><summary>{flat?'이미지 조작 안내':'작품 조작 안내'}</summary>
-      <p>{flat?'두 번 누르거나 확대·축소 버튼을 사용하세요. 두 손가락 확대, 휠·트랙패드와 방향키도 사용할 수 있습니다. 이미지 비율은 유지되며 확대 한도는 준비된 이미지 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'두 손가락으로 확대할 수 있습니다. 키보드는 방향키·+/−, Home으로 초기화하며 슬라이더도 방향키로 조작할 수 있습니다. 작품의 미터 단위 좌표를 유지하는 디지털 미리보기이며 화면의 물리적 크기와는 다릅니다.'}</p>
-    </details>
+
   </section>;
 }

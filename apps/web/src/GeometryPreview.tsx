@@ -172,7 +172,7 @@ export function GeometryPreview({
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
-  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean})=>void;
+  onRenderState?: (state:{ready:boolean;message:string;loaded:number;failed:number;navigationReady:boolean;navigationFailed:boolean;error?:boolean})=>void;
   referenceTone?: ReferenceTone;
   onXrReady?: (bridge:GeometryXrBridge|null)=>void;
   onXrArtworks?: (artworks:GeometryXrArtwork[])=>void;
@@ -338,6 +338,7 @@ export function GeometryPreview({
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
+  const [buildFailed,setBuildFailed]=useState(false);
   const viewingCallback=useRef(onViewingReady);viewingCallback.current=onViewingReady;
   const viewingStyleRef=useRef<ViewingStyle>('free');
   const [viewingStyle,setViewingStyle]=useState<ViewingStyle>('free');
@@ -345,7 +346,7 @@ export function GeometryPreview({
   useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start();}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
+  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -396,6 +397,7 @@ export function GeometryPreview({
     setWalkLoading(false);
     setWalkPreparation('pending');
     setReady(false);
+    setBuildFailed(false);
     setAssetReport({loaded:0,failed:0});
     setMessage("공간 미리보기를 준비합니다.");
     setMaterialIssueCount(0);
@@ -2405,6 +2407,7 @@ export function GeometryPreview({
       }
     };
     void build().catch((error) => {
+      if(!disposed){setReady(false);setBuildFailed(true);}
       if (!disposed) setPublicMessage(error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
         ? "이 전시의 공간이 표시 한도를 넘었어요. 작품 목록에서 감상해 주세요."
         : "3D 화면을 표시하지 못했어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.");
