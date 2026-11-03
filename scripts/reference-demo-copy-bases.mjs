@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { revisionHash, validateExhibition } from '@exhibitos/spec';
 import { spaceStillFor } from '@exhibitos/spec/space-still';
-import { copyRightsFingerprint } from '../apps/web/src/private-editor/previous-copy-rights.ts';
+import { retainsCopyInventory, retainsCopyRights } from '../apps/web/src/private-editor/previous-copy-compatibility.ts';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const hex = /^[a-f0-9]{64}$/;
@@ -21,19 +21,12 @@ export async function readApprovedCopyBases(config) {
   }
 }
 
-function inventory(index) {
-  const rows = (entries = []) => entries.map(row =>
-    JSON.stringify([row.path, row.sha256, row.bytes, row.mime])).sort();
-  return JSON.stringify([rows(index.assets), rows(index.resources), rows(index.furnishingNotices)]);
-}
-
-function rights(exhibition) {
+function requireRights(exhibition) {
   const still = spaceStillFor(exhibition);
   const sources = [...exhibition.artworks, ...exhibition.mediaAssets, ...(still ? [still] : [])];
   if (sources.some(item => item.rights.licenseId !== 'CC0-1.0' ||
       !item.rights.permissions.display || !item.rights.permissions.export) ||
       !validateExhibition(exhibition, { publicationTime: new Date().toISOString() }).valid) fail();
-  return copyRightsFingerprint(exhibition);
 }
 
 async function boundedFile(root, path, limit) {
@@ -62,6 +55,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     return { data, projection: JSON.parse(data) };
   };
   const { projection: active } = await readProjection(output, '', current.publication);
+  requireRights(active.exhibition);
   const result = [], seen = new Set();
   for (const base of bases) {
     if (!base || Object.keys(base).sort().join(',') !== 'indexSha256,publicationId,revisionSha256' ||
@@ -73,11 +67,12 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     const bytes = await boundedFile(archiveRoot, indexPath, 1048576);
     if (hash(bytes) !== base.indexSha256) fail();
     const index = JSON.parse(bytes);
-    if (index.version !== current.version || inventory(index) !== inventory(current)) fail();
+    if (!retainsCopyInventory(index,current)) fail();
     const { data, projection } = await readProjection(archiveRoot, prefix, index.publication);
     if (projection.publication.id !== base.publicationId || projection.publication.status !== 'published' ||
         projection.publication.revisionSha256 !== base.revisionSha256 || revisionHash(projection.exhibition) !== base.revisionSha256 ||
-        rights(projection.exhibition) !== rights(active.exhibition)) fail();
+        !retainsCopyRights(projection.exhibition,active.exhibition)) fail();
+    requireRights(projection.exhibition);
     result.push([indexPath, bytes], [prefix + index.publication.path, data]);
   }
   return result;
