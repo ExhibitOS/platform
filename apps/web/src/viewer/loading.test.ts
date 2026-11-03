@@ -46,7 +46,7 @@ describe('authored painting near tiers',()=>{
   expect(target.budget.maxCacheBytes).toBe(32*1024*1024);
   full.bytes=8388609;expect(selectedImageDetail(a,DEVICE_BUDGETS.compact)).toBeUndefined();
   full.bytes=1000;a.extensions![LOD_NAMESPACE]={version:1,variants:[{assetId:full.id,detail:'full',textureSize:4096},{assetId:coarse.id,detail:'coarse',textureSize:512}]};
-  expect(selectedImageDetail(a,DEVICE_BUDGETS.compact)).toBeUndefined();
+  expect(()=>selectedImageDetail(a,DEVICE_BUDGETS.compact)).toThrow('VIEWER_LOD_INVALID');
   a.artworkType='sculpture';expect(selectedImageDetail(a,DEVICE_BUDGETS.compact)).toBeUndefined();
  });
  it('guards explicit desktop pair pixels before decode while retaining compact two-megapixel protection',()=>{
