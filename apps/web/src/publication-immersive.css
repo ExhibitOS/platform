@@ -176,7 +176,8 @@
 .publication-utility-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.25rem 1rem;margin-left:auto}
 .publication-utility-links a{display:inline-flex;align-items:center;min-height:44px;color:inherit}
 .publication-shell .publication-panel-link{display:block;padding:.75rem 0;min-height:44px;background:transparent;color:var(--publication-ink);border:0;text-decoration:underline;text-underline-offset:.2em}
-/* An active panel owns this layer; hidden triggers leave neither hit boxes nor tab stops. */
-.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help):not([open])>summary,
-.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help)[open]) .viewer-visitor-map:not([open])>summary,
+/* Hide triggers covered by a panel; the remaining outside controls can still switch panels. */
+.publication-mode-3d:has(.publication-menu[open]) :is(.viewer-audio-menu,.viewer-input-help):not([open])>summary,
+.publication-mode-3d:has(.viewer-audio-menu[open]) .viewer-input-help:not([open])>summary,
+.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu)[open]) .viewer-visitor-map:not([open])>summary,
 .publication-mode-3d:has(dialog[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)>summary{visibility:hidden;pointer-events:none}
