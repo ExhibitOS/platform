@@ -159,7 +159,7 @@ export class ExhibitionAudio implements AudioApi {
     const ids = [...resolved.ids].sort(), entry = this.experience.footsteps.find(f=>f.surfaceId===this.floor);
     const key = freezeCanonical({ publication: this.publication.publication.id, revision: this.publication.publication.revisionSha256,
       material: resolved.material, kind: resolved.kind, clips: ids.map(id=>({id,
-        inventory: this.publication.exhibition.mediaAssets.find(a=>a.id===id) ?? null,
+        inventory: this.publication.exhibition.mediaAssets?.find(a=>a.id===id) ?? null,
         asset: this.publication.assets.find(a=>a.assetId===id) ?? null,
         resource: this.publication.resources?.find(a=>a.sha256===id) ?? null})) });
     let id = this.stepSession.select(key, ids, Math.random);
