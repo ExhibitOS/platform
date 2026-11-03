@@ -217,8 +217,14 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
   const header=new DataView(bytes);if(bytes.byteLength<24)throw Error('IMAGE_DECODE_BUDGET');
   const w=header.getUint32(16),h=header.getUint32(20);if(!w||!h)throw Error('IMAGE_DECODE_BUDGET');
   const scale=Math.min(1,budget.maxTextureSize/Math.max(w,h));
-  // Encoded chunks/concatenation/hash, source bitmap, resized bitmap + mipmapped GPU texture.
-  return Math.ceil(inventory.bytes*3+w*h*4+Math.ceil(w*scale)*Math.ceil(h*scale)*4*(1+4/3));
+  const width=Math.ceil(w*scale),height=Math.ceil(h*scale);
+  // Verification has returned. Charge input + Blob and both bitmaps only
+  // when resizing. GPU upload happens after the decode function returns.
+  const cpu=inventory.bytes*2+w*h*4+(scale<1?width*height*4:0);
+  if(phase==='cpu')return cpu;
+  // Known-header preflight uses the largest phase. The ledger separately
+  // tracks evictable encoded cache entries and exact mesh bytes at upload.
+  return Math.max(inventory.bytes*4,cpu,textureResidentBytes(width,height));
  }
  const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
  const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
