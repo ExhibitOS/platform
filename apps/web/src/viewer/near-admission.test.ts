@@ -7,9 +7,16 @@ test('near geometry is an explicit existing quality choice with known-low-memory
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('auto',{viewportWidth:1400,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toMatchObject(DEVICE_BUDGETS.compact);
- expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toMatchObject(DESKTOP_NEAR_BUDGET);
+ expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toMatchObject({...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024});
  expect(selectedDeviceBudget('desktop',{viewportWidth:1400,deviceMemory:4})).toEqual(DEVICE_BUDGETS.desktop);
  const near=selectedDeviceBudget('desktop',{viewportWidth:1400});expect(near.maxTriangles).toBe(250000);expect(near.maxTextureSize).toBe(2048);expect(near.maxCacheBytes).toBe(192*1024*1024);expect(near.maxTransitionBytes).toBe(256*1024*1024);
+});
+test('automatic headroom uses bounded residency and transition limits in known memory classes',()=>{
+ const mib=1024*1024;
+ expect(deviceBudget({deviceMemory:4})).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
+ expect(deviceBudget({deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
+ for(const memory of [undefined,2,Infinity,NaN])expect(deviceBudget({deviceMemory:memory}).maxTransitionBytes).toBeUndefined();
+ expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(DEVICE_BUDGETS.compact);
 });
 test('a narrow canvas cannot classify the same capacity as a lower-memory device',()=>{
  for(const deviceMemory of [undefined,2,4,8]){
