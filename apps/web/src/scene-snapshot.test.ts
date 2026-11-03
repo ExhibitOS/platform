@@ -48,3 +48,15 @@ test('abort settles a stalled encoder and ignores its late callback after cleanu
 test.each([1,1.25,2,3])('uses physical target pixels at DPR %s and restores screen or target state',async ratio=>{
  for(const backbuffer of [false,true]){const f=fixture(ratio,backbuffer);await captureScenePng(f.input);expect(f.centre()).toEqual([320,180]);expect(f.renderer.setViewport).toHaveBeenCalledTimes(backbuffer?1:0);expect(f.renderer.setScissor).toHaveBeenCalledTimes(backbuffer?1:0);expect(f.renderer.setScissorTest).toHaveBeenCalledTimes(backbuffer?1:0);f.assertRestored();}
 });
+
+test('inspection capture returns its exact temporary pose and restores the owner on success',async()=>{
+ const f=fixture(2,true),camera={inspection:true as const,roomId:'room',position:[0,0,3] as [number,number,number],target:[0,0,0] as [number,number,number],fov:50,localPosition:[0,0,3] as [number,number,number],localTarget:[0,0,0] as [number,number,number]},before=structuredClone(camera);
+ const result=await captureScenePng({...f.input,camera});expect(result.camera).toEqual(camera);expect(camera).toEqual(before);expect(f.centre()).toEqual([320,180]);f.assertRestored();
+});
+
+test('failed and cancelled inspection captures restore renderer and overlays before settling',async()=>{
+ const camera={inspection:true as const,roomId:'room',position:[0,0,3] as [number,number,number],target:[0,0,0] as [number,number,number],fov:50,localPosition:[0,0,3] as [number,number,number],localTarget:[0,0,0] as [number,number,number]},before=structuredClone(camera),f=fixture(2,true);
+ f.renderer.render.mockImplementation(()=>{throw Error('DRAW_FAILED');});await expect(captureScenePng({...f.input,camera})).rejects.toThrow('DRAW_FAILED');f.assertRestored();
+ const g=fixture(1.25,true),abort=new AbortController();let late:((blob:Blob)=>void)|undefined;g.canvas.toBlob=done=>{late=done;};
+ const pending=captureScenePng({...g.input,camera,signal:abort.signal});expect(late).toBeDefined();abort.abort();await expect(pending).rejects.toMatchObject({name:'AbortError'});g.assertRestored();late!(new Blob(['late inspection png']));g.assertRestored();expect(camera).toEqual(before);
+});
