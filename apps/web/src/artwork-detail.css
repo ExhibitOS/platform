@@ -7,6 +7,7 @@
 .artwork-detail[data-with-preview=true] .artwork-detail-body{grid-template-columns:minmax(0,1.65fr) minmax(18rem,1fr)}
 .artwork-detail-media{min-width:0;position:sticky;top:0}
 .artwork-detail-content{min-width:0;overflow-wrap:anywhere}
+.artwork-detail:not([data-with-preview=true]) .artwork-detail-content{width:100%;max-width:68ch;margin-inline:auto}
 .artwork-detail h2{margin:0;font-size:clamp(1.4rem,2vw,2rem);line-height:1.3;text-wrap:balance}
 .artwork-detail h3{font-size:1rem;margin:1.5rem 0 .5rem}
 .artwork-detail-artist{margin:.5rem 0 1rem;line-height:1.5}

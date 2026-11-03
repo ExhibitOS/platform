@@ -28,6 +28,7 @@ import {createViewingSession,type ViewingRenderer,type ViewingState,type Viewing
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {discardPrivateView} from './viewer/private-view-storage';
 import {publicationTime} from './publication-time';
+import {installPanelDismissal} from './viewer/panel-resume';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const emptyThumbnails:Readonly<Record<string,string>>=Object.freeze({});
@@ -41,6 +42,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
   const generation = useRef(0);
+  const publicationRoot=useRef<HTMLElement>(null);
+  useEffect(()=>{if(publicationRoot.current&&value?.publication.id)return installPanelDismissal(publicationRoot.current);},[value?.publication.id,value?.publication.revisionSha256]);
   const entry=useEntranceEntry(),{mode,modeRef,stageReady,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState}=entry;
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
   const [thumbnailOwner,setThumbnailOwner]=useState<{key:string;cache:ReturnType<typeof createPublicThumbnailCache>}|null>(null);
@@ -235,7 +238,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
   return (
-    <main className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
+    <main ref={publicationRoot} className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
       <nav className="publication-skip-links" aria-label="바로 가기">
         <a href="#publication-viewing" onClick={event => {event.preventDefault();setMenuOpen(true);setViewingFocusRequest(n=>n+1);}}>관람 설정으로 건너뛰기</a>
         <a href="#publication-artworks" onClick={showTextArtworks}>작품 목록으로 건너뛰기</a>
@@ -375,12 +378,15 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
   }, []);
   const room=typeof mode==='object'?publication.exhibition.rooms.find(r=>r.id.toLowerCase()===mode.roomId.toLowerCase()):undefined;
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
-    <header><h2 id="exhibition-overview-title">{room?"공간 안내":mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2><button autoFocus onClick={onClose}>전시로 돌아가기</button></header>
+    <header><button autoFocus className="viewer-guide-close artwork-detail-close" aria-label="전시로 돌아가기" title="전시로 돌아가기" onClick={onClose}><ViewerIcon name="close"/></button></header>
+    <div className="artwork-detail-body"><div className="artwork-detail-content">
+    <h2 id="exhibition-overview-title">{room?"공간 안내":mode === "opening" ? "전시 소개" : "전시 크레딧"}</h2>
     <h3>{room?room.name:publication.exhibition.title}</h3>
     {room?<p>작품 목록에서 이 공간의 작품 설명과 권리 정보를 읽을 수 있어요.</p>:mode === "opening" ? <>{entranceFor(publication.exhibition).introduction && <p className="detail-text">{entranceFor(publication.exhibition).introduction}</p>}{textMode && <p>현재 텍스트로 관람하고 있어요. 작품 목록에서 설명과 대본을 읽을 수 있어요. 공간을 보려면 소개를 닫고 입장하기를 선택하세요.</p>}<h3>관람 방법</h3><p>걷기를 선택한 뒤 방향키 또는 W/A/S/D로 이동합니다. 마우스 시점 잡기를 선택한 뒤 마우스로 둘러보고, Esc로 정지합니다. 상세 보기와 전시 소개를 열면 보행을 잠시 정지하고 기존 시점을 유지합니다.</p>
       <p>목록의 작품 상세 보기로 설명·실제 치수·권리·이력을 확인할 수 있습니다. 소리 없이도 모든 설명을 읽을 수 있습니다. 자동 상세 보기는 기본적으로 꺼져 있습니다.</p></> : <>
       <p className="detail-text">{presentationFor(publication.exhibition).credits || "별도 전시 크레딧이 등록되지 않았습니다."}</p>
       <ul>{publication.exhibition.artworks.map(a => <li key={a.revisionId}>{a.metadata.title} · {a.metadata.artist} · {a.rights.creditLine}</li>)}</ul>
       <p>공개 revision {publication.publication.revisionSha256}</p></>}
+    </div></div>
   </dialog>;
 }
