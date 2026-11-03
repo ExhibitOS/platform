@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { lodVariantsFor } from "@exhibitos/studio-contract";
-export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number }
+export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
@@ -9,7 +9,13 @@ export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
 /** Canvas width is a resolution/layout input, not a device capacity signal.
  * Keep the existing standard default and constrained-memory preset; neither
  * preset is a measured hardware guarantee. */
-export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return {...DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"]};}
+function selectedImageCapacity(budget:DeviceBudget,memory:number|undefined):DeviceBudget {
+ // A deliberate full-image selection may borrow the standard-device starting
+ // allowance only above the existing known constrained-memory threshold. It never grows ordinary
+ // scene/cache budgets, or grants new capacity to unknown/constrained devices.
+ return {...budget,...(memory!==undefined&&Number.isFinite(memory)&&memory>4?{selectedImage:{maxCacheBytes:Math.max(budget.maxCacheBytes,96*1024*1024),maxTransitionBytes:Math.max(budget.maxTransitionBytes??budget.maxCacheBytes,128*1024*1024)}}:{})};
+}
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number}):DeviceBudget {return selectedImageCapacity(DEVICE_BUDGETS[input.deviceMemory!==undefined&&input.deviceMemory<=4?"compact":"desktop"],input.deviceMemory);}
 /** Explicit existing high-quality choice only. Auto and known constrained devices
  * retain their previous triangle/resident limits. Explicit desktop uses the
  * development starting budget (192 MiB steady / 256 MiB transition); actual
@@ -17,8 +23,8 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
  if(profile==='auto')return deviceBudget(input);
- if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return {...DESKTOP_NEAR_BUDGET};
- return {...DEVICE_BUDGETS[profile]};
+ if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4))return selectedImageCapacity(DESKTOP_NEAR_BUDGET,input.deviceMemory);
+ return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
@@ -47,13 +53,13 @@ export function authoredImagePair(artwork:Artwork){
  return full&&coarse?{full,coarse}:undefined;
 }
 /** The selected painting may request its existing bounded full derivative.
- * This is a per-request decode target; shared resident/transition limits and
- * ordinary wall/nearby selection remain unchanged. */
+ * The optional allowance belongs only to this explicit request; ordinary
+ * wall/nearby selection and encoded cache limits remain unchanged. */
 export function selectedImageDetail(artwork:Artwork,budget:DeviceBudget){
  const pair=authoredImagePair(artwork);if(!pair)return;
  const inventory=artwork.assets.find(asset=>asset.id.toLowerCase()===pair.full.assetId.toLowerCase());
  if(!inventory||inventory.mime!=='image/png'||!pair.full.textureSize||pair.full.textureSize>2048||inventory.bytes>8388608)return;
- return {inventory,budget:{...budget,maxTextureSize:2048}};
+ return {inventory,budget:{...budget,...budget.selectedImage,maxTextureSize:2048}};
 }
 /** Includes encoded cache/copies, worst declared source bitmap, temporary
  * bitmap and mipmapped texture. Actual header dimensions refine it after fetch. */
@@ -167,8 +173,10 @@ export class AssetPeakBudget {
  constructor(private maxBytes:number,private resident:()=>number){}
  /** Release a completed external load hold without clearing live reservations. */
  raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.maxBytes)throw Error('ASSET_BUDGET_INVALID');this.maxBytes=bytes;}
- reserve(key:string,bytes:number){
-  if(!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>this.maxBytes)throw Error('ASSET_TRANSITION_PEAK');
+ reserve(key:string,bytes:number,limitBytes=this.maxBytes){
+  // An explicit selected-image allowance still accounts for every other live
+  // reservation and resident allocation in this same ledger.
+  if(!Number.isSafeInteger(limitBytes)||limitBytes<1||!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>limitBytes)throw Error('ASSET_TRANSITION_PEAK');
   this.reservations.set(key,bytes);
  }
  release(key:string){this.reservations.delete(key);}

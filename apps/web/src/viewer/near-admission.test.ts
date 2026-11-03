@@ -6,8 +6,8 @@ import {deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,mod
 test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('auto',{viewportWidth:1400,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
- expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toEqual(DEVICE_BUDGETS.compact);
- expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toEqual(DESKTOP_NEAR_BUDGET);
+ expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toMatchObject(DEVICE_BUDGETS.compact);
+ expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toMatchObject(DESKTOP_NEAR_BUDGET);
  expect(selectedDeviceBudget('desktop',{viewportWidth:1400,deviceMemory:4})).toEqual(DEVICE_BUDGETS.desktop);
  const near=selectedDeviceBudget('desktop',{viewportWidth:1400});expect(near.maxTriangles).toBe(250000);expect(near.maxTextureSize).toBe(2048);expect(near.maxCacheBytes).toBe(192*1024*1024);expect(near.maxTransitionBytes).toBe(256*1024*1024);
 });
@@ -19,7 +19,28 @@ test('a narrow canvas cannot classify the same capacity as a lower-memory device
  }
  expect(deviceBudget({deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({})).toEqual(DEVICE_BUDGETS.desktop);
- expect(selectedDeviceBudget('compact',{deviceMemory:8})).toEqual(DEVICE_BUDGETS.compact);
+ expect(selectedDeviceBudget('compact',{deviceMemory:8})).toMatchObject(DEVICE_BUDGETS.compact);
+});
+test('an explicit image allowance never lifts ordinary budgets or unknown/constrained memory',()=>{
+ for(const deviceMemory of [undefined,2,4,Infinity,NaN]){
+  expect(deviceBudget({deviceMemory}).selectedImage).toBeUndefined();
+  expect(selectedDeviceBudget('compact',{deviceMemory}).selectedImage).toBeUndefined();
+ }
+ const {selectedImage,...ordinary}=selectedDeviceBudget('compact',{deviceMemory:8});
+ expect(ordinary).toEqual(DEVICE_BUDGETS.compact);
+ expect(selectedImage).toEqual({maxCacheBytes:96*1024*1024,maxTransitionBytes:128*1024*1024});
+ const near=selectedDeviceBudget('desktop',{deviceMemory:8});
+ expect(near.selectedImage?.maxCacheBytes).toBe(near.maxCacheBytes);
+ expect(near.selectedImage?.maxTransitionBytes).toBe(near.maxTransitionBytes);
+});
+test('a selected request ceiling shares every allocation without growing the ordinary ceiling',()=>{
+ let resident=40;const peak=new AssetPeakBudget(60,()=>resident);
+ peak.reserve('selected',50,100);expect(peak.total()).toBe(90);
+ expect(()=>peak.reserve('ordinary',1)).toThrow('ASSET_TRANSITION_PEAK');
+ peak.reserve('peer',10,100);expect(()=>peak.reserve('peer',11,100)).toThrow('ASSET_TRANSITION_PEAK');
+ peak.release('selected');peak.release('peer');resident=59;
+ peak.reserve('ordinary',1);expect(()=>peak.reserve('ordinary',2)).toThrow('ASSET_TRANSITION_PEAK');
+ expect(()=>peak.reserve('invalid',1,Infinity)).toThrow('ASSET_TRANSITION_PEAK');
 });
 
 // Header/cost observations only. This does not qualify the retained Old Arrow
