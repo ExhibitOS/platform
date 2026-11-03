@@ -260,11 +260,11 @@ test('short verified authored step retains its own natural duration and per-clip
  const {runtime,calls,envelope,stride}=preparedShortStep();runtime.lifecycle(true);stride();
  assert.equal(runtime.snapshot().footsteps,1);assert.deepEqual(calls,[[0,0,.7]]);assert(envelope.some(v=>v[0]===0&&typeof v[1]==='number'&&v[1]>2.6));runtime.dispose();
 });
-test('recorded step bank selects distinct loaded buffers with their natural ends and keeps visitor stop',()=>{
+test('recorded step bank reuses one selected buffer with its natural end and keeps visitor stop',()=>{
  const {id,runtime,internal,calls,sources,stride}=preparedShortStep(),other='second-step';
  internal.experience.footsteps=[{surfaceId:id,material:'wood',bank:[{assetId:id},{assetId:other}]}];internal.buffers.set(other,{duration:1.2,length:57600,numberOfChannels:1}as AudioBuffer);
  const random=vi.spyOn(Math,'random').mockReturnValue(0);
- try{runtime.lifecycle(true);stride();stride();stride();assert.deepEqual(calls.map(c=>c[2]),[.7,1.2,.7]);runtime.footstepsEnabled(false);assert(sources.every(s=>s.stopped));stride();assert.equal(calls.length,3);}finally{runtime.dispose();random.mockRestore();}
+ try{runtime.lifecycle(true);stride();stride();stride();assert.deepEqual(calls.map(c=>c[2]),[.7,.7,.7]);runtime.mute(true);runtime.mute(false);runtime.visibility(false);runtime.visibility(true);runtime.lifecycle(true);stride();assert.equal(calls.at(-1)?.[2],.7);runtime.footstepsEnabled(false);assert(sources.every(s=>s.stopped));stride();assert.equal(calls.length,4);}finally{runtime.dispose();random.mockRestore();}
 });
 test('authored concrete recording reduces both envelope peaks while other floor recordings retain their gain',()=>{
  const random=vi.spyOn(Math,'random').mockReturnValue(.5);
@@ -281,9 +281,10 @@ test('authored concrete recording reduces both envelope peaks while other floor 
 test('recorded step bank excludes unqualified long recordings rather than truncating them into steps',()=>{
  const {id,runtime,internal,calls,stride}=preparedShortStep(),long='full-recording';
  internal.experience.footsteps=[{surfaceId:id,material:'wood',bank:[{assetId:id},{assetId:long}]}];internal.buffers.set(long,{duration:60,length:2880000,numberOfChannels:1}as AudioBuffer);
- runtime.lifecycle(true);stride();assert.deepEqual(calls,[[0,0,.7]]);assert.match(runtime.snapshot().message,/길이/);runtime.dispose();
+ const random=vi.spyOn(Math,'random').mockReturnValue(1);
+ try{runtime.lifecycle(true);stride();assert.deepEqual(calls,[]);assert.match(runtime.snapshot().message,/길이/);stride();assert.deepEqual(calls,[[0,0,.7]]);}finally{runtime.dispose();random.mockRestore();}
 });
-test('recorded step bank preloads current floor ahead of eight other assets and refills a same-room floor change',async()=>{
+test('recorded step bank preloads only its selected clip and reuses it after a material return',async()=>{
  const {id,runtime,internal}=preparedShortStep();
  const audio=runtime as unknown as {allowed:Set<string>;pending:Map<string,Promise<AudioBuffer>>;preload:()=>void;load:(id:string,preload?:boolean)=>Promise<AudioBuffer>;setRoom:(id:string)=>void;publication:import('../publication-client').PublicPublication};
  const ids=Array.from({length:16},(_,i)=>`sample-${i}`),other=['other-a','other-b'],requested:string[]=[];
@@ -291,10 +292,140 @@ test('recorded step bank preloads current floor ahead of eight other assets and 
  audio.publication.exhibition.rooms=[{id:'room'}] as import('@exhibitos/spec').Exhibition['rooms'];audio.publication.exhibition.audioZones=Array.from({length:8},(_,i)=>({assetId:`zone-${i}`,roomId:'room'})) as import('@exhibitos/spec').Exhibition['audioZones'];audio.publication.exhibition.surfaces=[{id,roomId:'room'},{id:'other-floor',roomId:'room'}]as import('@exhibitos/spec').Exhibition['surfaces'];audio.publication.exhibition.placements=[];
  internal.state.enabled=false;audio.setRoom('room');internal.state.enabled=true;internal.buffers.clear();
  audio.load=async assetId=>{requested.push(assetId);const b={duration:.2,length:9600,numberOfChannels:1}as AudioBuffer;internal.buffers.set(assetId,b);return b;};
- runtime.lifecycle(true);runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));await Promise.resolve();assert.deepEqual(requested,ids.slice(0,8));
- for(let n=0;n<9;n++){runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{roomId:'room',floorSurfaceId:id}));}await Promise.resolve();assert(ids.every(assetId=>requested.includes(assetId)));
- requested.length=0;runtime.update(state(0,{roomId:'room',floorSurfaceId:'other-floor'}));await Promise.resolve();assert.deepEqual(requested.slice(0,2),other);
- internal.buffers.delete(other[0]!);audio.pending=new Map(Array.from({length:8},(_,i)=>[`held-${i}`,new Promise<AudioBuffer>(()=>{})]));requested.length=0;audio.preload();assert.equal(requested.length,0);audio.pending.clear();runtime.dispose();
+ const random=vi.spyOn(Math,'random').mockReturnValue(0);
+ try{
+ runtime.lifecycle(true);runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));await Promise.resolve();assert.deepEqual(requested,[ids[0]]);
+ for(let n=0;n<9;n++){runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));for(let x=.1;x<=.7;x+=.1)runtime.update(state(x,{roomId:'room',floorSurfaceId:id}));}await Promise.resolve();assert.deepEqual(requested,[ids[0]]);
+ requested.length=0;runtime.update(state(0,{roomId:'room',floorSurfaceId:'other-floor'}));await Promise.resolve();assert.deepEqual(requested,[other[0]]);
+ requested.length=0;runtime.update(state(0,{roomId:'room',floorSurfaceId:id}));await Promise.resolve();assert.equal(requested.length,0);
+ internal.buffers.delete(ids[0]!);audio.pending=new Map(Array.from({length:8},(_,i)=>[`held-${i}`,new Promise<AudioBuffer>(()=>{})]));audio.preload();assert.equal(requested.length,0);audio.pending.clear();
+ audio.preload();await Promise.resolve();assert.deepEqual(requested,[ids[0]]); // Explicit cache eviction reloads the same choice once.
+ }finally{runtime.dispose();random.mockRestore();}
+});
+
+test('a recorded floor stays silent while cold, then plays only new strides; explicit procedural floors retain their fallback',()=>{
+ const f=preparedShortStep();f.internal.buffers.clear();f.runtime.lifecycle(true);
+ f.stride();f.stride();assert.equal(f.calls.length,0);assert.equal(f.runtime.snapshot().footsteps,0);
+ f.internal.buffers.set(f.id,{duration:.7,length:33600,numberOfChannels:1} as AudioBuffer);
+ assert.equal(f.calls.length,0);f.stride();assert.deepEqual(f.calls,[[0,0,.7]]);
+ f.runtime.dispose();
+ const procedural=preparedShortStep();procedural.internal.experience.footsteps=[{surfaceId:procedural.id,material:'wood'}];
+ const legacy=procedural.runtime as unknown as {steps:Map<string,AudioBuffer>};legacy.steps.set('wood',{duration:.14} as AudioBuffer);
+ procedural.runtime.lifecycle(true);procedural.stride();assert.deepEqual(procedural.calls,[[0,0,.14]]);procedural.runtime.dispose();
+});
+
+test('recorded load failures use one stable alternate and never retry or redraw on steps, mute or floor return',async()=>{
+ const f=preparedShortStep(),audio=f.runtime as unknown as {setRoom:(id:string)=>void;load:(id:string,preload?:boolean)=>Promise<AudioBuffer>};
+ const doc=f.internal.publication.exhibition,other='second-step',requests:string[]=[];
+ doc.rooms=[{id:'room'}] as typeof doc.rooms;doc.surfaces=[{id:f.id,roomId:'room'}] as typeof doc.surfaces;doc.audioZones=[];doc.placements=[];
+ f.internal.experience.footsteps=[{surfaceId:f.id,material:'wood',bank:[{assetId:f.id},{assetId:other}]}];f.internal.buffers.clear();
+ f.internal.state.enabled=false;audio.setRoom('room');f.internal.state.enabled=true;
+ audio.load=async id=>{requests.push(id);if(id===f.id)throw Error('SYNTHETIC_LOAD_FAILURE');const b={duration:.8,length:38400,numberOfChannels:1} as AudioBuffer;f.internal.buffers.set(id,b);return b;};
+ const random=vi.spyOn(Math,'random').mockReturnValue(0);
+ try{
+  f.runtime.lifecycle(true);f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));
+  for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other]);
+  for(let i=0;i<4;i++)f.stride();f.runtime.mute(true);f.runtime.mute(false);f.runtime.visibility(false);f.runtime.visibility(true);f.runtime.lifecycle(true);
+  for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other]);
+  // Opt-out makes the decoded clip evictable under the existing room cache.
+  // Re-enabling reloads the SAME successful choice, never the failed file.
+  f.runtime.footstepsEnabled(false);f.runtime.footstepsEnabled(true);
+  for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other,other]);assert(f.calls.every(call=>call[2]===.8));
+ }finally{f.runtime.dispose();random.mockRestore();}
+});
+
+test('all failed recorded clips stay silent without per-stride retries or synthetic replacement',async()=>{
+ const f=preparedShortStep(),audio=f.runtime as unknown as {setRoom:(id:string)=>void;load:(id:string,preload?:boolean)=>Promise<AudioBuffer>};
+ const doc=f.internal.publication.exhibition,other='second-step',requests:string[]=[];
+ doc.rooms=[{id:'room'}] as typeof doc.rooms;doc.surfaces=[{id:f.id,roomId:'room'}] as typeof doc.surfaces;doc.audioZones=[];doc.placements=[];
+ f.internal.experience.footsteps=[{surfaceId:f.id,material:'wood',bank:[{assetId:f.id},{assetId:other}]}];f.internal.buffers.clear();
+ f.internal.state.enabled=false;audio.setRoom('room');f.internal.state.enabled=true;audio.load=async id=>{requests.push(id);throw Error('SYNTHETIC_LOAD_FAILURE');};
+ const random=vi.spyOn(Math,'random').mockReturnValue(0);
+ try{
+  f.runtime.lifecycle(true);f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));for(let i=0;i<20;i++)await Promise.resolve();
+  assert.deepEqual(requests,[f.id,other]);for(let i=0;i<20;i++)f.stride();
+  f.runtime.mute(true);f.runtime.mute(false);f.runtime.visibility(false);f.runtime.visibility(true);f.runtime.footstepsEnabled(false);f.runtime.footstepsEnabled(true);f.runtime.lifecycle(true);f.stride();
+  for(let i=0;i<10;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other]);assert.equal(f.calls.length,0);assert.equal(f.runtime.snapshot().footsteps,0);
+ }finally{f.runtime.dispose();random.mockRestore();}
+});
+
+test('verified in-flight step decoding is reused across mute and tab return, and opt-out rejects late completion',async()=>{
+ const sample=BUILTIN_STEP_BANKS.wood[0],bytes=await readFile(new URL(`../../public/footstep-samples/v1/${sample}.wav`,import.meta.url));
+ for(const cancel of [false,true]){
+  const f=preparedShortStep(),audio=f.runtime as unknown as {setRoom:(id:string)=>void;pending:Map<string,Promise<AudioBuffer>>};
+  const doc=f.internal.publication.exhibition;doc.rooms=[{id:'room'}] as typeof doc.rooms;doc.surfaces=[{id:f.id,roomId:'room'}] as typeof doc.surfaces;doc.audioZones=[];doc.placements=[];
+  f.internal.experience.footsteps=[{surfaceId:f.id,material:'wood',bank:[{assetId:sample}]}];f.internal.buffers.clear();
+  f.internal.publication.resources=[{sha256:sample,bytes:bytes.length,mime:'audio/wav',url:`/api/v1/publications/${f.internal.publication.publication.id}/resources/${sample}`}];
+  let requests=0,decodes=0,entered:()=>void=()=>{},finish:()=>void=()=>{};
+  const decoding=new Promise<void>(resolve=>{entered=resolve;}),release=new Promise<void>(resolve=>{finish=resolve;});
+  f.internal.publication.local={check:async()=>{},fetcher:async()=>{requests++;return new Response(new Uint8Array(bytes),{headers:{'content-type':'audio/wav','x-exhibitos-publication-revision':f.internal.publication.publication.revisionSha256}});}};
+  f.internal.context.decodeAudioData=async()=>{decodes++;entered();await release;return {duration:.43,length:20640,numberOfChannels:1,sampleRate:48000} as AudioBuffer;};
+  f.internal.state.enabled=false;audio.setRoom('room');f.internal.state.enabled=true;
+  try{
+   f.runtime.lifecycle(true);f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));await decoding;
+   const pending=audio.pending.get(sample)!;f.stride();assert.equal(f.calls.length,0);
+   if(cancel)f.runtime.footstepsEnabled(false);
+   else{f.runtime.mute(true);f.runtime.visibility(false);f.runtime.visibility(true);f.runtime.mute(false);f.runtime.lifecycle(true);f.stride();}
+   assert.equal(requests,1);assert.equal(decodes,1);finish();
+   if(cancel){await assert.rejects(pending,/AUDIO_PRELOAD_STALE/);assert.equal(f.internal.buffers.has(sample),false);}
+   else{await pending;assert.equal(f.calls.length,0);f.stride();assert.deepEqual(f.calls,[[0,0,.43]]);assert.equal(requests,1);}
+  }finally{finish();f.runtime.dispose();}
+ }
+});
+
+async function verifiedStepFixture(){
+ const f=preparedShortStep(),sample=BUILTIN_STEP_BANKS.wood[0],other=BUILTIN_STEP_BANKS.wood[1];
+ const audio=f.runtime as unknown as {setRoom:(id:string)=>void;pending:Map<string,Promise<AudioBuffer>>;loadQueue:Promise<unknown>;load:(id:string)=>Promise<AudioBuffer>;track:(source:AudioBufferSourceNode)=>void};
+ const files=new Map<string,Uint8Array>(await Promise.all([sample,other].map(async id=>[id,await readFile(new URL(`../../public/footstep-samples/v1/${id}.wav`,import.meta.url))] as const)));
+ const doc=f.internal.publication.exhibition;doc.rooms=[{id:'room'}] as typeof doc.rooms;doc.surfaces=[{id:f.id,roomId:'room'}] as typeof doc.surfaces;doc.audioZones=[];doc.placements=[];
+ f.internal.experience.footsteps=[{surfaceId:f.id,material:'wood',bank:[{assetId:sample}]}];f.internal.buffers.clear();
+ f.internal.publication.resources=[...files].map(([id,bytes])=>({sha256:id,bytes:bytes.length,mime:'audio/wav',url:`/api/v1/publications/${f.internal.publication.publication.id}/resources/${id}`}));
+ let requests=0,decodes=0;
+ const small=()=>({duration:.43,length:20640,numberOfChannels:1,sampleRate:48000} as AudioBuffer);
+ let decode:()=>Promise<AudioBuffer>=async()=>small();
+ f.internal.publication.local={check:async()=>{},fetcher:async input=>{requests++;const id=String(input).split('/').at(-1)!,bytes=files.get(id)!;return new Response(new Uint8Array(bytes),{headers:{'content-type':'audio/wav','x-exhibitos-publication-revision':f.internal.publication.publication.revisionSha256}});}};
+ f.internal.context.decodeAudioData=async()=>{decodes++;return decode();};
+ f.internal.state.enabled=false;audio.setRoom('room');f.internal.state.enabled=true;
+ const begin=()=>{f.runtime.lifecycle(true);f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));return audio.pending.get(sample)!;};
+ return {...f,audio,sample,other,small,begin,requests:()=>requests,decodes:()=>decodes,setDecode:(next:()=>Promise<AudioBuffer>)=>{decode=next;}};
+}
+test('a queued step cancelled by mute or tab hiding resumes the same selection once on the same floor',async()=>{
+ for(const hide of [false,true]){
+  const f=await verifiedStepFixture();let release:()=>void=()=>{};f.audio.loadQueue=new Promise(resolve=>{release=()=>resolve(undefined);});
+  try{
+   const queued=f.begin();if(hide)f.runtime.visibility(false);else f.runtime.mute(true);release();
+   await assert.rejects(queued,/AUDIO_PRELOAD_STALE/);assert.equal(f.requests(),0);
+   if(hide)f.runtime.visibility(true);else f.runtime.mute(false);
+   const resumed=f.audio.pending.get(f.sample)!;assert(resumed);await resumed;
+   assert.equal(f.requests(),1);assert.equal(f.decodes(),1);assert.equal(f.calls.length,0);
+   f.stride();assert.deepEqual(f.calls,[[0,0,.43]]);
+  }finally{release();f.runtime.dispose();}
+ }
+});
+test('actual cache eviction is followed by one same-choice reload on a new stride, never synthetic playback',async()=>{
+ const f=await verifiedStepFixture();
+ try{
+  await f.begin();f.stride();assert.equal(f.calls.length,1);f.sources.at(-1)!.onended?.(new Event('ended'));
+  // Synthetic decoded-size accounting exercises the real bounded cache path,
+  // without allocating another 24 MiB or asserting any acoustic measurement.
+  f.setDecode(async()=>({...f.small(),length:24*1024*1024/4} as AudioBuffer));
+  await f.audio.load(f.other);assert.equal(f.internal.buffers.has(f.sample),false);
+  f.setDecode(async()=>f.small());f.stride();assert.equal(f.calls.length,1);
+  const reload=f.audio.pending.get(f.sample)!;assert(reload);await reload;
+  assert.equal(f.requests(),3);assert.equal(f.calls.length,1);f.stride();assert.equal(f.calls.length,2);
+ }finally{f.runtime.dispose();}
+});
+test('temporary active cache pressure defers a good recording until source release without burning its bank',async()=>{
+ const f=await verifiedStepFixture(),full={...f.small(),length:24*1024*1024/4} as AudioBuffer;
+ const pinned={buffer:full,disconnect:()=>{},onended:null as ((event:Event)=>void)|null} as unknown as AudioBufferSourceNode;
+ f.internal.buffers.set('active-cache',full);f.audio.track(pinned);
+ try{
+  await assert.rejects(f.begin(),/AUDIO_CACHE_PRESSURE/);for(let i=0;i<8;i++)await Promise.resolve();
+  for(let i=0;i<20;i++)f.stride();assert.equal(f.requests(),1);assert.equal(f.calls.length,0);
+  pinned.onended?.(new Event('ended'));const retry=f.audio.pending.get(f.sample)!;assert(retry);await retry;
+  assert.equal(f.requests(),2);assert.equal(f.decodes(),2);assert.equal(f.calls.length,0);
+  f.stride();assert.deepEqual(f.calls,[[0,0,.43]]);
+ }finally{f.runtime.dispose();}
 });
 test('visitor footsteps off stops active step sources and resets distance without enabling audio or changing zone consent',()=>{
  const {runtime,calls,sources,stride}=preparedShortStep();runtime.lifecycle(true);stride();runtime.footstepsEnabled(false);
