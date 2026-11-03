@@ -11,10 +11,13 @@ import {allowedRights} from './rights.ts';
 
 test('the twelve published works retain their exact approved display references',async()=>{
  const root='demos/reference-exhibition/source/';
- const indexBytes=await readFile(root+'static-publication-index.json');
+ // Pin the approved 12-work metadata independently of the live demo.
+ // Its exact binary objects remain under the content-addressed source paths.
+ const fixture=new URL('./fixtures/twelve-work-reference/',import.meta.url);
+ const indexBytes=await readFile(new URL('index.json',fixture));
  const sha=(data:Uint8Array)=>createHash('sha256').update(data).digest('hex');
  expect(sha(indexBytes)).toBe('4f31bc7132d6b71bcc7fefe741ebf66ba09512f9bacd1cf4ed261fde78a57c01');
- const index=JSON.parse(indexBytes.toString()),publicationBytes=await readFile(root+index.publication.path);
+ const index=JSON.parse(indexBytes.toString()),publicationBytes=await readFile(new URL('projection.json',fixture));
  expect(sha(publicationBytes)).toBe(index.publication.sha256);
  const publication=JSON.parse(publicationBytes.toString()) as {exhibition:{artworks:Artwork[]}};expect(publication.exhibition.artworks).toHaveLength(12);
  let selected=0,ordinary=0,previews=0;

@@ -2,12 +2,12 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import {readFileSync} from "node:fs";
 import * as Three from "three";
-import type {Exhibition} from "@exhibitos/spec";
 import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, selectedImageDetail, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
 import {createFlatDetailRetry} from "./borrowed-detail-preview";
-import { syntheticArtwork } from "../placement/model";
+import { newPlacement,syntheticArtwork } from "../placement/model";
+import { newDraft } from "../drafts/example";
+import { newDoor,newRoom,newSurface } from "../geometry/model";
 import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
 describe('authored painting near tiers',()=>{
@@ -344,27 +344,37 @@ it('keeps detail behind a memory-blocked minimum throughout retry grace, then re
 });
 
 
-function referenceExhibition():Exhibition {
- const root=new URL('../../../../demos/reference-exhibition/source/',import.meta.url),index=JSON.parse(readFileSync(new URL('static-publication-index.json',root),'utf8'));
- return JSON.parse(readFileSync(new URL(index.publication.path,root),'utf8')).exhibition;
+function twoDoorConnector() {
+ const doc=newDraft().candidate;
+ const dims={width:4,height:4,depth:4};
+ const gallery=newRoom('Painting room',dims),connector=newRoom('Empty connector',dims),sculptureRoom=newRoom('Sculpture room',dims);
+ doc.rooms=[gallery,connector,sculptureRoom];
+ function connect(a:typeof gallery,b:typeof gallery){
+  const sides=[a,b].map(room=>newSurface(room.id,'wall',{width:4,height:4},room.transform));
+  doc.surfaces.push(...sides);
+  const [out,back]=sides.map(wall=>newDoor(wall.id,{width:2,height:3},[0,0]));
+  doc.openings.push({...out!,exterior:false,connectsToOpeningId:back!.id},{...back!,exterior:false,connectsToOpeningId:out!.id});
+ }
+ connect(gallery,connector);connect(connector,sculptureRoom);
+ const image=syntheticArtwork('image'),sculpture=syntheticArtwork();
+ sculpture.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:sculpture.primaryAssetId,detail:'full',triangles:20000}]}};
+ doc.artworks=[image,sculpture];
+ const painting=newPlacement(image,gallery.id),placed=newPlacement(sculpture,sculptureRoom.id);
+ doc.placements=[painting,placed];
+ return {doc,image,sculpture,painting,placed,connector};
 }
 it('keeps a single-GLB minimum across the empty two-door connector before painting detail',()=>{
- const doc=referenceExhibition(),image=doc.artworks.find(a=>a.artworkType==='image')!,sculpture=doc.artworks.find(a=>a.artworkType==='sculpture')!;
- const painting=doc.placements.find(p=>p.artworkRevisionId===image.revisionId)!,placed=doc.placements.find(p=>p.artworkRevisionId===sculpture.revisionId)!;
+ const {doc,image,sculpture,painting,placed}=twoDoorConnector();
  const rooms=minimumRoomInterest(doc,painting.roomId),minimum=selectAssetVariant(sculpture,Infinity,DEVICE_BUDGETS.desktop);
  expect(rooms.has(placed.roomId.toLowerCase())).toBe(true);
  expect(lodVariantsFor(sculpture)).toHaveLength(1);expect(minimum.id).toBe(sculpture.primaryAssetId);
  expect(displayedDetailReclamation([{id:sculpture.revisionId,artwork:sculpture,assetId:minimum.id,visible:false,minimumRequired:rooms.has(placed.roomId.toLowerCase()),lastAttended:0}],image.revisionId,10000,DEVICE_BUDGETS.desktop)).toBeUndefined();
 });
 it('bounds the minimum room window at a populated neighbor and ignores broken door pairs',()=>{
- const doc=referenceExhibition(),image=doc.artworks.find(a=>a.artworkType==='image')!,sculpture=doc.artworks.find(a=>a.artworkType==='sculpture')!;
- const painting=doc.placements.find(p=>p.artworkRevisionId===image.revisionId)!,placed=doc.placements.find(p=>p.artworkRevisionId===sculpture.revisionId)!;
- const surfaces=new Map(doc.surfaces.map(s=>[s.id,s.roomId])),openings=new Map(doc.openings.map(o=>[o.id,o]));
- const direct=(roomId:string)=>new Set(doc.openings.filter(o=>surfaces.get(o.surfaceId)===roomId).map(o=>surfaces.get(openings.get(o.connectsToOpeningId??'')?.surfaceId??'')));
- const connector=doc.rooms.find(r=>!doc.placements.some(p=>p.roomId===r.id)&&direct(r.id).has(painting.roomId)&&direct(r.id).has(placed.roomId))!;
+ const {doc,painting,placed,connector}=twoDoorConnector();
  const occupied=structuredClone(doc);occupied.placements.push({...structuredClone(placed),id:crypto.randomUUID(),roomId:connector.id});
  expect(minimumRoomInterest(occupied,painting.roomId).has(placed.roomId.toLowerCase())).toBe(false);
- const closed=structuredClone(doc);closed.openings=[];expect([...minimumRoomInterest(closed,painting.roomId)]).toEqual([painting.roomId.toLowerCase()]);
+ const closed=structuredClone(doc);closed.openings.splice(0,1);expect([...minimumRoomInterest(closed,painting.roomId)]).toEqual([painting.roomId.toLowerCase()]);
  expect(minimumRoomInterest(doc,crypto.randomUUID()).size).toBe(0);
 });
 it('admits a partial sculpture footprint through the real two-jamb geometry while preserving opaque-wall rejection',()=>{
