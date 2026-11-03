@@ -27,3 +27,11 @@ it('keeps revision owners independent, rejects invalid input and clears disposed
  old.publish([4,1,5],1,60);expect(old.getSnapshot()?.point).toEqual([4,5]);expect(listener).toHaveBeenCalledTimes(3);
  old.clear();expect(old.getSnapshot()).toBeUndefined();expect(listener).toHaveBeenCalledTimes(4);old.clear();expect(listener).toHaveBeenCalledTimes(4);
 });
+
+
+it('publishes a stopped/discontinuous crop signal even when the actual pose is unchanged',()=>{
+ const source=createMapPoseSource('pub/rev'),listener=vi.fn();source.subscribe(listener);
+ source.publish([1,1,2],0,60,true);expect(source.getSnapshot()?.continuous).toBe(true);
+ source.publish([1,1,2],0,60,false);expect(source.getSnapshot()?.continuous).toBe(false);expect(listener).toHaveBeenCalledTimes(2);
+ source.publish([10,1,20],0,60,false);expect(source.getSnapshot()?.point).toEqual([10,20]);
+});
