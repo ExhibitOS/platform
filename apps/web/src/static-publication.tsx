@@ -11,7 +11,7 @@ const coverIntroduction=bootstrap?.querySelector('.entrance-cover-introduction')
 const root=createRoot(document.getElementById("root")!);
 let generation=0,timer:ReturnType<typeof setTimeout>|undefined;
 let firstLoad=true;
-function failed(){root.render(<main className="cms-shell"><h1>전시를 열지 못했어요</h1><p role="alert">전시 파일을 확인할 수 없어요. 연결 상태와 게시 상태·표시 기한을 확인한 뒤 다시 시도해 주세요.</p><button onClick={()=>void load()}>다시 시도</button></main>);}
+function failed(){root.render(<main className="cms-shell publication-shell publication-static-error"><h1>전시를 열지 못했어요</h1><p role="alert">전시 파일을 확인할 수 없어요. 연결 상태와 게시 상태·표시 기한을 확인한 뒤 다시 시도해 주세요.</p><button onClick={()=>void load()}>다시 시도</button></main>);}
 async function load(){
  const current=++generation;
  if(timer!==undefined)clearTimeout(timer);

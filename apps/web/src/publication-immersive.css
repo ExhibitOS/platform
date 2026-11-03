@@ -5,7 +5,16 @@
 .publication-mode-3d section[aria-label="3D 관람 오류"]{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:clamp(1.5rem,8vw,8rem);background:#f8fbfc;color:#182d32}
 .viewer-brief{position:absolute;left:50%;bottom:6rem;transform:translateX(-50%);width:min(34rem,calc(100% - 2rem));z-index:10;background:#fff;color:#182d32;border-radius:6px;padding:.75rem 1rem;display:flex;align-items:center;gap:1rem;box-shadow:0 2px 16px #182d321a}.viewer-brief p{font-size:1rem;line-height:1.5;margin:0}.viewer-brief button{flex-shrink:0}.publication-shell .artwork-detail{background:#f8fbfc;color:#182d32;border:0;border-radius:8px;font-size:1.0625rem}
 .publication-shell{--publication-paper:#f8fbfc;--publication-ink:#182d32;--publication-muted:#51656a;--publication-action:#135967;width:100%;max-width:none;margin:0;padding:0;background:var(--publication-paper);color:var(--publication-ink);font-family:"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;font-size:18px;line-height:1.6;min-height:100svh}
-.publication-shell article{margin:0}.publication-shell button{background:var(--publication-action);color:#fff;min-height:44px;padding:.65rem 1.1rem;border-radius:4px;font-weight:600}.publication-shell :is(button,a,summary,input,select):focus-visible{outline:3px solid currentColor;outline-offset:4px}.publication-shell a{text-underline-offset:.2em}.publication-shell summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600;list-style:none}.publication-shell summary::-webkit-details-marker{display:none}.publication-shell summary::after{content:"+";margin-left:.75rem}.publication-shell details[open]>summary::after{content:"−"}
+.publication-shell article{margin:0}.publication-shell button{min-height:44px;padding:.65rem 1.1rem;border-radius:4px;font-weight:600}
+/* Public controls recede around the artwork. The shared native entrance keeps
+   its existing fill specificity so the authored ticket still wins unchanged. */
+.publication-shell:where(.native-entrance-preview) button{background:var(--publication-action);color:#fff}
+main.publication-shell button{background:transparent;color:var(--publication-ink);border:1px solid var(--publication-muted)}
+main.publication-shell>button,main.publication-shell section[aria-label="3D 관람 오류"]>button{background:var(--publication-action);color:var(--publication-paper);border-color:var(--publication-action)}
+main.publication-shell>button:focus-visible,main.publication-shell section[aria-label="3D 관람 오류"]>button:focus-visible{outline-color:var(--publication-ink)}
+main.publication-shell button:disabled{opacity:1;color:var(--publication-muted);cursor:not-allowed}
+main.publication-shell>button:disabled,main.publication-shell section[aria-label="3D 관람 오류"]>button:disabled{background:var(--publication-paper);color:var(--publication-muted);border-color:var(--publication-muted)}
+main.publication-shell button[aria-busy=true]{cursor:progress}.publication-shell :is(button,a,summary,input,select):focus-visible{outline:3px solid currentColor;outline-offset:4px}.publication-shell a{text-underline-offset:.2em}.publication-shell summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600;list-style:none}.publication-shell summary::-webkit-details-marker{display:none}.publication-shell summary::after{content:"+";margin-left:.75rem}.publication-shell details[open]>summary::after{content:"−"}
 .publication-shell>footer{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem clamp(1.5rem,6vw,7rem);margin:0;font-size:14px;color:var(--publication-muted)}.publication-brand{display:flex;align-items:center;gap:.4rem;color:#07382f}.publication-brand>svg:first-child{width:32px;height:32px;flex-shrink:0}.publication-brand>svg:last-child{width:102px;height:26px;flex-shrink:0}.publication-load-state{margin:0;padding:2rem;max-width:55ch}.publication-text-content{max-width:72rem;margin:auto;padding:2rem clamp(1.5rem,6vw,5rem)}.publication-text-content li{margin:2rem 0 3rem}.publication-text-content p{max-width:66ch}.publication-mode-text .entrance-cover{min-height:0;padding-top:6rem;padding-bottom:1rem}
 .publication-menu{position:absolute;top:1.25rem;right:clamp(1.25rem,3vw,3rem);z-index:20}.publication-menu>summary,.publication-text-route,.viewer-audio-menu>summary,.viewer-settings-menu>summary,.geometry-controls>summary{background:#fff;color:#182d32;box-shadow:0 2px 16px #182d3212;border-radius:6px;padding:.6rem 1rem;min-height:44px}.publication-menu-panel{margin-top:.5rem;width:min(25rem,calc(100vw - 2.5rem));max-height:calc(100dvh - 7rem);overflow:auto;background:#fff;padding:1.5rem;border-radius:8px;box-shadow:0 10px 40px #182d3226}.publication-menu-panel>button{display:block;width:100%;margin-bottom:.75rem}.publication-menu-panel h2{font-size:1.125rem}.publication-menu-panel p{font-size:1rem}.publication-menu-panel label{font-size:1rem}.publication-text-route{position:fixed;top:1.25rem;left:1.25rem;z-index:15;background:#fff!important;color:#182d32!important}
 .publication-menu-panel>.publication-private-entry{margin-block:0 1.25rem;min-inline-size:0;scroll-margin-block:1rem max(1rem,env(safe-area-inset-bottom,0px))}
@@ -97,14 +106,31 @@
 .viewer-help-note{font-size:.8125rem;line-height:1.5;margin:1rem 0 0}
 /* Only primary choices/actions use a filled surface. Secondary navigation is
    a row or an outlined state, with the same 44px focus and hit affordances. */
-.publication-mode-3d .publication-menu-panel>button,.publication-mode-3d :is(.publication-info-menu,.publication-record)>button,.publication-mode-3d .publication-info-menu section[aria-label="공간 명판"] button,.publication-mode-3d .viewer-help-entry{display:block;width:100%;min-height:44px;text-align:start;color:var(--publication-ink);background:transparent;border:0;border-bottom:1px solid rgb(24 45 50 / .18);border-radius:0;padding:.65rem .25rem;margin:0}
+main.publication-shell .publication-menu-panel>button,main.publication-shell :is(.publication-info-menu,.publication-record)>button,main.publication-shell .publication-info-menu section[aria-label="공간 명판"] button,main.publication-shell .viewer-help-entry{display:block;width:100%;min-height:44px;text-align:start;color:var(--publication-ink);background:transparent;border:0;border-bottom:1px solid rgb(24 45 50 / .18);border-radius:0;padding:.65rem .25rem;margin:0}
 .publication-mode-3d .publication-menu-panel>.publication-settings-menu,.publication-mode-3d .publication-menu-panel>.publication-info-menu{margin-top:1rem;border-top:1px solid rgb(24 45 50 / .18)}
 .publication-mode-3d .publication-menu-panel>.publication-settings-menu>summary,.publication-mode-3d .publication-menu-panel>.publication-info-menu>summary{padding-block:.65rem;justify-content:space-between}
 .publication-mode-3d .publication-settings-menu .viewer-settings-menu>summary{font-size:1rem}
-.publication-mode-3d .viewer-viewing-styles-options button,.publication-mode-3d .viewer-help-input button{background:transparent;color:var(--publication-ink);border:1px solid rgb(24 45 50 / .3);font-size:.875rem}
-.publication-mode-3d .viewer-viewing-styles-options button[aria-pressed=true],.publication-mode-3d .viewer-help-input button[aria-pressed=true]{background:var(--publication-action);color:var(--publication-paper)}
+main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button{display:inline-flex;align-items:center;justify-content:space-between;gap:.65rem;background:var(--publication-paper);color:var(--publication-ink);border:1px solid var(--publication-muted);font-size:.875rem}
+main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button::after{content:"";flex:none;width:.65rem;height:.35rem;border-inline-start:2px solid currentColor;border-block-end:2px solid currentColor;transform:rotate(-45deg);visibility:hidden}
+main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button[aria-pressed=true]{background:rgb(24 45 50 / .07);border-color:var(--publication-ink);font-weight:600;text-decoration:none}
+main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button[aria-pressed=true]::after{visibility:visible}
 .viewer-audio-use{display:flex;align-items:center;justify-content:space-between;gap:1rem;width:100%;min-height:44px}
-.publication-shell .viewer-audio-use[aria-checked=false]{color:var(--publication-ink);background:transparent;border:1px solid currentColor}
+main.publication-shell .viewer-audio-use{color:var(--publication-ink);background:transparent;border:0;border-bottom:1px solid var(--publication-muted);border-radius:0;text-align:start;padding-inline:.25rem}
+main.publication-shell .viewer-audio-use>span:last-child{position:relative;flex:none;padding-inline-end:3.5rem;font-size:.875rem}
+main.publication-shell .viewer-audio-use>span:last-child::before{content:"";position:absolute;inset-inline-end:0;top:50%;width:44px;height:24px;transform:translateY(-50%);border:1px solid var(--publication-muted);border-radius:999px;background:var(--publication-paper)}
+main.publication-shell .viewer-audio-use>span:last-child::after{content:"";position:absolute;inset-inline-end:24px;top:50%;width:16px;height:16px;transform:translateY(-50%);border-radius:50%;background:var(--publication-ink)}
+main.publication-shell .viewer-audio-use[aria-checked=true]>span:last-child::before{background:var(--publication-ink);border-color:var(--publication-ink)}
+main.publication-shell .viewer-audio-use[aria-checked=true]>span:last-child::after{inset-inline-end:4px;background:var(--publication-paper)}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) label:has(>input[type=checkbox]){display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:1rem;min-height:44px}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]{appearance:none;position:relative;flex:none;display:inline-block;width:44px;height:44px;margin:0;padding:0;border:0;background:transparent;color:var(--publication-ink);cursor:pointer}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]::before{content:"";position:absolute;inset-inline-start:0;top:10px;width:44px;height:24px;border:1px solid var(--publication-muted);border-radius:999px;background:var(--publication-paper)}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]::after{content:"";position:absolute;inset-inline-start:4px;top:14px;width:16px;height:16px;border-radius:50%;background:var(--publication-ink)}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:checked::before{background:var(--publication-ink);border-color:var(--publication-ink)}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:checked::after{inset-inline-start:24px;background:var(--publication-paper)}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:disabled{opacity:1;color:var(--publication-muted);cursor:not-allowed}
+main.publication-shell .viewer-audio input[type=range]{accent-color:var(--publication-ink)}
+main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:disabled::before{border-style:dashed;border-color:var(--publication-muted)}
+main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button[aria-pressed=false]:enabled:hover,main.publication-shell .viewer-help-choice-buttons button:enabled:hover,main.publication-shell .publication-guide>button:enabled:hover,main.publication-shell .viewer-audio-use:enabled:hover{background:rgb(24 45 50 / .04);border-color:var(--publication-ink)}
 .viewer-audio label{display:block;min-height:44px;padding-block:.25rem}
 .viewer-audio label:has(input[type=checkbox]){display:flex;align-items:center;gap:.5rem}
 .viewer-audio label input[type=range]{display:block;min-height:44px;width:100%}
@@ -137,7 +163,7 @@
 
 .viewer-help-choice-buttons{display:grid;gap:.75rem}
 .viewer-help-choice-buttons button{min-height:44px;width:100%}
-.publication-shell .viewer-help-choice-buttons button+button{color:var(--publication-ink);background:transparent;border:1px solid currentColor}
+main.publication-shell .viewer-help-choice-buttons button{color:var(--publication-ink);background:var(--publication-paper);border:1px solid var(--publication-muted);text-align:start}
 .viewer-help-choice-buttons p{font-size:.875rem;line-height:1.5;margin:0}
 
 .viewer-help-keypad{display:grid;grid-template-columns:repeat(3,1.6rem);grid-template-rows:repeat(2,1.6rem);gap:.2rem}
@@ -182,6 +208,11 @@
 .publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu)[open]) .viewer-visitor-map:not([open])>summary,
 .publication-mode-3d:has(dialog[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)>summary{visibility:hidden;pointer-events:none}
 .publication-mode-cover .publication-menu{top:max(1.25rem,env(safe-area-inset-top,0px));right:max(clamp(1.25rem,3vw,3rem),env(safe-area-inset-right,0px))}
+/* Keep the public cover's one44px trigger at its viewport anchor; the open
+   panel must not grow its containing block or move the close action. */
+main.publication-shell.publication-mode-cover .publication-menu{position:fixed;width:44px;height:44px}
+main.publication-shell.publication-mode-cover .publication-menu-panel{position:absolute;right:0;top:calc(100% + .5rem);margin-top:0}
+main.publication-shell.publication-mode-cover .publication-menu>summary:focus-visible{outline-color:var(--publication-ink)}
 .publication-mode-cover .publication-menu-panel{box-sizing:border-box;width:min(25rem,calc(100vw - 2 * max(1.25rem,env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))));max-height:calc(100svh - max(1.25rem,env(safe-area-inset-top,0px)) - 44px - .5rem - max(1rem,env(safe-area-inset-bottom,0px)))}
 .publication-mode-cover .publication-menu>summary{position:relative;display:grid;place-items:center;isolation:isolate;width:44px;height:44px;box-sizing:border-box;padding:0;border:0;border-radius:50%;background:transparent;color:var(--publication-ink);box-shadow:none}
 .publication-mode-cover .publication-menu>summary::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .78)}
@@ -190,3 +221,24 @@
 .publication-shell.publication-mode-cover .publication-menu>summary::after,.publication-shell.publication-mode-cover .publication-menu[open]>summary::after{content:none;display:none}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.publication-mode-cover .publication-menu>summary::before{background:var(--publication-paper)}.publication-mode-cover .publication-menu[open]>summary::before{background:var(--publication-ink)}}
 .publication-mode-cover.publication-high-contrast .publication-menu>summary::before{background:var(--publication-paper)}.publication-mode-cover.publication-high-contrast .publication-menu[open]>summary::before{background:var(--publication-ink)}
+
+/* Text navigation stays part of the reading flow, with the existing actions. */
+main.publication-shell .publication-guide>button{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;margin-inline-end:.5rem;margin-block-end:.5rem}
+main.publication-shell .publication-guide>button svg{width:20px;height:20px;flex:none}
+@media(forced-colors:active){
+ main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button[aria-pressed=true]{border-width:2px}
+ main.publication-shell .viewer-audio-use>span:last-child::before,main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]::before{forced-color-adjust:none;background:Canvas;border-color:CanvasText}
+ main.publication-shell .viewer-audio-use>span:last-child::after,main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]::after{forced-color-adjust:none;background:CanvasText}
+ main.publication-shell .viewer-audio-use[aria-checked=true]>span:last-child::before,main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:checked::before{background:Highlight}
+ main.publication-shell .viewer-audio-use[aria-checked=true]>span:last-child::after,main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:checked::after{background:HighlightText}
+}
+
+/* The static entry failure uses the same public recovery controls and reading
+   scale; it does not change loading, expiry, or retry behavior. */
+main.publication-shell.publication-static-error{padding:clamp(1.5rem,5vw,4rem)}
+.publication-static-error>h1{max-width:22ch;margin:0 0 1rem;font-size:clamp(1.75rem,4vw,2.75rem);line-height:1.2;letter-spacing:normal}
+.publication-static-error>p{max-width:60ch;margin:0 0 1.25rem}
+
+main.publication-shell .publication-plaque-links ul{list-style:none;margin:0;padding:0}
+main.publication-shell .publication-plaque-links li{margin:0;padding:0}
+main.publication-shell .publication-plaque-detail{display:block;margin-top:.15rem;font-size:.875rem;font-weight:400;line-height:1.5;color:var(--publication-muted);overflow-wrap:anywhere}

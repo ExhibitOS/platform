@@ -293,7 +293,12 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <details className="publication-info-menu"><summary>전시 정보</summary>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
-          {plaqueLinks.length>0&&<section aria-label="공간 명판"><h2>공간 안내</h2><ul>{plaqueLinks.map(plaque=><li key={plaque.id}><button onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{plaqueContent(value.exhibition,plaque).title} 안내 읽기</button></li>)}</ul></section>}
+          {plaqueLinks.length>0&&<section className="publication-plaque-links" aria-label="공간 명판"><ul>{plaqueLinks.map((plaque,index)=>{
+            const content=plaqueContent(value.exhibition,plaque),roomName=value.exhibition.rooms.find(room=>room.id.toLowerCase()===plaque.roomId.toLowerCase())?.name??content.title;
+            const kind=plaque.source.kind==='artwork'?'작품 안내':plaque.source.kind==='exhibition'?'전시 안내':'공간 안내';
+            const multipleInRoom=plaqueLinks.some(other=>other!==plaque&&other.roomId.toLowerCase()===plaque.roomId.toLowerCase());
+            return <li key={plaque.id}><button aria-label={`${roomName} ${kind}${plaqueLinks.length>1?` ${index+1}`:''}: ${content.title}`} onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{roomName}{(multipleInRoom||plaque.source.kind==='artwork')&&<span className="publication-plaque-detail">{content.title===roomName?kind:content.title}</span>}</button></li>;
+          })}</ul></section>}
           <details className="publication-record">
             <summary>파일 기록</summary>
             <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
@@ -322,8 +327,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             <p>아래 순서는 공개된 작품 목록의 순서입니다. 작가가 지정한 공간 이동 경로가 아닙니다.</p>
             {guidedIndex === null ? <button disabled={!value.exhibition.placements.length} onClick={() => setGuidedIndex(0)}>목록 순서로 안내 시작</button> : <div className="publication-guide" aria-label="목록 순서 안내">
               <h3 ref={guideHeading} tabIndex={-1}>목록 안내 · 작품 {guidedIndex + 1} / {value.exhibition.placements.length}</h3>
-              <button disabled={guidedIndex === 0} onClick={() => setGuidedIndex(index => Math.max(0, (index ?? 0) - 1))}>이전 작품</button>
-              <button disabled={guidedIndex === value.exhibition.placements.length - 1} onClick={() => setGuidedIndex(index => Math.min(value.exhibition.placements.length - 1, (index ?? 0) + 1))}>다음 작품</button>
+              <button disabled={guidedIndex === 0} onClick={() => setGuidedIndex(index => Math.max(0, (index ?? 0) - 1))}><ViewerIcon name="previous"/>이전 작품</button>
+              <button disabled={guidedIndex === value.exhibition.placements.length - 1} onClick={() => setGuidedIndex(index => Math.min(value.exhibition.placements.length - 1, (index ?? 0) + 1))}>다음 작품<ViewerIcon name="next"/></button>
               <button onClick={() => { setGuidedIndex(null); document.getElementById("publication-artworks")?.focus(); }}>전체 목록 보기</button>
               <p role="status">{value.exhibition.artworks.find(a => a.revisionId.toLowerCase() === value.exhibition.placements[guidedIndex]?.artworkRevisionId.toLowerCase())?.metadata.title}</p>
             </div>}
@@ -387,7 +392,14 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
   useEffect(() => {
     const previous = document.activeElement, element = dialog.current;
     element?.showModal();
-    return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+    return () => {
+      element?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        const owner=previous.closest<HTMLDetailsElement>('details.publication-menu');
+        const target=owner&&!owner.open?owner.querySelector<HTMLElement>(':scope>summary'):previous;
+        if(target?.isConnected&&target.getClientRects().length&&!target.closest('[hidden], [inert]')&&getComputedStyle(target).visibility!=='hidden')target.focus({preventScroll:true});
+      }
+    };
   }, []);
   const room=typeof mode==='object'?publication.exhibition.rooms.find(r=>r.id.toLowerCase()===mode.roomId.toLowerCase()):undefined;
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
