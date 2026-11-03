@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import {readFileSync} from "node:fs";
 import * as Three from "three";
 import type {Exhibition} from "@exhibitos/spec";
-import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
+import { AssetScheduler, MemoryAssetCache, DEVICE_BUDGETS, selectAssetVariant, selectedImageDetail, fetchVerifiedAsset, checkImageDecode, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes } from "./loading";
 import {createFlatDetailRetry} from "./borrowed-detail-preview";
 import { syntheticArtwork } from "../placement/model";
 import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
@@ -37,6 +37,17 @@ describe('authored painting near tiers',()=>{
  it('uses a valid compact coarse and rejects missing refs instead of fetching an oversized full',()=>{
   const {a,full,coarse}=image();expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toBe(coarse);expect(selectAssetVariant(a,0,DEVICE_BUDGETS.desktop)).toBe(full);
   a.assets=a.assets.filter(v=>v.id!==coarse.id);expect(()=>selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toThrow('VIEWER_LOD_INVALID');
+ });
+ it('targets only the selected existing bounded full painting while retaining shared compact limits',()=>{
+  const {a,full,coarse}=image(),before={...DEVICE_BUDGETS.compact};
+  const target=selectedImageDetail(a,DEVICE_BUDGETS.compact)!;
+  expect(target.inventory).toBe(full);expect(selectAssetVariant(a,0,DEVICE_BUDGETS.compact)).toBe(coarse);
+  expect(target.budget).toEqual({...before,maxTextureSize:2048});expect(DEVICE_BUDGETS.compact).toEqual(before);
+  expect(target.budget.maxCacheBytes).toBe(32*1024*1024);
+  full.bytes=8388609;expect(selectedImageDetail(a,DEVICE_BUDGETS.compact)).toBeUndefined();
+  full.bytes=1000;a.extensions![LOD_NAMESPACE]={version:1,variants:[{assetId:full.id,detail:'full',textureSize:4096},{assetId:coarse.id,detail:'coarse',textureSize:512}]};
+  expect(()=>selectedImageDetail(a,DEVICE_BUDGETS.compact)).toThrow('VIEWER_LOD_INVALID');
+  a.artworkType='sculpture';expect(selectedImageDetail(a,DEVICE_BUDGETS.compact)).toBeUndefined();
  });
  it('guards explicit desktop pair pixels before decode while retaining compact two-megapixel protection',()=>{
   const {a,full}=image(),bytes=new ArrayBuffer(64),v=new DataView(bytes);[137,80,78,71,13,10,26,10].forEach((n,i)=>v.setUint8(i,n));v.setUint32(8,13);v.setUint32(12,0x49484452);v.setUint32(16,2048);v.setUint32(20,1920);v.setUint8(24,8);v.setUint8(25,2);
