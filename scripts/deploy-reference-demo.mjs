@@ -7,12 +7,14 @@ import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {staticCacheHeaders} from './static-cache-policy.mjs';
 
+import {inspectCopyBases,readApprovedCopyBases} from './reference-demo-copy-bases.mjs';
+
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 const exec=promisify(execFile);
 
 // The pin comes from deployment configuration, independently of repository content.
-export async function inspectDemo({output, pin, commit}){
+export async function inspectDemo({output, pin, commit, approvedBases}){
  if(!/^[a-f0-9]{64}$/.test(pin??''))throw Error('DEMO_APPROVED_INDEX_REQUIRED');
  const indexBytes=await readFile(join(output,'static-publication-index.json'));
  if(sha256(indexBytes)!==pin)throw Error('DEMO_CONTENT_INDEX');
@@ -46,6 +48,7 @@ export async function inspectDemo({output, pin, commit}){
   expected.set(entry.path,entry);
  }
  if(!expected.has('static-publication-index.json')||expected.has('static-export-manifest.json')||expected.has('_headers'))throw Error('DEMO_MANIFEST_ENTRY');
+ await inspectCopyBases(output,approvedBases??await readApprovedCopyBases(join(root,'demos/reference-exhibition/previous-copy-bases.json')),expected);
  const headers=staticCacheHeaders(index,description.files);
  const allowed=new Set([...expected.keys(),'static-export-manifest.json',...(headers?['_headers']:[])]);
  async function walk(dir,prefix=''){
@@ -65,7 +68,7 @@ export async function inspectDemo({output, pin, commit}){
  return {sourceCommit:commit,publicationId:publication.id,revisionSha256:publication.revisionSha256,indexSha256:pin,manifestSha256:sha256(manifest)};
 }
 
-export async function deployReferenceDemo({env=process.env,output=join(root,'dist-demo'),remoteHead,checkoutHead,deploy,log=console.log}={}){
+export async function deployReferenceDemo({env=process.env,output=join(root,'dist-demo'),remoteHead,checkoutHead,deploy,approvedBases,log=console.log}={}){
  const commit=env.WORKERS_CI_COMMIT_SHA;
  if(env.WORKERS_CI_BRANCH!=='main')throw Error('DEMO_BRANCH');
  if(!/^[a-f0-9]{40}$/.test(commit??''))throw Error('DEMO_COMMIT');
@@ -74,7 +77,7 @@ export async function deployReferenceDemo({env=process.env,output=join(root,'dis
  const remote=await remoteHead();
  if(!/^[a-f0-9]{40}$/.test(remote??''))throw Error('DEMO_REMOTE_HEAD');
  if(commit!==remote){log(`Skipping superseded demo build ${commit} (main is ${remote})`);return 'skipped';}
- const proof=await inspectDemo({output,pin:env.EXHIBITOS_APPROVED_DEMO_INDEX_SHA256,commit});
+ const proof=await inspectDemo({output,pin:env.EXHIBITOS_APPROVED_DEMO_INDEX_SHA256,commit,approvedBases});
  const finalHead=await remoteHead();
  if(!/^[a-f0-9]{40}$/.test(finalHead??''))throw Error('DEMO_REMOTE_HEAD');
  if(finalHead!==commit){log(`Skipping superseded demo build ${commit} (main is ${finalHead})`);return 'skipped';}

@@ -190,6 +190,34 @@ export class DraftStore {
     });
     return this.database;
   }
+  /** Inspect an existing private namespace without creating or upgrading it. */
+  static hasPrivateCopies(name: string): Promise<boolean> {
+    if (!name.startsWith('exhibitos-private-editor-v1-')) return Promise.reject(new DraftError('UNAVAILABLE'));
+    return new Promise((resolve, reject) => {
+      const operation = indexedDB.open(name);
+      let missing = false;
+      operation.onupgradeneeded = () => {
+        missing = true;
+        operation.transaction?.abort();
+      };
+      operation.onerror = () => {
+        if (missing) resolve(false);
+        else reject(storageError(operation.error));
+      };
+      operation.onsuccess = () => {
+        const db = operation.result;
+        try {
+          const count = db.transaction('drafts').objectStore('drafts').count();
+          count.onsuccess = () => resolve(count.result > 0);
+          count.onerror = () => reject(storageError(count.error));
+        } catch {
+          reject(new DraftError('UNAVAILABLE'));
+        } finally {
+          db.close();
+        }
+      };
+    });
+  }
   async list(): Promise<LocalDraft[]> {
     const db = await this.open();
     const rows = await request(

@@ -24,6 +24,6 @@ export async function loadAvailableFloorPacks(seed:PrivateSeed,signal:AbortSigna
   if(!response.ok||!response.body)return [];const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
   try{for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>4*1024*1024){await reader.cancel();return [];}chunks.push(value);}}finally{reader.releaseLock();}
   const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-  return await availableFloorPacks(JSON.parse(new TextDecoder().decode(bytes)),seed);
+  return await availableFloorPacks(JSON.parse(new TextDecoder().decode(bytes)),seed.catalogueBase??seed);
  }catch{return [];}
 }

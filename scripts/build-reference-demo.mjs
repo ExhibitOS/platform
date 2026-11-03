@@ -6,6 +6,8 @@ import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {staticCacheHeaders,STATIC_CACHE_POLICY_VERSION} from './static-cache-policy.mjs';
 
+import {readApprovedCopyBases,writeCopyBases} from './reference-demo-copy-bases.mjs';
+
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const sourceOrigin='https://reference-demo.invalid';
 
@@ -45,10 +47,15 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
  }});
  // Wrangler control file is created only by this trusted deployment wrapper;
  // the normal exported artifact remains suitable for Manager's strict importer.
- const manifest=JSON.parse(await readFile(join(result.output,'static-export-manifest.json'),'utf8'));
+ const demoRoot=join(root,'demos/reference-exhibition');
+ const bases=await readApprovedCopyBases(join(demoRoot,'previous-copy-bases.json'));
+ if(bases.length&&!privateEditor)throw Error('DEMO_COPY_BASE');
+ await writeCopyBases(result.output,demoRoot,bases);
+ const manifestBytes=await readFile(join(result.output,'static-export-manifest.json'));
+ const manifest=JSON.parse(manifestBytes);
  const index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'),'utf8'));
  const headers=staticCacheHeaders(index,manifest.files);if(headers)await writeFile(join(result.output,'_headers'),headers,{flag:'wx',mode:0o600});
- return {...result,cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:createHash('sha256').update(headers).digest('hex')};
+ return {...result,manifestSha256:createHash('sha256').update(manifestBytes).digest('hex'),files:manifest.files.length+1,bytes:manifest.files.reduce((sum,file)=>sum+file.bytes,manifestBytes.length),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:createHash('sha256').update(headers).digest('hex')};
 }
 
 async function run(args,options={}){
