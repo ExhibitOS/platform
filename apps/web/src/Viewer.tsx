@@ -53,6 +53,7 @@ export function Viewer({
   onStageState,
   onViewingRendererReady,
   mapEnabled = true,
+  viewingStyle = 'free',
   onMapAction,
   onMapCancelReady,
   guideDismissed,
@@ -61,6 +62,7 @@ export function Viewer({
   artworkThumbnails?:Readonly<Record<string,string>>;
   thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   mapEnabled?:boolean;
+  viewingStyle?:'free'|'ordered';
   onMapAction?:()=>void;
   onMapCancelReady?:(cancel:(()=>void)|null)=>void;
   onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
@@ -259,7 +261,7 @@ export function Viewer({
   );
   return (
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
-      {immersive && !introDismissed && <ViewerInputGuide key={guideSequence} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={guideSequence>0} onDismiss={()=>{setIntroDismissed(true);viewingEntry.current?.resumeViewing?.();}} />}
+      {immersive && <ViewerInputGuide mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={false} requestSequence={guideSequence} viewingStyle={viewingStyle} onDismiss={()=>setIntroDismissed(true)}/>}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} artworkStops={viewingPlanFor(publication.exhibition).stops} poseSource={mapPoseSource} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
@@ -309,9 +311,9 @@ export function Viewer({
         onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
         onNavigationMode={(walking,paused)=>{if(walking&&!paused)onNavigationActive?.();if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
-      <AudioMenu immersive={immersive} audio={audio.current} state={audioState} zones={publication.exhibition.audioZones}/>
-      {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<details className="viewer-settings-menu"><summary>관람 설정</summary>
-      {immersive && <button onClick={()=>{setIntroDismissed(false);setGuideSequence(n=>n+1);}}>조작 안내 다시 보기</button>}
+      <AudioMenu immersive={immersive} audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} rooms={publication.exhibition.rooms}/>
+      {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<details className="viewer-settings-menu"><summary>입력·화면</summary>
+      {immersive && <button className="viewer-help-entry" onClick={()=>setGuideSequence(n=>n+1)}>조작 도움말</button>}
       <ViewerDisclosure title="화면·화질 설정" className="viewer-display-settings">
         {immersive && <label>시야<select aria-label="시야" value={viewFov} onChange={event=>setViewFov(event.target.value==="authored"?"authored":Number(event.target.value))}><option value={42}>좁게</option><option value={48}>기본</option><option value={54}>넓게</option><option value="authored">제작자가 저장한 시야</option></select></label>}
         <p>자동은 기기 정보를 기준으로 선택해요. 가벼운 표현은 화면 부담을 줄이고, 상세 표현은 지원하는 작품의 표현 범위를 넓혀요. 기기와 작품에 따라 차이가 있어요.</p>

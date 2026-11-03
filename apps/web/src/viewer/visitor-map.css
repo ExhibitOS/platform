@@ -54,7 +54,7 @@
 
 /* Keep the title/close and compact tools outside the scrolling artwork body. */
 .viewer-visitor-map[open]{--map-panel-top:calc(5.5rem + env(safe-area-inset-top,0px));overflow:hidden;padding-block:.5rem;top:var(--map-panel-top)}
-.viewer-visitor-map[open]>.visitor-map-tools{display:flex;justify-content:flex-end;gap:0;position:relative;padding-block:.25rem}
+.viewer-visitor-map[open] .visitor-map-stage>.visitor-map-tools{display:flex;justify-content:flex-end;gap:0;position:relative;padding-block:.25rem}
 .viewer-visitor-map:not([open])>.visitor-map-tools{display:none}
 .viewer-visitor-map[open]>summary{gap:.5rem}
 .viewer-visitor-map[open] .visitor-map-title{min-width:0;overflow-wrap:anywhere}
@@ -78,3 +78,22 @@
 .viewer-visitor-map[open]{max-height:calc(100svh - var(--map-panel-top) - 1rem - env(safe-area-inset-bottom,0px))}
 .viewer-visitor-map[open]>section{display:block}
 .visitor-map-body{display:grid;gap:.75rem;min-width:0}
+
+.visitor-map-stage{position:relative;min-width:0;padding:.25rem;border:1px solid rgb(24 45 50 / .2);border-radius:4px}
+.visitor-map-stage .visitor-map-expanded{margin:0}
+.publication-shell .viewer-visitor-map .visitor-map-overflow>details>summary::after,.publication-shell .viewer-visitor-map .visitor-map-overflow>details[open]>summary::after,.publication-shell .viewer-visitor-map .visitor-map-help[open]>summary::after{content:none}
+.publication-shell .viewer-visitor-map .visitor-map-room-zoom{display:block;min-height:44px;max-width:100%;margin:.25rem 0;padding:.5rem .25rem;color:var(--publication-action,#135967);background:transparent;border:0;border-radius:0;text-decoration:underline;text-underline-offset:.2em;text-align:start}
+@media(max-width:700px){.viewer-visitor-map[open]{--map-panel-top:calc(var(--visitor-panel-top,.75rem) + 3 * (44px + var(--visitor-panel-gap,.75rem)) + .5rem)}}
+
+/* The expanded desktop map is a centred window. The compact circle and mobile
+   panel keep their existing anchors; viewport bounds/selection stay untouched. */
+@media(min-width:701px){
+ .viewer-visitor-map[open]{--map-window-gap:max(1rem,env(safe-area-inset-top,0px),env(safe-area-inset-bottom,0px));--map-window-inline-gap:max(1rem,calc(var(--visitor-panel-right,1rem) + 44px + .5rem));--map-body-height:min(40rem,calc(100svh - 2 * var(--map-window-gap) - var(--map-header-height,44px) - 1.5rem));top:50%;left:50%;transform:translate(-50%,-50%);width:min(72rem,calc(100vw - 2 * var(--map-window-inline-gap)));max-width:none;max-height:calc(100svh - 2 * var(--map-window-gap));padding:.75rem 1rem}
+ .viewer-visitor-map[open]>section{height:var(--map-body-height);max-height:var(--map-body-height);padding:.5rem .25rem}
+ .viewer-visitor-map[open] .visitor-map-stage{width:min(100%,calc((var(--map-body-height) - 4rem) * var(--visitor-map-aspect)));box-sizing:border-box;justify-self:center}
+}
+@media(min-width:1000px){
+ .viewer-visitor-map[open] .visitor-map-body{grid-template-columns:minmax(0,2.2fr) minmax(14rem,1fr);column-gap:1rem;align-items:start}
+ .viewer-visitor-map[open] .visitor-map-stage{grid-column:1;grid-row:1 / span 8;position:sticky;top:0}
+ .viewer-visitor-map[open] .visitor-map-body>:not(.visitor-map-stage):not(h2){grid-column:2;min-width:0}
+}

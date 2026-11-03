@@ -126,7 +126,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
  const gestureClear=useRef<(()=>void)|null>(null);
  const help=useRef<HTMLDetailsElement>(null),[helpOpen,setHelpOpen]=useState(false);
  const mapPanel=useRef<HTMLDetailsElement>(null);
- useEffect(()=>{const panel=mapPanel.current;if(!panel||typeof ResizeObserver==='undefined')return;const nodes=panel.querySelectorAll<HTMLElement>(':scope>summary,:scope>.visitor-map-tools');const update=()=>panel.style.setProperty('--map-header-height',`${[...nodes].reduce((height,node)=>height+node.getBoundingClientRect().height,0)}px`);const observer=new ResizeObserver(update);nodes.forEach(node=>observer.observe(node));update();return()=>observer.disconnect();},[]);
+ useEffect(()=>{const panel=mapPanel.current;if(!panel||typeof ResizeObserver==='undefined')return;const nodes=panel.querySelectorAll<HTMLElement>(':scope>summary');const update=()=>panel.style.setProperty('--map-header-height',`${[...nodes].reduce((height,node)=>height+node.getBoundingClientRect().height,0)}px`);const observer=new ResizeObserver(update);nodes.forEach(node=>observer.observe(node));update();return()=>observer.disconnect();},[]);
  useEffect(()=>{
   let dismissed=false;
   const consume=(event:Event)=>{event.preventDefault();event.stopImmediatePropagation();};
@@ -143,7 +143,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   document.addEventListener('pointerdown',down,true);document.addEventListener('pointerup',end,true);document.addEventListener('click',click,true);document.addEventListener('pointercancel',cancel,true);
   return()=>{document.removeEventListener('pointerdown',down,true);document.removeEventListener('pointerup',end,true);document.removeEventListener('click',click,true);document.removeEventListener('pointercancel',cancel,true);};
  },[]);
- const scopeSelect=useRef<HTMLSelectElement>(null),[scope,setScope]=useState<{key:string;roomId?:string}>({key:map.key,roomId:restored?.roomId});
+ const [scope,setScope]=useState<{key:string;roomId?:string}>({key:map.key,roomId:restored?.roomId});
  const roomId=scope?.key===map.key&&scope.roomId&&map.rooms.some(r=>same(r.id,scope.roomId!))?scope.roomId:undefined;
  const drawing=useMemo(()=>({...map,bounds:view}),[map,view]);
  const changeViewport=(next:MapViewport,roomId?:string)=>{const bounds=boundMapViewport(map,next);viewRef.current=bounds;setViewState({key:map.key,bounds});setScope({key:map.key,roomId});};
@@ -181,7 +181,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
  };
  const clearTemporary=()=>{focusedMarker.current=null;const value=selectionRef.current;if(value.focused)dispatch({type:'blur',target:value.focused});if(value.hovered)dispatch({type:'leave',target:value.hovered});};
  const activate=(target:MapTarget,button:HTMLButtonElement)=>{pointerFocus.current=null;clearTemporary();focusedMarker.current=button;dispatch({type:'select',target});};
- const zoomRoom=(id:string)=>{clearTemporary();gestureClear.current?.();changeViewport(mapRoomViewport(map,id||undefined).bounds,id||undefined);scopeSelect.current?.focus({preventScroll:true});};
+ const zoomRoom=(id:string)=>{clearTemporary();gestureClear.current?.();changeViewport(mapRoomViewport(map,id||undefined).bounds,id||undefined);};
  useEffect(()=>{setSelection(value=>value.key===map.key?value:{key:map.key,selected:restored?.selected});setScope(value=>value?.key===map.key?value:{key:map.key,roomId:restored?.roomId});},[map.key,restored]);
  useEffect(()=>{if(selection.key===map.key)saveMapView(map,{key:map.key,viewport:view,selected:selection.selected,roomId,open});},[map,view,selection.key,selection.selected,roomId,open]);
  useEffect(()=>{if(!available)gestureClear.current?.();},[available]);
@@ -256,6 +256,9 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   if(!(event.relatedTarget instanceof Node&&event.currentTarget.contains(event.relatedTarget))&&selection.focused)dispatch({type:'blur',target:selection.focused});
  }} onToggle={event=>{if(event.target!==event.currentTarget)return;setOpenState({key:map.key,open:event.currentTarget.open});if(!event.currentTarget.open){clearTemporary();gestureClear.current?.();if(help.current)help.current.open=false;setHelpOpen(false);cancel();}}}>
   <summary aria-label="전시 지도" title={open?'지도 닫기':'지도 열기'} aria-expanded={open} aria-controls={`${titleId}-body`}><span className="visitor-map-title">전시 지도</span><span className="visitor-map-compact"><span className="visitor-map-nearby"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&!finePointer} local/></span><span className="visitor-map-overview"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&finePointer} overview/></span></span><span className="visitor-map-toggle" aria-hidden="true">{open?<ViewerIcon name="close"/>:<svg viewBox="0 0 24 24"><path d="M6 12h12"/><path className="visitor-map-plus" d="M12 6v12"/></svg>}</span></summary>
+  <section id={`${titleId}-body`} aria-labelledby={titleId}><div className="visitor-map-body">
+   <h2 id={titleId}>전시 지도</h2>
+   <div className="visitor-map-stage" style={{'--visitor-map-aspect':drawing.bounds.width/drawing.bounds.depth} as import('react').CSSProperties}>
   <div className="visitor-map-tools" role="group" aria-label="지도 보기">
    <button type="button" aria-label="지도 확대" title="지도 확대" onClick={()=>changeViewport(zoomMapViewport(map,view,1.5))}><ViewerIcon name="plus"/></button>
    <button type="button" aria-label="지도 축소" title="지도 축소" onClick={()=>changeViewport(zoomMapViewport(map,view,1/1.5))}><ViewerIcon name="minus"/></button>
@@ -263,25 +266,24 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
    <button type="button" aria-label="현재 위치로 지도 중심 이동" title="현재 위치" disabled={!poseSource&&!worldPose} onClick={()=>{const pose=poseSource?.key===map.key?poseSource.getSnapshot():worldPose;if(pose)changeViewport({...view,x:pose.point[0]-view.width/2,z:pose.point[1]-view.depth/2});}}><ViewerIcon name="location"/></button>
    <details ref={help} className="visitor-map-help" open={helpOpen} data-visitor-panel onToggle={event=>{if(event.currentTarget===event.target)setHelpOpen(event.currentTarget.open);}}>
     <summary aria-label="지도 도움말" title="지도 도움말" aria-expanded={helpOpen} aria-controls={`${titleId}-help`}><ViewerIcon name="help"/></summary>
-    <div id={`${titleId}-help`}><div className="visitor-map-help-heading"><h3>지도 도움말</h3><button type="button" aria-label="지도 도움말 닫기" onClick={()=>{if(help.current)help.current.open=false;setHelpOpen(false);help.current?.querySelector('summary')?.focus();}}><ViewerIcon name="close"/></button></div><p id={`${titleId}-navigation`}>드래그로 이동하고 휠이나 두 손가락으로 확대하세요. 방향키·확대·축소 키와 Home도 사용할 수 있어요.</p><p>작품을 골라 설명과 관람 위치를 확인하세요. 현재 위치는 지도의 중심만 옮겨요.</p></div>
+    <div id={`${titleId}-help`}><div className="visitor-map-help-heading"><h3>지도 도움말</h3><button type="button" aria-label="지도 도움말 닫기" onClick={()=>{if(help.current)help.current.open=false;setHelpOpen(false);help.current?.querySelector('summary')?.focus();}}><ViewerIcon name="close"/></button></div><p id={`${titleId}-navigation`}>드래그로 이동하고 휠이나 두 손가락으로 확대하세요. 방향키·확대·축소 키와 Home도 사용할 수 있어요.</p><p>작품을 골라 설명과 관람 위치를 확인하세요. 공간·작품 선택에서 공간을 고르면 그 공간에 맞춰요. 현재 위치는 지도의 중심만 옮겨요.</p></div>
    </details>
   </div>
-  <section id={`${titleId}-body`} aria-labelledby={titleId}><div className="visitor-map-body">
-   <h2 id={titleId}>전시 지도</h2>
-   <div className="visitor-map-scope"><label>공간 확대<select ref={scopeSelect} value={roomId??''} onFocus={clearTemporary} onChange={event=>zoomRoom(event.target.value)}><option value="">전체 지도</option>{map.rooms.map(room=><option key={room.id} value={room.id}>{room.name}</option>)}</select></label></div>
+
    <div ref={expanded} className="visitor-map-expanded" data-map-viewport={JSON.stringify(view)} tabIndex={0} role="group" aria-label="지도 탐색" onPointerDown={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key!=='Escape')event.stopPropagation();}} style={{aspectRatio:`${drawing.bounds.width}/${drawing.bounds.depth}`}}><Schematic map={drawing} worldPose={worldPose} poseSource={poseSource} active={open&&available} markers={displayMarkers} activePlacementId={connector?.kind==='placement'?connector.id:undefined}/>
     <div className="visitor-map-markers" role="group" aria-label="공간과 작품">
      {drawing.placements.map(item=>{const display=displayById.get(item.id)?.point;return display&&<button key={item.id} type="button" className="visitor-map-marker" style={position(display)} aria-label={item.title} title={item.title} {...marker({kind:'placement',id:item.id})}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span></button>;})}
     </div>
    </div>
-   {overflow.length>0&&<div ref={overflowHost} className="visitor-map-overflow" role="group" aria-label="지도 작품 목록"><p className="visitor-map-note">공간을 확대하거나 목록에서 작품을 고르세요.</p>{overflow.map(({room,items})=><details key={`${map.key}/${room.id}`} data-room-id={room.id}>
+   </div>
+   {overflow.length>0&&<div ref={overflowHost} className="visitor-map-overflow" role="group" aria-label="지도 작품 목록">{overflow.map(({room,items})=><details key={`${map.key}/${room.id}`} data-room-id={room.id}>
     <summary><svg className="visitor-map-group-toggle" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 7 7-7 7"/></svg><span>{room.name} · 목록 {items.length}개</span><span className="visitor-map-group-thumbnails" aria-hidden="true">{items.slice(0,3).map(item=><span key={item.id} className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span>)}</span></summary>
-    {!roomId&&<button type="button" className="visitor-map-room-zoom" onClick={()=>zoomRoom(room.id)}>이 공간 확대</button>}
+    <button type="button" className="visitor-map-room-zoom" onClick={()=>{zoomRoom(room.id);expanded.current?.focus({preventScroll:true});expanded.current?.scrollIntoView({block:'nearest'});}}>이 공간에 맞춤</button>
     <ul>{items.map(item=><li key={item.id}><button type="button" className="visitor-map-list-target" aria-pressed={selection.key===map.key&&selection.selected?.kind==='placement'&&same(selection.selected.id,item.id)} {...pointerButton} onFocus={event=>{const fromPointer=pointerFocus.current?.button===event.currentTarget;if(fromPointer)pointerFocus.current=null;else clearTemporary();focusedMarker.current=event.currentTarget;}} onBlur={releaseFocus} onClick={event=>activate({kind:'placement',id:item.id},event.currentTarget)}><span className="visitor-map-artwork"><ArtworkThumbnail src={previews?.[item.id]?.thumbnail} kind={item.artworkType}/></span><span>{item.title}</span></button></li>)}</ul>
    </details>)}</div>}
-   <label className="visitor-map-target-select">지도에서 고르기<select ref={targetSelect} value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{focusedMarker.current=null;if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
+   <label className="visitor-map-target-select">공간·작품 선택<select ref={targetSelect} value={selection.key===map.key&&selection.selected?`${selection.selected.kind}/${selection.selected.id}`:''} onFocus={()=>{focusedMarker.current=null;if(selection.focused)dispatch({type:'blur',target:selection.focused});}} onChange={event=>{
     const chosen=[...map.rooms.map(item=>({kind:'room' as const,id:item.id})),...map.placements.map(item=>({kind:'placement' as const,id:item.id}))].find(target=>`${target.kind}/${target.id}`===event.target.value);
-    if(chosen)dispatch({type:'select',target:chosen});else dispatch({type:'dismiss'});
+    if(chosen){dispatch({type:'select',target:chosen});if(chosen.kind==='room')zoomRoom(chosen.id);}else dispatch({type:'dismiss'});
    }}><option value="">공간 또는 작품 선택</option><optgroup label="공간">{map.rooms.map(item=><option key={item.id} value={`room/${item.id}`}>{item.name}</option>)}</optgroup><optgroup label="작품">{map.placements.map(item=><option key={item.id} value={`placement/${item.id}`}>{item.title}</option>)}</optgroup></select></label>
    {preview&&room&&<div className="visitor-map-preview">
     <div className="visitor-map-preview-heading">{placement&&<span className="visitor-map-preview-image"><ArtworkThumbnail src={content?.thumbnail} kind={placement.artworkType}/></span>}<div><h3>{placement?.title??room.name}</h3>{placement&&<p>{room.name}</p>}</div></div>
