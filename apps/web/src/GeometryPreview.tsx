@@ -55,7 +55,7 @@ import {
   fetchVerifiedAsset,
   checkImageDecode,
   prioritizePlacements,
-  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
+  selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
 import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
@@ -1395,6 +1395,7 @@ export function GeometryPreview({
         taskSignal = abort.signal,
         reserveDecode?: (bytes:ArrayBuffer)=>void,
         stage?: (value:string)=>void,
+        imageBudget = viewerBudget,
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
         const bytes=await readArtworkBytes(artwork,inventory,signal);
@@ -1406,7 +1407,7 @@ export function GeometryPreview({
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0;
           if (artwork.artworkType === "image") {
-            const sourceSize=viewerBudget?checkImageDecode(bytes!,artwork,inventory,viewerBudget):undefined;
+            const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
             let bitmap = await createImageBitmap(
               new Blob([bytes!], { type: "image/png" }),
               { imageOrientation: "flipY" },
@@ -1423,12 +1424,12 @@ export function GeometryPreview({
             )
               throw Error("DECODE_VARIANT_UNDERCLAIM");
             if (
-              viewerBudget &&
+              imageBudget &&
               Math.max(bitmap.width, bitmap.height) >
-                viewerBudget.maxTextureSize
+                imageBudget.maxTextureSize
             ) {
               const factor =
-                viewerBudget.maxTextureSize /
+                imageBudget.maxTextureSize /
                 Math.max(bitmap.width, bitmap.height);
               const resized = await createImageBitmap(bitmap, {
                 // The initial bitmap is already oriented for GPU upload; do not flip it again.
@@ -1707,6 +1708,7 @@ export function GeometryPreview({
             art: Document["artworks"][number];
             inventory: Document["artworks"][number]["assets"][number];
             prepareOnly:boolean; downloadOnly:boolean;
+            imageBudget?:DeviceBudget;detailPromotion?:boolean;
             thumbnailWork?:(signal:AbortSignal)=>Promise<void>;
           }
         >();
@@ -1756,7 +1758,7 @@ export function GeometryPreview({
                 stage(t.inventory.id,'verified-download');
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...viewerBudget,maxCacheBytes:assetBudgetBytes},bytes)),value=>stage(t.inventory.id,value));
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:assetBudgetBytes},bytes)),value=>stage(t.inventory.id,value),t.imageBudget);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
@@ -1840,9 +1842,13 @@ export function GeometryPreview({
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false):void => {
           if(art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
           requested.add(art.revisionId);
+          let imageTarget:ReturnType<typeof selectedImageDetail>;
+          let imageBudget=viewerBudget;
           let inventory: (typeof art.assets)[number];
           try {
-            inventory = selectAssetVariant(
+            imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
+            imageBudget=imageTarget?.budget??viewerBudget;
+            inventory = imageTarget?.inventory??selectAssetVariant(
               art,
               full ? 0 : Infinity,
               viewerBudget,
@@ -1875,7 +1881,7 @@ export function GeometryPreview({
           let downloadOnly=false;
           if(!ready&&full&&authoredImagePair(art)){
             try{
-              const ceiling=cached?assetDecodeReserve(art,inventory,viewerBudget,cached):imageFullDecodeCeiling(art,inventory,viewerBudget)!;
+              const ceiling=cached?assetDecodeReserve(art,inventory,imageBudget,cached):imageFullDecodeCeiling(art,inventory,imageBudget)!;
               // A speculative load cannot spend a peer's retained preparation.
               const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
               // Fetch a verified header first when the conservative declared square cannot fit.
@@ -1891,7 +1897,7 @@ export function GeometryPreview({
           desired.set(art.revisionId, inventory.id);
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
-          const task={ art, inventory, prepareOnly, downloadOnly };
+          const task={ art, inventory, prepareOnly, downloadOnly,imageBudget:imageTarget?.budget,detailPromotion };
           tasks.set(key,task);
           void scheduler
             .request(key, art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art))
@@ -2258,6 +2264,8 @@ export function GeometryPreview({
             if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
+            const pendingDetail=pending.get(art.revisionId);
+            if(pendingDetail&&tasks.get(pendingDetail)?.detailPromotion){pending.delete(art.revisionId);scheduler.cancel(pendingDetail);desired.set(art.revisionId,active.get(art.revisionId)!);}
             peak.release(detailKey);
             sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
             if(!disposed&&!gpuLost){
@@ -2290,7 +2298,7 @@ export function GeometryPreview({
               retryPromotion=createFlatDetailRetry({
                 valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&sharedDetail===scope,
                 pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
-                ready:()=>active.get(art.revisionId)===selectAssetVariant(art,0,viewerBudget).id,
+                ready:()=>active.get(art.revisionId)===(selectedImageDetail(art,viewerBudget)?.inventory??selectAssetVariant(art,0,viewerBudget)).id,
                 request:()=>request(art,true,false,true),
               });
               retryFlatDetail=retryPromotion;retryPromotion();

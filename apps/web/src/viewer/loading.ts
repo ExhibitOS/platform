@@ -46,6 +46,15 @@ export function authoredImagePair(artwork:Artwork){
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==='full'),coarse=variants.find(v=>v.detail==='coarse');
  return full&&coarse?{full,coarse}:undefined;
 }
+/** The selected painting may request its existing bounded full derivative.
+ * This is a per-request decode target; shared resident/transition limits and
+ * ordinary wall/nearby selection remain unchanged. */
+export function selectedImageDetail(artwork:Artwork,budget:DeviceBudget){
+ const pair=authoredImagePair(artwork);if(!pair)return;
+ const inventory=artwork.assets.find(asset=>asset.id.toLowerCase()===pair.full.assetId.toLowerCase());
+ if(!inventory||inventory.mime!=='image/png'||!pair.full.textureSize||pair.full.textureSize>2048||inventory.bytes>8388608)return;
+ return {inventory,budget:{...budget,maxTextureSize:2048}};
+}
 /** Includes encoded cache/copies, worst declared source bitmap, temporary
  * bitmap and mipmapped texture. Actual header dimensions refine it after fetch. */
 export function imageFullDecodeCeiling(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
