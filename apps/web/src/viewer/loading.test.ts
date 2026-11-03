@@ -357,7 +357,7 @@ function twoDoorConnector() {
  }
  connect(gallery,connector);connect(connector,sculptureRoom);
  const image=syntheticArtwork('image'),sculpture=syntheticArtwork();
- sculpture.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:sculpture.primaryAssetId,detail:'full',triangles:20000,textureSize:512}]}};
+ sculpture.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:sculpture.primaryAssetId,detail:'full',triangles:20000}]}};
  doc.artworks=[image,sculpture];
  const painting=newPlacement(image,gallery.id),placed=newPlacement(sculpture,sculptureRoom.id);
  doc.placements=[painting,placed];
