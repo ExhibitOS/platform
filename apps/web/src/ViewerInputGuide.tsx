@@ -60,6 +60,7 @@ function GuideRows({keys,free,brief=false}:{keys:boolean;free:boolean;brief?:boo
 export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,viewingStyle='free',showIntro=false,ready=false,choiceRequired=false,orderedAvailable=false,onChoicePresented,onChooseStyle,reducedMotion=false,observeActivity,hintAlreadyShown=false,onHintShown}:{mode:ResolvedViewerInputMode;replayed:boolean;onDismiss:()=>void;requestSequence?:number;viewingStyle?:'free'|'ordered';showIntro?:boolean;ready?:boolean;choiceRequired?:boolean;orderedAvailable?:boolean;onChoicePresented?:()=>void;onChooseStyle?:(style:'free'|'ordered')=>void;reducedMotion?:boolean;observeActivity?:ObserveHintActivity;hintAlreadyShown?:boolean;onHintShown?:()=>void}){
  const panel=useRef<HTMLDetailsElement>(null),summary=useRef<HTMLElement>(null),heading=useRef<HTMLHeadingElement>(null),previous=useRef<HTMLElement|null>(null),explicit=useRef(false),id=useId();
  const initialHintSeen=useRef(hintAlreadyShown),hintLifetime=useRef<HintLifetime>({done:false});
+ const [hintCompleted,setHintCompleted]=useState(false);
  const [open,setOpen]=useState(false),[phase,setPhase]=useState<'choice'|'help'>('help'),[panelTick,setPanelTick]=useState(0),[input,setInput]=useState<'keys'|'touch'>(mode==='touch'?'touch':'keys');
  const callbacks=useRef({onChoicePresented,onChooseStyle,choiceRequired});callbacks.current={onChoicePresented,onChooseStyle,choiceRequired};
  useEffect(()=>{const root=panel.current?.closest('.publication-shell');if(!root)return;const changed=()=>setPanelTick(t=>t+1);root.addEventListener('toggle',changed,true);document.addEventListener('visibilitychange',changed);return()=>{root.removeEventListener('toggle',changed,true);document.removeEventListener('visibilitychange',changed);};},[]);
@@ -75,10 +76,11 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
  const close=()=>{explicit.current=true;if(panel.current)panel.current.open=false;restore(phase==='choice');};
  const dismissIntro=()=>{onDismiss();document.querySelector<HTMLElement>('canvas[aria-label="전시 공간 3D 미리보기"]')?.focus({preventScroll:true});};
  const keys=input==='keys',free=viewingStyle==='free';
+ useEffect(()=>{const lifetime=hintLifetime.current;if(lifetime.startedAt!==undefined&&!lifetime.done&&(!showIntro||open||mode==='touch'||!free)){lifetime.done=true;setHintCompleted(true);}},[showIntro,open,mode,free]);
  const choose=(style:'free'|'ordered')=>{if(style==='ordered'&&!orderedAvailable)return;explicit.current=false;if(panel.current)panel.current.open=false;setPhase('help');callbacks.current.onChooseStyle?.(style);restore(true);};
  return <>
-  {showIntro&&!open&&mode!=='touch'&&free&&!initialHintSeen.current&&<DesktopHints onComplete={onDismiss} reducedMotion={reducedMotion} observeActivity={observeActivity} lifetime={hintLifetime.current} onShown={onHintShown}/>}
-  {showIntro&&!open&&(mode==='touch'||!free)&&<aside className="viewer-input-brief" aria-label="가볍게 둘러보기" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismissIntro();}}}>
+  {showIntro&&!open&&mode!=='touch'&&free&&!initialHintSeen.current&&!hintCompleted&&!hintLifetime.current.done&&<DesktopHints onComplete={()=>setHintCompleted(true)} reducedMotion={reducedMotion} observeActivity={observeActivity} lifetime={hintLifetime.current} onShown={onHintShown}/>}
+  {showIntro&&!open&&!hintCompleted&&!initialHintSeen.current&&(mode==='touch'||!free)&&<aside className="viewer-input-brief" aria-label="가볍게 둘러보기" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismissIntro();}}}>
    <header><h2>가볍게 둘러보기</h2><button type="button" className="viewer-guide-close" aria-label="안내 닫고 관람하기" onClick={dismissIntro}><ViewerIcon name="close"/></button></header>
    <GuideRows keys={mode!=='touch'} free={free} brief/>
   </aside>}
