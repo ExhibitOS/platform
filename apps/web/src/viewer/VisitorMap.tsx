@@ -4,6 +4,7 @@ import {selectVisitorMap,visitorMapPreview,type MapIntent,type MapPoint,type Map
 import './visitor-map.css';
 import {createMapContext} from './map-context';
 import {ViewerIcon} from './ViewerIcon';
+import {panelEscapeFromControl} from './panel-resume';
 import {authoredArtworkViewpoint} from './artwork-viewpoint';
 import {useMediaPreference} from '../publication-accessibility';
 import type {MapPoseSource} from './map-pose';
@@ -127,22 +128,6 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
  const help=useRef<HTMLDetailsElement>(null),[helpOpen,setHelpOpen]=useState(false);
  const mapPanel=useRef<HTMLDetailsElement>(null);
  useEffect(()=>{const panel=mapPanel.current;if(!panel||typeof ResizeObserver==='undefined')return;const nodes=panel.querySelectorAll<HTMLElement>(':scope>summary');const update=()=>panel.style.setProperty('--map-header-height',`${[...nodes].reduce((height,node)=>height+node.getBoundingClientRect().height,0)}px`);const observer=new ResizeObserver(update);nodes.forEach(node=>observer.observe(node));update();return()=>observer.disconnect();},[]);
- useEffect(()=>{
-  let dismissed=false;
-  const consume=(event:Event)=>{event.preventDefault();event.stopImmediatePropagation();};
-  const down=(event:globalThis.PointerEvent)=>{
-   dismissed=false;const element=help.current;
-   if(!element?.open||element.contains(event.target as Node))return;
-   dismissed=true;consume(event);element.open=false;setHelpOpen(false);element.querySelector('summary')?.focus({preventScroll:true});
-  };
-  const end=(event:Event)=>{if(dismissed)consume(event);};
-  // Keep the whole dismissal sequence consumed after closing the help. Its
-  // compatibility click must never select an artwork or start a canvas gesture.
-  const click=(event:Event)=>{if(dismissed){consume(event);dismissed=false;}};
-  const cancel=()=>{dismissed=false;};
-  document.addEventListener('pointerdown',down,true);document.addEventListener('pointerup',end,true);document.addEventListener('click',click,true);document.addEventListener('pointercancel',cancel,true);
-  return()=>{document.removeEventListener('pointerdown',down,true);document.removeEventListener('pointerup',end,true);document.removeEventListener('click',click,true);document.removeEventListener('pointercancel',cancel,true);};
- },[]);
  const [scope,setScope]=useState<{key:string;roomId?:string}>({key:map.key,roomId:restored?.roomId});
  const roomId=scope?.key===map.key&&scope.roomId&&map.rooms.some(r=>same(r.id,scope.roomId!))?scope.roomId:undefined;
  const drawing=useMemo(()=>({...map,bounds:view}),[map,view]);
@@ -252,7 +237,7 @@ export function VisitorMap({map,artworkStops=[],worldPose,poseSource,previews,de
   const generation=++requestGeneration.current,key=map.key;setRequestError(null);
   void onGo(preview,id).catch(()=>{if(generation===requestGeneration.current&&key===activeKey.current)setRequestError({key,text:'관람 위치를 열지 못했어요. 다시 선택해 주세요.'});});
  };
- return <details ref={mapPanel} name="exhibitos-visitor-panel" className="viewer-visitor-map" open={open} data-visitor-panel onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(help.current?.open){help.current.open=false;setHelpOpen(false);help.current.querySelector('summary')?.focus();}else{event.currentTarget.open=false;event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus();}}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onBlur={event=>{
+ return <details ref={mapPanel} name="exhibitos-visitor-panel" className="viewer-visitor-map" open={open} data-visitor-panel onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panelEscapeFromControl(event.target)){event.preventDefault();event.stopPropagation();if(help.current?.open){help.current.open=false;setHelpOpen(false);help.current.querySelector('summary')?.focus();}else{event.currentTarget.open=false;event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus();}}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onBlur={event=>{
   if(!(event.relatedTarget instanceof Node&&event.currentTarget.contains(event.relatedTarget))&&selection.focused)dispatch({type:'blur',target:selection.focused});
  }} onToggle={event=>{if(event.target!==event.currentTarget)return;setOpenState({key:map.key,open:event.currentTarget.open});if(!event.currentTarget.open){clearTemporary();gestureClear.current?.();if(help.current)help.current.open=false;setHelpOpen(false);cancel();}}}>
   <summary aria-label="전시 지도" title={open?'지도 닫기':'지도 열기'} aria-expanded={open} aria-controls={`${titleId}-body`}><span className="visitor-map-title">전시 지도</span><span className="visitor-map-compact"><span className="visitor-map-nearby"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&!finePointer} local/></span><span className="visitor-map-overview"><Schematic map={map} worldPose={worldPose} poseSource={poseSource} active={!open&&available&&finePointer} overview/></span></span><span className="visitor-map-toggle" aria-hidden="true">{open?<ViewerIcon name="close"/>:<svg viewBox="0 0 24 24"><path d="M6 12h12"/><path className="visitor-map-plus" d="M12 6v12"/></svg>}</span></summary>

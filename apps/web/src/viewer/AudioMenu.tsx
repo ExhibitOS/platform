@@ -3,6 +3,7 @@ import {useId,useState} from 'react';
 import {AudioControls} from './AudioControls';
 import type {AudioState} from './audio';
 import {ViewerIcon,type ViewerIconName} from './ViewerIcon';
+import {panelEscapeFromControl} from './panel-resume';
 
 export function audioMenuStatus(state:AudioState|null|undefined):{label:string;icon:ViewerIconName}{
  if(!state?.enabled)return {label:'소리 사용 전',icon:'silent'};
@@ -13,7 +14,7 @@ export function audioMenuStatus(state:AudioState|null|undefined):{label:string;i
 }
 export function AudioMenu({immersive,...props}:{immersive:boolean}&Parameters<typeof AudioControls>[0]){
  const id=useId(),[open,setOpen]=useState(false),status=audioMenuStatus(props.state);
- return <details name={immersive?'exhibitos-visitor-panel':undefined} data-visitor-panel={immersive?'':undefined} className="viewer-audio-menu" open={open} onToggle={event=>{if(event.target===event.currentTarget)setOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+ return <details name={immersive?'exhibitos-visitor-panel':undefined} data-visitor-panel={immersive?'':undefined} className="viewer-audio-menu" open={open} onToggle={event=>{if(event.target===event.currentTarget)setOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panelEscapeFromControl(event.target)){event.preventDefault();event.stopPropagation();event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
   <summary aria-label={`소리 설정 · ${status.label}`} title={`소리 설정 · ${status.label}`} aria-expanded={open} aria-controls={id}>{immersive?<ViewerIcon name={open?'close':status.icon}/>: '소리'}</summary>
   <div id={id} className="viewer-audio-body"><AudioControls {...props}/></div>
  </details>;
