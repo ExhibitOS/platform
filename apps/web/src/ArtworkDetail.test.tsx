@@ -52,9 +52,11 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(html).not.toContain('좌표 미등록');
   expect(html).toContain('aria-label="작품 설명"');
   const withPreview=renderToStaticMarkup(<ArtworkDetail publication={publication} placementId={placement.id} renderPreview onClose={() => {}} onVoicePlay={async () => {}} onVoiceStop={() => {}} />);
-  expect(withPreview).toMatch(/<details class="artwork-detail-record" aria-label="작품 설명" open=""/);
-  expect(html).toContain('음성 설명 · 대본');
-  expect(html).toContain('등록된 작품 음성 설명이 없습니다.');
+  expect(withPreview).toContain('aria-label="작품 설명"');
+  expect(html).not.toContain('음성 설명 · 대본');
+  expect(html).not.toContain('등록된 작품 음성 설명이 없습니다.');
+  expect(html).toContain('aria-label="전시로 돌아가기"');
+  expect(html).toContain('작품 주석 (1)');
   expect(html).not.toContain('작가 원문');
   expect(html).not.toContain('작가 음성');
   expect(html).not.toContain('아래 대본으로 같은 설명');
@@ -75,4 +77,26 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(sculpturePreview).toContain('aria-label="작품 확대"');
   expect(sculpturePreview).toContain('상세 시점 초기화');
   expect(JSON.stringify(publication)).toBe(before);
+});
+
+it('shows actual voice playback state and keeps transcripts available without automatic audio',async()=>{
+ const exhibition=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'));
+ const placement=exhibition.placements[0],assetId='60000000-0000-4000-8000-000000000001';
+ exhibition.mediaAssets=[{id:assetId,path:'assets/synthetic-voice.wav',mime:'audio/wav',bytes:44,sha256:'b'.repeat(64),rights:structuredClone(exhibition.artworks[0].rights)}];
+ exhibition.extensions={...exhibition.extensions,'org.exhibitos.viewer/experience':{version:1,footsteps:[],voices:[{placementId:placement.id,assetId,locale:'ko',transcript:'Synthetic readable voice transcript'}],annotations:[],rooms:[],translations:[]}};
+ const draft=newDraft();draft.candidate=exhibition;draft.exhibitionId=exhibition.id;expect(validateDraft(draft)).toEqual({valid:true,errors:[]});
+ const publication:PublicPublication={publication:{id:'abcdefab-0000-4000-8000-000000000090',revisionSha256:'a'.repeat(64),publishedAt:'2026-10-19T00:00:00Z',status:'published'},exhibition,assets:[]};
+ const before=JSON.stringify(publication);let requests=0;
+ const props={publication,placementId:placement.id,onClose:()=>{},onVoicePlay:async()=>{requests++;},onVoiceStop:()=>{}};
+ for(const status of ['stopped','playing','unavailable'] as const){
+  const html=renderToStaticMarkup(<ArtworkDetail {...props} voicePlayback={{assetId,positionSeconds:0,durationSeconds:3,status}}/>);
+  expect(html).toContain('Synthetic readable voice transcript');
+  expect(html).toContain('aria-label="음성 설명 재생 (ko)"');expect(html).toContain('aria-label="음성 설명 정지 (ko)"');
+  expect(html.includes('음성 설명 재생 중')).toBe(status==='playing');
+  if(status==='unavailable')expect(html).toContain('음성 설명을 재생할 수 없어요.');
+  expect(html).not.toContain('음성 설명 일시 정지');
+ }
+ const text=renderToStaticMarkup(<ArtworkDetail {...props} renderPreview={false}/>);
+ expect(text).toContain('Synthetic readable voice transcript');expect(text).not.toContain('aria-label="음성 설명 재생 (ko)"');
+ expect(requests).toBe(0);expect(JSON.stringify(publication)).toBe(before);
 });
