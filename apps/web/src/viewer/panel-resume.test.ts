@@ -169,6 +169,32 @@ test('native selection Escape is left to its control rather than closing the pan
  expect(panelEscapeFromControl(null)).toBe(false);
 });
 
+test('actual touch release is observed before panel dismissal consumes it, while capture loss retains the contact',()=>{
+ const doc=Object.assign(new EventTarget(),{activeElement:null as unknown,hidden:false});
+ const root=Object.assign(new EventTarget(),{contains:(target:unknown)=>target===canvas,querySelectorAll:()=>[],querySelector:()=>null});
+ const canvas={isConnected:true,style:{visibility:''},closest:(selector:string)=>selector==='.publication-shell'?root:null,focus:vi.fn()};doc.activeElement=canvas;
+ const win=new EventTarget();vi.stubGlobal('document',doc);vi.stubGlobal('window',win);
+ // The root dismissal listener is installed first and owns the closing release.
+ doc.addEventListener('pointerup',event=>event.stopImmediatePropagation(),true);
+ const resume=vi.fn(),handler=installPanelResume(canvas as unknown as HTMLCanvasElement,vi.fn(),resume);
+ handler.mode(true,false);handler.mode(true,true,'panel');
+ const pointer=(type:string,pointerId:number)=>{
+  // Native capture visits Window before Document, regardless of install order.
+  if(type==='pointerup'||type==='pointercancel')win.dispatchEvent(Object.assign(new Event(type),{pointerId}));
+  doc.dispatchEvent(Object.assign(new Event(type),{pointerId}));
+ };
+ pointer('pointerdown',2);pointer('pointerup',2);pointer('lostpointercapture',2);
+ expect(resume).not.toHaveBeenCalled();
+ pointer('pointerdown',3);
+ expect(handler.movement(true)).toBe(true);expect(resume).toHaveBeenCalledOnce();
+ pointer('pointerup',3);handler.mode(true,false);handler.mode(true,true,'panel');
+ pointer('pointerdown',4);pointer('lostpointercapture',4);pointer('pointerdown',5);
+ expect(handler.movement(true)).toBe(false);
+ pointer('pointerup',4);pointer('pointercancel',5);pointer('pointerdown',6);
+ expect(handler.movement(true)).toBe(true);expect(resume).toHaveBeenCalledTimes(2);
+ handler.dispose();
+});
+
 
 test('outside tracking preserves native defaults until a short closing release is confirmed',()=>{
  class DomNode{contains(target:unknown):boolean{return target===this;}closest(){return null;}}

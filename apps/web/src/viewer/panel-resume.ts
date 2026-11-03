@@ -128,8 +128,10 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   };
   document.addEventListener("pointerdown", down, true);
   document.addEventListener("pointermove", move, true);
-  document.addEventListener("pointerup", up, true);
-  document.addEventListener("pointercancel", cancelled, true);
+  // Observe actual contact termination before document-level panel dismissal
+  // consumes it. Capture loss alone can occur while the contact is still down.
+  window.addEventListener("pointerup", up, true);
+  window.addEventListener("pointercancel", cancelled, true);
   document.addEventListener("keydown", key, true);
   document.addEventListener("visibilitychange", hidden);
   document.addEventListener("wheel", cancel, true);
@@ -183,8 +185,8 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
       invalid(); clearTimeout(focusTimer);
       document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("pointermove", move, true);
-      document.removeEventListener("pointerup", up, true);
-      document.removeEventListener("pointercancel", cancelled, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", cancelled, true);
       document.removeEventListener("keydown", key, true);
       document.removeEventListener("visibilitychange", hidden);
       document.removeEventListener("wheel", cancel, true);
