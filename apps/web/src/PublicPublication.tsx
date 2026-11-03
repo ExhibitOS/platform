@@ -392,7 +392,14 @@ function ExhibitionOverview({ publication, mode, textMode, onClose }: {
   useEffect(() => {
     const previous = document.activeElement, element = dialog.current;
     element?.showModal();
-    return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+    return () => {
+      element?.close();
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        const owner=previous.closest<HTMLDetailsElement>('details.publication-menu');
+        const target=owner&&!owner.open?owner.querySelector<HTMLElement>(':scope>summary'):previous;
+        if(target?.isConnected&&target.getClientRects().length&&!target.closest('[hidden], [inert]')&&getComputedStyle(target).visibility!=='hidden')target.focus({preventScroll:true});
+      }
+    };
   }, []);
   const room=typeof mode==='object'?publication.exhibition.rooms.find(r=>r.id.toLowerCase()===mode.roomId.toLowerCase()):undefined;
   return <dialog className="artwork-detail" ref={dialog} aria-labelledby="exhibition-overview-title" onCancel={e => { e.preventDefault(); onClose(); }}>
