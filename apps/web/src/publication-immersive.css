@@ -153,6 +153,10 @@
 .publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open],dialog[open]) .viewer-first-hints{display:none}
 @media(prefers-reduced-motion:reduce){.viewer-first-hints{display:none;transition:none}}
 .viewer-first-keys kbd{background:rgb(248 251 252 / .85);opacity:.8}
+.viewer-first-keys .viewer-help-keypad{width:min(var(--first-hint-width,14rem),calc(100vw - 3rem));grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:.35rem}
+.viewer-first-keys .viewer-help-keypad kbd{aspect-ratio:1;font-size:clamp(1rem,2vw,1.6rem)}
+.viewer-first-mouse{width:min(var(--first-hint-width,14rem),calc(100vw - 3rem));box-sizing:border-box;padding:.65rem;gap:.6rem;text-align:center;font-size:1rem}
+.viewer-first-mouse svg{width:5.5rem;height:6.875rem}
 .viewer-first-mouse{background:rgb(248 251 252 / .78);padding:.25rem .35rem;border-radius:3px}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.viewer-first-keys kbd,.viewer-first-mouse{background:var(--publication-paper);opacity:1}}
 .publication-high-contrast .viewer-first-keys kbd,.publication-high-contrast .viewer-first-mouse{background:var(--publication-paper);opacity:1}
@@ -163,3 +167,16 @@
 .publication-shell .viewer-audio-stop{display:inline-flex;align-items:center;gap:.5rem}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.viewer-secondary-icon::before{background:var(--publication-paper)}}
 .publication-high-contrast .viewer-secondary-icon::before{background:var(--publication-paper)}
+.publication-mode-3d .viewer-input-help[data-help-phase=choice][open]{position:fixed;left:50%;top:50%;right:auto;transform:translate(-50%,-50%);width:min(28rem,calc(100vw - 2rem - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));max-width:none}
+.viewer-input-help[data-help-phase=choice][open]>.viewer-input-help-body{width:100%;max-height:calc(100svh - 2rem - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));margin:0}
+.viewer-input-help[data-help-phase=choice][open]>summary{position:absolute;right:.5rem;top:.5rem;z-index:1}
+.viewer-input-help[data-help-phase=choice][open] h2{padding-right:3rem;min-height:2rem;display:flex;align-items:center}
+.viewer-help-choice-notice{font-size:.8125rem;line-height:1.5;margin:.75rem 0 0;color:var(--publication-muted)}
+.publication-shell>footer{flex-wrap:wrap;padding-bottom:max(1.25rem,env(safe-area-inset-bottom,0px))}
+.publication-utility-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.25rem 1rem;margin-left:auto}
+.publication-utility-links a{display:inline-flex;align-items:center;min-height:44px;color:inherit}
+.publication-shell .publication-panel-link{display:block;padding:.75rem 0;min-height:44px;background:transparent;color:var(--publication-ink);border:0;text-decoration:underline;text-underline-offset:.2em}
+/* An active panel owns this layer; hidden triggers leave neither hit boxes nor tab stops. */
+.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help):not([open])>summary,
+.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help)[open]) .viewer-visitor-map:not([open])>summary,
+.publication-mode-3d:has(dialog[open]) :is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)>summary{visibility:hidden;pointer-events:none}

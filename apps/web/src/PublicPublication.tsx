@@ -248,9 +248,6 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <EntranceCover key={value.publication.revisionSha256} publication={value} locale={entranceLocale} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
 
-            <div className="publication-entry-actions">
-              {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
-            </div>
           </EntranceCover></div>
           {mode==="3d"&&!viewerUnavailable&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={runtime!.effects.transition} speed={runtime!.effects.speed} statusRef={entryStatus} onCancel={cancelEntry} onText={showTextArtworks}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
@@ -264,6 +261,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section className="publication-settings-menu" aria-label="설정"><h2>설정</h2>
           <div ref={setControlsHost} inert={mode==="3d"&&!stageReady&&!viewerUnavailable} aria-hidden={mode==="3d"&&!stageReady&&!viewerUnavailable} />
+          {mode==='3d'&&<button type="button" className="publication-panel-link" onClick={()=>{const panel=document.querySelector<HTMLDetailsElement>('.viewer-audio-menu');if(panel){panel.open=true;queueMicrotask(()=>panel.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true}));}}}>소리 설정</button>}
           <details className="publication-accessibility-menu"><summary>접근성</summary><section aria-label="관람 방식과 접근성 설정">
             {runtime!.design.translations.length>0&&<label>표지 언어<select value={entranceLocale} onChange={e=>setEntranceLocale(e.target.value)}><option value="">원문</option>{runtime!.design.translations.map(t=><option key={t.locale} value={t.locale}>{t.locale}</option>)}</select></label>}
             <h2 id="publication-viewing" tabIndex={-1} ref={viewingHeading}>관람 방식과 접근성 설정</h2>
@@ -357,7 +355,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
       )}
       <footer>
         <span className="publication-brand" role="img" aria-label="ExhibitOS"><ViewerMark /><ExhibitOSWordmark /></span>
-        <a href="/THIRD_PARTY_NOTICES.txt">제3자 고지</a>
+        <nav className="publication-utility-links" aria-label="관람과 고지">
+          {value&&mode==='cover'&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
+          <a href="/THIRD_PARTY_NOTICES.txt">제3자 고지</a>
+        </nav>
       </footer>
     </main>
   );
