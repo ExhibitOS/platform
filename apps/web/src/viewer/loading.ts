@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Artwork, Exhibition } from "@exhibitos/spec";
-import { lodVariantsFor } from "@exhibitos/studio-contract";
+import { lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
@@ -211,7 +211,7 @@ export function modelGeometryResidentBytes(doc:{accessors?:Array<{bufferView?:nu
  if(!accessors.size||!Number.isSafeInteger(cpu+gpu))throw Error('DECODE_BUDGET_EXCEEDED');return cpu+gpu;
 }
 /** Conservative additional fetch/decode peak; resident old/new assets are separate. */
-export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer):number {
+export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget,bytes:ArrayBuffer,phase:'complete'|'cpu'='complete'):number {
  const variant=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase());
  if(artwork.artworkType==='image'){
   const header=new DataView(bytes);if(bytes.byteLength<24)throw Error('IMAGE_DECODE_BUDGET');
@@ -222,9 +222,10 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
  }
  const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
  const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
- const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source:number}>};
+ const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source:number}>;extensionsUsed?:unknown;extensionsRequired?:unknown;animations?:unknown;skins?:unknown};
  const binBytes=bytes.byteLength-28-length;if(binBytes<0)throw Error('DECODE_BUDGET_EXCEEDED');const geometryBytes=modelGeometryResidentBytes(glb,binBytes);
- let textureBytes=0;
+ let textureBytes=0,cpuTextureBytes=0;
+ let phasedPng=phase==='cpu'&&ordinaryPngRoleSet(glb)&&glb.extensionsUsed===undefined&&glb.extensionsRequired===undefined&&glb.animations===undefined&&glb.skins===undefined&&(glb.meshes??[]).every(mesh=>mesh.primitives.every(primitive=>!('targets' in primitive)));
  for(const [index,image] of (glb.images??[]).entries()){
   const view=image.bufferView===undefined?undefined:glb.bufferViews?.[image.bufferView];
   const offset=28+length+(view?.byteOffset??0);
@@ -234,11 +235,15 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
   if(!w||!h||Math.max(w,h)>Math.min(variant?.textureSize??budget.maxTextureSize,budget.maxTextureSize))throw Error('DECODE_BUDGET_EXCEEDED');
   const copies=Math.max(1,(glb.textures??[]).filter(t=>t.source===index).length);
   textureBytes+=copies*w*h*4*(1+4/3);
+  cpuTextureBytes+=copies*w*h*4;
+  phasedPng=phasedPng&&png&&header.getUint8(offset+24)===8&&header.getUint8(offset+25)===2;
  }
  // An individually oversized resident can never fit after a ready-before-swap transition.
  if(geometryBytes+textureBytes>budget.maxCacheBytes)throw Error('MODEL_RESIDENT_BUDGET');
  // All encoded/parsed copies, indexed CPU/GPU geometry and actual texture bindings.
- return Math.ceil(inventory.bytes*5+geometryBytes+textureBytes);
+ // Strict ordinary PNGs create CPU bitmaps only during parse. The caller must
+ // retire parser-only owners and reserve actual CPU+GPU residency before upload.
+ return Math.ceil(inventory.bytes*5+geometryBytes+(phasedPng?cpuTextureBytes:textureBytes));
 }
 /** Header allocation guard before the browser decoder; hash/profile admission is separate. */
 export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){

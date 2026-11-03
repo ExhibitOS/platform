@@ -42,3 +42,18 @@ it('permits bounded RGB three-role full resources with omitted native glTF sampl
 it('keeps small legacy RGBA three-role images while rejecting the larger legacy budget',()=>{
  for(const colours of [6,[2,6,2]]){const scope=embeddedPNGManager(new LoadingManager(),ordinaryThreeRoleFixture(2,colours));scope.dispose();expect(()=>embeddedPNGManager(new LoadingManager(),ordinaryThreeRoleFixture(1024,colours))).toThrow('EXTERNAL_RESOURCE_REJECTED');}expect(()=>embeddedPNGManager(new LoadingManager(),ordinaryThreeRoleFixture(2,[2,6,2],false,true))).toThrow('EXTERNAL_RESOURCE_REJECTED');
 });
+it('retires only completed ordinary PNG parser owners without detaching geometry or closing scene images',async()=>{
+ const close=vi.fn();vi.stubGlobal('createImageBitmap',async()=>({width:2,height:2,close}));
+ try{
+  const manager=new LoadingManager(),scope=embeddedPNGManager(manager,ordinaryThreeRoleFixture(2));
+  const parsed=scope.bytes,liveView=new Uint8Array(parsed),first=liveView[0];
+  const load=(n:number)=>new Promise<Texture>((resolve,reject)=>manager.getHandler(`exhibitos-embedded-png-${n}`)!.load(`exhibitos-embedded-png-${n}`,v=>resolve(v as Texture),undefined,reject));
+  const a=await load(0);expect(()=>scope.releaseEncoded()).toThrow('EXTERNAL_RESOURCE_REJECTED');expect(scope.bytes).toBe(parsed);
+  const textures=[a,await load(1),await load(2)],disposed=textures.map(texture=>vi.spyOn(texture,'dispose'));
+  scope.assertLoaded();expect(scope.releaseEncoded()).toBe(true);expect(scope.releaseEncoded()).toBe(true);
+  expect(()=>scope.bytes).toThrow('EXTERNAL_RESOURCE_REJECTED');expect(manager.getHandler('exhibitos-embedded-png-0')).toBeNull();expect(()=>manager.resolveURL('exhibitos-embedded-png-0')).toThrow('EXTERNAL_RESOURCE_REJECTED');
+  expect(liveView[0]).toBe(first);expect(parsed.byteLength).toBeGreaterThan(108);expect(close).not.toHaveBeenCalled();for(const spy of disposed)expect(spy).not.toHaveBeenCalled();scope.assertLoaded();
+  scope.dispose();scope.dispose();expect(close).toHaveBeenCalledTimes(3);for(const spy of disposed)expect(spy).toHaveBeenCalledOnce();
+  const legacy=embeddedPNGManager(new LoadingManager(),imageFixture());expect(legacy.releaseEncoded()).toBe(false);expect(legacy.bytes.byteLength).toBeGreaterThan(0);legacy.dispose();
+ }finally{vi.unstubAllGlobals();}
+});

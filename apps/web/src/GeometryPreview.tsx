@@ -1410,7 +1410,7 @@ export function GeometryPreview({
         const resources: Array<{ dispose: () => void }> = [];
         try {
           let object: InstanceType<typeof three.Object3D>;
-          let retainedModelBytes=0;
+          let retainedModelBytes=0,parseBackingReleased=false;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
             let bitmap = await createImageBitmap(
@@ -1491,6 +1491,7 @@ export function GeometryPreview({
               }
             });
             protectedBytes.assertLoaded();
+            if(protectedBytes.releaseEncoded()){backing.dispose();retainedModelBytes=0;parseBackingReleased=true;}
             if (disposed || signal.aborted) {
               gltf.scene.traverse((node) => {
                 if (node instanceof three.Mesh) {
@@ -1555,6 +1556,7 @@ export function GeometryPreview({
             triangles,
             decodedBytes,
             retainedModelBytes,
+            parseBackingReleased,
             measuredGeometry:object.userData.metricGeometry,
             artifactGeometry:object.userData.artifactGeometry,
             textureSizes: [...textures].map((t) => {
@@ -1768,10 +1770,14 @@ export function GeometryPreview({
                 stage(t.inventory.id,'verified-download',undefined,key);
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes)),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
+                // loadArtwork has returned: parser/input locals and strict PNG
+                // handlers no longer own encoded copies. Actual geometry views,
+                // bitmaps, GPU textures, cache and peers remain in the same ledger.
+                if(object.userData.viewer?.parseBackingReleased)reserve(key,object.userData.viewer.decodedBytes);
                 stage(t.inventory.id,'texture-upload-shader-prepare',undefined,key);
                 object.traverse(node=>{if(node instanceof three.Mesh)for(const material of Array.isArray(node.material)?node.material:[node.material])for(const value of Object.values(material))if(value instanceof three.Texture)renderer.initTexture(value);});
                 renderer.compile(object,camera,scene);
@@ -1926,7 +1932,9 @@ export function GeometryPreview({
                 discardResult(result);
                 return;
               }
-              if(peak.total()+(object.userData.viewer?.decodedBytes??0)>requestLimits(task).resident){
+              const steady=requestLimits(task).resident;
+              if(object.userData.viewer?.parseBackingReleased)for(const asset of arts.flatMap(work=>work.assets)){if(peak.total()+(object.userData.viewer.decodedBytes??0)<=steady)break;byteCache.delete(asset.id);}
+              if(peak.total()+(object.userData.viewer?.decodedBytes??0)>steady){
                 discardResult(result);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
