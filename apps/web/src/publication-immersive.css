@@ -51,3 +51,31 @@
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary{margin-left:auto}
 .publication-mode-3d .viewer-audio-menu[open]{padding:0}
 .publication-mode-3d .viewer-audio-menu[open] .viewer-audio{padding:1rem}
+
+/* Existing panels retain their commands; only their compact affordances change. */
+.publication-mode-3d{--visitor-panel-right:max(clamp(1.25rem,3vw,3rem),env(safe-area-inset-right,0px));--visitor-panel-top:max(1.25rem,env(safe-area-inset-top,0px));--visitor-panel-height:44px}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary{width:44px;height:44px;padding:.5rem;justify-content:center;gap:0;position:relative;z-index:1}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary::after{content:none}
+.viewer-control-icon{display:block;width:22px;height:22px;flex:none}
+.publication-mode-3d .immersive-viewer>.viewer-audio-menu{overflow:hidden;max-height:calc(100svh - var(--visitor-panel-top) - var(--visitor-panel-height) - var(--visitor-panel-gap) - 1rem - env(safe-area-inset-bottom,0px))}
+.publication-mode-3d .viewer-audio-body{max-height:calc(100svh - var(--visitor-panel-top) - 2 * var(--visitor-panel-height) - var(--visitor-panel-gap) - 1rem - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain}
+.publication-mode-3d .publication-menu-panel{box-sizing:border-box;max-height:calc(100svh - var(--visitor-panel-top) - var(--visitor-panel-height) - 1.5rem - env(safe-area-inset-bottom,0px));overscroll-behavior:contain}
+/* The existing dialog already owns Escape and focus return. Keep its return
+   action visible while its long descriptions and credits scroll. */
+.publication-shell .artwork-detail>header{position:sticky;top:-24px;z-index:2;padding-block:.5rem;background:var(--publication-paper,#f8fbfc)}
+@media(max-width:700px){.publication-mode-3d{--visitor-panel-right:max(.75rem,env(safe-area-inset-right,0px));--visitor-panel-top:max(.75rem,env(safe-area-inset-top,0px))}}
+@media(max-width:480px){.publication-shell .artwork-detail>header{top:-12px}}
+
+/* A quiet circular surface stays distinct over both light walls and dark art.
+   Its drawn diameter is smaller than the unchanged 44px hit target. */
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary{border:0;border-radius:50%;background:transparent;box-shadow:none;isolation:isolate}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .94)}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary:hover::before{background:var(--publication-paper)}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)[open]>summary{color:var(--publication-paper)}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)[open]>summary::before{background:rgb(24 45 50 / .94)}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary:active::before{border-color:var(--publication-action);border-width:2px}
+@media(prefers-reduced-transparency:reduce){.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>summary::before{background:var(--publication-paper)}.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)[open]>summary::before{background:var(--publication-ink)}}
+.publication-mode-3d .viewer-audio-menu:not([open]){background:transparent;box-shadow:none;overflow:visible}
+/* An open panel's empty header width must not shield the nearby map toggle. */
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu){pointer-events:none}
+.publication-mode-3d :is(.publication-menu,.viewer-audio-menu)>:is(summary,.publication-menu-panel,.viewer-audio-body){pointer-events:auto}

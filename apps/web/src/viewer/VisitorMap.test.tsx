@@ -21,16 +21,11 @@ it('does not invent thumbnails or destination controls from room and placement m
  const html=renderToStaticMarkup(<VisitorMap {...props()}/>);
  expect(html).not.toContain('<img');expect(html).toContain('지도에서 고르기');expect(html).not.toContain('선택한 위치로 이동');expect(html).not.toContain('안전한');
 });
-it('centers the circular crop on the world pose without rotating the plan with heading',()=>{
- const value=props();value.worldPose={point:[4,-1],direction:[1,0]};
- const first=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(first).toContain('viewBox="0 -5 8 8"');
- value.worldPose={point:[4,-1],direction:[0,1]};
- const turned=renderToStaticMarkup(<VisitorMap {...value}/>);
- expect(turned).toContain('viewBox="0 -5 8 8"');expect(turned).not.toContain('rotate(');
- value.worldPose={point:[-2,3],direction:[0,-1]};
- expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
- expect(value.onGo).not.toHaveBeenCalled();
+it('keeps the compact room context fixed while actual position and direction move',()=>{
+ const value=props(),crop=(html:string)=>html.match(/class="visitor-map-nearby"><svg viewBox="([^"]+)"/)![1];
+ value.worldPose={point:[4,-1],direction:[1,0]};const first=renderToStaticMarkup(<VisitorMap {...value}/>);
+ value.worldPose={point:[-2,2],direction:[0,1]};const moved=renderToStaticMarkup(<VisitorMap {...value}/>);
+ expect(crop(moved)).toBe(crop(first));expect(moved).toContain('cx="-2" cy="2"');expect(moved).not.toContain('rotate(');expect(value.onGo).not.toHaveBeenCalled();
 });
 it('uses only supplied real thumbnails while retaining named keyboard controls and a compact expansion affordance',()=>{
  const description='Long artwork description belongs in the existing detail view.';
@@ -54,12 +49,12 @@ it('shows only the actual FOV sector and rotates it with heading while keeping t
  const value=props();value.worldPose={point:[0,0],direction:[0,-1],horizontalFovDegrees:90};
  const coordinates=(html:string)=>html.match(/class="visitor-map-fov" d="([^"]+)"/)![1]!.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)!.map(Number);
  const northHtml=renderToStaticMarkup(<VisitorMap {...value}/>),north=coordinates(northHtml);
- expect(northHtml).not.toContain('<line');expect(northHtml).not.toContain('rotate(');expect(northHtml).toContain('viewBox="-4 -4 8 8"');
+ expect(northHtml).not.toContain('<line');expect(northHtml).not.toContain('rotate(');
  expect(north[2]).toBeLessThan(0);expect(north[9]).toBeGreaterThan(0);expect(north[3]).toBeLessThan(0);expect(north[10]).toBeLessThan(0);
  expect(north[2]!*north[9]!+north[3]!*north[10]!).toBeCloseTo(0);
  value.worldPose={point:[0,0],direction:[1,0],horizontalFovDegrees:60};
  const eastHtml=renderToStaticMarkup(<VisitorMap {...value}/>),east=coordinates(eastHtml);
- expect(eastHtml).toContain('viewBox="-4 -4 8 8"');expect(east[2]).toBeGreaterThan(0);expect(east[9]).toBeGreaterThan(0);
+ expect(east[2]).toBeGreaterThan(0);expect(east[9]).toBeGreaterThan(0);
  const cosine=(east[2]!*east[9]!+east[3]!*east[10]!)/(Math.hypot(east[2]!,east[3]!)*Math.hypot(east[9]!,east[10]!));
  expect(cosine).toBeCloseTo(.5);
 });
@@ -79,7 +74,7 @@ it('fits every full-plan corner within the desktop circle without following or r
  for(const px of [map.bounds.x,map.bounds.x+map.bounds.width])for(const pz of [map.bounds.z,map.bounds.z+map.bounds.depth])expect(Math.hypot(px-cx,pz-cz)).toBeLessThan(width/2);
  value.worldPose={point:[-2,3],direction:[1,0],horizontalFovDegrees:70};
  expect(overview(renderToStaticMarkup(<VisitorMap {...value}/>))).toEqual(first);
- expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('viewBox="-6 -1 8 8"');
+ expect(renderToStaticMarkup(<VisitorMap {...value}/>)).toContain('cx="-2" cy="3"');
 });
 it('keeps wall anchors at their true points while moving thumbnail buttons inside their own room',()=>{
  const value=props();value.map={...map,placements:[{...map.placements[0]!,point:[4,0],facing:[-1,0]}]};
