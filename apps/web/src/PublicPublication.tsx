@@ -95,7 +95,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [highContrast, setHighContrast] = useMediaPreference("(prefers-contrast: more)");
   const viewingHeading = useRef<HTMLHeadingElement>(null);
   const [viewingFocusRequest,setViewingFocusRequest]=useState(0);
-  useEffect(()=>{if(viewingFocusRequest)viewingHeading.current?.focus();},[viewingFocusRequest]);
+  useEffect(()=>{if(!viewingFocusRequest)return;const heading=viewingHeading.current,panel=heading?.closest<HTMLDetailsElement>('.publication-accessibility-menu');if(panel)panel.open=true;heading?.focus();},[viewingFocusRequest]);
   const guideHeading = useRef<HTMLHeadingElement>(null);
   const modeChanged = useRef(false);
   useEffect(() => {
