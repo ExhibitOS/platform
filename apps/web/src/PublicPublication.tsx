@@ -108,7 +108,6 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
-  const [coverViewingStyle,setCoverViewingStyle]=useState<ViewingStyle>('free');
   const preferredViewingStyle=useRef<ViewingStyle>('free');
   const cancelMapTravel=useRef<(()=>void)|null>(null);
   const registerMapCancel=useCallback((cancel:(()=>void)|null)=>{cancelMapTravel.current=cancel;},[]);
@@ -116,7 +115,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [viewingState,setViewingState]=useState<ViewingState>({style:'free',status:'idle',message:''});
   const [viewingReady,setViewingReady]=useState(false);
   useEffect(()=>{
-    preferredViewingStyle.current='free';setCoverViewingStyle('free');setViewingState({style:'free',status:'idle',message:''});
+    preferredViewingStyle.current='free';setViewingState({style:'free',status:'idle',message:''});
     return()=>{viewingSession.current?.dispose();viewingSession.current=null;};
   },[value?.publication.id,value?.publication.revisionSha256]);
   const registerViewing=useCallback((renderer:ViewingRenderer|null)=>{
@@ -126,9 +125,9 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     viewingSession.current=current;setViewingState(current.state());
     if(preferredViewingStyle.current==='ordered'){cancelMapTravel.current?.();current.actions.setStyle('ordered');}
   },[value]);
-  const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;setCoverViewingStyle(style);};
+  const chooseViewingStyle=(style:ViewingStyle)=>{preferredViewingStyle.current=style;if(value)setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceMade:true}));};
   const viewingActions:ViewingActions={setStyle(style){cancelMapTravel.current?.();chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>{cancelMapTravel.current?.();viewingSession.current?.actions.step(direction);},select:placementId=>{cancelMapTravel.current?.();viewingSession.current?.actions.select(placementId);},cancel:()=>viewingSession.current?.actions.cancel()};
-  const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean}|null>(null);
+  const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean;choiceShown?:boolean;choiceMade?:boolean;hintShown?:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
@@ -250,7 +249,6 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
 
             <div className="publication-entry-actions">
-              {mode==='cover'&&<ViewingStyles variant="cover" state={{style:coverViewingStyle,status:'idle',message:''}} items={viewingItems} available={viewingPlan.stops.length>0} actions={{...viewingActions,setStyle:chooseViewingStyle}}/>}
               {mode==="cover"&&<a href="#publication-artworks" onClick={showTextArtworks}>텍스트로 관람</a>}
             </div>
           </EntranceCover></div>
@@ -294,10 +292,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </div></details>
           {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer viewingStyle={viewingState.style} onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
+            <Viewer helpReady={mode==='3d'&&stageReady&&viewingReady&&!entry.entryFailed&&!viewerUnavailable} choiceRequired={!(guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&(guideDismissal.choiceShown||guideDismissal.choiceMade||guideDismissal.dismissed))&&viewingState.style==='free'&&preferredViewingStyle.current==='free'} orderedAvailable={viewingReady&&viewingPlan.stops.length>0} choicePending={viewingState.status==='preparing'} onChoicePresented={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceShown:true}))} onChooseViewingStyle={style=>{if(style===viewingState.style)chooseViewingStyle(style);else viewingActions.setStyle(style);}} hintAlreadyShown={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&!!guideDismissal.hintShown} onHintShown={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),hintShown:true}))} viewingStyle={viewingState.style} onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
-              onGuideDismissedChange={dismissed=>setGuideDismissal({publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed})}
+              onGuideDismissedChange={dismissed=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{}),publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed}))}
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary></div>}

@@ -2,6 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import type {Exhibition} from '@exhibitos/spec';
 import type {AudioState,ExhibitionAudio} from './audio';
+import {ViewerIcon} from './ViewerIcon';
 
 export const audioUseReady=(state:AudioState|null)=>!!state?.enabled&&state.context==='running';
 /** An explicit gesture grants/resumes browser audio. Promise resolution alone
@@ -35,8 +36,8 @@ export function AudioControls({audio,state,zones,rooms=[]}:{audio:ExhibitionAudi
    <label><input type="checkbox" checked={state?.footstepsEnabled??false} disabled={!audio} onChange={e=>audio?.footstepsEnabled(e.target.checked)}/>발소리 사용</label>
    <label><input type="checkbox" checked={state?.reverbEnabled??false} disabled={!audio} onChange={e=>audio?.reverbEnabled(e.target.checked)}/>방 잔향 사용</label>
    {zones.length>0&&<label><input type="checkbox" checked={state?.zoneTransitions??false} disabled={!audio} onChange={e=>{void audio?.zoneTransitions(e.target.checked);}}/>공간에 들어갈 때 소리 재생</label>}
-   {zones.map((zone,index)=>{const room=rooms.find(r=>r.id.toLowerCase()===zone.roomId.toLowerCase()),name=`${room?.name??'공간'} 소리 ${index+1}`;return <div key={zone.id} className="viewer-audio-zone"><button type="button" disabled={!audio} onClick={()=>{void audio?.playZone(zone.id);}}>{name} 재생</button><details><summary>{name} 대본</summary><p>{zone.transcript}</p></details></div>;})}
+   {zones.map((zone,index)=>{const room=rooms.find(r=>r.id.toLowerCase()===zone.roomId.toLowerCase()),name=`${room?.name??'공간'} 소리 ${index+1}`;return <div key={zone.id} className="viewer-audio-zone" role="group" aria-label={name}><div className="viewer-audio-zone-heading"><span>{name}</span><button type="button" className="viewer-secondary-icon" aria-label={`${name} 재생`} title={`${name} 재생`} disabled={!audio} onClick={()=>{void audio?.playZone(zone.id);}}><ViewerIcon name="play"/></button></div><details><summary>{name} 대본</summary><p>{zone.transcript}</p></details></div>;})}
   </details>
-  {zones.length>0&&<button type="button" disabled={!audio} onClick={()=>audio?.stopZone()}>공간 소리 정지</button>}
+  {zones.length>0&&<button type="button" className="viewer-audio-stop" disabled={!audio} onClick={()=>audio?.stopZone()}><ViewerIcon name="stop"/>공간 소리 정지</button>}
  </section>;
 }

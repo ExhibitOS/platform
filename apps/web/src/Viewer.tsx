@@ -23,7 +23,7 @@ import { ExhibitionAudio, type AudioApi, type AudioState } from "./viewer/audio"
 import { AudioMenu } from "./viewer/AudioMenu";
 import { selectedDeviceBudget } from "./viewer/loading";
 import { useMediaPreference } from "./publication-accessibility";
-import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode } from "./ViewerInputGuide";
+import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode,type HintPose } from "./ViewerInputGuide";
 import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap} from './viewer/visitor-map';
 import {createMapPoseSource} from './viewer/map-pose';
@@ -54,6 +54,14 @@ export function Viewer({
   onViewingRendererReady,
   mapEnabled = true,
   viewingStyle = 'free',
+  helpReady = false,
+  choiceRequired = false,
+  orderedAvailable = false,
+  choicePending = false,
+  onChoicePresented,
+  hintAlreadyShown = false,
+  onHintShown,
+  onChooseViewingStyle,
   onMapAction,
   onMapCancelReady,
   guideDismissed,
@@ -63,6 +71,14 @@ export function Viewer({
   thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   mapEnabled?:boolean;
   viewingStyle?:'free'|'ordered';
+  helpReady?:boolean;
+  choiceRequired?:boolean;
+  orderedAvailable?:boolean;
+  choicePending?:boolean;
+  onChoicePresented?:()=>void;
+  hintAlreadyShown?:boolean;
+  onHintShown?:()=>void;
+  onChooseViewingStyle?:(style:'free'|'ordered')=>void;
   onMapAction?:()=>void;
   onMapCancelReady?:(cancel:(()=>void)|null)=>void;
   onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
@@ -128,6 +144,8 @@ export function Viewer({
   const introDismissed=guideDismissed??localIntroDismissed;
   const setIntroDismissed=(dismissed:boolean)=>{setLocalIntroDismissed(dismissed);if(dismissed!==introDismissed)onGuideDismissedChange?.(dismissed);};
   const [guideSequence,setGuideSequence]=useState(0);
+  const guideActivity=useRef<((pose:HintPose)=>void)|null>(null),guidePose=useRef<HintPose|null>(null);
+  const observeGuideActivity=useCallback((listener:(pose:HintPose)=>void)=>{guideActivity.current=listener;if(guidePose.current)listener(guidePose.current);return()=>{if(guideActivity.current===listener)guideActivity.current=null;};},[]);
   const [inputMode,setInputMode]=useState<ViewerInputMode>("auto");
   const [coarsePointer]=useMediaPreference("(pointer: coarse)");
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
@@ -261,7 +279,7 @@ export function Viewer({
   );
   return (
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">
-      {immersive && <ViewerInputGuide mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={false} requestSequence={guideSequence} viewingStyle={viewingStyle} onDismiss={()=>setIntroDismissed(true)}/>}
+      {immersive && <ViewerInputGuide key={`${publication.publication.id}/${publication.publication.revisionSha256}`} mode={resolveViewerInputMode(inputMode,coarsePointer)} replayed={false} requestSequence={guideSequence} viewingStyle={viewingStyle} showIntro={!introDismissed&&helpReady&&!suspendNavigation&&!choiceRequired&&!choicePending} ready={helpReady&&!suspendNavigation} choiceRequired={choiceRequired} orderedAvailable={orderedAvailable} onChoicePresented={onChoicePresented} onChooseStyle={onChooseViewingStyle} reducedMotion={!!reducedMotion} observeActivity={observeGuideActivity} hintAlreadyShown={hintAlreadyShown} onHintShown={onHintShown} onDismiss={()=>setIntroDismissed(true)}/>}
       <p className="viewer-intro">작품을 선택하면 설명과 자세한 모습을 볼 수 있어요. 공간 이동이 어려우면 아래 작품 목록을 이용하세요.</p>
       {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} artworkStops={viewingPlanFor(publication.exhibition).stops} poseSource={mapPoseSource} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
@@ -307,8 +325,8 @@ export function Viewer({
         onScriptClick={scriptProgram.rules.length?id=>script.current?.event({type:'artwork_click',placementId:id},performance.now(),Date.now()):undefined}
         reducedMotion={reducedMotion}
         onReducedMotionChange={value=>{presenceReduced.current=value;onReducedMotionChange?.(value);}}
-        onNavigationState={state => {audio.current?.update(state);if(immersive&&state.velocity.some(value=>Math.abs(value)>.01))setIntroDismissed(true);}}
-        onCameraPose={(position,yaw)=>audio.current?.updatePose(position,yaw)}
+        onNavigationState={state => {audio.current?.update(state);if(immersive&&(resolveViewerInputMode(inputMode,coarsePointer)==='touch'||viewingStyle!=='free')&&state.velocity.some(value=>Math.abs(value)>.01))setIntroDismissed(true);}}
+        onCameraPose={(position,yaw,pitch?:number)=>{audio.current?.updatePose(position,yaw);const pose={position,yaw,pitch:pitch??guidePose.current?.pitch??0,walking:movement.current,paused:!movement.current};guidePose.current=pose;guideActivity.current?.(pose);}}
         onNavigationMode={(walking,paused)=>{if(walking&&!paused)onNavigationActive?.();if(paused&&movement.current)script.current?.stop();movement.current=walking && !paused;audio.current?.lifecycle(movement.current,suspendNavigation);}}
       />
       <AudioMenu immersive={immersive} audio={audio.current} state={audioState} zones={publication.exhibition.audioZones} rooms={publication.exhibition.rooms}/>
