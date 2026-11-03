@@ -227,3 +227,9 @@ main.publication-shell .publication-guide>button svg{width:20px;height:20px;flex
  main.publication-shell .viewer-audio-use[aria-checked=true]>span:last-child::before,main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:checked::before{background:Highlight}
  main.publication-shell .viewer-audio-use[aria-checked=true]>span:last-child::after,main.publication-shell :is(.viewer-audio,.publication-settings-menu) input[type=checkbox]:checked::after{background:HighlightText}
 }
+
+/* The static entry failure uses the same public recovery controls and reading
+   scale; it does not change loading, expiry, or retry behavior. */
+main.publication-shell.publication-static-error{padding:clamp(1.5rem,5vw,4rem)}
+.publication-static-error>h1{max-width:22ch;margin:0 0 1rem;font-size:clamp(1.75rem,4vw,2.75rem);line-height:1.2}
+.publication-static-error>p{max-width:60ch;margin:0 0 1.25rem}
