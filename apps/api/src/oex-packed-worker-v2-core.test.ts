@@ -60,7 +60,7 @@ it('consumes a validated metadata-only archive only with explicit live empty adm
  let input:Awaited<ReturnType<typeof open>>|undefined,output:Awaited<ReturnType<typeof open>>|undefined;
  try{
   const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'));
-  e.artworks=[];e.placements=[];e.mediaAssets=[];e.annotations=[];e.navigation=[];delete e.extensions;
+  e.artworks=[];e.placements=[];e.mediaAssets=[];e.annotations=[];e.navigation=[];e.scripts=[];e.audioZones=[];e.accessibility.routeIds=[];e.accessibility.artworkDescriptions=[];delete e.extensions;
   const path=join(dir,'empty.oex');await writeOexFile(e,{paths:[],get:async()=>undefined},path,{createdAt:'2026-11-03T00:00:00Z',generator:{name:'metadata-only test',version:'1'}});
   const archive=await readFile(path);input=await open(path,'r');output=await open(join(dir,'packed'),'wx+',0o600);
   const preflight=await preflightOexSize(input,{bytes:archive.length,sha256:sha(archive)});
