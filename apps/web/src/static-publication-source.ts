@@ -1,3 +1,4 @@
+import { retainsCopyInventory } from './private-editor/previous-copy-compatibility';
 import type { PublicPublication } from "./publication-client";
 import { freezeCanonical,validateFurnishings,furnishingsFor } from "@exhibitos/studio-contract";
 import { newDraft } from "./drafts/example";
@@ -25,14 +26,10 @@ async function verifiedIndex(expected:string|undefined,base=""):Promise<StaticIn
  if(await hash(bytes)!==expected)throw Error("STATIC_INDEX_HASH");
  return JSON.parse(new TextDecoder().decode(bytes)) as StaticIndex;
 }
-function assetInventory(index:StaticIndex){
- const rows=(entries:FileEntry[]=[])=>entries.map(e=>JSON.stringify([e.path,e.sha256,e.bytes,e.mime])).sort();
- return JSON.stringify([rows(index.assets),rows(index.resources),rows(index.furnishingNotices)]);
-}
 export async function loadStaticPublication(previousIndex?: string):Promise<PublicPublication>{
  const archive=previousIndex&&/^[a-f0-9]{64}$/.test(previousIndex)?`/private-copy-bases/${previousIndex}`:"";
  const index=await verifiedIndex(previousIndex??indexMeta(),archive);
- if(previousIndex&&assetInventory(index)!==assetInventory(await verifiedIndex(indexMeta())))throw Error("STATIC_PREVIOUS_ASSETS");
+ if(previousIndex&&!retainsCopyInventory(index,await verifiedIndex(indexMeta())))throw Error("STATIC_PREVIOUS_ASSETS");
  if(![1,2,3].includes(index.version)||!Array.isArray(index.assets)||index.assets.length>20000||index.version===1&&(index.resources!==undefined||index.furnishingNotices!==undefined)||index.version===2&&(!Array.isArray(index.resources)||index.resources.length>13||index.furnishingNotices!==undefined)||index.version===3&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>13)))throw Error("STATIC_INDEX");
  if(!index.publication||! /^[a-f0-9]{64}$/.test(index.publication.sha256)||!Number.isSafeInteger(index.publication.bytes)||index.publication.bytes<1||index.publication.bytes>1048576||index.publication.mime!=='application/json')throw Error("STATIC_INDEX");
  const p=await read(index.publication.path,index.publication.bytes,undefined,!archive&&index.publication.path===`data/${index.publication.sha256}.json`,archive);if(p.length!==index.publication.bytes||await hash(p)!==index.publication.sha256)throw Error("STATIC_PUBLICATION_HASH");

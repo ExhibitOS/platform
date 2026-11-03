@@ -2,7 +2,7 @@ import { createRoot } from "react-dom/client";
 import { loadStaticPublication } from "./static-publication-source";
 import "./style.css";
 import {hasPreviousCopy, previousBases, type PreviousBase} from './private-editor/previous-bases';
-import {copyRightsFingerprint} from './private-editor/previous-copy-rights';
+import {retainsCopyRights} from './private-editor/previous-copy-compatibility';
 import {takePrivateView} from './viewer/private-view';
 const root=createRoot(document.getElementById("root")!);
 let generation=0;
@@ -19,7 +19,7 @@ async function load(){
     const previous=await loadStaticPublication(base.indexSha256);
     if(previous.publication.id!==base.publicationId||previous.publication.revisionSha256!==base.revisionSha256)throw Error('PRIVATE_COPY_BASE');
     // Previous metadata does not authorize any asset missing from the current baseline.
-    if(copyRightsFingerprint(previous.exhibition)!==copyRightsFingerprint(sample.exhibition))throw Error("PRIVATE_COPY_RIGHTS");
+    if(!retainsCopyRights(previous.exhibition,sample.exhibition))throw Error("PRIVATE_COPY_RIGHTS");
     return {...privateSeed(previous,base.indexSha256),existingOnly:true,catalogueBase:seed};
   }
   const copies=await Promise.all(bases.map(async base=>{
