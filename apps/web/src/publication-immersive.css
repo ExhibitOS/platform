@@ -131,7 +131,7 @@
 .publication-shell .viewer-guide-close{position:relative;display:grid;place-items:center;isolation:isolate;flex:none;width:44px;height:44px;min-height:44px;padding:.5rem;color:var(--publication-ink);background:transparent;border:0;border-radius:50%}
 .viewer-guide-close::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .78)}
 .publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open],dialog[open]) .viewer-input-brief{display:none}
-@media(max-width:700px){.viewer-input-brief{bottom:max(1rem,env(safe-area-inset-bottom,0px))}}
+@media(max-width:700px){.viewer-input-brief{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + 120px + .75rem);max-height:calc(100svh - max(1rem,env(safe-area-inset-bottom,0px)) - 120px - 1.75rem)}}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.viewer-guide-close::before{background:var(--publication-paper)}}
 .publication-high-contrast .viewer-guide-close::before{background:var(--publication-paper)}
 
