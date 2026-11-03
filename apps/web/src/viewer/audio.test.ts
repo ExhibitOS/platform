@@ -325,8 +325,12 @@ test('recorded load failures use one stable alternate and never retry or redraw 
  try{
   f.runtime.lifecycle(true);f.runtime.update(state(0,{roomId:'room',floorSurfaceId:f.id}));
   for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other]);
-  for(let i=0;i<4;i++)f.stride();f.runtime.mute(true);f.runtime.mute(false);f.runtime.visibility(false);f.runtime.visibility(true);f.runtime.lifecycle(true);f.runtime.footstepsEnabled(false);f.runtime.footstepsEnabled(true);
-  for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other]);assert(f.calls.every(call=>call[2]===.8));
+  for(let i=0;i<4;i++)f.stride();f.runtime.mute(true);f.runtime.mute(false);f.runtime.visibility(false);f.runtime.visibility(true);f.runtime.lifecycle(true);
+  for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other]);
+  // Opt-out makes the decoded clip evictable under the existing room cache.
+  // Re-enabling reloads the SAME successful choice, never the failed file.
+  f.runtime.footstepsEnabled(false);f.runtime.footstepsEnabled(true);
+  for(let i=0;i<12;i++)await Promise.resolve();assert.deepEqual(requests,[f.id,other,other]);assert(f.calls.every(call=>call[2]===.8));
  }finally{f.runtime.dispose();random.mockRestore();}
 });
 
