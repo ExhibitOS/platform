@@ -14,3 +14,9 @@ it('binds exact control bytes to independently supplied claim fields',()=>{
  expect(()=>parsePackedOexControlV2(frame({...control,outputInode:'2'}),expected)).toThrow('OEX_PACKED_CONTROL');
  expect(()=>parsePackedOexControlV2(frame({...control,extra:true}),expected)).toThrow('OEX_PACKED_CONTROL');
 });
+it('keeps the v3 owner wrapper distinct while using the same child control',()=>{
+ const raw=Buffer.from(JSON.stringify({version:1,kind:'worker-control-v3',correlationId,attemptId:control.attemptId,control}));
+ expect(parsePackedOexControlV2(raw,expected,'v3').outputInode).toBe('3');
+ expect(()=>parsePackedOexControlV2(raw,expected)).toThrow('OEX_PACKED_CONTROL');
+ expect(()=>parsePackedOexControlV2(frame(control),expected,'v3')).toThrow('OEX_PACKED_CONTROL');
+});

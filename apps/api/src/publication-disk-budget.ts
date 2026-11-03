@@ -5,7 +5,8 @@ import {mkdir,open,readdir,realpath,rmdir,lstat,stat,statfs,unlink} from 'node:f
 import {constants} from 'node:fs';
 import {join,isAbsolute} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
-import {consumeSelectedSettlement,type SelectedSettlementAuthority} from './oex-owner-claim.ts';
+import {consumeSelectedSettlement,consumeSelectedV3Settlement,type SelectedSettlementAuthority,type SelectedV3SettlementAuthority} from './oex-owner-claim.ts';
+import {consumeSelectedV3ReleasePermit,type SelectedV3ReleasePermit} from './publication-attempt.ts';
 
 export interface DiskOwner {databaseSystemId:string;databaseOid:string;storeRoot:string;storeDevice:string;storeInode:string}
 export interface DiskPlan {root:string;bytes:number}
@@ -182,6 +183,23 @@ export class PublicationDiskBudget {
    if(record.id!==expected.id||record.generation!==expected.generation||record.operation!==expected.operation||canonical(record.owner)!==canonical(expected.owner)||canonical(record.plan.map(({root,bytes})=>({root,bytes})))!==canonical(expected.plan))throw Error('DISK_BUDGET_UNCERTAIN');
    for(const p of record.plan){const s=await stat(p.root,{bigint:true});if(!s.isDirectory()||String(s.dev)!==p.device||await realpath(p.root)!==p.root)throw Error('DISK_BUDGET_UNCERTAIN');}
    await revalidate();await unlink(path);await syncDirectory(this.root);
+  });
+ }
+ /** The same owned operation retires A and optional E under one mutex. The
+  * unlinks are not atomic: any failure leaves durable intent and remaining
+  * records for reconciliation; the spent authority must never be retried. */
+ async releaseSelectedOexV3(input:DiskReservationBinding[],claimDigest:string,authority:SelectedV3SettlementAuthority,permit:SelectedV3ReleasePermit){
+  const bindings=JSON.parse(canonical(input)) as DiskReservationBinding[];
+  if(!this.claims||!Array.isArray(bindings)||bindings.length<1||bindings.length>2||bindings.some(b=>b.operation!=='oex-import'||!uuid.test(b.id)||!uuid.test(b.generation))||new Set(bindings.map(b=>b.id)).size!==bindings.length||bindings.some(b=>canonical(b.owner)!==canonical(bindings[0]!.owner)))throw Error('DISK_BUDGET_JOURNAL_RETIREMENT_UNAVAILABLE');
+  consumeSelectedV3ReleasePermit(permit,authority,claimDigest,bindings);const revalidate=await consumeSelectedV3Settlement(authority,bindings,claimDigest);
+  await this.mutex(async()=>{
+   await this.checkOwner(bindings[0]!.owner);const paths:string[]=[];
+   for(const expected of bindings){
+    const path=join(this.root,'lease-'+expected.id+'.json'),record=parseRecord(await readBounded(path));
+    if(record.id!==expected.id||record.generation!==expected.generation||record.operation!==expected.operation||canonical(record.owner)!==canonical(expected.owner)||canonical(record.plan.map(({root,bytes})=>({root,bytes})))!==canonical(expected.plan))throw Error('DISK_BUDGET_UNCERTAIN');
+    for(const p of record.plan){const s=await stat(p.root,{bigint:true});if(!s.isDirectory()||String(s.dev)!==p.device||await realpath(p.root)!==p.root)throw Error('DISK_BUDGET_UNCERTAIN');}paths.push(path);
+   }
+   await revalidate();for(const path of paths.reverse()){await revalidate();await unlink(path);await syncDirectory(this.root);}await revalidate();
   });
  }
 }

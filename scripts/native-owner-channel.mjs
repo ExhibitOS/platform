@@ -15,9 +15,9 @@ export function closeNativeOwnerDescriptor(fdText){if(typeof fdText==='string'&&
 export function unpackNativeOwnerInput(input){
  if(!input||typeof input!=='object'||Array.isArray(input))throw Error('NATIVE_OWNER_INPUT');
  if(!Object.hasOwn(input,'ownerChannel'))return {workspace:input};
- const owner=input.ownerChannel,v1=closed(owner,['version','runtimeGeneration','secret'])&&owner.version===1,v2=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===2&&['fresh-oex-test-v1','normal-oex-v1','normal-oex-027-v2'].includes(owner.mode);
- if(!closed(input,['workspace','ownerChannel'])||!v1&&!v2||typeof owner.runtimeGeneration!=='string'||!uuid.test(owner.runtimeGeneration)||typeof owner.secret!=='string'||!hex.test(owner.secret))throw Error('NATIVE_OWNER_INPUT');
- return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2?{mode:owner.mode}:{})}};
+ const owner=input.ownerChannel,v1=closed(owner,['version','runtimeGeneration','secret'])&&owner.version===1,v2=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===2&&['fresh-oex-test-v1','normal-oex-v1','normal-oex-027-v2'].includes(owner.mode),v3=closed(owner,['version','runtimeGeneration','secret','mode'])&&owner.version===3&&owner.mode==='normal-oex-027-v3';
+ if(!closed(input,['workspace','ownerChannel'])||!v1&&!v2&&!v3||typeof owner.runtimeGeneration!=='string'||!uuid.test(owner.runtimeGeneration)||typeof owner.secret!=='string'||!hex.test(owner.secret))throw Error('NATIVE_OWNER_INPUT');
+ return {workspace:input.workspace,ownerChannel:{runtimeGeneration:owner.runtimeGeneration,secret:owner.secret,...(v2||v3?{mode:owner.mode}:{})}};
 }
 
 /** Receives the Manager hello on its inherited socket; this cannot authenticate

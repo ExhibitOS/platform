@@ -146,3 +146,26 @@ it('atomically admits only one concurrent claim on the same canonical resource',
  const results=await Promise.allSettled([f.journal.beginResourceClaim(f.budget,f.request),new PublicationAttempts(f.journalRoot,{resourceClaims:true}).beginResourceClaim(f.budget,{...f.request,operation:'oex-import',purpose:'import',attemptId:randomUUID(),reservationId:randomUUID()})]);
  expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect((await readdir(f.journalRoot)).filter(n=>n.startsWith('resource-')&&n.endsWith('.claim.json'))).toHaveLength(1);
 });
+
+it('durably binds both provider reservations to one provisional OEX preflight and refuses v2 retirement',async()=>{
+ const f=await fixture(),stage=await mkdtemp(join(root,'oex-stage-')),st=await stat(stage,{bigint:true}),request={...f.request,operation:'oex-import' as const,purpose:'import' as const,plan:[{root:stage,bytes:100}]};
+ const handle=await f.journal.beginResourceClaim(f.budget,request),inputLease=await f.budget.acquire('oex-import',request.owner,request.reservationId,request.plan),input={id:inputLease.id,generation:inputLease.generation,operation:'oex-import' as const,owner:request.owner,plan:request.plan};
+ await f.journal.bindReservation(f.budget,handle,input,'c'.repeat(64));
+ const plan=[{root:stage,bytes:25},{root:f.store,bytes:25}],out=await f.budget.acquire('oex-import',request.owner,randomUUID(),plan),output={id:out.id,generation:out.generation,operation:'oex-import' as const,owner:request.owner,plan};
+ const evidence={archiveBytes:100,archiveSha256:request.sourceDigest,inputDevice:String(st.dev),inputInode:'123',expandedBytes:30,packedBytes:25,manifestSha256:'d'.repeat(64),entryCount:3};
+ const record=await f.journal.bindOexPreflightReservation(f.budget,handle,evidence,output);expect(record.outputReceipt?.id).toBe(out.id);expect(await f.journal.verifyOexPreflightReservation(f.budget,handle)).toEqual(record);
+ await expect(f.journal.settleSelectedOex(f.budget,handle,{} as never,{exhibitionId:randomUUID(),requestId:randomUUID(),etag:'"studio-r1-'+'a'.repeat(64)+'"'})).rejects.toThrow('PUBLICATION_CLAIM_BINDING');
+ const other={...request,resourceId:randomUUID(),attemptId:randomUUID(),reservationId:randomUUID()},h2=await f.journal.beginResourceClaim(f.budget,other),l2=await f.budget.acquire('oex-import',other.owner,other.reservationId,other.plan);
+ await f.journal.bindReservation(f.budget,h2,{id:l2.id,generation:l2.generation,operation:'oex-import',owner:other.owner,plan:other.plan},'c'.repeat(64));
+ await expect(f.journal.bindOexPreflightReservation(f.budget,h2,evidence,output)).rejects.toThrow('OEX_PREFLIGHT_BINDING');
+ await writeFile(join(f.journalRoot,request.attemptId+'.oex-preflight.json'),'tampered');await expect(f.journal.verifyOexPreflightReservation(f.budget,handle)).rejects.toThrow('PUBLICATION_CLAIM_UNCERTAIN');
+ await f.budget.verifyActive(input);await f.budget.verifyActive(output);
+});
+
+it('records explicit zero-output preflight without inventing a lease',async()=>{
+ const f=await fixture(),stage=await mkdtemp(join(root,'oex-empty-stage-')),st=await stat(stage,{bigint:true}),request={...f.request,operation:'oex-import' as const,purpose:'import' as const,plan:[{root:stage,bytes:100}]};
+ const h=await f.journal.beginResourceClaim(f.budget,request),l=await f.budget.acquire('oex-import',request.owner,request.reservationId,request.plan),binding={id:l.id,generation:l.generation,operation:'oex-import' as const,owner:request.owner,plan:request.plan};await f.journal.bindReservation(f.budget,h,binding,'c'.repeat(64));
+ const evidence={archiveBytes:100,archiveSha256:request.sourceDigest,inputDevice:String(st.dev),inputInode:'123',expandedBytes:30,packedBytes:0,manifestSha256:'d'.repeat(64),entryCount:2};
+ const result=await f.journal.bindOexPreflightReservation(f.budget,h,evidence,null);expect(result.outputReceipt).toBeNull();expect(result.outputReceiptDigest).toBeNull();expect(await f.journal.verifyOexPreflightReservation(f.budget,h)).toEqual(result);
+ await expect(f.journal.settleSelectedOex(f.budget,h,{} as never,{exhibitionId:randomUUID(),requestId:randomUUID(),etag:'"studio-r1-'+'a'.repeat(64)+'"'})).rejects.toThrow('PUBLICATION_CLAIM_BINDING');
+});

@@ -9,12 +9,12 @@ type Expected=Record<Exclude<Name,'version'|'kind'|'outputInode'|'profile'|'form
 /** Bind Manager's exact control to independent live claim/provider inputs.
  * Caller verifies workspace/stage pin, no other writer, child drain and
  * compiled worker identity; this parsing does not establish any of them. */
-export function parsePackedOexControlV2(raw:Uint8Array,expected:Expected){
+export function parsePackedOexControlV2(raw:Uint8Array,expected:Expected,variant?:'v3'){
  if(!(raw instanceof Uint8Array)||raw.byteLength<1||raw.byteLength>8192||!expected||typeof expected.correlationId!=='string'||!uuid.test(expected.correlationId))throw Error('OEX_PACKED_CONTROL');
  let source:string,value:unknown;try{source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(raw);value=JSON.parse(source);}catch{throw Error('OEX_PACKED_CONTROL');}
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('OEX_PACKED_CONTROL');
  const outer=value as Record<string,unknown>,outerKeys=['version','kind','correlationId','attemptId','control'];
- if(Object.keys(outer).length!==outerKeys.length||outerKeys.some(k=>!Object.hasOwn(outer,k))||source!==JSON.stringify(Object.fromEntries(outerKeys.map(k=>[k,outer[k]])))||outer.version!==1||outer.kind!=='worker-control'||outer.correlationId!==expected.correlationId||outer.attemptId!==expected.attemptId||!outer.control||typeof outer.control!=='object'||Array.isArray(outer.control))throw Error('OEX_PACKED_CONTROL');
+ if(variant!==undefined&&variant!=='v3'||Object.keys(outer).length!==outerKeys.length||outerKeys.some(k=>!Object.hasOwn(outer,k))||source!==JSON.stringify(Object.fromEntries(outerKeys.map(k=>[k,outer[k]])))||outer.version!==1||outer.kind!==(variant==='v3'?'worker-control-v3':'worker-control')||outer.correlationId!==expected.correlationId||outer.attemptId!==expected.attemptId||!outer.control||typeof outer.control!=='object'||Array.isArray(outer.control))throw Error('OEX_PACKED_CONTROL');
  const c=outer.control as Record<string,unknown>;
  if(Object.keys(c).length!==keys.length||keys.some((k,i)=>Object.keys(c)[i]!==k)||c.version!==2||c.kind!=='oex-packed-v2'||c.profile!=='bounded-file-v1'||c.format!=='1.0.0-draft.9')throw Error('OEX_PACKED_CONTROL');
  for(const key of keys){if(['version','kind','profile','format','outputInode'].includes(key))continue;if(c[key]!==expected[key as keyof Expected])throw Error('OEX_PACKED_CONTROL');}

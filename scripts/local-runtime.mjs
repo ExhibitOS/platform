@@ -134,7 +134,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
   const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
-  const normalOexV2=privateOwner?.mode==='normal-oex-027-v2',normalOex=privateOwner?.mode==='normal-oex-v1'||normalOexV2,selectedOex=freshOexTest||normalOex;
+  const normalOexV3=privateOwner?.mode==='normal-oex-027-v3',normalOexV2=privateOwner?.mode==='normal-oex-027-v2'||normalOexV3,normalOex=privateOwner?.mode==='normal-oex-v1'||normalOexV2,selectedOex=freshOexTest||normalOex;
   if(selectedOex&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
   if (environment.EXHIBITOS_AUTHORING_MODE !== undefined && !personal) throw Error("LOCAL_AUTHORING_MODE_INVALID");
   if (personal) {
@@ -205,7 +205,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     await app.listen({ host: "127.0.0.1", port: apiPort });
     stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
     if(selectedOex){
-      selectedTask=runFreshNativeOexOwner({pool,databaseUrl:environment.DATABASE_URL,blobs,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,runtimeGeneration:privateOwner.runtimeGeneration,secret:Buffer.from(privateOwner.secret,'hex'),channel:ownerChannel,payloadManifestPath:fileURLToPath(new URL('../../manifest.json',import.meta.url)),uploadSlot,saveSlot,signal:ownerAbort.signal,...(nativeOexWorkspace?{nativeOexWorkspace,requireCatalogProof:true}:{})});
+      selectedTask=runFreshNativeOexOwner({pool,databaseUrl:environment.DATABASE_URL,blobs,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,runtimeGeneration:privateOwner.runtimeGeneration,secret:Buffer.from(privateOwner.secret,'hex'),channel:ownerChannel,payloadManifestPath:fileURLToPath(new URL('../../manifest.json',import.meta.url)),uploadSlot,saveSlot,signal:ownerAbort.signal,...(nativeOexWorkspace?{nativeOexWorkspace,requireCatalogProof:true}:{}),...(normalOexV3?{variant:'v3'}:{})});
       void selectedTask.catch(()=>{});
     }
     const importer = new Imports(pool, blobs); let stopping = false, timer, running, failures = 0, closed;

@@ -8,6 +8,7 @@ import {expect,it,vi} from 'vitest';
 import {FileBlobStore} from '@exhibitos/storage';
 import {preparePackedOexV2} from './oex-packed-worker-v2-core.ts';
 import {parsePackedOexAckV2} from './oex-packed-ack-v2.ts';
+import {preflightOexSize} from './oex-size-preflight.ts';
 import {consumeBoundedOex} from './oex-bounded-consume.ts';
 const sha=(v:Uint8Array)=>createHash('sha256').update(v).digest('hex');
 function fixture(){
@@ -33,6 +34,7 @@ it('derives exact documents and packed entries from a real synthetic draft.9 Spe
   const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),assets=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!]));
   const archivePath=join(dir,'synthetic.oex');await writeOexFile(original.exhibition,{paths:[...assets.keys()],get:async path=>assets.get(path)},archivePath,{createdAt:original.manifest.createdAt,generator:original.manifest.generator});
   const archive=await readFile(archivePath);input=await open(archivePath,'r');output=await open(join(dir,'packed'),'wx+',0o600);
+  const preflight=await preflightOexSize(input,{bytes:archive.length,sha256:sha(archive)});
   const result=await preparePackedOexV2(input,output,{archiveBytes:archive.length,archiveSha256:sha(archive),capacity:4*1024*1024},withOexFileHandle);
   const expected=await withOexFileHandle(input,async({files})=>({manifest:await files.get('manifest.json'),exhibition:await files.get('exhibition.json')}));
   expect(result.manifest).toEqual(Buffer.from(expected.manifest!));expect(result.exhibition).toEqual(Buffer.from(expected.exhibition!));
@@ -42,10 +44,35 @@ it('derives exact documents and packed entries from a real synthetic draft.9 Spe
   const id='10000000-0000-4000-8000-000000000001',controlSha256='a'.repeat(64),expectedAck={attemptId:id,runtimeGeneration:id,reservationId:id,reservationGeneration:id,controlSha256,archiveSha256:sha(archive),outputDevice:'1',outputInode:'2',capacity:4*1024*1024};
   const ack={version:2,kind:'prepared',status:'complete',attemptId:id,runtimeGeneration:id,reservationId:id,reservationGeneration:id,receiptSha256:controlSha256,archiveSha256:sha(archive),manifestSha256:result.manifestSha256,exhibitionSha256:result.exhibitionSha256,manifestBase64:result.manifest.toString('base64'),exhibitionBase64:result.exhibition.toString('base64'),outputDevice:'1',outputInode:'2',outputBytes:result.entries.reduce((sum,e)=>sum+e.bytes,0),entries:result.entries};
   const parsed=parsePackedOexAckV2(Buffer.from(JSON.stringify(ack)),expectedAck);expect(parsed.entries).toEqual(result.entries);
+  expect(parsePackedOexAckV2(Buffer.from(JSON.stringify(ack)),{...expectedAck,preflight}).entries).toEqual(result.entries);
+  expect(()=>parsePackedOexAckV2(Buffer.from(JSON.stringify(ack)),{...expectedAck,preflight:{...preflight,manifestSha256:'0'.repeat(64)}})).toThrow('OEX_PACKED_ACK');
+  expect(()=>parsePackedOexAckV2(Buffer.from(JSON.stringify(ack)),{...expectedAck,preflight:{...preflight,packedBytes:preflight.packedBytes+1}})).toThrow('OEX_PACKED_ACK');
   let cursor=0;const reader={count:result.entries.length,readNext:async()=>{const entry=result.entries[cursor++]!,bytes=Buffer.alloc(entry.bytes);const r=await output!.read(bytes,0,entry.bytes,entry.offset);if(r.bytesRead!==entry.bytes)throw Error('short');return {path:entry.path,bytes};}};
   const store=new FileBlobStore('/synthetic-not-written'),put=vi.spyOn(store,'put').mockResolvedValue(),sourceKeys=new Map(result.entries.map((entry,index)=>[entry.path,`synthetic/${index}`])),verifyLive=vi.fn(async()=>{});
   const consumed=await consumeBoundedOex({manifest:parsed.manifest,exhibition:parsed.exhibition,sourceKeys,reader,blobs:store,verifyLive,signal:new AbortController().signal});expect(put).toHaveBeenCalledTimes(result.entries.length);expect(consumed.exhibition.id).not.toBe(parsed.exhibition.id);expect(verifyLive).toHaveBeenCalled();
   expect(()=>parsePackedOexAckV2(Buffer.from(JSON.stringify({...ack,receiptSha256:'b'.repeat(64)})),expectedAck)).toThrow('OEX_PACKED_ACK');
   expect(()=>parsePackedOexAckV2(Buffer.from(JSON.stringify({...ack,outputBytes:ack.outputBytes+1})),expectedAck)).toThrow('OEX_PACKED_ACK');
+ }finally{await input?.close();await output?.close();await rm(dir,{recursive:true,force:true});}
+},20000);
+
+it('consumes a validated metadata-only archive only with explicit live empty admission',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'exhibitos-v3-empty-'));
+ let input:Awaited<ReturnType<typeof open>>|undefined,output:Awaited<ReturnType<typeof open>>|undefined;
+ try{
+  const e=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8'));
+  e.artworks=[];e.placements=[];e.mediaAssets=[];e.annotations=[];e.navigation=[];delete e.extensions;
+  const path=join(dir,'empty.oex');await writeOexFile(e,{paths:[],get:async()=>undefined},path,{createdAt:'2026-11-03T00:00:00Z',generator:{name:'metadata-only test',version:'1'}});
+  const archive=await readFile(path);input=await open(path,'r');output=await open(join(dir,'packed'),'wx+',0o600);
+  const preflight=await preflightOexSize(input,{bytes:archive.length,sha256:sha(archive)});
+  expect(preflight.packedBytes).toBe(0);expect(preflight.entryCount).toBe(2);
+  const packed=await preparePackedOexV2(input,output,{archiveBytes:archive.length,archiveSha256:sha(archive),capacity:0},withOexFileHandle);
+  const {decodePackedOexDocumentsV2}=await import('./oex-packed-documents-v2.ts');
+  const documents=decodePackedOexDocumentsV2(packed.manifest,packed.manifestSha256,packed.exhibition,packed.exhibitionSha256);
+  const store=new FileBlobStore('/synthetic-not-written'),put=vi.spyOn(store,'put').mockResolvedValue(),readNext=vi.fn(async()=>{throw Error('no packed entries');}),live=vi.fn(async()=>{});
+  const controller=new AbortController(),args={...documents,sourceKeys:new Map<string,string>(),reader:{count:0,readNext},blobs:store,verifyLive:live,signal:controller.signal};
+  await expect(consumeBoundedOex(args)).rejects.toThrow('OEX_BOUNDED_CONSUME');
+  const consumed=await consumeBoundedOex({...args,allowEmpty:true});expect(consumed.exhibition.id).not.toBe(e.id);expect(live).toHaveBeenCalledOnce();expect(put).not.toHaveBeenCalled();expect(readNext).not.toHaveBeenCalled();
+  await expect(consumeBoundedOex({...args,allowEmpty:true,verifyLive:async()=>{throw Error('owner lost');}})).rejects.toThrow('owner lost');
+  controller.abort();await expect(consumeBoundedOex({...args,allowEmpty:true})).rejects.toThrow();
  }finally{await input?.close();await output?.close();await rm(dir,{recursive:true,force:true});}
 },20000);
