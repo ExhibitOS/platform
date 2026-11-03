@@ -70,7 +70,7 @@
    Its drawn diameter is smaller than the unchanged 44px hit target. */
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)>summary{border:0;border-radius:50%;background:transparent;box-shadow:none;isolation:isolate}
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)>summary::before{content:"";position:absolute;inset:4px;z-index:-1;border:1px solid rgb(24 45 50 / .36);border-radius:50%;background:rgb(248 251 252 / .78)}
-.publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)>summary:hover::before{background:var(--publication-paper)}
+@media(hover:hover) and (pointer:fine){.publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)>summary:hover::before{background:var(--publication-paper)}}
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)[open]>summary{color:var(--publication-paper)}
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)[open]>summary::before{background:rgb(24 45 50 / .82)}
 .publication-mode-3d :is(.publication-menu,.viewer-audio-menu,.viewer-input-help)>summary:active::before{border-color:var(--publication-action);border-width:2px}
