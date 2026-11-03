@@ -376,7 +376,7 @@ test('verified in-flight step decoding is reused across mute and tab return, and
 async function verifiedStepFixture(){
  const f=preparedShortStep(),sample=BUILTIN_STEP_BANKS.wood[0],other=BUILTIN_STEP_BANKS.wood[1];
  const audio=f.runtime as unknown as {setRoom:(id:string)=>void;pending:Map<string,Promise<AudioBuffer>>;loadQueue:Promise<unknown>;load:(id:string)=>Promise<AudioBuffer>;track:(source:AudioBufferSourceNode)=>void};
- const files=new Map(await Promise.all([sample,other].map(async id=>[id,await readFile(new URL(`../../public/footstep-samples/v1/${id}.wav`,import.meta.url))] as const)));
+ const files=new Map<string,Uint8Array>(await Promise.all([sample,other].map(async id=>[id,await readFile(new URL(`../../public/footstep-samples/v1/${id}.wav`,import.meta.url))] as const)));
  const doc=f.internal.publication.exhibition;doc.rooms=[{id:'room'}] as typeof doc.rooms;doc.surfaces=[{id:f.id,roomId:'room'}] as typeof doc.surfaces;doc.audioZones=[];doc.placements=[];
  f.internal.experience.footsteps=[{surfaceId:f.id,material:'wood',bank:[{assetId:sample}]}];f.internal.buffers.clear();
  f.internal.publication.resources=[...files].map(([id,bytes])=>({sha256:id,bytes:bytes.length,mime:'audio/wav',url:`/api/v1/publications/${f.internal.publication.publication.id}/resources/${id}`}));
