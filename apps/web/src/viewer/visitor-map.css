@@ -41,7 +41,7 @@
 .visitor-map-overflow ul{display:grid;gap:.25rem;list-style:none;padding:0;margin:.5rem 0}.visitor-map-overflow li{min-width:0}.viewer-visitor-map .visitor-map-list-target{display:flex;align-items:center;gap:.5rem;width:100%;min-height:44px;padding:4px;text-align:start;font:inherit;color:inherit;background:transparent;border:1px solid transparent;border-radius:3px}.visitor-map-list-target>.visitor-map-artwork{flex:none}.visitor-map-list-target>span:last-child{min-width:0;overflow-wrap:anywhere}.visitor-map-list-target[aria-pressed=true]{border-color:var(--publication-action,#135967)}.visitor-map-list-target:hover{background:rgb(19 89 103 / .08)}.visitor-map-room-zoom{min-height:44px;max-width:100%;margin-block:.25rem;font:inherit}
 .visitor-map-position>*{vector-effect:non-scaling-stroke}
 .visitor-map-compact .visitor-map-fov{fill:#b7dfe7;fill-opacity:.14}
-.visitor-map-compact .visitor-map-work-anchor{fill:#e4f2f5}.visitor-map-compact .visitor-map-anchor-link{stroke:#e4f2f5;stroke-opacity:.65}
+.visitor-map-compact .visitor-map-work-anchor{fill:#e4f2f5}.visitor-map-work-direction{stroke:currentColor;stroke-width:2;stroke-linecap:round;vector-effect:non-scaling-stroke;pointer-events:none}.visitor-map-compact .visitor-map-work-direction{stroke:#e4f2f5}
 .visitor-map-anchor-link[data-active=true]{stroke:var(--publication-action,#135967);stroke-opacity:1}.visitor-map-work-anchor[data-active=true]{fill:var(--publication-action,#135967);stroke:var(--publication-paper,#f8fbfc);stroke-width:2;vector-effect:non-scaling-stroke}
 
 .visitor-map-nearby{display:block;width:100%;height:100%}.visitor-map-overview{display:none;width:100%;height:100%}
@@ -49,3 +49,5 @@
 @media(pointer:fine) and (min-width:701px) and (min-height:480px){.viewer-visitor-map:not([open]){width:12rem}.viewer-visitor-map:not([open]) summary{width:12rem;height:12rem}}
 
 .viewer-visitor-map .visitor-map-overflow summary::after{content:none}
+
+.visitor-map-expanded{overflow:hidden;touch-action:none;cursor:grab}.visitor-map-expanded[data-dragging=true]{cursor:grabbing}.visitor-map-expanded:focus-visible{outline:3px solid var(--publication-action,#135967);outline-offset:3px}.visitor-map-tools{display:flex;flex-wrap:wrap;gap:.5rem}.visitor-map-tools button{min-width:44px;min-height:44px}.visitor-map-expanded[data-dragging=true] .visitor-map-marker{cursor:grabbing}

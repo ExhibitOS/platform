@@ -6,6 +6,14 @@ export const MAP_THUMBNAIL_RESERVE_BYTES=512*1024;
 // copies, encoded PNG, decoded 32px RGBA, mipmapped GPU image, and scratch.
 // Browser/driver allocation overhead and further copies are not measured.
 export const MAP_THUMBNAIL_ROSTER_LIMIT=128;
+export interface MapThumbnailSnapshot {
+ publicationId:string;revisionSha256:string;
+ items:ReadonlyArray<{placementId:string;thumbnail:string}>;
+}
+/** A retained roster belongs to one admitted publication/revision only. */
+export function mapThumbnailItems(value:MapThumbnailSnapshot|null,source:{id:string;revisionSha256:string}){
+ return value?.publicationId?.toLowerCase()===source.id.toLowerCase()&&value.revisionSha256===source.revisionSha256?value.items:[];
+}
 export function mapThumbnailRosterReserve(count:number){return Math.min(MAP_THUMBNAIL_ROSTER_LIMIT,Math.max(0,count))*48*1024+512*1024;}
 export function imageMapThumbnail(image:ImageBitmap,makeCanvas=()=>document.createElement('canvas'),edge=96,maxLength=65536):string|undefined {
  if(!Number.isFinite(image.width)||!Number.isFinite(image.height)||image.width<1||image.height<1)return;
@@ -46,6 +54,9 @@ export function createMapThumbnailPreview(input:{
  * refresh limits work on the existing statistics tick; missing images wait. */
 export function createMapThumbnailRoster(input:{
  ids:readonly string[];allowed():boolean;image(id:string):ImageBitmap|undefined;
+ /** Lifetime validity is separate from temporary encoding eligibility. Without
+  * this callback, the previous allowed=false clearing behavior is preserved. */
+ valid?():boolean;
  exclude?:(id:string)=>boolean;
  changed(value:ReadonlyArray<{placementId:string;thumbnail:string}>):void;
  encode?:(image:ImageBitmap)=>string|undefined;
@@ -55,11 +66,13 @@ export function createMapThumbnailRoster(input:{
  const settled=new Set<string>(),values=new Map<string,string>();let disposed=false,lastEncode=-Infinity;
  const refresh=()=>{
   if(disposed)return;
-  if(!input.allowed()){
+  const allowed=input.allowed();
+  if(!(input.valid?.()??allowed)){
    if(settled.size||values.size){settled.clear();values.clear();lastEncode=-Infinity;input.changed([]);}return;
   }
-  let removed=false;for(const id of ids)if(input.exclude?.(id)&&values.delete(id)){settled.delete(id);removed=true;}
+  let removed=false;for(const id of ids)if(input.exclude?.(id)){settled.delete(id);if(values.delete(id))removed=true;}
   if(removed)input.changed([...values].map(([placementId,thumbnail])=>({placementId,thumbnail})));
+  if(!allowed)return;
   const now=(input.now??(()=>performance.now()))();if(!Number.isFinite(now)||now-lastEncode<200)return;
   for(const id of ids){
    if(input.exclude?.(id))continue;

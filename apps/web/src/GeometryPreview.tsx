@@ -20,7 +20,7 @@ import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type Stud
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
-import {createMapThumbnailRoster,mapThumbnailRosterReserve} from './viewer/map-thumbnail';
+import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor} from '@exhibitos/studio-contract';
 import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
@@ -152,7 +152,7 @@ export function GeometryPreview({
   mapThumbnailsEnabled?:boolean;
   thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   suppliedThumbnails?:Readonly<Record<string,string>>;
-  onMapThumbnail?:(value:{revisionSha256:string;items:ReadonlyArray<{placementId:string;thumbnail:string}>}|null)=>void;
+  onMapThumbnail?:(value:MapThumbnailSnapshot|null)=>void;
   onViewingReady?:(renderer:ViewingRenderer|null)=>void;
   inputMode?: ViewerInputMode;
   onInputModeChange?: (mode: ViewerInputMode) => void;
@@ -270,11 +270,13 @@ export function GeometryPreview({
   const navigationCallbacks = useRef({ onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose });
   navigationCallbacks.current = { onNavigationState, onCameraPose, onNavigationMode, onArtworkSelect, onPlaqueSelect, proximityDetail, onScriptSceneReady, onScriptPose, onScriptClick, onPresenceSceneReady, onPresencePose };
   const mapCallbacks=useRef({onMapReady,onMapPose,onMapThumbnail});mapCallbacks.current={onMapReady,onMapPose,onMapThumbnail};
+  const mapPoseRefresh=useRef<(()=>void)|null>(null),mapPoseOwner=useRef(publicSource);mapPoseOwner.current=publicSource;
+  useEffect(()=>{mapPoseRefresh.current?.();},[onMapPose,suspendNavigation]);
   const mapThumbnailEnabled=useRef(mapThumbnailsEnabled);mapThumbnailEnabled.current=mapThumbnailsEnabled;
   const suppliedThumbnailRef=useRef(suppliedThumbnails);suppliedThumbnailRef.current=suppliedThumbnails;
   const publicThumbnailCacheRef=useRef(thumbnailCache);publicThumbnailCacheRef.current=thumbnailCache;
   const mapThumbnailRefresh=useRef<(()=>void)|null>(null);
-  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapThumbnailsEnabled,suppliedThumbnails]);
+  useEffect(()=>{mapThumbnailRefresh.current?.();},[mapThumbnailsEnabled,suppliedThumbnails,suspendNavigation]);
   const focusedPlacement = useRef(focusedPlacementId);focusedPlacement.current=focusedPlacementId;
   const suspendedRef = useRef(suspendNavigation);
   suspendedRef.current = suspendNavigation;
@@ -741,6 +743,13 @@ export function GeometryPreview({
         frame: number;
       } = { started: 0, samples: [], frame: 0 };
       let projectionStamp = "", framePixelBudget:number|undefined;
+      const mapPoseEuler=new three.Euler();
+      const publishMapPose=()=>{
+        const callback=mapCallbacks.current.onMapPose,canvas=renderer.domElement;
+        if(!callback||disposed||gpuLost||xrActive.current||sharedDetail||suspendedRef.current||mapPoseOwner.current!==publicSource||canvas.ownerDocument.hidden||!canvas.isConnected||canvas.style.visibility==='hidden'||canvas.closest('[hidden],[inert]'))return;
+        callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI);
+      };
+      const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       const render = () => {
         if(sharedDetail){if(!disposed&&!gpuLost)sharedDetail.render();return;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
@@ -750,6 +759,9 @@ export function GeometryPreview({
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
+          // Only the current camera snapshot rides an existing rendered frame.
+          // Loading, thumbnail and quality accounting retain their 200ms cadence.
+          publishMapPose();
           navigationCallbacks.current.onPresencePose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
           navigationCallbacks.current.onScriptPose?.(camera.position.toArray() as [number,number,number],camera.getWorldDirection(new three.Vector3()).toArray() as [number,number,number]);
           navigationCallbacks.current.onCameraPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,"YXZ").y);
@@ -1022,6 +1034,8 @@ export function GeometryPreview({
       if(editingRef.current)editingSync.current();
       release = () => {
         snapshotCallback.current?.(null);
+        if(mapPoseRefresh.current===publishMapPose)mapPoseRefresh.current=null;
+        renderer.domElement.ownerDocument.removeEventListener('visibilitychange',mapPoseVisibility);
         sharedDetail?.dispose();
         entranceScope.current?.close();entranceSceneCallback.current?.(null);
         privateViewCallback.current?.(null);
@@ -1059,6 +1073,8 @@ export function GeometryPreview({
         renderer.forceContextLoss();
         renderer.domElement.remove();
       };
+      mapPoseRefresh.current=publishMapPose;
+      if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
       void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});}).finally(()=>releaseMaterialLoadHold('floor'));
       void surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}}).finally(()=>releaseMaterialLoadHold('surface'));
       // Async environment setup starts only AFTER scene teardown is registered.
@@ -1591,9 +1607,11 @@ export function GeometryPreview({
               a && all.findIndex((b) => b.revisionId === a.revisionId) === i,
           );
         const objects = new Map<string, InstanceType<typeof three.Object3D>>();
+        const mapThumbnailValid=()=>!!mapCallbacks.current.onMapThumbnail&&!!mapThumbnailEnabled.current&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden';
         const mapThumbnail=createMapThumbnailRoster({
           ids:mapImageIds,
-          allowed:()=>!!onMapThumbnail&&!!mapThumbnailEnabled.current&&!disposed&&!gpuLost&&renderer.domElement.style.visibility!=='hidden',
+          valid:mapThumbnailValid,
+          allowed:()=>mapThumbnailValid()&&!suspendedRef.current,
           exclude:id=>{const p=document.placements.find(v=>v.id.toLowerCase()===id.toLowerCase());return !!p&&!!suppliedThumbnailRef.current?.[p.artworkRevisionId.toLowerCase()];},
           image:id=>{
             const placement=document.placements.find(p=>p.id.toLowerCase()===id.toLowerCase());
@@ -1603,7 +1621,7 @@ export function GeometryPreview({
             objects.get(art.revisionId)?.traverse(node=>{if(!image&&node instanceof three.Mesh){const materials=Array.isArray(node.material)?node.material:[node.material];for(const material of materials){const candidate=(material as InstanceType<typeof three.MeshStandardMaterial>).map?.image;if(candidate instanceof ImageBitmap){image=candidate;break;}}}});
             return image;
           },
-          changed:items=>mapCallbacks.current.onMapThumbnail?.(items.length?{items,revisionSha256:publicSource.revisionSha256}:null),
+          changed:items=>mapCallbacks.current.onMapThumbnail?.(items.length?{publicationId:publicSource.publicationId,items,revisionSha256:publicSource.revisionSha256}:null),
         });
         mapThumbnailRefresh.current=mapThumbnail.refresh;
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
@@ -2282,7 +2300,7 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();if(!disposed&&!gpuLost)mapCallbacks.current.onMapPose?.(camera.position.toArray() as [number,number,number],new three.Euler().setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI);}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
