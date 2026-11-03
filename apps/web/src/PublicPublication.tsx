@@ -79,7 +79,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   },[value,thumbnailCache,mode]);
   const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuPanelId=useId();
+  const menuPanelId=useId(),menuFocusReturn=useRef(false);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   useLayoutEffect(()=>{
     if(mode!=='3d')return;
@@ -132,6 +132,18 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const viewingActions:ViewingActions={setStyle(style){cancelMapTravel.current?.();chooseViewingStyle(style);viewingSession.current?.actions.setStyle(style);},step:direction=>{cancelMapTravel.current?.();viewingSession.current?.actions.step(direction);},select:placementId=>{cancelMapTravel.current?.();viewingSession.current?.actions.select(placementId);},cancel:()=>viewingSession.current?.actions.cancel()};
   const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean;choiceShown?:boolean;choiceMade?:boolean;hintShown?:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
+  useEffect(()=>{
+    if(!menuFocusReturn.current)return;
+    menuFocusReturn.current=false;
+    if(mode!=="3d"||!stageReady||viewerUnavailable||menuOpen||selectedId||overview)return;
+    const root=publicationRoot.current;
+    const frame=requestAnimationFrame(()=>{
+      if(!root?.isConnected||root!==publicationRoot.current||menuRef.current||document.hidden||!root.querySelector('.publication-menu')?.contains(document.activeElement)||root.querySelector('details[data-visitor-panel][open]')||document.querySelector('dialog[open], [aria-modal="true"]'))return;
+      const canvas=root.querySelector<HTMLCanvasElement>('canvas[aria-label="전시 공간 3D 미리보기"]');
+      if(canvas?.isConnected&&canvas.getClientRects().length&&!canvas.closest('[hidden], [inert]')&&getComputedStyle(canvas).visibility!=="hidden")canvas.focus({preventScroll:true});
+    });
+    return()=>cancelAnimationFrame(frame);
+  },[menuOpen,mode,stageReady,viewerUnavailable,selectedId,overview,value?.publication.id,value?.publication.revisionSha256]);
   const detailEntry = useRef<DetailEntryActions | null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
   const sharedDetailPreview=useCallback<SharedDetailPreview>(request=>{
@@ -255,7 +267,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </EntranceCover></div>
           {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={publicEntryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} onCancel={cancelEntry} onText={showTextArtworks}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
-          <details name={mode==='3d'?'exhibitos-visitor-panel':undefined} data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => {if(event.target===event.currentTarget)setMenuOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panelEscapeFromControl(event.target)){event.preventDefault();event.stopPropagation();setMenuOpen(false);event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+          <details name={mode==='3d'?'exhibitos-visitor-panel':undefined} data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => {if(event.target===event.currentTarget)setMenuOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panelEscapeFromControl(event.target)){event.preventDefault();event.stopPropagation();menuFocusReturn.current=mode==='3d'&&stageReady&&menuOpen;setMenuOpen(false);event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
           <summary aria-label={mode==='3d'?'메뉴':mode==='cover'?(menuOpen?'전시 정보 닫기':'전시 정보 열기'):undefined} title={mode==='3d'?'메뉴':mode==='cover'?(menuOpen?'전시 정보 닫기':'전시 정보 열기'):undefined} aria-expanded={menuOpen} aria-controls={menuPanelId}>{mode==='3d'?<ViewerIcon name={menuOpen?'close':'menu'}/>:mode==='cover'?<ViewerIcon name={menuOpen?'close':'info'}/>:"전시 정보"}</summary>
           <div className="publication-menu-panel" id={menuPanelId}>
           {connectionStatus}
