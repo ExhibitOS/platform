@@ -149,6 +149,17 @@ describe('automatic detail transitions',()=>{
   expect(assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toBeGreaterThan(1401*1098*4+1000*3);
   v.setUint32(16,0);expect(()=>assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toThrow('IMAGE_DECODE_BUDGET');
  });
+ it('phases only strict ordinary RGB PNG decode while preserving the complete resident guard',()=>{
+  const {publicPBRTexturedGLB,changeTextureGLB}=createRequire(import.meta.url)('../../../../scripts/embedded-texture-fixture.mjs') as {publicPBRTexturedGLB:()=>Buffer;changeTextureGLB:(bytes:Buffer,edit:(doc:{images:{bufferView:number}[];bufferViews:{byteOffset?:number}[];extensionsUsed?:string[]},bin:Buffer)=>void)=>Buffer};
+  // Header allocation fixture only; real decoder/CRC qualification is separate.
+  const rgba=publicPBRTexturedGLB(),rgb=changeTextureGLB(rgba,(doc,bin)=>{for(const image of doc.images)bin[(doc.bufferViews[image.bufferView]!.byteOffset??0)+25]=2;});
+  const art=syntheticArtwork('sculpture'),asset=art.assets[0]!;asset.bytes=rgb.length;
+  const buffer=(b:Buffer)=>new Uint8Array(b).buffer,complete=assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,buffer(rgb)),cpu=assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,buffer(rgb),'cpu');
+  expect(complete-cpu).toBe(64);expect(cpu).toBeGreaterThan(asset.bytes*5);
+  expect(assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,buffer(rgba),'cpu')).toBe(assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,buffer(rgba)));
+  const extension=changeTextureGLB(rgb,doc=>{doc.extensionsUsed=[];});expect(assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,buffer(extension),'cpu')).toBe(assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,buffer(extension)));
+  expect(()=>assetDecodeReserve(art,asset,{...DEVICE_BUDGETS.desktop,maxCacheBytes:1},buffer(rgb),'cpu')).toThrow('MODEL_RESIDENT_BUDGET');
+ });
 });
 
 

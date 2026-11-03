@@ -1410,7 +1410,7 @@ export function GeometryPreview({
         const resources: Array<{ dispose: () => void }> = [];
         try {
           let object: InstanceType<typeof three.Object3D>;
-          let retainedModelBytes=0;
+          let retainedModelBytes=0,parseBackingReleased=false;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
             let bitmap = await createImageBitmap(
@@ -1491,6 +1491,7 @@ export function GeometryPreview({
               }
             });
             protectedBytes.assertLoaded();
+            if(protectedBytes.releaseEncoded()){backing.dispose();retainedModelBytes=0;parseBackingReleased=true;}
             if (disposed || signal.aborted) {
               gltf.scene.traverse((node) => {
                 if (node instanceof three.Mesh) {
@@ -1555,6 +1556,7 @@ export function GeometryPreview({
             triangles,
             decodedBytes,
             retainedModelBytes,
+            parseBackingReleased,
             measuredGeometry:object.userData.metricGeometry,
             artifactGeometry:object.userData.artifactGeometry,
             textureSizes: [...textures].map((t) => {
@@ -1678,6 +1680,9 @@ export function GeometryPreview({
         const pending=new Map<string,string>(), transitions=new Map<string,DetailTransition>(), retryAfter=new Map<string,number>(), awaySince=new Map<string,number>();
         const attention=new ArtworkAttention();
         const prepared=new Map<string,{artId:string;object:InstanceType<typeof three.Object3D>;lastUseful:number}>();
+        // Keep only the verified header cost when expendable encoded bytes are
+        // evicted. Losing the bytes must not restart an impossible warm fetch.
+        const imageDecodeCeilings=new Map<string,number>();
         const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key));
         const stage=stages.record;
         let currentArtwork:string|undefined;
@@ -1763,15 +1768,23 @@ export function GeometryPreview({
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
-                await readArtworkBytes(t.art,t.inventory,signal);
+                const bytes=await readArtworkBytes(t.art,t.inventory,signal),budget=t.imageBudget??viewerBudget;
                 signal.throwIfAborted();
                 stage(t.inventory.id,'verified-download',undefined,key);
+                checkImageDecode(bytes,t.art,t.inventory,budget);
+                const ceiling=assetDecodeReserve(t.art,t.inventory,budget,bytes)+t.inventory.bytes;
+                if(!Number.isSafeInteger(ceiling)||ceiling<0)throw Error('IMAGE_DECODE_BUDGET');
+                imageDecodeCeilings.set(`${t.inventory.id}/${budget.maxTextureSize}`,ceiling);
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes)),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
+                // loadArtwork has returned: parser/input locals and strict PNG
+                // handlers no longer own encoded copies. Actual geometry views,
+                // bitmaps, GPU textures, cache and peers remain in the same ledger.
+                if(object.userData.viewer?.parseBackingReleased)reserve(key,object.userData.viewer.decodedBytes);
                 stage(t.inventory.id,'texture-upload-shader-prepare',undefined,key);
                 object.traverse(node=>{if(node instanceof three.Mesh)for(const material of Array.isArray(node.material)?node.material:[node.material])for(const value of Object.values(material))if(value instanceof three.Texture)renderer.initTexture(value);});
                 renderer.compile(object,camera,scene);
@@ -1791,6 +1804,11 @@ export function GeometryPreview({
         const cancelPublicThumbnail=()=>{if(publicThumbnailTask){scheduler.cancel(publicThumbnailTask);publicThumbnailTask=undefined;}};
         const update = () => {
           if (disposed || gpuLost) return;
+          const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
+          const selectedLimits=detailArt?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(detailArt,viewerBudget)?.budget}):undefined;
+          // A verified download-only preparation may settle without an object.
+          // Its expendable encoded cache must also fit the current steady scope.
+          for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=(selectedLimits?.resident??assetBudgetBytes))break;byteCache.delete(asset.id);}
           const decodedTotal = [...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce(
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
@@ -1808,8 +1826,6 @@ export function GeometryPreview({
           ).length;
           setAssetReport(previous=>previous.loaded===loaded&&previous.failed===failed.size?previous:{loaded,failed:failed.size});
           mapThumbnail.refresh();
-          const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
-          const selectedLimits=detailArt?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(detailArt,viewerBudget)?.budget}):undefined;
           renderer.domElement.dataset.viewerState = JSON.stringify({
             loadedPlacements: loaded,
             authoredLights: document.lights.length,
@@ -1894,13 +1910,15 @@ export function GeometryPreview({
           let downloadOnly=false;
           if(!ready&&full&&authoredImagePair(art)){
             try{
-              const ceiling=cached?assetDecodeReserve(art,inventory,imageBudget,cached):imageFullDecodeCeiling(art,inventory,imageBudget)!;
+              const costKey=`${inventory.id}/${imageBudget.maxTextureSize}`,known=imageDecodeCeilings.get(costKey);
+              const ceiling=cached?assetDecodeReserve(art,inventory,imageBudget,cached):known??imageFullDecodeCeiling(art,inventory,imageBudget)!;
+              if(cached){const retained=ceiling+inventory.bytes;if(!Number.isSafeInteger(retained)||retained<0)throw Error('IMAGE_DECODE_BUDGET');imageDecodeCeilings.set(costKey,retained);}
               // A speculative load cannot spend a peer's retained preparation.
               const reclaimable=prepareOnly?0:[...prepared.values()].reduce((sum,v)=>sum+(v.object.userData.viewer?.decodedBytes??0),0);
               // Fetch a verified header first when the conservative declared square cannot fit.
               const preflightLimit=detailPromotion?requestLimits({detailPromotion,imageBudget}).transition:assetBudgetBytes;
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>preflightLimit;
-              if(downloadOnly&&cached){
+              if(downloadOnly&&(cached||known!==undefined)){
                 if(art.revisionId===demandContext().owner){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
                 if(!active.has(art.revisionId))request(art,false,prepareOnly);return;
               }
@@ -1926,7 +1944,9 @@ export function GeometryPreview({
                 discardResult(result);
                 return;
               }
-              if(peak.total()+(object.userData.viewer?.decodedBytes??0)>requestLimits(task).resident){
+              const steady=requestLimits(task).resident;
+              if(object.userData.viewer?.parseBackingReleased)for(const asset of arts.flatMap(work=>work.assets)){if(peak.total()+(object.userData.viewer.decodedBytes??0)<=steady)break;byteCache.delete(asset.id);}
+              if(peak.total()+(object.userData.viewer?.decodedBytes??0)>steady){
                 discardResult(result);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
