@@ -143,11 +143,26 @@ describe('automatic detail transitions',()=>{
   expect(()=>cache.raiseLimit(19)).toThrow('CACHE_BUDGET_INVALID');expect(()=>peak.raiseLimit(24)).toThrow('ASSET_BUDGET_INVALID');
   expect(()=>peak.reserve('too-large',3)).toThrow('ASSET_TRANSITION_PEAK');
  });
- it('reserves source bitmap and resized mipmaps separately for bounded paintings',()=>{
+ it('charges both source and resized bitmaps during CPU decode',()=>{
   const a=syntheticArtwork('image'),asset=a.assets[0]!;asset.bytes=1000;
   const b=new ArrayBuffer(33),v=new DataView(b);v.setUint32(16,1401);v.setUint32(20,1098);
-  expect(assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toBeGreaterThan(1401*1098*4+1000*3);
+  expect(assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toBe(1401*1098*4+1000*2+512*402*4);
   v.setUint32(16,0);expect(()=>assetDecodeReserve(a,asset,DEVICE_BUDGETS.compact,b)).toThrow('IMAGE_DECODE_BUDGET');
+ });
+ it('admits a full-size painting in separate decode and upload phases beside live artwork',()=>{
+  const art=syntheticArtwork('image'),asset=art.assets[0]!;asset.bytes=7_431_358;
+  const bytes=new ArrayBuffer(33),header=new DataView(bytes);header.setUint32(16,1673);header.setUint32(20,2048);
+  const limit=89_112_576,peers=55_907_175;
+  const peak=new AssetPeakBudget(limit,()=>peers);
+  const combined=asset.bytes*3+1673*2048*4+textureResidentBytes(1673,2048);
+  expect(()=>peak.reserve('image',combined)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,bytes)).toBe(textureResidentBytes(1673,2048));
+  peak.reserve('image',asset.bytes*4);
+  peak.reserve('image',assetDecodeReserve(art,asset,DEVICE_BUDGETS.desktop,bytes,'cpu'));
+  peak.reserve('image',textureResidentBytes(1673,2048));
+  expect(peak.total()).toBeLessThan(limit);
+  expect(()=>peak.reserve('peer',2*1024*1024)).toThrow('ASSET_TRANSITION_PEAK');
+  expect(assetDecodeReserve(art,asset,DEVICE_BUDGETS.compact,bytes,'cpu')).toBe(asset.bytes*2+1673*2048*4+419*512*4);
  });
  it('phases only strict ordinary RGB PNG decode while preserving the complete resident guard',()=>{
   const {publicPBRTexturedGLB,changeTextureGLB}=createRequire(import.meta.url)('../../../../scripts/embedded-texture-fixture.mjs') as {publicPBRTexturedGLB:()=>Buffer;changeTextureGLB:(bytes:Buffer,edit:(doc:{images:{bufferView:number}[];bufferViews:{byteOffset?:number}[];extensionsUsed?:string[]},bin:Buffer)=>void)=>Buffer};
