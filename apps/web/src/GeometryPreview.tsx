@@ -1637,6 +1637,7 @@ export function GeometryPreview({
         mapThumbnailRefresh.current=mapThumbnail.refresh;
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
+        let detailImageCandidate:InstanceType<typeof three.Object3D>|undefined;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
@@ -1686,7 +1687,7 @@ export function GeometryPreview({
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
-        const detailBytes=()=>detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0;
+        const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
         growAssetLimits=()=>{
@@ -1917,6 +1918,14 @@ export function GeometryPreview({
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
                 if(preparing.has(art.revisionId)){prepared.set(inventory.id,{artId:art.revisionId,object,lastUseful:performance.now()});stage(inventory.id,'prepared-resident');}
                 else destroy(object);
+                update();return;
+              }
+              if(task.detailPromotion){
+                // The larger selected texture belongs only to this borrowed
+                // detail, never to wall placements, active identities or XR.
+                if(detailPinnedArtwork!==art.revisionId||!sharedDetail){discardResult(result);update();return;}
+                if(detailImageCandidate)destroy(detailImageCandidate);
+                detailImageCandidate=object;stage(inventory.id,'prepared-selected-detail');
                 update();return;
               }
               const old = objects.get(art.revisionId);
@@ -2265,7 +2274,9 @@ export function GeometryPreview({
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
             const pendingDetail=pending.get(art.revisionId);
-            if(pendingDetail&&tasks.get(pendingDetail)?.detailPromotion){pending.delete(art.revisionId);scheduler.cancel(pendingDetail);desired.set(art.revisionId,active.get(art.revisionId)!);}
+            if(pendingDetail&&tasks.get(pendingDetail)?.detailPromotion){pending.delete(art.revisionId);scheduler.cancel(pendingDetail);}
+            desired.set(art.revisionId,active.get(art.revisionId)!);
+            const spare=detailImageCandidate;detailImageCandidate=undefined;if(spare)destroy(spare);
             peak.release(detailKey);
             sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
             if(!disposed&&!gpuLost){
@@ -2289,16 +2300,16 @@ export function GeometryPreview({
               // The existing scheduler owns verification, decode and peak admission.
               // Keep the borrowed old texture until the replacement has drawn successfully.
               promoteImage=()=>{
-                const next=objects.get(art.revisionId);if(!alive||signal.aborted||!next||next===object)return;
+                const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
                 try{scope.replaceImage(next);}catch{return;}
-                const previous=object,retired=detailRetired;object=next;detailPinned=next;detailRetired=false;
+                const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
                 if(retired&&previous)destroy(previous);
               };
               settleDetail=promoteImage;
               retryPromotion=createFlatDetailRetry({
                 valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&sharedDetail===scope,
                 pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
-                ready:()=>active.get(art.revisionId)===(selectedImageDetail(art,viewerBudget)?.inventory??selectAssetVariant(art,0,viewerBudget)).id,
+                ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===(selectedImageDetail(art,viewerBudget)?.inventory??selectAssetVariant(art,0,viewerBudget)).id,
                 request:()=>request(art,true,false,true),
               });
               retryFlatDetail=retryPromotion;retryPromotion();
