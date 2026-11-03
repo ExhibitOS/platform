@@ -25,7 +25,9 @@ export async function createWalkingCamera({
   isPanelFocus,
   resumeMovement,
   resumeDrag,
+  resumeBenchArrow,
   onSeat,
+  wasWalkingBeforeSeat,
   onViewpointFov,
 }: {
   document: Exhibition;
@@ -44,7 +46,9 @@ export async function createWalkingCamera({
   isPanelFocus?: (target: EventTarget | null) => boolean;
   resumeMovement?: () => boolean;
   resumeDrag?: () => boolean;
+  resumeBenchArrow?: () => boolean;
   onSeat?: (benchId:string|null) => void;
+  wasWalkingBeforeSeat?: () => boolean;
   /** The embedding projection owner retains the authored FOV and applies its
    * existing responsive/user display policy before this visit renders. */
   onViewpointFov?: (fov:number) => void;
@@ -95,7 +99,7 @@ export async function createWalkingCamera({
     last = 0;
   let orderedViewing=false;
   let orderedViewpointId:string|undefined;
-  let seated: {benchId:string;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;returnPaused:boolean}|undefined;
+  let seated: {benchId:string;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;resumeInput:boolean}|undefined;
   const publish = () => {
     const raw = controller.state();
     const state:NavigationState=seated?{...raw,eyePosition:[...seated.eye],yaw:seated.yaw,velocity:[0,0,0],grounded:false,paused:true}:raw;
@@ -120,6 +124,9 @@ export async function createWalkingCamera({
   const stop = (reason: WalkingPauseReason) => {
     if (disposed) return;
     paused = true;
+    if (seated && (reason === "hidden" || reason === "window" || reason === "escape" || reason === "user")) {
+      seated.resumeInput = false;
+    }
     controller.pause();
     targetYaw = controller.state().yaw;
     targetPitch = pitch;
@@ -133,7 +140,7 @@ export async function createWalkingCamera({
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus, resumeMovement, resumeDrag);
+  }, isPanelFocus, resumeMovement, resumeDrag, resumeBenchArrow);
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);
@@ -218,8 +225,8 @@ export async function createWalkingCamera({
         const eye=artifactPoint(destination.position,room.transform),target=artifactPoint(destination.target,room.transform);
         if(!controller.seatedClear(eye,floor,top[1],bench.id,floorCorners))throw Error('BENCH_SEAT_UNSAFE');
         const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
-        const snapshot={benchId:bench.id,eye,yaw,pitch:seatPitch,fov:destination.fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,returnPaused:paused};
-        input.pause();seated=snapshot;walking=false;paused=true;controls.enabled=false;
+        const snapshot={benchId:bench.id,eye,yaw,pitch:seatPitch,fov:destination.fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
+        input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;
         pitch=seatPitch;targetPitch=pitch;targetYaw=yaw;
         camera.fov=destination.fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
         onMessage('앉아서 감상 중입니다. 일어서서 돌아가기를 선택하면 이전 위치로 돌아갑니다.');
@@ -227,11 +234,12 @@ export async function createWalkingCamera({
     },
     stand: () => {
       if(!seated||disposed)return;
-      const saved=seated;input.pause();seated=undefined;
+      const saved=seated;input.pause("panel");seated=undefined;
       pitch=saved.returnPitch;targetPitch=pitch;targetYaw=controller.state().yaw;walking=saved.returnWalking;paused=true;
       camera.position.fromArray(saved.returnPosition);camera.quaternion.fromArray(saved.returnQuaternion);camera.fov=saved.returnFov;camera.updateProjectionMatrix();
       controls.target.fromArray(saved.returnTarget);controls.enabled=!walking;canvas.style.touchAction=walking?'none':previousTouchAction;
-      onMode(walking,true);onSeat?.(null);publish();render();
+      const resumeInput=saved.resumeInput&&controller.state().grounded;
+      onSeat?.(null);onMode(walking,true,resumeInput?"bench-return":undefined);publish();render();
       canvas.focus({preventScroll:true});
       onMessage('이전 위치와 시점으로 돌아왔습니다. 걷기는 직접 재개하세요.');
     },

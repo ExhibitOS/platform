@@ -47,6 +47,30 @@ test("backgrounding a panel pause cannot resume merely by closing the panel", ()
     }
   }
 });
+test("bench return preserves fresh input but neither a held gesture nor explicit pause", () => {
+ const eligible=panelPaused();expect(eligible.wasWalkingBeforeSeat()).toBe(true);
+ const earlier=eligible.intent();
+ eligible.mode(false,true);eligible.mode(true,true,"bench-return");
+ expect(eligible.isBenchReturn()).toBe(true);
+ expect(eligible.panelClosed()).toBe(false);expect(earlier(true)).toBe(false);
+ expect(eligible.movement(false)).toBe(false);expect(eligible.movement(true)).toBe(true);
+ const stopped=panelPaused();stopped.mode(true,true,"user");stopped.mode(true,true,"panel");
+ expect(stopped.wasWalkingBeforeSeat()).toBe(false);
+});
+test("bench return cannot consume input while a panel or modal is still open", () => {
+ let panel=true,modal=false;
+ const root=Object.assign(new EventTarget(),{querySelectorAll:()=>panel?[{open:true}]:[],querySelector:()=>modal?{}:null});
+ const canvas={isConnected:true,style:{visibility:''},closest:(selector:string)=>selector==='.publication-shell'?root:null};
+ vi.stubGlobal("document",Object.assign(new EventTarget(),{hidden:false}));
+ vi.stubGlobal("window",new EventTarget());
+ const resume=vi.fn(),handler=installPanelResume(canvas as unknown as HTMLCanvasElement,vi.fn(),resume);
+ handler.mode(true,true,"bench-return");
+ expect(handler.drag(true)).toBe(false);expect(handler.movement(true)).toBe(false);
+ panel=false;modal=true;
+ expect(handler.drag(true)).toBe(false);expect(handler.movement(true)).toBe(false);
+ modal=false;expect(handler.drag(true)).toBe(true);expect(resume).toHaveBeenCalledOnce();
+ handler.dispose();
+});
 test("drag returning to start, cancellation, and release outside canvas reject resume", () => {
   const gate = panelPaused();
   gate.begin(1, 20, 30, true); gate.move(1, 40, 30); gate.move(1, 20, 30); gate.end(1, 20, 30, true);

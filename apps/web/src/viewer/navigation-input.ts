@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 export type WalkAction =
   "forward" | "backward" | "left" | "right" | "turn-left" | "turn-right" | "look-up" | "look-down";
-export type WalkingPauseReason = "user" | "panel" | "settings" | "blur" | "window" | "hidden" | "escape" | "pointerlock";
+export type WalkingPauseReason = "user" | "panel" | "settings" | "blur" | "window" | "hidden" | "escape" | "pointerlock" | "bench-return";
 export function createWalkingInput(
   canvas: HTMLCanvasElement,
   onPause: (reason: WalkingPauseReason) => void,
@@ -9,6 +9,7 @@ export function createWalkingInput(
   isPanelFocus: (target: EventTarget | null) => boolean = () => false,
   resumeMovement: () => boolean = () => false,
   resumeDrag: () => boolean = resumeMovement,
+  resumeBenchArrow: () => boolean = () => false,
 ) {
   const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
@@ -64,8 +65,11 @@ export function createWalkingInput(
     if (blockedKeys.has(event.code) || event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
       event.altKey || event.ctrlKey || event.metaKey || document.hidden ||
       protectedTarget(event.target) || protectedTarget(document.activeElement)) return;
-    if (!enabled && /^(KeyQ|KeyW|KeyE|KeyA|KeyS|KeyD)$/.test(event.code) && !event.repeat)
-      resumeMovement(); // Synchronous start clears old inputs, then this event is applied below.
+    // A fresh start clears old inputs before this event is applied below.
+    if (!enabled && !event.repeat) {
+      if (/^(KeyQ|KeyW|KeyE|KeyA|KeyS|KeyD)$/.test(event.code)) resumeMovement();
+      else if (document.activeElement === canvas && /^Arrow(Up|Down|Left|Right)$/.test(event.code)) resumeBenchArrow();
+    }
     if (
       !enabled ||
       (document.activeElement !== canvas &&

@@ -30,14 +30,14 @@ test.each([false,true])('explicit seated view and return preserve camera while k
   const canvas=Object.assign(new EventTarget(),{dataset:{} as Record<string,string>,style:{touchAction:''},focus:vi.fn(()=>{doc.activeElement=canvas;}),getBoundingClientRect:()=>({left:0,width:100})}) as unknown as HTMLCanvasElement;
   vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());vi.stubGlobal('requestAnimationFrame',vi.fn(()=>1));vi.stubGlobal('cancelAnimationFrame',vi.fn());
   const controls={enabled:true,target:new Vector3(0,1.2,0),update(){}} as OrbitControls;
-  const states:import('./navigation').NavigationState[]=[],seats:(string|null)[]=[],clock=new StrideClock();
-  const adapter=await createWalkingCamera({document:d,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion:true},render(){},onMode(){},onMessage(){},onState:s=>{states.push(s);expect(clock.advance(s,!s.paused)).toBe(false);},onSeat:id=>seats.push(id)});
+  const modes:(string|undefined)[]=[],states:import('./navigation').NavigationState[]=[],seats:(string|null)[]=[],clock=new StrideClock();
+  const adapter=await createWalkingCamera({document:d,camera,initialCamera:camera.clone(),controls,canvas,settings:{speed:1.3,eyeHeight:1.65,reducedMotion:true},render(){},onMode(_walking,_paused,reason){modes.push(reason);},wasWalkingBeforeSeat:()=>running,onMessage(){},onState:s=>{states.push(s);expect(clock.advance(s,!s.paused)).toBe(false);},onSeat:id=>seats.push(id)});
   try{
     if(running){adapter.actions.start();adapter.actions.press('forward',9);}
     const position=camera.position.clone(),rotation=camera.quaternion.clone(),fov=camera.fov;
     const bench=(d.extensions![N] as unknown as {benches:{id:string}[]}).benches[0]!;
     adapter.actions.sit!(bench.id);expect(seats).toEqual([bench.id]);expect(camera.position.toArray()).toEqual([0,1.15,-.08]);expect(controls.enabled).toBe(false);expect(states.at(-1)).toMatchObject({paused:true,grounded:false,velocity:[0,0,0]});
     adapter.actions.start();expect(camera.position.toArray()).toEqual([0,1.15,-.08]);
-    adapter.actions.stand!();expect(camera.position.toArray()).toEqual(position.toArray());expect(camera.quaternion.toArray()).toEqual(rotation.toArray());expect(camera.fov).toBe(fov);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});expect(seats).toEqual([bench.id,null]);expect(doc.activeElement).toBe(canvas);
+    adapter.actions.stand!();expect(camera.position.toArray()).toEqual(position.toArray());expect(camera.quaternion.toArray()).toEqual(rotation.toArray());expect(camera.fov).toBe(fov);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});expect(seats).toEqual([bench.id,null]);expect(doc.activeElement).toBe(canvas);expect(modes.at(-1)).toBe(running?"bench-return":undefined);
   }finally{adapter.dispose();}
 });
