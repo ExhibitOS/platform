@@ -7,7 +7,20 @@ import {join,isAbsolute} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,transaction,FileBlobStore} from '@exhibitos/storage';
 import {PublicationDiskBudget,diskReservationReceiptDigest,type DiskOwner,type DiskPlan,type DiskReservationBinding,type DiskReservationReceipt,type DiskClaimJournalBinding} from './publication-disk-budget.ts';
-import {verifySelectedSettlement,revalidateSelectedSettlement,type SelectedSettlementAuthority} from './oex-owner-claim.ts';
+import {verifySelectedSettlement,revalidateSelectedSettlement,verifySelectedV3Settlement,revalidateSelectedV3Settlement,recordSelectedV3Retirement,finalizeSelectedV3Authority,forgetSelectedV3Authority,type SelectedSettlementAuthority,type SelectedV3SettlementAuthority} from './oex-owner-claim.ts';
+
+export type SelectedV3ReleasePermit=Readonly<{readonly __selectedV3Release:unique symbol}>;
+const v3ReleasePermits=new WeakMap<object,{authority:SelectedV3SettlementAuthority;claimDigest:string;bindings:DiskReservationBinding[]}>();
+export type SelectedV3RetirementPermit=Readonly<{readonly __selectedV3Retirement:unique symbol}>;
+const v3RetirementPermits=new WeakMap<object,{authority:SelectedV3SettlementAuthority;claimDigest:string}>();
+/** Provider accepts only a one-use permit minted after the journal's durable
+ * intent write. A caller holding the channel authority alone cannot release. */
+export function consumeSelectedV3ReleasePermit(permit:SelectedV3ReleasePermit,authority:SelectedV3SettlementAuthority,claimDigest:string,bindings:DiskReservationBinding[]){
+ const state=v3ReleasePermits.get(permit);if(!state||state.authority!==authority||state.claimDigest!==claimDigest||canonical(state.bindings)!==canonical(bindings))throw Error('PUBLICATION_CLAIM_BINDING');v3ReleasePermits.delete(permit);
+}
+export function consumeSelectedV3RetirementPermit(permit:SelectedV3RetirementPermit,authority:SelectedV3SettlementAuthority,claimDigest:string){
+ const state=v3RetirementPermits.get(permit);if(!state||state.authority!==authority||state.claimDigest!==claimDigest)throw Error('PUBLICATION_CLAIM_BINDING');v3RetirementPermits.delete(permit);
+}
 
 interface OwnedObject {key:string;sha256:string;bytes:number}
 export interface PublicationAttempt {
@@ -30,6 +43,10 @@ export interface ResourceReservationRecord {
  version:1;kind:'resource-reservation';claimDigest:string;receipt:DiskReservationReceipt;
  receiptDigest:string;managerBindingDigest:string;
 }
+/** Provisional sizing bound by the live Manager-owned input and child. This is
+ * not content approval, process-drain proof or permission to write. */
+export interface OexPreflightEvidence {archiveBytes:number;archiveSha256:string;inputDevice:string;inputInode:string;expandedBytes:number;packedBytes:number;manifestSha256:string;entryCount:number}
+export interface OexPreflightReservationRecord {version:1;kind:'oex-preflight-reservation';claimDigest:string;inputReceiptDigest:string;managerBindingDigest:string;evidence:OexPreflightEvidence;outputReceipt:DiskReservationReceipt|null;outputReceiptDigest:string|null}
 export interface ResourceOutcomeReport {
  outcome:'succeeded'|'failed'|'cancelled';databaseOutcome:'committed'|'rolled-back'|'unknown';outputDigest:string|null;
 }
@@ -37,7 +54,7 @@ export interface ResourceOutcomeRecord extends ResourceOutcomeReport {
  version:1;kind:'resource-outcome-report';claimDigest:string;
  reservation:{id:string;generation:string;receiptDigest:string;managerBindingDigest:string}|null;
 }
-interface ClaimState {record:ResourceClaimRecord;text:string;anchor:string;alias:string;device:bigint;inode:bigint;outcomeStarted?:boolean;mutationActive?:boolean;binding?:{text:string;anchor:string;alias:string;device:bigint;inode:bigint}}
+interface ClaimState {record:ResourceClaimRecord;text:string;anchor:string;alias:string;device:bigint;inode:bigint;outcomeStarted?:boolean;mutationActive?:boolean;oexPreflightStarted?:boolean;oexPreflight?:{text:string;anchor:string;alias:string;device:bigint;inode:bigint};binding?:{text:string;anchor:string;alias:string;device:bigint;inode:bigint}}
 const issuedClaims=new WeakMap<ResourceClaimHandle,ClaimState>();
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hash=/^[0-9a-f]{64}$/;
@@ -176,9 +193,9 @@ export class PublicationAttempts {
   for(const path of [state.anchor,state.alias]){const f=await claimFile(path);if(f.text!==state.text||f.stat.dev!==state.device||f.stat.ino!==state.inode||f.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');}
   if(state.outcomeStarted&&!allowOutcome)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');return state;
  }
- private beginMutation(handle:ResourceClaimHandle){
+ private beginMutation(handle:ResourceClaimHandle,allowOutcome=false){
   const state=issuedClaims.get(handle);if(!state)throw Error('PUBLICATION_CLAIM_HANDLE_REQUIRED');
-  if(state.outcomeStarted)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');
+  if(state.outcomeStarted&&!allowOutcome)throw Error('PUBLICATION_CLAIM_OUTCOME_STARTED');
   if(state.mutationActive)throw Error('PUBLICATION_CLAIM_BUSY');state.mutationActive=true;return state;
  }
  /** Attach only the real provider-generated generation after pending claim.
@@ -211,6 +228,45 @@ export class PublicationAttempts {
   const live=await provider.verifiedReceipt({id:binding.receipt.id,generation:binding.receipt.generation,operation:r.operation,owner:r.owner,plan:r.plan});
   if(canonical(live)!==canonical(binding.receipt))throw Error('PUBLICATION_CLAIM_BINDING');
   await this.activeClaim(handle,allowOutcome);return claimSnapshot({claim:r,claimDigest:handle.digest,binding});
+ }
+ /** Candidate v3 binding, only after the live owner has independently pinned
+  * the stage FD, supervised and reaped preflight, and reserved output capacity.
+  * The caller must recheck actual owner/session/FD and keep both receipts live.
+  * A failed/partial binding blocks v2 settlement and retains all evidence. */
+ async bindOexPreflightReservation(provider:PublicationDiskBudget,handle:ResourceClaimHandle,evidenceInput:OexPreflightEvidence,outputInput:DiskReservationBinding|null):Promise<Readonly<OexPreflightReservationRecord>>{
+  const evidence=claimSnapshot(evidenceInput),output=outputInput===null?null:claimSnapshot(outputInput),mutation=this.beginMutation(handle);
+  try{
+   const initial=await this.verifiedClaim(provider,handle),state=await this.activeClaim(handle),r=initial.claim;
+   if(state.oexPreflightStarted||r.operation!=='oex-import'||r.purpose!=='import'||r.plan.length!==1||r.plan[0]!.root===r.owner.storeRoot)throw Error('OEX_PREFLIGHT_BINDING');
+   state.oexPreflightStarted=true;
+   claimKeys(evidence,'archiveBytes,archiveSha256,entryCount,expandedBytes,inputDevice,inputInode,manifestSha256,packedBytes');
+   if(!Number.isSafeInteger(evidence.archiveBytes)||evidence.archiveBytes<1||evidence.archiveBytes>512*1024*1024||evidence.archiveBytes!==r.plan[0]!.bytes||evidence.archiveSha256!==r.sourceDigest||typeof evidence.manifestSha256!=='string'||!hash.test(evidence.manifestSha256)||![evidence.inputDevice,evidence.inputInode].every(x=>typeof x==='string'&&/^(0|[1-9][0-9]{0,23})$/.test(x))||evidence.inputDevice!==initial.binding.receipt.plan[0]!.device||!Number.isSafeInteger(evidence.expandedBytes)||evidence.expandedBytes<0||evidence.expandedBytes>512*1024*1024||!Number.isSafeInteger(evidence.packedBytes)||evidence.packedBytes<0||evidence.packedBytes>evidence.expandedBytes||!Number.isSafeInteger(evidence.entryCount)||evidence.entryCount<2||evidence.entryCount>256)throw Error('OEX_PREFLIGHT_BINDING');
+   let receipt:Readonly<DiskReservationReceipt>|null=null;
+   if(evidence.packedBytes===0){if(output!==null)throw Error('OEX_PREFLIGHT_BINDING');}
+   else{
+    if(!output||output.operation!=='oex-import'||output.id===r.reservationId||canonical(output.owner)!==canonical(r.owner)||canonical(output.plan)!==canonical([{root:r.plan[0]!.root,bytes:evidence.packedBytes},{root:r.owner.storeRoot,bytes:evidence.packedBytes}]))throw Error('OEX_PREFLIGHT_BINDING');
+    receipt=await provider.verifiedReceipt(output);
+   }
+   await this.verifiedClaim(provider,handle);
+   const record:OexPreflightReservationRecord=claimSnapshot({version:1,kind:'oex-preflight-reservation',claimDigest:handle.digest,inputReceiptDigest:initial.binding.receiptDigest,managerBindingDigest:initial.binding.managerBindingDigest,evidence,outputReceipt:receipt,outputReceiptDigest:receipt?diskReservationReceiptDigest(receipt):null});
+   const text=canonical(record),alias=join(this.root,r.attemptId+'.oex-preflight.json'),anchor=receipt?join(this.root,`reservation-${sha256(Buffer.from(canonical({coordinator:r.coordinator,id:receipt.id,generation:receipt.generation})))}.binding.json`):join(this.root,`oex-preflight-${handle.digest}.binding.json`),pending=join(this.root,`.pending-oex-preflight-${r.attemptId}-${randomUUID()}`);
+   if(!await absent(alias)||!await absent(anchor))throw Error('OEX_PREFLIGHT_BINDING');
+   await this.claimWrite(pending,text);await link(pending,anchor);await syncDir(this.root);await link(pending,alias);await syncDir(this.root);await unlink(pending);await syncDir(this.root);
+   const a=await claimFile(anchor),b=await claimFile(alias);if(a.text!==text||b.text!==text||a.stat.dev!==b.stat.dev||a.stat.ino!==b.stat.ino||a.stat.nlink!==2n||b.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');
+   await this.verifiedClaim(provider,handle);state.oexPreflight={text,anchor,alias,device:a.stat.dev,inode:a.stat.ino};return record;
+  }finally{mutation.mutationActive=false;}
+ }
+ /** Check the original issued claim, both persisted receipts and both live
+  * provider generations. It does not verify an open FD or worker liveness. */
+ async verifyOexPreflightReservation(provider:PublicationDiskBudget,handle:ResourceClaimHandle):Promise<Readonly<OexPreflightReservationRecord>>{
+  const initial=await this.verifiedClaim(provider,handle),state=await this.activeClaim(handle),stored=state.oexPreflight;
+  if(!stored)throw Error('OEX_PREFLIGHT_UNBOUND');
+  for(const path of [stored.anchor,stored.alias]){const f=await claimFile(path);if(f.text!==stored.text||f.stat.dev!==stored.device||f.stat.ino!==stored.inode||f.stat.nlink!==2n)throw Error('PUBLICATION_CLAIM_UNCERTAIN');}
+  const record=claimSnapshot(JSON.parse(stored.text)) as OexPreflightReservationRecord;
+  if(record.claimDigest!==handle.digest||record.inputReceiptDigest!==initial.binding.receiptDigest||record.managerBindingDigest!==initial.binding.managerBindingDigest)throw Error('OEX_PREFLIGHT_BINDING');
+  if(record.outputReceipt){const receipt=record.outputReceipt;if(record.outputReceiptDigest!==diskReservationReceiptDigest(receipt))throw Error('OEX_PREFLIGHT_BINDING');const live=await provider.verifiedReceipt({id:receipt.id,generation:receipt.generation,operation:receipt.operation,owner:receipt.owner,plan:receipt.plan.map(({root,bytes})=>({root,bytes}))});if(canonical(live)!==canonical(receipt))throw Error('OEX_PREFLIGHT_BINDING');}
+  else if(record.outputReceiptDigest!==null||record.evidence.packedBytes!==0)throw Error('OEX_PREFLIGHT_BINDING');
+  await this.verifiedClaim(provider,handle);return record;
  }
  /** Caller-reported outcome only: never a child-exit, DB, seal or retirement
   * capability. The caller retains its operation fence. Starting this one-shot
@@ -248,7 +304,7 @@ export class PublicationAttempts {
   const mutation=this.beginMutation(handle);
   try{
    const verified=await this.verifiedClaim(provider,handle),state=await this.activeClaim(handle),r=verified.claim,receipt=verified.binding.receipt;
-   if(r.operation!=='oex-import'||r.purpose!=='import'||state!==mutation)throw Error('PUBLICATION_CLAIM_BINDING');
+   if(r.operation!=='oex-import'||r.purpose!=='import'||state!==mutation||state.oexPreflightStarted)throw Error('PUBLICATION_CLAIM_BINDING');
    const binding:DiskReservationBinding={id:receipt.id,generation:receipt.generation,operation:r.operation,owner:r.owner,plan:r.plan};
    if(!outcome||!uuid.test(outcome.exhibitionId)||!uuid.test(outcome.requestId)||!/^"studio-r[1-9][0-9]*-[0-9a-f]{64}"$/.test(outcome.etag))throw Error('PUBLICATION_CLAIM_INVALID');
    await verifySelectedSettlement(authority,binding,handle.digest);
@@ -260,6 +316,32 @@ export class PublicationAttempts {
    // fabricated rollback or an automatic second release.
    await this.claimWrite(terminal,text);await this.activeClaim(handle,true);await revalidateSelectedSettlement(authority);
    await unlink(state.anchor);await syncDir(this.root);
+  }finally{mutation.mutationActive=false;}
+ }
+ /** A committed v3 import with its exact save and live owned drain only.
+  * Intent precedes both releases; partial release is unknown, never retry. */
+ async settleSelectedOexV3(provider:PublicationDiskBudget,handle:ResourceClaimHandle,authority:SelectedV3SettlementAuthority,outcome:{exhibitionId:string;etag:string;requestId:string}){
+  outcome=claimSnapshot(outcome);
+  const mutation=this.beginMutation(handle);
+  try{
+   const verified=await this.verifiedClaim(provider,handle),state=await this.activeClaim(handle),preflight=await this.verifyOexPreflightReservation(provider,handle),r=verified.claim;
+   if(r.operation!=='oex-import'||r.purpose!=='import'||state!==mutation||!state.oexPreflight||!outcome||!uuid.test(outcome.exhibitionId)||!uuid.test(outcome.requestId)||!/^"studio-r[1-9][0-9]*-[0-9a-f]{64}"$/.test(outcome.etag))throw Error('PUBLICATION_CLAIM_INVALID');
+   const binding=(receipt:DiskReservationReceipt):DiskReservationBinding=>({id:receipt.id,generation:receipt.generation,operation:receipt.operation,owner:receipt.owner,plan:receipt.plan.map(({root,bytes})=>({root,bytes}))});
+   const bindings=[binding(verified.binding.receipt),...(preflight.outputReceipt?[binding(preflight.outputReceipt)]:[])];
+   await verifySelectedV3Settlement(authority,bindings,handle.digest,outcome);
+   const record=claimSnapshot({version:1,kind:'selected-oex-settlement-v3',databaseOutcome:'committed',save:outcome,claimDigest:handle.digest,claim:r,inputReceiptDigest:verified.binding.receiptDigest,managerBindingDigest:verified.binding.managerBindingDigest,inputReceipt:verified.binding.receipt,preflight});
+   const text=canonical(record),intent=join(this.root,r.attemptId+'.settlement-terminal-v3.json'),terminal=join(this.root,r.attemptId+'.reservation-released-v3.json');
+   state.outcomeStarted=true;await this.claimWrite(intent,text);await this.activeClaim(handle,true);
+   const permit=Object.freeze({}) as SelectedV3ReleasePermit;v3ReleasePermits.set(permit,{authority,claimDigest:handle.digest,bindings:structuredClone(bindings)});await provider.releaseSelectedOexV3(bindings,handle.digest,authority,permit);
+   await this.claimWrite(terminal,text);await this.activeClaim(handle,true);await revalidateSelectedV3Settlement(authority);const retirement=Object.freeze({}) as SelectedV3RetirementPermit;v3RetirementPermits.set(retirement,{authority,claimDigest:handle.digest});await recordSelectedV3Retirement(authority,handle.digest,retirement);
+  }finally{mutation.mutationActive=false;}
+ }
+ async finalizeSelectedOexV3(handle:ResourceClaimHandle,authority:SelectedV3SettlementAuthority){
+  const mutation=this.beginMutation(handle,true);
+  try{
+   const state=await this.activeClaim(handle,true),base=state.record.attemptId,intent=await claimFile(join(this.root,base+'.settlement-terminal-v3.json')),terminal=await claimFile(join(this.root,base+'.reservation-released-v3.json'));
+   if(state!==mutation||!state.outcomeStarted||intent.text!==terminal.text)throw Error('PUBLICATION_CLAIM_UNCERTAIN');
+   await finalizeSelectedV3Authority(authority,handle.digest);await unlink(state.anchor);await syncDir(this.root);forgetSelectedV3Authority(authority);
   }finally{mutation.mutationActive=false;}
  }
  async createForClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle,input:PublicationAttempt){
