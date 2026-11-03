@@ -108,8 +108,6 @@ main.publication-shell button[aria-busy=true]{cursor:progress}.publication-shell
    a row or an outlined state, with the same 44px focus and hit affordances. */
 main.publication-shell .publication-menu-panel>button,main.publication-shell :is(.publication-info-menu,.publication-record)>button,main.publication-shell .publication-info-menu section[aria-label="공간 명판"] button,main.publication-shell .viewer-help-entry{display:block;width:100%;min-height:44px;text-align:start;color:var(--publication-ink);background:transparent;border:0;border-bottom:1px solid rgb(24 45 50 / .18);border-radius:0;padding:.65rem .25rem;margin:0}
 .publication-mode-3d .publication-menu-panel>.publication-settings-menu,.publication-mode-3d .publication-menu-panel>.publication-info-menu{margin-top:1rem;border-top:1px solid rgb(24 45 50 / .18)}
-.publication-mode-3d .publication-menu-panel>.publication-settings-menu>summary,.publication-mode-3d .publication-menu-panel>.publication-info-menu>summary{padding-block:.65rem;justify-content:space-between}
-.publication-mode-3d .publication-settings-menu .viewer-settings-menu>summary{font-size:1rem}
 main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button{display:inline-flex;align-items:center;justify-content:space-between;gap:.65rem;background:var(--publication-paper);color:var(--publication-ink);border:1px solid var(--publication-muted);font-size:.875rem}
 main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button::after{content:"";flex:none;width:.65rem;height:.35rem;border-inline-start:2px solid currentColor;border-block-end:2px solid currentColor;transform:rotate(-45deg);visibility:hidden}
 main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) button[aria-pressed=true]{background:rgb(24 45 50 / .07);border-color:var(--publication-ink);font-weight:600;text-decoration:none}
@@ -138,7 +136,32 @@ main.publication-shell :is(.viewer-viewing-styles-options,.viewer-help-input) bu
 .publication-shell .viewer-audio-zone button,.publication-shell .viewer-audio>button:not(.viewer-audio-use){background:transparent;color:var(--publication-ink);border:1px solid currentColor}
 
 .publication-settings-menu>h2{margin:.75rem 0 .25rem}
-.publication-accessibility-menu>summary{padding-block:.65rem;justify-content:space-between}
+/* Text disclosures share one label column and one fixed indicator column.
+   Keep this inside the menu/audio bodies: map chevrons and HUD icons differ. */
+main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu,.publication-info-menu,.publication-record,.viewer-options),
+main.publication-shell .viewer-audio-body :is(.viewer-options,.viewer-audio-zone>details){box-sizing:border-box;inline-size:100%;min-inline-size:0}
+main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu,.publication-info-menu,.publication-record,.viewer-options)>summary,
+main.publication-shell .publication-menu-panel .publication-guide details>summary,
+main.publication-shell .viewer-audio-body :is(.viewer-options,.viewer-audio-zone>details)>summary{position:relative;display:block;box-sizing:border-box;inline-size:100%;min-inline-size:0;min-block-size:44px;margin:0;padding:.65rem 2.25rem .65rem .25rem;border-radius:0;background:transparent;box-shadow:none;color:var(--publication-ink);font-size:1rem;font-weight:600;line-height:1.5;text-align:start;white-space:normal;overflow-wrap:anywhere}
+main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu,.publication-info-menu,.publication-record,.viewer-options)>summary::after,
+main.publication-shell .publication-menu-panel .publication-guide details>summary::after,
+main.publication-shell .viewer-audio-body :is(.viewer-options,.viewer-audio-zone>details)>summary::after{position:absolute;inset-inline-end:.25rem;top:50%;transform:translateY(-50%);display:grid;place-items:center;inline-size:1.25rem;block-size:1.5rem;margin:0;font-size:1rem;font-weight:600;line-height:1}
+main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu){margin:0;padding:0}
+main.publication-shell .publication-menu-panel>.publication-info-menu{margin-block:1rem 0;padding-block-start:.5rem;border-top:1px solid rgb(24 45 50 / .18)}
+main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu)>.viewer-options,
+main.publication-shell .publication-menu-panel .publication-record{padding-inline-start:.75rem}
+main.publication-shell .publication-menu-panel h2{font-size:1.125rem;font-weight:650;line-height:1.4}
+main.publication-shell .publication-menu-panel :is(.geometry-controls,.viewer-settings-menu,.publication-accessibility-menu) :is(label,legend),
+main.publication-shell .viewer-audio-body :is(label,legend){font-size:1rem;font-weight:500;line-height:1.5}
+main.publication-shell .publication-menu-panel :is(select,input[type=number],input[type=text]){font:inherit}
+main.publication-shell .publication-menu-panel .walking-controls>p{margin:.5rem 0 .75rem;color:var(--publication-muted);font-size:.9375rem;line-height:1.6}
+main.publication-shell .publication-menu-panel .walking-controls>.cms-actions{display:grid;gap:0}
+main.publication-shell .publication-menu-panel .walking-controls>.cms-actions>button{display:flex;align-items:center;inline-size:100%;min-block-size:44px;margin:0;padding:.65rem .25rem;border:0;border-bottom:1px solid rgb(24 45 50 / .18);border-radius:0;background:transparent;font-size:1rem;font-weight:400;line-height:1.5;text-align:start;white-space:normal;overflow-wrap:anywhere}
+main.publication-shell .publication-menu-panel .walking-controls>.cms-actions>button:last-child{border-bottom:0;color:var(--publication-muted);font-size:.9375rem}
+main.publication-shell .publication-menu-panel .walking-controls>.cms-actions>button:enabled:hover{background:rgb(24 45 50 / .04)}
+main.publication-shell .publication-menu-panel .publication-record code{overflow-wrap:anywhere}
+main.publication-shell .publication-private-entry>.publication-private-edit{font-weight:500}
+main.publication-shell .publication-private-entry>p{font-size:.9375rem;line-height:1.6}
 
 .publication-mode-3d .immersive-viewer>.viewer-audio-menu{z-index:20}
 .publication-shell.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open])::after{content:"";position:fixed;inset:0;z-index:17;background:transparent}

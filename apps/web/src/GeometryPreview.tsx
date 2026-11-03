@@ -2494,8 +2494,7 @@ export function GeometryPreview({
       <figcaption hidden={immersive && ready && assetReport.loaded===document.placements.length && assetReport.failed===0} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
       {(immersive || compactControls) && <summary>공간 조작</summary>}
-      {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·조이스틱</option></select></label><p>터치 기기는 조이스틱과 화면 드래그, 그 외에는 시점 고정 없이 드래그가 기본이에요. 직접 바꾸면 이 관람 동안 선택을 유지해요. 설정을 닫으면 새 이동·시점 조작을 바로 사용할 수 있어요.</p></>}
-      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
+      {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·조이스틱</option></select></label><p>기기에 맞게 시작하며, 직접 바꾼 방식은 이번 관람에 유지돼요. 설정을 닫고 새 이동·시점 조작으로 이어가세요.</p></>}
       <ViewControls hidden={viewingStyle==='ordered'} className={publicSource ? "viewer-options" : undefined}>
       {publicSource && <summary>시점 조정</summary>}
       <div className="cms-actions">
@@ -2601,6 +2600,7 @@ export function GeometryPreview({
         </div>
       )}
       {publicSource ? <details className="viewer-options"><summary>이동 도움말과 화면 표현</summary><p>걷기를 시작하지 않아도 작품을 선택하거나 목록에서 감상할 수 있어요. 표시된 시점으로 이동할 때는 이동 가능한 공간을 확인합니다. 소리는 직접 켤 때만 재생돼요.</p><p>저장된 조명은 화면에서 비슷하게 표현하며 실제 밝기 측정값은 아닙니다. 마우스 없이 위 버튼으로도 시점을 바꿀 수 있어요.</p></details> : <p className="cms-note">사각형 표면과 실제 사각 개구부의 편집 미리보기입니다. 분할 곡선벽·계단·경사로를 동일한 평면으로 렌더링합니다. 실제 보행 가능성은 공개 Viewer에서 검사하세요. 저장된 조명은 시각적 근사이며 물리적 조도 측정을 지원하지 않습니다. 마우스 없이 위 버튼으로 시점을 바꿀 수 있습니다.</p>}
+      {publicSource && <details className="viewer-options"><summary>표시 상태 자세히</summary><p data-testid="geometry-render-state">{message}</p><p>{shadowMessage}</p></details>}
       </ControlsFrame>)}
     </figure>
   );
