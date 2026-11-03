@@ -4,9 +4,11 @@ import {catalogBinding,type CatalogBinding} from './native-catalog-protocol';
 import type {NativeViewportFrame} from './native-viewport-protocol';
 import {approvedPlacementArtwork} from './native-placement-source';
 import {validateArtwork} from './drafts/artwork-validation.mjs';
-import type {SceneSnapshotImage} from './scene-snapshot';
+import type {SceneSnapshotImage,SceneSnapshotInput} from './scene-snapshot';
+import {checkedInspectionCamera} from './scene-snapshot-camera';
 export const NATIVE_SCENE_SNAPSHOT_CAPABILITY='scene-snapshot-v1' as const;
-export interface SceneSnapshotRequest extends CatalogBinding {expectedETag:string;viewpointId:string;placementId:string;width:640;height:360}
+export const NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY='scene-snapshot-inspection-v1' as const;
+export type SceneSnapshotRequest=CatalogBinding&{expectedETag:string}&SceneSnapshotInput;
 export interface SavedSceneIdentity {exhibitionId:string;draftId:string;revision:number;etag:string}
 export type SceneSnapshotReply=CatalogBinding&{expectedETag:string;saved:SavedSceneIdentity;candidateSha256:string}&SceneSnapshotImage;
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
@@ -14,9 +16,14 @@ export function checkedSceneSnapshotRequest(value:unknown,frame:NativeViewportFr
  if(frame&&watermarkFor(frame.draft.candidate).mode==='overlay')throw Error('SCENE_SNAPSHOT_OVERLAY_UNSUPPORTED');
  if(!frame||frame.disabled||frame.transparent||frame.presentation==='plan'||!value||typeof value!=='object'||Array.isArray(value))throw Error('SCENE_SNAPSHOT_INVALID');
  const v=value as SceneSnapshotRequest;
- if(Object.keys(v).sort().join(',')!=='epoch,expectedETag,height,placementId,principalId,requestId,sequence,tenantId,version,viewpointId,width'||v.version!==1||v.epoch!==frame.epoch||v.sequence!==frame.sequence||v.tenantId!==frame.tenantId||v.principalId!==frame.principalId||!uuid(v.requestId)||!uuid(v.viewpointId)||!uuid(v.placementId)||v.width!==640||v.height!==360||typeof v.expectedETag!=='string'||!/^"studio-r[1-9][0-9]*-[a-f0-9]{64}"$/.test(v.expectedETag)||frame.baseETag!==undefined&&frame.baseETag!==v.expectedETag)throw Error('SCENE_SNAPSHOT_STALE');
- const placement=frame.draft.candidate.placements.find(p=>p.id===v.placementId),view=presentationFor(frame.draft.candidate).viewpoints.find(p=>p.id===v.viewpointId);
- if(!placement||!view||placement.roomId!==view.roomId)throw Error('SCENE_SNAPSHOT_TARGET_INVALID');
+ const keys='inspectionCamera' in v?'epoch,expectedETag,height,inspectionCamera,placementId,principalId,requestId,sequence,tenantId,version,width':'epoch,expectedETag,height,placementId,principalId,requestId,sequence,tenantId,version,viewpointId,width';
+ if(Object.keys(v).sort().join(',')!==keys||v.version!==1||v.epoch!==frame.epoch||v.sequence!==frame.sequence||v.tenantId!==frame.tenantId||v.principalId!==frame.principalId||!uuid(v.requestId)||!uuid(v.placementId)||v.width!==640||v.height!==360||typeof v.expectedETag!=='string'||!/^"studio-r[1-9][0-9]*-[a-f0-9]{64}"$/.test(v.expectedETag)||frame.baseETag!==undefined&&frame.baseETag!==v.expectedETag)throw Error('SCENE_SNAPSHOT_STALE');
+ if('inspectionCamera' in v)checkedInspectionCamera(v.inspectionCamera,frame.draft.candidate,v.placementId);
+ else {
+  if(!uuid(v.viewpointId))throw Error('SCENE_SNAPSHOT_STALE');
+  const placement=frame.draft.candidate.placements.find(p=>p.id===v.placementId),view=presentationFor(frame.draft.candidate).viewpoints.find(p=>p.id===v.viewpointId);
+  if(!placement||!view||placement.roomId!==view.roomId)throw Error('SCENE_SNAPSHOT_TARGET_INVALID');
+ }
  return structuredClone(v);
 }
 /** Fresh authenticated source reads bind the image to persisted content, not
