@@ -85,13 +85,14 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
   cancelAutoChoice.current=stop;
   const hidden=()=>{if(document.hidden)stop();};
   const blur=()=>stop();
+  const root=panel.current?.closest('.publication-shell'),reading=(event:Event)=>{if(event.isTrusted)stop();};
   const frame=requestAnimationFrame(()=>{
    if(!panel.current?.open||document.hidden||!panel.current.getClientRects().length){stop();return;}
    started=true;setAutoChoiceNotice(true);
    timer=setTimeout(()=>{if(autoChoiceRetired.current||document.hidden||!panel.current?.open||panel.current.dataset.helpPhase!=='choice'){stop();return;}choose('free');},8000);
   });
-  document.addEventListener('visibilitychange',hidden);window.addEventListener('blur',blur);
-  return()=>{stop(started);if(cancelAutoChoice.current===stop)cancelAutoChoice.current=()=>{};document.removeEventListener('visibilitychange',hidden);window.removeEventListener('blur',blur);};
+  document.addEventListener('visibilitychange',hidden);window.addEventListener('blur',blur);root?.addEventListener('wheel',reading,{capture:true,passive:true});root?.addEventListener('scroll',reading,{capture:true,passive:true});
+  return()=>{stop(started);if(cancelAutoChoice.current===stop)cancelAutoChoice.current=()=>{};document.removeEventListener('visibilitychange',hidden);window.removeEventListener('blur',blur);root?.removeEventListener('wheel',reading,true);root?.removeEventListener('scroll',reading,true);};
  },[open,phase,ready,free]);
  const restore=(choice=false)=>{const target=previous.current,canvas=document.querySelector<HTMLElement>('canvas[aria-label="전시 공간 3D 미리보기"]');(choice?canvas:(target?.isConnected&&!target.closest('details:not([open]),[inert],[hidden]'))?target:summary.current)?.focus({preventScroll:true});};
  const close=()=>{cancelChoice();explicit.current=true;if(panel.current)panel.current.open=false;restore(phase==='choice');};
