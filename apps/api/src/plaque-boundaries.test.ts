@@ -55,6 +55,7 @@ test('localized artwork caption preserves the approved artwork and all source id
  const {draft,plaque}=plaqueFixture();
  const artwork=syntheticArtwork(),placement=newPlacement(artwork,plaque.roomId);
  draft.candidate.artworks=[artwork];draft.candidate.placements=[placement];
+ draft.candidate.accessibility.artworkDescriptions=[{placementId:placement.id,text:'Synthetic artwork description'}];
  const source={kind:'artwork' as const,placementId:placement.id};
  const row={...plaque,source},before=applyPlaqueCommand(draft.candidate,{type:'add-plaque',plaque:row});
  const withIntro=applyRoomPlaqueIntroduction(before,plaque.roomId,{text:'공간 안내'});
@@ -67,7 +68,7 @@ test('localized artwork caption preserves the approved artwork and all source id
  expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'KO-kr')).toEqual(artworkCaption.translations[0]);
  expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'en-GB')).toEqual(artworkCaption.translations[1]);
  expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'fr')).toBeUndefined();
- expect(validateDraft({...draft,candidate}).valid).toBe(true);
+ expect(validateDraft({...draft,candidate})).toEqual({valid:true,errors:[]});
  expect(()=>checkOexProfile(candidate)).not.toThrow();
  const asset=artwork.assets[0]!;
  const prepared=[{artwork,sourceAssetId:asset.id,sourceSha256:asset.sha256,bytes:Buffer.from('model'),mime:'model/gltf-binary' as const}];
