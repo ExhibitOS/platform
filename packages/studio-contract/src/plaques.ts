@@ -34,7 +34,7 @@ function validArtworkCaption(value:unknown):value is ArtworkPlaqueCaption {
   value.translations.length<1||value.translations.length>PLAQUE_LIMITS.captionLocales)return false;
  const tags=new Set<string>();
  for(const row of value.translations){
-  if(!object(row)||!closed(row,['locale','artist','date'])||!localeTag(row.locale)||
+  if(!object(row)||!closed(row,['locale','artist','date'])||!localeTag(row.locale)||!captionText(row.locale,48)||
    !captionText(row.artist,PLAQUE_LIMITS.captionArtist)||!captionText(row.date,PLAQUE_LIMITS.captionDate))return false;
   const tag=row.locale.toLowerCase();
   if(tags.has(tag))return false;

@@ -87,6 +87,7 @@ test('localized artwork caption preserves the approved artwork and all source id
  for(const invalid of [
   {...row,source:{kind:'room' as const},artworkCaption},
   {...row,artworkCaption:{translations:[]}},
+  {...row,artworkCaption:{translations:[{...artworkCaption.translations[0]!,locale:'ko\n'}]}},
   {...row,artworkCaption:{translations:[artworkCaption.translations[0]!,{...artworkCaption.translations[0]!,locale:'KO'}]}},
   {...row,artworkCaption:{translations:[{locale:'en',artist:'Artist',date:'first\nline'}]}},
   {...row,artworkCaption:{translations:[{locale:'en',artist:'x'.repeat(81),date:'2026'}]}},
