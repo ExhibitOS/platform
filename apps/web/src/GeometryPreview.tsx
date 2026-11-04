@@ -2089,8 +2089,10 @@ export function GeometryPreview({
                 return;
               }
               const steady=requestLimits(task).resident;
-              if(object.userData.viewer?.decodeBackingReleased)for(const asset of arts.flatMap(work=>work.assets)){if(peak.total()+(object.userData.viewer.decodedBytes??0)<=steady)break;byteCache.delete(asset.id);}
               const deficit=()=>peak.total()+(object.userData.viewer?.decodedBytes??0)-steady;
+              // The cache skips pinned backing buffers. Unpinned encoded bytes
+              // are expendable even when this decoder retains its own backing.
+              for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
               if(neededMinimum(task))reclaimOffroom(art.revisionId,deficit);
               if(deficit()>0){
                 discardResult(result);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
