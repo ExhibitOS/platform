@@ -112,7 +112,6 @@ export function GeometryPreview({
   onMapPose,
   onNavigationMode,
   onArtworkSelect,
-  onShowArtworkList,
   onPlaqueSelect,
   proximityDetail = false,
   focusedPlacementId,
@@ -195,7 +194,6 @@ export function GeometryPreview({
   onMapPose?: (position:[number,number,number],yaw:number,horizontalFovDegrees:number,continuous?:boolean) => void;
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
-  onShowArtworkList?: () => void;
   onPlaqueSelect?: (id:string)=>void;
   proximityDetail?: boolean;
   focusedPlacementId?: string | null;
@@ -2225,7 +2223,11 @@ export function GeometryPreview({
               : kind === "retry"
                 ? arts.filter((a) => failed.has(a.revisionId))
                 : arts.filter((a) => requested.has(a.revisionId));
-          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull)));}
+          for (const art of selected) {
+            if (kind === "retry") visibleWaitStarted.delete(art.revisionId);
+            retryAfter.delete(art.revisionId);
+            request(art, kind === "full" || (kind === "next" && !automatic && manualFull));
+          }
         };
         const automaticDemand=()=>{
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
@@ -2656,7 +2658,7 @@ export function GeometryPreview({
   const ControlsFrame = immersive || compactControls ? "details" : "div";
   const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : ready ? artworkNotice : undefined;
   const noticeMessage = noticeState === "scene" ? sceneIssue
-    : noticeState === "unavailable" ? "시야에 있는 작품을 불러오지 못했어요."
+    : noticeState === "unavailable" ? "작품을 불러오지 못했어요."
     : noticeState === "loading" ? "작품 불러오는 중…" : "";
   return (
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
@@ -2686,8 +2688,6 @@ export function GeometryPreview({
       {immersive && publicSource ? (
         <div className="viewer-artwork-notice" data-state={noticeState}>
           <p role="status">{noticeMessage}</p>
-          {(noticeState === "scene" || noticeState === "unavailable") && onShowArtworkList &&
-            <button type="button" onClick={onShowArtworkList}>작품 목록 보기</button>}
         </div>
       ) : (
         <figcaption hidden={publicSource && !publicMessage} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
