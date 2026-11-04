@@ -56,6 +56,7 @@ const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 /** Remove only server-private CMS bindings; the portable artwork remains unchanged. */
 export function portableOexSnapshot(candidate:Exhibition){const result=structuredClone(candidate);for(const a of result.artworks)if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}return result;}
+export type NativeOexExportProgress={phase:'preparing'|'verifying'}|{phase:'packing';completedItems:number;totalItems:number};
 export interface ImportedPreviewOmission {artworkId:string;assetId:string;sha256:string}
 /** Remove only an unreferenced optional imported preview, preserving the draft. */
 export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPreviewOmission[],archiveProfile?:'bounded-file-v1'){
@@ -377,10 +378,11 @@ export class Oex {
   * authenticated transaction, cancellation, the file and its actual drain.
   * This method must not be exposed directly as an HTTP route. Retained imported
   * previews are checked; generated optional thumbnail pins are not added. */
- async exportBoundedFile(c:PoolClient,s:Session,id:string,match:string,destination:string,signal:AbortSignal){
+ async exportBoundedFile(c:PoolClient,s:Session,id:string,match:string,destination:string,signal:AbortSignal,onProgress?:(progress:NativeOexExportProgress)=>void){
   signal.throwIfAborted();const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
   if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
+  onProgress?.({phase:'preparing'});
   const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1');
   const inputs=new Map<string,()=>Promise<Uint8Array>>(),artworkInputs=new Map<string,Array<()=>Promise<Uint8Array>>>(),rights:unknown[]=[],previewRights:unknown[]=[],omitted:ImportedPreviewOmission[]=[];
   const add=(path:string,load:()=>Promise<Uint8Array>)=>{if(inputs.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');inputs.set(path,load);};
@@ -417,7 +419,16 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   for(const resource of footstepResourcesFor(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   const exhibition=portableOexSnapshot(withoutImportedPreviews(original,omitted,'bounded-file-v1'));checkOexProfile(exhibition,false,'bounded-file-v1');signal.throwIfAborted();
-  const result=await writeOexFile(exhibition,{paths:[...inputs.keys()],get:async path=>{signal.throwIfAborted();const load=inputs.get(path);if(!load)throw new ApiError(422,'OEX_PATH_CONFLICT');return load();}},destination,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}});
+  let supplied=0;
+  const result=await writeOexFile(exhibition,{paths:[...inputs.keys()],get:async path=>{
+   signal.throwIfAborted();
+   const load=inputs.get(path);if(!load)throw new ApiError(422,'OEX_PATH_CONFLICT');
+   // The sequential writer asks for the next payload only after the previous
+   // entry has passed its checks and been written to the private archive.
+   onProgress?.({phase:'packing',completedItems:supplied,totalItems:inputs.size});
+   const bytes=await load();supplied++;return bytes;
+  }},destination,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}});
+  onProgress?.({phase:'verifying'});
   // Return the completed file to its owner even on late cancellation: the
   // owner must first bind the created inode before checking signal/rights.
   const checkRights=()=>{if(rights.some(r=>!allowedRights(r,'export'))||previewRights.some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');};

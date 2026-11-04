@@ -13,12 +13,13 @@ const workspaceId='10000000-0000-4000-8000-000000000001',tenantId='20000000-0000
 const session={id:sessionId,tenantId,userId,role:'artist',expiresAt:'2099-01-01T00:00:00.000Z'} as Session;
 async function setup(options:{failCommit?:boolean;failProducer?:boolean;failAuth?:boolean;stale?:boolean;otherSession?:boolean;statusDifferent?:boolean;statusRoleChanged?:boolean}={}){
  const root=await mkdtemp(join(await realpath(tmpdir()),'exhibitos-selected-export-')),blobs=join(root,'blobs');await mkdir(blobs,{mode:0o700});const bytes=Buffer.from('synthetic bounded output'),events:string[]=[];let calls=0;
- const auth={request:vi.fn(async(_token:unknown,_tenant:unknown,_csrf:unknown,_mutate:unknown,work:(c:unknown,s:Session)=>Promise<unknown>)=>{calls++;events.push(`begin${calls}`);if(options.failAuth&&calls===1)throw new ApiError(403,'CSRF_REJECTED');const current=(options.otherSession&&calls===2||options.statusDifferent&&calls>=3)?{...session,id:'50000000-0000-4000-8000-000000000001'}:options.statusRoleChanged&&calls>=3?{...session,role:'admin' as const}:session;const value=await work({},current);if(options.failCommit&&calls===1)throw Error('COMMIT_FAILED');events.push(`commit${calls}`);return value;})} as unknown as Auth;
+ const authorize=vi.fn(async(_token:unknown,_tenant:unknown,_csrf:unknown,_mutate:unknown,work:(c:unknown,s:Session)=>Promise<unknown>)=>{calls++;events.push(`begin${calls}`);if(options.failAuth&&calls===1)throw new ApiError(403,'CSRF_REJECTED');const current=(options.otherSession&&calls===2||options.statusDifferent&&calls>=3)?{...session,id:'50000000-0000-4000-8000-000000000001'}:options.statusRoleChanged&&calls>=3?{...session,role:'admin' as const}:session;const value=await work({},current);if(options.failCommit&&calls===1)throw Error('COMMIT_FAILED');events.push(`commit${calls}`);return value;});
+ const auth={request:authorize,requestForExportPreparation:(token:unknown,tenant:unknown,csrf:unknown,work:(c:unknown,s:Session)=>Promise<unknown>)=>authorize(token,tenant,csrf,false,work)} as unknown as Auth;
  const oex={exportBoundedFile:vi.fn(async(_c:unknown,_s:unknown,_id:unknown,_match:unknown,path:string)=>{if(options.stale)throw new ApiError(412,'REMOTE_CONFLICT');await writeFile(path,bytes,{mode:0o600});if(options.failProducer)throw Error('PRODUCER_FAILED');return {bytes:bytes.length,omittedImported:[],checkRights:()=>{}};}),revalidateBoundedExport:vi.fn(async()=>()=>{})} as unknown as Oex;
  const context={workspaceId,tenantId,principalId:userId,assertDatabase:vi.fn(async()=>{})} as unknown as NativeLocalExportContext;
  const app=Fastify();app.setErrorHandler((error,_req,reply)=>reply.code(error instanceof ApiError?error.status:500).send({code:error instanceof ApiError?error.code:'INTERNAL_ERROR'}));registerNativeBoundedOexExport(app,{auth,config:{mode:'local'} as AuthConfig,context,blobRoot:blobs,oex,guard:()=>{},token:()=> 'test'});
  const request=(requestId=randomUUID())=>app.inject({method:'POST',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${workspaceId}/native-oex/export`,headers:{'if-match':'"studio-r1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'},payload:{requestId}});
- const status=(id:string,match='"studio-r1-'+ 'a'.repeat(64)+'"')=>app.inject({method:'GET',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${workspaceId}/native-oex/exports/${id}`,headers:{'if-match':match}});
+ const status=(id:string,match='"studio-r1-'+ 'a'.repeat(64)+'"',progress=false)=>app.inject({method:'GET',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${workspaceId}/native-oex/exports/${id}${progress?'/progress':''}`,headers:{'if-match':match}});
  return {root,stage:join(root,`native-oex-export-${workspaceId}`),app,request,status,bytes,events,oex};
 }
 it('sends only after both authentication transactions and returns the owned stage after response drain',async()=>{
@@ -87,4 +88,30 @@ it('publishes a same-session terminal receipt after a real local response has dr
   await vi.waitFor(async()=>{const status=await fetch(`${base}/exports/${operation}`,{headers:{'if-match':match}});expect(await status.json()).toEqual({operationId:operation,state:'complete',etag:match,bytes:x.bytes.length,sha256:createHash('sha256').update(x.bytes).digest('hex')});});
   await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});
  }finally{x.app.server.closeAllConnections();await x.app.close();await rm(x.root,{recursive:true,force:true});}
+});
+
+it('reports scoped in-flight progress without observing the terminal receipt',async()=>{
+ const x=await setup(),operation=randomUUID();
+ let entered!:()=>void,finish!:()=>void;
+ const started=new Promise<void>(resolve=>entered=resolve),gate=new Promise<void>(resolve=>finish=resolve);
+ vi.mocked(x.oex.exportBoundedFile).mockImplementationOnce(async(_c,_s,_id,_match,path,_signal,progress)=>{
+  progress?.({phase:'packing',completedItems:1,totalItems:3});entered();await gate;
+  await writeFile(path,x.bytes,{mode:0o600});progress?.({phase:'verifying'});
+  return {bytes:x.bytes.length,omittedImported:[],checkRights:()=>{}};
+ });
+ try{
+  const pending=Promise.resolve(x.request(operation));await started;
+  expect((await x.request()).statusCode).toBe(409);
+  const status=await x.status(operation,undefined,true);
+  expect(status.statusCode).toBe(200);expect(status.json()).toEqual({operationId:operation,state:'pending',progress:{phase:'packing',completedItems:1,totalItems:3}});
+  expect(status.headers['cache-control']).toBe('no-store');
+  expect((await x.status(operation,'"studio-r2-'+ 'b'.repeat(64)+'"',true)).statusCode).toBe(404);
+  expect((await x.status(randomUUID(),undefined,true)).statusCode).toBe(404);
+  finish();expect((await pending).statusCode).toBe(200);
+  await vi.waitFor(async()=>{await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});});
+  expect((await x.status(operation,undefined,true)).statusCode).toBe(404);
+  expect((await x.request()).statusCode).toBe(409);
+  expect((await x.status(operation)).json().state).toBe('complete');
+  expect((await x.request()).statusCode).toBe(200);
+ }finally{finish();await x.app.close();await rm(x.root,{recursive:true,force:true});}
 });

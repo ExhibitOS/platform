@@ -9,11 +9,11 @@ import type {PoolClient} from 'pg';
 import {Auth,ApiError,uuid,type AuthConfig,type Session} from './auth.ts';
 import type {NativeLocalExportContext} from './native-oex-provenance.ts';
 import {requiredMatch} from './studio.ts';
-import type {ImportedPreviewOmission,Oex} from './oex.ts';
+import type {ImportedPreviewOmission,NativeOexExportProgress,Oex} from './oex.ts';
 
 const MAX=512*1024*1024,RESERVE=1024*1024*1024;
 type Owned={stage:string;path:string;stageDev:bigint;stageIno:bigint;fileDev:bigint;fileIno:bigint;bytes:number;sha256:string;handle:Awaited<ReturnType<typeof open>>;mtimeNs:bigint;ctimeNs:bigint;omitted:ImportedPreviewOmission[];sessionId:string;role:string};
-type Receipt={operationId:string;tenantId:string;userId:string;sessionId:string;role:string;exhibitionId:string;etag:string;bytes:number;sha256:string;omitted:ImportedPreviewOmission[];state:'pending'|'complete'|'failed'|'uncertain';observed:boolean};
+type Receipt={operationId:string;tenantId:string;userId:string;sessionId:string;role:string;exhibitionId:string;etag:string;bytes:number;sha256:string;omitted:ImportedPreviewOmission[];state:'pending'|'complete'|'failed'|'uncertain';observed:boolean;progress?:NativeOexExportProgress};
 /** Local native owner only. The ordinary origin, cookie and CSRF checks are
  * supplied by the existing Auth instance; neither paths nor owner identity are
  * accepted from the request. An uncertain stage is never adopted. */
@@ -37,7 +37,7 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
     }
    };
    try{
-    owned=await auth.request(token(req),p.tenantId,csrf,true,async(c:PoolClient,s:Session)=>{
+    owned=await auth.requestForExportPreparation(token(req),p.tenantId,csrf,async(c:PoolClient,s:Session)=>{
      if(context.workspaceId!==context.workspaceId.toLowerCase()||s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(403,'FORBIDDEN');authEntered=true;
      if(latest){if(latest.operationId===requestId)throw new ApiError(409,'NATIVE_OEX_EXPORT_EXISTING');if(latest.state==='pending'||latest.state==='uncertain'||latest.sessionId===s.id&&latest.role===s.role&&!latest.observed)throw new ApiError(409,'NATIVE_OEX_EXPORT_BUSY');}
      receipt={operationId:requestId,tenantId:p.tenantId,userId:s.userId,sessionId:s.id,role:s.role,exhibitionId:p.id,etag:match,bytes:0,sha256:'',omitted:[],state:'pending',observed:false};latest=receipt;await context.assertDatabase(c);controller.signal.throwIfAborted();
@@ -46,7 +46,7 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
      const capacity=await statfs(parent,{bigint:true});if(capacity.bavail*capacity.bsize<BigInt(MAX+RESERVE))throw new ApiError(409,'NATIVE_OEX_EXPORT_CAPACITY');
      const directory=join(parent,`native-oex-export-${context.workspaceId}`);try{await mkdir(directory,{mode:0o700});}catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST'){uncertain=true;throw new ApiError(409,'NATIVE_OEX_EXPORT_BUSY');}throw error;}
      stage=directory;const ds=await lstat(directory,{bigint:true});stageDev=ds.dev;stageIno=ds.ino;if(!ds.isDirectory()||ds.isSymbolicLink()||ds.uid!==BigInt(process.getuid?.()??-1)||(ds.mode&0o077n)!==0n)throw Error('NATIVE_OEX_EXPORT_STAGE');
-     const path=join(directory,'archive.oex'),result=await oex.exportBoundedFile(c,s,p.id,match,path,controller.signal);
+     const path=join(directory,'archive.oex'),result=await oex.exportBoundedFile(c,s,p.id,match,path,controller.signal,progress=>{if(receipt)receipt.progress=progress;});
      const handle=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);opened=handle;
       const before=await handle.stat({bigint:true});if(!before.isFile()||before.nlink!==1n||before.uid!==BigInt(process.getuid?.()??-1)||(before.mode&0o077n)!==0n||before.size<1n||before.size>BigInt(MAX)||before.size!==BigInt(result.bytes))throw Error('NATIVE_OEX_EXPORT_FILE');
       knownFile={dev:before.dev,ino:before.ino};controller.signal.throwIfAborted();result.checkRights();
@@ -67,10 +67,28 @@ export function registerNativeBoundedOexExport(app:FastifyInstance,input:{auth:A
    }
   })();active.add(work);try{await work;}finally{active.delete(work);activeIds.delete(requestId);if(receipt)receipt.state=drained&&disposed?'complete':disposed?'failed':'uncertain';}return reply;
  });
+ type ReceiptParams={tenantId:string;id:string;operationId:string};
+ function checkReceipt(receipt:Receipt|undefined,p:ReceiptParams,match:string,s:Session):asserts receipt is Receipt {
+   if(!receipt||receipt!==latest||receipt.operationId!==p.operationId||receipt.tenantId!==p.tenantId||receipt.exhibitionId!==p.id||receipt.etag!==match||receipt.sessionId!==s.id||receipt.userId!==s.userId||receipt.role!==s.role||s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(404,'NATIVE_OEX_EXPORT_NOT_FOUND');
+ }
+ app.get('/api/v1/tenants/:tenantId/studio/exhibitions/:id/native-oex/exports/:operationId/progress',async(req,reply)=>{
+  guard(req,false);reply.header('cache-control','no-store');
+  const p=req.params as ReceiptParams;uuid(p.tenantId);uuid(p.id);uuid(p.operationId);
+  const match=requiredMatch(req.headers['if-match']),receipt=latest;
+  const result=await auth.request(token(req),p.tenantId,undefined,false,async(c,s)=>{
+   checkReceipt(receipt,p,match,s);
+   if(receipt.state!=='pending'||!receipt.progress)throw new ApiError(404,'NATIVE_OEX_EXPORT_NOT_FOUND');
+   await context.assertDatabase(c);
+   return {expiresAt:s.expiresAt,progress:receipt.progress};
+  });
+  if(receipt!==latest||receipt?.state!=='pending')throw new ApiError(404,'NATIVE_OEX_EXPORT_NOT_FOUND');
+  if(!Number.isFinite(Date.parse(result.expiresAt))||Date.now()>=Date.parse(result.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');
+  return {operationId:receipt.operationId,state:'pending',progress:result.progress};
+ });
  app.get('/api/v1/tenants/:tenantId/studio/exhibitions/:id/native-oex/exports/:operationId',async(req,reply)=>{
   guard(req,false);reply.header('cache-control','no-store');const p=req.params as {tenantId:string;id:string;operationId:string};uuid(p.tenantId);uuid(p.id);uuid(p.operationId);const match=requiredMatch(req.headers['if-match']),receipt=latest;
   const result=await auth.request(token(req),p.tenantId,undefined,false,async(c,s)=>{
-   if(!receipt||receipt!==latest||receipt.operationId!==p.operationId||receipt.tenantId!==p.tenantId||receipt.exhibitionId!==p.id||receipt.etag!==match||receipt.sessionId!==s.id||receipt.userId!==s.userId||receipt.role!==s.role||s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(404,'NATIVE_OEX_EXPORT_NOT_FOUND');
+   checkReceipt(receipt,p,match,s);
    await context.assertDatabase(c);const state=receipt.state;if(state==='complete'){try{const checkRights=await oex.revalidateBoundedExport(c,s,p.id,match,receipt.omitted);return {expiresAt:s.expiresAt,state,checkRights,denied:false};}catch(error){if(!(error instanceof ApiError)||!['REMOTE_CONFLICT','OEX_SOURCE_CHANGED','RIGHTS_DENIED','FORBIDDEN','COVER_IMAGE_RIGHTS_DENIED','COVER_IMAGE_APPROVAL_CHANGED','DRAFT_CORRUPT'].includes(error.code))throw error;return {expiresAt:s.expiresAt,state,denied:true};}}return {expiresAt:s.expiresAt,state,denied:false};
   });
   if(receipt!==latest||!receipt)throw new ApiError(404,'NATIVE_OEX_EXPORT_NOT_FOUND');if(!Number.isFinite(Date.parse(result.expiresAt))||Date.now()>=Date.parse(result.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');
