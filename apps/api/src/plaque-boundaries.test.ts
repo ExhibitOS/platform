@@ -43,10 +43,11 @@ test('room introduction is one bounded localized source across draft edits, OEX 
  expect(plaquesFor(cleared)).toEqual([roomPlaque]);
  expect(cleared.extensions?.[PLAQUE_NAMESPACE]).toEqual({version:1,plaques:[roomPlaque]});
  expect(roomPlaqueIntroductionFor(cleared,roomId)).toBeUndefined();
- const invalid={...candidate,extensions:{...candidate.extensions,[PLAQUE_NAMESPACE]:{version:2,plaques:[roomPlaque],roomIntroductions:{
+ const invalid=structuredClone(candidate);
+ invalid.extensions![PLAQUE_NAMESPACE]={version:2,plaques:[roomPlaque],roomIntroductions:{
   [roomId]:{text,translations:[{locale:'en',text:english},{locale:'EN',text:british}]},
   [crypto.randomUUID()]:{text},
- }}}};
+ }};
  expect(validateStudioPlaques(invalid).errors.map(e=>e.code).sort()).toEqual(['PLAQUE_REFERENCE','PLAQUE_SCHEMA']);
  expect(()=>checkOexProfile(invalid)).toThrow('OEX_PROFILE_INVALID');
 });
