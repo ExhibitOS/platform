@@ -34,7 +34,9 @@ it('does not let editable metadata replace immutable source rights or asset inve
  input.exhibition.artworks[0]!.rights.permissions.export=false;expect(()=>privateSeed(input,'a'.repeat(64))).toThrow();
 });
 it('uses the same reversible validated command state without changing the immutable source',()=>{
- const input=source(),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed),room=starterRoom(draft.candidate),placement=draft.candidate.placements.find(p=>p.roomId===room.id)!;
+ const input=source(),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed);
+ const [placement]=draft.candidate.placements;
+ if(!placement)throw Error('Expected a placed artwork in the reference exhibition');
  const original=structuredClone(input.exhibition),initial=createGeometryState(draft.candidate),{id,...value}=placement;
  const next=applyGeometryCommand(initial,{type:'set-placement',id,placement:{...value,transform:{...value.transform,position:[value.transform.position[0]+.1,value.transform.position[1],value.transform.position[2]]}}});
  checkPrivateCandidate(seed,next.present);expect(undoGeometry(next).present).toEqual(initial.present);expect(redoGeometry(undoGeometry(next)).present).toEqual(next.present);expect(input.exhibition).toEqual(original);
