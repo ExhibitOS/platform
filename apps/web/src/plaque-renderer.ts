@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
-import {plaquesFor,validateStudioPlaques,PLAQUE_LIMITS} from '@exhibitos/studio-contract';
+import {plaquesFor,validateStudioPlaques,PLAQUE_LIMITS,type StudioPlaque} from '@exhibitos/studio-contract';
 import {MemoryAssetCache} from './viewer/loading';
 import {plaqueFaceContent} from './plaque-content';
 const MIN_WIDTH=128,MIN_HEIGHT=64;
+const faceStyles={
+ exhibition:{background:null,heading:58,body:0,padding:20,gap:0},
+ room:{background:'#e5e1d5',heading:43,body:32,padding:22,gap:10},
+ artwork:{background:'#eeebe2',heading:43,body:35,padding:20,gap:10},
+} as const;
+type FaceStyle=(typeof faceStyles)[StudioPlaque['source']['kind']];
 function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
  const lines:string[]=[];
  for(const paragraph of text.split(/\r?\n/)){
@@ -16,7 +22,10 @@ function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
    if(line)lines.push(line);
    line='';
    for(const character of word){
-    if(line&&c.measureText(line+character).width>width){lines.push(line);line='';}
+    if(c.measureText(line+character).width>width){
+     if(!line||c.measureText(character).width>width)return undefined;
+     lines.push(line);line='';
+    }
     line+=character;
    }
   }
@@ -25,24 +34,32 @@ function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
  return lines;
 }
 
-function drawPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string;summary:string},scale:number,height:number){
- const padding=28*scale,width=456*scale,gap=14*scale;
+function drawPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string;summary:string},
+ style:FaceStyle,scale:number,width:number,height:number){
+ const padding=Math.min(style.padding*scale,width*.15),gap=style.gap*scale,measure=width-2*padding;
  // Preserve authored paragraph breaks at ordinary sizes. Densely formatted
  // legacy copy can reflow as a continuous paragraph before reducing further.
  const layouts=[
   {title,summary,ratios:[1,.875,.75,.625,.5,.375]},
-  {title:title.replace(/\s+/g,' '),summary:summary.replace(/\s+/g,' '),ratios:[.375,.3125,.25,.1875,.125]},
+  {title:title.replace(/\s+/g,' '),summary:summary.replace(/\s+/g,' '),ratios:[.375,.3125,.25,.1875,.125,.09375,.0625]},
  ];
  for(const layout of layouts)for(const ratio of layout.ratios){
-  const heading=36*scale*ratio,body=25*scale*ratio,headingStep=heading*1.25,bodyStep=body*1.3;
+  const heading=style.heading*scale*ratio,body=style.body*scale*ratio,headingStep=heading*1.25,bodyStep=body*1.3;
   const headingFont=`600 ${heading}px system-ui, sans-serif`,bodyFont=`${body}px system-ui, sans-serif`;
-  c.font=headingFont;const titleLines=wrapText(c,layout.title,width);
-  c.font=bodyFont;const bodyLines=wrapText(c,layout.summary,width);
+  c.font=headingFont;const titleLines=wrapText(c,layout.title,measure);
+  c.font=bodyFont;const bodyLines=wrapText(c,layout.summary,measure);
+  if(!titleLines||!bodyLines)continue;
   const space=bodyLines.length?gap:0,total=titleLines.length*headingStep+space+bodyLines.length*bodyStep;
   if(total>height-2*padding)continue;
   let y=(height-total)/2;
   c.font=headingFont;
-  for(const text of titleLines){c.fillText(text,padding,y+heading);y+=headingStep;}
+  for(const text of titleLines){
+   if(style.background===null){
+    c.strokeStyle='#eee9dd';c.lineWidth=2.4*scale;c.lineJoin='round';
+    c.strokeText(text,padding,y+heading);
+   }
+   c.fillText(text,padding,y+heading);y+=headingStep;
+  }
   y+=space;c.font=bodyFont;
   for(const text of bodyLines){c.fillText(text,padding,y+body);y+=bodyStep;}
   return;
@@ -60,17 +77,30 @@ export function installPlaques(three:typeof Three,document:Exhibition,rooms:Read
  const meshes:Three.Mesh<Three.PlaneGeometry,Three.MeshStandardMaterial>[]=[],failed=new Set<string>();let disposed=false;
  const touched=new Map<string,number>();let clock=0;
  const active=new Set<string>(),point=new three.Vector3(),forward=new three.Vector3(),cameraPoint=new three.Vector3(),projection=new three.Vector3(),normalMatrix=new three.Matrix3();
- const minimum:Entry[]=[];
+ const minimum:Entry[]=[],axis=new three.Vector3();
  const detach=()=>{for(const [index,mesh]of meshes.entries())mesh.material=minimum[index]?.material??far!;for(const id of active)cache.release(id);active.clear();};
  try{for(const p of rows){const room=rooms.get(p.roomId.toLowerCase());if(!room)throw Error('PLAQUE_REFERENCE');const mesh=new three.Mesh(geometry!,far!);mesh.position.fromArray(p.position);mesh.quaternion.fromArray(p.rotation);mesh.scale.set(p.dimensions.width,p.dimensions.height,1);mesh.userData.plaqueId=p.id;mesh.userData.exhibitosPlaque=true;meshes.push(mesh);room.add(mesh);}}
  catch(error){for(const mesh of meshes)mesh.removeFromParent();geometry?.dispose();far?.dispose();throw error;}
  const create=(index:number,width:number=PLAQUE_LIMITS.width,height:number=PLAQUE_LIMITS.height):Entry=>{
   const canvas=makeCanvas();let texture:Three.CanvasTexture|undefined,material:Three.MeshStandardMaterial|undefined;
-  try{canvas.width=width;canvas.height=height;const scale=width/PLAQUE_LIMITS.width;const c=canvas.getContext('2d');if(!c)throw Error('PLAQUE_CANVAS_UNAVAILABLE');
-   c.fillStyle='#f4f1e8';c.fillRect(0,0,canvas.width,canvas.height);c.fillStyle='#17352c';
-   drawPlaqueFace(c,plaqueFaceContent(document,rows[index]!),scale,canvas.height);
+  try{
+   canvas.width=width;canvas.height=height;
+   const c=canvas.getContext('2d');if(!c)throw Error('PLAQUE_CANVAS_UNAVAILABLE');
+   const plaque=rows[index]!,mesh=meshes[index]!,style=faceStyles[plaque.source.kind];
+   if(style.background!==null){c.fillStyle=style.background;c.fillRect(0,0,width,height);}
+   // Use the real plane axes to fit and draw in physical proportions. Keep the
+   // existing two texture sizes and cache budget even for wide title lettering.
+   mesh.updateWorldMatrix(true,false);
+   const worldWidth=axis.setFromMatrixColumn(mesh.matrixWorld,0).length();
+   const worldHeight=axis.setFromMatrixColumn(mesh.matrixWorld,1).length();
+   const stretch=worldWidth/worldHeight*height/width;
+   c.scale(1/stretch,1);c.fillStyle='#17352c';
+   drawPlaqueFace(c,plaqueFaceContent(document,plaque),style,width/PLAQUE_LIMITS.width,width*stretch,height);
    texture=new three.CanvasTexture(canvas);texture.colorSpace=three.SRGBColorSpace;texture.generateMipmaps=false;texture.minFilter=three.LinearFilter;texture.magFilter=three.LinearFilter;
-   material=new three.MeshStandardMaterial({map:texture,roughness:1,metalness:0});return {canvas,texture,material};
+   // The title is cutout lettering, so the existing opaque shadow receiver path
+   // still applies without blending or including the sign in the caster pass.
+   const lettering=style.background===null?{alphaTest:.2,alphaToCoverage:true}:{};
+   material=new three.MeshStandardMaterial({map:texture,roughness:1,metalness:0,...lettering});return {canvas,texture,material};
   }catch(error){material?.dispose();texture?.dispose();canvas.width=0;canvas.height=0;throw error;}
  };
  // The minimum never follows the near-detail distance/frustum LRU. All32 authored labels remain bounded.

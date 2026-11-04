@@ -6,7 +6,7 @@ import {ARTWORK_DETAILS_NAMESPACE,ENTRANCE_NAMESPACE,applyPlaqueCommand,applyRoo
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {plaqueContent,plaqueFaceContent} from './plaque-content';
 function fixture(count=5){let d=newDraft().candidate;const room=d.rooms[0]!;room.transform={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]};for(let i=0;i<count;i++)d=applyPlaqueCommand(d,{type:'add-plaque',plaque:{id:crypto.randomUUID(),roomId:room.id,source:{kind:'exhibition'},position:[i*.1,1.5,0],rotation:[0,0,0,1],dimensions:{width:.5,height:.3},visible:true}});const parent=new Three.Group();return {d,parent,rooms:new Map([[room.id.toLowerCase(),parent]])};}
-function fakeCanvas(){return {width:0,height:0,getContext:()=>({fillRect:vi.fn(),fillText:vi.fn(),measureText:(s:string)=>({width:Array.from(s).length*12})})} as unknown as HTMLCanvasElement;}
+function fakeCanvas(){return {width:0,height:0,getContext:()=>({fillRect:vi.fn(),fillText:vi.fn(),strokeText:vi.fn(),scale:vi.fn(),measureText:(s:string)=>({width:Array.from(s).length*12})})} as unknown as HTMLCanvasElement;}
 function camera(z:number){const c=new Three.PerspectiveCamera(60,1,.01,100);c.position.set(0,1.5,z);c.lookAt(0,1.5,0);c.updateMatrixWorld();return c;}
 test('plaque cap/reserve, no mipmaps, near detail plus persistent far text and teardown bound GPU and CPU resources',()=>{
  const {d,rooms,parent}=fixture(),canvases:HTMLCanvasElement[]=[];const p=installPlaques(Three,d,rooms,true,()=>{const c=fakeCanvas();canvases.push(c);return c;});expect(plaqueTextureReserve(d,true)).toBe(2097152+5*128*64*4*2);p.update(camera(3));expect(p.stats()).toMatchObject({entries:2,bytes:1048576,pinned:2,visible:5,cpuCanvasBytes:1048576+5*128*64*4});
@@ -28,8 +28,9 @@ test('a physical plaque uses the localized display title and intentional line br
  const draws:Array<{line:string;x:number;y:number;w:number;width:number;height:number}>=[];
  const make=()=>{
   const canvas={width:0,height:0,getContext:()=>context};
-  const context={font:'',fillRect:vi.fn(),measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
-   fillText:(line:string,x:number,y:number)=>draws.push({line,x,y,w:context.measureText(line).width,width:canvas.width,height:canvas.height})};
+  let xScale=1;
+  const context={font:'',fillRect:vi.fn(),strokeText:vi.fn(),scale:(x:number)=>{xScale=x;},measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
+   fillText:(line:string,x:number,y:number)=>draws.push({line,x:x*xScale,y,w:context.measureText(line).width*xScale,width:canvas.width,height:canvas.height})};
   return canvas as unknown as HTMLCanvasElement;
  };
  const runtime=installPlaques(Three,d,rooms,false,make);
@@ -68,7 +69,7 @@ test('dense valid room copy reflows without losing its introduction on either te
  const rows=new Map<number,string[]>();
  const make=()=>{
   const canvas={width:0,height:0,getContext:()=>context};
-  const context={font:'',fillRect:vi.fn(),measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
+  const context={font:'',fillRect:vi.fn(),scale:vi.fn(),measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
    fillText:(line:string)=>{const lines=rows.get(canvas.width)??[];lines.push(line);rows.set(canvas.width,lines);}};
   return canvas as unknown as HTMLCanvasElement;
  };
@@ -77,5 +78,29 @@ test('dense valid room copy reflows without losing its introduction on either te
   runtime.update(camera(3));
   expect([...rows.keys()]).toEqual([128,512]);
   for(const lines of rows.values())expect(lines.join(' ').replace(/\s/g,'')).toBe((doc.rooms[0]!.name+introduction).replace(/\s/g,''));
+ }finally{runtime.dispose();}
+});
+
+test('title lettering and room plaques use authored proportions without growing textures',()=>{
+ const {d,rooms}=fixture(2),[title,room]=plaquesFor(d);
+ const sized=applyPlaqueCommand(d,{type:'set-plaque',plaque:{...title!,dimensions:{width:1.42,height:.46}}});
+ const doc=applyPlaqueCommand(sized,{type:'set-plaque',plaque:{...room!,source:{kind:'room'},dimensions:{width:.9,height:.37}}});
+ const contexts:ReturnType<typeof context>[]=[];
+ function context(){
+  return {scale:vi.fn(),strokeText:vi.fn(),fillText:vi.fn(),fillRect:vi.fn(),measureText:(line:string)=>({width:line.length*12})};
+ }
+ const runtime=installPlaques(Three,doc,rooms,true,()=>{
+  const ctx=context();contexts.push(ctx);
+  return {getContext:()=>ctx} as unknown as HTMLCanvasElement;
+ });
+ try{
+  expect(contexts[0]!.scale.mock.calls[0]![0]).toBeCloseTo(2*.46/1.42);
+  expect(contexts[1]!.scale.mock.calls[0]![0]).toBeCloseTo(2*.37/.9);
+  expect(contexts[0]!.fillRect).not.toHaveBeenCalled();
+  expect(contexts[0]!.strokeText).toHaveBeenCalled();
+  expect(contexts[1]!.fillRect).toHaveBeenCalledOnce();
+  expect(runtime.meshes[0]!.material).toMatchObject({alphaTest:.2,transparent:false});
+  expect(runtime.meshes[1]!.material.alphaTest).toBe(0);
+  expect(runtime.stats().minimumBytes).toBe(2*128*64*4);
  }finally{runtime.dispose();}
 });
