@@ -81,15 +81,23 @@ export class Auth {
    });
   } finally { this.runningKdf--; }
  }
- async request<T>(token: string|undefined, tenantId: string|undefined, csrf: string|undefined, mutate: boolean, work: (client:PoolClient,session:Session)=>Promise<T>) {
+ request<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mutate:boolean,work:(client:PoolClient,session:Session)=>Promise<T>){
+  return this.authorizedRequest(token,tenantId,csrf,mutate?'write':'read',work);
+ }
+ /** CSRF-protected export preparation reads DB state under its existing row
+  * and maintenance locks. Keep authorization stable while allowing status reads. */
+ requestForExportPreparation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
+  return this.authorizedRequest(token,tenantId,csrf,'export-preparation',work);
+ }
+ private async authorizedRequest<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mode:'read'|'write'|'export-preparation',work:(client:PoolClient,session:Session)=>Promise<T>){
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new ApiError(401,'AUTH_REQUIRED');
   return transaction(this.pool, async client => {
-   await client.query(`SELECT pg_advisory_xact_lock${mutate ? '' : '_shared'}(82003)`);
-   if(mutate) await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
+   await client.query(`SELECT pg_advisory_xact_lock${mode==='write' ? '' : '_shared'}(82003)`);
+   if(mode!=='read') await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
    const result = await client.query('SELECT s.*,m.role FROM auth_sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(s.tenant_id,s.user_id) JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND NOT s.revoked AND s.expires_at>now() AND NOT u.disabled AND t.deleted_at IS NULL',[digest(token)]);
    const row = result.rows[0]; if (!row) throw new ApiError(401,'AUTH_REQUIRED');
    if (tenantId && tenantId !== row.tenant_id) throw new ApiError(403,'FORBIDDEN');
-   if (mutate && (!csrf || !timingSafeEqual(Buffer.from(digest(csrf)),Buffer.from(row.csrf_hash)))) throw new ApiError(403,'CSRF_REJECTED');
+   if (mode!=='read' && (!csrf || !timingSafeEqual(Buffer.from(digest(csrf)),Buffer.from(row.csrf_hash)))) throw new ApiError(403,'CSRF_REJECTED');
    const session:Session={id:row.id,userId:row.user_id,tenantId:row.tenant_id,role:row.role,csrfToken:row.csrf_token,expiresAt:row.expires_at.toISOString()};
    try { return await work(client,session); } catch(error) { if (error instanceof AccessDenied) throw new ApiError(403,'FORBIDDEN'); throw error; }
   });
