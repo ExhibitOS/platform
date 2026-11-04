@@ -287,8 +287,12 @@ main.publication-shell .publication-plaque-detail{display:block;margin-top:.15re
   padding: .5rem .75rem;
   border-radius: .5rem;
   background: var(--publication-paper, #f8fbfc);
+  background: color-mix(in srgb, var(--publication-paper, #f8fbfc) 92%, transparent);
   color: var(--publication-ink, #182d32);
   font-size: .875rem;
 }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .viewer-artwork-notice[data-state] { background: var(--publication-paper, #f8fbfc); }
+}
+.publication-high-contrast .viewer-artwork-notice[data-state] { background: var(--publication-paper, #f8fbfc); }
 .viewer-artwork-notice p { margin: 0; }
-.viewer-artwork-notice button { min-height: 44px; margin-top: .25rem; pointer-events: auto; }
