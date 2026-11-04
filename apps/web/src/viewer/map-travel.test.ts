@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {createMapTravel,type MapTravelState,type MapVisit} from './map-travel';
+import {BENCH_NAMESPACE,PRESENTATION_NAMESPACE} from '@exhibitos/studio-contract';
+import {newDraft} from '../drafts/example';
+import {createMapTravel,mapStandingDestinations,type MapTravelState,type MapVisit} from './map-travel';
 import type {VisitorMap} from './visitor-map';
 const map:VisitorMap={key:'published/a',rooms:[{id:'Room',name:'Room',outline:[]}],doors:[],placements:[{id:'Painting',roomId:'Room',title:'Painting',artworkType:'image',point:[0,0]}],bounds:{x:0,z:0,width:1,depth:1}};
 const destinations=[{id:'View',roomId:'Room',name:'Authored position'}];
@@ -25,4 +27,23 @@ it('cancel, replacement and disposal abort pending work; late results cannot rep
 it('reports a blocked visit when existing readiness or clearance refuses, without retrying or fabricating a destination',async()=>{
  const changed=vi.fn(),visit=vi.fn(async()=>false),travel=createMapTravel(map,destinations,()=>({visit}),changed);
  expect(await travel.go({kind:'room',id:'Room'},'View')).toBe(false);expect(visit).toHaveBeenCalledOnce();expect(changed.mock.lastCall![0].status).toBe('blocked');
+});
+
+it('offers standing views while keeping bench viewpoints out of walking requests',async()=>{
+ const exhibition=newDraft().candidate;
+ const roomId=exhibition.rooms[0]!.id;
+ const seated={id:crypto.randomUUID(),roomId,name:'Bench seat',position:[0,1.2,2],target:[0,1.2,0],fov:50};
+ const standing={...seated,id:crypto.randomUUID(),name:'Standing view',position:[1.5,1.65,2]};
+ const bench={id:crypto.randomUUID(),name:'Bench',roomId,viewpointId:seated.id.toUpperCase(),kind:'slab',position:[0,0,2],yaw:0,dimensions:{width:1.5,height:.45,depth:.6},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0}};
+ exhibition.extensions={...exhibition.extensions,[BENCH_NAMESPACE]:{version:1,benches:[bench]},[PRESENTATION_NAMESPACE]:{version:1,credits:'',viewpoints:[seated]}};
+ expect(mapStandingDestinations(exhibition)).toEqual([]);
+ exhibition.extensions[PRESENTATION_NAMESPACE]={version:1,credits:'',viewpoints:[seated,standing]};
+ const choices=mapStandingDestinations(exhibition);
+ expect(choices).toEqual([{id:standing.id,roomId,name:standing.name}]);
+ const visit=vi.fn(async()=>true);
+ const travel=createMapTravel({...map,rooms:[{...map.rooms[0]!,id:roomId}]},choices,()=>({visit}),vi.fn());
+ expect(await travel.go({kind:'room',id:roomId},seated.id)).toBe(false);
+ expect(visit).not.toHaveBeenCalled();
+ expect(await travel.go({kind:'room',id:roomId},standing.id)).toBe(true);
+ expect(visit).toHaveBeenCalledOnce();
 });

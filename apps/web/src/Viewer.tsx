@@ -27,7 +27,7 @@ import { ViewerInputGuide, resolveViewerInputMode, type ViewerInputMode,type Hin
 import {VisitorMap} from './viewer/VisitorMap';
 import {buildVisitorMap} from './viewer/visitor-map';
 import {createMapPoseSource} from './viewer/map-pose';
-import {createMapTravel,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
+import {createMapTravel,mapStandingDestinations,type MapTravelBridge,type MapTravelState} from './viewer/map-travel';
 import {mapThumbnailItems,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {savePrivateView,type PrivateView} from './viewer/private-view';
 import type {ViewingRenderer} from './viewer/viewing-session';
@@ -124,7 +124,7 @@ export function Viewer({
   const mapPoseSource=useMemo(()=>createMapPoseSource(publication.publication.id.toLowerCase()+'/'+publication.publication.revisionSha256),[publication.publication.id,publication.publication.revisionSha256]);
   useEffect(()=>()=>mapPoseSource.clear(),[mapPoseSource]);
   const [mapTravelState,setMapTravelState]=useState<MapTravelState>({status:'idle',message:''});
-  const mapDestinations=useMemo(()=>presentationFor(publication.exhibition).viewpoints.map(({id,roomId,name})=>({id,roomId,name})),[publication]);
+  const mapDestinations=useMemo(()=>mapStandingDestinations(publication.exhibition),[publication]);
   const [mapThumbnail,setMapThumbnail]=useState<MapThumbnailSnapshot|null>(null);
   const receiveMapThumbnail=useCallback((value:typeof mapThumbnail)=>setMapThumbnail(value),[]);
   const mapPreviews=useMemo(()=>{const generated=mapThumbnailItems(mapThumbnail,publication.publication);return Object.fromEntries(publication.exhibition.placements.map(p=>[p.id,{description:publication.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.description?.slice(0,240),thumbnail:artworkThumbnails[p.artworkRevisionId.toLowerCase()]??generated.find(item=>item.placementId===p.id)?.thumbnail}]));},[publication,mapThumbnail,artworkThumbnails]);

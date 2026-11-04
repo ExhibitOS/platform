@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {Exhibition} from '@exhibitos/spec';
+import {benchesFor,presentationFor} from '@exhibitos/studio-contract';
 import type {MapTarget,VisitorMap} from './visitor-map';
 export interface MapDestination {id:string;roomId:string;name:string}
 export interface MapTravelState {status:'idle'|'preparing'|'blocked';message:string;pendingViewpointId?:string}
 export interface MapVisit {roomId:string;viewpointId:string;placementId?:string}
 export interface MapTravelBridge {visit(request:MapVisit,signal:AbortSignal):Promise<boolean>}
 const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
+/** Bench viewpoints belong to seated viewing. Map travel uses the standing camera. */
+export function mapStandingDestinations(exhibition:Exhibition):MapDestination[] {
+ const seats=new Set(benchesFor(exhibition).map(bench=>bench.viewpointId.toLowerCase()));
+ return presentationFor(exhibition).viewpoints
+  .filter(viewpoint=>!seats.has(viewpoint.id.toLowerCase()))
+  .map(({id,roomId,name})=>({id,roomId,name}));
+}
 /** One explicit map request. Shared loading and the existing camera owner make
  * the final readiness/clearance decision; this adapter never stores a pose.
  */
