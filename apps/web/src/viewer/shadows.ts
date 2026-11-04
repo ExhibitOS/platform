@@ -122,12 +122,15 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(!selected){renderer.shadowMap.enabled=false;emit('unavailable');return;}
     const meshes:THREE.Mesh[]=[],receivers:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
     selected.room.traverseVisible(node=>{
-      if(!(node instanceof three.Mesh)||node.userData.exhibitosLightFixture===true||node.userData.exhibitosPlaque===true||!capture?.intersectsBox(new three.Box3().setFromObject(node)))return;
+      if(!(node instanceof three.Mesh)||node.userData.exhibitosLightFixture===true||!capture?.intersectsBox(new three.Box3().setFromObject(node)))return;
       const materials=Array.isArray(node.material)?node.material:[node.material];
       // Transparent editor shells and annotation overlays must not become opaque blockers.
       if(materials.some(material=>material.transparent||!material.depthTest))return;
+      receivers.push(node);
+      // Plaques follow the light falling on the wall without blocking it.
+      if(node.userData.exhibitosPlaque===true)return;
       const instances=node instanceof three.InstancedMesh?(Number.isSafeInteger(node.count)&&node.count>=0?node.count:Infinity):1;
-      receivers.push(node);const cost=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
+      const cost=(node.geometry.index?.count??node.geometry.getAttribute('position')?.count??0)/3*instances;
       if(!Number.isSafeInteger(cost)||cost<1||meshes.length>=64||triangles+cost>100000){omittedCasters++;return;}
       meshes.push(node);triangles+=cost;
     });

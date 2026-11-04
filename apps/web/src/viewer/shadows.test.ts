@@ -20,6 +20,29 @@ test('compact and insufficient reserve allocate no shadow and retain material me
 test('light fixture bodies do not consume or cast the existing bounded shadow pass',()=>{
   const h=setup(),fixture=new three.Mesh(new three.BoxGeometry(.1,.1,.2),new three.MeshStandardMaterial());fixture.userData.exhibitosLightFixture=true;h.room.add(fixture);h.pass.flush();expect(h.reports.at(-1)?.casters).toBe(1);expect(fixture.castShadow).toBe(false);expect(fixture.receiveShadow).toBe(false);h.pass.dispose();fixture.geometry.dispose();(fixture.material as three.Material).dispose();
 });
+test('an authored plaque receives only the existing room shadow and restores its flags',()=>{
+  const plaque=new three.Mesh(new three.PlaneGeometry(.9,.37),new three.MeshStandardMaterial());
+  plaque.userData.exhibitosPlaque=true;
+  const h=setup();
+  h.room.add(plaque);
+  const before=plaque.onBeforeShadow,material=plaque.material;
+  h.pass.flush();
+  expect(h.reports.at(-1)).toMatchObject({mode:'bounded',mapSize:512,casters:1,triangles:12,omittedCasters:0});
+  expect(plaque.receiveShadow).toBe(true);
+  expect(plaque.castShadow).toBe(false);
+  expect(plaque.onBeforeShadow).toBe(before);
+  expect(plaque.material).toBe(material);
+  h.pass.dispose();
+  expect(plaque.receiveShadow).toBe(false);
+  const compact=setup(true);
+  compact.room.add(plaque);
+  compact.pass.flush();
+  expect(compact.reports.at(-1)).toMatchObject({mode:'compact',mapSize:0,casters:0});
+  expect(plaque.receiveShadow).toBe(false);
+  compact.pass.dispose();
+  plaque.geometry.dispose();
+  material.dispose();
+});
 test('PCF receiver bias follows fitted world footprint without changing map budget or caster policy',()=>{
   const h=setup();h.mesh.geometry=new three.PlaneGeometry(8,8);h.mesh.rotation.x=-Math.PI/2;h.mesh.material.side=three.DoubleSide;
   const material=h.mesh.material,geometry=h.mesh.geometry,authored=h.light.position.clone();h.pass.flush();
