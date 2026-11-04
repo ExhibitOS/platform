@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://exhibitos.org/platform/viewer/lod/v1",
   "title": "ExhibitOS optional Viewer LOD extension version 1",
-  "description": "Structural contract for org.exhibitos.viewer/lod. Shared semantic validation additionally requires exactly one full primary asset, at most one coarse asset, case-insensitive unique inventory references with supported role/MIME, matching detail metric, reduced coarse detail and byte count, and maximum 4 KiB serialized extension. The explicit near-texture-pair profile retains equal geometry and both metrics, reduces only texture detail and actual bytes, and requires strict actual channel-sampling qualification. It does not imply compact geometry or device admission.",
+  "description": "Structural contract for org.exhibitos.viewer/lod. Shared semantic validation additionally requires exactly one full primary asset, at most one coarse asset, case-insensitive unique inventory references with supported role/MIME, matching detail metric, reduced coarse detail and byte count, and maximum 4 KiB serialized extension. The explicit near-texture-pair profile retains equal geometry and both metrics, reduces only texture detail and actual bytes, and requires strict actual channel-sampling qualification. The near-geometry-pair profile requires reduced geometry and textures, strict tuple and channel-sampling qualification, and measured full and coarse bounds. Device admission remains separate.",
   "oneOf": [
     {
       "type": "object",
@@ -91,7 +91,10 @@
           "const": 1
         },
         "profile": {
-          "const": "exhibitos-near-texture-pair-v1"
+          "enum": [
+            "exhibitos-near-texture-pair-v1",
+            "exhibitos-near-geometry-pair-v1"
+          ]
         },
         "variants": {
           "type": "array",

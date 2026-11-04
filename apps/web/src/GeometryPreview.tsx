@@ -49,7 +49,7 @@ import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
 import type { ScriptScene } from "./viewer/scripting";
 import type { GuideRequest } from "./GuidedRoutes";
-import { useEffect, useRef, useState, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import {
   AssetScheduler, minimumDetailPending, minimumRoomInterest, minimumFootprintVisible,
   MemoryAssetCache,
@@ -375,9 +375,24 @@ export function GeometryPreview({
   const snapshotFrameToken=useRef(cameraFrameToken);snapshotFrameToken.current=cameraFrameToken;
   const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
   const qualityRebuildReady=useRef(false);
+  const qualityIntent=useRef({scope:qualityScope,budget:viewerBudget});
+  qualityIntent.current={scope:qualityScope,budget:viewerBudget};
+  const qualityFrame=useRef<{scope:typeof qualityScope;canvas:HTMLCanvasElement;timer:number;visibleWorks:string[]}|null>(null);
+  const clearQualityFrame=useCallback(()=>{
+    const frame=qualityFrame.current;
+    if(!frame)return;
+    qualityFrame.current=null;
+    window.clearTimeout(frame.timer);
+    frame.canvas.remove();
+    frame.canvas.width=0;
+    frame.canvas.height=0;
+  },[]);
+  useEffect(()=>clearQualityFrame,[clearQualityFrame]);
   useEffect(() => {
     const document=sceneDocument;
     qualityRebuildReady.current=false;
+    if(qualityFrame.current?.scope!==qualityScope)clearQualityFrame();
+    let preserveQualityFrame=()=>{};
     const abort = new AbortController();
     sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
     viewingStyleRef.current='free';setViewingStyle('free');viewingCallback.current?.(null);
@@ -460,6 +475,9 @@ export function GeometryPreview({
       const suppliedThumbnailReserve=viewerBudget&&publicThumbnailCount?publicThumbnailReserve(publicThumbnailCount):0;
       const retainedMaterialBytes=publicSource?.retainedMaterialBytes??0;
       if(!Number.isSafeInteger(retainedMaterialBytes)||retainedMaterialBytes<0)throw Error('MATERIAL_SOURCE_BUDGET');
+      // The bounded 2D frame belongs only to this rebuild. The old WebGL
+      // renderer and its allocations are still disposed before the new build.
+      let qualityFrameReserve=qualityFrame.current?1024*1024:0;
       const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
       const beforeBench=beforeSnapshot;
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
@@ -474,19 +492,22 @@ export function GeometryPreview({
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
-      let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes-snapshotReserve);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes-snapshotReserve-qualityFrameReserve);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
-      const releaseMaterialLoadHold=(kind:'floor'|'surface')=>{
-        if(disposed||gpuLost)return;
-        if(kind==='floor')floorSettled=true;else surfaceSettled=true;
+      const refreshAssetLimits=()=>{
         const materialBytes=materialPhaseBytes(floorPlan,floorSettled)+materialPhaseBytes(surfacePlan,surfaceSettled);
-        assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
+        assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve-qualityFrameReserve);
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
         growAssetLimits();
+      };
+      const releaseMaterialLoadHold=(kind:'floor'|'surface')=>{
+        if(disposed||gpuLost)return;
+        if(kind==='floor')floorSettled=true;else surfaceSettled=true;
+        refreshAssetLimits();
       };
       const scene = new three.Scene();
       scene.background = new three.Color("#e9e9e1");
@@ -940,6 +961,7 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        clearQualityFrame();
         mapThumbnailRefresh.current?.();
         sculptureOrbitRuntime.current?.actions.stop();
         mapCallbacks.current.onMapReady?.(null);
@@ -1851,6 +1873,23 @@ export function GeometryPreview({
         });
         let publicThumbnailTask:string|undefined;
         const cancelPublicThumbnail=()=>{if(publicThumbnailTask){scheduler.cancel(publicThumbnailTask);publicThumbnailTask=undefined;}};
+        preserveQualityFrame=()=>{
+          const live=renderer.domElement,stage=live.parentElement?.parentElement;
+          if(!stage||gpuLost||!live.width||!live.height||qualityFrame.current)return;
+          const visibleWorks=[...active.keys()].filter(id=>observedVisible.get(id)===true);
+          if(!visibleWorks.length)return;
+          const frame=live.ownerDocument.createElement('canvas');
+          const scale=Math.min(1,512/Math.max(live.width,live.height));
+          frame.width=Math.max(1,Math.floor(live.width*scale));
+          frame.height=Math.max(1,Math.floor(live.height*scale));
+          const context=frame.getContext('2d');
+          if(!context)return;
+          try{context.drawImage(live,0,0,frame.width,frame.height);}catch{return;}
+          frame.className='geometry-quality-frame';
+          frame.setAttribute('aria-hidden','true');
+          stage.insertBefore(frame,live.parentElement?.nextSibling??null);
+          qualityFrame.current={scope:qualityScope,canvas:frame,timer:window.setTimeout(clearQualityFrame,8000),visibleWorks};
+        };
         const update = () => {
           if (disposed || gpuLost) return;
           const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
@@ -1873,6 +1912,12 @@ export function GeometryPreview({
           const loaded = ordered.filter((p) =>
             active.has(p.artworkRevisionId),
           ).length;
+          const previous=qualityFrame.current;
+          if(previous?.visibleWorks.every(id=>active.has(id)||failed.has(id)||minimumBlocked.has(id)))clearQualityFrame();
+          if(qualityFrameReserve&&!qualityFrame.current){
+            qualityFrameReserve=0;
+            refreshAssetLimits();
+          }
           setAssetReport(previous=>previous.loaded===loaded&&previous.failed===failed.size?previous:{loaded,failed:failed.size});
           mapThumbnail.refresh();
           renderer.domElement.dataset.viewerState = JSON.stringify({
@@ -2500,7 +2545,7 @@ export function GeometryPreview({
       }
     };
     void build().catch((error) => {
-      if(!disposed){setReady(false);setBuildFailed(true);}
+      if(!disposed){clearQualityFrame();setReady(false);setBuildFailed(true);}
       if (!disposed) setPublicMessage(error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
         ? "이 전시의 공간이 표시 한도를 넘었어요. 작품 목록에서 감상해 주세요."
         : "3D 화면을 표시하지 못했어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.");
@@ -2516,6 +2561,8 @@ export function GeometryPreview({
     return () => {
       navigationCallbacks.current.onPresenceSceneReady?.(null);
       navigationCallbacks.current.onScriptSceneReady?.(null);
+      const next=qualityIntent.current;
+      if(immersive&&publicSource&&viewerBudget&&next.scope===qualityScope&&next.budget&&next.budget!==viewerBudget&&!xrActive.current&&!seatedBenchRef.current&&viewingStyleRef.current==='free'&&!sharedDetail)preserveQualityFrame();
       disposed = true;
       resizeAction.current = null;
       abort.abort();
@@ -2535,6 +2582,8 @@ export function GeometryPreview({
     immersive,
     fillHost,
     snapshotEnabled,
+    qualityScope,
+    clearQualityFrame,
   ]);
   const ControlsFrame = immersive || compactControls ? "details" : "div";
   return (

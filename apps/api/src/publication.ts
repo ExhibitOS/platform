@@ -31,12 +31,12 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { transaction, sha256, type BlobStore } from "@exhibitos/storage";
 import { validateExhibition, revisionHash, type Artwork, type Exhibition } from "@exhibitos/spec";
-import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, NEAR_TEXTURE_PAIR_PROFILE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
+import { DAYLIGHT_NAMESPACE, TEMPLATE_NAMESPACE, validateViewerCuration, curationDurationValid, CURATION_NAMESPACE, validateArchitecture, MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, validateViewerLod, LOD_NAMESPACE, NEAR_GEOMETRY_PAIR_PROFILE, NEAR_TEXTURE_PAIR_PROFILE, EXPERIENCE_NAMESPACE, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, validateArtworkDetails } from "@exhibitos/studio-contract";
 import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
-import { qualifyApprovedTexturedPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
+import { qualifyApprovedTexturedPair, qualifyApprovedNearGeometryPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
 import { Audio, audioMedia, validatePcmWav, type MediaAsset } from "./audio.ts";
 import {CoverImages,coverImageAsset} from './cover-images.ts';
 import {SPACE_STILL_NAMESPACE,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
@@ -368,7 +368,7 @@ export class Publications {
                 } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision,displayWatermark) as {bytes:Buffer;mime:"model/gltf-binary"};
                 // Unsupported/nonreducing simplification remains an honest full-only fallback.
                 const fullMetric=measureFullVariant(result.bytes,result.mime);
-                const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {profile?:typeof NEAR_TEXTURE_PAIR_PROFILE;variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
+                const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {profile?:GeneratedVariants['profile'];variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
                 if(lod&&!validateViewerLod(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
                 const low=lod?.variants.find(v=>v.detail==='coarse'),high=lod?.variants.find(v=>v.detail==='full');
                 const generated:GeneratedVariants=exactModel||(low&&high&&result.mime==='image/png')?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
@@ -397,14 +397,17 @@ export class Publications {
                     if(!full.bytes.equals(result.bytes))throw new ApiError(409,'ASSET_INTEGRITY');
                     try {
                         const textureOnly=lod?.profile===NEAR_TEXTURE_PAIR_PROFILE;
+                        const nearGeometry=lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE;
                         if(textureOnly)qualifyApprovedTextureDerivativePair(full.original,coarse.original,{triangles:high.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
+                        else if(nearGeometry)qualifyApprovedNearGeometryPair(full.original,coarse.original,{fullTriangles:high.triangles!,coarseTriangles:low.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
                         else qualifyApprovedTexturedPair(full.original,coarse.original,high.triangles!,low.triangles!);
                         const coarseMetric=measureFullVariant(coarse.bytes,coarse.mime);
                         if(!coarseMetric.triangles||!fullMetric.triangles||(textureOnly?coarseMetric.triangles!==fullMetric.triangles:coarseMetric.triangles>=fullMetric.triangles)||coarse.bytes.length>=result.bytes.length)throw Error('APPROVED_LOD_UNSUPPORTED');
-                        variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes,...(textureOnly?{profile:NEAR_TEXTURE_PAIR_PROFILE}:{})};
+                        if(nearGeometry&&(fullMetric.triangles!==high.triangles||coarseMetric.triangles!==low.triangles||fullMetric.textureSize!==high.textureSize||coarseMetric.textureSize!==low.textureSize))throw Error('APPROVED_LOD_INVALID');
+                        variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes,...(lod?.profile?{profile:lod.profile}:{})};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
-                    }catch(error){if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
+                    }catch(error){if(lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE||!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
                     // Reobserve the entire immutable imported inventory after both decoders.
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full.original)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse.original))throw new ApiError(409,'ASSET_INTEGRITY');
