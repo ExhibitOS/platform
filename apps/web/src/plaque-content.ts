@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {creationYearFor,entranceFor,roomPlaqueIntroductionFor,type StudioPlaque} from '@exhibitos/studio-contract';
+import {artworkPlaqueCaptionFor,creationYearFor,entranceFor,roomPlaqueIntroductionFor,type StudioPlaque} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 /** Display text is derived per admitted scene; no second authored text store. */
 export function plaqueContent(document:Exhibition,plaque:StudioPlaque){
@@ -16,7 +16,7 @@ function plaqueArtwork(document:Exhibition,placementId:string){
 
 /** Physical signs use concise authored display text. The existing reading
  * controls keep their independent exhibition, room and artwork details. */
-export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque){
+export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque,locale=globalThis.window?.navigator.language||'ko'){
  const content=plaqueContent(document,plaque);
  if(plaque.source.kind==='exhibition'){
   const translations=entranceFor(document).design?.translations??[];
@@ -24,6 +24,7 @@ export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque){
   return {title:korean?.title?.trim()||content.title,summary:''};
  }
  if(plaque.source.kind==='room')return {title:content.title,summary:roomPlaqueIntroductionFor(document,plaque.roomId,'ko')??''};
+ const caption=artworkPlaqueCaptionFor(plaque,locale);
  const year=creationYearFor(plaqueArtwork(document,plaque.source.placementId));
- return {title:content.title,summary:[content.summary,year===undefined?'':String(year)].filter(Boolean).join(' · ')};
+ return {title:content.title,summary:[caption?.artist??content.summary,caption?.date??(year===undefined?'':String(year))].filter(Boolean).join(' · ')};
 }

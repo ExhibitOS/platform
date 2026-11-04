@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useMemo, useRef, useState } from "react";
-import { creationYearFor, experienceFor, curationFor, formatArtworkDimensions } from "@exhibitos/studio-contract";
+import { artworkPlaqueCaptionFor, creationYearFor, type StudioPlaque, experienceFor, curationFor, formatArtworkDimensions } from "@exhibitos/studio-contract";
 import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
 import "./artwork-detail.css";
@@ -12,10 +12,12 @@ import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
 // UUID references are case-insensitive in the accepted public document.
 const sameId = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
 
-export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null,sharedPreview }: {
+export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null,sharedPreview, plaque, locale = globalThis.window?.navigator.language || "ko" }: {
   publication: PublicPublication; placementId: string; onClose(): void;
   renderPreview?: boolean; voicePlayback?: VoicePlayback | null;
   sharedPreview?:SharedDetailPreview;
+  plaque?: StudioPlaque;
+  locale?: string;
   onVoicePlay(assetId: string): Promise<void>; onVoiceStop(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), close = useRef(onClose), stop = useRef(onVoiceStop);
@@ -42,7 +44,9 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
   </dialog>;
   const description = publication.exhibition.accessibility.artworkDescriptions.find(a => sameId(a.placementId, placementId))?.text ?? artwork.metadata.description;
   const created = artwork.provenance.events.find(event => event.type === "created");
-  const creationYear = creationYearFor(artwork) ?? created?.at.slice(0, 4);
+  const caption = plaque?.source.kind === "artwork" && sameId(plaque.source.placementId, placementId)
+    ? artworkPlaqueCaptionFor(plaque, locale) : undefined;
+  const creationDate = caption?.date ?? creationYearFor(artwork) ?? created?.at.slice(0, 4);
   const voices=experience.voices.filter(v=>sameId(v.placementId,placementId));
   const translations=experience.translations.filter(t=>sameId(t.placementId,placementId));
   const requestVoice=(assetId:string)=>{
@@ -58,9 +62,9 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
       {renderPreview&&<div className="artwork-detail-media"><ArtworkDetailPreview publication={publication} artwork={artwork} anchors={anchors} placementId={placementId} sharedPreview={sharedPreview}/></div>}
       <div className="artwork-detail-content">
         <h2 id="artwork-detail-title">{artwork.metadata.title}</h2>
-        <p className="artwork-detail-artist">{artwork.metadata.artist}</p>
+        <p className="artwork-detail-artist">{caption?.artist ?? artwork.metadata.artist}</p>
         <dl className="artwork-detail-facts">
-          {creationYear&&<><dt>제작 연도</dt><dd data-testid="artwork-creation-year">{creationYear}</dd></>}
+          {creationDate&&<><dt>{caption ? "제작 시기" : "제작 연도"}</dt><dd data-testid="artwork-creation-year">{creationDate}</dd></>}
           {artwork.metadata.medium&&<><dt>재료·기법</dt><dd>{artwork.metadata.medium}</dd></>}
           <dt>기록된 크기</dt><dd>{formatArtworkDimensions(artwork.dimensions)}</dd>
         </dl>

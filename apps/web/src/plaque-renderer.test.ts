@@ -51,6 +51,13 @@ test('artwork faces include the authored artist and verified year only when avai
  d.placements=[placement];
  const source={...plaque,source:{kind:'artwork' as const,placementId:placement.id}};
  expect(plaqueFaceContent(d,source)).toEqual({title:'Artwork',summary:'Artist · 1894'});
+ const captioned={...source,artworkCaption:{translations:[
+  {locale:'ko',artist:'에두아르 마네',date:'1862~63년경'},
+  {locale:'en',artist:'Édouard Manet',date:'ca. 1862–63'},
+ ]}};
+ expect(plaqueFaceContent(d,captioned,'ko-KR')).toEqual({title:'Artwork',summary:'에두아르 마네 · 1862~63년경'});
+ expect(plaqueFaceContent(d,captioned,'en-US')).toEqual({title:'Artwork',summary:'Édouard Manet · ca. 1862–63'});
+ expect(plaqueFaceContent(d,captioned,'fr')).toEqual({title:'Artwork',summary:'Artist · 1894'});
  delete artwork.extensions?.[ARTWORK_DETAILS_NAMESPACE];
  expect(plaqueFaceContent(d,source)).toEqual({title:'Artwork',summary:'Artist'});
 });
