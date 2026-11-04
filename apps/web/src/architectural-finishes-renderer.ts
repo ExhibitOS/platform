@@ -2,6 +2,7 @@
 import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {wallFinishesFor,architecturalWallBoxes,validateArchitecturalFinishes,surfaceTextureFor,type SurfaceTextureBinding} from '@exhibitos/studio-contract';
+import {wallOpeningShell} from './wall-opening-shell';
 /** One draw per wall structure, as before, with continuous metre UVs across
  * opening-split front faces and real depth on reveals. No unit-box stretch. */
 export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof architecturalWallBoxes>,parent:Three.Object3D,binding:SurfaceTextureBinding){
@@ -22,19 +23,25 @@ export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof 
 /** Base surface materials are borrowed. Box geometry and two finish materials belong to this scene. */
 export function installArchitecturalFinishes(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,baseMaterials:ReadonlyMap<string,Three.MeshStandardMaterial>){
  if(!validateArchitecturalFinishes(document).valid)throw Error('ARCHITECTURAL_FINISH_INVALID');
- const walls=wallFinishesFor(document),geometry=walls.length?new three.BoxGeometry(1,1,1):undefined,materials=new Map<string,Three.MeshStandardMaterial>(),meshes:Three.Mesh[]=[],texturedGeometries:Three.BufferGeometry[]=[];
+ const walls=wallFinishesFor(document),geometry=walls.length?new three.BoxGeometry(1,1,1):undefined,materials=new Map<string,Three.MeshStandardMaterial>(),meshes:Three.Mesh[]=[],ownedGeometries:Three.BufferGeometry[]=[];
  const records:{surfaceId:string;depth:number;preset:string;boxes:number;triangles:number;openingWidths:number[]}[]=[];let disposed=false;
- const dispose=()=>{if(disposed)return;disposed=true;for(const m of meshes){m.removeFromParent();if(m instanceof three.InstancedMesh)m.dispose();}geometry?.dispose();for(const g of texturedGeometries)g.dispose();for(const m of materials.values())m.dispose();materials.clear();};
+ const dispose=()=>{if(disposed)return;disposed=true;for(const m of meshes){m.removeFromParent();if(m instanceof three.InstancedMesh)m.dispose();}geometry?.dispose();for(const g of ownedGeometries)g.dispose();for(const m of materials.values())m.dispose();materials.clear();};
  try{for(const wall of walls){const surface=document.surfaces.find(s=>s.id.toLowerCase()===wall.surfaceId.toLowerCase())!,parent=surfaces.get(wall.surfaceId.toLowerCase()),base=baseMaterials.get(wall.surfaceId.toLowerCase());if(!parent||!base)throw Error('ARCHITECTURAL_FINISH_REFERENCE');
   const boxes=architecturalWallBoxes(surface,document.openings,wall),pose=new three.Object3D();
+  const openingWidths=document.openings.filter(o=>o.surfaceId.toLowerCase()===surface.id.toLowerCase()).map(o=>o.dimensions.width);
+  let triangles=0;
   for(const kind of ['structure','finish'] as const){const items=boxes.filter(b=>b.kind===kind);if(!items.length)continue;let material=base;
    if(kind==='finish'){let own=materials.get(wall.preset);if(!own){own=new three.MeshStandardMaterial(wall.preset==='dark-edge'?{color:'#293b36',roughness:.4,metalness:.7}:{color:'#dedbd2',roughness:.8,metalness:0});materials.set(wall.preset,own);}material=own;}
    const binding=kind==='structure'?surfaceTextureFor(document,surface.id):undefined;let mesh:Three.Mesh;
-   if(binding){const own=texturedWallGeometry(three,items,parent,binding);texturedGeometries.push(own);own.computeBoundingBox();own.computeBoundingSphere();mesh=new three.Mesh(own,material);}
-   else{const instanced=new three.InstancedMesh(geometry!,material,items.length);items.forEach((b,i)=>{pose.position.fromArray(b.position);pose.scale.set(b.dimensions.width,b.dimensions.height,b.dimensions.depth);pose.updateMatrix();instanced.setMatrixAt(i,pose.matrix);});instanced.instanceMatrix.needsUpdate=true;instanced.computeBoundingBox();instanced.computeBoundingSphere();mesh=instanced;}
+   if(binding||kind==='structure'&&openingWidths.length&&items.length>1){
+    const own=binding?texturedWallGeometry(three,items,parent,binding):wallOpeningShell(three,items);
+    ownedGeometries.push(own);own.computeBoundingBox();own.computeBoundingSphere();
+    mesh=new three.Mesh(own,material);triangles+=own.index!.count/3;
+   }
+   else{const instanced=new three.InstancedMesh(geometry!,material,items.length);items.forEach((b,i)=>{pose.position.fromArray(b.position);pose.scale.set(b.dimensions.width,b.dimensions.height,b.dimensions.depth);pose.updateMatrix();instanced.setMatrixAt(i,pose.matrix);});instanced.instanceMatrix.needsUpdate=true;instanced.computeBoundingBox();instanced.computeBoundingSphere();mesh=instanced;triangles+=items.length*12;}
    meshes.push(mesh);mesh.userData.editorSelection={kind:'surface',id:surface.id};mesh.userData.architecturalFinish={surfaceId:surface.id,kind};parent.add(mesh);
   }
-  records.push({surfaceId:surface.id,depth:wall.depth,preset:wall.preset,boxes:boxes.length,triangles:boxes.length*12,openingWidths:document.openings.filter(o=>o.surfaceId.toLowerCase()===surface.id.toLowerCase()).map(o=>o.dimensions.width)});
+  records.push({surfaceId:surface.id,depth:wall.depth,preset:wall.preset,boxes:boxes.length,triangles,openingWidths});
  }}catch(error){dispose();throw error;}
  return {records,meshes,dispose};
 }
