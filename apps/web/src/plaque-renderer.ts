@@ -27,11 +27,17 @@ function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
 
 function drawPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string;summary:string},scale:number,height:number){
  const padding=28*scale,width=456*scale,gap=14*scale;
- for(const includeSummary of [true,false])for(const ratio of [1,.875,.75,.625,.5,.375]){
+ // Preserve authored paragraph breaks at ordinary sizes. Densely formatted
+ // legacy copy can reflow as a continuous paragraph before reducing further.
+ const layouts=[
+  {title,summary,ratios:[1,.875,.75,.625,.5,.375]},
+  {title:title.replace(/\s+/g,' '),summary:summary.replace(/\s+/g,' '),ratios:[.375,.3125,.25,.1875,.125]},
+ ];
+ for(const layout of layouts)for(const ratio of layout.ratios){
   const heading=36*scale*ratio,body=25*scale*ratio,headingStep=heading*1.25,bodyStep=body*1.3;
   const headingFont=`600 ${heading}px system-ui, sans-serif`,bodyFont=`${body}px system-ui, sans-serif`;
-  c.font=headingFont;const titleLines=wrapText(c,title,width);
-  c.font=bodyFont;const bodyLines=includeSummary?wrapText(c,summary,width):[];
+  c.font=headingFont;const titleLines=wrapText(c,layout.title,width);
+  c.font=bodyFont;const bodyLines=wrapText(c,layout.summary,width);
   const space=bodyLines.length?gap:0,total=titleLines.length*headingStep+space+bodyLines.length*bodyStep;
   if(total>height-2*padding)continue;
   let y=(height-total)/2;

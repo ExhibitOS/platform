@@ -56,3 +56,22 @@ test('room faces use the exact localized authored introduction without fallback 
  const doc=applyRoomPlaqueIntroduction(d,plaque.roomId,{text:'Default room introduction',translations:[{locale:'KO',text:'공간 소개'}]});
  expect(plaqueFaceContent(doc,plaque)).toEqual({title:d.rooms[0]!.name,summary:'공간 소개'});
 });
+
+test('dense valid room copy reflows without losing its introduction on either texture size',()=>{
+ const {d,rooms}=fixture(1),plaque={...plaquesFor(d)[0]!,source:{kind:'room' as const}};
+ const introduction=Array.from({length:70},(_,i)=>'공간 설명 '+(i+1)).join('\n');
+ const doc=applyRoomPlaqueIntroduction(applyPlaqueCommand(d,{type:'set-plaque',plaque}),plaque.roomId,{text:introduction});
+ const rows=new Map<number,string[]>();
+ const make=()=>{
+  const canvas={width:0,height:0,getContext:()=>context};
+  const context={font:'',fillRect:vi.fn(),measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
+   fillText:(line:string)=>{const lines=rows.get(canvas.width)??[];lines.push(line);rows.set(canvas.width,lines);}};
+  return canvas as unknown as HTMLCanvasElement;
+ };
+ const runtime=installPlaques(Three,doc,rooms,false,make);
+ try{
+  runtime.update(camera(3));
+  expect([...rows.keys()]).toEqual([128,512]);
+  for(const lines of rows.values())expect(lines.join(' ').replace(/\s/g,'')).toBe((doc.rooms[0]!.name+introduction).replace(/\s/g,''));
+ }finally{runtime.dispose();}
+});
