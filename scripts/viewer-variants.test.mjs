@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { join } from "node:path";
 import { denseCubeGlb, syntheticPng } from "./viewer-fixtures.mjs";
 import { derivative } from "../apps/api/dist/derivative.js";
 import { measureFullVariant, viewerVariants } from "../apps/api/dist/viewer-variants.js";
@@ -8,3 +11,26 @@ function changeGlb(bytes,edit){const size=bytes.readUInt32LE(12),doc=JSON.parse(
 test("bounded isolated generation preserves physical extents and declared materials while reducing actual GLB/PNG bytes",async()=>{for(const [mime,source] of [["model/gltf-binary",denseCubeGlb()],["image/png",syntheticPng()]]){const full=await derivative(source,mime,{maxTextureSize:2048}),low=await viewerVariants(full,mime);assert.deepEqual(low.full,measureFullVariant(full,mime));assert.ok(low.bytes.length<full.length);if(mime==="model/gltf-binary"){const parse=b=>JSON.parse(b.toString("utf8",20,20+b.readUInt32LE(12))),a=parse(full),b=parse(low.bytes);assert.deepEqual(b.materials,a.materials);for(let i=0;i<a.meshes.length;i++){const aPos=a.accessors[a.meshes[i].primitives[0].attributes.POSITION],bPos=b.accessors[b.meshes[i].primitives[0].attributes.POSITION];for(let axis=0;axis<3;axis++){assert.ok(Math.abs(bPos.min[axis]-aPos.min[axis])<1e-6);assert.ok(Math.abs(bPos.max[axis]-aPos.max[axis])<1e-6);}}assert.ok(low.coarse.triangles<low.full.triangles);}else{assert.equal(low.coarse.textureSize,512);assert.equal(low.full.textureSize,2048);}}});
 test("qualified complex full remains measured when bounded coarse index profile refuses it",async()=>{const full=await derivative(denseCubeGlb(96),"model/gltf-binary"),metric=measureFullVariant(full,"model/gltf-binary");assert.ok(metric.triangles>100000);await assert.rejects(viewerVariants(full,"model/gltf-binary"),/COARSE_UNAVAILABLE/);assert.deepEqual(measureFullVariant(full,"model/gltf-binary"),metric);});
 test("invalid accessor bounds and explicit child timeout are rejected without coarse output",async()=>{const malformed=changeGlb(denseCubeGlb(),d=>{d.bufferViews[0].byteLength=4;});await assert.rejects(viewerVariants(malformed,"model/gltf-binary"),/COARSE_UNAVAILABLE/);await assert.rejects(viewerVariants(syntheticPng(),"image/png",{timeoutMs:1}),/COARSE_UNAVAILABLE/);});
+
+test("coarse RGB PNG retains a validated sRGB intent", async () => {
+  const full = syntheticPng(1024, 0);
+  const result = await viewerVariants(full, "image/png");
+  assert.deepEqual(result.full, { textureSize: 1024 });
+  assert.deepEqual(result.coarse, { textureSize: 512 });
+  assert.ok(result.bytes.length < full.length);
+  assert.deepEqual(result.bytes.subarray(33, 46), full.subarray(33, 46));
+  assert.equal(result.bytes.toString("ascii", 37, 41), "sRGB");
+  await assert.rejects(viewerVariants(syntheticPng(1024, 4), "image/png"), /COARSE_UNAVAILABLE/);
+});
+
+test("coarse worker starts from a bundle path with spaces and non-ASCII", async (t) => {
+  const dist = new URL("../apps/api/dist/", import.meta.url);
+  const bundle = await mkdtemp(fileURLToPath(new URL("검증 앱 ", dist)));
+  t.after(() => rm(bundle, { recursive: true, force: true }));
+  for (const file of ["viewer-variants.js", "viewer-variant-worker.js", "png-pixels.js"]) {
+    await copyFile(new URL(file, dist), join(bundle, file));
+  }
+  const { viewerVariants: packagedVariants } = await import(pathToFileURL(join(bundle, "viewer-variants.js")).href);
+  const result = await packagedVariants(syntheticPng(1024, 0), "image/png");
+  assert.deepEqual(result.coarse, { textureSize: 512 });
+});
