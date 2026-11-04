@@ -3,7 +3,7 @@ import {expect,test} from 'vitest';
 import {newDraft} from './drafts/example';
 import {checkedFrame,nativeGeometryAction} from './native-viewport-protocol';
 import {nativePlaqueInspectorCandidate,checkedPlaqueInspectorRequest,type PlaqueInspectorRequest} from './native-plaque-inspector';
-import {plaquesFor} from '@exhibitos/studio-contract';
+import {plaquesFor,roomPlaqueIntroductionFor} from '@exhibitos/studio-contract';
 function sample(){
   const draft=newDraft(),roomId=draft.candidate.rooms[0]!.id;
   const frame=checkedFrame({version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection:null,mode:'translate',view:'isometric',cameraSequence:0,transparent:true,disabled:false});
@@ -18,4 +18,14 @@ test('foreign, stale, oversized, extra-field or disabled requests never mutate s
   const {frame,request}=sample(),before=structuredClone(frame);
   for(const value of [{...request,sequence:2},{...request,tenantId:crypto.randomUUID()},{...request,extra:true},{...request,plaque:{...request.plaque,extra:'x'.repeat(70000)}},{...request,plaque:{...request.plaque,roomId:crypto.randomUUID()}}])expect(()=>nativePlaqueInspectorCandidate(frame,value)).toThrow();
   expect(()=>checkedPlaqueInspectorRequest(request,{...frame,disabled:true})).toThrow();expect(frame).toEqual(before);
+});
+
+test('room text only crosses the current room plaque preview and must be bounded plain text',()=>{
+ const {frame,request}=sample(),before=structuredClone(frame);
+ const roomRequest={...request,plaque:{...request.plaque,source:{kind:'room'}},roomIntroductionText:'공간 소개'};
+ const candidate=nativePlaqueInspectorCandidate(frame,roomRequest);
+ expect(roomPlaqueIntroductionFor(candidate,request.plaque.roomId)).toBe('공간 소개');
+ expect(plaquesFor(candidate)[0]).toEqual(roomRequest.plaque);
+ for(const invalid of [{...request,roomIntroductionText:'Wrong source'},{...roomRequest,roomIntroductionText:null},{...roomRequest,roomIntroductionText:'a'.repeat(1025)}])expect(()=>nativePlaqueInspectorCandidate(frame,invalid)).toThrow();
+ expect(frame).toEqual(before);
 });

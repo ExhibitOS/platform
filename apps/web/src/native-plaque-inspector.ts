@@ -12,10 +12,11 @@ export function checkedPlaqueInspectorRequest(value:unknown,frame:NativeViewport
   if(!frame||frame.disabled||!object(value))throw Error('PLAQUE_INSPECTOR_REQUEST_INVALID');
   const keys=['epoch','principalId','requestId','sequence','tenantId','type','version'];
   if(value.type==='remove-plaque')keys.push('plaqueId');
-  else if(value.type==='add-plaque'||value.type==='set-plaque'){keys.push('plaque');}
+  else if(value.type==='add-plaque'||value.type==='set-plaque'){keys.push('plaque');if(Object.hasOwn(value,'roomIntroductionText'))keys.push('roomIntroductionText');}
   else throw Error('PLAQUE_INSPECTOR_REQUEST_INVALID');
   if(Object.keys(value).sort().join(',')!==keys.sort().join(',')||value.version!==1||!uuid(value.requestId)||value.epoch!==frame.epoch||value.sequence!==frame.sequence||value.tenantId!==frame.tenantId||value.principalId!==frame.principalId||new TextEncoder().encode(JSON.stringify(value)).length>65536)throw Error('PLAQUE_INSPECTOR_REQUEST_STALE');
   if(value.type==='remove-plaque'?!uuid(value.plaqueId):!object(value.plaque)||!uuid(value.plaque.id))throw Error('PLAQUE_INSPECTOR_SOURCE_INVALID');
+  if(Object.hasOwn(value,'roomIntroductionText')&&typeof value.roomIntroductionText!=='string')throw Error('PLAQUE_INSPECTOR_SOURCE_INVALID');
   return structuredClone(value) as unknown as PlaqueInspectorRequest;
 }
 /** Candidate is a narrow pure delta; native host validates that same delta before history commit. */
