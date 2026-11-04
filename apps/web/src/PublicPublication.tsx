@@ -111,7 +111,11 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     else if (mode === "cover") entryButton.current?.focus();
   }, [mode]);
   useEffect(() => { if (guidedIndex !== null) guideHeading.current?.focus(); }, [guidedIndex]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{placementId:string; plaqueId?:string} | null>(null);
+  const selectedId = selection?.placementId ?? null;
+  const setSelectedId = useCallback((placementId:string|null,plaqueId?:string) => {
+    setSelection(placementId === null ? null : {placementId,plaqueId});
+  },[]);
   useEffect(()=>{if(viewerUnavailable&&mode==="3d")document.querySelector<HTMLButtonElement>('[aria-label="3D 관람 오류"] button')?.focus({preventScroll:true});},[viewerUnavailable,mode]);
   const [proximityDetail, setProximityDetail] = useState(false);
   const preferredViewingStyle=useRef<ViewingStyle>('free');
@@ -161,7 +165,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     await audio.current.playVoice(assetId);
   }, []);
   const stopVoice = useCallback(() => { audio.current?.stopVoice(); }, []);
-  const showTextArtworks=useCallback(()=>{entry.cancel('text');stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);modeChanged.current=true;},[stopVoice,entry.cancel]);
+  const showTextArtworks=useCallback(()=>{entry.cancel('text');stopVoice();setSelectedId(null);setOverview(null);setMenuOpen(false);modeChanged.current=true;},[stopVoice,entry.cancel,setSelectedId]);
   const cancelEntry=()=>{entry.cancel();setMenuOpen(false);modeChanged.current=true;};
   const enter=()=>{
     if(modeRef.current==="3d")return;
@@ -244,7 +248,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const requestPlaque=(id:string)=>{
     if(!value)return;const plaque=plaquesFor(value.exhibition).find(p=>p.id===id&&p.visible);if(!plaque)return;
     stopVoice();
-    if(plaque.source.kind==='artwork'){const source=plaque.source;setSelectedId(value.exhibition.placements.find(p=>p.id.toLowerCase()===source.placementId.toLowerCase())!.id);}
+    if(plaque.source.kind==='artwork'){const source=plaque.source;setSelectedId(value.exhibition.placements.find(p=>p.id.toLowerCase()===source.placementId.toLowerCase())!.id,plaque.id);}
     else setOverview(plaque.source.kind==='exhibition'?"opening":{roomId:plaque.roomId});
   };
   const viewingPlan=value?viewingPlanFor(value.exhibition):{version:1 as const,stops:[]};
@@ -321,7 +325,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
               reducedMotion={reducedMotion} onReducedMotionChange={setReducedMotion} guideRequest={guideRequest} />
             </Suspense>
           </ViewerBoundary></div>}
-          {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId}
+          {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId} plaque={plaqueLinks.find(plaque => plaque.id === selection?.plaqueId)}
             onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
           <div hidden={mode !== "text"} className="publication-text-content">

@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { fixtureURL } from '@exhibitos/spec';
+import { ARTWORK_DETAILS_NAMESPACE, type StudioPlaque } from '@exhibitos/studio-contract';
 import { expect, it } from 'vitest';
 import { ArtworkDetail } from './ArtworkDetail';
 import { ArtworkDetailPreview } from './ArtworkDetailPreview';
@@ -77,6 +78,38 @@ it('renders accepted mixed-case artwork, placement and annotation references wit
   expect(sculpturePreview).toContain('aria-label="작품 확대"');
   expect(sculpturePreview).toContain('상세 시점 초기화');
   expect(JSON.stringify(publication)).toBe(before);
+});
+
+it('uses the selected plaque caption in text detail without replacing the rights credit', async () => {
+  const exhibition = JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'), 'utf8')) as PublicPublication['exhibition'];
+  const placement = exhibition.placements[0]!;
+  const artwork = exhibition.artworks.find(a => a.revisionId === placement.artworkRevisionId)!;
+  artwork.extensions = { ...artwork.extensions, [ARTWORK_DETAILS_NAMESPACE]: { version: 1, creationYear: 1894 } };
+  const plaque: StudioPlaque = {
+    id: crypto.randomUUID(), roomId: placement.roomId, source: { kind: 'artwork', placementId: placement.id },
+    visible: true, position: [0, 0, 0], rotation: [0, 0, 0, 1], dimensions: { width: .5, height: .3 },
+    artworkCaption: { translations: [
+      { locale: 'ko', artist: '에두아르 마네', date: '1862~63년경' },
+      { locale: 'en', artist: 'Édouard Manet', date: 'ca. 1862–63' },
+    ] },
+  };
+  const publication: PublicPublication = {
+    publication: { id: 'abcdefab-0000-4000-8000-000000000090', revisionSha256: 'a'.repeat(64), publishedAt: '2026-10-19T00:00:00Z', status: 'published' },
+    exhibition, assets: [],
+  };
+  const renderDetail = (locale: string, selectedPlaque?: StudioPlaque) => renderToStaticMarkup(<ArtworkDetail publication={publication}
+    placementId={placement.id} locale={locale} plaque={selectedPlaque} renderPreview={false} onClose={() => {}}
+    onVoicePlay={async () => {}} onVoiceStop={() => {}} />);
+  const korean = renderDetail('ko-KR', plaque), english = renderDetail('en-US', plaque);
+  expect(korean).toContain('에두아르 마네</p>');
+  expect(korean).toContain('<dt>제작 시기</dt><dd data-testid="artwork-creation-year">1862~63년경</dd>');
+  expect(english).toContain('Édouard Manet</p>');
+  expect(english).toContain('<dt>제작 시기</dt><dd data-testid="artwork-creation-year">ca. 1862–63</dd>');
+  expect(korean).toContain(artwork.rights.creditLine);
+  for (const html of [renderDetail('fr', plaque), renderDetail('ko-KR')]) {
+    expect(html).toContain(artwork.metadata.artist);
+    expect(html).toContain('<dt>제작 연도</dt><dd data-testid="artwork-creation-year">1894</dd>');
+  }
 });
 
 it('shows actual voice playback state and keeps transcripts available without automatic audio',async()=>{

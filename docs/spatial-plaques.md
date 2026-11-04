@@ -9,12 +9,21 @@ plane must fit the room and remain finite in world/Float32 geometry.
 
 `source` is exactly `{kind:'exhibition'}`, `{kind:'room'}`, or
 `{kind:'artwork',placementId:UUID}`. Artwork sources must be in the same room.
-Title/introduction/artist, room name and artwork information are always derived
-from the existing exhibition and artwork records. No duplicated prose, URI,
-font or asset fields exist. Invalid or deleted references refuse validation;
+Plaque titles and artwork rights come from the existing exhibition and artwork
+records. Plaques carry no URI, font or asset fields. Invalid or deleted references refuse validation;
 retarget or remove a plaque before deleting its source. Hidden records remain
 validated and preserved. Unknown private namespaces remain untouched; public
 and OEX projections remap only plaque ID, room ID and artwork placement ID.
+
+Version 2 adds bounded room introductions keyed by room UUID. Version 3 also
+supports optional `artworkCaption` on artwork-source rows. Each caption carries
+one to eight `translations`, with unique case-insensitive locale tags and
+plain single-line `artist` and `date` text of at most 80 and 48 characters.
+The existing 16 KiB extension limit applies. The viewer tries the exact and
+then primary locale before using the existing artist and integer year. Full
+institutional credit still comes from the artwork. A v3 record requires at
+least one caption. When the last caption is removed, editing writes v2 if
+room introductions remain and v1 otherwise. Older readers reject the v3 shape.
 
 Near text uses the existing Three.js scene, a shared plane and far material,
 and the existing pinned LRU. Text is a derived 512×256 system-font CanvasTexture,

@@ -3,16 +3,19 @@ import {TEMPLATE_NAMESPACE} from './index.js';
 import type {Exhibition} from '@exhibitos/spec';
 import {artifactCorners,validateArtifactPose,type ArtifactPose} from './artifact-affine.js';
 export const PLAQUE_NAMESPACE='org.exhibitos.studio/plaques';
-export const PLAQUE_LIMITS=Object.freeze({count:32,bytes:16384,width:512,height:256,desktop:4,compact:2,introductionText:1024,introductionLocales:8});
-/** Room-local metres, +Y up; plane front is +Z. Text always comes from the source. */
+export const PLAQUE_LIMITS=Object.freeze({count:32,bytes:16384,width:512,height:256,desktop:4,compact:2,introductionText:1024,introductionLocales:8,captionLocales:8,captionArtist:80,captionDate:48});
+export interface ArtworkPlaqueCaptionTranslation {locale:string;artist:string;date:string}
+export interface ArtworkPlaqueCaption {translations:ArtworkPlaqueCaptionTranslation[]}
+/** Room-local metres, +Y up; plane front is +Z. */
 export interface StudioPlaque {
  id:string;roomId:string;source:{kind:'exhibition'}|{kind:'room'}|{kind:'artwork';placementId:string};
  position:[number,number,number];rotation:[number,number,number,number];
  dimensions:{width:number;height:number};visible:boolean;
+ artworkCaption?:ArtworkPlaqueCaption;
 }
 export interface RoomPlaqueIntroduction {text:string;translations?:{locale:string;text:string}[]}
 export interface StudioPlaques {
- version:1|2;plaques:StudioPlaque[];
+ version:1|2|3;plaques:StudioPlaque[];
  /** Authored source text shared by every room plaque for the same room. */
  roomIntroductions?:Record<string,RoomPlaqueIntroduction>;
 }
@@ -23,14 +26,34 @@ const equal=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
 const text=(v:unknown):v is string=>typeof v==='string'&&v.trim().length>0&&v.length<=PLAQUE_LIMITS.introductionText;
 const localeTag=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,4}$/.test(v);
 const allowed=(v:Record<string,unknown>,required:string[],optional:string[])=>required.every(k=>Object.hasOwn(v,k))&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k));
+const plaqueFields=['id','roomId','source','position','rotation','dimensions','visible'];
+const captionText=(v:unknown,limit:number):v is string=>typeof v==='string'&&v.trim().length>0&&v.length<=limit&&
+ !Array.from(v).some(character=>{const code=character.codePointAt(0)!;return code<32||code>=127&&code<=159||code===0x2028||code===0x2029;});
+function validArtworkCaption(value:unknown):value is ArtworkPlaqueCaption {
+ if(!object(value)||!closed(value,['translations'])||!Array.isArray(value.translations)||
+  value.translations.length<1||value.translations.length>PLAQUE_LIMITS.captionLocales)return false;
+ const tags=new Set<string>();
+ for(const row of value.translations){
+  if(!object(row)||!closed(row,['locale','artist','date'])||!localeTag(row.locale)||!captionText(row.locale,48)||
+   !captionText(row.artist,PLAQUE_LIMITS.captionArtist)||!captionText(row.date,PLAQUE_LIMITS.captionDate))return false;
+  const tag=row.locale.toLowerCase();
+  if(tags.has(tag))return false;
+  tags.add(tag);
+ }
+ return true;
+}
 const finite=(v:unknown,min:number,max:number):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;
 export function validateStudioPlaques(candidate:unknown){
  const errors:{code:string;path:string;message:string}[]=[];
  const add=(code:string,path:string,message:string)=>errors.push({code,path:'/candidate/extensions/org.exhibitos.studio~1plaques'+path,message});
  if(!object(candidate)||!object(candidate.extensions)||!Object.hasOwn(candidate.extensions,PLAQUE_NAMESPACE))return {valid:true,errors};
  const value=candidate.extensions[PLAQUE_NAMESPACE];
- if(!object(value)||!Array.isArray(value.plaques)||!(value.version===1&&closed(value,['version','plaques'])||value.version===2&&closed(value,['version','plaques','roomIntroductions']))){add('PLAQUE_SCHEMA','','Expected closed plaques version 1 or 2');return {valid:false,errors};}
+ if(!object(value)||!Array.isArray(value.plaques)||!(value.version===1&&closed(value,['version','plaques'])||
+  value.version===2&&closed(value,['version','plaques','roomIntroductions'])||
+  value.version===3&&allowed(value,['version','plaques'],['roomIntroductions']))){add('PLAQUE_SCHEMA','','Expected closed plaques version 1, 2 or 3');return {valid:false,errors};}
  if(value.plaques.length>PLAQUE_LIMITS.count){add('PLAQUE_LIMIT','','Maximum 32 plaques');return {valid:false,errors};}
+ if(value.version===3&&!value.plaques.some(p=>object(p)&&Object.hasOwn(p,'artworkCaption')))
+  add('PLAQUE_SCHEMA','','Plaque version 3 requires an artwork caption');
  const rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],placements=Array.isArray(candidate.placements)?candidate.placements.filter(object):[];
  if(Object.hasOwn(value,'roomIntroductions')){
   const introductions=value.roomIntroductions;
@@ -58,9 +81,11 @@ export function validateStudioPlaques(candidate:unknown){
  const seen=new Set<string>();
  value.plaques.forEach((p,i)=>{
   const path='/plaques/'+i;
-  if(!object(p)||!closed(p,['id','roomId','source','position','rotation','dimensions','visible'])||!uuid(p.id)||!uuid(p.roomId)||typeof p.visible!=='boolean'||!object(p.source)||!object(p.dimensions)||!closed(p.dimensions,['width','height'])||!finite(p.dimensions.width,.2,2)||!finite(p.dimensions.height,.15,1.2)) {add('PLAQUE_SCHEMA',path,'Invalid bounded plaque');return;}
+  if(!object(p)||!(value.version===3?allowed(p,plaqueFields,['artworkCaption']):closed(p,plaqueFields))||!uuid(p.id)||!uuid(p.roomId)||typeof p.visible!=='boolean'||!object(p.source)||!object(p.dimensions)||!closed(p.dimensions,['width','height'])||!finite(p.dimensions.width,.2,2)||!finite(p.dimensions.height,.15,1.2)) {add('PLAQUE_SCHEMA',path,'Invalid bounded plaque');return;}
   const s=p.source;
   if(s.kind==='artwork'?!closed(s,['kind','placementId'])||!uuid(s.placementId):!closed(s,['kind'])||(s.kind!=='room'&&s.kind!=='exhibition')){add('PLAQUE_SCHEMA',path+'/source','Expected an existing text source');return;}
+  if(Object.hasOwn(p,'artworkCaption')&&(s.kind!=='artwork'||!validArtworkCaption(p.artworkCaption)))
+   add('PLAQUE_SCHEMA',path+'/artworkCaption','Expected bounded localized artist and date on an artwork plaque');
   if(seen.has(p.id.toLowerCase()))add('PLAQUE_REFERENCE',path+'/id','Plaque UUID must be unique');seen.add(p.id.toLowerCase());
   const room=rooms.find(r=>typeof r.id==='string'&&equal(r.id,p.roomId as string));
   if(!room||!object(room.dimensions)){add('PLAQUE_REFERENCE',path+'/roomId','Existing room required');return;}
@@ -80,12 +105,18 @@ export function validateStudioPlaques(candidate:unknown){
 const settingsFor=(document:Pick<Exhibition,'extensions'>)=>document.extensions?.[PLAQUE_NAMESPACE] as unknown as StudioPlaques|undefined;
 /** Use only after full document admission. Absence preserves legacy behavior. */
 export function plaquesFor(document:Pick<Exhibition,'extensions'>):StudioPlaque[]{return structuredClone(settingsFor(document)?.plaques??[]);}
+function preferredTranslation<T extends {locale:string}>(translations:readonly T[]|undefined,locale:string|undefined):T|undefined {
+ const tag=locale?.toLowerCase(),primary=tag?.split('-')[0];
+ return translations?.find(t=>t.locale.toLowerCase()===tag)
+  ??translations?.find(t=>t.locale.toLowerCase()===primary);
+}
 export function roomPlaqueIntroductionFor(document:Pick<Exhibition,'extensions'>,roomId:string,locale?:string):string|undefined {
  const entry=Object.entries(settingsFor(document)?.roomIntroductions??{}).find(([id])=>equal(id,roomId))?.[1];
- if(!entry)return undefined;
- const tag=locale?.toLowerCase(),primary=tag?.split('-')[0];
- return entry.translations?.find(t=>t.locale.toLowerCase()===tag)?.text
-  ??entry.translations?.find(t=>t.locale.toLowerCase()===primary)?.text??entry.text;
+ return preferredTranslation(entry?.translations,locale)?.text??entry?.text;
+}
+/** Use on an admitted plaque. Unmatched languages keep the original artwork metadata. */
+export function artworkPlaqueCaptionFor(plaque:StudioPlaque,locale?:string):ArtworkPlaqueCaptionTranslation|undefined {
+ return preferredTranslation(plaque.artworkCaption?.translations,locale);
 }
 export function remapStudioPlaques(value:StudioPlaques,ids:ReadonlyMap<string,string>):StudioPlaques{
  const map=(id:string)=>{const next=ids.get(id.toLowerCase());if(!uuid(next))throw Error('PLAQUE_REFERENCE');return next;};
@@ -93,8 +124,9 @@ export function remapStudioPlaques(value:StudioPlaques,ids:ReadonlyMap<string,st
   ...(value.roomIntroductions?{roomIntroductions:Object.fromEntries(Object.entries(value.roomIntroductions).map(([id,intro])=>[map(id),structuredClone(intro)]))}:{})};
 }
 function writeStudioPlaques(document:Exhibition,value:StudioPlaques):Exhibition {
- // Existing v1 remains byte-compatible; a room source explicitly requires the v2 reader.
- const encoded={...value,version:value.roomIntroductions?2:1};
+ // Keep legacy shapes when the last version-specific field is removed.
+ const version=value.plaques.some(p=>Object.hasOwn(p,'artworkCaption'))?3:value.roomIntroductions?2:1;
+ const encoded={...value,version};
  document.extensions={...document.extensions,[PLAQUE_NAMESPACE]:encoded as unknown as NonNullable<Exhibition['extensions']>[string]};
  if(document.extensions?.[TEMPLATE_NAMESPACE]){const template=document.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};template.modified=true;}
  if(!validateStudioPlaques(document).valid)throw Error('PLAQUE_INVALID');
