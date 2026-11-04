@@ -4,6 +4,7 @@ import {newDraft} from './drafts/example';
 import {whiteCubeSurfaces,newDoor} from './geometry/model';
 import {applyArchitecturalFinishCommand,architecturalSolids,ARCHITECTURAL_FINISH_NAMESPACE} from '@exhibitos/studio-contract';
 import {installArchitecturalFinishes} from './architectural-finishes-renderer';
+import {surfaceTexturePlan} from './surface-texture-renderer';
 import {createNavigationController} from './viewer/navigation';
 import {createPresenceGeometry} from '../../api/src/realtime-geometry';
 function fixture(){let d=newDraft().candidate;d.surfaces=whiteCubeSurfaces(d.rooms[0]!);const wall=d.surfaces[0]!;d.openings=[newDoor(wall.id,{width:2.4,height:3},[0,-.5])];d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:wall.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}});return {d,wall};}
@@ -25,6 +26,10 @@ test('opening shell joins the front panels at the head and omits the internal ja
  const result=installArchitecturalFinishes(Three,d,new Map([[wall.id,parent]]),new Map([[wall.id,material]]));
  try{
   const mesh=result.meshes[0]!,geometry=mesh.geometry,p=geometry.getAttribute('position'),n=geometry.getAttribute('normal'),indices=geometry.index!;
+  const scalarPlan=surfaceTexturePlan(d,512,1);
+  expect(scalarPlan.geometryReserve).toBe(2*(p.count*24+indices.count*4));
+  expect(scalarPlan.reserveBytes).toBe(scalarPlan.geometryReserve);
+  expect(scalarPlan.packs).toEqual([]);
   const jamb=Math.fround(-1.2),head=1;
   const front=(x:number,y:number)=>Array.from({length:p.count},(_,i)=>i).filter(i=>p.getX(i)===x&&p.getY(i)===y&&n.getZ(i)===1);
   expect(front(jamb,head)).toHaveLength(1);
