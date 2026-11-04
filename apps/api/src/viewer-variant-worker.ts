@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { inflateSync,deflateSync } from "node:zlib";
+import { deflateSync } from "node:zlib";
+import { decodePngPixels, pngCrc } from "./png-pixels.ts";
 import { validateBytes } from "gltf-validator";
 const MAX=33554432;let length=0;const parts:Buffer[]=[];
 for await(const chunk of process.stdin){length+=chunk.length;if(length>MAX)process.exit(1);parts.push(chunk);}const input=Buffer.concat(parts);
 const fail=():never=>{throw Error("unsupported coarse profile");};
-function crc(data:Buffer){let v=0xffffffff;for(const b of data){v^=b;for(let i=0;i<8;i++)v=(v>>>1)^(v&1?0xedb88320:0);}return(v^0xffffffff)>>>0;}
-function pngChunk(name:string,body:Buffer){const h=Buffer.alloc(8),tail=Buffer.alloc(4);h.writeUInt32BE(body.length);h.write(name,4);tail.writeUInt32BE(crc(Buffer.concat([h.subarray(4),body])));return Buffer.concat([h,body,tail]);}
-function png(data:Buffer){if(data.length<33||!data.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))fail();const w=data.readUInt32BE(16),h=data.readUInt32BE(20),channels=data[25]===6?4:data[25]===2?3:0;if(!w||!h||w*h>4194304||w>8192||h>8192||data[24]!==8||!channels||data[28]!==0)fail();const idat:Buffer[]=[];for(let o=8;o<data.length;){const n=data.readUInt32BE(o),end=o+n+12;if(end>data.length)fail();const name=data.toString("ascii",o+4,o+8);if(data.readUInt32BE(end-4)!==crc(data.subarray(o+4,end-4)))fail();if(name==="IDAT")idat.push(data.subarray(o+8,end-4));else if(!["IHDR","IEND"].includes(name))fail();o=end;}
- const pixels=inflateSync(Buffer.concat(idat),{maxOutputLength:(w*channels+1)*h});if(pixels.length!==(w*channels+1)*h)fail();
- const stride=w*channels,row=stride+1,paeth=(a:number,b:number,c:number)=>{const p=a+b-c,pa=Math.abs(p-a),pb=Math.abs(p-b),pc=Math.abs(p-c);return pa<=pb&&pa<=pc?a:pb<=pc?b:c;};
- for(let y=0;y<h;y++){const filter=pixels[y*row]!;if(filter>4)fail();for(let x=0;x<stride;x++){const i=y*row+1+x,a=x>=channels?pixels[i-channels]!:0,b=y?pixels[i-row]!:0,c=y&&x>=channels?pixels[i-row-channels]!:0;pixels[i]=(pixels[i]!+(filter===0?0:filter===1?a:filter===2?b:filter===3?Math.floor((a+b)/2):paeth(a,b,c)))&255;}}
+function pngChunk(name:string,body:Buffer){const h=Buffer.alloc(8),tail=Buffer.alloc(4);h.writeUInt32BE(body.length);h.write(name,4);tail.writeUInt32BE(pngCrc(Buffer.concat([h.subarray(4),body])));return Buffer.concat([h,body,tail]);}
+function png(data:Buffer){
+ const {pixels,width:w,height:h,channels,srgbIntent}=decodePngPixels(data);
+ const row=w*channels+1;
  const ratio=Math.min(1,512/Math.max(w,h)),lw=Math.max(1,Math.round(w*ratio)),lh=Math.max(1,Math.round(h*ratio));
  if(ratio===1)return {full:{textureSize:Math.max(w,h)}};
  const out=Buffer.alloc((lw*channels+1)*lh);for(let y=0;y<lh;y++)for(let x=0;x<lw;x++)for(let c=0;c<channels;c++){let sum=0,count=0;const x0=Math.floor(x*w/lw),x1=Math.max(x0+1,Math.floor((x+1)*w/lw)),y0=Math.floor(y*h/lh),y1=Math.max(y0+1,Math.floor((y+1)*h/lh));for(let sy=y0;sy<y1;sy++)for(let sx=x0;sx<x1;sx++){sum+=pixels[sy*row+1+sx*channels+c]!;count++;}out[y*(lw*channels+1)+1+x*channels+c]=Math.round(sum/count);}
- const ihdr=Buffer.from(data.subarray(16,29));ihdr.writeUInt32BE(lw,0);ihdr.writeUInt32BE(lh,4);const bytes=Buffer.concat([data.subarray(0,8),pngChunk("IHDR",ihdr),pngChunk("IDAT",deflateSync(out)),pngChunk("IEND",Buffer.alloc(0))]);return {full:{textureSize:Math.max(w,h)},...(bytes.length<data.length?{coarse:{textureSize:Math.max(lw,lh)},bytes}:{})};
+ const ihdr=Buffer.from(data.subarray(16,29));ihdr.writeUInt32BE(lw,0);ihdr.writeUInt32BE(lh,4);const bytes=Buffer.concat([data.subarray(0,8),pngChunk("IHDR",ihdr),...(srgbIntent===undefined?[]:[pngChunk("sRGB",Buffer.from([srgbIntent]))]),pngChunk("IDAT",deflateSync(out)),pngChunk("IEND",Buffer.alloc(0))]);return {full:{textureSize:Math.max(w,h)},...(bytes.length<data.length?{coarse:{textureSize:Math.max(lw,lh)},bytes}:{})};
 }
 async function glb(data:Buffer){const validation=await validateBytes(data,{maxIssues:32,externalResourceFunction:()=>Promise.reject(Error("external resource rejected"))});if(validation.issues.numErrors||data.length<28||data.readUInt32LE(8)!==data.length)fail();const size=data.readUInt32LE(12);if(size>1048576)fail();const source=JSON.parse(data.toString("utf8",20,20+size)),bin=data.subarray(28+size);if(source.animations?.length||source.skins?.length||source.extensionsUsed?.length||source.textures?.length||source.images?.length||source.buffers?.length!==1||source.buffers[0].uri)fail();
  const identity=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];for(const n of source.nodes??[])if((n.matrix&&JSON.stringify(n.matrix)!==JSON.stringify(identity))||(n.translation&&n.translation.some((v:number)=>v!==0))||(n.rotation&&JSON.stringify(n.rotation)!=="[0,0,0,1]")||(n.scale&&n.scale.some((v:number)=>v!==1)))fail();

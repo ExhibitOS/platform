@@ -18,7 +18,7 @@ function chunk(type, bytes) {
   out.writeUInt32BE(crc32(Buffer.concat([tag, bytes])), bytes.length + 8);
   return out;
 }
-export function syntheticPng(size = 2048) {
+export function syntheticPng(size = 2048, srgbIntent) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size);
   header.writeUInt32BE(size, 4);
@@ -47,6 +47,7 @@ export function syntheticPng(size = 2048) {
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", header),
+    ...(srgbIntent === undefined ? [] : [chunk("sRGB", Buffer.from([srgbIntent]))]),
     chunk("IDAT", deflateSync(pixels, { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
