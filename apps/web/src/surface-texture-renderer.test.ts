@@ -4,7 +4,7 @@ import {expect,test} from 'vitest';
 import type {Exhibition} from '@exhibitos/spec';
 import {MATERIAL_NAMESPACE,surfaceTextureDefaults,applyArchitecturalFinishCommand,wallFinishesFor,architecturalWallBoxes,type SurfaceTextureBinding} from '@exhibitos/studio-contract';
 import {newDraft} from './drafts/example';
-import {whiteCubeSurfaces} from './geometry/model';
+import {newDoor,whiteCubeSurfaces} from './geometry/model';
 import {texturedWallGeometry} from './architectural-finishes-renderer';
 import {surfaceTexturePlan} from './surface-texture-renderer';
 import {DEVICE_BUDGETS} from './viewer/loading';
@@ -29,15 +29,19 @@ test('opening-split wall structures retain metric front/reveal UVs and one combi
  const binding:SurfaceTextureBinding={...surfaceTextureDefaults('museum-matte-paint').texture,repeatMeters:[2,4]};
  const boxes=[{kind:'structure' as const,position:[-1,0,0] as [number,number,number],dimensions:{width:2,height:2,depth:.2}},{kind:'structure' as const,position:[1,0,0] as [number,number,number],dimensions:{width:2,height:2,depth:.2}}];
  const g=texturedWallGeometry(three,boxes,parent,binding),p=g.getAttribute('position'),n=g.getAttribute('normal'),uv=g.getAttribute('uv');
- expect(p.count).toBe(48);expect(g.index!.count).toBe(72);
+ const joined=Array.from({length:p.count},(_,i)=>i).filter(i=>p.getX(i)===0&&p.getY(i)===-1&&n.getZ(i)===1);
+ expect(joined).toHaveLength(1);
+ expect(Array.from({length:p.count},(_,i)=>i).some(i=>p.getX(i)===0&&Math.abs(n.getX(i))===1)).toBe(false);
  for(let i=0;i<p.count;i++){
   if(Math.abs(n.getZ(i))>.5){expect(uv.getX(i)).toBeCloseTo(p.getX(i));expect(uv.getY(i)).toBeCloseTo(p.getY(i)*.75);}
   if(Math.abs(n.getX(i))>.5){expect(uv.getX(i)).toBeCloseTo(p.getZ(i)*2);expect(uv.getY(i)).toBeCloseTo(p.getY(i)*.75);}
+  if(Math.abs(n.getY(i))>.5){expect(uv.getX(i)).toBeCloseTo(p.getX(i));expect(uv.getY(i)).toBeCloseTo(p.getZ(i));}
  }
  g.computeBoundingBox();expect(g.boundingBox!.min.x).toBe(-2);expect(g.boundingBox!.max.x).toBe(2);g.dispose();
 });
 test('styled material geometry reserves both actual CPU and GPU buffers even on texture fallback',()=>{
  let d=newDraft().candidate;d.surfaces=whiteCubeSurfaces(d.rooms[0]!);const wall=d.surfaces.find(s=>s.type==='wall')!;
+ d.openings=[newDoor(wall.id,{width:2.4,height:3},[0,-.5])];
  d=applyArchitecturalFinishCommand(d,{type:'set-wall-finish',wall:{surfaceId:wall.id,depth:.12,preset:'dark-edge',trimWidth:.04,baseboardHeight:.1,ceilingBand:true}});
  const binding=surfaceTextureDefaults('museum-matte-paint').texture;d.extensions={...d.extensions,[MATERIAL_NAMESPACE]:{version:1,surfaces:{},surfaceTextures:{[wall.id]:binding}}} as unknown as Exhibition['extensions'];
  const boxes=architecturalWallBoxes(wall,d.openings,wallFinishesFor(d)[0]!).filter(b=>b.kind==='structure'),geometry=texturedWallGeometry(three,boxes,new three.Group(),binding),plan=surfaceTexturePlan(d,512,1);

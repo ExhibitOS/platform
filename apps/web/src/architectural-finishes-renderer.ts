@@ -8,17 +8,18 @@ import {wallOpeningShell} from './wall-opening-shell';
 export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof architecturalWallBoxes>,parent:Three.Object3D,binding:SurfaceTextureBinding){
  parent.updateWorldMatrix(true,false);
  const scale=[0,1,2].map(axis=>new three.Vector3().setFromMatrixColumn(parent.matrixWorld,axis).length()),matrix=new three.Matrix3().setUvTransform(0,0,1/binding.repeatMeters[0],1/binding.repeatMeters[1],binding.rotation,0,0),point=new three.Vector2();
- const positions:number[]=[],normals:number[]=[],uvs:number[]=[],indices:number[]=[];
- for(const box of boxes){const geometry=new three.BoxGeometry(box.dimensions.width,box.dimensions.height,box.dimensions.depth);
-  try{const p=geometry.getAttribute('position'),n=geometry.getAttribute('normal'),base=positions.length/3;
-   for(let i=0;i<p.count;i++){const x=p.getX(i)+box.position[0],y=p.getY(i)+box.position[1],z=p.getZ(i)+box.position[2];positions.push(x,y,z);normals.push(n.getX(i),n.getY(i),n.getZ(i));
-    if(Math.abs(n.getX(i))>.5)point.set(z*scale[2]!,y*scale[1]!);else if(Math.abs(n.getY(i))>.5)point.set(x*scale[0]!,z*scale[2]!);else point.set(x*scale[0]!,y*scale[1]!);
-    point.applyMatrix3(matrix);uvs.push(point.x,point.y);
-   }
-   for(const index of geometry.index!.array)indices.push(base+index);
-  }finally{geometry.dispose();}
+ const {dimensions,position}=boxes[0]!;
+ const geometry=boxes.length>1?wallOpeningShell(three,boxes):
+  new three.BoxGeometry(dimensions.width,dimensions.height,dimensions.depth).translate(...position);
+ const p=geometry.getAttribute('position'),n=geometry.getAttribute('normal'),uvs:number[]=[];
+ for(let i=0;i<p.count;i++){
+  const x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+  if(Math.abs(n.getX(i))>.5)point.set(z*scale[2]!,y*scale[1]!);
+  else if(Math.abs(n.getY(i))>.5)point.set(x*scale[0]!,z*scale[2]!);
+  else point.set(x*scale[0]!,y*scale[1]!);
+  point.applyMatrix3(matrix);uvs.push(point.x,point.y);
  }
- return new three.BufferGeometry().setAttribute('position',new three.Float32BufferAttribute(positions,3)).setAttribute('normal',new three.Float32BufferAttribute(normals,3)).setAttribute('uv',new three.Float32BufferAttribute(uvs,2)).setIndex(indices);
+ return geometry.setAttribute('uv',new three.Float32BufferAttribute(uvs,2));
 }
 /** Base surface materials are borrowed. Box geometry and two finish materials belong to this scene. */
 export function installArchitecturalFinishes(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,baseMaterials:ReadonlyMap<string,Three.MeshStandardMaterial>){
