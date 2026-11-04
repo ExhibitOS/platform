@@ -1,6 +1,7 @@
 import {expect,test} from 'vitest';
-import {applyPlaqueCommand,applyRoomPlaqueIntroduction,plaquesFor,roomPlaqueIntroductionFor,validateStudioPlaques,PLAQUE_NAMESPACE} from '@exhibitos/studio-contract';
+import {applyPlaqueCommand,applyRoomPlaqueIntroduction,artworkPlaqueCaptionFor,plaquesFor,roomPlaqueIntroductionFor,validateStudioPlaques,PLAQUE_NAMESPACE} from '@exhibitos/studio-contract';
 import {newDraft} from '../../web/src/drafts/example.ts';
+import {newPlacement,syntheticArtwork} from '../../web/src/placement/model.ts';
 function plaqueFixture(){const draft=newDraft();return {draft,plaque:{id:crypto.randomUUID(),roomId:draft.candidate.rooms[0]!.id,source:{kind:'exhibition' as const},position:[0,1.5,0] as [number,number,number],rotation:[0,0,0,1] as [number,number,number,number],dimensions:{width:1,height:.6},visible:true}};}
 import {validateDraft} from '../../web/src/drafts/validator.ts';
 import {checkOexProfile,remapOex} from './oex.ts';
@@ -48,4 +49,47 @@ test('room introduction is one bounded localized source across draft edits, OEX 
  }}}};
  expect(validateStudioPlaques(invalid).errors.map(e=>e.code).sort()).toEqual(['PLAQUE_REFERENCE','PLAQUE_SCHEMA']);
  expect(()=>checkOexProfile(invalid)).toThrow('OEX_PROFILE_INVALID');
+});
+
+test('localized artwork caption preserves the approved artwork and all source identities across authoring and portable projections',()=>{
+ const {draft,plaque}=plaqueFixture();
+ const artwork=syntheticArtwork(),placement=newPlacement(artwork,plaque.roomId);
+ draft.candidate.artworks=[artwork];draft.candidate.placements=[placement];
+ const source={kind:'artwork' as const,placementId:placement.id};
+ const row={...plaque,source},before=applyPlaqueCommand(draft.candidate,{type:'add-plaque',plaque:row});
+ const withIntro=applyRoomPlaqueIntroduction(before,plaque.roomId,{text:'공간 안내'});
+ const artworkCaption={translations:[{locale:'ko',artist:'에두아르 마네',date:'1862~63년경'},{locale:'en',artist:'Édouard Manet',date:'ca. 1862–63'}]};
+ const candidate=applyPlaqueCommand(withIntro,{type:'set-plaque',plaque:{...row,artworkCaption}});
+ expect(candidate.extensions?.[PLAQUE_NAMESPACE]).toMatchObject({version:3});
+ expect(plaquesFor(candidate)[0]).toEqual({...row,artworkCaption});
+ expect(candidate.placements).toEqual(withIntro.placements);
+ expect(candidate.artworks).toEqual(withIntro.artworks);
+ expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'KO-kr')).toEqual(artworkCaption.translations[0]);
+ expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'en-GB')).toEqual(artworkCaption.translations[1]);
+ expect(artworkPlaqueCaptionFor(plaquesFor(candidate)[0]!,'fr')).toBeUndefined();
+ expect(validateDraft({...draft,candidate}).valid).toBe(true);
+ expect(()=>checkOexProfile(candidate)).not.toThrow();
+ const asset=artwork.assets[0]!;
+ const prepared=[{artwork,sourceAssetId:asset.id,sourceSha256:asset.sha256,bytes:Buffer.from('model'),mime:'model/gltf-binary' as const}];
+ for(const projected of [remapOex(candidate).exhibition,projectPublication(candidate,prepared,'2026-10-26T00:00:00.000Z').snapshot]){
+  const remapped=plaquesFor(projected)[0]!;
+  expect(validateStudioPlaques(projected).valid).toBe(true);
+  expect(remapped.id).not.toBe(plaque.id);
+  expect(remapped.source).toEqual({kind:'artwork',placementId:projected.placements[0]!.id});
+  expect(remapped.artworkCaption).toEqual(artworkCaption);
+  expect(roomPlaqueIntroductionFor(projected,remapped.roomId)).toBe('공간 안내');
+ }
+ expect(applyPlaqueCommand(candidate,{type:'set-plaque',plaque:row}).extensions?.[PLAQUE_NAMESPACE]).toEqual(withIntro.extensions?.[PLAQUE_NAMESPACE]);
+ expect(plaquesFor(withIntro)).toEqual([row]);
+ const wrongVersion=structuredClone(candidate);
+ wrongVersion.extensions![PLAQUE_NAMESPACE]={version:2,plaques:[{...row,artworkCaption}],roomIntroductions:{[plaque.roomId]:{text:'공간 안내'}}};
+ expect(validateStudioPlaques(wrongVersion).valid).toBe(false);
+ for(const invalid of [
+  {...row,source:{kind:'room' as const},artworkCaption},
+  {...row,artworkCaption:{translations:[]}},
+  {...row,artworkCaption:{translations:[artworkCaption.translations[0]!,{...artworkCaption.translations[0]!,locale:'KO'}]}},
+  {...row,artworkCaption:{translations:[{locale:'en',artist:'Artist',date:'first\nline'}]}},
+  {...row,artworkCaption:{translations:[{locale:'en',artist:'x'.repeat(81),date:'2026'}]}},
+  {...row,artworkCaption:{translations:[{locale:'en',artist:'Artist',date:'x'.repeat(49)}]}},
+ ]) expect(()=>applyPlaqueCommand(withIntro,{type:'set-plaque',plaque:invalid})).toThrow('PLAQUE_INVALID');
 });
