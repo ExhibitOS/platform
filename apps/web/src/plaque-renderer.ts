@@ -11,6 +11,10 @@ const faceStyles={
  artwork:{background:'#eeebe2',heading:43,body:35,padding:20,gap:10},
 } as const;
 type FaceStyle=(typeof faceStyles)[StudioPlaque['source']['kind']];
+type FaceLayout={
+ padding:number;y:number;gap:number;heading:number;body:number;headingStep:number;bodyStep:number;
+ headingFont:string;bodyFont:string;titleLines:string[];bodyLines:string[];
+};
 function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
  const lines:string[]=[];
  for(const paragraph of text.split(/\r?\n/)){
@@ -34,9 +38,9 @@ function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
  return lines;
 }
 
-function drawPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string;summary:string},
- style:FaceStyle,scale:number,width:number,height:number){
- const padding=Math.min(style.padding*scale,width*.15),gap=style.gap*scale,measure=width-2*padding;
+function layoutPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string;summary:string},
+ style:FaceStyle,width:number,height:number):FaceLayout|undefined{
+ const padding=Math.min(style.padding,width*.15),measure=width-2*padding;
  // Preserve authored paragraph breaks at ordinary sizes. Densely formatted
  // legacy copy can reflow as a continuous paragraph before reducing further.
  const layouts=[
@@ -44,26 +48,30 @@ function drawPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string
   {title:title.replace(/\s+/g,' '),summary:summary.replace(/\s+/g,' '),ratios:[.375,.3125,.25,.1875,.125,.09375,.0625]},
  ];
  for(const layout of layouts)for(const ratio of layout.ratios){
-  const heading=style.heading*scale*ratio,body=style.body*scale*ratio,headingStep=heading*1.25,bodyStep=body*1.3;
+  const heading=style.heading*ratio,body=style.body*ratio,headingStep=heading*1.25,bodyStep=body*1.3;
   const headingFont=`600 ${heading}px system-ui, sans-serif`,bodyFont=`${body}px system-ui, sans-serif`;
   c.font=headingFont;const titleLines=wrapText(c,layout.title,measure);
   c.font=bodyFont;const bodyLines=wrapText(c,layout.summary,measure);
   if(!titleLines||!bodyLines)continue;
-  const space=bodyLines.length?gap:0,total=titleLines.length*headingStep+space+bodyLines.length*bodyStep;
+  const gap=bodyLines.length?style.gap:0,total=titleLines.length*headingStep+gap+bodyLines.length*bodyStep;
   if(total>height-2*padding)continue;
-  let y=(height-total)/2;
-  c.font=headingFont;
-  for(const text of titleLines){
-   if(style.background===null){
-    c.strokeStyle='#eee9dd';c.lineWidth=2.4*scale;c.lineJoin='round';
-    c.strokeText(text,padding,y+heading);
-   }
-   c.fillText(text,padding,y+heading);y+=headingStep;
-  }
-  y+=space;c.font=bodyFont;
-  for(const text of bodyLines){c.fillText(text,padding,y+body);y+=bodyStep;}
-  return;
+  return {padding,y:(height-total)/2,gap,heading,body,headingStep,bodyStep,headingFont,bodyFont,titleLines,bodyLines};
  }
+}
+
+function drawPlaqueFace(c:CanvasRenderingContext2D,layout:FaceLayout,style:FaceStyle){
+ const {padding,gap,heading,body,headingStep,bodyStep,headingFont,bodyFont,titleLines,bodyLines}=layout;
+ let y=layout.y;
+ c.font=headingFont;
+ for(const text of titleLines){
+  if(style.background===null){
+   c.strokeStyle='#eee9dd';c.lineWidth=2.4;c.lineJoin='round';
+   c.strokeText(text,padding,y+heading);
+  }
+  c.fillText(text,padding,y+heading);y+=headingStep;
+ }
+ y+=gap;c.font=bodyFont;
+ for(const text of bodyLines){c.fillText(text,padding,y+body);y+=bodyStep;}
 }
 
 export function plaqueTextureReserve(document:Exhibition,compact:boolean){const count=plaquesFor(document).filter(p=>p.visible).length;return (Math.min(count,compact?PLAQUE_LIMITS.compact:PLAQUE_LIMITS.desktop)*PLAQUE_LIMITS.width*PLAQUE_LIMITS.height+count*MIN_WIDTH*MIN_HEIGHT)*4*2;}
@@ -77,7 +85,7 @@ export function installPlaques(three:typeof Three,document:Exhibition,rooms:Read
  const meshes:Three.Mesh<Three.PlaneGeometry,Three.MeshStandardMaterial>[]=[],failed=new Set<string>();let disposed=false;
  const touched=new Map<string,number>();let clock=0;
  const active=new Set<string>(),point=new three.Vector3(),forward=new three.Vector3(),cameraPoint=new three.Vector3(),projection=new three.Vector3(),normalMatrix=new three.Matrix3();
- const minimum:Entry[]=[],axis=new three.Vector3();
+ const minimum:Entry[]=[],faces:{stretch:number;layout:FaceLayout|undefined}[]=[],axis=new three.Vector3();
  const detach=()=>{for(const [index,mesh]of meshes.entries())mesh.material=minimum[index]?.material??far!;for(const id of active)cache.release(id);active.clear();};
  try{for(const p of rows){const room=rooms.get(p.roomId.toLowerCase());if(!room)throw Error('PLAQUE_REFERENCE');const mesh=new three.Mesh(geometry!,far!);mesh.position.fromArray(p.position);mesh.quaternion.fromArray(p.rotation);mesh.scale.set(p.dimensions.width,p.dimensions.height,1);mesh.userData.plaqueId=p.id;mesh.userData.exhibitosPlaque=true;meshes.push(mesh);room.add(mesh);}}
  catch(error){for(const mesh of meshes)mesh.removeFromParent();geometry?.dispose();far?.dispose();throw error;}
@@ -88,14 +96,19 @@ export function installPlaques(three:typeof Three,document:Exhibition,rooms:Read
    const c=canvas.getContext('2d');if(!c)throw Error('PLAQUE_CANVAS_UNAVAILABLE');
    const plaque=rows[index]!,mesh=meshes[index]!,style=faceStyles[plaque.source.kind];
    if(style.background!==null){c.fillStyle=style.background;c.fillRect(0,0,width,height);}
-   // Use the real plane axes to fit and draw in physical proportions. Keep the
-   // existing two texture sizes and cache budget even for wide title lettering.
-   mesh.updateWorldMatrix(true,false);
-   const worldWidth=axis.setFromMatrixColumn(mesh.matrixWorld,0).length();
-   const worldHeight=axis.setFromMatrixColumn(mesh.matrixWorld,1).length();
-   const stretch=worldWidth/worldHeight*height/width;
-   c.scale(1/stretch,1);c.fillStyle='#17352c';
-   drawPlaqueFace(c,plaqueFaceContent(document,plaque),style,width/PLAQUE_LIMITS.width,width*stretch,height);
+   let face=faces[index];
+   if(!face){
+    // Measure once in canonical texture coordinates. Small font metrics can
+    // round differently, so LOD changes scale the same lines instead of reflowing.
+    mesh.updateWorldMatrix(true,false);
+    const worldWidth=axis.setFromMatrixColumn(mesh.matrixWorld,0).length();
+    const worldHeight=axis.setFromMatrixColumn(mesh.matrixWorld,1).length();
+    const stretch=worldWidth/worldHeight*PLAQUE_LIMITS.height/PLAQUE_LIMITS.width;
+    face={stretch,layout:layoutPlaqueFace(c,plaqueFaceContent(document,plaque),style,PLAQUE_LIMITS.width*stretch,PLAQUE_LIMITS.height)};
+    faces[index]=face;
+   }
+   c.scale(width/(PLAQUE_LIMITS.width*face.stretch),height/PLAQUE_LIMITS.height);c.fillStyle='#17352c';
+   if(face.layout)drawPlaqueFace(c,face.layout,style);
    texture=new three.CanvasTexture(canvas);texture.colorSpace=three.SRGBColorSpace;texture.generateMipmaps=false;texture.minFilter=three.LinearFilter;texture.magFilter=three.LinearFilter;
    // The title is cutout lettering, so the existing opaque shadow receiver path
    // still applies without blending or including the sign in the caster pass.
@@ -109,5 +122,5 @@ export function installPlaques(three:typeof Three,document:Exhibition,rooms:Read
   if(disposed)return;camera.getWorldPosition(cameraPoint);const previous=new Set(active);detach();
   const candidates=meshes.map((mesh,index)=>{mesh.updateWorldMatrix(true,false);mesh.getWorldPosition(point);const distance=point.distanceTo(cameraPoint);forward.set(0,0,1).applyNormalMatrix(normalMatrix.getNormalMatrix(mesh.matrixWorld));const front=forward.dot(new three.Vector3().subVectors(cameraPoint,point))>0;projection.copy(point).project(camera);return {index,distance,eligible:front&&distance<=(previous.has(rows[index]!.id)?5:4)&&Math.abs(projection.x)<=1.2&&Math.abs(projection.y)<=1.2&&projection.z>=-1&&projection.z<=1};}).filter(v=>v.eligible).sort((a,b)=>a.distance-b.distance||a.index-b.index).slice(0,cap);
   for(const {index} of candidates){const id=rows[index]!.id;if(failed.has(id))continue;let entry=cache.get(id);if(!entry){try{if(cache.stats().entries>=cap){const oldest=[...touched].filter(([key])=>!active.has(key)).sort((a,b)=>a[1]-b[1])[0];if(oldest){cache.delete(oldest[0]);touched.delete(oldest[0]);}}entry=create(index);if(!cache.set(id,entry,bytes))continue;}catch{failed.add(id);continue;}}entry=cache.acquire(id);if(entry){touched.set(id,clock++);active.add(id);meshes[index]!.material=entry.material;}}
- },stats(){return {...cache.stats(),active:[...active],failed:[...failed],visible:meshes.length,minimumEntries:minimum.filter(Boolean).length,minimumBytes:minimum.filter(Boolean).length*MIN_WIDTH*MIN_HEIGHT*4,reserveBytes:plaqueTextureReserve(document,compact),cpuCanvasBytes:cache.stats().entries*bytes+minimum.filter(Boolean).length*MIN_WIDTH*MIN_HEIGHT*4};},dispose(){if(disposed)return;disposed=true;detach();for(const mesh of meshes)mesh.removeFromParent();cache.clear();for(const entry of minimum){if(!entry)continue;entry.material.dispose();entry.texture.dispose();entry.canvas.width=0;entry.canvas.height=0;}minimum.length=0;geometry?.dispose();far?.dispose();failed.clear();touched.clear();}};
+ },stats(){return {...cache.stats(),active:[...active],failed:[...failed],visible:meshes.length,minimumEntries:minimum.filter(Boolean).length,minimumBytes:minimum.filter(Boolean).length*MIN_WIDTH*MIN_HEIGHT*4,reserveBytes:plaqueTextureReserve(document,compact),cpuCanvasBytes:cache.stats().entries*bytes+minimum.filter(Boolean).length*MIN_WIDTH*MIN_HEIGHT*4};},dispose(){if(disposed)return;disposed=true;detach();for(const mesh of meshes)mesh.removeFromParent();cache.clear();for(const entry of minimum){if(!entry)continue;entry.material.dispose();entry.texture.dispose();entry.canvas.width=0;entry.canvas.height=0;}minimum.length=0;faces.length=0;geometry?.dispose();far?.dispose();failed.clear();touched.clear();}};
 }

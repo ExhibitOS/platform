@@ -28,9 +28,9 @@ test('a physical plaque uses the localized display title and intentional line br
  const draws:Array<{line:string;x:number;y:number;w:number;width:number;height:number}>=[];
  const make=()=>{
   const canvas={width:0,height:0,getContext:()=>context};
-  let xScale=1;
-  const context={font:'',fillRect:vi.fn(),strokeText:vi.fn(),scale:(x:number)=>{xScale=x;},measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
-   fillText:(line:string,x:number,y:number)=>draws.push({line,x:x*xScale,y,w:context.measureText(line).width*xScale,width:canvas.width,height:canvas.height})};
+  let xScale=1,yScale=1;
+  const context={font:'',fillRect:vi.fn(),strokeText:vi.fn(),scale:(x:number,y:number)=>{xScale=x;yScale=y;},measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)}),
+   fillText:(line:string,x:number,y:number)=>draws.push({line,x:x*xScale,y:y*yScale,w:context.measureText(line).width*xScale,width:canvas.width,height:canvas.height})};
   return canvas as unknown as HTMLCanvasElement;
  };
  const runtime=installPlaques(Three,d,rooms,false,make);
@@ -101,13 +101,55 @@ test('title lettering and room plaques use authored proportions without growing 
   return {getContext:()=>ctx} as unknown as HTMLCanvasElement;
  });
  try{
-  expect(contexts[0]!.scale.mock.calls[0]![0]).toBeCloseTo(2*.46/1.42);
-  expect(contexts[1]!.scale.mock.calls[0]![0]).toBeCloseTo(2*.37/.9);
+  expect(contexts[0]!.scale.mock.calls[0]![0]).toBeCloseTo(.5*.46/1.42);
+  expect(contexts[1]!.scale.mock.calls[0]![0]).toBeCloseTo(.5*.37/.9);
+  expect(contexts[0]!.scale.mock.calls[0]![1]).toBe(.25);
   expect(contexts[0]!.fillRect).not.toHaveBeenCalled();
   expect(contexts[0]!.strokeText).toHaveBeenCalled();
   expect(contexts[1]!.fillRect).toHaveBeenCalledOnce();
   expect(runtime.meshes[0]!.material).toMatchObject({alphaTest:.2,transparent:false});
   expect(runtime.meshes[1]!.material.alphaTest).toBe(0);
   expect(runtime.stats().minimumBytes).toBe(2*128*64*4);
+ }finally{runtime.dispose();}
+});
+
+
+test('Wheat Field lettering keeps the same layout at both LOD thresholds and after cache eviction',()=>{
+ const {d,rooms}=fixture(3),[first,...others]=plaquesFor(d),plaque=first!;
+ d.rooms[0]!.dimensions.width=24;
+ const artwork=syntheticArtwork('image');
+ artwork.metadata={title:'Wheat Field with Cypresses',artist:'Vincent van Gogh'};
+ const placement=newPlacement(artwork,plaque.roomId);
+ d.artworks=[artwork];d.placements=[placement];
+ let doc=applyPlaqueCommand(d,{type:'set-plaque',plaque:{...plaque,position:[0,1.24,0],dimensions:{width:.44,height:.19},source:{kind:'artwork',placementId:placement.id}}});
+ for(const [index,other] of others.entries())doc=applyPlaqueCommand(doc,{type:'set-plaque',plaque:{...other,position:[-8-index*.4,1.24,0]}});
+ const drawings=new Map<HTMLCanvasElement,{line:string;x:number;y:number}[]>();
+ const make=()=>{
+  const canvas={width:0,height:0,getContext:()=>context} as unknown as HTMLCanvasElement;
+  const lines:{line:string;x:number;y:number}[]=[];drawings.set(canvas,lines);
+  let xScale=1,yScale=1;
+  const context={font:'',fillRect:vi.fn(),strokeText:vi.fn(),scale:(x:number,y:number)=>{xScale=x;yScale=y;},
+   measureText:(line:string)=>{
+    const size=Number(/([.\d]+)px/.exec(context.font)?.[1]??0);
+    // Smaller raster fonts can round differently near the wrapping boundary.
+    return {width:Array.from(line).length*size*(size<20?.64:.48)};
+   },
+   fillText:(line:string,x:number,y:number)=>lines.push({line,x:x*xScale/canvas.width,y:y*yScale/canvas.height})};
+  return canvas;
+ };
+ const runtime=installPlaques(Three,doc,rooms,true,make);
+ const view=(x:number,z:number)=>{
+  const c=camera(z);c.position.set(x,1.24,z);c.lookAt(x,1.24,0);c.updateMatrixWorld();runtime.update(c);
+ };
+ const face=()=>runtime.meshes[0]!.material.map!.image as HTMLCanvasElement;
+ try{
+  const minimum=face(),layout=drawings.get(minimum)!;
+  expect(layout.map(row=>row.line)).toEqual(['Wheat Field with Cypresses','Vincent van Gogh']);
+  view(0,4.1);expect(face()).toBe(minimum);
+  view(0,3.9);const near=face();expect(near.width).toBe(512);expect(drawings.get(near)).toEqual(layout);
+  view(0,4.9);expect(face()).toBe(near);
+  view(0,5.1);expect(face()).toBe(minimum);
+  view(-8,3);expect(near.width).toBe(0);expect(runtime.stats().entries).toBe(2);
+  view(0,3.9);expect(face()).not.toBe(near);expect(drawings.get(face())).toEqual(layout);
  }finally{runtime.dispose();}
 });
