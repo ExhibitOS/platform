@@ -21,7 +21,7 @@ main.publication-shell button[aria-busy=true]{cursor:progress}.publication-shell
 .publication-private-entry>.publication-private-edit{display:inline-flex;align-items:center;min-block-size:2.75rem;max-inline-size:100%;padding-block:.5rem;color:var(--publication-action);font-size:1rem;font-weight:600;line-height:1.5;overflow-wrap:anywhere;text-decoration:underline;text-underline-offset:.2em}
 .publication-private-entry>.publication-private-edit:hover{color:var(--publication-ink)}
 .publication-private-entry>p{margin:.25rem 0 0;color:var(--publication-muted);font-size:1rem;line-height:1.5;overflow-wrap:anywhere}
-.publication-mode-3d{position:fixed;inset:0;width:100%;height:100dvh;min-height:0;overflow:hidden;background:#18232a}.publication-mode-3d article,.immersive-viewer,.geometry-immersive,.geometry-immersive .geometry-stage,.geometry-immersive .geometry-render-host{width:100%;height:100%;margin:0;min-width:0;min-height:0}.publication-mode-3d article{position:relative}.publication-mode-3d>footer,.immersive-viewer>.viewer-intro{display:none}.geometry-render-host{height:360px}.geometry-immersive{position:absolute;inset:0}.geometry-immersive canvas{max-width:none;width:100%;height:100%;outline-offset:-4px}.geometry-immersive>figcaption{position:absolute;left:1rem;bottom:5rem;width:min(38rem,calc(100% - 2rem));margin:0;padding:.5rem .75rem;background:#fff;color:#182d32;font-size:14px;border-radius:4px;pointer-events:none}.geometry-immersive>figcaption:not(:empty){opacity:.92}
+.publication-mode-3d{position:fixed;inset:0;width:100%;height:100dvh;min-height:0;overflow:hidden;background:#18232a}.publication-mode-3d article,.immersive-viewer,.geometry-immersive,.geometry-immersive .geometry-stage,.geometry-immersive .geometry-render-host{width:100%;height:100%;margin:0;min-width:0;min-height:0}.publication-mode-3d article{position:relative}.publication-mode-3d>footer,.immersive-viewer>.viewer-intro{display:none}.geometry-render-host{height:360px}.geometry-immersive{position:absolute;inset:0}.geometry-immersive canvas{max-width:none;width:100%;height:100%;outline-offset:-4px}
 .viewer-walk-quick{position:absolute;left:1.25rem;bottom:1.25rem;display:flex;gap:.5rem;z-index:5}.geometry-immersive>.geometry-controls{position:absolute;bottom:1.25rem;right:1.25rem;z-index:8;max-width:min(27rem,calc(100vw - 2.5rem));max-height:calc(100dvh - 6rem);overflow:auto;background:#fff;border-radius:6px}.geometry-immersive>.geometry-controls[open]{padding:1rem}.geometry-controls .viewer-options{border:0;border-bottom:1px solid #d8e2e5;border-radius:0;margin:0;padding:.25rem 0}.immersive-viewer>.viewer-audio-menu,.immersive-viewer>.viewer-settings-menu{position:absolute;top:5rem;right:1.25rem;z-index:9;max-width:min(27rem,calc(100vw - 2.5rem));background:#fff;color:#182d32;border-radius:6px;max-height:calc(100dvh - 10rem);overflow:auto}.immersive-viewer>.viewer-settings-menu{top:8.5rem}.viewer-audio-menu[open],.viewer-settings-menu[open]{padding:1rem}.viewer-audio-menu .viewer-audio{border:0;padding:.5rem 0;margin:0}.viewer-settings-menu .viewer-options{border:0;border-bottom:1px solid #d8e2e5;margin:.25rem 0;padding:.25rem 0}
 .publication-high-contrast{--publication-paper:#fff;--publication-ink:#000;--publication-muted:#26383d;--publication-action:#003e4c}.publication-high-contrast :is(button,a,summary){outline-offset:4px}.publication-shell [hidden]{display:none!important}.publication-shell .publication-skip-links{position:fixed;top:0;left:0;z-index:100}.publication-shell .publication-skip-links a:not(:focus){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.publication-shell .publication-skip-links a:focus{display:block;background:#fff;color:#182d32;padding:1rem}
 @media(max-width:700px){.publication-menu{top:.75rem;right:.75rem}.publication-text-route{top:.75rem;left:.75rem}.immersive-viewer>.viewer-audio-menu{top:4.5rem;right:.75rem}.immersive-viewer>.viewer-settings-menu{top:8rem;right:.75rem}.viewer-walk-quick{left:.75rem;bottom:max(.75rem,env(safe-area-inset-bottom))}.geometry-immersive>.geometry-controls{right:.75rem;bottom:max(.75rem,env(safe-area-inset-bottom))}.geometry-immersive>figcaption{bottom:4.75rem;max-width:calc(100% - 1.5rem);left:.75rem}.publication-menu-panel{max-height:calc(100dvh - 5rem)}}
@@ -270,3 +270,25 @@ main.publication-shell .publication-plaque-links li{margin:0;padding:0}
 main.publication-shell .publication-plaque-detail{display:block;margin-top:.15rem;font-size:.875rem;font-weight:400;line-height:1.5;color:var(--publication-muted);overflow-wrap:anywhere}
 
 .geometry-immersive .geometry-quality-frame{position:absolute;inset:0;pointer-events:none}
+
+
+.viewer-artwork-notice {
+  position: absolute;
+  z-index: 5;
+  inset-inline-end: max(.75rem, env(safe-area-inset-right));
+  bottom: max(.75rem, env(safe-area-inset-bottom));
+  max-inline-size: min(18rem, calc(100% - max(.75rem, env(safe-area-inset-left)) - max(.75rem, env(safe-area-inset-right))));
+  pointer-events: none;
+}
+.immersive-viewer[data-input-mode=touch] .geometry-immersive:has(.viewer-walking-joystick) .viewer-artwork-notice {
+  bottom: calc(112px + .75rem + max(1rem, env(safe-area-inset-bottom)));
+}
+.viewer-artwork-notice[data-state] {
+  padding: .5rem .75rem;
+  border-radius: .5rem;
+  background: var(--publication-paper, #f8fbfc);
+  color: var(--publication-ink, #182d32);
+  font-size: .875rem;
+}
+.viewer-artwork-notice p { margin: 0; }
+.viewer-artwork-notice button { min-height: 44px; margin-top: .25rem; pointer-events: auto; }

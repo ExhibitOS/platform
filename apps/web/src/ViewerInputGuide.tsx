@@ -112,6 +112,7 @@ export function ViewerInputGuide({mode,replayed,onDismiss,requestSequence=0,view
    <div className="viewer-input-help-body" id={id}>{phase==='choice'?<><h2 ref={heading} tabIndex={-1}>관람 방식을 골라보세요</h2><div className="viewer-help-choice-buttons"><button type="button" onClick={()=>choose('free')}>자유롭게 관람</button>{orderedAvailable?<button type="button" onClick={()=>choose('ordered')}>순서대로 관람</button>:<p>순서 관람 위치가 아직 준비되지 않았어요. 자유롭게 둘러볼 수 있어요.</p>}</div>{autoChoiceNotice&&<p className="viewer-help-choice-notice" role="status">8초 동안 선택하지 않으면 자유롭게 관람으로 이어져요.</p>}</>:<><h2 ref={heading} tabIndex={-1}>조작 도움말</h2>
     <div className="viewer-help-input" role="group" aria-label="도움말 입력 방식"><button type="button" aria-pressed={keys} onClick={()=>setInput('keys')}>키보드·마우스</button><button type="button" aria-pressed={!keys} onClick={()=>setInput('touch')}>터치</button></div>
     <GuideRows keys={keys} free={free}/>
+    <p className="viewer-help-note">공간을 이동하지 않아도 메뉴의 ‘텍스트로 관람’에서 작품 목록과 설명을 볼 수 있어요.</p>
     {free&&keys&&<p className="viewer-help-note">마우스 시점 잡기는 관람 설정에서 직접 선택할 수 있어요. 스크롤은 걷기 조작이 아니에요.</p>}
    </>} </div>
   </details>
