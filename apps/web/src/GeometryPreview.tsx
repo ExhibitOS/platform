@@ -2223,7 +2223,11 @@ export function GeometryPreview({
               : kind === "retry"
                 ? arts.filter((a) => failed.has(a.revisionId))
                 : arts.filter((a) => requested.has(a.revisionId));
-          for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull)));}
+          for (const art of selected) {
+            if (kind === "retry") visibleWaitStarted.delete(art.revisionId);
+            retryAfter.delete(art.revisionId);
+            request(art, kind === "full" || (kind === "next" && !automatic && manualFull));
+          }
         };
         const automaticDemand=()=>{
           if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
