@@ -33,7 +33,7 @@ function varyingAxis([from, to]: Edge): Axis {
 /** Render the exterior of the existing equal-depth wall panels. At a jamb,
  * neighboring panels subdivide the same edge at the head/sill breakpoints.
  * Collision still uses the original solids. */
-export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>) {
+function wallOpeningShellData(boxes: ReturnType<typeof architecturalWallBoxes>) {
   const raw = boxes.map(({ position: [x, y], dimensions: { width, height } }): Panel => ({
     min: [x - width / 2, y - height / 2], max: [x + width / 2, y + height / 2],
   }));
@@ -89,8 +89,19 @@ export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof a
     const ap = vertex(a, halfDepth, nx, ny, 0), bp = vertex(b, halfDepth, nx, ny, 0);
     indices.push(am, bm, bp, am, bp, ap);
   }
+  return {positions,normals,indices};
+}
+
+export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof architecturalWallBoxes>) {
+  const {positions,normals,indices}=wallOpeningShellData(boxes);
   return new three.BufferGeometry()
     .setAttribute('position', new three.Float32BufferAttribute(positions, 3))
     .setAttribute('normal', new three.Float32BufferAttribute(normals, 3))
     .setIndex(indices);
+}
+
+/** Count CPU and GPU position, normal, metric UV and conservatively UInt32 indices. */
+export function texturedOpeningShellReserve(boxes: ReturnType<typeof architecturalWallBoxes>) {
+  const {positions,indices}=wallOpeningShellData(boxes);
+  return 2 * (positions.length / 3 * 32 + indices.length * 4);
 }
