@@ -112,6 +112,7 @@ export function GeometryPreview({
   onMapPose,
   onNavigationMode,
   onArtworkSelect,
+  onShowArtworkList,
   onPlaqueSelect,
   proximityDetail = false,
   focusedPlacementId,
@@ -194,6 +195,7 @@ export function GeometryPreview({
   onMapPose?: (position:[number,number,number],yaw:number,horizontalFovDegrees:number,continuous?:boolean) => void;
   onNavigationMode?: (walking: boolean, paused: boolean) => void;
   onArtworkSelect?: (id: string) => void;
+  onShowArtworkList?: () => void;
   onPlaqueSelect?: (id:string)=>void;
   proximityDetail?: boolean;
   focusedPlacementId?: string | null;
@@ -337,6 +339,17 @@ export function GeometryPreview({
   const [restart, setRestart] = useState(0);
   const [shadowMessage,setShadowMessage]=useState('');
   const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
+  const [sceneIssue, setSceneIssue] = useState("");
+  const [artworkNotice, setArtworkNotice] = useState<"loading" | "unavailable">();
+  const [noticePageVisible, setNoticePageVisible] = useState(true);
+  useEffect(() => {
+    if (!immersive || !publicSource) return;
+    const page = globalThis.document;
+    const changed = () => setNoticePageVisible(!page.hidden);
+    changed();
+    page.addEventListener("visibilitychange", changed);
+    return () => page.removeEventListener("visibilitychange", changed);
+  }, [immersive, publicSource]);
   const ViewControls = publicSource ? "details" : "div";
   const [message, setMessage] = useState("공간 미리보기를 준비합니다."),
     [ready, setReady] = useState(false);
@@ -419,6 +432,8 @@ export function GeometryPreview({
     setMessage("공간 미리보기를 준비합니다.");
     setMaterialIssueCount(0);
     setPublicMessage("전시를 준비하고 있어요.");
+    setSceneIssue("");
+    setArtworkNotice(undefined);
     const build = async () => {
       if (
         document.rooms.length > 32 ||
@@ -973,7 +988,9 @@ export function GeometryPreview({
         walkingActions.current?.pause();
         demand.current?.("cancel");
         setReady(false);
-        setPublicMessage("3D 화면 연결이 중단됐어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.");
+        const issue = "3D 화면 연결이 중단됐어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.";
+        setPublicMessage(issue);
+        setSceneIssue(issue);
         setMessage(
           viewerBudget
             ? "3D 그래픽 연결이 중단되었습니다. 작품 목록을 계속 사용할 수 있습니다. 3D 다시 시작으로 재시도할 수 있습니다."
@@ -1346,11 +1363,16 @@ export function GeometryPreview({
         }
         signal.throwIfAborted();
       };
+      let publicDisplayStopped = false;
       const stopPublicDisplay=()=>{
+        publicDisplayStopped = true;
         sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
         sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
         mapThumbnailRefresh.current?.();
-        setReady(false);setPublicMessage('공개 상태를 확인할 수 없어 작품 표시를 중단했습니다. 작품 목록을 이용해 주세요.');
+        const issue = "공개 상태를 확인할 수 없어 작품 표시를 중단했어요. 작품 목록을 이용해 주세요.";
+        setReady(false);
+        setPublicMessage(issue);
+        setSceneIssue(issue);
       };
       const readArtworkBytes = async (
         artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal,
@@ -1890,8 +1912,37 @@ export function GeometryPreview({
           stage.insertBefore(frame,live.parentElement?.nextSibling??null);
           qualityFrame.current={scope:qualityScope,canvas:frame,timer:window.setTimeout(clearQualityFrame,8000),visibleWorks};
         };
+        const visibleWaitStarted = new Map<string, number>();
+        const updateArtworkNotice = () => {
+          if (!immersive) return;
+          if (suspendedRef.current || xrActive.current || renderer.domElement.ownerDocument.hidden) {
+            visibleWaitStarted.clear();
+            setArtworkNotice(undefined);
+            return;
+          }
+          const now = performance.now();
+          let loading = false, unavailable = false;
+          for (const { revisionId } of arts) {
+            const key = pending.get(revisionId);
+            const visibleMinimum = observedVisible.get(revisionId) && !active.has(revisionId);
+            const waiting = key !== undefined && !tasks.get(key)?.prepareOnly;
+            const failedMinimum = failed.has(revisionId) && (!key || minimumBlocked.has(revisionId));
+            if (!visibleMinimum || (!waiting && !failedMinimum)) {
+              visibleWaitStarted.delete(revisionId);
+              continue;
+            }
+            const started = visibleWaitStarted.get(revisionId) ?? now;
+            visibleWaitStarted.set(revisionId, started);
+            const elapsed = now - started;
+            unavailable ||= failedMinimum &&
+              (!minimumBlocked.has(revisionId) || retryAfter.get(revisionId) === Infinity || elapsed >= 3000);
+            loading ||= waiting && elapsed >= 1000;
+          }
+          setArtworkNotice(unavailable ? "unavailable" : loading ? "loading" : undefined);
+        };
         const update = () => {
-          if (disposed || gpuLost) return;
+          if (disposed || gpuLost || publicDisplayStopped) return;
+          updateArtworkNotice();
           const detailArt=arts.find(art=>art.revisionId===detailPinnedArtwork);
           const selectedLimits=detailArt?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(detailArt,viewerBudget)?.budget}):undefined;
           // A verified download-only preparation may settle without an object.
@@ -1956,7 +2007,7 @@ export function GeometryPreview({
           });
           setPublicMessage(minimumBlocked.size>0?"표시할 메모리가 부족해 일부 작품을 아직 준비하지 못했어요. 작품 목록에서도 감상할 수 있어요.":failed.size > 0
             ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요."
-            : "공간에서 관람할 수 있어요. 작품 목록에서도 감상할 수 있어요.");
+            : "");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
@@ -2177,7 +2228,7 @@ export function GeometryPreview({
           for (const art of selected) {retryAfter.delete(art.revisionId);request(art, (kind === "full" || (kind==='next'&&!automatic&&manualFull)));}
         };
         const automaticDemand=()=>{
-          if(disposed||gpuLost||xrActive.current||!automatic||!demandContext().observeWall)return;
+          if(disposed||gpuLost||xrActive.current||publicDisplayStopped||!demandContext().observeWall||(!automatic&&!immersive))return;
           const now=performance.now();camera.updateMatrixWorld();model.updateMatrixWorld(true);
           const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
           const wallMeshes=document.surfaces.filter(v=>v.type==='wall').map(v=>surfaces.get(v.id.toLowerCase())!).filter(Boolean);
@@ -2218,6 +2269,7 @@ export function GeometryPreview({
               const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:frustum.intersectsBox(box),width:renderer.domElement.width,height:renderer.domElement.height});
               if(!screen.visible||!minimumFootprintVisible(points,unobstructed,point=>clearPath(camera.position,point)))continue;
               visible=true;
+              if(!automatic)break;
               // Partial footprints protect the minimum; detail keeps its center-clear requirement.
               if(!unobstructed)continue;
               const isFocused=focusedPlacement.current===p.id;focused=focused||isFocused;
@@ -2226,16 +2278,26 @@ export function GeometryPreview({
               maxOccupancy=Math.max(maxOccupancy,occupancy);
               screenDemand=screenDemand||detailDemand({kind:art.artworkType,visible:true,distance:Math.max(.001,d),occupancy,projectedPixels:pixels,coarseTextureSize:low?.textureSize,gazeDistance:screen.gazeDistance,focused:isFocused});
             }
-            let transition=transitions.get(art.revisionId);if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
-            const want=transition.update(screenDemand,now);
+            let want=false;
+            if(automatic){
+              let transition=transitions.get(art.revisionId);
+              if(!transition){transition=new DetailTransition();transitions.set(art.revisionId,transition);}
+              want=transition.update(screenDemand,now);
+            }
             return {art,visible,distance,focused,want,demand:screenDemand,occupancy:maxOccupancy,gazeDistance,eligible,minimumEligible};
           });
+          for(const observation of observations){
+            observedVisible.set(observation.art.revisionId,observation.visible);
+            if(!automatic)continue;
+            observedEligible.set(observation.art.revisionId,observation.minimumEligible);
+            if(!observation.visible&&!observation.minimumEligible)minimumBlocked.delete(observation.art.revisionId);
+          }
+          if(!automatic)return;
           // Attention and detail grace run together rather than adding two
           // consecutive dwell delays before the first detailed request.
           const candidates=observations.map(v=>({id:v.art.revisionId,demand:v.demand||(v.art.revisionId===attention.current()&&v.want),occupancy:v.occupancy,focused:v.focused,gazeDistance:v.gazeDistance,distance:v.distance,eligible:v.eligible}));
           currentArtwork=attention.update(candidates,now);
           if(currentArtwork){lastAttended.set(currentArtwork,now);reclaiming.delete(currentArtwork);}
-          for(const observation of observations){observedVisible.set(observation.art.revisionId,observation.visible);observedEligible.set(observation.art.revisionId,observation.minimumEligible);if(!observation.visible&&!observation.minimumEligible)minimumBlocked.delete(observation.art.revisionId);}
           preparing=new Set(automatic?nearbyPreparation(candidates,currentArtwork):[]);
           // Cancel obsolete preparation without releasing its unsettled reservation.
           for(const [artId,key] of pending){const task=tasks.get(key);if(task?.prepareOnly&&artId!==currentArtwork&&!preparing.has(artId)){scheduler.cancel(key);pending.delete(artId);}}
@@ -2537,7 +2599,7 @@ export function GeometryPreview({
         }
         if (!disposed) {
           setAssetReport({loaded:rendered,failed:unavailable});
-          if (publicSource) setPublicMessage(unavailable ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요." : "공간에서 관람할 수 있어요.");
+          if (publicSource) setPublicMessage(unavailable ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요." : "");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
           );
@@ -2545,10 +2607,16 @@ export function GeometryPreview({
       }
     };
     void build().catch((error) => {
-      if(!disposed){clearQualityFrame();setReady(false);setBuildFailed(true);}
-      if (!disposed) setPublicMessage(error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
-        ? "이 전시의 공간이 표시 한도를 넘었어요. 작품 목록에서 감상해 주세요."
-        : "3D 화면을 표시하지 못했어요. 작품 목록을 이용하거나 ‘3D 다시 시작’을 눌러 주세요.");
+      if (!disposed) {
+        clearQualityFrame();
+        setReady(false);
+        setBuildFailed(true);
+        const issue = error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
+          ? "이 전시의 공간이 표시 한도를 넘었어요."
+          : "3D 화면을 표시하지 못했어요. ‘3D 다시 시작’으로 재시도할 수 있어요.";
+        setPublicMessage(issue);
+        setSceneIssue(issue);
+      }
       if (!disposed)
         setMessage(
           error instanceof Error && error.message === "PREVIEW_COMPLEXITY"
@@ -2586,6 +2654,10 @@ export function GeometryPreview({
     clearQualityFrame,
   ]);
   const ControlsFrame = immersive || compactControls ? "details" : "div";
+  const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : ready ? artworkNotice : undefined;
+  const noticeMessage = noticeState === "scene" ? sceneIssue
+    : noticeState === "unavailable" ? "시야에 있는 작품을 불러오지 못했어요."
+    : noticeState === "loading" ? "작품 불러오는 중…" : "";
   return (
     <figure data-input-mode={inputMode} data-reduced-motion={walkSettings.reducedMotion} className={`geometry-preview${immersive ? " geometry-immersive" : ""}`} aria-hidden={suspendNavigation || undefined} inert={suspendNavigation || undefined}>
       {immersive&&viewingStyle==='ordered'&&sculptureOrbitState&&sculptureOrbitRuntime.current&&<SculptureOrbitControls state={sculptureOrbitState} actions={sculptureOrbitRuntime.current.actions}/>}
@@ -2611,7 +2683,15 @@ export function GeometryPreview({
           />
         )}
       </div>
-      <figcaption hidden={immersive && ready && assetReport.loaded===document.placements.length && assetReport.failed===0} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
+      {immersive && publicSource ? (
+        <div className="viewer-artwork-notice" data-state={noticeState}>
+          <p role="status">{noticeMessage}</p>
+          {(noticeState === "scene" || noticeState === "unavailable") && onShowArtworkList &&
+            <button type="button" onClick={onShowArtworkList}>작품 목록 보기</button>}
+        </div>
+      ) : (
+        <figcaption hidden={publicSource && !publicMessage} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
+      )}
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
       {(immersive || compactControls) && <summary>공간 조작</summary>}
       {immersive && <><label>조작 방식<select aria-label="조작 방식" value={inputMode} onChange={event=>{walkingActions.current?.pause("settings");onInputModeChange?.(event.target.value as ViewerInputMode);}}><option value="auto">기기에 맞게 · 드래그 또는 터치</option><option value="pointer">마우스·키보드</option><option value="trackpad">트랙패드·키보드</option><option value="touch">터치·조이스틱</option></select></label><p>기기에 맞게 시작하며, 직접 바꾼 방식은 이번 관람에 유지돼요. 설정을 닫고 새 이동·시점 조작으로 이어가세요.</p></>}
