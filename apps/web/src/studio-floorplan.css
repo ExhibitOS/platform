@@ -18,3 +18,12 @@
 .studio-floorplan svg { user-select:none; -webkit-user-select:none; }
 .studio-floorplan circle[fill="transparent"] { fill:transparent; stroke:none; }
 .studio-floorplan g:focus { outline:none; }
+.studio-floorplan .floorplan-number-leader { stroke: #005f59; stroke-width: 1; pointer-events: none; }
+.studio-floorplan .floorplan-number { fill: #fffefa; stroke: #005f59; stroke-width: 1; }
+.studio-floorplan .floorplan-number-text { fill: #172a21; font-weight: 700; }
+.studio-floorplan .selected .floorplan-number { fill: #005f59; }
+.studio-floorplan .selected .floorplan-number-text { fill: #fff; }
+.floorplan-artwork-list { margin-block: 8px; }
+.floorplan-artwork-list summary { cursor: pointer; }
+.floorplan-artwork-list ol { list-style: none; margin-block: 4px; padding: 0; max-height: 12rem; overflow: auto; }
+.floorplan-artwork-list button { text-align: start; min-height: 32px; width: 100%; }
