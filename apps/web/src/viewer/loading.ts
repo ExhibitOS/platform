@@ -33,7 +33,9 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  * allocations and coexistence still have to pass, not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
 export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Parameters<typeof deviceBudget>[0]):DeviceBudget {
- if(profile==='auto')return deviceBudget(input);
+ // At 4 GiB, Auto already selects Compact geometry and texture limits.
+ // Keep its bounded transition headroom when the visitor selects Compact directly.
+ if(profile==='auto'||(profile==='compact'&&input.deviceMemory===4))return deviceBudget(input);
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
   const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
