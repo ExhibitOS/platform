@@ -1,5 +1,5 @@
 .private-editor {
- --private-accent:#007f75; --private-ink:#172a21; --private-surface:#fff; --private-canvas:#e7ebe5; --private-line:#84938a;
+ --private-accent:#007f75; --private-ink:#172a21; --private-surface:#fff; --private-canvas:#e7ebe5; --private-line:#84938a; --private-panel-clearance:22.5rem;
  color:var(--private-ink); background:#f3f2ec; inline-size:100%; max-width:none; margin:0; padding:1rem;
  box-sizing:border-box; font-size:1rem; block-size:100dvh; min-block-size:34rem; display:flex; flex-direction:column;
 }
@@ -23,7 +23,8 @@
 .private-save-status { margin:.65rem 0; font-size:.9375rem; line-height:1.5; min-block-size:1.5rem; flex:none; }
 .private-editor-workspace { position:relative; flex:1; min-block-size:0; }
 .private-scene { min-inline-size:0; block-size:100%; display:flex; flex-direction:column; }
-.private-scene-tools { justify-content:space-between; margin-bottom:.5rem; flex:none; padding-inline-end:22.5rem; }
+.private-scene-tools { justify-content:space-between; margin-bottom:.5rem; flex:none; padding-inline-end:var(--private-panel-clearance); }
+.private-scene > .studio-floorplan { margin-inline-end:var(--private-panel-clearance); }
 .private-scene .geometry-preview { margin:0; padding:0; background:var(--private-canvas); border:0; flex:1; min-block-size:0; display:flex; flex-direction:column; }
 .private-scene .geometry-stage { flex:1; min-block-size:12rem; }
 .private-scene .geometry-render-host { position:absolute; inset:0; block-size:100%; inline-size:100%; }
@@ -67,16 +68,15 @@
 .private-loading { max-width:42rem; margin:4rem auto; padding:1.5rem; }
 @media(max-width:1000px) and (min-width:761px) {
  .private-panel-host { inline-size:18rem; }
- .private-scene-tools { padding-inline-end:19.5rem; }
+ .private-editor { --private-panel-clearance:19.5rem; }
 }
 @media(max-width:760px), (max-width:1000px) and (pointer:coarse) {
- .private-editor { padding:.65rem; padding-bottom:max(.65rem,env(safe-area-inset-bottom)); }
+ .private-editor { --private-panel-clearance:0rem; padding:.65rem; padding-bottom:max(.65rem,env(safe-area-inset-bottom)); }
  .private-editor-header { align-items:stretch; }
  .private-editor-header nav { inline-size:100%; gap:.35rem; }
  .private-editor-header nav button { flex:1 1 auto; padding:.4rem .5rem; }
  .private-editor-workspace { display:flex; flex-direction:column; gap:.5rem; }
  .private-scene { block-size:auto; flex:1; min-block-size:15rem; }
- .private-scene-tools { padding-inline-end:0; }
  .private-panel-host { position:static; inline-size:100%; max-inline-size:none; max-block-size:max(48%,16rem); min-block-size:0; display:flex; flex-direction:column; flex:none; }
  .private-tool-panel { min-block-size:0; }
  .private-tool-chooser { display:flex; overflow-x:auto; scrollbar-color:var(--private-line) var(--private-surface); }
