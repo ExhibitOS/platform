@@ -1,6 +1,7 @@
 import {expect,test,vi} from 'vitest';
 import * as Three from 'three';
 import {newDraft} from './drafts/example';
+import {newPlacement,syntheticArtwork} from './placement/model';
 import {ARTWORK_DETAILS_NAMESPACE,ENTRANCE_NAMESPACE,applyPlaqueCommand,applyRoomPlaqueIntroduction,plaquesFor} from '@exhibitos/studio-contract';
 import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {plaqueContent,plaqueFaceContent} from './plaque-content';
@@ -40,11 +41,14 @@ test('a physical plaque uses the localized display title and intentional line br
  }finally{runtime.dispose();}
 });
 test('artwork faces include the authored artist and verified year only when available',()=>{
- const {d}=fixture(1),plaque=plaquesFor(d)[0]!,placementId=crypto.randomUUID(),revisionId=crypto.randomUUID();
- d.placements=[{id:placementId,artworkRevisionId:revisionId} as typeof d.placements[number]];
- const artwork={revisionId,metadata:{title:'Artwork',artist:'Artist'},extensions:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:1894}}} as typeof d.artworks[number];
+ const {d}=fixture(1),plaque=plaquesFor(d)[0]!;
+ const artwork=syntheticArtwork('image');
+ artwork.metadata={title:'Artwork',artist:'Artist'};
+ artwork.extensions={[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:1894}};
+ const placement=newPlacement(artwork,plaque.roomId);
  d.artworks=[artwork];
- const source={...plaque,source:{kind:'artwork' as const,placementId}};
+ d.placements=[placement];
+ const source={...plaque,source:{kind:'artwork' as const,placementId:placement.id}};
  expect(plaqueFaceContent(d,source)).toEqual({title:'Artwork',summary:'Artist · 1894'});
  delete artwork.extensions?.[ARTWORK_DETAILS_NAMESPACE];
  expect(plaqueFaceContent(d,source)).toEqual({title:'Artwork',summary:'Artist'});
