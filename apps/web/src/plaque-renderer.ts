@@ -3,8 +3,52 @@ import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {plaquesFor,validateStudioPlaques,PLAQUE_LIMITS} from '@exhibitos/studio-contract';
 import {MemoryAssetCache} from './viewer/loading';
-import {plaqueContent} from './plaque-content';
+import {plaqueFaceContent} from './plaque-content';
 const MIN_WIDTH=128,MIN_HEIGHT=64;
+function wrapText(c:CanvasRenderingContext2D,text:string,width:number){
+ const lines:string[]=[];
+ for(const paragraph of text.split(/\r?\n/)){
+  let line='';
+  for(const word of paragraph.trim().split(/\s+/)){
+   if(!word)continue;
+   const combined=line?line+' '+word:word;
+   if(c.measureText(combined).width<=width){line=combined;continue;}
+   if(line)lines.push(line);
+   line='';
+   for(const character of word){
+    if(line&&c.measureText(line+character).width>width){lines.push(line);line='';}
+    line+=character;
+   }
+  }
+  if(line)lines.push(line);
+ }
+ return lines;
+}
+
+function drawPlaqueFace(c:CanvasRenderingContext2D,{title,summary}:{title:string;summary:string},scale:number,height:number){
+ const padding=28*scale,width=456*scale,gap=14*scale;
+ // Preserve authored paragraph breaks at ordinary sizes. Densely formatted
+ // legacy copy can reflow as a continuous paragraph before reducing further.
+ const layouts=[
+  {title,summary,ratios:[1,.875,.75,.625,.5,.375]},
+  {title:title.replace(/\s+/g,' '),summary:summary.replace(/\s+/g,' '),ratios:[.375,.3125,.25,.1875,.125]},
+ ];
+ for(const layout of layouts)for(const ratio of layout.ratios){
+  const heading=36*scale*ratio,body=25*scale*ratio,headingStep=heading*1.25,bodyStep=body*1.3;
+  const headingFont=`600 ${heading}px system-ui, sans-serif`,bodyFont=`${body}px system-ui, sans-serif`;
+  c.font=headingFont;const titleLines=wrapText(c,layout.title,width);
+  c.font=bodyFont;const bodyLines=wrapText(c,layout.summary,width);
+  const space=bodyLines.length?gap:0,total=titleLines.length*headingStep+space+bodyLines.length*bodyStep;
+  if(total>height-2*padding)continue;
+  let y=(height-total)/2;
+  c.font=headingFont;
+  for(const text of titleLines){c.fillText(text,padding,y+heading);y+=headingStep;}
+  y+=space;c.font=bodyFont;
+  for(const text of bodyLines){c.fillText(text,padding,y+body);y+=bodyStep;}
+  return;
+ }
+}
+
 export function plaqueTextureReserve(document:Exhibition,compact:boolean){const count=plaquesFor(document).filter(p=>p.visible).length;return (Math.min(count,compact?PLAQUE_LIMITS.compact:PLAQUE_LIMITS.desktop)*PLAQUE_LIMITS.width*PLAQUE_LIMITS.height+count*MIN_WIDTH*MIN_HEIGHT)*4*2;}
 /** One pooled plane, a bounded text-bearing minimum per authored plaque, and near-detail LRU. No additional renderer or animation loop. */
 export function installPlaques(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,compact:boolean,makeCanvas=()=>globalThis.document.createElement('canvas')){
@@ -24,11 +68,7 @@ export function installPlaques(three:typeof Three,document:Exhibition,rooms:Read
   const canvas=makeCanvas();let texture:Three.CanvasTexture|undefined,material:Three.MeshStandardMaterial|undefined;
   try{canvas.width=width;canvas.height=height;const scale=width/PLAQUE_LIMITS.width;const c=canvas.getContext('2d');if(!c)throw Error('PLAQUE_CANVAS_UNAVAILABLE');
    c.fillStyle='#f4f1e8';c.fillRect(0,0,canvas.width,canvas.height);c.fillStyle='#17352c';
-   // Bounded glyph work. Full source remains available in the DOM request panel.
-   const content=plaqueContent(document,rows[index]!);const fit=(text:string,max:number)=>{let value=Array.from(text).slice(0,max).join('');while(value&&c.measureText(value+'…').width>456*scale)value=Array.from(value).slice(0,-1).join('');return value!==text?value+'…':value;};
-   c.font=`600 ${32*scale}px system-ui, sans-serif`;c.fillText(fit(content.title,128),28*scale,64*scale);
-   c.font=`${24*scale}px system-ui, sans-serif`;c.fillText(fit(content.summary.split('\n')[0]??'',160),28*scale,118*scale);
-   c.font=`${22*scale}px system-ui, sans-serif`;c.fillText('선택하여 안내 읽기',28*scale,212*scale);
+   drawPlaqueFace(c,plaqueFaceContent(document,rows[index]!),scale,canvas.height);
    texture=new three.CanvasTexture(canvas);texture.colorSpace=three.SRGBColorSpace;texture.generateMipmaps=false;texture.minFilter=three.LinearFilter;texture.magFilter=three.LinearFilter;
    material=new three.MeshStandardMaterial({map:texture,roughness:1,metalness:0});return {canvas,texture,material};
   }catch(error){material?.dispose();texture?.dispose();canvas.width=0;canvas.height=0;throw error;}
