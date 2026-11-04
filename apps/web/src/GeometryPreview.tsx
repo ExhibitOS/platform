@@ -628,7 +628,7 @@ export function GeometryPreview({
       });
       const architecturalFinishes=installArchitecturalFinishes(three,document,surfaces,surfaceMaterials);owned.push(architecturalFinishes);
       if(architecturalFinishes.records.length)renderer.domElement.dataset.architecturalFinishes=JSON.stringify(architecturalFinishes.records);
-      for (const opening of document.openings) {
+      for (const opening of editingEnabled ? document.openings : []) {
         const geometry = new three.PlaneGeometry(
             opening.dimensions.width,
             opening.dimensions.height,
