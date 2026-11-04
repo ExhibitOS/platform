@@ -34,7 +34,7 @@ export function installArchitecturalFinishes(three:typeof Three,document:Exhibit
   for(const kind of ['structure','finish'] as const){const items=boxes.filter(b=>b.kind===kind);if(!items.length)continue;let material=base;
    if(kind==='finish'){let own=materials.get(wall.preset);if(!own){own=new three.MeshStandardMaterial(wall.preset==='dark-edge'?{color:'#293b36',roughness:.4,metalness:.7}:{color:'#dedbd2',roughness:.8,metalness:0});materials.set(wall.preset,own);}material=own;}
    const binding=kind==='structure'?surfaceTextureFor(document,surface.id):undefined;let mesh:Three.Mesh;
-   if(binding||kind==='structure'&&openingWidths.length&&items.length>1){
+   if(binding||kind==='structure'&&items.length>1){
     const own=binding?texturedWallGeometry(three,items,parent,binding):wallOpeningShell(three,items);
     ownedGeometries.push(own);own.computeBoundingBox();own.computeBoundingSphere();
     mesh=new three.Mesh(own,material);triangles+=own.index!.count/3;

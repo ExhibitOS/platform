@@ -3,17 +3,19 @@ import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {requiredSurfaceTexturePacks,SURFACE_TEXTURE_FILES,surfaceTexturePack,surfaceTextureFor,wallFinishesFor,architecturalWallBoxes,type SurfaceTextureBinding} from '@exhibitos/studio-contract';
 import {materialMapPlan} from './material-texture-plan';
-import {texturedOpeningShellReserve} from './wall-opening-shell';
+import {wallOpeningShellReserve} from './wall-opening-shell';
 import {createRegisteredMaterialTextureRenderer,type MaterialTextureFile} from './floor-texture-renderer';
 
 export function surfaceTexturePlan(document:Exhibition,maxTextureSize:number,availableBytes:number){
  const packs=requiredSurfaceTexturePacks(document),files=packs.flatMap(pack=>Object.entries(pack.maps).map(([role,file])=>({role:role as 'color'|'normal'|'roughness',file})));
- // Styled structures need per-vertex metric UVs rather than the unit-box UVs
- // shared by instancing. Reserve their whole bounded replacement geometry.
- const geometryReserve=wallFinishesFor(document).filter(w=>surfaceTextureFor(document,w.surfaceId)).reduce((sum,w)=>{
+ // Joined opening shells own buffers even when their surfaces use scalar paint.
+ // Textured structures also own the metric UV buffer, including during fallback.
+ const geometryReserve=wallFinishesFor(document).reduce((sum,w)=>{
   const surface=document.surfaces.find(s=>s.id.toLowerCase()===w.surfaceId.toLowerCase())!;
   const boxes=architecturalWallBoxes(surface,document.openings,w).filter(b=>b.kind==='structure');
-  return sum+(boxes.length>1?texturedOpeningShellReserve(boxes):boxes.length*2*(24*32+36*4));
+  const textured=surfaceTextureFor(document,w.surfaceId)!==undefined;
+  if(boxes.length>1)return sum+wallOpeningShellReserve(boxes,textured);
+  return sum+(textured?boxes.length*2*(24*32+36*4):0);
  },0);
  const cost=materialMapPlan(files.map(({role,file})=>({...file,role})),maxTextureSize,Math.max(0,availableBytes-geometryReserve));
  const sizes=new Map<MaterialTextureFile,number>(files.map(({file},i)=>[file,cost.sizes[i]??0]));

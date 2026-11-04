@@ -100,8 +100,8 @@ export function wallOpeningShell(three: typeof Three, boxes: ReturnType<typeof a
     .setIndex(indices);
 }
 
-/** Count CPU and GPU position, normal, metric UV and conservatively UInt32 indices. */
-export function texturedOpeningShellReserve(boxes: ReturnType<typeof architecturalWallBoxes>) {
+/** Count CPU and GPU positions, normals, optional metric UVs, and UInt32 indices. */
+export function wallOpeningShellReserve(boxes: ReturnType<typeof architecturalWallBoxes>, textured: boolean) {
   const {positions,indices}=wallOpeningShellData(boxes);
-  return 2 * (positions.length / 3 * 32 + indices.length * 4);
+  return 2 * (positions.length / 3 * (textured ? 32 : 24) + indices.length * 4);
 }
