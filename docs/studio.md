@@ -259,3 +259,11 @@ reported rather than silently treated as successful application. Preview and
 Viewer must use the same precedence; any visually degraded fallback must remain
 observable and cannot be reported as a ready texture. These are design targets,
 not current product behavior or a supported OEX format claim.
+
+Explicitly choosing the already-stored built-in texture remains an edit when a
+workspace texture is active: it removes that workspace binding in the same CAS.
+A client must compare the complete proposed draft, not infer no change solely
+from the unchanged legacy floor fields. Portable output must retain any built-in
+resource required for the reversible fallback. Preview readiness must identify
+the requested frame and immutable material ID/version and report map load failure;
+a matching geometry frame alone is not proof that the requested map was shown.
