@@ -224,16 +224,18 @@ role-keyed received map with verified byte count and hash, `retryable`, and
 `GET /workspace/materials` is a cursor-paginated list with at most
 50 bounded summaries per page (`id`, `version`, `kind`, `name`, and current
 rights availability), plus `nextCursor`. Full rights, provenance, and map
-descriptors are returned only by the single-version read. Preview responses
+descriptors are returned by the single-version read and registered intake's
+`material`, not by the list summaries. Preview responses
 return PNG bytes, MIME, byte count and SHA-256 with no redirect, and require a
 current display grant. Future archive export and original download must separately
 check the corresponding grant; those material operations are not yet implemented.
 
 The same request UUID and identical normalized declaration returns the existing
-intake; a different declaration is `IDEMPOTENCY_CONFLICT` (409). A repeated PUT
-with the identical declared bytes succeeds. Before a role is received, bytes
+intake; a different declaration is `IDEMPOTENCY_CONFLICT` (409). While uploading,
+a repeated PUT with the identical declared bytes succeeds. Before a role is received, bytes
 that do not match its declaration are `UPLOAD_INTEGRITY` (422); after receipt,
-an attempt to replace it with different bytes is `ROLE_CONFLICT` (409). Complete
+an attempt to replace it with different bytes is `ROLE_CONFLICT` (409). PUT after
+the uploading phase returns `JOB_STATE` (409). Complete
 is idempotent in validating or registered state. Cancel cannot delete a
 registered material or a previously saved binding. A failed validation may be
 retried only after its worker has physically drained; invalid source remains
@@ -241,7 +243,8 @@ available for the owner to choose a new intake, never silently modified. A
 cross-workspace operation is forbidden, with no resource bytes disclosed.
 Validation may return `MATERIAL_MAP_DESCRIPTOR`, `UPLOAD_INTEGRITY`,
 `PNG_PIXEL_LIMIT_EXCEEDED`, `MATERIAL_MAP_DIMENSIONS`,
-`MATERIAL_MAP_COLOR_SPACE`, or `FORMAT_REJECTED`, together with the affected role.
+`MATERIAL_MAP_COLOR_SPACE`, or `FORMAT_REJECTED`; an intake status error can
+include the affected role.
 Additional storage/rights/ownership error semantics must be fixed alongside
 implementation and remain distinguishable from format validation.
 
@@ -276,7 +279,7 @@ until workers actually exit and cleanup is complete, then `cancelled`; the
 client must not equate acceptance of cancellation with resource return.
 
 Non-success HTTP responses use the existing API envelope `{code, message,
-fieldErrors, requestId}` with optional safe `role` or `field` when available.
+fieldErrors, requestId}`.
 A failed intake status carries `{code, role?, field?}` in its `error` field.
 The HTTP status is separate and the stable `code` has the same meaning in both. The optional
 role is one of `color`, `normal`, `roughness`, or `ao`, and field is a bounded
