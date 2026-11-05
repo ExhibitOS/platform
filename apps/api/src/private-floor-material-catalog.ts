@@ -2,6 +2,7 @@
 import { constants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 import { FLOOR_RESOURCE_PACKS } from '@exhibitos/spec/floor-resources';
+import { SURFACE_MATERIAL_PACKS } from '@exhibitos/spec/surface-material-resources';
 import { sha256 } from '@exhibitos/storage';
 import { ApiError } from './auth.ts';
 
@@ -28,11 +29,12 @@ export function privateFloorMaterialCatalog(tenantId: string) {
   };
 }
 
-export async function readPrivateFloorMaterialPreview(id: string, version: string) {
-  if (floor?.id !== id || String(floor.version) !== version || !floor.catalogue) {
+export async function readPrivateMaterialPreview(id: string, version: string) {
+  const pack = [...FLOOR_RESOURCE_PACKS, ...SURFACE_MATERIAL_PACKS].find(pack => pack.id === id && String(pack.version) === version && pack.catalogue);
+  if (!pack?.catalogue) {
     throw new ApiError(404, 'MATERIAL_PREVIEW_UNAVAILABLE');
   }
-  const preview = floor.catalogue.thumbnail;
+  const preview = pack.catalogue.thumbnail;
   try {
     let directory = new URL('../../web/dist/', import.meta.url);
     const parts = preview.path.split('/');

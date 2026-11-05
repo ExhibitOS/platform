@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { expect, test } from 'vitest';
-import { privateFloorMaterialCatalog, readPrivateFloorMaterialPreview } from './private-floor-material-catalog.ts';
+import { privateFloorMaterialCatalog, readPrivateMaterialPreview } from './private-floor-material-catalog.ts';
 
 test('the registered oak descriptor preserves floor appearance and sound controls', async () => {
   const tenant = '11111111-1111-4111-8111-111111111111';
@@ -15,6 +15,11 @@ test('the registered oak descriptor preserves floor appearance and sound control
     sha256: '4423a1fc11dc52075ae1882d6971c656819630098696b77608b7309d0e53c9a9',
     width: 256, height: 256,
   });
-  await expect(readPrivateFloorMaterialPreview(floor.id, '2')).rejects.toMatchObject({ status: 404 });
-  await expect(readPrivateFloorMaterialPreview('unknown', '1')).rejects.toMatchObject({ status: 404 });
+  await expect(readPrivateMaterialPreview(floor.id, '2')).rejects.toMatchObject({ status: 404 });
+  await expect(readPrivateMaterialPreview('unknown', '1')).rejects.toMatchObject({ status: 404 });
+});
+
+test('concrete preview uses only its exact registered version and bounded reader',async()=>{
+ await expect(readPrivateMaterialPreview('fine-gallery-concrete','2')).rejects.toMatchObject({status:404});
+ await expect(readPrivateMaterialPreview('../fine-gallery-concrete','1')).rejects.toMatchObject({status:404});
 });

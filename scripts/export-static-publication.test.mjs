@@ -204,6 +204,7 @@ async function surfaceEditorSetup(t){
  await writeFile(join(state.runtime,'static.html'),'<html><head><meta content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
  for(const file of SURFACE_MATERIAL_FILES){const path=join(state.runtime,file.artifactPath);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.artifactPath,import.meta.url),path);}
+ for(const pack of SURFACE_MATERIAL_PACKS){if(!pack.catalogue)continue;const file=pack.catalogue.thumbnail,path=join(state.runtime,file.path);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),path);}
  return state;
 }
 async function exportedSurfaceFiles(options){
@@ -254,6 +255,7 @@ async function floorEditorSetup(t){
  await writeFile(join(state.runtime,'static.html'),'<html><head><meta content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');
  await writeFile(join(state.runtime,'static-studio.html'),'<meta content="STATIC_INDEX_SHA256">');
  for(const file of FLOOR_TEXTURE_FILES){const path=join(state.runtime,file.path);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),path);}
+ for(const pack of FLOOR_TEXTURE_PACKS){if(!pack.catalogue)continue;const file=pack.catalogue.thumbnail,path=join(state.runtime,file.path);await mkdir(dirname(path),{recursive:true});await copyFile(new URL('../apps/web/public/'+file.path,import.meta.url),path);}
  return state;
 }
 async function assertExportedFloorPacks(options,packs){
@@ -344,4 +346,15 @@ test('optional bench pair is omitted atomically for missing, corrupt, wrong-size
 test('runtime-supplied bench catalogue paths remain unlisted and cannot shadow trusted bytes',async t=>{
  const {exporter,options,runtime}=await isolatedBenchExporter(t),path=join(runtime,benchPrefix+'model.glb');await mkdir(dirname(path),{recursive:true});await writeFile(path,'untrusted');
  await assert.rejects(exporter(options),/STATIC_RUNTIME_UNLISTED/);
+});
+
+
+test('concrete thumbnail omission affects optional selection only; required wall maps remain portable',async t=>{
+ for(const selected of [false,true])await t.test(selected?'required concrete wall':'optional concrete selection',async t=>{
+  const {runtime,fixture,options}=await surfaceEditorSetup(t),pack=SURFACE_MATERIAL_PACKS.find(p=>p.id==='fine-gallery-concrete');
+  if(selected){const wall=fixture.raw.exhibition.surfaces.find(s=>s.type==='wall');fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.studio/materials':{version:1,surfaces:{},surfaceTextures:{[wall.id]:{pack:{id:pack.id,version:1},repeatMeters:[2,2],rotation:0,normalScale:1}}}};fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);}
+  await rm(join(runtime,pack.catalogue.thumbnail.path));
+  const files=await exportedSurfaceFiles(options),expected=SURFACE_MATERIAL_FILES.filter(file=>selected||file.packId!==pack.id);
+  assert.deepEqual(files.map(file=>file.path),expected.map(file=>file.artifactPath).sort((a,b)=>a.localeCompare(b)));
+ });
 });

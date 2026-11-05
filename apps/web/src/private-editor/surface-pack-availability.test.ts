@@ -9,11 +9,11 @@ const manifest=()=>({format:'exhibitos-static-publication-v1',publicationId:'pub
 describe('private surface pack availability',()=>{
  it('exposes only complete registered packs belonging to the loaded publication',()=>{
   const m=manifest();expect(availableSurfacePacks(m,seed)).toEqual(SURFACE_TEXTURE_PACKS.map(p=>p.id));
-  m.files=m.files.filter(f=>f.path!==SURFACE_TEXTURE_PACKS[0]!.notice.path);expect(availableSurfacePacks(m,seed)).toEqual([SURFACE_TEXTURE_PACKS[1]!.id]);
+  m.files=m.files.filter(f=>f.path!==SURFACE_TEXTURE_PACKS[0]!.notice.path);expect(availableSurfacePacks(m,seed)).toEqual(SURFACE_TEXTURE_PACKS.slice(1).map(p=>p.id));
   m.indexSha256='other';expect(availableSurfacePacks(m,seed)).toEqual([]);
  });
  it('fails closed for inconsistent metadata and duplicate paths',()=>{
-  const m=manifest();m.files[0]!.sha256='0'.repeat(64);expect(availableSurfacePacks(m,seed)).toEqual([SURFACE_TEXTURE_PACKS[1]!.id]);
+  const m=manifest();m.files[0]!.sha256='0'.repeat(64);expect(availableSurfacePacks(m,seed)).toEqual(SURFACE_TEXTURE_PACKS.slice(1).map(p=>p.id));
   m.files.push(m.files[0]!);expect(availableSurfacePacks(m,seed)).toEqual([]);
  });
 });

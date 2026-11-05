@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability} from './package-native-runtime.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const spec='vendor/exhibitos-spec-0.1.0-draft.14.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql';
+const spec='vendor/exhibitos-spec-0.1.0-draft.15.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql';
 async function fixture(){
  const temp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-oex-package-'))),source=join(temp,'source'),output=join(temp,'output');await mkdir(source);await mkdir(output);
  for(const name of [spec,migration,normal,provenance]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}

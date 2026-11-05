@@ -801,7 +801,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
---- @exhibitos/spec 0.1.0-draft.14 browser document validators/schemas (Apache-2.0) ---
+--- @exhibitos/spec 0.1.0-draft.15 browser document validators/schemas (Apache-2.0) ---
 Copyright 2026 ExhibitOS contributors
 Document-only browser adaptation and exact furnishing inventory validator; original package bytes are pinned in vendor/.
 ExhibitOS spec licensing
@@ -883,6 +883,17 @@ https://creativecommons.org/publicdomain/zero/1.0/
 https://creativecommons.org/publicdomain/zero/1.0/legalcode
 Commercial use, modification, conversion, LOD, texture optimization and app/public repository/OEX/static redistribution are permitted; attribution is not mandatory. Original historical unselected license notes remain unchanged. No original asset bytes were modified during intake.
 Third-party components retain their own licenses; unknown-rights components require separate review. This notice does not relabel product code or grant trademark, patent or personality rights.
+
+
+--- Built-in surface texture asset (independent CC0 license) ---
+Fine Gallery Concrete — material asset notice
+
+Creator and source: user-authored ExhibitOS material generated without external photographs, models or textures, according to its preserved source record.
+License: CC0 1.0 Universal under the rights holder's standing authorization for personally created and owned ExhibitOS assets. Legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+Changes: RGB color and OpenGL +Y normal maps are byte-identical copies of the preserved source. L8 roughness was losslessly expanded to three equal RGB channels. The thumbnail was resized from the color map using Lanczos. Source notes describe a 2 × 2 m repeat.
+
+CC0 does not itself grant trademark, patent, personality or other third-party rights. This notice covers the material asset, not application code.
 
 
 --- Registered recorded footsteps (independent CC0 license and processing provenance) ---

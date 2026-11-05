@@ -4,7 +4,7 @@ import {isPbrMaterial,type PbrMaterial} from './pbr-material.js';
 import type {StudioMaterials,MaterialIssue} from './index.js';
 
 export const SURFACE_MATERIAL_TEXTURE_CAPABILITY='surface-material-textures-v1';
-export const SURFACE_TEXTURE_PACK_IDS=['museum-matte-paint','fine-lime-plaster'] as const;
+export const SURFACE_TEXTURE_PACK_IDS=['museum-matte-paint','fine-lime-plaster','fine-gallery-concrete'] as const;
 export type SurfaceTexturePackId=typeof SURFACE_TEXTURE_PACK_IDS[number];
 export interface SurfaceTextureBinding {
  pack:{id:SurfaceTexturePackId;version:1};
