@@ -236,3 +236,26 @@ contract field identifier, never a filesystem path or secret. The response
 contains no raw decoder log. Preview is authenticated inline PNG, redirect-free,
 and independently checked by the client against its descriptor; preview
 authority does not imply download or export permission.
+
+### Candidate appearance precedence
+
+For review, an active workspace-material binding overrides only the built-in
+texture maps for its exact surface. Existing floor preset/binding, authored
+sound and legacy experience footsteps remain stored and continue to determine
+sound. Existing floor or wall scalar color, roughness and metalness remain the
+scalar inputs; this binding does not introduce a second scalar override.
+Repeat and rotation belong to the workspace binding. Optional normal scale and
+AO strength default to 1 and affect only present corresponding maps. Scalar-only
+or sound-only edits leave the active workspace binding unchanged. Explicitly
+removing the workspace binding exposes the retained built-in appearance; an
+explicit built-in texture choice removes the workspace binding in the same
+`If-Match` transaction. A room-base binding is not a workspace material target.
+
+A saved snapshot cannot contain duplicate surface bindings, duplicate material
+ID/version descriptors, missing references, unused descriptors, a surface/kind
+mismatch, or a descriptor that differs from the authenticated workspace's
+registered immutable version. Permission or byte verification failure is
+reported rather than silently treated as successful application. Preview and
+Viewer must use the same precedence; any visually degraded fallback must remain
+observable and cannot be reported as a ready texture. These are design targets,
+not current product behavior or a supported OEX format claim.
