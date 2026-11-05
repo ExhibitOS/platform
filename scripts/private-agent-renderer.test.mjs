@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {test} from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,realpath,rm,symlink} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join,dirname} from 'node:path';import {createHash} from 'node:crypto';import {attachStaticMaterialFiles} from './private-agent-renderer.mjs';
+test('static material paths require exact manifest-bound bytes and reject invalid or duplicate paths',async()=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'static-material-'))),path='floor-textures/quiet-oak/1/color-123.png',bytes=Buffer.from('registered bytes'),entry={path,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')};
+ try{await mkdir(dirname(join(root,path)),{recursive:true});await writeFile(join(root,path),bytes);const files=new Map();await attachStaticMaterialFiles(files,{files:[entry,{path:'other/file.txt'}]},root,new AbortController().signal,[entry]);assert.equal(files.get('/'+path).entry.mime,'image/png');await assert.rejects(attachStaticMaterialFiles(files,{files:[entry]},root,new AbortController().signal,[entry]),/AGENT_EXPORT_BINDING/);
+  await symlink(join(root,'floor-textures/quiet-oak'),join(root,'floor-textures/link'));const linked={...entry,path:'floor-textures/link/1/color-123.png'};await assert.rejects(attachStaticMaterialFiles(new Map(),{files:[linked]},root,new AbortController().signal,[linked]),/AGENT_PATH/);
+  for(const bad of [{...entry,path:'floor-textures/../secret.png'},{...entry,path:'floor-textures/q/1/color.png?x=1'},{...entry,path:'floor-textures/q/1/unregistered.png'},{...entry,path:'floor-textures/%2e%2e/secret.png'},{...entry,sha256:'0'.repeat(64)},{...entry,bytes:entry.bytes+1}])await assert.rejects(attachStaticMaterialFiles(new Map(),{files:[bad]},root,new AbortController().signal,[entry]));
+ }finally{await rm(root,{recursive:true,force:true});}
+});
