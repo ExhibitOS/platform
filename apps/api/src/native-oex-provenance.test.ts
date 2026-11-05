@@ -47,6 +47,8 @@ it('keeps exact028 and029 catalogs distinct without silently rebinding existing 
  catalog=[...catalog,{name:'029_oex_quiet_oak_floor.sql',sha256:'d09e11450cdaa4e64f0b977cc17b1e468543314e6ce733571bc61b6b20deeb8a'}];
  await expect(old.assertCatalog(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
  const current=await bindNativeOexWorkspace(c,args);expect(current.archiveFormats).toEqual(old.archiveFormats);await current.assertCatalog(c);
+ const floor=await bindNativeOexWorkspace(c,args);catalog=[...catalog,{name:'030_oex_concrete_surface.sql',sha256:'8c42cecb6a90c61eab4c72c4af81af42801db6bac60a567b61e69e7a31e22848'}];
+ await expect(floor.assertCatalog(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});const concrete=await bindNativeOexWorkspace(c,args);await concrete.assertCatalog(c);
  const exact=structuredClone(catalog);
  for(const change of [(v:typeof rows)=>{v[3]!.sha256='0'.repeat(64);},(v:typeof rows)=>{v.splice(2,1);},(v:typeof rows)=>{v.reverse();}]){catalog=structuredClone(exact);change(catalog);await expect(bindNativeOexWorkspace(c,args)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});}
  catalog=structuredClone(rows);await expect(current.assertCatalog(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});await old.assertCatalog(c);
