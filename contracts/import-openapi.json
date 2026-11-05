@@ -1024,7 +1024,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "PNG_PIXEL_LIMIT_EXCEEDED means a direct original PNG had a supported, CRC-checked IHDR whose width × height exceeds 4,194,304 pixels; other image, model and validation failures retain their existing codes. The remaining file is not certified by this error."
           },
           "assetId": {
             "type": [

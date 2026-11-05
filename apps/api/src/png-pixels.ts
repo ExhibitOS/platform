@@ -10,6 +10,7 @@ export function pngCrc(data: Buffer) {
   }
   return (value ^ 0xffffffff) >>> 0;
 }
+export class PngPixelLimitError extends Error { constructor(){super("PNG pixel limit exceeded");} }
 export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dimensionLimit = 8192, chunkLimit = 256) {
   if (
     data.length < 33 ||
@@ -44,7 +45,6 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
       if (
         !width ||
         !height ||
-        width * height > pixelLimit ||
         width > dimensionLimit ||
         height > dimensionLimit ||
         body[8] !== 8 ||
@@ -54,6 +54,7 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
         body[12] !== 0
       )
         fail();
+      if (width * height > pixelLimit) throw new PngPixelLimitError();
     } else if (kind === "sRGB") {
       // One bounded color-space intent byte; no text, profiles or external data.
       if (seenSrgb || seenIdat || size !== 1 || body[0]! > 3) fail();

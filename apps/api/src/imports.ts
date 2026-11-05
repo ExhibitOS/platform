@@ -10,17 +10,18 @@ import { validRights,allowedRights } from './rights.ts';
 import {preparedImageInput,preparedImageHeader,type PreparedImage} from './prepared-image.ts';
 export const MAX_UPLOAD=32*1024*1024;
 export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; }
-export function decode(bytes:Buffer,mime:string) {
+export function decode(bytes:Buffer,mime:string,options?:{classifyPngPixelLimit?:boolean}) {
  return new Promise<void>((resolve,reject)=>{
   const path=new URL('./validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))path.pathname=path.pathname.replace(/\.js$/,'.ts');
-  let callbackDone=false,closed=false,valid=false;
-  const settle=()=>{if(callbackDone&&closed){if(valid)resolve();else reject(new ApiError(422,'FORMAT_REJECTED'));}};
-  const child=execFile(process.execPath,['--max-old-space-size=128',fileURLToPath(path),mime],{timeout:5000,maxBuffer:4096,env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,stdout)=>{
-   callbackDone=true;valid=!error&&stdout.trim()==='VALID';settle();
+  let callbackDone=false,closed=false,valid=false,pixelLimit=false,closeCode:number|null=null;
+  const classify=options?.classifyPngPixelLimit===true&&mime==='image/png';
+  const settle=()=>{if(callbackDone&&closed){if(valid&&closeCode===0)resolve();else reject(new ApiError(422,pixelLimit&&closeCode===1?'PNG_PIXEL_LIMIT_EXCEEDED':'FORMAT_REJECTED'));}};
+  const child=execFile(process.execPath,['--max-old-space-size=128',fileURLToPath(path),mime,...(classify?['png-original']:[])],{timeout:5000,maxBuffer:4096,env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(error,stdout)=>{
+   callbackDone=true;valid=!error&&stdout.trim()==='VALID';pixelLimit=classify&&!!error&&typeof error==='object'&&'code' in error&&error.code===1&&!('signal' in error&&error.signal)&&!('killed' in error&&error.killed)&&stdout.trim()==='PNG_PIXEL_LIMIT_EXCEEDED';settle();
   });
   // execFile may report a kill error before a live child has closed. A result
   // is safe to release only after both its callback and the actual close event.
-  child.once('close',()=>{closed=true;settle();});
+  child.once('close',(code:number|null)=>{closeCode=code;closed=true;settle();});
   child.stdin?.on('error',()=>{});child.stdin?.end(bytes);
  });
 }
@@ -124,7 +125,7 @@ export class Imports {
     if(bytes.length<4||bytes[0]!==255||bytes[1]!==216)throw new ApiError(422,'FORMAT_REJECTED');
     display=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return this.preparedBytes(row,derived);});preparedImageHeader(display);
    }
-   await decode(display,derived?'image/png':row.mime);
+   await decode(display,derived?'image/png':row.mime,{classifyPngPixelLimit:row.mime==='image/png'&&!derived});
    const model=this.model(row);let pair:ModelPairResult|undefined;
    if(model){try{pair=await prepareModelPair(display,model);}catch{/* Preserve a successfully decoded original without registering a partial derivative. */}}
    await hooks?.beforeCommit?.();
