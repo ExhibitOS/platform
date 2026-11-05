@@ -16,7 +16,8 @@ test('automatic headroom uses bounded residency and transition limits in known m
  expect(deviceBudget({deviceMemory:4})).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
  expect(deviceBudget({deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
  for(const memory of [undefined,2,Infinity,NaN])expect(deviceBudget({deviceMemory:memory}).maxTransitionBytes).toBeUndefined();
- expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(DEVICE_BUDGETS.compact);
+ expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(deviceBudget({deviceMemory:4}));
+ expect(selectedDeviceBudget('compact',{deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
 });
 test('touch auto without a memory hint uses bounded steady and transition headroom',()=>{
  const touch={coarsePointer:true};
