@@ -265,5 +265,5 @@ workspace texture is active: it removes that workspace binding in the same CAS.
 A client must compare the complete proposed draft, not infer no change solely
 from the unchanged legacy floor fields. Portable output must retain any built-in
 resource required for the reversible fallback. Preview readiness must identify
-the requested frame and immutable material ID/version and report map load failure;
+the requested frame, surface ID and immutable material ID/version and report map load failure;
 a matching geometry frame alone is not proof that the requested map was shown.
