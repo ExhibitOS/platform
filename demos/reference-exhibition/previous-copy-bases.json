@@ -38,5 +38,10 @@
     "publicationId": "c020c85c-3454-484c-990e-44b9ddfb257b",
     "revisionSha256": "47d5b55365db2b7253692fe3a178dbea7bc414696da5f54574590cf31f07f41c",
     "indexSha256": "62696cbd19515240afeadcb2066db3d916fd77cac92d199b92030dfa693ae537"
+  },
+  {
+    "publicationId": "57b50ead-d362-41aa-8dde-a28882c2391f",
+    "revisionSha256": "c13015ba228e35698bbccc494add17c89df99814fad3a617270e62881d76f7b4",
+    "indexSha256": "ff72d9ab408f336e3a90fd6ca47da4303b05a87fe9009e9c5a07adad492f3541"
   }
 ]
