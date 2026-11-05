@@ -13,8 +13,9 @@ describe('direct original PNG pixel-limit diagnosis',()=>{
   await expect(decode(oversized,'image/png')).rejects.toMatchObject({code:'FORMAT_REJECTED'});
  });
  it('keeps corrupt, unsupported, dimension-only and non-PNG inputs generic',async()=>{
-  const badCrc=png(2050,2050);badCrc[29]=badCrc[29]!^1;
-  for(const bytes of [badCrc,png(2050,2050,3),png(8193,1)])await expect(decode(bytes,'image/png',{classifyPngPixelLimit:true})).rejects.toMatchObject({code:'FORMAT_REJECTED'});
+  const original=png(2050,2050),badCrc=Buffer.from(original);badCrc[29]=badCrc[29]!^1;
+  const badIdat=Buffer.from(original);badIdat[badIdat.length-16]=badIdat[badIdat.length-16]!^1;
+  for(const bytes of [badCrc,badIdat,original.subarray(0,33),original.subarray(0,original.length-12),png(2050,2050,3),png(8193,1)])await expect(decode(bytes,'image/png',{classifyPngPixelLimit:true})).rejects.toMatchObject({code:'FORMAT_REJECTED'});
   await expect(decode(png(2050,2050),'model/gltf-binary',{classifyPngPixelLimit:true})).rejects.toMatchObject({code:'FORMAT_REJECTED'});
  });
 });
