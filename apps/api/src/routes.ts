@@ -39,7 +39,7 @@ import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type 
 import type { Pool, PoolClient } from 'pg';
 export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
- const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing);
+ const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing,workspaceMaterial);
  if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,studio,saveSlot,!!nativeOexWorkspace);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
