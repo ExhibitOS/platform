@@ -11,13 +11,13 @@ import {expect,it} from 'vitest';
 
 const sha=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 const id='11111111-1111-4111-8111-111111111111',digest='a'.repeat(64);
-async function run(badDigest:boolean,duplicate=false){
+async function run(badDigest:boolean,duplicate=false,format='1.0.0-draft.9',omitFormat=false){
  const dir=await mkdtemp(join(tmpdir(),'exhibitos-owned-chunks-')),inputPath=join(dir,'input'),stagePath=join(dir,'stage');
  const source=Buffer.from('synthetic archive content');let input:FileHandle|undefined,stage:FileHandle|undefined;
  try{
   await writeFile(inputPath,source,{mode:0o600});input=await open(inputPath,'r');stage=await open(stagePath,'wx+',0o600);
   const [a,b]=await Promise.all([input.stat({bigint:true}),stage.stat({bigint:true})]);
-  const control={version:1,kind:'oex-chunks-v1',tenantId:id,resourceId:id,jobId:id,userId:id,requestId:id,leaseId:id,attemptId:id,runtimeGeneration:id,stageId:id,reservationId:id,reservationGeneration:id,archiveBytes:source.length,archiveSha256:badDigest?'0'.repeat(64):sha(source),stageDevice:String(b.dev),stageInode:String(b.ino),chunks:[{device:String(a.dev),inode:String(a.ino),bytes:source.length}],reservationDigest:digest,sourceDigest:digest,workerDigest:digest,profile:'bounded-file-v1',format:'1.0.0-draft.9'};
+  const control={version:1,kind:'oex-chunks-v1',tenantId:id,resourceId:id,jobId:id,userId:id,requestId:id,leaseId:id,attemptId:id,runtimeGeneration:id,stageId:id,reservationId:id,reservationGeneration:id,archiveBytes:source.length,archiveSha256:badDigest?'0'.repeat(64):sha(source),stageDevice:String(b.dev),stageInode:String(b.ino),chunks:[{device:String(a.dev),inode:String(a.ino),bytes:source.length}],reservationDigest:digest,sourceDigest:digest,workerDigest:digest,profile:'bounded-file-v1',...(omitFormat?{}:{format})};
   const text=JSON.stringify(control),bytes=Buffer.from(duplicate?text.replace('"version":1','"version":1,"version":1'):text),header=Buffer.alloc(4);header.writeUInt32BE(bytes.length);
   // Node 24 on this macOS aborts in uv_spawn when asked to build a 68-entry
   // stdio table. The Manager launches its worker through native descriptors;
@@ -35,8 +35,8 @@ async function run(badDigest:boolean,duplicate=false){
   return {status,reply:Buffer.concat(chunks),source,stageBytes:await readFile(stagePath),receiptSha256:sha(bytes)};
  }finally{await input?.close();await stage?.close();await rm(dir,{recursive:true,force:true});}
 }
-it('copies actual inherited source FD to the owned stage and returns a bound ACK',async()=>{
- const result=await run(false);expect(result.status).toBe(0);expect(result.stageBytes).toEqual(result.source);
+it.each(['1.0.0-draft.9','1.0.0-draft.10'])('copies actual inherited source FD with explicit %s and returns a bound ACK',async format=>{
+ const result=await run(false,false,format);expect(result.status).toBe(0);expect(result.stageBytes).toEqual(result.source);
  const ack=JSON.parse(result.reply.toString('utf8'));expect(ack).toMatchObject({version:1,kind:'materialized',status:'complete',receiptSha256:result.receiptSha256,bytes:result.source.length,inputSha256:sha(result.source)});
 },15000);
 it('fails without an ACK on a digest mismatch and preserves the partial stage for the owner',async()=>{
@@ -45,3 +45,6 @@ it('fails without an ACK on a digest mismatch and preserves the partial stage fo
 it('rejects duplicate control fields before writing the stage',async()=>{
  const result=await run(false,true);expect(result.status).not.toBe(0);expect(result.reply.length).toBe(0);expect(result.stageBytes.length).toBe(0);
 },15000);
+
+it.each(['1.0.0-draft.8','1.0.0-draft.11'])('refuses unsupported format %s before any stage write',async format=>{const result=await run(false,false,format);expect(result.status).not.toBe(0);expect(result.reply.length).toBe(0);expect(result.stageBytes.length).toBe(0);},15000);
+it('preserves the legacy materializer requirement for an explicit format',async()=>{const result=await run(false,false,'1.0.0-draft.9',true);expect(result.status).not.toBe(0);expect(result.reply.length).toBe(0);expect(result.stageBytes.length).toBe(0);},15000);

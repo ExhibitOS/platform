@@ -3,6 +3,7 @@
 // an ACK is neither authority nor evidence of sync, sealing or process drain.
 import {closeSync,fstatSync,readSync,writeSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {isNativeOexFileFormat} from './oex-file-format.ts';
 import {writeOexChunkHandles} from './oex-chunk-fd-writer.ts';
 
 const keys=['version','kind','tenantId','resourceId','jobId','userId','requestId','leaseId','attemptId','runtimeGeneration','stageId','reservationId','reservationGeneration','archiveBytes','archiveSha256','stageDevice','stageInode','chunks','reservationDigest','sourceDigest','workerDigest','profile','format'] as const;
@@ -21,7 +22,7 @@ async function request(fd:number){
  const bytes=await readExactly(fd,length,deadline),end=Buffer.alloc(1);if(await retryIo(()=>readSync(fd,end,0,1,null),deadline)!==0)throw Error('CONTROL_TRAILING');
  const source=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes),value:unknown=JSON.parse(source);if(!value||typeof value!=='object'||Array.isArray(value))throw Error('CONTROL_SCHEMA');
  const v=value as Record<string,unknown>;
- if(Object.keys(v).length!==keys.length||keys.some(key=>!Object.hasOwn(v,key))||v.version!==1||v.kind!=='oex-chunks-v1'||v.profile!=='bounded-file-v1'||v.format!=='1.0.0-draft.9'||ids.some(key=>typeof v[key]!=='string'||!uuid.test(v[key] as string))||hashes.some(key=>typeof v[key]!=='string'||!hex.test(v[key] as string))||typeof v.stageDevice!=='string'||!decimal.test(v.stageDevice)||typeof v.stageInode!=='string'||!decimal.test(v.stageInode)||!Number.isSafeInteger(v.archiveBytes)||Number(v.archiveBytes)<1||Number(v.archiveBytes)>512*1024*1024||!Array.isArray(v.chunks)||v.chunks.length<1||v.chunks.length>32)throw Error('CONTROL_SCHEMA');
+ if(Object.keys(v).length!==keys.length||keys.some(key=>!Object.hasOwn(v,key))||v.version!==1||v.kind!=='oex-chunks-v1'||v.profile!=='bounded-file-v1'||!isNativeOexFileFormat(v.format)||ids.some(key=>typeof v[key]!=='string'||!uuid.test(v[key] as string))||hashes.some(key=>typeof v[key]!=='string'||!hex.test(v[key] as string))||typeof v.stageDevice!=='string'||!decimal.test(v.stageDevice)||typeof v.stageInode!=='string'||!decimal.test(v.stageInode)||!Number.isSafeInteger(v.archiveBytes)||Number(v.archiveBytes)<1||Number(v.archiveBytes)>512*1024*1024||!Array.isArray(v.chunks)||v.chunks.length<1||v.chunks.length>32)throw Error('CONTROL_SCHEMA');
  const chunks=v.chunks;
  for(const chunk of chunks){if(!chunk||typeof chunk!=='object'||Array.isArray(chunk)||Object.keys(chunk).sort().join(',')!=='bytes,device,inode'||typeof chunk.device!=='string'||!decimal.test(chunk.device)||typeof chunk.inode!=='string'||!decimal.test(chunk.inode)||!Number.isSafeInteger(chunk.bytes)||chunk.bytes<1||chunk.bytes>16*1024*1024)throw Error('CONTROL_SCHEMA');}
  const canonical=Object.fromEntries(keys.map(key=>[key,key==='chunks'?chunks.map((chunk:Chunk)=>({device:chunk.device,inode:chunk.inode,bytes:chunk.bytes})):v[key]]));if(source!==JSON.stringify(canonical))throw Error('CONTROL_SCHEMA');
