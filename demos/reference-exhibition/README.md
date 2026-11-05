@@ -3,20 +3,20 @@
 These are the exact public, approved display derivatives from the existing
 reference exhibition, not original photographs or private production material.
 The publication revision and static index hashes are pinned in `publication.json`.
-The index, publication metadata, and all 25 registered display asset entries are
-Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. These
-are the exact reviewed twelve-work publication inputs. The four registered audio
-and notice resources are included as well, for 30 content-addressed data files.
-The input index is `4f31bc7132d6b71bcc7fefe741ebf66ba09512f9bacd1cf4ed261fde78a57c01`;
-the publication is `96d4a2f3-5196-4b4c-8fb7-62e6e09205ae`, revision
-`472e33b301770b26431a55dd6eb81087c9e351878988e073bfbc9bc501682b3a`.
+The index, publication metadata, and all 31 registered display asset entries are
+Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. The
+publication contains 15 works in five rooms. Four registered audio and notice
+resources are included. The input index is
+`b90e6e07800dc4c8103b9b180a2f65c4271bc6a4d00e7df163e60dc22bb7134e`;
+the publication is `15788927-7861-4f33-8a61-79e8e0dbcd78`, revision
+`a27d015c138ab69a43cb3ca5db115da7ee119065f21c34101bf11decb202ba41`.
 
 The pinned publication also includes two registered CC0 concrete footstep WAVs
 and the shared CC0 license and provenance notices. The publication resource
 channel verifies their sizes and SHA-256 values. Visitors explicitly enable
 both sound and footsteps before sample requests; walking triggers playback.
 
-The eleven paintings are provided by The Metropolitan Museum of Art, New York under
+The fourteen paintings are provided by The Metropolitan Museum of Art, New York under
 CC0-1.0. Their original credit lines, rights, provenance, full and coarse display
 asset hashes remain in the publication metadata:
 
@@ -31,6 +31,9 @@ asset hashes remain in the publication metadata:
 - Gustave Courbet, *The Hidden Brook*, ca. 1873–77 — https://www.metmuseum.org/art/collection/search/436013
 - Édouard Manet, *The Brioche*, 1870 — https://www.metmuseum.org/art/collection/search/436946
 - John Singer Sargent, *Egyptian Woman*, 1890–91 — Gift of Mrs. Francis Ormond, 1950
+- Winslow Homer, *Cannon Rock*, 1895 — Gift of George A. Hearn, 1906
+- Camille Pissarro, *Washerwoman, Study*, 1880 — Gift of Mr. and Mrs. Nate B. Spingold, 1956
+- Édouard Manet, *Fishing*, ca. 1862–63 — Purchase, Mr. and Mrs. Richard J. Bernhard Gift, 1957
 
 The sculpture is Edmonia Lewis, *Old Arrow Maker*, modeled 1866, marble,
 Smithsonian American Art Museum, Gift of Mr. and Mrs. Norman Robbins, 1983.95.179.
@@ -77,6 +80,11 @@ boundary is not independently calibrated. The approved full 1599×1900, coarse,
 and thumbnail PNG bytes are preserved with their existing registered hashes.
 Automatic quality may retain the coarse image under its budget; selecting higher
 quality uses the existing Viewer policy and does not change these content inputs.
+
+One transition-room wall has an authored fine-gallery-concrete texture binding
+with a two-metre repeat. The immediately preceding public projection is retained
+in the private-copy base inventory. The material is a visual preset; it does not
+establish a measured physical colour, grain, or surface finish.
 
 Use Node 24.21.0 and npm 11.19.0, then `npm ci` and
 `npm run build:reference-demo` from the repository root. The output is a new
