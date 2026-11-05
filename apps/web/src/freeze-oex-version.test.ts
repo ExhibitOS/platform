@@ -9,7 +9,7 @@ import {fixtureZip,exportedEntries} from '../../../scripts/oex-test-zip.mjs';
 import {decodeFreezeOex} from './freeze-oex';
 const hash=(b:string|Uint8Array)=>createHash('sha256').update(b).digest('hex');
 it('rejects draft2 exhibition relabelled as a legacy frozen OEX even with updated hashes',async()=>{
- const entries=exportedEntries(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),map=new Map(entries),manifest=JSON.parse(map.get('manifest.json')),exhibition=JSON.parse(map.get('exhibition.json'));
+ const entries:[string,Buffer][]=exportedEntries(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),map=new Map(entries),manifest=JSON.parse(map.get('manifest.json')!.toString()),exhibition=JSON.parse(map.get('exhibition.json')!.toString());
  exhibition.schemaVersion='1.0.0-draft.2';const bytes=Buffer.from(JSON.stringify(exhibition));manifest.exhibition.bytes=bytes.length;manifest.exhibition.sha256=hash(bytes);manifest.exhibition.revisionSha256=hash(freezeCanonical(exhibition));
  const bad=fixtureZip(entries.map(([name,data]:[string,Buffer])=>[name,name==='manifest.json'?Buffer.from(JSON.stringify(manifest)):name==='exhibition.json'?bytes:data]));
  await expect(decodeFreezeOex(bad,manifest.exhibition.revisionSha256)).rejects.toThrow('OEX_VERSION_UNSUPPORTED');
