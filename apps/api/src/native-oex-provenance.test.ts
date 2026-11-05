@@ -39,6 +39,19 @@ it('requires the exact applied 026 and 027 hashes at bind and during later fence
  catalog=structuredClone(rows);catalog[1]!.sha256='0'.repeat(64);await expect(context.assertDatabase(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
 });
 
+it('keeps exact028 and029 catalogs distinct without silently rebinding existing workspace checks',async()=>{
+ const rows=[{name:'026_oex_file_profile.sql',sha256:'9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112'},{name:'027_oex_exhibition_provenance.sql',sha256:'09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7'},{name:'028_oex_material_catalogue.sql',sha256:'1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af'}];
+ let catalog=structuredClone(rows);const c={query:async(sql:string)=>sql.includes('schema_migrations')?{rows:catalog,rowCount:catalog.length}:{rows:[{}],rowCount:1}} as unknown as PoolClient;
+ const args={workspaceId:id(4),tenantId:id(2),principalId:id(3),ownerUid:process.getuid!(),blobRoot:'/synthetic'},old=await bindNativeOexWorkspace(c,args);
+ expect(old.archiveFormats).toEqual(['1.0.0-draft.9','1.0.0-draft.10']);
+ catalog=[...catalog,{name:'029_oex_quiet_oak_floor.sql',sha256:'d09e11450cdaa4e64f0b977cc17b1e468543314e6ce733571bc61b6b20deeb8a'}];
+ await expect(old.assertCatalog(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
+ const current=await bindNativeOexWorkspace(c,args);expect(current.archiveFormats).toEqual(old.archiveFormats);await current.assertCatalog(c);
+ const exact=structuredClone(catalog);
+ for(const change of [(v:typeof rows)=>{v[3]!.sha256='0'.repeat(64);},(v:typeof rows)=>{v.splice(2,1);},(v:typeof rows)=>{v.reverse();}]){catalog=structuredClone(exact);change(catalog);await expect(bindNativeOexWorkspace(c,args)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});}
+ catalog=structuredClone(rows);await expect(current.assertCatalog(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});await old.assertCatalog(c);
+});
+
 it('captures the draft before awaiting live-owner verification',async()=>{
  const f=fixture(),draft={exhibitionId:id(6),title:'original'},binding={workspaceId:id(4),tenantId:id(2),principalId:id(3),jobId:id(8),attemptId:id(5),sourceSha256:'a'.repeat(64),claimSha256:'b'.repeat(64),payloadManifestSha256:'c'.repeat(64),sourceDatabaseSystemId:'42',sourceDatabaseOid:'16384',exhibitionId:id(6)};
  let release!:()=>void;const barrier=new Promise<void>(resolve=>{release=resolve;});let first=true;

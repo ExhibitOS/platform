@@ -30,10 +30,10 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  if(!Number.isSafeInteger(ownerUid)||ownerUid<=0||ownerUid!==process.getuid?.()||typeof blobRoot!=='string')throw new ApiError(403,'FORBIDDEN');
  const verifyWorkspace=async(client:PoolClient)=>{const rows=await client.query('SELECT 1 FROM local_workspaces WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND mac_uid=$4',[workspaceId,tenantId,principalId,ownerUid]);if(rows.rowCount!==1)throw new ApiError(403,'FORBIDDEN');};
  const legacy=[{name:'026_oex_file_profile.sql',sha256:'9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112'},{name:'027_oex_exhibition_provenance.sql',sha256:'09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7'}];
- const readCatalog=async(client:PoolClient)=>(await client.query('SELECT name,sha256 FROM schema_migrations WHERE name IN ($1,$2,$3) ORDER BY name',['026_oex_file_profile.sql','027_oex_exhibition_provenance.sql','028_oex_material_catalogue.sql'])).rows;
- const initial=await readCatalog(c),catalogue=[...legacy,{name:'028_oex_material_catalogue.sql',sha256:'1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af'}];
- if(!isDeepStrictEqual(initial,legacy)&&!isDeepStrictEqual(initial,catalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
- const archiveFormats:readonly NativeOexFileFormat[]=Object.freeze(initial.length===3?['1.0.0-draft.9','1.0.0-draft.10']:['1.0.0-draft.9']);
+ const readCatalog=async(client:PoolClient)=>(await client.query('SELECT name,sha256 FROM schema_migrations WHERE name IN ($1,$2,$3,$4) ORDER BY name',['026_oex_file_profile.sql','027_oex_exhibition_provenance.sql','028_oex_material_catalogue.sql','029_oex_quiet_oak_floor.sql'])).rows;
+ const initial=await readCatalog(c),catalogue=[...legacy,{name:'028_oex_material_catalogue.sql',sha256:'1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af'}],floorCatalogue=[...catalogue,{name:'029_oex_quiet_oak_floor.sql',sha256:'d09e11450cdaa4e64f0b977cc17b1e468543314e6ce733571bc61b6b20deeb8a'}];
+ if(!isDeepStrictEqual(initial,legacy)&&!isDeepStrictEqual(initial,catalogue)&&!isDeepStrictEqual(initial,floorCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
+ const archiveFormats:readonly NativeOexFileFormat[]=Object.freeze(initial.length>=3?['1.0.0-draft.9','1.0.0-draft.10']:['1.0.0-draft.9']);
  const assertCatalog=async(client:PoolClient)=>{if(!isDeepStrictEqual(await readCatalog(client),initial))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
  await verifyWorkspace(c);await assertCatalog(c);const owner=await publicationDiskOwner(c,blobRoot);
  const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);await assertCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};

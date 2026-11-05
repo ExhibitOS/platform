@@ -11,6 +11,8 @@ export const NORMAL_OEX_PROVENANCE_MIGRATION='027_oex_exhibition_provenance.sql'
 export const NORMAL_OEX_PROVENANCE_SHA256='09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7';
 export const NORMAL_OEX_MATERIAL_MIGRATION='028_oex_material_catalogue.sql';
 export const NORMAL_OEX_MATERIAL_SHA256='1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af';
+export const NORMAL_OEX_FLOOR_MIGRATION='029_oex_quiet_oak_floor.sql';
+export const NORMAL_OEX_FLOOR_SHA256='d09e11450cdaa4e64f0b977cc17b1e468543314e6ce733571bc61b6b20deeb8a';
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const same=(a,b)=>a.dev===b.dev&&a.ino===b.ino;
 async function directory(path){const info=await lstat(path);if(!info.isDirectory()||info.isSymbolicLink())throw Error('NATIVE_OEX_CATALOG');return info;}
@@ -26,9 +28,10 @@ async function regular(path){
 }
 export async function verifyNormalOexMigration(supplementalDirectory){
  const info=await directory(supplementalDirectory);
- const extra=(await readdir(supplementalDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(extra.length<1||extra.length>3||extra[0]!==NORMAL_OEX_MIGRATION||extra.length>=2&&extra[1]!==NORMAL_OEX_PROVENANCE_MIGRATION||extra.length===3&&extra[2]!==NORMAL_OEX_MATERIAL_MIGRATION)throw Error('NATIVE_OEX_CATALOG');
+ const extra=(await readdir(supplementalDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(extra.length<1||extra.length>4||extra[0]!==NORMAL_OEX_MIGRATION||extra.length>=2&&extra[1]!==NORMAL_OEX_PROVENANCE_MIGRATION||extra.length>=3&&extra[2]!==NORMAL_OEX_MATERIAL_MIGRATION||extra.length===4&&extra[3]!==NORMAL_OEX_FLOOR_MIGRATION)throw Error('NATIVE_OEX_CATALOG');
  if(extra.length>=2&&sha(await regular(join(supplementalDirectory,NORMAL_OEX_PROVENANCE_MIGRATION)))!==NORMAL_OEX_PROVENANCE_SHA256)throw Error('NATIVE_OEX_CATALOG');
- if(extra.length===3&&sha(await regular(join(supplementalDirectory,NORMAL_OEX_MATERIAL_MIGRATION)))!==NORMAL_OEX_MATERIAL_SHA256)throw Error('NATIVE_OEX_CATALOG');
+ if(extra.length>=3&&sha(await regular(join(supplementalDirectory,NORMAL_OEX_MATERIAL_MIGRATION)))!==NORMAL_OEX_MATERIAL_SHA256)throw Error('NATIVE_OEX_CATALOG');
+ if(extra.length===4&&sha(await regular(join(supplementalDirectory,NORMAL_OEX_FLOOR_MIGRATION)))!==NORMAL_OEX_FLOOR_SHA256)throw Error('NATIVE_OEX_CATALOG');
  const bytes=await regular(join(supplementalDirectory,NORMAL_OEX_MIGRATION));const after=await directory(supplementalDirectory);if(!same(info,after)||sha(bytes)!==NORMAL_OEX_SHA256)throw Error('NATIVE_OEX_CATALOG');return bytes.toString('utf8');
 }
 export async function verifyNormalOexProvenanceMigration(supplementalDirectory){
@@ -41,6 +44,11 @@ export async function verifyNormalOexMaterialMigration(supplementalDirectory){
  const bytes=await regular(join(supplementalDirectory,NORMAL_OEX_MATERIAL_MIGRATION)),after=await directory(supplementalDirectory);
  if(!same(before,after)||sha(bytes)!==NORMAL_OEX_MATERIAL_SHA256)throw Error('NATIVE_OEX_CATALOG');return bytes.toString('utf8');
 }
+export async function verifyNormalOexFloorMigration(supplementalDirectory){
+ const before=await directory(supplementalDirectory);await verifyNormalOexMaterialMigration(supplementalDirectory);
+ const bytes=await regular(join(supplementalDirectory,NORMAL_OEX_FLOOR_MIGRATION)),after=await directory(supplementalDirectory);
+ if(!same(before,after)||sha(bytes)!==NORMAL_OEX_FLOOR_SHA256)throw Error('NATIVE_OEX_CATALOG');return bytes.toString('utf8');
+}
 
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
@@ -48,10 +56,11 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
  const rows=(await pool.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
  if(!Array.isArray(rows)||!rows.some(row=>row?.name===NORMAL_OEX_MIGRATION))return undefined;
  const base=await directory(migrationDirectory);const names=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
- if(names.length!==25||![26,27,28].includes(rows.length)||names.some((name,i)=>name!==rows[i]?.name)||rows[25]?.name!==NORMAL_OEX_MIGRATION||rows[25]?.sha256!==NORMAL_OEX_SHA256||rows.length>=27&&(rows[26]?.name!==NORMAL_OEX_PROVENANCE_MIGRATION||rows[26]?.sha256!==NORMAL_OEX_PROVENANCE_SHA256)||rows.length===28&&(rows[27]?.name!==NORMAL_OEX_MATERIAL_MIGRATION||rows[27]?.sha256!==NORMAL_OEX_MATERIAL_SHA256))throw Error('NATIVE_OEX_CATALOG');
+ if(names.length!==25||![26,27,28,29].includes(rows.length)||names.some((name,i)=>name!==rows[i]?.name)||rows[25]?.name!==NORMAL_OEX_MIGRATION||rows[25]?.sha256!==NORMAL_OEX_SHA256||rows.length>=27&&(rows[26]?.name!==NORMAL_OEX_PROVENANCE_MIGRATION||rows[26]?.sha256!==NORMAL_OEX_PROVENANCE_SHA256)||rows.length>=28&&(rows[27]?.name!==NORMAL_OEX_MATERIAL_MIGRATION||rows[27]?.sha256!==NORMAL_OEX_MATERIAL_SHA256)||rows.length===29&&(rows[28]?.name!==NORMAL_OEX_FLOOR_MIGRATION||rows[28]?.sha256!==NORMAL_OEX_FLOOR_SHA256))throw Error('NATIVE_OEX_CATALOG');
  await verifyNormalOexMigration(supplementalDirectory);
  if(rows.length>=27&&sha(await regular(join(supplementalDirectory,NORMAL_OEX_PROVENANCE_MIGRATION)))!==NORMAL_OEX_PROVENANCE_SHA256)throw Error('NATIVE_OEX_CATALOG');
- if(rows.length===28)await verifyNormalOexMaterialMigration(supplementalDirectory);
+ if(rows.length>=28)await verifyNormalOexMaterialMigration(supplementalDirectory);
+ if(rows.length===29)await verifyNormalOexFloorMigration(supplementalDirectory);
  for(let i=0;i<names.length;i++)if(sha(await regular(join(migrationDirectory,names[i])))!==rows[i]?.sha256)throw Error('NATIVE_OEX_CATALOG');
  const after=await directory(migrationDirectory),again=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(!same(base,after)||JSON.stringify(again)!==JSON.stringify(names))throw Error('NATIVE_OEX_CATALOG');
  return supplementalDirectory;
