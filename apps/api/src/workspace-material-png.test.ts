@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {expect,it} from 'vitest';
+import {deflateSync} from 'node:zlib';
+import {sha256} from '@exhibitos/storage';
+import {pngCrc} from './png-pixels.ts';
+import {validateWorkspaceMaterialPng,type WorkspaceMaterialMapDescriptor} from './workspace-material-png.ts';
+function chunk(type:string,body:Buffer){const t=Buffer.from(type),out=Buffer.alloc(body.length+12);out.writeUInt32BE(body.length);t.copy(out,4);body.copy(out,8);out.writeUInt32BE(pngCrc(Buffer.concat([t,body])),body.length+8);return out;}
+function png(srgb=false){const h=Buffer.alloc(13);h.writeUInt32BE(2,0);h.writeUInt32BE(2,4);h[8]=8;h[9]=2;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',h),...(srgb?[chunk('sRGB',Buffer.from([0]))]:[]),chunk('IDAT',deflateSync(Buffer.alloc(14))),chunk('IEND',Buffer.alloc(0))]);}
+function descriptor(b:Buffer):WorkspaceMaterialMapDescriptor{return {mime:'image/png',bytes:b.length,sha256:sha256(b),width:2,height:2,colorSpace:'srgb'};}
+it('accepts a real color map and an untagged +Y linear normal map',async()=>{const b=png();await validateWorkspaceMaterialPng('color',descriptor(b),b);await validateWorkspaceMaterialPng('normal',{...descriptor(b),colorSpace:'linear',normalY:'up'},b);});
+it('rejects wrong bytes, declared size, map orientation and tagged data maps',async()=>{const b=png();await expect(validateWorkspaceMaterialPng('color',{...descriptor(b),sha256:'0'.repeat(64)},b)).rejects.toMatchObject({code:'UPLOAD_INTEGRITY'});await expect(validateWorkspaceMaterialPng('color',{...descriptor(b),width:3},b)).rejects.toMatchObject({code:'MATERIAL_MAP_DIMENSIONS'});await expect(validateWorkspaceMaterialPng('normal',{...descriptor(b),colorSpace:'linear'},b)).rejects.toMatchObject({code:'MATERIAL_MAP_DESCRIPTOR'});const tagged=png(true);await expect(validateWorkspaceMaterialPng('roughness',{...descriptor(tagged),colorSpace:'linear'},tagged)).rejects.toMatchObject({code:'MATERIAL_MAP_COLOR_SPACE'});});
+it('rejects corrupt PNG payloads and oversized descriptors',async()=>{const b=png();b[b.length-1]=b[b.length-1]!^1;await expect(validateWorkspaceMaterialPng('color',descriptor(b),b)).rejects.toMatchObject({code:'FORMAT_REJECTED'});const good=png();await expect(validateWorkspaceMaterialPng('color',{...descriptor(good),width:2049,height:2049},good)).rejects.toMatchObject({code:'PNG_PIXEL_LIMIT_EXCEEDED'});});
