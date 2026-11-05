@@ -23,9 +23,11 @@ export async function captureExport(input:{requestId:string;candidateSha256:stri
  for(;;){
   signal.throwIfAborted();if(performance.now()>deadline)throw Error('AGENT_ASSET_NOT_READY');
   const current=source as SnapshotSource|null;
-  if(current?.idle()){
+  const observedCanvas=host.querySelector('canvas');
+  if(current?.idle()&&observedCanvas?.dataset.floorTextures&&observedCanvas.dataset.surfaceTextures&&observedCanvas.dataset.materialBudget){
    if(freezeCanonical(current.document)!==freezeCanonical(publication.exhibition))throw Error('AGENT_EXPORT_CHANGED');
-   try{const image=await current.capture(input.snapshot,signal);signal.throwIfAborted();const canvas=host.querySelector('canvas'),gl=canvas?.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {candidateSha256:hash,...image,render:{headless:true,engine:'existing-GeometryPreview',vendor:debug&&gl?.getParameter(debug.UNMASKED_VENDOR_WEBGL),renderer:debug&&gl?.getParameter(debug.UNMASKED_RENDERER_WEBGL)}};}catch(error){if(!(error instanceof Error)||error.message!=='SCENE_SNAPSHOT_TARGET_NOT_READY')throw error;}
+   const floor=observedCanvas.dataset.floorTextures,surface=observedCanvas.dataset.surfaceTextures,budget=observedCanvas.dataset.materialBudget;
+   try{const image=await current.capture(input.snapshot,signal);signal.throwIfAborted();const canvas=host.querySelector('canvas');if(canvas!==observedCanvas||!canvas.isConnected||canvas.dataset.floorTextures!==floor||canvas.dataset.surfaceTextures!==surface||canvas.dataset.materialBudget!==budget)continue;const gl=canvas.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {candidateSha256:hash,...image,render:{headless:true,engine:'existing-GeometryPreview',vendor:debug&&gl?.getParameter(debug.UNMASKED_VENDOR_WEBGL),renderer:debug&&gl?.getParameter(debug.UNMASKED_RENDERER_WEBGL),floorTextures:JSON.parse(floor),surfaceTextures:JSON.parse(surface),materialBudget:JSON.parse(budget)}};}catch(error){if(!(error instanceof Error)||error.message!=='SCENE_SNAPSHOT_TARGET_NOT_READY')throw error;}
   }
   await new Promise<void>((resolve,reject)=>{const abort=()=>{clearTimeout(timer);reject(signal.reason);};const timer=setTimeout(()=>{signal.removeEventListener('abort',abort);resolve();},30);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();});
  }
