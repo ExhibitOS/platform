@@ -51,6 +51,8 @@ test('accepts both exact workspace migrations atomically and rejects partial or 
  const additions=[[NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256],[NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256],[NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256],[NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256],[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256],[WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256]];
  for(const [name,hash] of additions){await copyFile(fileURLToPath(new URL('../database/native-oex-normal/'+name,import.meta.url)),join(f.extra,name));f.rows.push({name,sha256:hash});}
  assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);
+ const client={query:async text=>text.startsWith('SELECT to_regclass')?{rows:[{name:'schema_migrations'}]}:{rows:f.rows}};
+ await assert.rejects(preflightNormalOexCatalog(client,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  const exact=structuredClone(f.rows);f.rows.pop();await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  f.rows.splice(0,f.rows.length,...structuredClone(exact));f.rows[31].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  f.rows.splice(0,f.rows.length,...structuredClone(exact));await writeFile(join(f.extra,WORKSPACE_MATERIAL_MIGRATION),'changed');await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);

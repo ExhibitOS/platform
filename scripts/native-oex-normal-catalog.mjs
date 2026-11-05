@@ -82,6 +82,8 @@ export async function preflightNormalOexCatalog(client,migrationDirectory,supple
  const relation=(await client.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name;
  if(!relation)return undefined;
  const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ // Runtime activation is not wired yet. Never write or start against the new ledger.
+ if(rows.some(row=>row?.name===WORKSPACE_MATERIAL_MIGRATION||row?.name===WORKSPACE_MATERIAL_OEX_MIGRATION))throw Error('NATIVE_OEX_CATALOG');
  const names=new Set((await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)));
  if(!rows.some(row=>!names.has(row.name)))return undefined;
  const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory);
