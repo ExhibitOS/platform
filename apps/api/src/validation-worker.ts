@@ -317,7 +317,7 @@ try {
       // Embedded model marking is not a supported capability.
       process.stdout.write(bytes);
     } else fail();
-  } else if (process.argv[3] === "png-original") {
+  } else if (process.argv[3] === "png-original" || process.argv[3] === "workspace-material-png") {
     if(process.argv[2]!=="image/png")fail();
     png(bytes);
   } else if (process.argv[2] === "image/png") png(bytes);
@@ -326,5 +326,6 @@ try {
   if (!["derivative","texture-pair"].includes(process.argv[3]??"")) process.stdout.write("VALID\n");
 } catch (error) {
   if(process.argv[2]==="image/png"&&process.argv[3]==="png-original"&&error instanceof PngPixelLimitError)process.stdout.write("PNG_PIXEL_LIMIT_EXCEEDED\n");
+  if(process.argv[2]==="image/png"&&process.argv[3]==="workspace-material-png")process.stdout.write(error instanceof PngPixelLimitError?"PNG_PIXEL_LIMIT_EXCEEDED\n":"FORMAT_REJECTED\n");
   process.exitCode = 1;
 }
