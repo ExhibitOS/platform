@@ -23,3 +23,28 @@ spanning SQL lock, global privileged isolation, Manager update admission,
 selected-host activation, or failed-update/cold/crash/Windows recovery. Its receipt
 keeps compatibility/preflight/update flags false. Failed fixtures and originals
 are retained; successful helper metadata is captured before bounded tmpfs cleanup.
+
+## Selected native OEX validation payload
+
+`scripts/package-native-runtime.mjs <destination> <config.json>` creates a local
+validation payload. Set `normalOexSelected: true` in the configuration to include
+the pinned Spec artifact and the selected native OEX supplemental migrations and
+capability declarations. The destination must be new. This payload is not a
+signed or distribution-qualified release.
+
+For a newly provisioned empty workspace, the authenticated native owner can select
+`normal-oex-028-v4`; the runtime applies the exact 026–030 supplemental migrations
+in the same fenced transaction. The separate 030 concrete capability identifies
+its parent 028 capability, migration digest, `fine-gallery-concrete` version 1,
+and the notice, color, roughness, and normal roles. Existing resource validation,
+rights, immutable rows, and workspace ownership remain in force. Capability files
+are inventory declarations, not authorization to start an operation.
+
+Normal startup recognizes exact existing 026–029 and 026–030 catalogs without
+rewriting their ledgers or upgrading an existing workspace. The 030 capability is
+fresh-only; it does not imply that an older installation has acquired the new
+admission. A Manager using a new payload must verify its exact source, manifest,
+producer, capability and migration identities, and check the applied ledger
+before relying on that admission. Older payloads and their pinned identities remain
+separate. Actual import, Studio save, export, and Viewer consumption require their
+own execution evidence.

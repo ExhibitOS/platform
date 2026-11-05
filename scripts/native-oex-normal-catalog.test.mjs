@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,copyFile,rm,symlink} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {createHash} from 'node:crypto';import {fileURLToPath} from 'node:url';
-import {recognizeNormalOexCatalog,preflightNormalOexCatalog,verifyNormalOexFloorMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256} from './native-oex-normal-catalog.mjs';
+import {recognizeNormalOexCatalog,preflightNormalOexCatalog,verifyNormalOexFloorMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,verifyNormalOexConcreteMigration} from './native-oex-normal-catalog.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 async function fixture(){const root=await mkdtemp(join(tmpdir(),'native-catalog-')),base=join(root,'base'),extra=join(root,'extra');await mkdir(base);await mkdir(extra);const rows=[];for(let i=1;i<=25;i++){const name=String(i).padStart(3,'0')+'_fixture.sql',data='SELECT '+i+';';await writeFile(join(base,name),data);rows.push({name,sha256:sha(data)});}await copyFile(fileURLToPath(new URL('../database/native-oex-normal/026_oex_file_profile.sql',import.meta.url)),join(extra,NORMAL_OEX_MIGRATION));rows.push({name:NORMAL_OEX_MIGRATION,sha256:NORMAL_OEX_SHA256});return{root,base,extra,rows,pool:{query:async()=>({rows})}};}
 test('recognizes only the complete pinned normal catalog, without modifying it',async()=>{const f=await fixture();try{assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);f.rows.pop();assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),undefined);}finally{await rm(f.root,{recursive:true,force:true});}});
@@ -36,4 +36,12 @@ test('recognizes only exact029 after028, preserves old catalogs without writes a
  f.rows.splice(0,f.rows.length,...exact);await writeFile(join(f.extra,NORMAL_OEX_FLOOR_MIGRATION),'changed');await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  await rm(join(f.extra,NORMAL_OEX_FLOOR_MIGRATION));await assert.rejects(verifyNormalOexFloorMigration(f.extra),/ENOENT/);
  await symlink(join(f.base,f.rows[0].name),join(f.extra,NORMAL_OEX_FLOOR_MIGRATION));await assert.rejects(verifyNormalOexFloorMigration(f.extra),/NATIVE_OEX_CATALOG/);
+ }finally{await rm(f.root,{recursive:true,force:true});}});
+
+test('recognizes 030 only after exact 029 and rejects drift and missing dependencies',async()=>{const f=await fixture();try{
+ for(const [name,hash] of [[NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256],[NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256],[NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256],[NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256]]){await copyFile(fileURLToPath(new URL('../database/native-oex-normal/'+name,import.meta.url)),join(f.extra,name));f.rows.push({name,sha256:hash});}
+ assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);assert.match(await verifyNormalOexConcreteMigration(f.extra),/fine-gallery-concrete/);
+ const exact=structuredClone(f.rows);f.rows.splice(28,1);await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
+ f.rows.splice(0,f.rows.length,...exact);f.rows[29].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
+ f.rows.splice(0,f.rows.length,...exact);await writeFile(join(f.extra,NORMAL_OEX_CONCRETE_MIGRATION),'changed');await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  }finally{await rm(f.root,{recursive:true,force:true});}});
