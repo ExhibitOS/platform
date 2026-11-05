@@ -1,3 +1,5 @@
+import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
+import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -91,7 +93,8 @@ export function requiredMatch(value: unknown): string {
 export class Studio {
   private readonly nativeOexWorkspace:NativeOexWorkspaceContext|undefined;
   private readonly nativeBoundedEditing:boolean;
-  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;}
+  private readonly workspaceMaterial:WorkspaceMaterialIntakes|undefined;
+  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;}
   private boundedCapability(s:Session,row:{id:string;revision:number;metadata:Draft}) {
     if(!this.nativeOexWorkspace||!this.nativeBoundedEditing)throw new ApiError(403,'FORBIDDEN');
     return {version:1 as const,kind:'native-bounded-edit-v1' as const,tenantId:s.tenantId,principalId:s.userId,workspaceId:this.nativeOexWorkspace.workspaceId,exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata)};
@@ -159,6 +162,7 @@ export class Studio {
     if(!row.nativeBounded)throw new ApiError(403,'FORBIDDEN');
     if(typeof input.draft?.exhibitionId!=='string'||typeof input.draft?.id!=='string'||input.draft.exhibitionId.toLowerCase()!==id.toLowerCase()||input.draft.id.toLowerCase()!==row.metadata.id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
     checked(input,true);
+    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
@@ -226,6 +230,7 @@ export class Studio {
     this.role(s);
     if(selectedGrant)await consumeNativeSelectedDraftGrant(selectedGrant,c,s,input.draft);
     checked(input,!!selectedGrant);
+    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     const payloadHash = hash({ method: "POST", input });
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
@@ -261,6 +266,7 @@ export class Studio {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
+    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
     if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?boundedPlacementOnly(row.metadata,input.draft):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
