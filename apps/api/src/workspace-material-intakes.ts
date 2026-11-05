@@ -22,6 +22,7 @@ export class WorkspaceMaterialIntakes {
  private readonly blobs:BlobStore;private readonly owner:Owner;private readonly validate:(value:unknown)=>Validation;
  constructor(blobs:BlobStore,owner:Owner,validate:(value:unknown)=>Validation){this.blobs=blobs;this.owner=owner;this.validate=validate;}
  private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.owner.assertDatabase(c);}
+ matchesBinding(owner:unknown,store:unknown){return this.owner===owner&&this.blobs===store;}
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  private async access(c:PoolClient,s:Session,id:string){
   uuid(id);await this.checkOwner(c,s);

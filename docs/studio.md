@@ -229,8 +229,10 @@ returns that same version. A cancel during validation reports `cancelling`
 until workers actually exit and cleanup is complete, then `cancelled`; the
 client must not equate acceptance of cancellation with resource return.
 
-Both non-success HTTP responses and a failed intake status use the same bounded
-error object `{code, role?, field?}`. The HTTP status is separate. The optional
+Non-success HTTP responses use the existing API envelope `{code, message,
+fieldErrors, requestId}` with optional safe `role` or `field` when available.
+A failed intake status carries `{code, role?, field?}` in its `error` field.
+The HTTP status is separate and the stable `code` has the same meaning in both. The optional
 role is one of `color`, `normal`, `roughness`, or `ao`, and field is a bounded
 contract field identifier, never a filesystem path or secret. The response
 contains no raw decoder log. Preview is authenticated inline PNG, redirect-free,
@@ -267,3 +269,11 @@ from the unchanged legacy floor fields. Portable output must retain any built-in
 resource required for the reversible fallback. Preview readiness must identify
 the requested frame, surface ID and immutable material ID/version and report map load failure;
 a matching geometry frame alone is not proof that the requested map was shown.
+
+In the candidate intake status response the descriptor key is `material`.
+It is omitted until registration and contains the full immutable descriptor
+when registered. `error` is null when no failure is recorded, `received` starts
+as an empty object, and `retryable` is always boolean. A qualified runtime must
+construct the intake service with the identical bound native owner context and
+file store used by the API. Preview bytes and their response headers may be sent
+only after the authenticated database transaction has successfully committed.

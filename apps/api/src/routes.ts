@@ -81,7 +81,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }));
  const prefix='/api/v1/tenants/:tenantId';
  if(workspaceMaterial){
-  if(input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||(!nativeOexWorkspace&&!nativeExportWorkspace))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
+  if(input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||![nativeOexWorkspace,nativeExportWorkspace].some(context=>context&&workspaceMaterial.matchesBinding(context,store)))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
   const root=`${prefix}/workspace/material-intakes`,library=`${prefix}/workspace/materials`;
   const params=(req:FastifyRequest)=>req.params as {id:string;role:string;version:string};
   app.post(root,{bodyLimit:65536},call(true,async(c,s,req,reply)=>{reply.code(201);return workspaceMaterial.create(c,s,req.body);}));
@@ -91,7 +91,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   app.get(library,call(false,async(c,s,req)=>{const q=req.query as Record<string,unknown>;if(Object.keys(q).some(k=>k!=='cursor')||q.cursor!==undefined&&typeof q.cursor!=='string')throw new ApiError(400,'INVALID_CURSOR');return workspaceMaterial.list(c,s,q.cursor as string|undefined);}));
   const version=(req:FastifyRequest)=>{const value=params(req).version;if(!/^[1-9][0-9]{0,9}$/.test(value))throw new ApiError(400,'INVALID_INPUT');return Number(value);};
   app.get(`${library}/:id/versions/:version`,call(false,async(c,s,req)=>workspaceMaterial.readVersion(c,s,params(req).id,version(req))));
-  app.get(`${library}/:id/versions/:version/maps/:role`,call(false,async(c,s,req,reply)=>{const result=await workspaceMaterial.preview(c,s,params(req).id,version(req),params(req).role);return reply.header('content-type',result.mime).header('content-length',String(result.bytes.length)).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.sha256).send(result.bytes);}));
+  const previewRead=call(false,async(c,s,req)=>workspaceMaterial.preview(c,s,params(req).id,version(req),params(req).role));
+  app.get(`${library}/:id/versions/:version/maps/:role`,async(req,reply)=>{const result=await previewRead(req,reply) as {bytes:Buffer;mime:string;sha256:string};return reply.header('content-type',result.mime).header('content-length',String(result.bytes.length)).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.sha256).send(result.bytes);});
   let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
   const tick=async()=>{try{await workspaceMaterial.work(pool);}catch{app.log.error('Workspace material worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM workspace_material_intakes LIMIT 0');running=tick();});
