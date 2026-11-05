@@ -7,9 +7,13 @@ The index, publication metadata, and all 31 registered display asset entries are
 Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. The
 publication contains 15 works in five rooms. Four registered audio and notice
 resources are included. The input index is
-`b90e6e07800dc4c8103b9b180a2f65c4271bc6a4d00e7df163e60dc22bb7134e`;
-the publication is `15788927-7861-4f33-8a61-79e8e0dbcd78`, revision
-`a27d015c138ab69a43cb3ca5db115da7ee119065f21c34101bf11decb202ba41`.
+`2e7174ff9cd805a5e72bf084adda8a6e9169696a214d74052b052547e73fd6fd`;
+the publication is `a3a7434d-1915-4f21-a133-1604746534a5`, revision
+`2ecfb415f54f58a1619058a7931e37f105a3c1135f87e7e27157d5f9e411b6f2`.
+
+The painting-room floor uses the user-authored Quiet Oak Herringbone material,
+`quiet-oak-herringbone/1`, with its CC0 notice and a 0.9 m repeat. This is a
+bounded visual presentation; physical appearance and wood audio are not qualified.
 
 The pinned publication also includes two registered CC0 concrete footstep WAVs
 and the shared CC0 license and provenance notices. The publication resource
