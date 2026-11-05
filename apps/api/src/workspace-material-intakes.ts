@@ -2,7 +2,7 @@
 import {randomUUID,createHash} from 'node:crypto';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
-import {sha256,transaction,type BlobStore} from '@exhibitos/storage';
+import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights} from './rights.ts';
 import {validateWorkspaceMaterialPng,type WorkspaceMaterialMapDescriptor,type WorkspaceMaterialMapRole} from './workspace-material-png.ts';
@@ -89,13 +89,17 @@ export class WorkspaceMaterialIntakes {
   // Keep backup/integrity's exclusive inventory fence across every object read,
   // removal and database transition, including child-process drain.
   const fence=await pool.connect();let locked=false,broken=false;
-  try{await fence.query('SELECT pg_advisory_lock_shared(82002)');locked=true;return await this.workLocked(pool,hooks);}
-  catch(error){if(!locked)broken=true;throw error;}
+  try{await fence.query('SELECT pg_advisory_lock_shared(82002)');locked=true;return await this.workLocked(fence,hooks);}
+  catch(error){broken=true;throw error;}
   finally{if(locked)try{const result=await fence.query('SELECT pg_advisory_unlock_shared(82002) AS unlocked');if(result.rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}fence.release(broken);}
  }
- private async workLocked(pool:Pool,hooks?:{afterClaim?:()=>void|Promise<void>;onSpawn?:(child:ChildProcess)=>void}){
+ private async workLocked(client:PoolClient,hooks?:{afterClaim?:()=>void|Promise<void>;onSpawn?:(child:ChildProcess)=>void}){
+  const transact=async<T>(work:(client:PoolClient)=>Promise<T>):Promise<T>=>{
+   await client.query('BEGIN');try{const result=await work(client);await client.query('COMMIT');return result;}
+   catch(error){await client.query('ROLLBACK');throw error;}
+  };
   const token=randomUUID();
-  const claimed=await transaction(pool,async c=>{
+  const claimed=await transact(async c=>{
    await this.owner.assertDatabase(c);
    const r=await c.query("SELECT * FROM workspace_material_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND phase IN ('validating','cancelling') AND worker_token IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",[this.owner.workspaceId,this.owner.tenantId,this.owner.principalId]);
    if(!r.rowCount)return undefined;const row=r.rows[0] as Row;
@@ -109,12 +113,12 @@ export class WorkspaceMaterialIntakes {
     const expected=claimed.declaration.maps[role];if(!expected)continue;failedRole=role;
     const receipt=claimed.received[role];if(!receipt)throw new ApiError(409,'UPLOAD_INCOMPLETE');
     const bytes=Buffer.from(await this.blobs.get(receipt.key));await validateWorkspaceMaterialPng(role,expected,bytes,hooks);
-    const state=await transaction(pool,async c=>{await this.owner.assertDatabase(c);return c.query('SELECT phase FROM workspace_material_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3',[this.owner.workspaceId,claimed.id,token]);});
+    const state=await transact(async c=>{await this.owner.assertDatabase(c);return c.query('SELECT phase FROM workspace_material_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3',[this.owner.workspaceId,claimed.id,token]);});
     if(state.rowCount!==1)throw Error('MATERIAL_WORKER_OWNERSHIP');if(state.rows[0].phase==='cancelling'){cleanup=true;break;}
    }
   }catch(e){error=e;}
   if(!cleanup){
-   const outcome=await transaction(pool,async c=>{
+   const outcome=await transact(async c=>{
     await this.owner.assertDatabase(c);const r=await c.query('SELECT * FROM workspace_material_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 FOR UPDATE',[this.owner.workspaceId,claimed.id,token]);if(r.rowCount!==1)throw Error('MATERIAL_WORKER_OWNERSHIP');const row=r.rows[0] as Row;
     if(row.phase==='cancelling')return 'cleanup';if(row.phase!=='validating')throw Error('MATERIAL_WORKER_STATE');
     if(error){const safe=error instanceof ApiError?error.code:'MATERIAL_VALIDATION_UNAVAILABLE',retryable=!(error instanceof ApiError)||error.code==='MATERIAL_VALIDATION_UNAVAILABLE';await c.query("UPDATE workspace_material_intakes SET phase='failed',error=$4,retryable=$5,worker_token=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3",[this.owner.workspaceId,row.id,token,{code:safe,...(failedRole?{role:failedRole}:{})},retryable]);return 'failed';}
@@ -125,7 +129,7 @@ export class WorkspaceMaterialIntakes {
   }
   if(cleanup){
    let failed=false;for(const role of roles){const descriptor=claimed.declaration.maps[role];if(!descriptor)continue;const key=`${this.owner.tenantId}/workspace-material-intake/${this.owner.workspaceId}/${claimed.id}/${role}/${descriptor.sha256}`;try{await this.blobs.remove(key);}catch(e){if(!(e&&typeof e==='object'&&'code'in e&&e.code==='ENOENT'))failed=true;}}
-   await transaction(pool,async c=>{await this.owner.assertDatabase(c);const r=await c.query("UPDATE workspace_material_intakes SET phase=CASE WHEN $4 THEN 'cancelling' ELSE 'cancelled' END,worker_token=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 AND phase='cancelling' RETURNING id",[this.owner.workspaceId,claimed.id,token,failed]);if(r.rowCount!==1)throw Error('MATERIAL_WORKER_OWNERSHIP');});
+   await transact(async c=>{await this.owner.assertDatabase(c);const r=await c.query("UPDATE workspace_material_intakes SET phase=CASE WHEN $4 THEN 'cancelling' ELSE 'cancelled' END,worker_token=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 AND phase='cancelling' RETURNING id",[this.owner.workspaceId,claimed.id,token,failed]);if(r.rowCount!==1)throw Error('MATERIAL_WORKER_OWNERSHIP');});
   }
   return true;
  }
