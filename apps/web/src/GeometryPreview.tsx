@@ -1,4 +1,4 @@
-import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera} from './scene-snapshot';
+import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -132,6 +132,7 @@ export function GeometryPreview({
   onCameraInteractionReady,
   onCameraInteractionReset,
   cameraFrameToken,
+  initialSnapshot,
   cameraRequest,
   onSelectionFindReady,
   placementPreview,
@@ -171,6 +172,7 @@ export function GeometryPreview({
   onCameraInteractionReady?:(apply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null)=>void;
   onCameraInteractionReset?:(reason:'hidden'|'unavailable')=>void;
   cameraFrameToken?:string;
+  initialSnapshot?:Extract<SceneSnapshotInput,{inspectionCamera:unknown}>;
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
@@ -463,6 +465,7 @@ export function GeometryPreview({
       if (rectangles.reduce((total, items) => total + items.length, 0) > 8192)
         throw Error("PREVIEW_COMPLEXITY");
       if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
+      const initialSnapshotPose=publicSource&&snapshotEnabled&&initialSnapshot?inspectionCameraPose(document,initialSnapshot.placementId,initialSnapshot.inspectionCamera):undefined;
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -1055,6 +1058,9 @@ export function GeometryPreview({
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
       if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
       else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
+      // A private capture's validated pose also guides ordinary visibility-based
+      // loading. It does not change the document or waive target/ray checks.
+      if(initialSnapshotPose){camera.position.fromArray(initialSnapshotPose.position);controls.target.fromArray(initialSnapshotPose.target);authoredFov=initialSnapshotPose.fov;applyProjection();camera.lookAt(controls.target);controls.update();render();}
       privateViewCallback.current?.(()=>{
         if(disposed||xrActive.current)return;
         const position=camera.position.toArray() as [number,number,number],direction=camera.getWorldDirection(new three.Vector3()),target=camera.position.clone().add(direction).toArray() as [number,number,number];
@@ -2670,6 +2676,7 @@ export function GeometryPreview({
     immersive,
     fillHost,
     snapshotEnabled,
+    initialSnapshot,
     qualityScope,
     clearQualityFrame,
   ]);
