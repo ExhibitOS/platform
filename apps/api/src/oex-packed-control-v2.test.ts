@@ -20,3 +20,11 @@ it('keeps the v3 owner wrapper distinct while using the same child control',()=>
  expect(()=>parsePackedOexControlV2(raw,expected)).toThrow('OEX_PACKED_CONTROL');
  expect(()=>parsePackedOexControlV2(frame(control),expected,'v3')).toThrow('OEX_PACKED_CONTROL');
 });
+
+it('binds draft10 only to an independently selected draft10 claim and keeps legacy default9',()=>{
+ const ten={...control,format:'1.0.0-draft.10'};
+ expect(parsePackedOexControlV2(frame(ten),{...expected,archiveFormat:'1.0.0-draft.10'}).outputInode).toBe('3');
+ expect(()=>parsePackedOexControlV2(frame(ten),expected)).toThrow('OEX_PACKED_CONTROL');
+ expect(()=>parsePackedOexControlV2(frame(control),{...expected,archiveFormat:'1.0.0-draft.10'})).toThrow('OEX_PACKED_CONTROL');
+ expect(()=>parsePackedOexControlV2(frame({...ten,format:'1.0.0-draft.11'}),{...expected,archiveFormat:'1.0.0-draft.10'})).toThrow('OEX_PACKED_CONTROL');
+});

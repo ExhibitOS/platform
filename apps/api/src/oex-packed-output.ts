@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {isNativeOexFileManifest} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import type {FileHandle} from 'node:fs/promises';
 
@@ -11,7 +12,7 @@ const same=(a:StatIdentity,b:StatIdentity)=>a.dev===b.dev&&a.ino===b.ino&&a.size
 /** Call only with a separately validated and receipt-bound Spec manifest. */
 export function packedOexInventory(trustedManifest:unknown){
  if(!trustedManifest||typeof trustedManifest!=='object'||Array.isArray(trustedManifest))throw Error('OEX_PACKED_OUTPUT');
- const trusted=trustedManifest as Record<string,unknown>;if(trusted.formatVersion!=='1.0.0-draft.9')throw Error('OEX_PACKED_OUTPUT');
+ const trusted=trustedManifest as Record<string,unknown>;if(!isNativeOexFileManifest(trusted))throw Error('OEX_PACKED_OUTPUT');
  const inventory:unknown[]=[];
  for(const key of ['assets','floorResources','furnishingNotices','materialResources','footstepResources']){
   const part=trusted[key];if(part!==undefined&&!Array.isArray(part))throw Error('OEX_PACKED_OUTPUT');if(Array.isArray(part)){if(part.length>MAX_ENTRIES-inventory.length)throw Error('OEX_PACKED_OUTPUT');for(const entry of part)inventory.push(entry);}

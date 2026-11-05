@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {isNativeOexFileManifest,isNativeOexFileFormat,type NativeOexFileFormat} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import {writePackedOexAssets} from './oex-packed-writer.ts';
 
@@ -13,7 +14,7 @@ const hex=/^[a-f0-9]{64}$/,DOCUMENT_LIMIT=1024*1024;
  * manifest and scene to the archive; their returned hashes are not independent
  * authority. Manager must own/drain the worker and keep the input/output FDs,
  * live Session, fence and reservation through the actual consuming transaction. */
-export async function preparePackedOexV2(input:ReadHandle,output:WriteHandle,receipt:Receipt,openValidated:OpenValidated){
+export async function preparePackedOexV2(input:ReadHandle,output:WriteHandle,receipt:Receipt,openValidated:OpenValidated,expectedFormat?:NativeOexFileFormat){
  if(!receipt||Object.keys(receipt).sort().join(',')!=='archiveBytes,archiveSha256,capacity')throw Error('OEX_PACKED_RECEIPT');
  const values=['archiveBytes','archiveSha256','capacity'].map(key=>Object.getOwnPropertyDescriptor(receipt,key));if(values.some(v=>!v||!('value' in v)))throw Error('OEX_PACKED_RECEIPT');
  const r={archiveBytes:values[0]!.value as number,archiveSha256:values[1]!.value as string,capacity:values[2]!.value as number};
@@ -24,9 +25,12 @@ export async function preparePackedOexV2(input:ReadHandle,output:WriteHandle,rec
   while(offset<r.archiveBytes){const limit=Math.min(buffer.length,r.archiveBytes-offset),n=await input.read(buffer,0,limit,offset);if(!Number.isSafeInteger(n.bytesRead)||n.bytesRead<1||n.bytesRead>limit)throw Error('OEX_PACKED_INPUT');h.update(buffer.subarray(0,n.bytesRead));offset+=n.bytesRead;}
   const after=await input.stat({bigint:true});if(after.dev!==original.dev||after.ino!==original.ino||after.size!==original.size||after.mtimeNs!==original.mtimeNs||after.ctimeNs!==original.ctimeNs||h.digest('hex')!==r.archiveSha256)throw Error('OEX_PACKED_INPUT');
  };
+ if(expectedFormat!==undefined&&!isNativeOexFileFormat(expectedFormat))throw Error('OEX_PACKED_RECEIPT');
  await check();let result:{manifest:Buffer;exhibition:Buffer;entries:Awaited<ReturnType<typeof writePackedOexAssets>>}|undefined;
  await openValidated(input,async({manifest,files})=>{
-  if(result)throw Error('OEX_PACKED_OUTPUT');const m=await files.get('manifest.json'),e=await files.get('exhibition.json');
+  if(result)throw Error('OEX_PACKED_OUTPUT');
+  if(!isNativeOexFileManifest(manifest)||expectedFormat!==undefined&&manifest.formatVersion!==expectedFormat)throw Error('OEX_PACKED_DOCUMENT');
+  const m=await files.get('manifest.json'),e=await files.get('exhibition.json');
   if(!m||!e||m.byteLength<1||e.byteLength<1||m.byteLength>DOCUMENT_LIMIT||e.byteLength>DOCUMENT_LIMIT)throw Error('OEX_PACKED_DOCUMENT');
   const manifestBytes=Buffer.from(m),exhibitionBytes=Buffer.from(e),entries=await writePackedOexAssets(output,manifest,files,r.capacity);
   result={manifest:manifestBytes,exhibition:exhibitionBytes,entries};

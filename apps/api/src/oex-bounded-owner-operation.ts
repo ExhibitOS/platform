@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {NativeOexFileFormat} from './oex-file-format.ts';
 import {traceNativeOexSelected,type NativeOexDiagnostic} from './native-oex-diagnostic.ts';
 import {dirname,join} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
@@ -17,7 +18,7 @@ import {claimBoundedOexLease,verifyBoundedOexLease} from './oex-bounded-lease.ts
 import {prepareBoundedOexFromOwner} from './oex-bounded-owner-prepare.ts';
 
 type Channel={send(value:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>};
-type Selection={jobId:string;requestId:string;bytes:number;sha256:string};
+type Selection={archiveFormat?:NativeOexFileFormat;jobId:string;requestId:string;bytes:number;sha256:string};
 type CommittedOwner={jobId:string;attemptId:string;generation:string;stageId:string;reservationId:string;reservationGeneration:string;assertCommitted:()=>Promise<void>;v3?:ReturnType<typeof selectedV3Correlation>};
 /** Selected native-personal operation only. Its issuer must hold the actual
  * Manager Session/root guard, prevent competing workspace writers, validate

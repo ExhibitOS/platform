@@ -105,3 +105,24 @@ The verified public shell/static files use `public, max-age=0, must-revalidate`,
 allowing the Studio worker to install only build-hash-verified bytes. API responses
 retain their existing no-store policy. Actual installed-origin offline reload and
 private-byte cache exclusion are checked separately from a successful HTML GET.
+
+
+### Selected native material-catalogue OEX
+
+The explicit `normal-oex-028-v4` owner mode accepts bounded draft.9 and
+material-catalogue draft.10 archives. It applies the pinned026,027 and028
+supplemental migrations only when creating a fresh selected workspace. Ordinary
+startup recognizes those exact catalogues without upgrading existing databases.
+The earlier capability files and owner-v3 frames remain unchanged.
+
+Before creating an import intent, Manager runs the payload's fixed
+`apps/api/dist/oex-selected-format.js` with its selected regular file inherited
+on `EXHIBITOS_OEX_FORMAT_FD` (64–1023). Its format/manifest/FD stamp is provisional
+metadata, not import authority. Manager must correlate the same selected snapshot
+and hash, then send an explicit archive format under the028 capability. The
+private format is matched through the immutable job, lease, worker control and
+validated manifest. The HTTP creation request keeps its existing three fields.
+Draft.10 also requires `archiveProfile: "bounded-file-v1"`; a normal in-memory
+catalogue archive cannot be relabelled as bounded. Existing draft.9 jobs and
+failed selections retain their original identity and must not be replayed with
+a different format.

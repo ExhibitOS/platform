@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
-import {footstepResourcesFor,packageCompleteAssetManifest,packageFloorResourceManifest,packageFurnishingNoticeManifest,packageSurfaceMaterialManifest,revisionHash,spaceStillFor,validateExhibition,type Exhibition,type OexBoundedFileManifest} from '@exhibitos/spec';
+import {footstepResourcesFor,packageCompleteAssetManifest,packageFloorResourceManifest,packageFurnishingNoticeManifest,packageSurfaceMaterialManifest,revisionHash,spaceStillFor,validateExhibition,type Exhibition,type OexBoundedFileManifest,type OexMaterialCatalogueManifest} from '@exhibitos/spec';
 import {bindPackedOexManifest} from './oex-packed-manifest.ts';
 import {checkOexProfile} from './oex.ts';
 import {allowedRights} from './rights.ts';
@@ -9,7 +9,7 @@ import {allowedRights} from './rights.ts';
  * Archive-to-document provenance remains the admitted owned worker's duty;
  * packed bytes, live Session/rights/claim and atomic attachment are separate. */
 export function decodePackedOexDocumentsV2(manifestBytes:Uint8Array,manifestSha256:string,exhibitionInput:Uint8Array,exhibitionSha256:string){
- const manifest=bindPackedOexManifest(manifestBytes,manifestSha256) as OexBoundedFileManifest;
+ const manifest=bindPackedOexManifest(manifestBytes,manifestSha256) as OexBoundedFileManifest|OexMaterialCatalogueManifest;
  if(!(exhibitionInput instanceof Uint8Array)||exhibitionInput.byteLength<1||exhibitionInput.byteLength>1024*1024||typeof exhibitionSha256!=='string'||!/^[a-f0-9]{64}$/.test(exhibitionSha256))throw Error('OEX_PACKED_DOCUMENT');
  const bytes=Buffer.from(exhibitionInput),hash=createHash('sha256').update(bytes).digest('hex');
  if(hash!==exhibitionSha256||bytes.length!==manifest.exhibition.bytes||hash!==manifest.exhibition.sha256)throw Error('OEX_PACKED_DOCUMENT');

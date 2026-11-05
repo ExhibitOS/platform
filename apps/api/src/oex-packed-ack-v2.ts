@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {NativeOexFileFormat} from './oex-file-format.ts';
 import {decodePackedOexDocumentsV2} from './oex-packed-documents-v2.ts';
 import {packedOexInventory} from './oex-packed-output.ts';
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hex=/^[a-f0-9]{64}$/;
 const decimal=/^(0|[1-9][0-9]{0,23})$/;
-type Expected={attemptId:string;runtimeGeneration:string;reservationId:string;reservationGeneration:string;controlSha256:string;archiveSha256:string;outputDevice:string;outputInode:string;capacity:number;preflight?:Readonly<{manifestSha256:string;packedBytes:number}>};
+type Expected={attemptId:string;runtimeGeneration:string;reservationId:string;reservationGeneration:string;controlSha256:string;archiveSha256:string;outputDevice:string;outputInode:string;capacity:number;archiveFormat?:NativeOexFileFormat;preflight?:Readonly<{manifestSha256:string;packedBytes:number}>};
 /** Syntactic/document/inventory verification only. Expected values must be
  * derived by the caller from the verified owned control and live claim, not
  * the ACK. Optional preflight values must be bound to the same pinned input
@@ -22,6 +23,7 @@ export function parsePackedOexAckV2(raw:Uint8Array,expected:Expected){
  if(preflight!==undefined&&(v.manifestSha256!==preflight.manifestSha256||v.outputBytes!==preflight.packedBytes))throw Error('OEX_PACKED_ACK');
  const decode=(text:string)=>{if(text.length>1398104)throw Error('OEX_PACKED_ACK');const b=Buffer.from(text,'base64');if(b.length<1||b.length>1024*1024||b.toString('base64')!==text)throw Error('OEX_PACKED_ACK');return b;};
  const documents=decodePackedOexDocumentsV2(decode(v.manifestBase64),v.manifestSha256,decode(v.exhibitionBase64),v.exhibitionSha256),inventory=packedOexInventory(documents.manifest),seen=new Set<string>();let total=0;
+ if(documents.manifest.formatVersion!==(expected.archiveFormat??'1.0.0-draft.9'))throw Error('OEX_PACKED_ACK');
  if(v.entries.length!==inventory.size)throw Error('OEX_PACKED_ACK');
  const entries=v.entries.map(item=>{
   if(!item||typeof item!=='object'||Array.isArray(item))throw Error('OEX_PACKED_ACK');const e=item as Record<string,unknown>;

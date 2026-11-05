@@ -4,6 +4,7 @@
 import {closeSync,fstatSync,readSync,writeSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {preflightOexSize} from './oex-size-preflight.ts';
+import {isNativeOexFileFormat} from './oex-file-format.ts';
 
 const keys=['version','kind','attemptId','runtimeGeneration','stageId','reservationId','reservationGeneration','reservationDigest','archiveBytes','archiveSha256','inputDevice','inputInode'] as const;
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -26,7 +27,13 @@ async function main(){
  const {v,digest}=request,inputStat=fstatSync(inputFd,{bigint:true});
  if(!inputStat.isFile()||inputStat.nlink>1n||(inputStat.mode&0o077n)!==0n||inputStat.uid!==BigInt(process.getuid?.()??-1)||String(inputStat.dev)!==v.inputDevice||String(inputStat.ino)!==v.inputInode||inputStat.size!==BigInt(v.archiveBytes as number))throw Error('FD_IDENTITY');
  const input={stat:async()=>fstatSync(inputFd,{bigint:true}),read:async(buffer:Uint8Array,offset:number,length:number,position:number)=>({bytesRead:readSync(inputFd,buffer,offset,length,position)})};
- const result=await preflightOexSize(input,{bytes:v.archiveBytes as number,sha256:v.archiveSha256 as string});closeSync(inputFd);
+ const selectedFormat=process.env.EXHIBITOS_OEX_PREFLIGHT_FORMAT;
+ if(selectedFormat!==undefined&&!isNativeOexFileFormat(selectedFormat))throw Error('CONTROL_FORMAT');
+ const {archiveFormat,...legacy}=await preflightOexSize(input,{bytes:v.archiveBytes as number,sha256:v.archiveSha256 as string});closeSync(inputFd);
+ if(archiveFormat!==(selectedFormat??'1.0.0-draft.9'))throw Error('CONTROL_FORMAT');
+ // Preserve the exact legacy ACK and key order unless the new owner mode
+ // explicitly selected its format. Neither form grants drain authority.
+ const result=selectedFormat===undefined?legacy:{...legacy,archiveFormat};
  const ack=Buffer.from(JSON.stringify({version:1,kind:'preflight-complete',attemptId:v.attemptId,runtimeGeneration:v.runtimeGeneration,stageId:v.stageId,reservationId:v.reservationId,reservationGeneration:v.reservationGeneration,controlSha256:digest,...result}));
  if(ack.length>4096)throw Error('ACK_SIZE');await writeAll(ackFd,ack);closeSync(ackFd);
 }

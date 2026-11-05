@@ -49,6 +49,8 @@ const OEX_SPEC_HASH='588755db9f63dc6cc1363e424b988a510022627b00ee9b3075683b180ba
 const OEX_MIGRATION_PATH='database/fresh-oex-test/026_oex_bounded.sql';
 const OEX_MIGRATION_HASH='103b49144e2a13a6ead4c97826410ae79f7a4b0cf3da9b86222b5b2eb6b27c7f';
 const NORMAL_OEX_MIGRATION_PATH='database/native-oex-normal/026_oex_file_profile.sql';
+const NORMAL_OEX_MATERIAL_PATH='database/native-oex-normal/028_oex_material_catalogue.sql';
+const NORMAL_OEX_MATERIAL_HASH='1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af';
 const NORMAL_OEX_PROVENANCE_PATH='database/native-oex-normal/027_oex_exhibition_provenance.sql';
 const NORMAL_OEX_PROVENANCE_HASH='09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7';
 const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
@@ -71,7 +73,7 @@ export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, trac
   if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
 }
 export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected){
-  if (normalOexSelected) {await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_PROVENANCE_HASH);}
+  if (normalOexSelected) {await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_PROVENANCE_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_MATERIAL_HASH);}
 }
 // A sealed-inventory declaration, never authority to select or run an operation.
 // oneShot means one selected operation in a newly provisioned empty workspace/session.
@@ -81,6 +83,8 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected) 
   await writeFile(join(platformRoot,'scripts/native-normal-oex-capability-v1.json'),bytes,{flag:'wx',mode:0o600});
   const v3='{"format":1,"kind":"exhibitos-native-normal-oex-027","protocol":"normal-oex-027-v3","ownerChannelVersion":3,"baseSchemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","baseSchemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","schemaPath":"platform/database/native-oex-normal/027_oex_exhibition_provenance.sql","schemaSHA256":"09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}';
   await writeFile(join(platformRoot,'scripts/native-normal-oex-027-capability-v3.json'),v3,{flag:'wx',mode:0o600});
+  const v4="{\"format\":1,\"kind\":\"exhibitos-native-normal-oex-028\",\"protocol\":\"normal-oex-028-v4\",\"ownerChannelVersion\":3,\"baseSchemaPath\":\"platform/database/native-oex-normal/026_oex_file_profile.sql\",\"baseSchemaSHA256\":\"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112\",\"provenanceSchemaPath\":\"platform/database/native-oex-normal/027_oex_exhibition_provenance.sql\",\"provenanceSchemaSHA256\":\"09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7\",\"schemaPath\":\"platform/database/native-oex-normal/028_oex_material_catalogue.sql\",\"schemaSHA256\":\"1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af\",\"archiveFormats\":[\"1.0.0-draft.9\",\"1.0.0-draft.10\"],\"formatHintScript\":\"platform/apps/api/dist/oex-selected-format.js\",\"maxArchiveBytes\":536870912,\"oneShot\":true}";
+  await writeFile(join(platformRoot,'scripts/native-normal-oex-028-capability-v4.json'),v4,{flag:'wx',mode:0o600});
 }
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and
@@ -210,7 +214,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
   const tracked = new Map();
-  const excluded = new Set([...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH])]);
+  const excluded = new Set([...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH])]);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
   await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected);
