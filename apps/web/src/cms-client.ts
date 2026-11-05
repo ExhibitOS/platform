@@ -29,10 +29,11 @@ export interface Metadata {
   rights: Rights;
   provenance: {
     source: "human-authored" | "ai-assisted" | "ai-generated" | "synthetic";
-    sourceUnits: "m" | "cm" | "mm";
+    sourceUnits: "m" | "cm" | "mm" | "unknown";
     scaleApplied: boolean;
     notes: string;
   };
+  displayReference?: {version:1;status:'provisional-uncalibrated';assetSha256:string;rawBounds:{min:[number,number,number];max:[number,number,number]};referenceHeightMeters:number;pose:{position:[number,number,number];rotation:[number,number,number,number];scale:[number,number,number]}};
 }
 export interface Artist {
   id: string;

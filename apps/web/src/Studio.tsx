@@ -79,7 +79,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
   const demoSource = useMemo(() => demo?.local ? ({ publicationId: demo.publication.id, revisionSha256: demo.publication.revisionSha256, assets: demo.assets, fetcher: demo.local.fetcher, check: demo.local.check }) : undefined, [demo]);
   function newLocalDraft() {
     const draft = newDraft();
-    if (demo) { draft.exhibitionId = demo.exhibition.id; draft.candidate = structuredClone(demo.exhibition); }
+    if (demo) { draft.schemaVersion = demo.exhibition.schemaVersion; draft.exhibitionId = demo.exhibition.id; draft.candidate = structuredClone(demo.exhibition); }
     return draft;
   }
   const [published, setPublished] = useState(false);
@@ -252,7 +252,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
           throw new DraftError("INVALID_DRAFT");
         }
         const value = await store.save(
-          { ...current.draft, candidate: document },
+          { ...current.draft, candidate: document } as Draft,
           current.version,
           current.remote,
         );

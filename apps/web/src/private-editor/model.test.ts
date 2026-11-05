@@ -25,7 +25,7 @@ it('isolates verified publication namespaces and resets only the existing privat
  const changed=source();changed.publication.revisionSha256='c'.repeat(64);
  expect(privateSeed(changed,'a'.repeat(64)).storeName).not.toBe(seed.storeName);
  expect(privateSeed(input,'b'.repeat(64)).storeName).not.toBe(seed.storeName);
- const edited={...first,candidate:{...first.candidate,title:'개인 편집'}};const reset=resetPrivateDraft(seed,edited);expect(reset.id).toBe(first.id);expect(reset.exhibitionId).toBe(first.exhibitionId);expect(reset.candidate.revisionId).toBe(first.candidate.revisionId);expect(reset.candidate.title).toBe(input.exhibition.title);expect(first).toEqual(before);
+ const edited={...first,candidate:{...first.candidate,title:'개인 편집'}} as typeof first;const reset=resetPrivateDraft(seed,edited);expect(reset.id).toBe(first.id);expect(reset.exhibitionId).toBe(first.exhibitionId);expect(reset.candidate.revisionId).toBe(first.candidate.revisionId);expect(reset.candidate.title).toBe(input.exhibition.title);expect(first).toEqual(before);
 });
 it('does not let editable metadata replace immutable source rights or asset inventory',()=>{
  const input=source(),seed=privateSeed(input,'a'.repeat(64)),draft=starterDraft(seed);

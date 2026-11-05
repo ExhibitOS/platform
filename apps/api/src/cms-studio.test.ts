@@ -3,6 +3,9 @@ import type { PoolClient } from "pg";
 import { validateArtwork } from "@exhibitos/spec";
 import { ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
 import { Cms, validMetadata, type ArtworkMetadata } from "./cms.ts";
+import {approvedDimensionsMatch} from "./oex.ts";
+import {projectPublication} from "./publication.ts";
+import {newDraft} from "../../web/src/drafts/example.ts";
 import type { Session } from "./auth.ts";
 import {sha256} from '@exhibitos/storage';
 const tenantId = "10000000-0000-4000-8000-000000000001", id = "10000000-0000-4000-8000-000000000002", assetId = "10000000-0000-4000-8000-000000000003";
@@ -18,6 +21,33 @@ function setup(mime = "model/gltf-binary") {
     return { cms, c, gate, query, approval };
 }
 describe("protected approved CMS to Studio metadata projection", () => {
+    it('preserves a qualified unknown-unit reference and binds it to the approved GLB',async()=>{
+        const {cms,c,approval}=setup();
+        const metadata=approval.snapshot.metadata as ArtworkMetadata;
+        metadata.provenance.sourceUnits='unknown';metadata.provenance.scaleApplied=false;
+        metadata.displayReference={version:1,status:'provisional-uncalibrated',assetSha256:'a'.repeat(64),rawBounds:{min:[-1,-2,-3],max:[1,2,3]},referenceHeightMeters:.4,pose:{position:[0,0,0],rotation:[0,0,0,1],scale:[.1,.1,.1]}};
+        expect(validMetadata(metadata)).toBe(true);
+        const {artwork}=await cms.studioArtwork(c,session,id);
+        expect(validateArtwork(artwork).valid).toBe(true);expect(artwork.schemaVersion).toBe('1.0.0-draft.2');expect(artwork.units).toBe('unknown');
+        expect(artwork.dimensions).toEqual({width:2,height:4,depth:6});expect(artwork.transform).toEqual(metadata.displayReference.pose);
+        expect(approvedDimensionsMatch(artwork,metadata)).toBe(true);const altered=structuredClone(artwork);altered.transform.scale[0]=.2;expect(approvedDimensionsMatch(altered,metadata)).toBe(false);
+        expect(artwork.extensions?.['org.exhibitos.studio/display-reference']).toMatchObject({assetSha256:'a'.repeat(64),catalogueDimensions:metadata.dimensions,axisMapping:'unverified'});
+        approval.snapshot.asset.sha256='b'.repeat(64);await expect(cms.studioArtwork(c,session,id)).rejects.toMatchObject({code:'APPROVAL_INVALID'});
+        metadata.provenance.scaleApplied=true;expect(validMetadata(metadata)).toBe(false);
+        metadata.provenance.scaleApplied=false;metadata.displayReference.pose.scale[1]=.2;expect(validMetadata(metadata)).toBe(false);
+    });
+    it('preserves the reference and authored details in public projection and rejects changed bytes',async()=>{
+        const {cms,c,approval}=setup(),metadata=approval.snapshot.metadata as ArtworkMetadata,bytes=Buffer.from('synthetic glb bytes');
+        metadata.provenance.sourceUnits='unknown';metadata.provenance.scaleApplied=false;metadata.creationYear=2024;
+        approval.snapshot.asset.sha256=sha256(bytes);approval.snapshot.asset.bytes=bytes.length;
+        metadata.displayReference={version:1,status:'provisional-uncalibrated',assetSha256:sha256(bytes),rawBounds:{min:[-1,-2,-3],max:[1,2,3]},referenceHeightMeters:.4,pose:{position:[0,0,0],rotation:[0,0,0,1],scale:[.1,.1,.1]}};
+        const {artwork}=await cms.studioArtwork(c,session,id);const doc={...newDraft().candidate,schemaVersion:'1.0.0-draft.2' as const,artworks:[artwork]};
+        const prepared={artwork,sourceAssetId:assetId,sourceSha256:sha256(bytes),bytes,mime:'model/gltf-binary' as const};
+        const out=projectPublication(doc,[prepared],'2026-10-25T00:00:00Z').snapshot.artworks[0]!;
+        expect(out.extensions?.['org.exhibitos.studio/display-reference']).toEqual(artwork.extensions?.['org.exhibitos.studio/display-reference']);
+        expect(out.extensions?.[ARTWORK_DETAILS_NAMESPACE]).toEqual({version:1,creationYear:2024});
+        expect(()=>projectPublication(doc,[{...prepared,bytes:Buffer.from('changed')}],'2026-10-25T00:00:00Z')).toThrow('PUBLICATION_NOT_READY');
+    });
     it('reads an approved PNG secondary with unchanged revision, rights and byte-integrity gates',async()=>{
         const seed=setup('image/png'),artwork=(await seed.cms.studioArtwork(seed.c,session,id)).artwork,bytes=Buffer.from('synthetic approved coarse PNG bytes');
         const coarse={...artwork.assets[0]!,id:'10000000-0000-4000-8000-000000000098',path:'assets/coarse.png',bytes:bytes.length,sha256:sha256(bytes)};artwork.assets.push(coarse);

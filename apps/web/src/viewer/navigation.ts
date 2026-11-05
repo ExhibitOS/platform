@@ -4,6 +4,7 @@ import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,bench
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
+import {validateArtwork} from "../drafts/artwork-validation.mjs";
 export type Vec3 = [
     number,
     number,
@@ -166,7 +167,7 @@ export async function createNavigationController(doc: Exhibition, options: {
                 throw Error("NAVIGATION_REFERENCE");
             if (!finite([...p.transform.position, ...p.transform.rotation, ...p.transform.scale]) || Math.abs(Math.hypot(...p.transform.rotation) - 1) > 0.001 || p.transform.scale.some(n => n <= 0 || n > 100))
                 throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
-            if (art.units !== "meter")throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
+            if (art.units !== "meter" && !(doc.schemaVersion === "1.0.0-draft.2" && art.schemaVersion === "1.0.0-draft.2" && art.units === "unknown" && validateArtwork(art).valid))throw Error("NAVIGATION_GEOMETRY_UNSUPPORTED");
             const corners=artifactCorners(art.dimensions,[art.transform,p.transform,room.transform],true);
             if(++colliderCount>8192)throw Error("NAVIGATION_COMPLEXITY");
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(corners.flat()));if(!desc)throw Error("NAVIGATION_AFFINE_HULL_UNSUPPORTED");

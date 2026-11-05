@@ -1124,6 +1124,7 @@ export function Cms() {
                           <select
                             aria-label="원본 단위"
                             value={metadata.provenance.sourceUnits}
+                            disabled={metadata.provenance.sourceUnits === 'unknown'}
                             onChange={(e) =>
                               setMetadata({
                                 ...metadata,
@@ -1138,12 +1139,14 @@ export function Cms() {
                             <option value="m">미터</option>
                             <option value="cm">센티미터</option>
                             <option value="mm">밀리미터</option>
+                            <option value="unknown" disabled>미확인</option>
                           </select>
                         </label>
                         <label className="cms-inline">
                           <input
                             type="checkbox"
                             checked={metadata.provenance.scaleApplied}
+                            disabled={metadata.provenance.sourceUnits === 'unknown'}
                             onChange={(e) =>
                               setMetadata({
                                 ...metadata,
@@ -1156,6 +1159,7 @@ export function Cms() {
                           />
                           미터 변환을 파일에 이미 적용함
                         </label>
+                        {metadata.displayReference && <p>원본 단위는 미확인입니다. 표시 높이는 임시 기준이며 실측 교정이 아닙니다.</p>}
                         <label>
                           출처·단위 변환 메모
                           <textarea

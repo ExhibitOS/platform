@@ -8,13 +8,13 @@ import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from '@exhibitos/storage';
 import type {Session} from './auth.ts';
 import {etag} from './studio.ts';
-import {Oex,withoutImportedPreviews} from './oex.ts';
+import {Oex,withoutImportedPreviews,checkOexProfile,requireSupportedOexImport} from './oex.ts';
 
 describe('internal bounded OEX producer',()=>{
  it('keeps bounded profile validation when checking optional preview omissions above the legacy total',async()=>{
   const {exhibition}=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),source=structuredClone(exhibition),base=source.artworks[0]!;
   for(let i=0;i<9;i++){
-   const art=structuredClone(base),suffix=String(i+10).padStart(12,'0');art.id=`f1000000-0000-4000-8000-${suffix}`;art.revisionId=`f2000000-0000-4000-8000-${suffix}`;art.primaryAssetId=`f3000000-0000-4000-8000-${suffix}`;art.assets[0]!.id=art.primaryAssetId;art.assets[0]!.path=`large-${i}.glb`;art.assets[0]!.bytes=31*1024*1024;art.provenance.events[0]!.id=`f4000000-0000-4000-8000-${suffix}`;source.artworks.push(art);
+   const art=structuredClone(base),suffix=String(i+10).padStart(12,'0');art.id=`f1000000-0000-4000-8000-${suffix}`;art.revisionId=`f2000000-0000-4000-8000-${suffix}`;art.primaryAssetId=`f3000000-0000-4000-8000-${suffix}`;art.assets[0]!.id=art.primaryAssetId;art.assets[0]!.path=`large-${i}.glb`;art.assets[0]!.bytes=31*1024*1024;art.provenance.events[0]!.id=`f4000000-0000-4000-8000-${suffix}`;(source.artworks as typeof art[]).push(art);
   }
   expect(()=>withoutImportedPreviews(source,[])).toThrow();expect(withoutImportedPreviews(source,[],'bounded-file-v1')).toEqual(source);
  });
@@ -63,4 +63,25 @@ describe('internal bounded OEX producer',()=>{
    const file=await open(path,'r');try{await withOexFileHandle(file,async output=>{expect(output.exhibition).toEqual(candidate);});}finally{await file.close();}
   }finally{await rm(dir,{recursive:true,force:true});}
  });
+ it('exports a qualified v2 reference through both Platform OEX paths',async()=>{
+  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),legacy=original.exhibition,base=legacy.artworks.find(a=>a.artworkType==='sculpture')!;
+  const ref={version:1,status:'provisional-uncalibrated',assetSha256:base.assets.find(a=>a.id===base.primaryAssetId)!.sha256,rawBounds:{min:[-1,-2,-3],max:[1,2,3]},referenceHeightMeters:.4,catalogueDimensions:{width:.2,height:.4,depth:.3,unit:'m'},axisMapping:'unverified'};
+  const art={...base,schemaVersion:'1.0.0-draft.2' as const,units:'unknown' as const,dimensions:{width:2,height:4,depth:6},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[.1,.1,.1]},extensions:{...base.extensions,'org.exhibitos.studio/display-reference':ref}};
+  const candidate={...legacy,schemaVersion:'1.0.0-draft.2' as const,artworks:legacy.artworks.map(a=>a.id===base.id?art:a)} as import('@exhibitos/spec').ExhibitionV2;
+  expect(()=>checkOexProfile(candidate,true)).not.toThrow();expect(()=>checkOexProfile(candidate,true,'bounded-file-v1')).not.toThrow();
+  expect(()=>requireSupportedOexImport(candidate)).toThrow('OEX_IMPORT_VERSION_UNSUPPORTED');expect(()=>requireSupportedOexImport(legacy)).not.toThrow();
+  const unknown=structuredClone(candidate);unknown.artworks[0]!.extensions={...unknown.artworks[0]!.extensions,'unknown.example/extension':{}};expect(()=>checkOexProfile(unknown,true)).toThrow('OEX_EXTENSION_UNSUPPORTED');
+  const legacyWithReference=structuredClone(legacy);legacyWithReference.artworks[0]!.extensions={...legacyWithReference.artworks[0]!.extensions,'org.exhibitos.studio/display-reference':ref};expect(()=>checkOexProfile(legacyWithReference,true)).toThrow('OEX_EXTENSION_UNSUPPORTED');
+  const files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!]));
+  const metadata={kind:'exhibition-draft',candidate},row={revision:1,metadata},match=etag(1,metadata as Parameters<typeof etag>[1]);
+  const oex=new Oex({} as Pool,{} as BlobStore),session={tenantId:'10000000-0000-4000-8000-000000000001',userId:'20000000-0000-4000-8000-000000000002',role:'artist'} as Session;
+  vi.spyOn(oex.studio,'access').mockResolvedValue(row as never);
+  const intern=oex as unknown as {currentExportArtwork:(...args:unknown[])=>Promise<unknown>;currentExportAsset:(...args:unknown[])=>Promise<unknown>};
+  vi.spyOn(intern,'currentExportArtwork').mockImplementation(async(_c,_s,a)=>({rights:(a as typeof base).rights}));
+  vi.spyOn(intern,'currentExportAsset').mockImplementation(async(_c,_s,a,asset)=>({bytes:files.get((asset as typeof base.assets[number]).path)!,storedRights:(a as typeof base).rights}));
+  const client={query:vi.fn(async()=>({rows:[{snapshot:metadata}]}))} as unknown as PoolClient;
+  const ordinary=await readOex(await oex.export(client,session,candidate.id,match));expect(ordinary.manifest.formatVersion).toBe('1.0.0-draft.11');expect(ordinary.exhibition.artworks.find(a=>a.id===base.id)?.extensions?.['org.exhibitos.studio/display-reference']).toEqual(ref);
+  const dir=await mkdtemp(join(tmpdir(),'exhibitos-v2-export-'));try{const path=join(dir,'result.oex');await oex.exportBoundedFile(client,session,candidate.id,match,path,new AbortController().signal);const file=await open(path,'r');try{await withOexFileHandle(file,async result=>{expect(result.manifest.formatVersion).toBe('1.0.0-draft.11');expect(result.exhibition.artworks.find(a=>a.id===base.id)?.extensions?.['org.exhibitos.studio/display-reference']).toEqual(ref);});}finally{await file.close();}}finally{await rm(dir,{recursive:true,force:true});}
+ });
+
 });

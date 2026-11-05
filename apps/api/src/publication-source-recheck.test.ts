@@ -38,7 +38,7 @@ it.each(['close','verify'])('does not return admitted READY if a display grant e
  const request={kind:'readiness' as const,attemptId:randomUUID(),runtimeGeneration:randomUUID(),tenantId:session.tenantId,userId:session.userId,exhibitionId:candidate.id,requestId:randomUUID(),etag:''};
  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-31T12:00:00Z'));
  candidate.artworks[0]!.rights.expiresAt='2026-10-31T12:00:01Z';
- const metadata:Draft={schemaVersion:'1.0.0-draft.1',id:randomUUID(),exhibitionId:candidate.id,kind:'exhibition-draft',editVersion:1,createdAt:'2026-10-31T11:00:00Z',updatedAt:'2026-10-31T11:00:00Z',candidate};request.etag=etag(2,metadata);
+ const metadata:Draft={schemaVersion:'1.0.0-draft.1',id:randomUUID(),exhibitionId:candidate.id,kind:'exhibition-draft',editVersion:1,createdAt:'2026-10-31T11:00:00Z',updatedAt:'2026-10-31T11:00:00Z',candidate} as Draft;request.etag=etag(2,metadata);
  const op=await PublicationFileOperation.admit(client,{coordinator,blobs,journal:new PublicationAttempts(dirs[2]!),scratchRoot:dirs[3]!},request);
  try{
  vi.spyOn(Studio.prototype,'access').mockResolvedValue({revision:2,metadata} as never);

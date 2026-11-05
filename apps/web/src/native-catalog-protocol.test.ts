@@ -15,7 +15,7 @@ it('binds thumbnail identity/revision to the exact enabled account frame and den
 it('Find accepts only the exact selected existing placement in 3D and never changes the draft or camera frame',()=>{
  const f=frame(),placementId=id();f.draft.candidate.placements.push({id:placementId} as never);f.selection={kind:'placement',id:placementId};const request={...binding(f),selection:{kind:'placement' as const,id:placementId}},before=structuredClone(f);
  expect(checkedCatalogRequest(request,f,'find')).toEqual(request);
- for(const state of [{...f,selection:null},{...f,presentation:'plan' as const},{...f,draft:{...f.draft,candidate:{...f.draft.candidate,placements:[]}}}])expect(()=>checkedCatalogRequest(request,state,'find')).toThrow();
+ for(const state of [{...f,selection:null},{...f,presentation:'plan' as const},{...f,draft:{...f.draft,candidate:{...f.draft.candidate,placements:[]}} as typeof f.draft}])expect(()=>checkedCatalogRequest(request,state,'find')).toThrow();
  expect(()=>checkedCatalogRequest({...request,selection:{kind:'artwork',id:placementId}},f,'find')).toThrow();expect(()=>checkedCatalogRequest({...request,selection:{kind:'placement',id:id()}},f,'find')).toThrow();expect(f).toEqual(before);
 });
 it('serializes thumbnail resource ownership and rejects excess work without starting another renderer',async()=>{

@@ -41,15 +41,15 @@ describe('native viewport frame and shared geometry proposal boundary',()=>{
   const result=nativeGeometryAction(selected,command),expected=structuredClone(f.draft.candidate);
   expected.extensions![MATERIAL_NAMESPACE]={version:1,surfaces:{[surfaceId]:material,[otherId]:other}};
   expect(result).toEqual(expected);expect(result).toEqual(state.present);expect(undoGeometry(state).present).toEqual(f.draft.candidate);
-  expect(checkedFrame({...selected,draft:{...f.draft,candidate:result}}).draft.candidate).toEqual(result);
-  const removed=nativeGeometryAction({...selected,draft:{...f.draft,candidate:result}},{...command,material:null});
+  expect(checkedFrame({...selected,draft:{...f.draft,candidate:result} as typeof f.draft}).draft.candidate).toEqual(result);
+  const removed=nativeGeometryAction({...selected,draft:{...f.draft,candidate:result} as typeof f.draft},{...command,material:null});
   expected.extensions![MATERIAL_NAMESPACE]={version:1,surfaces:{[otherId]:other}};
   expect(removed).toEqual(expected);expect(materialFor(removed,surfaceId)).toEqual(DEFAULT_MATERIAL);expect(selected).toEqual(original);
  });
  it('atomically applies a selected texture and scalars, preserves hidden settings through legacy edits, and rejects foreign actions',()=>{
   const {f}=selectedArchitecture(),surfaceId=f.draft.candidate.surfaces.find(s=>s.type==='wall')!.id,selected:NativeViewportFrame={...f,selection:{kind:'surface',id:surfaceId}},before=structuredClone(selected),defaults=surfaceTextureDefaults('fine-lime-plaster'),texture={...defaults.texture,rotation:.7,normalScale:.6},command={type:'set-material-texture' as const,surfaceId,material:defaults.material,texture};
   const result=nativeGeometryAction(selected,command);expect(surfaceTextureFor(result,surfaceId)).toEqual(texture);expect(materialFor(result,surfaceId)).toEqual(defaults.material);expect(selected).toEqual(before);
-  const current={...selected,draft:{...f.draft,candidate:result}},scalar=nativeGeometryAction(current,{type:'set-material',surfaceId,material:{color:'#aabbcc',roughness:.4,metalness:0}});expect(surfaceTextureFor(scalar,surfaceId)).toEqual(texture);
+  const current={...selected,draft:{...f.draft,candidate:result} as typeof f.draft},scalar=nativeGeometryAction(current,{type:'set-material',surfaceId,material:{color:'#aabbcc',roughness:.4,metalness:0}});expect(surfaceTextureFor(scalar,surfaceId)).toEqual(texture);
   const clear=nativeGeometryAction(current,{...command,material:null,texture:null});expect(clear.extensions![MATERIAL_NAMESPACE]).toEqual({version:1,surfaces:{}});
   for(const action of [{...command,surfaceId:uuid()},{...command,extra:true},{...command,texture:{...texture,normalScale:3}}])expect(()=>nativeGeometryAction(selected,action as NativeGeometryAction)).toThrow('VIEWPORT_COMMAND_DENIED');
   expect(()=>nativeGeometryAction({...selected,disabled:true},command)).toThrow('VIEWPORT_COMMAND_DENIED');expect(selected).toEqual(before);
@@ -81,7 +81,7 @@ describe('native viewport frame and shared geometry proposal boundary',()=>{
  it('reuses validated architecture/light commands and preserves the exact document inventory/rights',()=>{
   const f=frame(),roomId=f.draft.candidate.rooms[0]!.id;
   const cube=nativeGeometryAction(f,{type:'white-cube',roomId});expect(cube.surfaces.length).toBeGreaterThan(0);expect(cube.artworks).toEqual(f.draft.candidate.artworks);expect(f.draft.candidate.surfaces).toHaveLength(0);
-  const lit=nativeGeometryAction({...f,draft:{...f.draft,candidate:cube}},{type:'add-light',roomId});expect(lit.lights).toHaveLength(1);expect(lit.rooms).toEqual(cube.rooms);
+  const lit=nativeGeometryAction({...f,draft:{...f.draft,candidate:cube} as typeof f.draft},{type:'add-light',roomId});expect(lit.lights).toHaveLength(1);expect(lit.rooms).toEqual(cube.rooms);
   const room=nativeGeometryAction(f,{type:'add-room',name:'두 번째 방'});expect(room.rooms).toHaveLength(2);expect(room.id).toBe(f.draft.candidate.id);
  });
  it('applies only the selected complete architecture record through the existing geometry validator',()=>{
@@ -93,7 +93,7 @@ describe('native viewport frame and shared geometry proposal boundary',()=>{
    if(action.type==='set-room')expected.rooms[0]={...action.room,id:action.id};
    if(action.type==='set-surface')expected.surfaces[expected.surfaces.findIndex(s=>s.id===action.id)]={...action.surface,id:action.id};
    if(action.type==='set-opening')expected.openings[0]={...action.opening,id:action.id};
-   expect(result).toEqual(expected);expect(checkedFrame({...f,draft:{...f.draft,candidate:result}}).draft.candidate).toEqual(expected);
+   expect(result).toEqual(expected);expect(checkedFrame({...f,draft:{...f.draft,candidate:result} as typeof f.draft}).draft.candidate).toEqual(expected);
   }
   expect(f).toEqual(original);
  });

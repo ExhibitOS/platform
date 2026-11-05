@@ -40,7 +40,7 @@ function Thumbnail({art,seed}:{art:Artwork;seed:PrivateSeed}){
  * a newly saved record with the previous copy's still-visible geometry. */
 export async function preparePrivateReset(seed:PrivateSeed,store:Pick<DraftStore,'resetPrivate'|'list'>,current:LocalDraft,candidate:LocalDraft['draft']['candidate'],knownCopies:LocalDraft[]){
  await seed.source.local!.check();checkPrivateCandidate(seed,candidate);
- const draft={...current.draft,candidate},reset=resetPrivateDraft(seed,draft);
+ const draft={...current.draft,candidate} as typeof current.draft,reset=resetPrivateDraft(seed,draft);
  const record=await store.resetPrivate(draft,reset,current.version),geometry=createGeometryState(record.draft.candidate);
  let copies:LocalDraft[],listRefreshed=true;try{copies=await store.list();}catch{copies=knownCopies;listRefreshed=false;}
  return {record,geometry,copies:[record,...copies.filter(copy=>copy.id!==record.id)],listRefreshed};
@@ -48,7 +48,7 @@ export async function preparePrivateReset(seed:PrivateSeed,store:Pick<DraftStore
 export async function preparePrivateRecovery(seed:PrivateSeed,store:Pick<DraftStore,'privatePrevious'|'recoverPrivate'|'list'>,current:LocalDraft,candidate:LocalDraft['draft']['candidate'],knownCopies:LocalDraft[]){
  await seed.source.local!.check();checkPrivateCandidate(seed,candidate);
  const previous=await store.privatePrevious(current.id);if(!previous)throw Error('NO_PRIVATE_PREVIOUS');checkPrivateCandidate(seed,previous.draft.candidate);
- const record=await store.recoverPrivate({...current.draft,candidate},current.version,previous.version),geometry=createGeometryState(record.draft.candidate);
+ const record=await store.recoverPrivate({...current.draft,candidate} as typeof current.draft,current.version,previous.version),geometry=createGeometryState(record.draft.candidate);
  let copies:LocalDraft[],listRefreshed=true;try{copies=await store.list();}catch{copies=knownCopies;listRefreshed=false;}
  return {record,geometry,copies:[record,...copies.filter(copy=>copy.id!==record.id)],listRefreshed};
 }
@@ -56,7 +56,7 @@ export async function preparePrivateRecovery(seed:PrivateSeed,store:Pick<DraftSt
 /** Once the save commits, a failed list refresh must not report it as failed. */
 export async function preparePrivateSave(seed:PrivateSeed,store:Pick<DraftStore,'save'|'list'>,record:LocalDraft,candidate:LocalDraft['draft']['candidate'],knownCopies:LocalDraft[]){
  await seed.source.local!.check();checkPrivateCandidate(seed,candidate);
- const saved=await store.save({...record.draft,candidate},record.version);
+ const saved=await store.save({...record.draft,candidate} as typeof record.draft,record.version);
  let copies:LocalDraft[],listRefreshed=true;try{copies=await store.list();}catch{copies=knownCopies;listRefreshed=false;}
  return {record:saved,copies:[saved,...copies.filter(copy=>copy.id!==saved.id)],listRefreshed};
 }

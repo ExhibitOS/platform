@@ -8,7 +8,7 @@ export function validateTemplate(candidate:Exhibition,redistribute=false):void {
  if(!candidate.extensions?.[TEMPLATE_NAMESPACE]||!validateArchitecture(candidate,redistribute).valid)throw Error('Template license, provenance or compatibility is invalid.');
  if(Object.keys(candidate.extensions??{}).some(k=>![TEMPLATE_NAMESPACE,DAYLIGHT_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE].includes(k)))throw Error('Unsupported template extension; remove private or incompatible metadata explicitly.');
  if(candidate.artworks.length||candidate.placements.length||candidate.mediaAssets.length||candidate.audioZones.length||candidate.scripts.length||candidate.annotations.length)throw Error('Architecture templates cannot contain artwork, media, scripts or personal annotations.');
- const draft=newDraft();draft.candidate=candidate;draft.exhibitionId=candidate.id;
+ const draft=newDraft();draft.schemaVersion=candidate.schemaVersion;draft.candidate=candidate;draft.exhibitionId=candidate.id;
  if(!validateDraft(draft).valid)throw Error('Template geometry or references are invalid.');
 }
 export function duplicateTemplate(source:Exhibition,target:Exhibition):Exhibition {

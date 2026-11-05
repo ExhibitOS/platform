@@ -24,7 +24,7 @@ export function resetPrivateDraft(seed:PrivateSeed,current:Draft):Draft {
  const candidate=structuredClone(seed.source.exhibition);
  candidate.id=current.exhibitionId;candidate.revisionId=current.candidate.revisionId;
  candidate.revision=current.candidate.revision;candidate.createdAt=current.candidate.createdAt;
- checkPrivateCandidate(seed,candidate);return {...current,candidate};
+ checkPrivateCandidate(seed,candidate);return {...current,schemaVersion:candidate.schemaVersion,candidate} as Draft;
 }
 export function starterDraft(seed:PrivateSeed){return resetPrivateDraft(seed,newDraft(seed.source.exhibition.title));}
 

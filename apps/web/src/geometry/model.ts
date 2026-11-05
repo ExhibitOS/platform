@@ -136,7 +136,7 @@ export function whiteCubeSurfaces(room: Room): Surface[] {
 function checked(candidate: Exhibition,archiveProfile?:'bounded-file-v1'): void {
   const time = "2026-01-01T00:00:00.000Z";
   const validation = validateDraft({
-    schemaVersion: "1.0.0-draft.1",
+    schemaVersion: candidate.schemaVersion,
     kind: "exhibition-draft",
     id: candidate.revisionId,
     exhibitionId: candidate.id,
@@ -190,7 +190,7 @@ export function applyGeometryCommand(
     case "complete-room-ceiling": doc=completeRoomCeiling(doc,command.roomId,options?.verifiedDoorBaseline); break;
     case "set-light-attachment": doc=setLightAttachment(doc,command.lightId,command.attachment,options?.verifiedDoorBaseline); break;
     case "replace-architecture": {if(command.candidate.id!==doc.id||command.candidate.revisionId!==doc.revisionId)throw new GeometryError("DOCUMENT_ID_CHANGED");doc=clone(command.candidate);break;}
-    case "add-artwork": doc.artworks.push(clone(command.artwork)); break;
+    case "add-artwork": { if(doc.schemaVersion==="1.0.0-draft.1" && command.artwork.schemaVersion!=="1.0.0-draft.1")throw new GeometryError("ARTWORK_VERSION_UNSUPPORTED"); if(doc.schemaVersion==="1.0.0-draft.1" && command.artwork.schemaVersion==="1.0.0-draft.1")doc.artworks.push(clone(command.artwork)); else if(doc.schemaVersion==="1.0.0-draft.2")doc.artworks.push(clone(command.artwork)); break; }
     case "add-placement": { doc.placements.push(clone(command.placement)); const artwork=doc.artworks.find(a=>same(a.revisionId,command.placement.artworkRevisionId)); if(artwork)doc.accessibility.artworkDescriptions.push({placementId:command.placement.id,text:artwork.metadata.description?.trim()||artwork.metadata.title}); break; }
     case "set-placement": replace(doc.placements,command.id,command.placement); break;
     case "remove-placement": find(doc.placements,command.id); doc.placements=doc.placements.filter(p=>!same(p.id,command.id)); doc.accessibility.artworkDescriptions=doc.accessibility.artworkDescriptions.filter(d=>!same(d.placementId,command.id)); break;

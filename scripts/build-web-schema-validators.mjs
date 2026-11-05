@@ -9,16 +9,16 @@ import {lowerSchemaContext} from './lower-schema-context.mjs';
 const require=createRequire(new URL('../apps/web/package.json',import.meta.url));
 const Ajv=require('ajv/dist/2020.js').default,formats=require('ajv-formats').default,standalone=require('ajv/dist/standalone/index.js').default;
 const {_}=require('ajv/dist/compile/codegen/index.js');
-const names=['artwork','exhibition','lifecycle'];
+const names=['artwork','exhibition','lifecycle','artwork-draft2','exhibition-draft2','lifecycle-draft2'];
 const inputs=await Promise.all(names.map(async name=>{const bytes=await readFile(require.resolve(`@exhibitos/spec/schemas/${name}.json`));return {name,schema:JSON.parse(bytes),sha256:createHash('sha256').update(bytes).digest('hex')};}));
-const [artwork,exhibition,lifecycle]=inputs.map(v=>v.schema);
+const [artwork,exhibition,lifecycle,artwork2,exhibition2,lifecycle2]=inputs.map(v=>v.schema);
 const ajv=new Ajv({strict:true,allErrors:true,validateFormats:true,coerceTypes:false,useDefaults:false,removeAdditional:false,code:{source:true,esm:true,formats:_`require("ajv-formats/dist/formats").fullFormats`}});
 formats(ajv,['uuid','date-time']);
 for(const input of inputs)ajv.addSchema(input.schema);
 ajv.addSchema({type:'string',format:'date-time',pattern:artwork.properties.createdAt.pattern},'urn:exhibitos:browser:artwork-utc');
 ajv.addSchema(artwork.$defs.rights,'urn:exhibitos:browser:rights');
 ajv.addSchema(artwork.properties.createdAt,'urn:exhibitos:browser:exhibition-utc');
-let source=standalone(ajv,{artworkSchema:artwork.$id,revisionSchema:exhibition.$id,lifecycleSchema:lifecycle.$id,artworkUtc:'urn:exhibitos:browser:artwork-utc',rightsSchema:'urn:exhibitos:browser:rights',utcSchema:'urn:exhibitos:browser:exhibition-utc'});
+let source=standalone(ajv,{artworkSchema:artwork.$id,revisionSchema:exhibition.$id,lifecycleSchema:lifecycle.$id,artworkSchema2:artwork2.$id,revisionSchema2:exhibition2.$id,lifecycleSchema2:lifecycle2.$id,artworkUtc:'urn:exhibitos:browser:artwork-utc',rightsSchema:'urn:exhibitos:browser:rights',utcSchema:'urn:exhibitos:browser:exhibition-utc'});
 // AJV's ESM output keeps a few CommonJS runtime helpers. Convert only its known
 // official helper imports to static imports, preserving helper implementations.
 const modules=[...new Set([...source.matchAll(/require\("([^"]+)"\)/g)].map(m=>m[1]))];
