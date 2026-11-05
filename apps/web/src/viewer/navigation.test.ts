@@ -31,11 +31,12 @@ function slab(d: Exhibition, x: number, y: number, z: number, width: number, hei
 }
 describe("real Rapier fixed-step first-person collision", () => {
     it("uses a validated provisional reference once for the walking collider", async () => {
-        const d=room(), base=syntheticArtwork();
+        const d={...room(),schemaVersion:'1.0.0-draft.2'} as import('@exhibitos/spec').ExhibitionV2, base=syntheticArtwork();
         const a={...base,schemaVersion:'1.0.0-draft.2',units:'unknown',dimensions:{width:2,height:4,depth:6},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[.1,.1,.1]},extensions:{'org.exhibitos.studio/display-reference':{version:1,status:'provisional-uncalibrated',assetSha256:base.assets[0]!.sha256,rawBounds:{min:[-1,-2,-3],max:[1,2,3]},referenceHeightMeters:.4,catalogueDimensions:{width:.2,height:.4,depth:.3,unit:'m'},axisMapping:'unverified'}}} as Exhibition['artworks'][number];
         d.artworks=[a];d.placements=[newPlacement(a,d.rooms[0]!.id)];
         const c=await createNavigationController(d,{position:[0,1.6,3]});
         try { const solid=c.walkableRegions.flatMap(region=>region.exclusions).find(x=>x.affineCorners && Math.abs(x.halfExtents[1]-.2)<1e-6);expect(solid).toBeDefined();expect(solid!.halfExtents[0]).toBeCloseTo(.1);expect(solid!.halfExtents[2]).toBeCloseTo(.3); } finally {c.dispose();}
+        const mismatch={...d,schemaVersion:'1.0.0-draft.1'} as unknown as Exhibition;await expect(createNavigationController(mismatch,{position:[0,1.6,3]})).rejects.toThrow('NAVIGATION_GEOMETRY_UNSUPPORTED');
         a.transform.scale=[.2,.1,.1];await expect(createNavigationController(d,{position:[0,1.6,3]})).rejects.toThrow('NAVIGATION_GEOMETRY_UNSUPPORTED');
     });
 

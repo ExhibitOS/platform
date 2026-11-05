@@ -137,7 +137,7 @@ export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfil
   if(!object(v))return;
   if(Object.hasOwn(v,'extensions')){
    if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[FURNISHING_NAMESPACE,DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,LIGHT_ATTACHMENT_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(privateBindings?[CMS]:[])]:[];
+   const allowed=scope==='exhibition'?[FURNISHING_NAMESPACE,DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,LIGHT_ATTACHMENT_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(v.schemaVersion==='1.0.0-draft.2'?['org.exhibitos.studio/display-reference']:[]),...(privateBindings?[CMS]:[])]:[];
    if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
   }
   for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
@@ -146,6 +146,8 @@ export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfil
  for(const a of e.artworks){qualifyDemoDisplay(a);if(!validRights(a.rights)||a.assets.length>8||a.assets.some(x=>!['image/png','model/gltf-binary'].includes(x.mime)||x.bytes>MAX_UPLOAD))throw new ApiError(422,'OEX_PROFILE_INVALID');}
  for(const m of e.mediaAssets)if(m.mime!=='audio/wav'||!validRights(m.rights))throw new ApiError(422,'OEX_PROFILE_INVALID');
 }
+/** Native OEX11 import is not qualified; reject before preparing or staging any assets. */
+export function requireSupportedOexImport(e:Exhibition){if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');}
 /** Verify the complete selected catalogue pair before staging any import blob.
  * Compiled catalogue hashes qualify the exact GLBs; package paths grant no new
  * source, host or licence authority. No partial pair is returned. */
@@ -610,6 +612,7 @@ export class Oex {
   });if(!row)return false;
   try{
    const parsed=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');const bytes=await this.uploaded(row);try{return await decodeOex(bytes);}catch{throw new ApiError(422,'OEX_INVALID');}});
+   requireSupportedOexImport(parsed.exhibition);
    checkOexProfile(parsed.exhibition);
    const sourceStill=spaceStillFor(parsed.exhibition);
    const grants:unknown[]=[...parsed.exhibition.artworks.map(a=>a.rights),...parsed.exhibition.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
