@@ -21,3 +21,25 @@ test('a mobile budget never hides the cost of decoding a full original or drops 
  expect(materialMapPlan([],512,1)).toEqual({sizes:[],reserveBytes:0,residentBytes:0,blocked:false});
  expect(materialMapPlan(files,NaN,1).blocked).toBe(true);
 });
+
+test('serial phase reservation retains both geometry and the larger future peak',async()=>{
+ const {serialMaterialPhaseBytes,loadMaterialPhases}=await import('./material-texture-plan');
+ const floor={reserveBytes:51,residentBytes:29},surface={reserveBytes:35,residentBytes:8,geometryReserve:1};
+ expect(serialMaterialPhaseBytes(floor,surface,false,false)).toBe(64);
+ expect(serialMaterialPhaseBytes(floor,surface,true,false)).toBe(64);
+ expect(serialMaterialPhaseBytes(floor,surface,true,true)).toBe(38);
+ expect(()=>serialMaterialPhaseBytes(floor,surface,false,true)).toThrow('MATERIAL_PHASE_ORDER');
+ let release!:()=>void;const wait=new Promise<void>(resolve=>{release=resolve;}),events:string[]=[];
+ const running=loadMaterialPhases(async()=>{events.push('floor-start');await wait;events.push('floor-end');},async()=>{events.push('surface-start');},phase=>events.push(phase+'-released'),()=>false);
+ await Promise.resolve();expect(events).toEqual(['floor-start']);release();await running;
+ expect(events).toEqual(['floor-start','floor-end','floor-released','surface-start','surface-released']);
+});
+test('failure releases its hold and cancellation skips later work on every invocation',async()=>{
+ const {loadMaterialPhases}=await import('./material-texture-plan');const events:string[]=[];let cancelled=false;
+ await loadMaterialPhases(async()=>{events.push('floor');throw Error('failure');},async()=>{events.push('surface');},(p,e)=>events.push(p+(e?'-failed':'-released')),()=>cancelled);
+ expect(events).toEqual(['floor','floor-failed','surface','surface-released']);events.length=0;
+ await loadMaterialPhases(async()=>{events.push('floor');cancelled=true;},async()=>{events.push('unexpected');},p=>events.push(p+'-released'),()=>cancelled);
+ expect(events).toEqual(['floor','floor-released','surface-released']);events.length=0;cancelled=false;
+ await loadMaterialPhases(async()=>events.push('new-floor'),async()=>events.push('new-surface'),p=>events.push(p+'-released'),()=>cancelled);
+ expect(events).toEqual(['new-floor','floor-released','new-surface','surface-released']);
+});

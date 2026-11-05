@@ -6,12 +6,26 @@ import {readFile,writeFile,lstat,realpath,mkdir,rm} from 'node:fs/promises';
 import {resolve,dirname,join,isAbsolute,relative} from 'node:path';
 import {createServer} from 'node:http';
 import {pathToFileURL,fileURLToPath} from 'node:url';
+import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from '@exhibitos/studio-contract';
 const root=fileURLToPath(new URL('../',import.meta.url)),hex=/^[a-f0-9]{64}$/,uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const fail=code=>{throw Error(code);};
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 async function digest(path,signal){signal?.throwIfAborted();const h=createHash('sha256');for await(const bytes of createReadStream(path)){signal?.throwIfAborted();h.update(bytes);}signal?.throwIfAborted();return h.digest('hex');}
 async function plain(path,directory=false){if(!isAbsolute(path)||await realpath(path)!==path)fail('AGENT_PATH');const st=await lstat(path);if(st.isSymbolicLink()||!(directory?st.isDirectory():st.isFile())||st.uid!==process.getuid())fail('AGENT_PATH');return path;}
 async function json(path,limit=1100000){await plain(path);const st=await lstat(path);if(st.size>limit)fail('AGENT_INPUT_LIMIT');return JSON.parse(await readFile(path,'utf8'));}
+/** Serve only manifest-pinned built-in texture files; the renderer also checks
+ * each requested descriptor against its compiled registry and digest. */
+export async function attachStaticMaterialFiles(files,manifest,root,signal,registry=[...FLOOR_TEXTURE_FILES,...SURFACE_TEXTURE_FILES]){
+ if(!Array.isArray(manifest?.files)||manifest.files.length>20030)fail('AGENT_EXPORT_BINDING');
+ const entries=manifest.files.filter(e=>typeof e?.path==='string'&&/^(?:floor-textures|surface-material-textures)\//.test(e.path));
+ if(entries.length>128)fail('AGENT_INPUT_LIMIT');
+ for(const entry of entries){
+  const known=registry.filter(file=>file.path===entry.path);
+  if(!/^(?:floor-textures|surface-material-textures)\/(?:[a-zA-Z0-9_-]+\/)+[a-zA-Z0-9_-]+\.png$/.test(entry.path)||known.length!==1||known[0].sha256!==entry.sha256||known[0].bytes!==entry.bytes||!hex.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<1||entry.bytes>16777216||files.has('/'+entry.path))fail('AGENT_EXPORT_BINDING');
+  const path=join(root,entry.path);await plain(path);if((await lstat(path)).size!==entry.bytes||await digest(path,signal)!==entry.sha256)fail('AGENT_STALE');
+  files.set('/'+entry.path,{path,entry:{...entry,mime:'image/png'}});
+ }
+}
 const canonical=value=>{if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';return JSON.stringify(value);};
 const equal=(a,b)=>canonical(a)===canonical(b);
 /** One process owns one browser/context/output. This is a snapshot of an exact
@@ -45,11 +59,12 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
   const {intent,completed,staticExport}=receipt.publication??{};
   if(!equal(receipt.exported,exported)||!intent||!completed||!staticExport||intent.sourceExhibitionId!==saved.exhibitionId||intent.sourceEtag!==saved.etag||completed.sourceExhibitionId!==saved.exhibitionId||completed.sourceEtag!==saved.etag||!uuid.test(intent.publishRequestId)||intent.publishRequestId!==completed.publishRequestId||intent.snapshot?.exhibitionId!==completed.snapshotExhibitionId||intent.planBindingSha256!==completed.planBindingSha256||completed.publication?.publicationId!==exported.publicationId||completed.publication?.revisionSha256!==exported.candidateSha256||completed.publication?.status!=='published'||staticExport.publicationId!==exported.publicationId||staticExport.revisionSha256!==exported.candidateSha256||staticExport.indexSha256!==input.indexSha256||staticExport.output!==input.staticRoot)fail('AGENT_PUBLICATION_BINDING');
   const manifestPath=join(input.staticRoot,'static-export-manifest.json');await plain(manifestPath);if(!hex.test(staticExport.manifestSha256)||(await lstat(manifestPath)).size>1048576||await digest(manifestPath,signal)!==staticExport.manifestSha256)fail('AGENT_PUBLICATION_BINDING');exportManifest={path:manifestPath,sha256:staticExport.manifestSha256};
+  const manifest=await json(manifestPath);if(manifest.format!=='exhibitos-static-publication-v1'||manifest.publicationId!==exported.publicationId||manifest.revisionSha256!==exported.candidateSha256||manifest.indexSha256!==input.indexSha256)fail('AGENT_PUBLICATION_BINDING');await attachStaticMaterialFiles(files,manifest,input.staticRoot,signal);
  }
 
  const projection=input.exported?await checkedPublicProjection({receipt,publication,files,runtimeRoot:publicationRuntimeRoot,runtimeSha256:publicationRuntimeSha256,signal}):undefined;
  if(projection&&(!projection.placements.some(p=>p.exported===snapshot.placementId)||snapshot.viewpointId&&!projection.viewpoints.some(p=>p.exported===snapshot.viewpointId)))fail('AGENT_PROJECTION_TARGET');
- const recheck=async()=>{await checkInput();for(const [path,expected] of [[indexPath,input.indexSha256],[input.exportReceiptPath,input.exportReceiptSha256],[input.oexPath,input.oexSha256],...(exportManifest?[[exportManifest.path,exportManifest.sha256]]:[]),...(projection?[[join(publicationRuntimeRoot,'manifest.json'),publicationRuntimeSha256],[join(publicationRuntimeRoot,'platform/apps/api/dist/publication.js'),projection.producer.publicationModuleSha256],[join(publicationRuntimeRoot,'platform/apps/api/dist/viewer-variants.js'),projection.producer.measureModuleSha256]]:[])]){await plain(path);if(await digest(path,signal)!==expected)fail('AGENT_STALE');}for(const {path,entry} of files.values()){await plain(path);if(await digest(path,signal)!==entry.sha256)fail('AGENT_STALE');}signal.throwIfAborted();};
+ const recheck=async()=>{await checkInput();for(const [path,expected] of [[indexPath,input.indexSha256],[input.exportReceiptPath,input.exportReceiptSha256],[input.oexPath,input.oexSha256],...(exportManifest?[[exportManifest.path,exportManifest.sha256]]:[]),...(projection?[[join(publicationRuntimeRoot,'manifest.json'),publicationRuntimeSha256],[join(publicationRuntimeRoot,'platform/apps/api/dist/publication.js'),projection.producer.publicationModuleSha256],[join(publicationRuntimeRoot,'platform/apps/api/dist/viewer-variants.js'),projection.producer.measureModuleSha256]]:[])]){await plain(path);if(await digest(path,signal)!==expected)fail('AGENT_STALE');}for(const module of projection?.producer.verifiedRuntimeModules??[]){const path=join(publicationRuntimeRoot,module.path);await plain(path);if(await digest(path,signal)!==module.sha256)fail('AGENT_STALE');}for(const {path,entry} of files.values()){await plain(path);if(await digest(path,signal)!==entry.sha256)fail('AGENT_STALE');}signal.throwIfAborted();};
  let browser,server;const errors=[];const nonce=randomUUID();
  try{
   server=createServer(async(req,res)=>{try{if(req.headers.host!==`127.0.0.1:${server.address().port}`||req.method!=='GET'){res.writeHead(403).end();return;}const url=req.url;

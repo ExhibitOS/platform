@@ -10,6 +10,25 @@ export interface MaterialMapCost {
 export function materialPhaseBytes(plan:{reserveBytes:number;residentBytes:number;geometryReserve?:number},settled:boolean){
  return settled?plan.residentBytes+(plan.geometryReserve??0):plan.reserveBytes;
 }
+type MaterialPhasePlan={reserveBytes:number;residentBytes:number;geometryReserve?:number};
+/** Floors load first. Precharge the larger of the two serial peaks before any
+ * artwork starts, so settlement can only grow the existing allocator limits.
+ * Both retained CPU bitmaps/GPU maps and already-built surface geometry remain
+ * charged even if a pack fails; settlement never assumes a successful floor. */
+export function serialMaterialPhaseBytes(floor:MaterialPhasePlan,surface:MaterialPhasePlan,floorSettled:boolean,surfaceSettled:boolean){
+ if(surfaceSettled&&!floorSettled)throw Error('MATERIAL_PHASE_ORDER');
+ const retainedFloor=materialPhaseBytes(floor,true);
+ return floorSettled?retainedFloor+materialPhaseBytes(surface,surfaceSettled):Math.max(materialPhaseBytes(floor,false)+(surface.geometryReserve??0),retainedFloor+materialPhaseBytes(surface,false));
+}
+/** Only the existing two loads, in order; no background queue or new capacity.
+ * A failed/cancelled phase returns its hold before the next can begin. */
+export async function loadMaterialPhases(floor:()=>Promise<unknown>,surface:()=>Promise<unknown>,settled:(phase:'floor'|'surface',error?:unknown)=>void,unavailable:()=>boolean){
+ for(const [phase,load]of [['floor',floor],['surface',surface]] as const){
+  let failure:unknown;
+  try{if(!unavailable())await load();}catch(error){failure=error;}
+  finally{settled(phase,failure);}
+ }
+}
 /** Preserve every authored role while allocating resolution independently.
  * Colour and normals retain detail ahead of the low-frequency scalar map.
  * Full encoded/decode cost is reserved even when the GPU image is resized.

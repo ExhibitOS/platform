@@ -1,4 +1,4 @@
-import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera} from './scene-snapshot';
+import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -14,7 +14,7 @@ import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
 import {viewingPlanFor} from '@exhibitos/studio-contract';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
-import {materialPhaseBytes} from './material-texture-plan';
+import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
@@ -132,6 +132,7 @@ export function GeometryPreview({
   onCameraInteractionReady,
   onCameraInteractionReset,
   cameraFrameToken,
+  initialSnapshot,
   cameraRequest,
   onSelectionFindReady,
   placementPreview,
@@ -171,6 +172,7 @@ export function GeometryPreview({
   onCameraInteractionReady?:(apply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null)=>void;
   onCameraInteractionReset?:(reason:'hidden'|'unavailable')=>void;
   cameraFrameToken?:string;
+  initialSnapshot?:Extract<SceneSnapshotInput,{inspectionCamera:unknown}>;
   spaceTransparency?: boolean;
   fillHost?: boolean;
   compactControls?: boolean;
@@ -463,6 +465,7 @@ export function GeometryPreview({
       if (rectangles.reduce((total, items) => total + items.length, 0) > 8192)
         throw Error("PREVIEW_COMPLEXITY");
       if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
+      const initialSnapshotPose=publicSource&&snapshotEnabled&&initialSnapshot?inspectionCameraPose(document,initialSnapshot.placementId,initialSnapshot.inspectionCamera):undefined;
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -499,17 +502,22 @@ export function GeometryPreview({
       const otherFurnishings=catalogOtherSources(document,benchAuthority);
       const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
-      const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,availableAssetBytes);
+      const materialCapacity=Math.max(0,availableAssetBytes-qualityFrameReserve);
+      const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,materialCapacity);
+      // The surface source peak begins only after the floor source hold ends.
+      // Reserve the retained floor even on fallback; never presume floor ready.
+      const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-materialPhaseBytes(floorPlan,true)));
+      const materialReserve=serialMaterialPhaseBytes(floorPlan,surfacePlan,false,false);
+      if(materialReserve>=materialCapacity){renderer.dispose();renderer.forceContextLoss();throw Error('MATERIAL_SOURCE_BUDGET');}
       const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
-      const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,availableAssetBytes-floorPlan.reserveBytes));
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       // Snapshot admission must not lower existing floor/surface/catalog quality.
-      const snapshotReserve=snapshotEnabled&&availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
-      let assetBudgetBytes=Math.max(1,availableAssetBytes-floorPlan.reserveBytes-surfacePlan.reserveBytes-snapshotReserve-qualityFrameReserve);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-floorPlan.reserveBytes-surfacePlan.reserveBytes);
+      const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
+      let assetBudgetBytes=Math.max(1,availableAssetBytes-materialReserve-snapshotReserve-qualityFrameReserve);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialReserve);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const refreshAssetLimits=()=>{
-        const materialBytes=materialPhaseBytes(floorPlan,floorSettled)+materialPhaseBytes(surfacePlan,surfaceSettled);
+        const materialBytes=serialMaterialPhaseBytes(floorPlan,surfacePlan,floorSettled,surfaceSettled);
         assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve-qualityFrameReserve);
         transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
@@ -1050,6 +1058,9 @@ export function GeometryPreview({
       const savedCamera=editorCamera.current,savedInRoom=savedCamera&&document.rooms.some(room=>safePrivateView(document,{roomId:room.id,position:savedCamera.position,target:savedCamera.target,fov:savedCamera.fov}));
       if((editingRef.current||privateCatalogue)&&savedCamera?.documentId===document.id&&(!privateCatalogue||savedInRoom)){const saved=savedCamera;camera.position.fromArray(saved.position);camera.quaternion.fromArray(saved.quaternion);controls.target.fromArray(saved.target);if(privateCatalogue)controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=saved.fov;camera.updateProjectionMatrix();controls.update();render();privateCameraRestored=privateCatalogue;}
       else if(privateCatalogue){const initial=safePrivateView(document,privateViewInitial.current);if(initial){camera.position.fromArray(initial.position);controls.target.fromArray(initial.target);controls.target.copy(boundedOrbitTarget(camera.position,controls.target,controls.minDistance,controls.maxDistance));camera.fov=initial.fov;camera.updateProjectionMatrix();camera.lookAt(controls.target);controls.update();render();privateCameraRestored=true;}}
+      // A private capture's validated pose also guides ordinary visibility-based
+      // loading. It does not change the document or waive target/ray checks.
+      if(initialSnapshotPose){camera.position.fromArray(initialSnapshotPose.position);controls.target.fromArray(initialSnapshotPose.target);authoredFov=initialSnapshotPose.fov;applyProjection();camera.lookAt(controls.target);controls.update();render();}
       privateViewCallback.current?.(()=>{
         if(disposed||xrActive.current)return;
         const position=camera.position.toArray() as [number,number,number],direction=camera.getWorldDirection(new three.Vector3()),target=camera.position.clone().add(direction).toArray() as [number,number,number];
@@ -1120,8 +1131,18 @@ export function GeometryPreview({
       };
       mapPoseRefresh.current=publishMapPose;
       if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
-      void floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});}).finally(()=>releaseMaterialLoadHold('floor'));
-      void surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}}).then(status=>{if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}}).finally(()=>releaseMaterialLoadHold('surface'));
+      void loadMaterialPhases(
+        async()=>{const status=await floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});},
+        async()=>{const status=await surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}},
+        (kind,error)=>{
+          if(error&&!disposed&&!gpuLost){
+            const plan=kind==='floor'?floorPlan:surfacePlan,status=Object.fromEntries([...plan.packs.map(pack=>pack.id),...plan.blocked].map(id=>[id,'fallback']));
+            renderer.domElement.dataset[kind==='floor'?'floorTextures':'surfaceTextures']=JSON.stringify({status,reserveBytes:plan.reserveBytes,residentBytes:plan.residentBytes});
+            if(kind==='surface')setMaterialIssueCount(Object.keys(status).length);
+          }
+          releaseMaterialLoadHold(kind);
+        },()=>disposed||gpuLost||abort.signal.aborted,
+      );
       // Async environment setup starts only AFTER scene teardown is registered.
       // Failed/cancelled generation keeps the existing lighting and text/navigation.
       void installReferenceEnvironment(three,renderer,scene,environmentReserve,compactQuality,()=>disposed||gpuLost).then(environment=>{
@@ -2655,6 +2676,7 @@ export function GeometryPreview({
     immersive,
     fillHost,
     snapshotEnabled,
+    initialSnapshot,
     qualityScope,
     clearQualityFrame,
   ]);
