@@ -1,0 +1,8 @@
+Fine Gallery Concrete — material asset notice
+
+Creator and source: user-authored ExhibitOS material generated without external photographs, models or textures, according to its preserved source record.
+License: CC0 1.0 Universal under the rights holder's standing authorization for personally created and owned ExhibitOS assets. Legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+Changes: RGB color and OpenGL +Y normal maps are byte-identical copies of the preserved source. L8 roughness was losslessly expanded to three equal RGB channels. The thumbnail was resized from the color map using Lanczos. Source notes describe a 2 × 2 m repeat.
+
+CC0 does not itself grant trademark, patent, personality or other third-party rights. This notice covers the material asset, not application code.

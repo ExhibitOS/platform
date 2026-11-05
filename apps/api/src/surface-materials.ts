@@ -8,8 +8,11 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import {SURFACE_MATERIAL_PACKS,SURFACE_MATERIAL_FILES,surfaceMaterialNotice,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {surfaceTextureDefaults,type SurfaceTexturePackId} from '@exhibitos/studio-contract';
 import {ApiError} from './auth.ts';
-const names:Record<SurfaceTexturePackId,string>={'museum-matte-paint':'무광 페인트','fine-lime-plaster':'고운 석회 미장'};
-export function surfaceMaterialCatalog(){return {version:1,items:SURFACE_MATERIAL_PACKS.map(pack=>({id:pack.id,version:pack.version,name:names[pack.id],defaults:surfaceTextureDefaults(pack.id),preview:null}))};}
+const names:Record<SurfaceTexturePackId,string>={'museum-matte-paint':'무광 페인트','fine-lime-plaster':'고운 석회 미장','fine-gallery-concrete':'고운 콘크리트'};
+export function surfaceMaterialCatalog(tenantId?:string){return {version:1,items:SURFACE_MATERIAL_PACKS.map(pack=>({id:pack.id,version:pack.version,name:pack.catalogue?.displayName.ko??names[pack.id],defaults:surfaceTextureDefaults(pack.id),preview:tenantId&&pack.catalogue?{
+ url:`/api/v1/tenants/${tenantId.toLowerCase()}/studio/materials/${pack.id}/${pack.version}/preview`,
+ mime:pack.catalogue.thumbnail.mime,bytes:pack.catalogue.thumbnail.bytes,sha256:pack.catalogue.thumbnail.sha256,width:pack.catalogue.thumbnail.width,height:pack.catalogue.thumbnail.height,
+}:null}))};}
 /** Selected compiled descriptors only; no caller URL, filename or root. Imported
  * resources survive reopen/export independently of installed library contents. */
 export async function surfaceMaterialResourceBytes(c:PoolClient,blobs:BlobStore,tenantId:string,exhibitionId:string,entry:SurfaceMaterialResourceEntry){

@@ -13,7 +13,8 @@ test('selected wall and ceiling maps survive a real portable archive and use aut
  ceiling.id=randomUUID();ceiling.type='ceiling';ceiling.dimensions={width:room.dimensions.width,height:room.dimensions.depth};ceiling.transform={position:[0,room.dimensions.height,0],rotation:[Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]};e.surfaces.push(ceiling);
  e.extensions={...e.extensions,[MATERIAL_NAMESPACE]:{version:1,surfaces:{},surfaceTextures:{[wall.id]:surfaceTextureDefaults('museum-matte-paint').texture,[ceiling.id]:surfaceTextureDefaults('fine-lime-plaster').texture}}} as unknown as Exhibition['extensions'];
  const files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!]));
- for(const pack of SURFACE_MATERIAL_PACKS){files.set(pack.notice.path,new TextEncoder().encode(surfaceMaterialNotice(pack)));for(const file of Object.values(pack.maps))files.set(file.path,await readFile(new URL('../public/'+file.path,import.meta.url)));}
+ const selected=SURFACE_MATERIAL_PACKS.filter(p=>p.id==='museum-matte-paint'||p.id==='fine-lime-plaster');
+ for(const pack of selected){files.set(pack.notice.path,new TextEncoder().encode(surfaceMaterialNotice(pack)));for(const file of Object.values(pack.maps))files.set(file.path,await readFile(new URL('../public/'+file.path,import.meta.url)));}
  const archive=await writeOex(e,files,{createdAt:original.manifest.createdAt,generator:original.manifest.generator}),hash=await freezeHash(new TextEncoder().encode(freezeCanonical(e))),decoded=await decodeFreezeOex(archive,hash,'1.0.0-draft.7');
  expect(decoded.exhibition).toEqual(e);expect(decoded.materialResources?.size).toBe(8);expect(packageSurfaceMaterialManifest(e)).toHaveLength(8);
  await expect(decodeFreezeOex(archive,hash,'1.0.0-draft.5')).rejects.toThrow('OEX_VERSION_UNSUPPORTED');
@@ -23,7 +24,7 @@ test('selected wall and ceiling maps survive a real portable archive and use aut
  const firstResource=decoded.materialResources!.values().next().value!;decoded.materialResources!.set('shared-buffer-test',firstResource);
  expect(frozenPublication(bundle,decoded,async()=>{}).local!.retainedMaterialBytes).toBe(publication.local!.retainedMaterialBytes);
  decoded.materialResources!.delete('shared-buffer-test');
- for(const file of SURFACE_TEXTURE_FILES){const bytes=await fetchRegisteredMaterialTexture(file,SURFACE_TEXTURE_FILES,new AbortController().signal,fetcher);expect(Buffer.from(bytes).equals(Buffer.from(files.get(file.path)!))).toBe(true);}
+ for(const file of selected.flatMap(pack=>Object.values(pack.maps))){const bytes=await fetchRegisteredMaterialTexture(file,SURFACE_TEXTURE_FILES,new AbortController().signal,fetcher);expect(Buffer.from(bytes).equals(Buffer.from(files.get(file.path)!))).toBe(true);}
  expect(checks).toBeGreaterThanOrEqual(12);await expect(fetcher('/surface-material-textures/../private')).rejects.toThrow('OFFLINE_FLOOR_URL');
  const file=SURFACE_TEXTURE_FILES[0]!,data=decoded.materialResources!.get(file.path)!;data.bytes[0]=data.bytes[0]!^1;
  await expect(fetchRegisteredMaterialTexture(file,SURFACE_TEXTURE_FILES,new AbortController().signal,fetcher)).rejects.toThrow('OFFLINE_FLOOR_INTEGRITY');

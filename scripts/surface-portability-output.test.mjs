@@ -40,7 +40,7 @@ try{
   const wall=e.surfaces.find(s=>s.type==='wall'),room=e.rooms.find(r=>r.id===wall.roomId),ceiling=structuredClone(wall);ceiling.id=randomUUID();ceiling.type='ceiling';ceiling.dimensions={width:room.dimensions.width,height:room.dimensions.depth};ceiling.transform={position:[0,room.dimensions.height,0],rotation:[Math.SQRT1_2,0,0,Math.SQRT1_2],scale:[1,1,1]};e.surfaces.push(ceiling);
   const paint=surfaceTextureDefaults('museum-matte-paint').texture,plaster={...surfaceTextureDefaults('fine-lime-plaster').texture,rotation:.2,normalScale:.6};
   e.extensions={...e.extensions,[N]:{version:1,surfaces:{[wall.id]:{color:'#abcdef',roughness:.41,metalness:.1}},surfaceTextures:{[wall.id]:paint,[ceiling.id]:plaster}}};
-  const catalogue=await json(request('GET','/studio/materials'));assert.equal(catalogue.version,1);assert.equal(catalogue.items.length,2);assert(catalogue.items.every(item=>item.preview===null));
+  const catalogue=await json(request('GET','/studio/materials'));assert.equal(catalogue.version,1);assert.equal(catalogue.items.length,3);assert(catalogue.items.slice(0,2).every(item=>item.preview===null));assert(catalogue.items[2].preview);
   await expected(app.inject({method:'GET',url:prefix+'/studio/materials',headers:{host:headers.host}}),401);
   await expected(request('GET','/studio/materials/museum-matte-paint/1/preview'),404);
   const files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)]));

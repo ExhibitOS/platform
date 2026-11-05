@@ -42,3 +42,10 @@ The editor shows a top-down plan and 3D preview together. Choose **이동** or *
 Plan movement preserves the existing parent-local height and tilt. Openings move along their existing wall and retain their vertical offset. A uniquely aligned artwork stays on that wall; ambiguous alignment requires the existing numeric controls. The 3D handles use the same validated transform commands; room dimensions are not transform scale. Select a room and **방 크기** to drag its plan width/depth handles; arrow keys on a focused handle adjust the corresponding dimension by the existing 0.1m step. These change authored room dimensions about the existing origin, never transform scale, height, or child wall/artwork placement. The numeric fields and 3D room outline display the temporary size before release. Existing validation rejects sizes that leave referenced origins outside the room. Room height remains numeric; 3D and surface/opening dimension handles are not provided by this change.
 
 Dragging changes a temporary preview. Pointer release commits one validated command and one undo entry; Esc, pointer cancellation, window blur or draft replacement cancel the temporary change. Selection, edit-mode and view changes do not save an edit. Mode, view or draft changes cancel a pending drag. Numeric/keyboard editing, local CAS autosave, server revision checks and immutable public snapshots keep their existing behavior. **편집할 때 공간을 투명하게 보기** changes only the authoring view, not saved materials or the public Viewer.
+
+Fine Gallery Concrete version 1 is a user-authored CC0 wall/ceiling texture
+with a 2 m default repeat, OpenGL +Y normal and roughness. Its three selected
+maps and portable notice use OEX draft.10 and the existing static resource
+path. The authenticated local material catalogue supplies its exact 256px
+thumbnail; a missing thumbnail does not remove saved material bindings. No
+concrete floor or physical-device/room appearance qualification is implied.

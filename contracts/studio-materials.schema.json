@@ -72,7 +72,8 @@
               "id": {
                 "enum": [
                   "museum-matte-paint",
-                  "fine-lime-plaster"
+                  "fine-lime-plaster",
+                  "fine-gallery-concrete"
                 ]
               },
               "version": {

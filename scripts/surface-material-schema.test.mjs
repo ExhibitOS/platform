@@ -12,7 +12,7 @@ test('published material schema accepts legacy metadata and the closed runtime t
  assert(valid({version:1,surfaces:{}}));
  const material={color:'#abcdef',roughness:.5,metalness:.1};
  assert(valid({version:1,surfaces:{[id]:material}}));
- for(const pack of ['museum-matte-paint','fine-lime-plaster']){
+ for(const pack of ['museum-matte-paint','fine-lime-plaster','fine-gallery-concrete']){
   const binding=surfaceTextureDefaults(pack).texture;
   const cases=[binding,{...binding,repeatMeters:[.05,20],rotation:-Math.PI,normalScale:0},{...binding,rotation:Math.PI,normalScale:2},{...binding,pack:{id:pack,version:2}},{...binding,pack:{id:'unknown',version:1}},{...binding,repeatMeters:[.049,1]},{...binding,repeatMeters:[1,20.001]},{...binding,repeatMeters:[1,1,1]},{...binding,rotation:Math.PI+.001},{...binding,normalScale:2.001},{...binding,url:'https://invalid.example/map.png'}];
   for(const value of cases)assert.equal(valid({version:1,surfaces:{[id]:material},surfaceTextures:{[id]:value}}),isSurfaceTextureBinding(value),JSON.stringify(value));

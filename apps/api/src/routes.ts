@@ -1,4 +1,4 @@
-import {privateFloorMaterialCatalog,readPrivateFloorMaterialPreview} from './private-floor-material-catalog.ts';
+import {privateFloorMaterialCatalog,readPrivateMaterialPreview} from './private-floor-material-catalog.ts';
 import {MODEL_DERIVATION_SCHEMA} from './model-derivation.ts';
 import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
 import {surfaceMaterialCatalog} from './surface-materials.ts';
@@ -80,7 +80,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }));
  const prefix='/api/v1/tenants/:tenantId';
  const furnishingRole=(s:Session)=>{if(!['admin','artist','curator'].includes(s.role))throw new ApiError(403,'FORBIDDEN');};
- app.get(`${prefix}/studio/materials`,call(false,async(_c,s)=>{furnishingRole(s);return surfaceMaterialCatalog();}));
+ app.get(`${prefix}/studio/materials`,call(false,async(_c,s)=>{furnishingRole(s);return surfaceMaterialCatalog(input.mode==='local'?s.tenantId:undefined);}));
  app.get(`${prefix}/studio/materials/private-floor`,call(false,async(_c,s)=>{
   furnishingRole(s);
   if(input.mode!=='local')throw new ApiError(404,'MATERIAL_CATALOG_UNAVAILABLE');
@@ -90,7 +90,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   furnishingRole(s);
   if(input.mode!=='local')throw new ApiError(404,'MATERIAL_PREVIEW_UNAVAILABLE');
   const {id,version}=req.params as {id:string;version:string};
-  const bytes=await readPrivateFloorMaterialPreview(id,version);
+  const bytes=await readPrivateMaterialPreview(id,version);
   return reply.type('image/png').send(bytes);
  }));
  app.get(`${prefix}/studio/furnishings`,call(false,async(_c,s)=>{furnishingRole(s);return furnishingCatalog();}));

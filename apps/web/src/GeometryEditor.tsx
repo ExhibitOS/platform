@@ -679,7 +679,7 @@ export function GeometryEditor({
               <legend>표면 PBR 재질</legend>
               {(selectedSurface.type==='wall'||selectedSurface.type==='ceiling')&&<label>표면 마감
                 <select aria-label="표면 마감" value={texturePack} onChange={event=>{const id=event.target.value;if(id===''){setTexturePack('');return;}if(!SURFACE_TEXTURE_PACK_IDS.includes(id as SurfaceTexturePackId))return;const value=surfaceTextureDefaults(id as SurfaceTexturePackId);setTexturePack(id as SurfaceTexturePackId);setColor(value.material.color);setRoughness(String(value.material.roughness));setMetalness(String(value.material.metalness));}}>
-                  <option value="">단색</option><option value="museum-matte-paint">무광 페인트</option><option value="fine-lime-plaster">고운 석회 미장</option>
+                  <option value="">단색</option><option value="museum-matte-paint">무광 페인트</option><option value="fine-lime-plaster">고운 석회 미장</option><option value="fine-gallery-concrete">고운 콘크리트</option>
                 </select>
               </label>}
               <label>
