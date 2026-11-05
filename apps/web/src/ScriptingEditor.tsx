@@ -79,7 +79,7 @@ export function ScriptingEditor({ candidate, disabled, onChange }: { candidate: 
     }
     const doc = structuredClone(current.candidate);
     doc.extensions = { ...doc.extensions, [SPATIAL_NAMESPACE]: next as unknown as { [key: string]: JsonValue } };
-    const envelope = { schemaVersion: '1.0.0-draft.1', kind: 'exhibition-draft', id: doc.id, exhibitionId: doc.id, editVersion: 1, createdAt: '2026-10-02T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z', candidate: doc };
+    const envelope = { schemaVersion: doc.schemaVersion, kind: 'exhibition-draft', id: doc.id, exhibitionId: doc.id, editVersion: 1, createdAt: '2026-10-02T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z', candidate: doc };
     if (!validateDraft(envelope).valid) { setNotice('전시 문서 검증이 실패했습니다. 원본과 입력을 유지했습니다.'); return false; }
     evaluator.current?.cancel(); evaluator.current = null; setResult(null);
     // Synchronous optimistic guard handles repeated gestures before parent re-render.

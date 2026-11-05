@@ -136,7 +136,7 @@ export function whiteCubeSurfaces(room: Room): Surface[] {
 function checked(candidate: Exhibition,archiveProfile?:'bounded-file-v1'): void {
   const time = "2026-01-01T00:00:00.000Z";
   const validation = validateDraft({
-    schemaVersion: "1.0.0-draft.1",
+    schemaVersion: candidate.schemaVersion,
     kind: "exhibition-draft",
     id: candidate.revisionId,
     exhibitionId: candidate.id,

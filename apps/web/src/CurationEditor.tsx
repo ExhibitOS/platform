@@ -21,7 +21,7 @@ export function CurationEditor({candidate, disabled, onChange}: {candidate:Exhib
     if(disabled)return;
     const doc=structuredClone(latest.current),x=curationFor(doc);
     try {edit(doc,x);doc.extensions={...doc.extensions,[CURATION_NAMESPACE]:x as unknown as {[key:string]:JsonValue}};
-      const draft=newDraft();draft.exhibitionId=doc.id;draft.candidate=doc;
+      const draft=newDraft();draft.schemaVersion=doc.schemaVersion;draft.exhibitionId=doc.id;draft.candidate=doc;
       if(!validateDraft(draft).valid)throw Error('invalid');
       onChange(doc);setNotice('편집을 적용했습니다. 로컬 및 서버에 저장한 뒤 공개하세요.');
     } catch {setNotice('시간·참조·위치·입력 한도를 확인하세요. 이전 문서는 유지됩니다.');}

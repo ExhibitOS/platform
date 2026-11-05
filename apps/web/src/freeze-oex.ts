@@ -51,7 +51,7 @@ export async function decodeFreezeOex(bytes:Uint8Array,expectedHash:string,expec
  const version=(raw as {formatVersion?:unknown}|null)?.formatVersion;if(version!=='1.0.0-draft.2'&&version!=='1.0.0-draft.4'&&version!=='1.0.0-draft.5'&&version!=='1.0.0-draft.7'&&version!=='1.0.0-draft.8'||expectedVersion!==undefined&&version!==expectedVersion)throw Error('OEX_VERSION_UNSUPPORTED');
  if([...files.keys()][0]!=='manifest.json'||!(version==='1.0.0-draft.8'?validateFootstepManifest(raw):version==='1.0.0-draft.7'?validateMaterialManifest(raw):version==='1.0.0-draft.5'?validateFloorManifest(raw):version==='1.0.0-draft.4'?validateStillManifest(raw):validateManifest(raw)))throw Error('OEX_MANIFEST');const m=raw as OexMediaManifest|OexSpaceStillManifest|OexFloorResourceManifest|OexSurfaceMaterialManifest|OexFootstepResourceManifest;
  const eb=files.get('exhibition.json');if(!eb||eb.length!==m.exhibition.bytes||await freezeHash(eb)!==m.exhibition.sha256)throw Error('OEX_EXHIBITION_HASH');
- const exhibition=json(eb) as Exhibition,draft=newDraft();draft.exhibitionId=exhibition.id;draft.candidate=exhibition;
+ const exhibition=json(eb) as Exhibition,draft=newDraft();draft.schemaVersion=exhibition.schemaVersion;draft.exhibitionId=exhibition.id;draft.candidate=exhibition;
  if(!validateDraft(draft).valid||!validateViewerExperience(exhibition).valid||exhibition.artworks.some(a=>!validateArtworkDetails(a).valid))throw Error('OEX_EXHIBITION');
  const hash=await freezeHash(new TextEncoder().encode(freezeCanonical(exhibition)));
  if(hash!==expectedHash||hash!==m.exhibition.revisionSha256||exhibition.id!==m.exhibition.id||exhibition.revisionId!==m.exhibition.revisionId)throw Error('OEX_REVISION');

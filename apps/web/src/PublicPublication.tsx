@@ -198,6 +198,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
       if (!response.ok) throw Error("PUBLICATION_UNAVAILABLE");
       const result = (await response.json()) as PublicResponse;
       const envelope = newDraft();
+      envelope.schemaVersion = result.exhibition.schemaVersion;
       envelope.exhibitionId = result.exhibition.id;
       envelope.candidate = result.exhibition;
       if (
