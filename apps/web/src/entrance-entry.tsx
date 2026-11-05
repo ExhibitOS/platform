@@ -3,6 +3,8 @@ import {useCallback,useEffect,useRef,useState,type CSSProperties,type RefObject}
 import type {EntranceTransitionEffect} from '@exhibitos/studio-contract';
 import {EntryProgress} from './EntryProgress';
 export interface EntranceStage {ready:boolean;message:string;error?:boolean;phase?:'space'|'artwork'|'navigation'}
+/** Keep controls quiet during entry, but make the existing recovery settings reachable after an error. */
+export function entryControlsBlocked(mode:'cover'|'text'|'3d',stageReady:boolean,viewerUnavailable:boolean,entryFailed:boolean){return mode==='3d'&&!stageReady&&!viewerUnavailable&&!entryFailed;}
 /** One entry lifecycle for public viewing and authenticated native previews. */
 export function useEntranceEntry(){
  const [mode,setMode]=useState<'cover'|'text'|'3d'>('cover'),modeRef=useRef(mode);modeRef.current=mode;
@@ -26,7 +28,7 @@ export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStat
  return <div className="publication-entry-overlay" data-ready={entry.stageReady} data-transition={transition} style={{'--entry-transition-duration':`${(transition==='doors'?220:transition==='panels'?180:140)/speed}ms`} as CSSProperties} data-door-effect={transition!=='none'} data-failed={entry.entryFailed}>
   {transition!=='none'&&<div className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>}
   {!entry.stageReady&&<div className="publication-entry-recovery">
-   <p className="publication-entry-progress" role={entry.entryFailed?'alert':'status'} ref={statusRef} tabIndex={-1}>{entry.entryFailed?'공간을 열지 못했어요. 입장을 취소한 뒤 다시 시도하거나 글로 관람할 수 있어요.':entry.longEntry?'공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.':'전시장으로 들어가고 있어요.'}</p>
+   <p className="publication-entry-progress" role={entry.entryFailed?'alert':'status'} ref={statusRef} tabIndex={-1}>{entry.entryFailed?'공간을 열지 못했어요. 메뉴에서 화면·화질 설정을 바꾸거나, 입장을 취소하거나, 글로 관람할 수 있어요.':entry.longEntry?'공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.':'전시장으로 들어가고 있어요.'}</p>
    <EntryProgress active={!entry.entryFailed} phase={entry.entryPhase}/>
    <div className="publication-entry-secondary"><button onClick={onCancel}>입장 취소</button><button onClick={onText}>텍스트로 관람</button></div>
    <output hidden data-testid="entry-stage-diagnostics">{entry.stageMessage}</output>
