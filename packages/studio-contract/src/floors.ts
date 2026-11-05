@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {FLOOR_RESOURCE_PACKS,type FloorResourcePack} from '@exhibitos/spec/floor-resources';
 import {DEFAULT_MATERIAL,isPbrMaterial,type PbrMaterial} from './pbr-material.js';
 export const FLOOR_NAMESPACE='org.exhibitos.studio/floors';
 export type FloorPreset='wood'|'marble'|'tile'|'carpet';
 export type FloorTarget={kind:'surface';surfaceId:string}|{kind:'room-base';roomId:string};
-export type FloorTexturePack={id:'WoodFloor051'|'Marble006'|'Tiles074'|'Carpet004';version:1};
+export type FloorTexturePack={id:FloorResourcePack['id'];version:FloorResourcePack['version']};
 export type FloorSound={mode:'material-default'|'none';gain:number}|{mode:'explicit';gain:number;assetIds:string[]};
 export interface FloorBinding {target:FloorTarget;preset:FloorPreset;repeatMeters:[number,number];rotation:number;materialOverride?:Partial<PbrMaterial>;texturePack?:FloorTexturePack;normalScale?:number;aoStrength?:number;sound?:FloorSound}
 export interface StudioFloors {version:1;bindings:FloorBinding[]}
@@ -13,7 +14,6 @@ const closed=(v:Record<string,unknown>,required:string[],optional:string[]=[])=>
 const num=(v:unknown,min:number,max:number):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<=max;
 const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const presets:readonly string[]=['wood','marble','tile','carpet'];
-const packs:readonly string[]=['WoodFloor051','Marble006','Tiles074','Carpet004'];
 export function floorTargetKey(target:FloorTarget):string {return target.kind==='surface'?'surface:'+target.surfaceId.toLowerCase():'room-base:'+target.roomId.toLowerCase();}
 function target(v:unknown):v is FloorTarget {return obj(v)&&(v.kind==='surface'?closed(v,['kind','surfaceId'])&&uuid(v.surfaceId):v.kind==='room-base'&&closed(v,['kind','roomId'])&&uuid(v.roomId));}
 function sound(v:unknown):v is FloorSound {
@@ -24,7 +24,8 @@ function sound(v:unknown):v is FloorSound {
 function binding(v:unknown):v is FloorBinding {
  if(!obj(v)||!closed(v,['target','preset','repeatMeters','rotation'],['materialOverride','texturePack','normalScale','aoStrength','sound'])||!target(v.target)||(typeof v.preset!=='string'||!presets.includes(v.preset))||!Array.isArray(v.repeatMeters)||v.repeatMeters.length!==2||!v.repeatMeters.every(n=>num(n,.05,20))||!num(v.rotation,-Math.PI,Math.PI))return false;
  if(Object.hasOwn(v,'materialOverride')&&(!obj(v.materialOverride)||Object.keys(v.materialOverride).length===0||!isPbrMaterial({...DEFAULT_MATERIAL,...v.materialOverride})))return false;
- if(Object.hasOwn(v,'texturePack')&&(!obj(v.texturePack)||!closed(v.texturePack,['id','version'])||v.texturePack.version!==1||(typeof v.texturePack.id!=='string'||!packs.includes(v.texturePack.id))))return false;
+ const pack=v.texturePack;
+ if(Object.hasOwn(v,'texturePack')&&(!obj(pack)||!closed(pack,['id','version'])||!FLOOR_RESOURCE_PACKS.some(p=>p.id===pack.id&&p.version===pack.version)))return false;
  return (!Object.hasOwn(v,'normalScale')||num(v.normalScale,0,2))&&(!Object.hasOwn(v,'aoStrength')||num(v.aoStrength,0,1))&&(!Object.hasOwn(v,'sound')||sound(v.sound));
 }
 /** Optional authoring namespace; validates references without inventing floor surfaces or media. */

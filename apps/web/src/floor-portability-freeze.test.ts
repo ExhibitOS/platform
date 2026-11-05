@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {test,expect} from 'vitest';
 import {fixtureURL,readOex,writeOex,type Exhibition} from '@exhibitos/spec';
-import {FLOOR_RESOURCE_PACKS,packageFloorResourceManifest,floorResourceNotice} from '@exhibitos/spec/floor-resources';
+import {FLOOR_RESOURCE_PACKS,selectedFloorResourcePacks,packageFloorResourceManifest,floorResourceNotice} from '@exhibitos/spec/floor-resources';
 import {floorPresetDefaults,FLOOR_NAMESPACE,freezeCanonical,type FreezeBundle} from '@exhibitos/studio-contract';
 import {decodeFreezeOex,freezeHash} from './freeze-oex';
 import {frozenPublication} from './OfflineExhibition';
@@ -16,7 +16,7 @@ test('all four portable packs retain maps and notices and supply actual frozen m
  const rooms=presets.map((_,i)=>{const room=structuredClone(e.rooms[0]!);room.id=randomUUID();room.transform.position=[50+i*30,0,0];return room;});e.rooms.push(...rooms);
  e.extensions={...e.extensions,[FLOOR_NAMESPACE]:{version:1,bindings:presets.map((p,i)=>({...floorPresetDefaults(p),target:{kind:'room-base',roomId:rooms[i]!.id}}))}} as Exhibition['extensions'];
  const resources=packageFloorResourceManifest(e),files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!]));
- for(const pack of FLOOR_RESOURCE_PACKS){files.set(pack.notice.path,new TextEncoder().encode(floorResourceNotice(pack)));for(const file of Object.values(pack.maps))if(file)files.set(file.path,await readFile(new URL('../public/'+file.path,import.meta.url)));}
+ for(const pack of selectedFloorResourcePacks(e)){files.set(pack.notice.path,new TextEncoder().encode(floorResourceNotice(pack)));for(const file of Object.values(pack.maps))if(file)files.set(file.path,await readFile(new URL('../public/'+file.path,import.meta.url)));}
  const archive=await writeOex(e,files,{createdAt:original.manifest.createdAt,generator:original.manifest.generator}),hash=await freezeHash(new TextEncoder().encode(freezeCanonical(e))),decoded=await decodeFreezeOex(archive,hash,'1.0.0-draft.5');
  expect(resources).toHaveLength(17);expect(decoded.floorResources?.size).toBe(17);for(const f of resources){const bytes=decoded.floorResources?.get(f.artifactPath)?.bytes;expect(!!bytes&&same(bytes,files.get(f.artifactPath)!)).toBe(true);}
  await expect(decodeFreezeOex(archive,hash,'1.0.0-draft.4')).rejects.toThrow('OEX_VERSION_UNSUPPORTED');
