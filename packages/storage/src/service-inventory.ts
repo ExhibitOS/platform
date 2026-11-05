@@ -47,6 +47,22 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   }else if(row.mime==='image/jpeg')issues.push({code:'INVALID_PREPARED_IMPORT',binding});
   add(row.approved_key,row.state==='approved',row.expected_bytes,row.expected_hash,':approved');break;
  }
+ case 'workspace_material_intakes':{
+  if(!obj(row.received)||!['uploading','validating','cancelling','registered','failed','cancelled'].includes(String(row.phase))){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  if(row.phase==='cancelled')break;
+  for(const [role,receipt] of Object.entries(row.received)){
+   if(!['color','normal','roughness','ao'].includes(role)||!obj(receipt)||!bytes(receipt.bytes)||!hex(receipt.sha256)){issues.push({code:'INVALID_INVENTORY',binding:binding+':'+role});continue;}
+   add(receipt.key,row.phase!=='cancelling',receipt.bytes,receipt.sha256,':'+role);
+  }
+  break;
+ }
+ case 'workspace_material_versions':{
+  if(!obj(row.descriptor)||!obj(row.descriptor.maps)||!obj(row.object_keys)){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  const maps=row.descriptor.maps,objectKeys=row.object_keys,roles=Object.keys(maps).sort();
+  if(!roles.includes('color')||roles.length>4||roles.some(role=>!['color','normal','roughness','ao'].includes(role))||JSON.stringify(roles)!==JSON.stringify(Object.keys(objectKeys).sort())){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  for(const role of roles){const map=maps[role];if(!obj(map)||!bytes(map.bytes)||!hex(map.sha256)){issues.push({code:'INVALID_INVENTORY',binding:binding+':'+role});continue;}add(objectKeys[role],true,map.bytes,map.sha256,':'+String(row.version)+':'+role);}
+  break;
+ }
  case 'oex_import_jobs':{
   const required=row.state==='queued'||row.state==='processing';
   keys(row.staging_keys,required,':staging',required?{bytes:row.expected_bytes,sha256:row.payload_sha256}:undefined);
@@ -70,7 +86,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  return {references,issues};
 }
 const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
-const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','freeze_requests','exhibition_freezes']);
+const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
 export type MigrationCatalogEntry = {name:string;sha256:string};

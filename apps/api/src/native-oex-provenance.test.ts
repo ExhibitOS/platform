@@ -87,3 +87,12 @@ it('refuses selected grant consumption when the retained owner is lost',async()=
  await expect(consumeNativeSelectedDraftGrant(grant,f.c,session,draft)).rejects.toThrow('OWNER_LOST');
  await expect(recordNativeSelectedProvenance(grant,f.c,session,id(6))).rejects.toThrow('OWNER_LOST');
 });
+
+it('requires both exact workspace material ledger rows and detects later drift',async()=>{
+ const rows=[{name:'026_oex_file_profile.sql',sha256:'9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112'},{name:'027_oex_exhibition_provenance.sql',sha256:'09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7'},{name:'028_oex_material_catalogue.sql',sha256:'1f88a8ed07a3814954d11d58ebe9b627f399a39f918e8eb838d94a5df4f5b9af'},{name:'029_oex_quiet_oak_floor.sql',sha256:'d09e11450cdaa4e64f0b977cc17b1e468543314e6ce733571bc61b6b20deeb8a'},{name:'030_oex_concrete_surface.sql',sha256:'8c42cecb6a90c61eab4c72c4af81af42801db6bac60a567b61e69e7a31e22848'},{name:'031_workspace_material.sql',sha256:'2425f4d24859bf1627d1be9bb3d4b0ecc7829d074437a4aebd9e52d57bf45eb5'},{name:'032_oex_workspace_material.sql',sha256:'bc0017937498f37cfc98acf2851cd70752c76be353208e466aa6a2a5b1808efc'}];
+ let catalog=structuredClone(rows);const c={query:async(sql:string)=>sql.includes('schema_migrations')?{rows:catalog,rowCount:catalog.length}:{rows:[{}],rowCount:1}} as unknown as PoolClient;
+ const args={workspaceId:id(4),tenantId:id(2),principalId:id(3),ownerUid:process.getuid!(),blobRoot:'/synthetic'},context=await bindNativeOexWorkspace(c,args);
+ expect(context.workspaceMaterials).toBe(true);expect(context.archiveFormats).toEqual(['1.0.0-draft.9','1.0.0-draft.10']);await context.assertCatalog(c);
+ catalog=catalog.slice(0,-1);await expect(context.assertCatalog(c)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});await expect(bindNativeOexWorkspace(c,args)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
+ catalog=structuredClone(rows);catalog[6]!.sha256='0'.repeat(64);await expect(bindNativeOexWorkspace(c,args)).rejects.toMatchObject({code:'NATIVE_OEX_PROVENANCE_INVALID'});
+});

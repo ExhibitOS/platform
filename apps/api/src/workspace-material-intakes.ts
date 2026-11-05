@@ -86,6 +86,14 @@ export class WorkspaceMaterialIntakes {
  /** Process one queued job. A durable token is cleared only after map workers
   * have closed. Unknown process death leaves a conservative recovery hold. */
  async work(pool:Pool,hooks?:{afterClaim?:()=>void|Promise<void>;onSpawn?:(child:ChildProcess)=>void}){
+  // Keep backup/integrity's exclusive inventory fence across every object read,
+  // removal and database transition, including child-process drain.
+  const fence=await pool.connect();let locked=false,broken=false;
+  try{await fence.query('SELECT pg_advisory_lock_shared(82002)');locked=true;return await this.workLocked(pool,hooks);}
+  catch(error){if(!locked)broken=true;throw error;}
+  finally{if(locked)try{const result=await fence.query('SELECT pg_advisory_unlock_shared(82002) AS unlocked');if(result.rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}fence.release(broken);}
+ }
+ private async workLocked(pool:Pool,hooks?:{afterClaim?:()=>void|Promise<void>;onSpawn?:(child:ChildProcess)=>void}){
   const token=randomUUID();
   const claimed=await transaction(pool,async c=>{
    await this.owner.assertDatabase(c);

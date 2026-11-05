@@ -234,7 +234,7 @@ export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map
 export class Oex {
  readonly studio:Studio;readonly cms:Cms;
  readonly pool:Pool;readonly blobs:BlobStore;
- constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext){this.pool=pool;this.blobs=blobs;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace);}
+ constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes){this.pool=pool;this.blobs=blobs;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace,false,workspaceMaterial);}
  private role(s:Session){if(!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');}
  view(row:Job){return {id:row.id,state:row.state,errorCode:row.error_code,attempts:row.attempts,result:row.result,cleanupPending:row.cleanup_pending};}
  async access(c:PoolClient,s:Session,id:string):Promise<Job>{this.role(s);uuid(id);const row=(await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id])).rows[0];if(!row||(s.role!=='admin'&&row.user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');return row;}
