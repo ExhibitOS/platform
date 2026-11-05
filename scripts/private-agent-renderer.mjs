@@ -33,12 +33,12 @@ const equal=(a,b)=>canonical(a)===canonical(b);
 export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new AbortController().signal,onStage=()=>{},publicationRuntimeRoot,publicationRuntimeSha256}={}){
  signal=AbortSignal.any([signal,AbortSignal.timeout(60000)]);signal.throwIfAborted();await plain(inputPath);const raw=await readFile(inputPath);if(raw.length>1100000)fail('AGENT_INPUT_LIMIT');const input=JSON.parse(raw),inputSha256=hash(raw);
  const checkInput=async()=>{signal=AbortSignal.any([signal,AbortSignal.timeout(60000)]);signal.throwIfAborted();await plain(inputPath);if(await digest(inputPath,signal)!==inputSha256)fail('AGENT_STALE');};
- if(input.version!==1||!['bench-proposal','scene-snapshot'].includes(input.operation))fail('AGENT_REQUEST');
+ if(input.version!==1||!['bench-proposal','surface-texture-proposal','scene-snapshot'].includes(input.operation))fail('AGENT_REQUEST');
  if(!isAbsolute(outputPath)||resolve(outputPath)!==outputPath)fail('AGENT_PATH');await plain(dirname(outputPath),true);
  try{await lstat(outputPath);fail('AGENT_OUTPUT_EXISTS');}catch(error){if(error.code!=='ENOENT')throw error;}
- if(input.operation==='bench-proposal'){
+ if(input.operation==='bench-proposal'||input.operation==='surface-texture-proposal'){
   if(Object.keys(input).sort().join(',')!=='frame,operation,request,version')fail('AGENT_REQUEST');
-  const {benchProposal}=await import(pathToFileURL(join(root,'dist-agent/bench.mjs')));const reply=benchProposal(input.frame,input.request);await checkInput();return publish({version:1,operation:input.operation,requestId:reply.requestId,inputSha256,reply});
+  const reply=input.operation==='bench-proposal'?(await import(pathToFileURL(join(root,'dist-agent/bench.mjs')))).benchProposal(input.frame,input.request):(await import(pathToFileURL(join(root,'dist-agent/surface.mjs')))).surfaceTextureProposal(input.frame,input.request);await checkInput();return publish({version:1,operation:input.operation,requestId:reply.requestId,inputSha256,reply});
  }
  const keys=['binding','candidateSha256','exportReceiptPath','exportReceiptSha256','indexSha256','oexPath','oexSha256','operation','requestId','saved','snapshot','staticRoot','version'];if(Object.hasOwn(input,'exported'))keys.push('exported');if(Object.keys(input).sort().join(',')!==keys.sort().join(','))fail('AGENT_REQUEST');
  const {saved,binding,snapshot}=input;
