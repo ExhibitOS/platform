@@ -1,3 +1,4 @@
+import {decode} from './imports.ts';
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,type FurnishingAsset} from '@exhibitos/studio-contract';
 import {furnishingResourcePair} from './furnishings.ts';
 import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
@@ -221,9 +222,11 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     doc.artworks = prepared.map(p => {
         const a = structuredClone(p.artwork), assetId = map(p.sourceAssetId);
         assets.push({ id: assetId, prepared: p });
-        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE],displayPolicy=a.extensions?.[DISPLAY_POLICY_NAMESPACE],approvedSource=qualifyDemoDisplay(p.artwork),approvedDisplay=approvedSource?.canonicalAssetSha256===byteHash(p.bytes)?approvedSource:undefined;
+        const details=a.extensions?.[ARTWORK_DETAILS_NAMESPACE],displayPolicy=a.extensions?.[DISPLAY_POLICY_NAMESPACE],provisional=a.schemaVersion==='1.0.0-draft.2'?a.extensions['org.exhibitos.studio/display-reference']:undefined,approvedSource=qualifyDemoDisplay(p.artwork),approvedDisplay=approvedSource?.canonicalAssetSha256===byteHash(p.bytes)?approvedSource:undefined;
+        if(a.schemaVersion==='1.0.0-draft.2'&&(!provisional||p.mime!=='model/gltf-binary'||typeof provisional.assetSha256!=='string'||provisional.assetSha256!==byteHash(p.bytes)))throw new ApiError(422,'PUBLICATION_NOT_READY');
         delete a.extensions;
-        if(details!==undefined&&validateArtworkDetails(p.artwork).valid)a.extensions={[ARTWORK_DETAILS_NAMESPACE]:structuredClone(details)};
+        if(a.schemaVersion==='1.0.0-draft.2'&&provisional)a.extensions={'org.exhibitos.studio/display-reference':structuredClone(provisional)};
+        if(details!==undefined&&validateArtworkDetails(p.artwork).valid)a.extensions={...a.extensions,[ARTWORK_DETAILS_NAMESPACE]:structuredClone(details)};
         if(displayPolicy!==undefined&&approvedDisplay)a.extensions={...a.extensions,[DISPLAY_POLICY_NAMESPACE]:structuredClone(displayPolicy)};
         a.assets = [{ id: p.sourceAssetId, path: `assets/${assetId}/${p.mime === "image/png" ? "image.png" : "model.glb"}`, role: p.mime === "image/png" ? "image" : "model", mime: p.mime, bytes: p.bytes.length, sha256: byteHash(p.bytes) }];
         a.primaryAssetId = p.sourceAssetId;
@@ -351,7 +354,8 @@ export class Publications {
                     continue;
                 }
                 const primary = artwork.assets.find(a => a.id === artwork.primaryAssetId)!;
-                const exactModel=qualifyDemoDisplay(artwork)?.canonicalMime==='model/gltf-binary';
+                const provisionalModel=artwork.schemaVersion==='1.0.0-draft.2';
+                const exactModel=provisionalModel||qualifyDemoDisplay(artwork)?.canonicalMime==='model/gltf-binary';
                 let result: {bytes:Buffer;mime:"model/gltf-binary"|"image/png"};
                 if (artwork.artworkType === "image") {
                     await this.cms.display(c,s,artwork.id,false,artwork.revision);
@@ -362,7 +366,8 @@ export class Publications {
                     result={bytes:await publicationImageDerivative(artwork,original,artwork.primaryAssetId,{watermark:displayWatermark,cache:{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256}}),mime:"image/png"};
                 } else if(exactModel){
                     const original=await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision);
-                    result={bytes:await publicationModelDerivative(artwork,original,{watermark:displayWatermark}),mime:'model/gltf-binary'};
+                    if(provisionalModel){await decode(original,'model/gltf-binary');result={bytes:Buffer.from(original),mime:'model/gltf-binary'};}
+                    else result={bytes:await publicationModelDerivative(artwork,original,{watermark:displayWatermark}),mime:'model/gltf-binary'};
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
                 } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision,displayWatermark) as {bytes:Buffer;mime:"model/gltf-binary"};

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import type { Exhibition } from '@exhibitos/spec';
+import type { ExhibitionV1 } from '@exhibitos/spec';
 import { LOD_NAMESPACE } from '@exhibitos/studio-contract';
 import { newDraft } from '../drafts/example';
 import { syntheticArtwork } from '../placement/model';
@@ -23,7 +23,7 @@ describe('previous private copy compatibility', () => {
 
   it('requires each previous work’s assets, roles and rights despite remapped IDs', () => {
     const work=syntheticArtwork('image');
-    const project=(artworks:Exhibition['artworks'])=>({...newDraft().candidate,artworks,mediaAssets:[]});
+    const project=(artworks:ExhibitionV1['artworks']):ExhibitionV1=>({...newDraft().candidate,artworks,mediaAssets:[]} as ExhibitionV1);
     const before=project([work]);
     const remapped={...work,id:crypto.randomUUID(),revisionId:crypto.randomUUID(),
       assets:work.assets.map(asset=>({...asset,id:crypto.randomUUID()}))};
@@ -50,7 +50,7 @@ describe('previous private copy compatibility', () => {
     current.assets.push(coarse);
     const reduced={assetId:coarse.id,detail:'coarse',textureSize:512};
     current.extensions={[LOD_NAMESPACE]:{version:1,variants:[{...full,assetId:current.primaryAssetId},reduced]}};
-    const project=(artworks:Exhibition['artworks'])=>({...newDraft().candidate,artworks,mediaAssets:[]});
+    const project=(artworks:ExhibitionV1['artworks']):ExhibitionV1=>({...newDraft().candidate,artworks,mediaAssets:[]} as ExhibitionV1);
     const before=project([work]);
     expect(retainsCopyRights(before,project([current]))).toBe(true);
     expect(retainsCopyRights(project([work,current]),project([current,work]))).toBe(true);
@@ -64,7 +64,7 @@ describe('previous private copy compatibility', () => {
     fails(candidate=>{candidate.rights.permissions.display=false;});
     fails(candidate=>{candidate.metadata.description='Different source';});
     fails(candidate=>{candidate.provenance.events[0]!.description='Different provenance';});
-    const voice:Exhibition['mediaAssets'][number]={...file('4'.repeat(64)),id:crypto.randomUUID(),mime:'audio/wav',rights:work.rights};
+    const voice:ExhibitionV1['mediaAssets'][number]={...file('4'.repeat(64)),id:crypto.randomUUID(),mime:'audio/wav',rights:work.rights};
     expect(retainsCopyRights({...before,mediaAssets:[voice]},project([current]))).toBe(false);
     expect(retainsCopyRights({...before,mediaAssets:[voice]},{...project([current]),mediaAssets:[voice]})).toBe(true);
     fails(candidate=>{candidate.assets[0]!.sha256='3'.repeat(64);});

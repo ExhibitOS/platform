@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ExhibitOS contributors
-import {artworkSchema as validate,artworkUtc as validateUtc,rightsSchema} from "./schema-standalone.mjs";
+import {artworkSchema as validate,artworkSchema2 as validate2,artworkUtc as validateUtc,rightsSchema} from "./schema-standalone.mjs";
 
 export const ARTWORK_VERSION = "1.0.0-draft.1";
 export const MAX_DOCUMENT_BYTES = 1048576;
@@ -8,7 +8,7 @@ export const MAX_ASSET_TOTAL_BYTES = 268435456;
 const issue = (code, path, message) => ({ code, path, message });
 
 export function validateArtwork(document, { publicationTime } = {}) {
-  if (document?.schemaVersion !== ARTWORK_VERSION)
+  if (![ARTWORK_VERSION,"1.0.0-draft.2"].includes(document?.schemaVersion))
     return {
       valid: false,
       errors: [
@@ -19,10 +19,11 @@ export function validateArtwork(document, { publicationTime } = {}) {
         ),
       ],
     };
-  if (!validate(document))
+  const validator=document.schemaVersion==="1.0.0-draft.2"?validate2:validate;
+  if (!validator(document))
     return {
       valid: false,
-      errors: validate.errors
+      errors: validator.errors
         .slice(0, 100)
         .map((error) =>
           issue("SCHEMA_INVALID", error.instancePath, error.keyword),
@@ -82,6 +83,15 @@ export function validateArtwork(document, { publicationTime } = {}) {
       "/primaryAssetId",
       "Primary role must match artwork type",
     );
+  if(document.schemaVersion==='1.0.0-draft.2'){
+    const q=document.extensions['org.exhibitos.studio/display-reference'],extent=q.rawBounds.max.map((v,i)=>v-q.rawBounds.min[i]);
+    const dimensions=[document.dimensions.width,document.dimensions.height,document.dimensions.depth];
+    const expected=q.referenceHeightMeters/extent[1],tolerance=Math.max(1e-12,Math.abs(expected)*1e-9);
+    if(extent.some((v,i)=>!Number.isFinite(v)||v<=0||v>10000||Math.abs(v-dimensions[i])>Math.max(1e-9,Math.abs(v)*1e-9)))add('PROVISIONAL_BOUNDS_MISMATCH','/dimensions','Dimensions must equal finite raw bounds extents');
+    if(!primary||primary.mime!=='model/gltf-binary'||primary.sha256!==q.assetSha256)add('PROVISIONAL_ASSET_MISMATCH','/extensions/org.exhibitos.studio~1display-reference/assetSha256','Qualification must bind the primary GLB digest');
+    if(document.provenance.scaleConversion!==undefined)add('PROVISIONAL_CONVERSION_INVALID','/provenance/scaleConversion','Unknown units cannot claim a baked unit conversion');
+    if(document.transform.position.some(v=>v!==0)||document.transform.rotation.some((v,i)=>v!==(i===3?1:0))||document.transform.scale.some(v=>v<1e-6||v>100||Math.abs(v-expected)>tolerance))add('PROVISIONAL_POSE_MISMATCH','/transform','Expected the explicit uniform provisional height reference');
+  }
   if (
     document.artworkType === "sculpture" &&
     document.dimensions.depth === undefined

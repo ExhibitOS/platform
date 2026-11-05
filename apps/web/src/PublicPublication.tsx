@@ -3,7 +3,7 @@ import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from "react";
-import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -360,7 +360,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
                     </p>
                     <p>{description?.text ?? a?.metadata.description}</p>
                     <p>
-                      {formatArtworkDimensions(a?.dimensions)}
+                      {formatArtworkRecordedDimensions(a)}{a?.schemaVersion==='1.0.0-draft.2'?' · 기관 보고 크기, 모델 축 대응 미확인; 표시 크기는 임시 기준':''}
                     </p>
                   </li>
                 );

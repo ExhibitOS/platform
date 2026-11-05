@@ -252,7 +252,7 @@ export function Studio({ demo }: { demo?: PublicSnapshot } = {}) {
           throw new DraftError("INVALID_DRAFT");
         }
         const value = await store.save(
-          { ...current.draft, candidate: document },
+          { ...current.draft, candidate: document } as Draft,
           current.version,
           current.remote,
         );

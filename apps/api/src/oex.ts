@@ -54,6 +54,12 @@ const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetI
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
+/** Match both the qualified reference and its authored pose to the immutable CMS metadata. */
+export function approvedDimensionsMatch(a:Exhibition['artworks'][number],m:ArtworkMetadata){
+ const r=m.displayReference;
+ if(!r)return a.schemaVersion==='1.0.0-draft.1'&&a.dimensions.width===m.dimensions.width&&a.dimensions.height===m.dimensions.height&&a.dimensions.depth===m.dimensions.depth;
+ return a.schemaVersion==='1.0.0-draft.2'&&equal(a.dimensions,{width:r.rawBounds.max[0]-r.rawBounds.min[0],height:r.rawBounds.max[1]-r.rawBounds.min[1],depth:r.rawBounds.max[2]-r.rawBounds.min[2]})&&equal(a.transform,r.pose)&&equal(a.extensions['org.exhibitos.studio/display-reference'],{version:1,status:r.status,assetSha256:r.assetSha256,rawBounds:r.rawBounds,referenceHeightMeters:r.referenceHeightMeters,catalogueDimensions:m.dimensions,axisMapping:'unverified'});
+}
 /** Remove only server-private CMS bindings; the portable artwork remains unchanged. */
 export function portableOexSnapshot(candidate:Exhibition){const result=structuredClone(candidate);for(const a of result.artworks)if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}return result;}
 export type NativeOexExportProgress={phase:'preparing'|'verifying'}|{phase:'packing';completedItems:number;totalItems:number};
@@ -257,7 +263,7 @@ export class Oex {
   const current=await this.cms.ownArtwork(c,s,a.id);const approval=(await c.query('SELECT * FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,a.id,a.revision])).rows[0];
   if(!current.cms_managed||current.revision!==a.revision||current.approved_revision!==a.revision||current.approved_asset_id?.toLowerCase()!==a.primaryAssetId.toLowerCase()||!approval||!validMetadata(current.metadata)||!equal(approval.snapshot.metadata,current.metadata)||!equal(current.metadata.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
   const m=current.metadata as ArtworkMetadata;
-  if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
+  if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||!approvedDimensionsMatch(a,m)||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source)throw new ApiError(409,'OEX_SOURCE_CHANGED');
   const primary=a.assets.find(x=>x.id.toLowerCase()===a.primaryAssetId.toLowerCase())!;
   if(!equal({id:primary.id.toLowerCase(),sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.snapshot.asset?.id?.toLowerCase(),sha256:approval.snapshot.asset?.sha256,bytes:approval.snapshot.asset?.bytes,mime:approval.snapshot.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
   if(!approvedImportedThumbnail(a,approval.snapshot))throw new ApiError(409,'OEX_SOURCE_CHANGED');
@@ -480,7 +486,7 @@ export class Oex {
    const approval=(await c.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3',[s.tenantId,a.id,a.revision])).rows[0]?.snapshot;
    if(!current.cms_managed||!validMetadata(current.metadata)||!approval||!validMetadata(approval.metadata))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    const m=approval.metadata as ArtworkMetadata;
-   if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||a.dimensions.width!==m.dimensions.width||a.dimensions.height!==m.dimensions.height||a.dimensions.depth!==m.dimensions.depth||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source||!equal(m.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
+   if(a.metadata.title!==m.title||(a.metadata.description??'')!==m.description||a.metadata.medium!==m.medium||!approvedDimensionsMatch(a,m)||creationYearFor(a)!==m.creationYear||a.provenance.authorship!==m.provenance.source||!equal(m.rights,a.rights))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    const primary=a.assets.find(x=>x.id===a.primaryAssetId)!;
    if(!equal({id:primary.id,sha256:primary.sha256,bytes:primary.bytes,mime:primary.mime},{id:approval.asset?.id,sha256:approval.asset?.sha256,bytes:approval.asset?.bytes,mime:approval.asset?.mime}))throw new ApiError(409,'OEX_SOURCE_CHANGED');
    if(!approvedImportedThumbnail(a,approval))throw new ApiError(409,'OEX_SOURCE_CHANGED');
@@ -519,6 +525,9 @@ export class Oex {
   * No blob IO, owned transaction, aggregate buffers or publication is created. */
  async attachPrepared(c:PoolClient,s:Session,job:OexImportAttachmentJob,prepared:PreparedOexImportAttachment,selectedGrant?:(draft:Draft)=>Promise<import('./native-oex-provenance.ts').NativeSelectedDraftGrant>){
   this.role(s);const {id,leaseId:lease,payloadSha256}=job,at=new Date().toISOString(),e=structuredClone(prepared.exhibition),keys=new Map(prepared.keys),mediaDurations=new Map(prepared.mediaDurations);
+  // The importer has not yet been qualified to reconstruct CMS unknown-unit
+  // metadata. Refuse the new version instead of relabelling its bounds as metres.
+  if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');
   const {idMap,assetAliases,floorResources,materialResources,footstepResources}=structuredClone({idMap:prepared.idMap,assetAliases:prepared.assetAliases,floorResources:prepared.floorResources,materialResources:prepared.materialResources,footstepResources:prepared.footstepResources});
   const sourceStill=spaceStillFor(e),grants:unknown[]=[...e.artworks.map(a=>a.rights),...e.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
   if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');

@@ -28,3 +28,15 @@ export function formatArtworkDimensions(dimensions:unknown,options:DimensionDisp
  if(options.includeDepth??(d.depth!==undefined))parts.push(`깊이 ${formatLength(d.depth,options)}`);
  return parts.join(' × ');
 }
+
+/** Raw coordinates in a provisional artwork are never physical metre values. */
+export function formatArtworkRecordedDimensions(artwork:unknown):string {
+ if(!artwork||typeof artwork!=='object'||Array.isArray(artwork))return NONE;
+ const value=artwork as {schemaVersion?:unknown;dimensions?:unknown;extensions?:Record<string,unknown>};
+ if(value.schemaVersion!=='1.0.0-draft.2')return formatArtworkDimensions(value.dimensions);
+ const reference=value.extensions?.['org.exhibitos.studio/display-reference'];
+ if(!reference||typeof reference!=='object'||Array.isArray(reference))return NONE;
+ const q=reference as {status?:unknown;axisMapping?:unknown;catalogueDimensions?:unknown};
+ if(q.status!=='provisional-uncalibrated'||q.axisMapping!=='unverified')return NONE;
+ return formatArtworkDimensions(q.catalogueDimensions,{includeDepth:true});
+}

@@ -24,7 +24,7 @@ afterEach(()=>{vi.unstubAllGlobals();holder.control=undefined;});
 it('previews and commits one bounded drag and cancels if selection changes before release',async()=>{
  const archive=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),draft=newDraft();draft.candidate=archive.exhibition;draft.exhibitionId=draft.candidate.id;
  const image=draft.candidate.artworks.find(a=>a.artworkType==='image')!;
- for(let i=0;i<10;i++){const a=structuredClone(image);a.id=crypto.randomUUID();a.revisionId=crypto.randomUUID();a.assets[0]!.id=crypto.randomUUID();a.primaryAssetId=a.assets[0]!.id;a.assets[0]!.path=`drag-${i}.png`;a.assets[0]!.bytes=32*1024*1024;draft.candidate.artworks.push(a);}
+ for(let i=0;i<10;i++){const a=structuredClone(image);a.id=crypto.randomUUID();a.revisionId=crypto.randomUUID();a.assets[0]!.id=crypto.randomUUID();a.primaryAssetId=a.assets[0]!.id;a.assets[0]!.path=`drag-${i}.png`;a.assets[0]!.bytes=32*1024*1024;(draft.candidate.artworks as typeof a[]).push(a);}
  const selected=draft.candidate.placements[0]!,selection={kind:'placement' as const,id:selected.id};
  const frame:NativeViewportFrame={version:1,epoch:crypto.randomUUID(),sequence:1,tenantId:crypto.randomUUID(),principalId:crypto.randomUUID(),draft,selection,mode:'translate',view:'isometric',cameraSequence:0,transparent:false,disabled:false};
  const commit=vi.fn(),error=vi.fn(),preview=vi.fn(),bridge:EditorBridge={document:draft.candidate,selection,mode:'translate',view:'isometric',disabled:false,preview:null,select:()=>{},previewChange:preview,commit,error,propose:command=>geometryProposal(frame,command,true)};

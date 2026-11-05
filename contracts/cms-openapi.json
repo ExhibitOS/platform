@@ -2269,7 +2269,8 @@
             "enum": [
               "m",
               "cm",
-              "mm"
+              "mm",
+              "unknown"
             ]
           },
           "scaleApplied": {
@@ -2320,6 +2321,9 @@
             "minimum": 1,
             "maximum": 9999,
             "description": "Author supplied creation year only; never inferred from import or approval dates."
+          },
+          "displayReference": {
+            "$ref": "#/components/schemas/DisplayReference"
           }
         },
         "required": [
@@ -2421,6 +2425,9 @@
             "minimum": 1,
             "maximum": 9999,
             "description": "Author supplied creation year only; never inferred from import or approval dates."
+          },
+          "displayReference": {
+            "$ref": "#/components/schemas/DisplayReference"
           }
         },
         "required": [
@@ -2469,6 +2476,9 @@
             "minimum": 1,
             "maximum": 9999,
             "description": "Author supplied creation year only; never inferred from import or approval dates."
+          },
+          "displayReference": {
+            "$ref": "#/components/schemas/DisplayReference"
           }
         },
         "required": [
@@ -2863,6 +2873,102 @@
         },
         "required": [
           "items"
+        ]
+      },
+      "DisplayReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "provisional-uncalibrated"
+            ]
+          },
+          "assetSha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "rawBounds": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "min": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "max": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "min",
+              "max"
+            ]
+          },
+          "referenceHeightMeters": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 10000
+          },
+          "pose": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "position": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "rotation": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "scale": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "position",
+              "rotation",
+              "scale"
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "status",
+          "assetSha256",
+          "rawBounds",
+          "referenceHeightMeters",
+          "pose"
         ]
       }
     }

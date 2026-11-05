@@ -34,6 +34,8 @@ export class Imports {
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
   const artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
+  const reference=artwork.metadata?.displayReference;
+  if(reference&&(input.mime!=='model/gltf-binary'||input.sha256!==reference.assetSha256||input.scaleMeters!==1||input.derived!==undefined||input.modelDerivation!==undefined))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
   const model=modelDerivationInput(input.modelDerivation);
   if(model&&(input.mime!=='model/gltf-binary'||input.derived!==undefined||model.operationID!==input.idempotencyKey))throw new ApiError(400,'INVALID_MODEL_DERIVATION');
   if(model&&artwork.revision!==model.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');

@@ -14,7 +14,7 @@ describe('internal bounded OEX producer',()=>{
  it('keeps bounded profile validation when checking optional preview omissions above the legacy total',async()=>{
   const {exhibition}=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),source=structuredClone(exhibition),base=source.artworks[0]!;
   for(let i=0;i<9;i++){
-   const art=structuredClone(base),suffix=String(i+10).padStart(12,'0');art.id=`f1000000-0000-4000-8000-${suffix}`;art.revisionId=`f2000000-0000-4000-8000-${suffix}`;art.primaryAssetId=`f3000000-0000-4000-8000-${suffix}`;art.assets[0]!.id=art.primaryAssetId;art.assets[0]!.path=`large-${i}.glb`;art.assets[0]!.bytes=31*1024*1024;art.provenance.events[0]!.id=`f4000000-0000-4000-8000-${suffix}`;source.artworks.push(art);
+   const art=structuredClone(base),suffix=String(i+10).padStart(12,'0');art.id=`f1000000-0000-4000-8000-${suffix}`;art.revisionId=`f2000000-0000-4000-8000-${suffix}`;art.primaryAssetId=`f3000000-0000-4000-8000-${suffix}`;art.assets[0]!.id=art.primaryAssetId;art.assets[0]!.path=`large-${i}.glb`;art.assets[0]!.bytes=31*1024*1024;art.provenance.events[0]!.id=`f4000000-0000-4000-8000-${suffix}`;(source.artworks as typeof art[]).push(art);
   }
   expect(()=>withoutImportedPreviews(source,[])).toThrow();expect(withoutImportedPreviews(source,[],'bounded-file-v1')).toEqual(source);
  });

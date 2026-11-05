@@ -16,7 +16,7 @@ async function fixture(){
 }
 test('native commands return an admitted full candidate with translation only and no source mutation',async()=>{
  const {frame,placementId,art,wallSurfaceId}=await fixture(),before=structuredClone(frame),run=(f:NativeViewportFrame,command:Record<string,unknown>)=>nativeInstallationAction(f,{type:'installation-command',placementId,...command});
- const centered=run(frame,{command:'center-artwork'}),top=run({...frame,draft:{...frame.draft,candidate:centered}},{command:'on-top'}),p=top.placements.find(p=>p.id===placementId)!;
+ const centered=run(frame,{command:'center-artwork'}),top=run({...frame,draft:{...frame.draft,candidate:centered} as typeof frame.draft},{command:'on-top'}),p=top.placements.find(p=>p.id===placementId)!;
  expect(installationArtworkBounds(art,p).center[0]).toBe(1);expect(installationArtworkBounds(art,p).min[1]).toBeCloseTo(.8);
  const raised=run(frame,{command:'install-height',height:1.4}),gap=run(frame,{command:'wall-gap',gap:.05,wallSurfaceId});
  expect(installationArtworkBounds(art,raised.placements.find(p=>p.id===placementId)!).center[1]).toBeCloseTo(1.4);
@@ -43,7 +43,7 @@ test('closed branches, disabled dirty buffer and post-command complete draft val
 
 test('verified plinth command requires selected placement and returns a single translation or a stable overhang error',async()=>{
  const {frame}=await fixture(),doc=frame.draft.candidate,p=doc.placements.find(row=>doc.artworks.some(a=>a.revisionId===row.artworkRevisionId&&a.artworkType==='sculpture'))!,art=doc.artworks.find(a=>a.revisionId===p.artworkRevisionId)!;art.dimensions={width:.2,height:.4,depth:.2};
- const candidate=applyFurnishingCommand(doc,{type:'set-furnishing-visual',hostKind:'pedestal',hostId:p.id,catalogId:'rectangular-plinth',catalogVersion:1,pose:{position:[-2,0,0],yaw:.2,scale:1}}),selected={...frame,selection:{kind:'placement' as const,id:p.id},draft:{...frame.draft,candidate}},action={type:'installation-command',placementId:p.id,command:'align-on-verified-plinth'},before=structuredClone(selected);
+ const candidate=applyFurnishingCommand(doc,{type:'set-furnishing-visual',hostKind:'pedestal',hostId:p.id,catalogId:'rectangular-plinth',catalogVersion:1,pose:{position:[-2,0,0],yaw:.2,scale:1}}),selected={...frame,selection:{kind:'placement' as const,id:p.id},draft:{...frame.draft,candidate} as typeof frame.draft},action={type:'installation-command',placementId:p.id,command:'align-on-verified-plinth'},before=structuredClone(selected);
  expect(()=>nativeInstallationAction({...selected,selection:null},action)).toThrow('VIEWPORT_COMMAND_DENIED');const result=nativeInstallationAction(selected,action);expect(result.extensions).toEqual(candidate.extensions);expect(result.artworks).toEqual(candidate.artworks);expect(result.placements.filter(row=>row.id!==p.id)).toEqual(candidate.placements.filter(row=>row.id!==p.id));expect(selected).toEqual(before);
  const oversized=structuredClone(selected);oversized.draft.candidate.artworks.find(a=>a.revisionId===p.artworkRevisionId)!.dimensions={width:1,height:1,depth:1};const saved=structuredClone(oversized);expect(()=>nativeInstallationAction(oversized,action)).toThrow('INSTALLATION_PLINTH_OVERHANG');expect(oversized).toEqual(saved);
 });

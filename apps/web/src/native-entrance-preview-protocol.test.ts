@@ -27,5 +27,5 @@ it('rejects unbounded or nonfinite snapshots and checks original options, full s
  for(const snapshotRect of [{x:-1,y:0,width:1,height:1},{x:0,y:0,width:1025,height:740},{x:0,y:0,width:1,height:NaN},{x:0,y:0,width:0,height:1}])expect(()=>entrancePreviewReply(request,frame,{...geometry,snapshotRect})).toThrow('ENTRANCE_PREVIEW_BOUNDS');
  const matches=(r=request,f=frame,g=geometry)=>entrancePreviewStateMatches(request,r,f,reply,g);
  expect(matches()).toBe(true);expect(matches({...request,type:'thumbnail'})).toBe(false);expect(matches({...request,locale:'ko'})).toBe(false);expect(matches(request,frame,{...geometry,renderGeneration:2})).toBe(false);
- expect(matches(request,{...frame,draft:{...frame.draft,candidate:{...frame.draft.candidate,title:'Changed'}}})).toBe(false);expect(reply).toEqual(before);
+ expect(matches(request,{...frame,draft:{...frame.draft,candidate:{...frame.draft.candidate,title:'Changed'}} as typeof frame.draft})).toBe(false);expect(reply).toEqual(before);
 });

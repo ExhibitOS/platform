@@ -50,7 +50,7 @@ it('projects only an exact approved thumbnail and keeps its source authority dis
  expect(authorizedArtworkAssets(result.snapshot,receiptRecords.map(x=>x.id===selected!.id?{...x,receipt_source_sha256:'b'.repeat(64)}:x),Date.now())).toHaveLength(1);
  expect(authorizedArtworkAssets(result.snapshot,receiptRecords.map(x=>x.id===selected!.id?{...x,receipt_artwork_id:crypto.randomUUID()}:x),Date.now())).toHaveLength(1);
  const deniedPrimary=records.map(x=>x.id!==selected!.id?{...x,current_rights:{...rights,permissions:{...rights.permissions,display:false}}}:x);expect(()=>authorizedArtworkAssets(result.snapshot,deniedPrimary,Date.now())).toThrow('PUBLICATION_UNAVAILABLE');
- const shared=structuredClone(result.snapshot),other=structuredClone(shared.artworks[0]!);other.artworkType='image';other.primaryAssetId=selected!.id;other.assets=[{...selected!,role:'image'}];delete other.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE];shared.artworks.push(other);
+ const shared=structuredClone(result.snapshot),other=structuredClone(shared.artworks[0]!);other.artworkType='image';other.primaryAssetId=selected!.id;other.assets=[{...selected!,role:'image'}];delete other.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE];(shared.artworks as typeof other[]).push(other);
  expect(()=>authorizedArtworkAssets(shared,withoutPreview,Date.now())).toThrow('PUBLICATION_UNAVAILABLE');
 });
 it('preserves authored PNG coarse/full through public projection and typed OEX identity remap',async()=>{

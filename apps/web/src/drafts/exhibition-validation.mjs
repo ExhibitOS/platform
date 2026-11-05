@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 ExhibitOS contributors
-import {revisionSchema,lifecycleSchema,utcSchema} from "./schema-standalone.mjs";
+import {revisionSchema,lifecycleSchema,revisionSchema2,lifecycleSchema2,utcSchema} from "./schema-standalone.mjs";
 import {spaceStillFor,validateSpaceStillInventory} from '@exhibitos/spec/space-still';
 import {
   validateArtwork,
@@ -210,7 +210,7 @@ export function validateExhibition(revision, { publicationTime, archiveProfile }
   if (archiveProfile !== undefined && archiveProfile !== 'bounded-file-v1') return result([issue('UNSUPPORTED_ARCHIVE_PROFILE','/archiveProfile','Unsupported archive validation profile')]);
   const safety = jsonErrors(revision);
   if (safety.length) return result(safety);
-  if (revision?.schemaVersion !== EXHIBITION_VERSION)
+  if (![EXHIBITION_VERSION,"1.0.0-draft.2"].includes(revision?.schemaVersion))
     return result([
       issue(
         "UNSUPPORTED_VERSION",
@@ -218,7 +218,8 @@ export function validateExhibition(revision, { publicationTime, archiveProfile }
         "Expected " + EXHIBITION_VERSION,
       ),
     ]);
-  if (!revisionSchema(revision)) return result(schemaErrors(revisionSchema));
+  const validator=revision.schemaVersion==="1.0.0-draft.2"?revisionSchema2:revisionSchema;
+  if (!validator(revision)) return result(schemaErrors(validator));
   const still=validateSpaceStillInventory(revision,{publicationTime});if(!still.valid)return result(still.errors);
   if (utf8Length(sortedJson(revision)) > 1048576)
     return result([issue("DOCUMENT_LIMIT", "", "Revision exceeds 1MiB")]);
@@ -770,7 +771,7 @@ export function validateExhibition(revision, { publicationTime, archiveProfile }
 export function validateLifecycle(document, { archiveProfile } = {}) {
   const safety = jsonErrors(document);
   if (safety.length) return result(safety);
-  if (document?.schemaVersion !== EXHIBITION_VERSION)
+  if (![EXHIBITION_VERSION,"1.0.0-draft.2"].includes(document?.schemaVersion))
     return result([
       issue(
         "UNSUPPORTED_VERSION",
@@ -778,7 +779,8 @@ export function validateLifecycle(document, { archiveProfile } = {}) {
         "Expected " + EXHIBITION_VERSION,
       ),
     ]);
-  if (!lifecycleSchema(document)) return result(schemaErrors(lifecycleSchema));
+  const validator=document.schemaVersion==="1.0.0-draft.2"?lifecycleSchema2:lifecycleSchema;
+  if (!validator(document)) return result(schemaErrors(validator));
   if (utf8Length(sortedJson(document)) > 1048576)
     return result([
       issue("DOCUMENT_LIMIT", "", "Lifecycle document exceeds 1MiB"),

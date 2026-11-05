@@ -21,10 +21,11 @@ export interface ArtworkMetadata {
   rights: unknown;
   provenance: {
     source: "human-authored" | "ai-assisted" | "ai-generated" | "synthetic";
-    sourceUnits: "m" | "cm" | "mm";
+    sourceUnits: "m" | "cm" | "mm" | "unknown";
     scaleApplied: boolean;
     notes: string;
   };
+  displayReference?: {version:1;status:'provisional-uncalibrated';assetSha256:string;rawBounds:{min:[number,number,number];max:[number,number,number]};referenceHeightMeters:number;pose:{position:[number,number,number];rotation:[number,number,number,number];scale:[number,number,number]}};
 }
 const canonical = (v: unknown): unknown =>
   Array.isArray(v)
@@ -43,7 +44,7 @@ function revisionIdentity(s:Session,id:string,revision:number){
 }
 function importedTextInvariant(m:ArtworkMetadata){
   // Only existing title/description/medium and private notes are text edits.
-  return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
+  return {dimensions:m.dimensions,rights:m.rights,creationYear:m.creationYear,displayReference:m.displayReference,provenance:{source:m.provenance.source,sourceUnits:m.provenance.sourceUnits,scaleApplied:m.provenance.scaleApplied}};
 }
 interface ImportedApproval {revision:number;snapshot:{metadata:unknown;asset:unknown;importedArtwork?:unknown}}
 const exact = (v: unknown, keys: string[]) =>
@@ -55,8 +56,15 @@ const exact = (v: unknown, keys: string[]) =>
 function text(v: unknown, max: number, min = 0) {
   return typeof v === "string" && v.length >= min && v.length <= max;
 }
+function validDisplayReference(value:ArtworkMetadata['displayReference']):boolean {
+ if(!exact(value,['version','status','assetSha256','rawBounds','referenceHeightMeters','pose'])||!value||value.version!==1||value.status!=='provisional-uncalibrated'||!/^([a-f0-9]{64})$/.test(value.assetSha256)||!exact(value.rawBounds,['min','max'])||!exact(value.pose,['position','rotation','scale']))return false;
+ const {min,max}=value.rawBounds,{position,rotation,scale}=value.pose;
+ if(![min,max,position,rotation,scale].every(Array.isArray)||min.length!==3||max.length!==3||position.length!==3||rotation.length!==4||scale.length!==3||![...min,...max,...position,...rotation,...scale,value.referenceHeightMeters].every(Number.isFinite)||min.some(v=>Math.abs(v)>1000000)||max.some(v=>Math.abs(v)>1000000)||value.referenceHeightMeters<=0||value.referenceHeightMeters>10000)return false;
+ const extent=max.map((n,i)=>n-min[i]!);if(extent.some(n=>n<=0||n>10000))return false;const expected=value.referenceHeightMeters/extent[1]!,tolerance=Math.max(1e-12,Math.abs(expected)*1e-9);
+ return position.every(v=>v===0)&&rotation.every((v,i)=>v===(i===3?1:0))&&scale.every(v=>v>=1e-6&&v<=100&&Math.abs(v-expected)<=tolerance);
+}
 export function validMetadata(v: unknown): v is ArtworkMetadata {
-  if (!v || typeof v!=="object" || Array.isArray(v) || !["title", "description", "dimensions", "rights", "provenance"].every(k=>Object.hasOwn(v,k)) || Object.keys(v).some(k=>!["title", "description", "dimensions", "rights", "provenance", "medium", "creationYear"].includes(k)))
+  if (!v || typeof v!=="object" || Array.isArray(v) || !["title", "description", "dimensions", "rights", "provenance"].every(k=>Object.hasOwn(v,k)) || Object.keys(v).some(k=>!["title", "description", "dimensions", "rights", "provenance", "medium", "creationYear", "displayReference"].includes(k)))
     return false;
   const m = v as ArtworkMetadata,
     d = m.dimensions,
@@ -74,9 +82,10 @@ export function validMetadata(v: unknown): v is ArtworkMetadata {
     validRights(m.rights) &&
     exact(p, ["source", "sourceUnits", "scaleApplied", "notes"]) &&
     ["human-authored", "ai-assisted", "ai-generated", "synthetic"].includes(p.source) &&
-    ["m", "cm", "mm"].includes(p.sourceUnits) &&
+    ["m", "cm", "mm", "unknown"].includes(p.sourceUnits) &&
     typeof p.scaleApplied === "boolean" &&
-    text(p.notes, 4096)
+    text(p.notes, 4096) &&
+    (p.sourceUnits==='unknown' ? !p.scaleApplied&&d.depth!==undefined&&validDisplayReference(m.displayReference) : !Object.hasOwn(m,'displayReference'))
   );
 }
 export class Cms {
@@ -374,6 +383,7 @@ export class Cms {
     );
     const asset = result.rows[0];
     if (!asset) throw new ApiError(409, "ASSET_NOT_APPROVED");
+    if(a.metadata.displayReference&&(asset.mime!=='model/gltf-binary'||asset.sha256!==a.metadata.displayReference.assetSha256||Number(asset.scale_meters)!==1))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
     if(asset.mime==='model/gltf-binary'&&a.metadata.dimensions.depth===undefined)throw new ApiError(422,'MODEL_DEPTH_REQUIRED');
     if (!allowedRights(a.metadata.rights, "display"))
       throw new ApiError(403, "RIGHTS_DENIED");
@@ -473,7 +483,10 @@ export class Cms {
     }
     // Snapshot IDs are stable across repeat requests; URI is only a relative inventory name.
     const revisionId=revisionIdentity(s,id,approval.revision);
-    const artwork: Artwork={schemaVersion:"1.0.0-draft.1",kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:"meter",coordinates:"right-handed-y-up",dimensions:{width:m.dimensions.width,height:m.dimensions.height,...(m.dimensions.depth===undefined?{}:{depth:m.dimensions.depth})},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}})}};
+    const reference=m.displayReference;
+    if(reference&&(asset.mime!=='model/gltf-binary'||asset.sha256!==reference.assetSha256))throw new ApiError(409,'APPROVAL_INVALID');
+    const raw=reference?.rawBounds, dimensions=raw?{width:raw.max[0]-raw.min[0],height:raw.max[1]-raw.min[1],depth:raw.max[2]-raw.min[2]}:{width:m.dimensions.width,height:m.dimensions.height,...(m.dimensions.depth===undefined?{}:{depth:m.dimensions.depth})};
+    const artwork: Artwork={schemaVersion:reference?'1.0.0-draft.2':'1.0.0-draft.1',kind:"artwork",id,revisionId,revision:approval.revision,createdAt:new Date(approval.created_at).toISOString(),metadata:{title:m.title,artist:display.artist,description:m.description,...(m.medium===undefined?{}:{medium:m.medium})},artworkType:asset.mime==="model/gltf-binary"?"sculpture":"image",units:reference?'unknown':'meter',coordinates:"right-handed-y-up",dimensions,transform:reference?structuredClone(reference.pose):{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},primaryAssetId:asset.id,assets:[{id:asset.id,path:`assets/${asset.id}/${asset.mime==="model/gltf-binary"?"model.glb":"image.png"}`,role:asset.mime==="model/gltf-binary"?"model":"image",mime:asset.mime as Artwork["assets"][number]["mime"],bytes:asset.bytes,sha256:asset.sha256}],rights:structuredClone(m.rights) as Artwork["rights"],provenance:{authorship:m.provenance.source,events:[{id:revisionId,type:"edited",at:new Date(approval.created_at).toISOString(),description:"CMS reviewed immutable metadata and approved asset snapshot."}]},extensions:{"org.exhibitos.studio/cms":{tenantId:s.tenantId,artworkId:id,revision:approval.revision},...(m.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:m.creationYear}}),...(reference?{'org.exhibitos.studio/display-reference':{version:1,status:reference.status,assetSha256:reference.assetSha256,rawBounds:structuredClone(reference.rawBounds),referenceHeightMeters:reference.referenceHeightMeters,catalogueDimensions:structuredClone(m.dimensions),axisMapping:'unverified'}}:{})}} as Artwork;
     if(approval.snapshot.modelPair!==undefined)await applyModelPairApproval(c,s,id,artwork,approval.snapshot.modelPair);
     if(!validateArtwork(artwork).valid)throw new ApiError(409,"APPROVAL_INVALID");
     return {artwork,previewUrl:`/api/v1/tenants/${s.tenantId}/cms/artworks/${id}/preview`};
