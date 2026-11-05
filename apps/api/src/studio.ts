@@ -230,10 +230,10 @@ export class Studio {
     this.role(s);
     if(selectedGrant)await consumeNativeSelectedDraftGrant(selectedGrant,c,s,input.draft);
     checked(input,!!selectedGrant);
-    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     const payloadHash = hash({ method: "POST", input });
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
+    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     const id = input.draft.exhibitionId;
     const existing = await c.query(
       "SELECT 1 FROM exhibitions WHERE tenant_id=$1 AND id=$2",
@@ -266,7 +266,6 @@ export class Studio {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
-    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
     if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?boundedPlacementOnly(row.metadata,input.draft):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
@@ -280,6 +279,7 @@ export class Studio {
     if (replay) return replay;
     if (match !== etag(row.revision, row.metadata))
       throw new ApiError(412, "REMOTE_CONFLICT");
+    await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     // This row is the private active draft. Published snapshots and their
     // immutable asset bindings are separate and are never changed by a save.
     if (row.revision >= 2147483647) throw new ApiError(409, "REVISION_LIMIT");
