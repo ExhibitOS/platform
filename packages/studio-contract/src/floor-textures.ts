@@ -11,8 +11,8 @@ export const FLOOR_TEXTURE_FILES:readonly FloorTextureFile[]=Object.freeze(FLOOR
 export function floorTexturePack(binding:FloorBinding){const selected=binding.texturePack??floorPresetDefaults(binding.preset).texturePack!;return FLOOR_TEXTURE_PACKS.find(p=>p.id===selected.id&&p.version===selected.version);}
 export function requiredFloorTexturePacks(document:{extensions?:unknown;surfaces?:readonly {type:string;roomId:string}[]}){
  if(!validateStudioFloors(document).valid)throw Error('FLOOR_SCHEMA');
- const value=(document.extensions as Record<string,unknown>|undefined)?.['org.exhibitos.studio/floors'] as StudioFloors|undefined,used=new Set<string>();
- for(const b of value?.bindings??[]){if(b.target.kind==='room-base'&&!floorFor(document,{roomId:b.target.roomId}))continue;const pack=floorTexturePack(b);if(pack)used.add(pack.id);}
- return FLOOR_TEXTURE_PACKS.filter(p=>used.has(p.id));
+ const value=(document.extensions as Record<string,unknown>|undefined)?.['org.exhibitos.studio/floors'] as StudioFloors|undefined,used=new Set<FloorTexturePackDescriptor>();
+ for(const b of value?.bindings??[]){if(b.target.kind==='room-base'&&!floorFor(document,{roomId:b.target.roomId}))continue;const pack=floorTexturePack(b);if(pack)used.add(pack);}
+ return FLOOR_TEXTURE_PACKS.filter(pack=>used.has(pack));
 }
 export const floorTextureNotice=floorResourceNotice;

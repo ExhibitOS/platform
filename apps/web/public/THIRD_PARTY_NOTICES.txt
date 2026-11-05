@@ -801,7 +801,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
---- @exhibitos/spec 0.1.0-draft.11 browser document validators/schemas (Apache-2.0) ---
+--- @exhibitos/spec 0.1.0-draft.14 browser document validators/schemas (Apache-2.0) ---
 Copyright 2026 ExhibitOS contributors
 Document-only browser adaptation and exact furnishing inventory validator; original package bytes are pinned in vendor/.
 ExhibitOS spec licensing
@@ -852,6 +852,17 @@ Carpet004, ambientCG.com, CC0 1.0
 Source: https://ambientcg.com/view?id=Carpet004
 License: CC0-1.0 (https://docs.ambientcg.com/license/)
 Changes: Ancillarymetadata removed through fresh RGB8 encoding; grayscale scalar replicated identically to RGB; source16bit maps quantized highbyte to8bit as numerically recorded. Noresize/Gflip/gamma/tint/AI/sharpen/displacement; no inventedAO. Authored1m repeat; providerphysicalsizeunknown, notmeasured.
+
+
+--- Built-in floor texture asset (independent CC0 license) ---
+Quiet Oak Herringbone — material asset notice
+
+Creator and source: user-authored ExhibitOS material generated without external photographs, models or textures, according to its preserved source record.
+License: CC0 1.0 Universal under the rights holder's standing authorization for personally created and owned ExhibitOS assets. Legal text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+Changes: RGB color and OpenGL +Y normal maps are byte-identical copies of the preserved source. L8 roughness was losslessly expanded to three equal RGB channels. The thumbnail was resized from the source color map using Lanczos. The physical repeat is 0.9 × 0.9 m as recorded in the source delivery notes.
+
+CC0 does not itself grant trademark, patent, personality or other third-party rights. This notice covers this material asset, not application code.
 
 
 --- Built-in surface texture asset (independent CC0 license) ---

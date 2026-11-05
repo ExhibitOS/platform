@@ -12,7 +12,8 @@ const id='aaaaaaaa-0000-4000-8000-000000000001';
 test('actual2K roles reserve source decode cost, select independent scalar size, and never silently drop a role',()=>{
  const doc={surfaces:[{id,type:'wall'}],extensions:{[MATERIAL_NAMESPACE]:{version:1,surfaces:{},surfaceTextures:{[id]:surfaceTextureDefaults('museum-matte-paint').texture}}}} as unknown as Exhibition;
  const plan=surfaceTexturePlan(doc,2048,96*1024*1024),pack=plan.packs[0]!;
- expect(pack.maps.color.width).toBe(2048);expect(plan.sizeFor(pack.maps.color)).toBe(plan.sizeFor(pack.maps.normal));expect(plan.sizeFor(pack.maps.roughness)).toBe(plan.sizeFor(pack.maps.normal)/2);expect(plan.reserveBytes).toBeLessThanOrEqual(96*1024*1024*.65);
+ const {color,normal,roughness}=pack.maps;if(!normal||!roughness)throw Error('Missing known legacy maps');
+ expect(color.width).toBe(2048);expect(plan.sizeFor(color)).toBe(plan.sizeFor(normal));expect(plan.sizeFor(roughness)).toBe(plan.sizeFor(normal)/2);expect(plan.reserveBytes).toBeLessThanOrEqual(96*1024*1024*.65);
  const small=surfaceTexturePlan(doc,512,24*1024*1024);expect(small.packs).toEqual([]);expect(small.blocked).toEqual(['museum-matte-paint']);
 });
 test('one2K editor pack needs the existing desktop resource budget after overhead',()=>{
