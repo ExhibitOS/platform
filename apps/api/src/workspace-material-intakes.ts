@@ -21,7 +21,8 @@ const closed=(v:Record<string,unknown>,keys:readonly string[])=>Object.keys(v).l
 export class WorkspaceMaterialIntakes {
  private readonly blobs:BlobStore;private readonly owner:Owner;private readonly validate:(value:unknown)=>Validation;
  constructor(blobs:BlobStore,owner:Owner,validate:(value:unknown)=>Validation){this.blobs=blobs;this.owner=owner;this.validate=validate;}
- private async checkOwner(c:PoolClient,s:Session){if(s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.owner.assertDatabase(c);}
+ private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.owner.assertDatabase(c);}
+ async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  private async access(c:PoolClient,s:Session,id:string){
   uuid(id);await this.checkOwner(c,s);
   const r=await c.query('SELECT * FROM workspace_material_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,id]);
@@ -143,7 +144,7 @@ export class WorkspaceMaterialIntakes {
   if(!allowedRights(value.descriptor.rights,'display'))throw new ApiError(403,'DISPLAY_PERMISSION_REQUIRED');const typed=role as WorkspaceMaterialMapRole,descriptor=value.descriptor.maps[typed],key=value.object_keys[typed];if(!descriptor||!key)throw new ApiError(404,'MATERIAL_MAP_NOT_FOUND');
   if(!key.startsWith(`${s.tenantId}/workspace-material-intake/${this.owner.workspaceId}/`))throw new ApiError(409,'ASSET_INTEGRITY');
   let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
-  if(bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256)throw new ApiError(409,'ASSET_INTEGRITY');return {bytes,mime:descriptor.mime,sha256:descriptor.sha256};
+  if(bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(value.descriptor.rights,'display'))throw new ApiError(403,'DISPLAY_PERMISSION_REQUIRED');return {bytes,mime:descriptor.mime,sha256:descriptor.sha256};
  }
 
 }

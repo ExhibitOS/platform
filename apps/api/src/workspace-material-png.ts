@@ -9,15 +9,16 @@ import {fileURLToPath} from 'node:url';
 export function decodeWorkspaceMaterialPng(bytes:Buffer,hooks?:{onSpawn?:(child:ChildProcess)=>void}){
  return new Promise<void>((resolve,reject)=>{
   const path=new URL('./validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))path.pathname=path.pathname.replace(/\.js$/,'.ts');
-  let callbackDone=false,closed=false,closeCode:number|null=null,output='',error:Error|null=null;
+  let callbackDone=false,closed=false,hookFailed=false,closeCode:number|null=null,output='',error:Error|null=null;
   const settle=()=>{if(!callbackDone||!closed)return;const normal=!!error&&'code'in error&&error.code===1&&!('signal'in error&&error.signal)&&!('killed'in error&&error.killed)&&closeCode===1;
-   if(!error&&closeCode===0&&output==='VALID')resolve();
+   if(hookFailed)reject(new ApiError(503,'MATERIAL_VALIDATION_UNAVAILABLE'));
+   else if(!error&&closeCode===0&&output==='VALID')resolve();
    else if(normal&&output==='FORMAT_REJECTED')reject(new ApiError(422,'FORMAT_REJECTED'));
    else if(normal&&output==='PNG_PIXEL_LIMIT_EXCEEDED')reject(new ApiError(422,'PNG_PIXEL_LIMIT_EXCEEDED'));
    else reject(new ApiError(503,'MATERIAL_VALIDATION_UNAVAILABLE'));
   };
   const child=execFile(process.execPath,['--max-old-space-size=128',fileURLToPath(path),'image/png','workspace-material-png'],{timeout:5000,maxBuffer:4096,env:{PATH:process.env.PATH},killSignal:'SIGKILL'},(err,stdout)=>{callbackDone=true;error=err;output=stdout.trim();settle();});
-  child.once('close',(code:number|null)=>{closeCode=code;closed=true;settle();});child.stdin?.on('error',()=>{});hooks?.onSpawn?.(child);child.stdin?.end(bytes);
+  child.once('close',(code:number|null)=>{closeCode=code;closed=true;settle();});child.stdin?.on('error',()=>{});try{hooks?.onSpawn?.(child);}catch{hookFailed=true;try{child.kill('SIGKILL');}catch{/* Still wait for callback and close. */}}child.stdin?.end(bytes);
  });
 }
 export type WorkspaceMaterialMapRole='color'|'normal'|'roughness'|'ao';
