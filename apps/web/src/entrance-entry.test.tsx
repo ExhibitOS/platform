@@ -2,7 +2,7 @@
 import {useRef} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,it} from 'vitest';
-import {EntranceEntryOverlay,useEntranceEntry} from './entrance-entry';
+import {EntranceEntryOverlay,useEntranceEntry,entryControlsBlocked} from './entrance-entry';
 
 function Overlay({transition,ready=false}:{transition:'none'|'doors';ready?:boolean}){
  const entry=useEntranceEntry(),status=useRef<HTMLParagraphElement>(null);
@@ -19,4 +19,12 @@ it('omits door DOM for a no-effect entry while retaining readable loading and re
 it('retains the explicitly requested door markup for existing shared consumers',()=>{
  const html=renderToStaticMarkup(<Overlay transition="doors"/>);
  expect(html).toContain('class="publication-entry-door"');expect(html).toContain('publication-entry-door-left');expect(html).toContain('publication-entry-door-right');
+});
+
+it('blocks settings during loading and restores pointer and accessibility access on error or readiness',()=>{
+ expect(entryControlsBlocked('3d',false,false,false)).toBe(true);
+ expect(entryControlsBlocked('3d',false,false,true)).toBe(false);
+ expect(entryControlsBlocked('3d',true,false,false)).toBe(false);
+ expect(entryControlsBlocked('3d',false,true,false)).toBe(false);
+ expect(entryControlsBlocked('cover',false,false,false)).toBe(false);
 });

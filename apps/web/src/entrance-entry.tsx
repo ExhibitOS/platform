@@ -3,6 +3,8 @@ import {useCallback,useEffect,useRef,useState,type CSSProperties,type RefObject}
 import type {EntranceTransitionEffect} from '@exhibitos/studio-contract';
 import {EntryProgress} from './EntryProgress';
 export interface EntranceStage {ready:boolean;message:string;error?:boolean;phase?:'space'|'artwork'|'navigation'}
+/** Keep controls quiet during entry, but make the existing recovery settings reachable after an error. */
+export function entryControlsBlocked(mode:'cover'|'text'|'3d',stageReady:boolean,viewerUnavailable:boolean,entryFailed:boolean){return mode==='3d'&&!stageReady&&!viewerUnavailable&&!entryFailed;}
 /** One entry lifecycle for public viewing and authenticated native previews. */
 export function useEntranceEntry(){
  const [mode,setMode]=useState<'cover'|'text'|'3d'>('cover'),modeRef=useRef(mode);modeRef.current=mode;
