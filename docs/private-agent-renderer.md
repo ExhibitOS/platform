@@ -31,3 +31,27 @@ This is a snapshot of an immutable native export. It does not perform authentica
 live Studio/CMS freshness checks. The existing static rights/source checks and snapshot
 camera/idle/decoded-asset/abort checks remain active. Headless software rendering does
 not establish physical GPU performance or native visual equivalence.
+
+For publication-copy exports, add `exported:{exhibitionId,publicationId,candidateSha256}`
+to the request and receipt. Top-level `candidateSha256` and `saved` remain the
+source save identity. Receipt `publication` contains the actual existing native
+`intent` (NativePublicationPending), `completed` (NativePublicationCompleted) and
+`staticExport` (NativeStaticExportReceipt). Source ID/ETag, snapshot ID, publish
+request/plan binding, publication ID/hash/status and static receipt/index/output
+are compared explicitly. The renderer validates and renders the exported candidate;
+the result preserves both identities. It does not infer source/export equivalence.
+
+The source save, native private publication snapshot and public API projection are
+three different identities. The retained `sourceDraft` must match the source hash
+and existing native copy delta. Private snapshot IDs match intent/completed only.
+For this thirteen-artwork output, fixed admitted producer `projectPublication` is
+replayed over exact unchanged source/public asset bytes and measured LOD metrics;
+all projected non-ID content is exact and the typed identity mapping is injective.
+Prose and unknown UUID strings are never rewritten. Ambiguous/unsupported source
+assets fail explicitly. This is a narrow replay, not a new publication authority.
+
+The native owner supplies `--publication-runtime ABS --publication-runtime-sha SHA`
+from its already-admitted runtime configuration, outside the agent JSON. Fixed API
+module suffixes and exact manifest entries are verified; a client cannot select a
+script URL or executable. Results record the producer pins and placement/viewpoint
+mapping. The live native/CMS authority remains with the issuer.

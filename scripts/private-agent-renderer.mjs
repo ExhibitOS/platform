@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {checkedPublicProjection} from './private-agent-publication.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {createReadStream,fstatSync} from 'node:fs';
 import {readFile,writeFile,lstat,realpath,mkdir,rm} from 'node:fs/promises';
@@ -15,7 +16,7 @@ const canonical=value=>{if(Array.isArray(value))return '['+value.map(canonical).
 const equal=(a,b)=>canonical(a)===canonical(b);
 /** One process owns one browser/context/output. This is a snapshot of an exact
  * immutable export; the native issuer alone owns live save/auth/CAS authority. */
-export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new AbortController().signal,onStage=()=>{}}={}){
+export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new AbortController().signal,onStage=()=>{},publicationRuntimeRoot,publicationRuntimeSha256}={}){
  signal=AbortSignal.any([signal,AbortSignal.timeout(60000)]);signal.throwIfAborted();await plain(inputPath);const raw=await readFile(inputPath);if(raw.length>1100000)fail('AGENT_INPUT_LIMIT');const input=JSON.parse(raw),inputSha256=hash(raw);
  const checkInput=async()=>{signal=AbortSignal.any([signal,AbortSignal.timeout(60000)]);signal.throwIfAborted();await plain(inputPath);if(await digest(inputPath,signal)!==inputSha256)fail('AGENT_STALE');};
  if(input.version!==1||!['bench-proposal','scene-snapshot'].includes(input.operation))fail('AGENT_REQUEST');
@@ -25,7 +26,7 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
   if(Object.keys(input).sort().join(',')!=='frame,operation,request,version')fail('AGENT_REQUEST');
   const {benchProposal}=await import(pathToFileURL(join(root,'dist-agent/bench.mjs')));const reply=benchProposal(input.frame,input.request);await checkInput();return publish({version:1,operation:input.operation,requestId:reply.requestId,inputSha256,reply});
  }
- if(Object.keys(input).sort().join(',')!=='binding,candidateSha256,exportReceiptPath,exportReceiptSha256,indexSha256,oexPath,oexSha256,operation,requestId,saved,snapshot,staticRoot,version')fail('AGENT_REQUEST');
+ const keys=['binding','candidateSha256','exportReceiptPath','exportReceiptSha256','indexSha256','oexPath','oexSha256','operation','requestId','saved','snapshot','staticRoot','version'];if(Object.hasOwn(input,'exported'))keys.push('exported');if(Object.keys(input).sort().join(',')!==keys.sort().join(','))fail('AGENT_REQUEST');
  const {saved,binding,snapshot}=input;
  const snapshotKeys=snapshot&&'inspectionCamera' in snapshot?'height,inspectionCamera,placementId,width':'height,placementId,viewpointId,width';
  if(!snapshot||Object.keys(snapshot).sort().join(',')!==snapshotKeys||snapshot.width!==640||snapshot.height!==360||!uuid.test(snapshot.placementId)||!('inspectionCamera' in snapshot)&&!uuid.test(snapshot.viewpointId))fail('AGENT_REQUEST');
@@ -36,8 +37,19 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
  const receipt=await json(input.exportReceiptPath);onStage('hashing-oex');const oexDigest=await digest(input.oexPath,signal);if(!equal(receipt.binding,binding)||!equal(receipt.saved,saved)||receipt.candidateSha256!==input.candidateSha256||receipt.indexSha256!==input.indexSha256||receipt.oexSha256!==input.oexSha256||await digest(input.exportReceiptPath,signal)!==input.exportReceiptSha256||oexDigest!==input.oexSha256)fail('AGENT_EXPORT_BINDING');
  const entries=[index.publication,...(index.assets??[]),...(index.resources??[]),...(index.furnishingNotices??[])];if(entries.length>20030)fail('AGENT_INPUT_LIMIT');const files=new Map();
  for(const entry of entries){if(!entry||!hex.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<1||entry.bytes>33554432||!new RegExp('^data/'+entry.sha256+'\\.(json|bin)$').test(entry.path))fail('AGENT_EXPORT_BINDING');const path=join(input.staticRoot,entry.path);await plain(path);if((await lstat(path)).size!==entry.bytes||await digest(path,signal)!==entry.sha256)fail('AGENT_STALE');files.set('/'+entry.path,{path,entry});}
- const publication=await json(join(input.staticRoot,index.publication.path));if(publication.exhibition.id!==saved.exhibitionId||hash(canonical(publication.exhibition))!==input.candidateSha256)fail('AGENT_EXPORT_BINDING');
- const recheck=async()=>{await checkInput();for(const [path,expected] of [[indexPath,input.indexSha256],[input.exportReceiptPath,input.exportReceiptSha256],[input.oexPath,input.oexSha256]]){await plain(path);if(await digest(path,signal)!==expected)fail('AGENT_STALE');}for(const {path,entry} of files.values()){await plain(path);if(await digest(path,signal)!==entry.sha256)fail('AGENT_STALE');}signal.throwIfAborted();};
+ const publication=await json(join(input.staticRoot,index.publication.path));
+ const exported=input.exported??{exhibitionId:saved.exhibitionId,publicationId:publication.publication.id,candidateSha256:input.candidateSha256};
+ if(Object.keys(exported).sort().join(',')!=='candidateSha256,exhibitionId,publicationId'||!uuid.test(exported.exhibitionId)||!uuid.test(exported.publicationId)||!hex.test(exported.candidateSha256)||publication.exhibition.id!==exported.exhibitionId||publication.publication.id!==exported.publicationId||publication.publication.revisionSha256!==exported.candidateSha256||hash(canonical(publication.exhibition))!==exported.candidateSha256)fail('AGENT_EXPORT_BINDING');
+ let exportManifest;
+ if(input.exported){
+  const {intent,completed,staticExport}=receipt.publication??{};
+  if(!equal(receipt.exported,exported)||!intent||!completed||!staticExport||intent.sourceExhibitionId!==saved.exhibitionId||intent.sourceEtag!==saved.etag||completed.sourceExhibitionId!==saved.exhibitionId||completed.sourceEtag!==saved.etag||!uuid.test(intent.publishRequestId)||intent.publishRequestId!==completed.publishRequestId||intent.snapshot?.exhibitionId!==completed.snapshotExhibitionId||intent.planBindingSha256!==completed.planBindingSha256||completed.publication?.publicationId!==exported.publicationId||completed.publication?.revisionSha256!==exported.candidateSha256||completed.publication?.status!=='published'||staticExport.publicationId!==exported.publicationId||staticExport.revisionSha256!==exported.candidateSha256||staticExport.indexSha256!==input.indexSha256||staticExport.output!==input.staticRoot)fail('AGENT_PUBLICATION_BINDING');
+  const manifestPath=join(input.staticRoot,'static-export-manifest.json');await plain(manifestPath);if(!hex.test(staticExport.manifestSha256)||(await lstat(manifestPath)).size>1048576||await digest(manifestPath,signal)!==staticExport.manifestSha256)fail('AGENT_PUBLICATION_BINDING');exportManifest={path:manifestPath,sha256:staticExport.manifestSha256};
+ }
+
+ const projection=input.exported?await checkedPublicProjection({receipt,publication,files,runtimeRoot:publicationRuntimeRoot,runtimeSha256:publicationRuntimeSha256,signal}):undefined;
+ if(projection&&(!projection.placements.some(p=>p.exported===snapshot.placementId)||snapshot.viewpointId&&!projection.viewpoints.some(p=>p.exported===snapshot.viewpointId)))fail('AGENT_PROJECTION_TARGET');
+ const recheck=async()=>{await checkInput();for(const [path,expected] of [[indexPath,input.indexSha256],[input.exportReceiptPath,input.exportReceiptSha256],[input.oexPath,input.oexSha256],...(exportManifest?[[exportManifest.path,exportManifest.sha256]]:[]),...(projection?[[join(publicationRuntimeRoot,'manifest.json'),publicationRuntimeSha256],[join(publicationRuntimeRoot,'platform/apps/api/dist/publication.js'),projection.producer.publicationModuleSha256],[join(publicationRuntimeRoot,'platform/apps/api/dist/viewer-variants.js'),projection.producer.measureModuleSha256]]:[])]){await plain(path);if(await digest(path,signal)!==expected)fail('AGENT_STALE');}for(const {path,entry} of files.values()){await plain(path);if(await digest(path,signal)!==entry.sha256)fail('AGENT_STALE');}signal.throwIfAborted();};
  let browser,server;const errors=[];const nonce=randomUUID();
  try{
   server=createServer(async(req,res)=>{try{if(req.headers.host!==`127.0.0.1:${server.address().port}`||req.method!=='GET'){res.writeHead(403).end();return;}const url=req.url;
@@ -51,9 +63,9 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
    const context=await browser.newContext({viewport:{width:960,height:640},serviceWorkers:'block',acceptDownloads:false});signal.throwIfAborted();
    const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.route('**/*',route=>{const u=new URL(route.request().url());return u.origin===`http://127.0.0.1:${server.address().port}`?route.continue():route.abort();});
    await page.goto(`http://127.0.0.1:${server.address().port}/${nonce}`);await page.waitForFunction(()=>typeof window.captureExport==='function');onStage('renderer-ready');
-   const image=await page.evaluate(value=>window.captureExport(value),{requestId:input.requestId,candidateSha256:input.candidateSha256,snapshot});signal.throwIfAborted();if(errors.length)fail('AGENT_RENDER');
+   const image=await page.evaluate(value=>window.captureExport(value),{requestId:input.requestId,candidateSha256:exported.candidateSha256,snapshot});signal.throwIfAborted();if(errors.length)fail('AGENT_RENDER');
    const png=Buffer.from(image.pngBase64,'base64');if(png.length>524288||png.length<33||!png.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||png.readUInt32BE(16)!==640||png.readUInt32BE(20)!==360||image.target.ready!==true||image.target.placementId!==snapshot.placementId)fail('AGENT_PNG');
-   delete image.pngBase64;onStage('encoded');await recheck();const result={version:1,operation:input.operation,requestId:input.requestId,inputSha256,binding,saved,provenance:{kind:'snapshot-of-export',exportReceiptSha256:input.exportReceiptSha256,indexSha256:input.indexSha256,oexSha256:input.oexSha256,candidateSha256:input.candidateSha256,liveCMSRechecked:false},...image,png:{path:'scene.png',sha256:hash(png),bytes:png.length},browser:{version:browser.version(),headless:true}};
+   delete image.pngBase64;onStage('encoded');await recheck();const result={version:1,operation:input.operation,requestId:input.requestId,inputSha256,binding,saved,provenance:{kind:'snapshot-of-export',exportReceiptSha256:input.exportReceiptSha256,indexSha256:input.indexSha256,oexSha256:input.oexSha256,candidateSha256:input.candidateSha256,liveCMSRechecked:false},...image,candidateSha256:input.candidateSha256,...(input.exported?{exported,projection}:{}),png:{path:'scene.png',sha256:hash(png),bytes:png.length},browser:{version:browser.version(),headless:true}};
    await browser.close();browser=undefined;await new Promise(resolve=>server.close(resolve));server=undefined;await recheck();return await publish(result,png,recheck);
   }finally{signal.removeEventListener('abort',abort);}
  }finally{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));}
@@ -67,9 +79,9 @@ if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.u
  const args=process.argv.slice(2),abort=new AbortController();let finished=false;
  const cancel=()=>{if(!finished)abort.abort(Error('AGENT_CANCELLED'));};
  try{
-  if(args.length!==4||args[0]!=='--input'||args[2]!=='--output')fail('AGENT_USAGE');const stat=fstatSync(0);if(!stat.isFIFO()&&!stat.isSocket())fail('AGENT_OWNER_PIPE_REQUIRED');
+  if(![4,8].includes(args.length)||args[0]!=='--input'||args[2]!=='--output'||args.length===8&&(args[4]!=='--publication-runtime'||args[6]!=='--publication-runtime-sha'||!hex.test(args[7])))fail('AGENT_USAGE');const stat=fstatSync(0);if(!stat.isFIFO()&&!stat.isSocket())fail('AGENT_OWNER_PIPE_REQUIRED');
   process.stdin.setEncoding('utf8');let count=0;process.stdin.on('data',chunk=>{count+=Buffer.byteLength(chunk);if(count>128||chunk.trim()!=='{"cancel":true}')abort.abort(Error('AGENT_CANCELLED'));else cancel();});process.stdin.once('end',cancel);process.stdin.once('error',cancel);process.stdin.resume();process.once('SIGTERM',cancel);process.once('SIGINT',cancel);
-  const result=await runPrivateAgentRenderer(resolve(args[1]),resolve(args[3]),{signal:abort.signal});finished=true;console.log(JSON.stringify(result));
+  const result=await runPrivateAgentRenderer(resolve(args[1]),resolve(args[3]),{signal:abort.signal,...(args.length===8?{publicationRuntimeRoot:resolve(args[5]),publicationRuntimeSha256:args[7]}:{})});finished=true;console.log(JSON.stringify(result));
  }catch(error){finished=true;const code=abort.signal.aborted?'AGENT_CANCELLED':/^(AGENT_|BENCH_INSPECTOR_|SCENE_SNAPSHOT_)[A-Z_]+$/.test(error?.message)?error.message:'AGENT_RENDER_FAILED';console.log(JSON.stringify({version:1,status:'failed',code}));process.exitCode=1;}
  finally{process.stdin.destroy();}
 }
