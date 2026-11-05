@@ -10,6 +10,7 @@ export function pngCrc(data: Buffer) {
   }
   return (value ^ 0xffffffff) >>> 0;
 }
+export class PngPixelLimitError extends Error { constructor(){super("PNG pixel limit exceeded");} }
 export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dimensionLimit = 8192, chunkLimit = 256) {
   if (
     data.length < 33 ||
@@ -23,7 +24,7 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
     ended = false,
     seenIdat = false,
     closedIdat = false,
-    seenSrgb = false,srgbIntent:number|undefined;
+    seenSrgb = false,pixelLimitExceeded=false,srgbIntent:number|undefined;
   const compressed: Buffer[] = [];
   let chunkCount = 0;
   while (offset < data.length) {
@@ -44,7 +45,6 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
       if (
         !width ||
         !height ||
-        width * height > pixelLimit ||
         width > dimensionLimit ||
         height > dimensionLimit ||
         body[8] !== 8 ||
@@ -54,6 +54,7 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
         body[12] !== 0
       )
         fail();
+      pixelLimitExceeded=width * height > pixelLimit;
     } else if (kind === "sRGB") {
       // One bounded color-space intent byte; no text, profiles or external data.
       if (seenSrgb || seenIdat || size !== 1 || body[0]! > 3) fail();
@@ -73,6 +74,7 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
     offset = end;
   }
   if (!ended) fail();
+  if (pixelLimitExceeded) throw new PngPixelLimitError();
   const expanded = (width * channels + 1) * height;
   const result = inflateSync(Buffer.concat(compressed), {
     maxOutputLength: expanded,

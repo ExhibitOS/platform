@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {prepareTextureDerivative} from './approved-lod-pair.ts';
-import {decodePngPixels as png,pngCrc as crc} from "./png-pixels.ts";
+import {decodePngPixels as png,pngCrc as crc,PngPixelLimitError} from "./png-pixels.ts";
 import {verifyBasisPayload} from './basis-payload.ts';
 import {embeddedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
 import { deflateSync } from "node:zlib";
@@ -317,10 +317,14 @@ try {
       // Embedded model marking is not a supported capability.
       process.stdout.write(bytes);
     } else fail();
+  } else if (process.argv[3] === "png-original") {
+    if(process.argv[2]!=="image/png")fail();
+    png(bytes);
   } else if (process.argv[2] === "image/png") png(bytes);
   else if (process.argv[2] === "model/gltf-binary") await glb(bytes);
   else fail();
   if (!["derivative","texture-pair"].includes(process.argv[3]??"")) process.stdout.write("VALID\n");
-} catch {
+} catch (error) {
+  if(process.argv[2]==="image/png"&&process.argv[3]==="png-original"&&error instanceof PngPixelLimitError)process.stdout.write("PNG_PIXEL_LIMIT_EXCEEDED\n");
   process.exitCode = 1;
 }
