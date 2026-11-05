@@ -17,11 +17,11 @@ it('creates one fixed-profile job with exact chunk keys and rejects changed retr
   if(sql.includes("current_setting('transaction_isolation')"))return {rows:[{isolation:'read committed',probe}]};
   if(sql.includes('WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3'))return {rows:prior?[prior]:[]};
   if(sql.includes('count(*)'))return {rows:[{count:'0',bytes:'0'}]};
-  if(sql.startsWith('INSERT')){const keys=JSON.parse(args![6] as string) as string[];expect(keys).toHaveLength(5);expect(keys[0]).toBe(`${session.tenantId}/oex-staging/${args![1]}/chunk-0`);return {rows:[{id:args![1],state:'uploading'}]};}return {rows:[]};
+  if(sql.startsWith('INSERT')){const keys=JSON.parse(args![6] as string) as string[];expect(args![7]).toBe('1.0.0-draft.9');expect(keys).toHaveLength(5);expect(keys[0]).toBe(`${session.tenantId}/oex-staging/${args![1]}/chunk-0`);return {rows:[{id:args![1],state:'uploading'}]};}return {rows:[]};
  });const client={query} as unknown as PoolClient,input={requestId:id(5),bytes:64*1024*1024+1,sha256:digest};
  const created=await createBoundedOexJob(client,session,input);expect(created.state).toBe('uploading');
  prior={id:created.id,state:'uploading',archive_profile:'bounded-file-v1',oex_format:'1.0.0-draft.9',payload_sha256:digest,expected_bytes:input.bytes};
- await expect(createBoundedOexJob(client,session,input)).resolves.toEqual(created);await expect(createBoundedOexJob(client,session,{...input,sha256:'0'.repeat(64)})).rejects.toThrow('REQUEST_CONFLICT');
+ await expect(createBoundedOexJob(client,session,input)).resolves.toEqual(created);await expect(createBoundedOexJob(client,session,{...input,archiveFormat:'1.0.0-draft.10'})).rejects.toThrow('REQUEST_CONFLICT');await expect(createBoundedOexJob(client,session,{...input,sha256:'0'.repeat(64)})).rejects.toThrow('REQUEST_CONFLICT');
 });
 it('rejects lost transaction-local state and stronger isolation before quota or insertion',async()=>{
  for(const isolation of ['read committed','repeatable read']){
@@ -72,3 +72,15 @@ it('uses the real immutable local store across a 16MiB chunk boundary',async()=>
   await expect(verifyBoundedOexChunks(f.client,session,job,blobs)).resolves.toEqual({bytes:first.length+second.length,sha256:f.row.payload_sha256});
  }finally{await rm(root,{recursive:true,force:true});}
 },20000);
+
+it('persists explicit draft10 and refuses a retry that would relabel it draft9',async()=>{
+ let probe='',prior:unknown;const query=vi.fn(async(sql:string,args?:unknown[])=>{
+  if(sql.includes("set_config('exhibitos.oex_tx_probe'")){probe=String(args![0]);return {rows:[]};}
+  if(sql.includes("current_setting('transaction_isolation')"))return {rows:[{isolation:'read committed',probe}]};
+  if(sql.includes('WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3'))return {rows:prior?[prior]:[]};
+  if(sql.includes('count(*)'))return {rows:[{count:'0',bytes:'0'}]};
+  if(sql.startsWith('INSERT')){expect(args![7]).toBe('1.0.0-draft.10');prior={id:args![1],state:'uploading',archive_profile:'bounded-file-v1',oex_format:args![7],payload_sha256:digest,expected_bytes:1};return {rows:[{id:args![1],state:'uploading'}]};}return {rows:[]};
+ }),client={query} as unknown as PoolClient,input={requestId:id(5),bytes:1,sha256:digest,archiveFormat:'1.0.0-draft.10' as const};
+ const first=await createBoundedOexJob(client,session,input);await expect(createBoundedOexJob(client,session,input)).resolves.toEqual(first);
+ await expect(createBoundedOexJob(client,session,{...input,archiveFormat:'1.0.0-draft.9'})).rejects.toThrow('REQUEST_CONFLICT');
+});

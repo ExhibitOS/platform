@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {isNativeOexFileManifest} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import {withOexFileHandle,type OexReadHandle} from '@exhibitos/spec';
 import {decodePackedOexDocumentsV2} from './oex-packed-documents-v2.ts';
@@ -10,7 +11,7 @@ const digest=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex'
 type Identity={dev:bigint;ino:bigint;size:bigint;mtimeNs:bigint;ctimeNs:bigint};
 const same=(a:Identity,b:Identity)=>a.dev===b.dev&&a.ino===b.ino&&a.size===b.size&&a.mtimeNs===b.mtimeNs&&a.ctimeNs===b.ctimeNs;
 
-/** Read-only draft.9 sizing evidence, never reservation or commit authority.
+/** Read-only bounded draft.9/10 sizing evidence, never reservation or commit authority.
  * The Spec reader validates assets (including GLB) in-process; product use
  * requires an owned, bounded, cancellable and actually drained worker. This
  * does not replace the product decoder. Caller retains a stable input FD;
@@ -38,8 +39,8 @@ export async function preflightOexSize(file:OexReadHandle,expected:{bytes:number
   const manifestSha256=digest(manifestBytes),decoded=decodePackedOexDocumentsV2(manifestBytes,manifestSha256,exhibitionBytes,digest(exhibitionBytes));
   const inventory=packedOexInventory(decoded.manifest);let packedBytes=0;
   for(const item of inventory.values()){packedBytes+=item.bytes;if(!Number.isSafeInteger(packedBytes)||packedBytes>MAX)throw Error('OEX_PREFLIGHT_LIMIT');}
-  if(packedBytes>indexed.expandedBytes||indexed.archiveBytes!==bytes||manifest.formatVersion!=='1.0.0-draft.9')throw Error('OEX_PREFLIGHT_LIMIT');
-  return {archiveBytes:indexed.archiveBytes,expandedBytes:indexed.expandedBytes,packedBytes,manifestSha256,entryCount:files.size};
+  if(packedBytes>indexed.expandedBytes||indexed.archiveBytes!==bytes||!isNativeOexFileManifest(manifest))throw Error('OEX_PREFLIGHT_LIMIT');
+  return {archiveFormat:manifest.formatVersion,archiveBytes:indexed.archiveBytes,expandedBytes:indexed.expandedBytes,packedBytes,manifestSha256,entryCount:files.size};
  });
  if(await hashInput()!==sha256)throw Error('OEX_PREFLIGHT_HASH');
  return Object.freeze({...value,archiveSha256:sha256,inputDevice:initial.dev.toString(),inputInode:initial.ino.toString()});

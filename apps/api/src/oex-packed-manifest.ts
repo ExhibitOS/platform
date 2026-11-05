@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {isNativeOexFileManifest} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import {validateOexManifest} from '@exhibitos/spec';
 
@@ -12,7 +13,7 @@ export function bindPackedOexManifest(input:Uint8Array,expectedSha256:string):un
  if(createHash('sha256').update(bytes).digest('hex')!==expectedSha256)throw Error('OEX_PACKED_MANIFEST');
  let manifest:unknown;
  try{manifest=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{throw Error('OEX_PACKED_MANIFEST');}
- if(!manifest||typeof manifest!=='object'||Array.isArray(manifest)||(manifest as {formatVersion?:unknown}).formatVersion!=='1.0.0-draft.9'||!validateOexManifest(manifest).valid)throw Error('OEX_PACKED_MANIFEST');
+ if(!isNativeOexFileManifest(manifest)||!validateOexManifest(manifest).valid)throw Error('OEX_PACKED_MANIFEST');
  const pending:object[]=[manifest],seen:object[]=[];
  while(pending.length){const value=pending.pop()!;seen.push(value);if(seen.length>100000)throw Error('OEX_PACKED_MANIFEST');for(const child of Object.values(value))if(child&&typeof child==='object')pending.push(child);}
  for(let i=seen.length-1;i>=0;i--)Object.freeze(seen[i]);return manifest;

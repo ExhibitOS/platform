@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
+import {isNativeOexFileFormat,type NativeOexFileFormat} from './oex-file-format.ts';
 import type {FastifyInstance,FastifyRequest} from 'fastify';
 import type {PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
@@ -11,7 +12,7 @@ export interface SelectedNativeUpload {
  /** Exact server Auth session ID from authenticated native bootstrap, never
   * an HTTP field or another session of the same personal principal. */
  sessionId:string;tenantId:string;principalId:string;workspaceId:string;runtimeGeneration:string;
- requestId:string;bytes:number;sha256:string;
+ requestId:string;bytes:number;sha256:string;archiveFormat?:NativeOexFileFormat;
 }
 /** Implemented ONLY by the future authenticated native bootstrap. It must
  * hold and revalidate the same actual Session, retained owner connection and
@@ -35,10 +36,12 @@ const issued=new WeakMap<NativeBoundedUploadCapability,State>();
  * environment/HTTP parser or receipt loader; never reconstruct after loss.
  * Nothing in this module wires a bootstrap or enables the selected mode. */
 export function bindSelectedNativeUpload(owner:NativeUploadOwner,input:SelectedNativeUpload):NativeBoundedUploadCapability{
- const names=['sessionId','tenantId','principalId','workspaceId','runtimeGeneration','requestId','bytes','sha256'] as const;
+ const explicitFormat=Object.hasOwn(input??{},'archiveFormat');
+ const names=['sessionId','tenantId','principalId','workspaceId','runtimeGeneration','requestId','bytes','sha256',...(explicitFormat?['archiveFormat' as const]:[])] as const;
  if(!input||typeof input!=='object'||Reflect.ownKeys(input).length!==names.length||Reflect.ownKeys(input).some(key=>typeof key!=='string'||!names.includes(key as typeof names[number])))throw Error('NATIVE_UPLOAD_CONFIGURATION');
  const snapshot:Record<string,unknown>={};for(const name of names){const d=Object.getOwnPropertyDescriptor(input,name);if(!d||!('value'in d))throw Error('NATIVE_UPLOAD_CONFIGURATION');snapshot[name]=d.value;}
  for(const name of names.slice(0,6)){uuid(snapshot[name]);if(snapshot[name]!==String(snapshot[name]).toLowerCase())throw Error('NATIVE_UPLOAD_CONFIGURATION');}
+ if(explicitFormat&&!isNativeOexFileFormat(snapshot.archiveFormat))throw Error('NATIVE_UPLOAD_CONFIGURATION');
  if(!Number.isSafeInteger(snapshot.bytes)||Number(snapshot.bytes)<1||Number(snapshot.bytes)>MAX||typeof snapshot.sha256!=='string'||!hex.test(snapshot.sha256)||!owner||typeof owner.assertLive!=='function'||typeof owner.assertDatabase!=='function'||typeof owner.runScoped!=='function')throw Error('NATIVE_UPLOAD_CONFIGURATION');
  const capability=Object.freeze(Object.create(null)) as NativeBoundedUploadCapability;
  issued.set(capability,{selection:Object.freeze(snapshot) as unknown as Readonly<SelectedNativeUpload>,assertLive:owner.assertLive.bind(owner),assertDatabase:owner.assertDatabase.bind(owner),runScoped:owner.runScoped.bind(owner),busy:false,closed:false,queued:false,active:new Set(),cancelIncoming:new Set()});
@@ -192,7 +195,7 @@ function registerUploadRoutes(app:FastifyInstance,auth:Auth,input:AuthConfig,blo
     const value=req.body;if(req.headers['content-type']?.split(';')[0]!=='application/json'||!value||typeof value!=='object'||Array.isArray(value)||Buffer.isBuffer(value)||Object.keys(value).sort().join(',')!=='bytes,requestId,sha256')throw new ApiError(400,'INVALID_INPUT');
     const body=value as {requestId:string;bytes:number;sha256:string},selected=state.selection;
     if(body.requestId!==selected.requestId||body.bytes!==selected.bytes||body.sha256!==selected.sha256)throw new ApiError(409,'REQUEST_CONFLICT');
-    const created=await createBoundedOexJob(c,s,body);uuid(created.id);if(created.id!==created.id.toLowerCase()||state.jobId!==undefined&&created.id!==state.jobId||created.state!=='uploading')throw new ApiError(409,'NATIVE_UPLOAD_CLOSED');return created;
+    const created=await createBoundedOexJob(c,s,{...body,...(selected.archiveFormat?{archiveFormat:selected.archiveFormat}:{})});uuid(created.id);if(created.id!==created.id.toLowerCase()||state.jobId!==undefined&&created.id!==state.jobId||created.state!=='uploading')throw new ApiError(409,'NATIVE_UPLOAD_CLOSED');return created;
    },created=>{state.jobId=created.id;});
    return reply.code(201).send(result);
   });

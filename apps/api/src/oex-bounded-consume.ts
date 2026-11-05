@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
 import {FileBlobStore} from '@exhibitos/storage';
-import {spaceStillFor,type Exhibition,type OexBoundedFileManifest} from '@exhibitos/spec';
+import {spaceStillFor,revisionHash,packageFloorResourceManifest,packageSurfaceMaterialManifest,footstepResourcesFor,type Exhibition,type OexBoundedFileManifest,type OexMaterialCatalogueManifest} from '@exhibitos/spec';
 import {artworkThumbnailFor,curationDurationValid,furnishingsFor} from '@exhibitos/studio-contract';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {validateCoverImage} from './cover-images.ts';
@@ -16,11 +16,13 @@ type Reader={count:number;readNext():Promise<{path:string;bytes:Buffer}>};
  * the live Session, issued claim and reservation throughout, and establish
  * actual child/write drain (including decoder children) before its separate atomic DB attachment. This
  * function grants no authority and must not be connected to a public route. */
-export async function consumeBoundedOex(input:{manifest:OexBoundedFileManifest;exhibition:Exhibition;sourceKeys:ReadonlyMap<string,string>;reader:Reader;blobs:FileBlobStore;verifyLive:()=>Promise<void>;signal:AbortSignal;allowEmpty?:true}){
+export async function consumeBoundedOex(input:{manifest:OexBoundedFileManifest|OexMaterialCatalogueManifest;exhibition:Exhibition;sourceKeys:ReadonlyMap<string,string>;reader:Reader;blobs:FileBlobStore;verifyLive:()=>Promise<void>;signal:AbortSignal;allowEmpty?:true}){
  const {manifest,exhibition,reader,blobs,signal}=input;
  if(!(blobs instanceof FileBlobStore)||!(input.sourceKeys instanceof Map)||!reader||typeof reader.readNext!=='function'||typeof input.verifyLive!=='function'||!signal)throw Error('OEX_BOUNDED_CONSUME');
  checkOexProfile(exhibition,false,'bounded-file-v1');const exportTime=Date.parse(manifest.createdAt),originalStill=spaceStillFor(exhibition),rights=[...exhibition.artworks.map(a=>a.rights),...exhibition.mediaAssets.map(m=>m.rights),...(originalStill?[originalStill.rights]:[])];
  if(!Number.isFinite(exportTime)||rights.some(r=>!allowedRights(r,'export',exportTime)||!allowedRights(r,'export')))throw Error('OEX_BOUNDED_RIGHTS');
+ const floorResources=packageFloorResourceManifest(exhibition),materialResources=packageSurfaceMaterialManifest(exhibition),footstepResources=footstepResourcesFor(exhibition);
+ if(revisionHash(floorResources)!==revisionHash(manifest.floorResources??[])||revisionHash(materialResources)!==revisionHash(manifest.materialResources??[])||revisionHash(footstepResources)!==revisionHash(manifest.footstepResources??[]))throw Error('OEX_BOUNDED_CONSUME');
  const sourceKeys=new Map(input.sourceKeys),all=[...manifest.assets,...(manifest.floorResources??[]),...(manifest.furnishingNotices??[]),...(manifest.materialResources??[]),...(manifest.footstepResources??[])],descriptors=new Map(all.map(x=>[x.path,x]));
  if(all.length===0&&input.allowEmpty!==true||all.length>254||descriptors.size!==all.length||reader.count!==all.length||sourceKeys.size!==all.length||new Set(sourceKeys.values()).size!==all.length||all.some(x=>!sourceKeys.has(x.path)||typeof sourceKeys.get(x.path)!=='string'))throw Error('OEX_BOUNDED_CONSUME');
  if(all.length===0){signal.throwIfAborted();await input.verifyLive();signal.throwIfAborted();}
@@ -49,5 +51,5 @@ export async function consumeBoundedOex(input:{manifest:OexBoundedFileManifest;e
   signal.throwIfAborted();await input.verifyLive();signal.throwIfAborted();await blobs.put(sourceKeys.get(path)!,bytes);
  }
  if(seen.size!==all.length||mediaDurations.size!==exhibition.mediaAssets.length)throw Error('OEX_BOUNDED_CONSUME');
- return {...mapped,keys,mediaDurations,floorResources:manifest.floorResources??[],materialResources:manifest.materialResources??[],footstepResources:manifest.footstepResources??[]};
+ return {...mapped,keys,mediaDurations,floorResources,materialResources,footstepResources};
 }

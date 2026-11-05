@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Test-only launcher: real inherited high FDs, no private owner authority.
 import fcntl,json,os,select,subprocess,sys,time
-node,source,path=sys.argv[1:]
+node,source,path=sys.argv[1:4]
+selected=sys.argv[4] if len(sys.argv)>4 else None
 request=sys.stdin.buffer.read(4097)
 if not request or len(request)>4096: raise SystemExit(2)
 in_fd=os.open(path,os.O_RDONLY)
@@ -11,7 +12,8 @@ fds=[]
 child=None
 try:
  for fd in (control_read,ack_write,in_fd):fds.append(fcntl.fcntl(fd,fcntl.F_DUPFD,64))
- env=os.environ.copy();env['EXHIBITOS_OEX_PREFLIGHT_FDS']=','.join(map(str,fds))
+ env=os.environ.copy();env.pop('EXHIBITOS_OEX_PREFLIGHT_FORMAT',None);env['EXHIBITOS_OEX_PREFLIGHT_FDS']=','.join(map(str,fds))
+ if selected is not None:env['EXHIBITOS_OEX_PREFLIGHT_FORMAT']=selected
  child=subprocess.Popen([node,source],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,pass_fds=tuple(fds),env=env)
  for fd in fds:os.close(fd)
  fds.clear();os.close(control_read);control_read=-1;os.close(ack_write);ack_write=-1

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,copyFile,rm,symlink} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';import {createHash} from 'node:crypto';import {fileURLToPath} from 'node:url';
-import {recognizeNormalOexCatalog,preflightNormalOexCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256} from './native-oex-normal-catalog.mjs';
+import {recognizeNormalOexCatalog,preflightNormalOexCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256} from './native-oex-normal-catalog.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 async function fixture(){const root=await mkdtemp(join(tmpdir(),'native-catalog-')),base=join(root,'base'),extra=join(root,'extra');await mkdir(base);await mkdir(extra);const rows=[];for(let i=1;i<=25;i++){const name=String(i).padStart(3,'0')+'_fixture.sql',data='SELECT '+i+';';await writeFile(join(base,name),data);rows.push({name,sha256:sha(data)});}await copyFile(fileURLToPath(new URL('../database/native-oex-normal/026_oex_file_profile.sql',import.meta.url)),join(extra,NORMAL_OEX_MIGRATION));rows.push({name:NORMAL_OEX_MIGRATION,sha256:NORMAL_OEX_SHA256});return{root,base,extra,rows,pool:{query:async()=>({rows})}};}
 test('recognizes only the complete pinned normal catalog, without modifying it',async()=>{const f=await fixture();try{assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);f.rows.pop();assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),undefined);}finally{await rm(f.root,{recursive:true,force:true});}});
@@ -8,7 +8,7 @@ test('refuses drift, unknown rows, changed supplemental bytes and symlinks',asyn
 
 test('recognizes exact 027 only with matching bytes and fails closed for missing or drifted provenance',async()=>{const f=await fixture();try{
  const source=fileURLToPath(new URL('../database/native-oex-normal/027_oex_exhibition_provenance.sql',import.meta.url));await copyFile(source,join(f.extra,NORMAL_OEX_PROVENANCE_MIGRATION));
- assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);f.rows.push({name:NORMAL_OEX_PROVENANCE_MIGRATION,sha256:NORMAL_OEX_PROVENANCE_SHA256});assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);
+ assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);f.rows.push({name:NORMAL_OEX_PROVENANCE_MIGRATION,sha256:NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256});assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);
  await writeFile(join(f.extra,NORMAL_OEX_PROVENANCE_MIGRATION),'changed');await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  await rm(join(f.extra,NORMAL_OEX_PROVENANCE_MIGRATION));await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/ENOENT/);
  }finally{await rm(f.root,{recursive:true,force:true});}});
@@ -18,4 +18,12 @@ test('preflight permits an empty or legacy catalog and rejects unknown or damage
  assert.equal(await preflightNormalOexCatalog(client,f.base,f.extra),undefined);present=true;rows=f.rows.slice(0,25);assert.equal(await preflightNormalOexCatalog(client,f.base,f.extra),undefined);
  rows=structuredClone(f.rows);assert.equal(await preflightNormalOexCatalog(client,f.base,f.extra),f.extra);rows[25].sha256='0'.repeat(64);await assert.rejects(preflightNormalOexCatalog(client,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  rows=[...f.rows.slice(0,25),{name:'026_unknown.sql',sha256:'0'.repeat(64)}];await assert.rejects(preflightNormalOexCatalog(client,f.base,f.extra),/NATIVE_OEX_CATALOG/);
+ }finally{await rm(f.root,{recursive:true,force:true});}});
+
+test('recognizes exact028 after026/027 and rejects missing, drifted or reordered catalogue rows',async()=>{const f=await fixture();try{
+ for(const name of [NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_MATERIAL_MIGRATION])await copyFile(fileURLToPath(new URL('../database/native-oex-normal/'+name,import.meta.url)),join(f.extra,name));
+ f.rows.push({name:NORMAL_OEX_PROVENANCE_MIGRATION,sha256:NORMAL_OEX_PROVENANCE_SHA256},{name:NORMAL_OEX_MATERIAL_MIGRATION,sha256:NORMAL_OEX_MATERIAL_SHA256});
+ assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra),f.extra);
+ f.rows[27].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);f.rows[27].sha256=NORMAL_OEX_MATERIAL_SHA256;
+ f.rows.splice(26,1);await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra),/NATIVE_OEX_CATALOG/);
  }finally{await rm(f.root,{recursive:true,force:true});}});

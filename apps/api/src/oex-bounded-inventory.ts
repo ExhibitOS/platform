@@ -19,7 +19,7 @@ export async function recordBoundedOexDestinations(c:PoolClient,s:Session,jobId:
  if(tx?.isolation!=='read committed'||tx.probe!==probe)throw new ApiError(409,'OEX_TRANSACTION_UNSUPPORTED');
  const keys=snapshot.map(()=>`${s.tenantId}/oex-import/${jobId}/${attemptId}/${randomUUID()}`);
  if(new Set(keys).size!==keys.length)throw new ApiError(409,'OEX_INVENTORY_UNAVAILABLE');
- const result=await c.query("UPDATE oex_import_jobs SET cleanup_keys=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND user_id=$3 AND lease_id=$4 AND lease_until>clock_timestamp() AND state='processing' AND archive_profile='bounded-file-v1' AND oex_format='1.0.0-draft.9' AND cleanup_keys='[]'::jsonb AND NOT cleanup_pending RETURNING id",[s.tenantId,jobId,s.userId,leaseId,JSON.stringify(keys)]);
+ const result=await c.query("UPDATE oex_import_jobs SET cleanup_keys=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND user_id=$3 AND lease_id=$4 AND lease_until>clock_timestamp() AND state='processing' AND archive_profile='bounded-file-v1' AND oex_format IN ('1.0.0-draft.9','1.0.0-draft.10') AND cleanup_keys='[]'::jsonb AND NOT cleanup_pending RETURNING id",[s.tenantId,jobId,s.userId,leaseId,JSON.stringify(keys)]);
  if(result.rowCount!==1||result.rows[0]?.id!==jobId)throw new ApiError(409,'OEX_INVENTORY_UNAVAILABLE');
  return new Map(snapshot.map((path,index)=>[path,keys[index]!]));
 }

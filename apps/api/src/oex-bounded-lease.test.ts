@@ -22,3 +22,9 @@ it('rechecks Session and lease after acquiring the committed row lock',async()=>
  let probe='',checks=0;const query=vi.fn(async(sql:string,args?:unknown[])=>{if(sql.includes('set_config')){probe=String(args![0]);return {rows:[]};}if(sql.includes('transaction_isolation'))return {rows:[{isolation:'read committed',probe}]};if(sql.startsWith('SELECT j.id')){checks++;return checks===1?{rowCount:1,rows:[{id:input.jobId}]}:{rowCount:0,rows:[]};}throw Error('unexpected');});
  await expect(verifyBoundedOexLease({query} as unknown as PoolClient,s,{jobId:input.jobId,requestId:input.requestId,userId:s.userId,leaseId:'10000000-0000-4000-8000-000000000006',archiveBytes:input.bytes,archiveSha256:input.sha256})).rejects.toThrow('OEX_LEASE_UNAVAILABLE');expect(checks).toBe(2);
 });
+
+it('claims the exact explicit draft10 job and denies cross-version selection before lease assignment',async()=>{
+ const f=fixture();f.row.oex_format='1.0.0-draft.10';
+ await expect(claimBoundedOexLease({query:f.query} as unknown as PoolClient,s,input)).rejects.toThrow('OEX_JOB_INVALID');expect(f.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+ const lease=await claimBoundedOexLease({query:f.query} as unknown as PoolClient,s,{...input,archiveFormat:'1.0.0-draft.10'});expect(lease.archiveFormat).toBe('1.0.0-draft.10');
+});

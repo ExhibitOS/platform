@@ -28,6 +28,7 @@ export async function preparePackedOex(input:ReadHandle,output:WriteHandle,recei
  };
  await check();let written:Awaited<ReturnType<typeof writePackedOexAssets>>|undefined;
  await openValidated(input,async({manifest,files})=>{
+  if(!manifest||typeof manifest!=='object'||Array.isArray(manifest)||(manifest as {formatVersion?:unknown}).formatVersion!=='1.0.0-draft.9')throw Error('OEX_PACKED_MANIFEST');
   const bytes=await files.get('manifest.json');if(!bytes||bytes.byteLength>4*1024*1024||createHash('sha256').update(bytes).digest('hex')!==r.manifestSha256)throw Error('OEX_PACKED_MANIFEST');
   written=await writePackedOexAssets(output,manifest,files,r.capacity);
  });

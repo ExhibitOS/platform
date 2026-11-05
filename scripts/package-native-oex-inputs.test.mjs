@@ -8,10 +8,10 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability} from './package-native-runtime.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const spec='vendor/exhibitos-spec-0.1.0-draft.15.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql';
+const spec='vendor/exhibitos-spec-0.1.0-draft.15.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql';
 async function fixture(){
  const temp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-oex-package-'))),source=join(temp,'source'),output=join(temp,'output');await mkdir(source);await mkdir(output);
- for(const name of [spec,migration,normal,provenance]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
+ for(const name of [spec,migration,normal,provenance,material]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
  await writeFile(join(source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':`file:${spec}`}}}}));
  return {temp,source,output,tracked:new Map([['database',new Set()],['vendor',new Set()]])};
 }
@@ -37,7 +37,7 @@ test('accepts already-copied tracked inputs only after checking their exact byte
  }finally{await rm(f.temp,{recursive:true,force:true});}
 });
 
-test('includes the exact normal selected migration only with explicit opt-in',async()=>{const f=await fixture();try{await copyNormalOexSelectedFile(f.source,f.output,f.tracked,false);await assert.rejects(readFile(join(f.output,normal)),{code:'ENOENT'});await assert.rejects(readFile(join(f.output,provenance)),{code:'ENOENT'});await copyNormalOexSelectedFile(f.source,f.output,f.tracked,true);assert.deepEqual(await readFile(join(f.output,normal)),await readFile(join(f.source,normal)));assert.deepEqual(await readFile(join(f.output,provenance)),await readFile(join(f.source,provenance)));await writeFile(join(f.source,normal),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'other'),f.tracked,true),/NATIVE_PACKAGE_SOURCE_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}});
+test('includes the exact normal selected migration only with explicit opt-in',async()=>{const f=await fixture();try{await copyNormalOexSelectedFile(f.source,f.output,f.tracked,false);await assert.rejects(readFile(join(f.output,normal)),{code:'ENOENT'});await assert.rejects(readFile(join(f.output,provenance)),{code:'ENOENT'});await assert.rejects(readFile(join(f.output,material)),{code:'ENOENT'});await copyNormalOexSelectedFile(f.source,f.output,f.tracked,true);assert.deepEqual(await readFile(join(f.output,normal)),await readFile(join(f.source,normal)));assert.deepEqual(await readFile(join(f.output,provenance)),await readFile(join(f.source,provenance)));assert.deepEqual(await readFile(join(f.output,material)),await readFile(join(f.source,material)));await writeFile(join(f.source,normal),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'other'),f.tracked,true),/NATIVE_PACKAGE_SOURCE_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}});
 
 test('normal selected payload requires the pinned OEX spec',async()=>{const f=await fixture();try{await writeFile(join(f.source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':'different'}}}}));await assert.rejects(copyFreshOexValidationFiles(f.source,f.output,f.tracked,false,true),/NATIVE_PACKAGE_SOURCE_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}});
 
@@ -48,8 +48,11 @@ test('selected capability has exact sealed bytes, is absent by default and refus
  assert.equal(await readFile(path,'utf8'),'{"format":1,"kind":"exhibitos-native-normal-oex","protocol":"normal-oex-v1","ownerChannelVersion":2,"schemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","schemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}');
  const proofBytes=await readFile(v3);assert.equal(proofBytes.length,516);assert.equal(createHash('sha256').update(proofBytes).digest('hex'),'f9eecec7b17a7f010a94bcc8711326a44261c9713249b01231cc62b86b18eb6d');
  const proof=JSON.parse(proofBytes.toString('utf8')); assert.deepEqual(proof,{format:1,kind:'exhibitos-native-normal-oex-027',protocol:'normal-oex-027-v3',ownerChannelVersion:3,baseSchemaPath:'platform/database/native-oex-normal/026_oex_file_profile.sql',baseSchemaSHA256:'9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112',schemaPath:'platform/database/native-oex-normal/027_oex_exhibition_provenance.sql',schemaSHA256:'09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7',archiveFormat:'1.0.0-draft.9',maxArchiveBytes:536870912,oneShot:true});
+ const v4=await readFile(join(f.output,'scripts/native-normal-oex-028-capability-v4.json'));assert.equal(v4.length,787);assert.equal(createHash('sha256').update(v4).digest('hex'),'9ffbff5c770be6c70e5bbffd4183006003ed73dabb807e18f496a19af94a58b4');
  const stat=await lstat(path);assert.ok(stat.isFile());assert.equal(stat.mode & 0o111,0);
  await assert.rejects(writeNormalOexCapability(f.output,true),{code:'EEXIST'});
  }finally{await rm(f.temp,{recursive:true,force:true});}});
 
 test('rejects changed or symlinked 027 provenance input',async()=>{for(const kind of ['changed','symlink']){const f=await fixture();try{if(kind==='changed')await writeFile(join(f.source,provenance),'changed');else{await rm(join(f.source,provenance));await symlink(join(root,provenance),join(f.source,provenance));}await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true),/NATIVE_PACKAGE_(SOURCE|INPUT)_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}}});
+
+test('rejects changed or symlinked028 material input',async()=>{for(const kind of ['changed','symlink']){const f=await fixture();try{if(kind==='changed')await writeFile(join(f.source,material),'changed');else{await rm(join(f.source,material));await symlink(join(root,material),join(f.source,material));}await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true),/NATIVE_PACKAGE_(SOURCE|INPUT)_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}}});
