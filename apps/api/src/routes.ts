@@ -81,7 +81,6 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const prefix='/api/v1/tenants/:tenantId';
  const furnishingRole=(s:Session)=>{if(!['admin','artist','curator'].includes(s.role))throw new ApiError(403,'FORBIDDEN');};
  app.get(`${prefix}/studio/materials`,call(false,async(_c,s)=>{furnishingRole(s);return surfaceMaterialCatalog();}));
- app.get(`${prefix}/studio/materials/:id/:version/preview`,call(false,async(_c,s)=>{furnishingRole(s);throw new ApiError(404,'MATERIAL_PREVIEW_UNAVAILABLE');}));
  app.get(`${prefix}/studio/materials/private-floor`,call(false,async(_c,s)=>{
   furnishingRole(s);
   if(input.mode!=='local')throw new ApiError(404,'MATERIAL_CATALOG_UNAVAILABLE');
