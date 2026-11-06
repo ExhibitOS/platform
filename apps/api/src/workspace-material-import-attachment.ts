@@ -20,7 +20,7 @@ export async function attachWorkspaceMaterialImportVersions(c:PoolClient,s:Sessi
  s=structuredClone(s);input=structuredClone(input);
  if(!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');
  for(const id of [s.tenantId,s.userId,input.workspaceId,input.jobId,input.attemptId,input.leaseId]){uuid(id);if(id!==id.toLowerCase())throw new ApiError(400,'INVALID_INPUT');}
- const resources=workspaceMaterialOutputInventory(input.scene),bindings=input.scene.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings|undefined;
+ const resources=workspaceMaterialOutputInventory(input.scene,'import'),bindings=input.scene.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings|undefined;
  if(!bindings||!Array.isArray(input.stage)||!input.stage.length||input.stage.length!==resources.length||input.stage.length!==bindings.materials.length||!input.idMap||typeof input.idMap!=='object')throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');
  const mappedIds=Object.values(input.idMap);if(new Set(mappedIds).size!==mappedIds.length)throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');
  for(const [from,to] of Object.entries(input.idMap)){try{uuid(from);uuid(to);}catch{throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');}if(from!==from.toLowerCase()||to!==to.toLowerCase())throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');}

@@ -31,3 +31,7 @@ it('rejects wrong mapping, missing stage and invalid transactions before inserti
  const d=fixture(),cd=client(d,{transaction:false});await expect(attachWorkspaceMaterialImportVersions(cd as unknown as PoolClient,session,d)).rejects.toThrow('OEX_TRANSACTION_UNSUPPORTED');expect(cd.query).toHaveBeenCalledTimes(2);
  const e=fixture(),ce=client(e,{lease:false});await expect(attachWorkspaceMaterialImportVersions(ce as unknown as PoolClient,session,e)).rejects.toThrow('OEX_INVENTORY_UNAVAILABLE');expect(ce.query).toHaveBeenCalledTimes(3);
 });
+it('rejects a wall binding before any database attachment',async()=>{
+ const input=fixture(),ext=input.scene.extensions['org.exhibitos.studio/workspace-materials']!;input.scene.surfaces[0]!.type='wall';ext.materials[0]!.kind='wall';
+ const c=client(input);await expect(attachWorkspaceMaterialImportVersions(c as unknown as PoolClient,session,input)).rejects.toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');expect(c.query).not.toHaveBeenCalled();
+});

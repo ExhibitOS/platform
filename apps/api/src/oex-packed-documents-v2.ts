@@ -29,7 +29,7 @@ function decode(manifestBytes:Uint8Array,manifestSha256:string,exhibitionInput:U
  if(workspace&&(manifest.oesExhibitionVersion!==e.schemaVersion||manifest.oesArtworkVersion!==e.schemaVersion))throw Error('OEX_PACKED_DOCUMENT');
  const same=(a:unknown,b:unknown)=>revisionHash(a)===revisionHash(b);
  if(!same(packageCompleteAssetManifest(e),manifest.assets)||!same(packageFloorResourceManifest(e),manifest.floorResources??[])||!same(packageFurnishingNoticeManifest(e),manifest.furnishingNotices??[])||!same(packageSurfaceMaterialManifest(e),manifest.materialResources??[])||!same(footstepResourcesFor(e),manifest.footstepResources??[]))throw Error('OEX_PACKED_DOCUMENT');
- if(workspace&&(!('workspaceMaterialResources' in manifest)||!same(workspaceMaterialOutputInventory(e),manifest.workspaceMaterialResources)))throw Error('OEX_PACKED_DOCUMENT');
+ if(workspace&&(!('workspaceMaterialResources' in manifest)||!same(workspaceMaterialOutputInventory(e,'import'),manifest.workspaceMaterialResources)))throw Error('OEX_PACKED_DOCUMENT');
  const exportTime=Date.parse(manifest.createdAt);if(exportTime<Date.parse(e.createdAt)||e.artworks.some(a=>exportTime<Date.parse(a.createdAt)))throw Error('OEX_PACKED_DOCUMENT');
  checkOexProfile(e,false,'bounded-file-v1',workspace);if(workspace)requireSupportedOexImport(e);const still=spaceStillFor(e),materials=workspace?(e.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as unknown as WorkspaceMaterialBindings|undefined)?.materials??[]:[],rights=[...e.artworks.map(a=>a.rights),...e.mediaAssets.map(m=>m.rights),...(still?[still.rights]:[]),...materials.map(m=>m.rights)];
  if(rights.some(r=>!allowedRights(r,'export',exportTime)||!allowedRights(r,'export')))throw Error('OEX_PACKED_RIGHTS');
