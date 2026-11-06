@@ -39,6 +39,8 @@ artist-capture/
 # Dependencies, build output and caches
 node_modules/
 dist/
+/apps/web/dist-reference-demo-static/
+/apps/web/dist-reference-demo-cover/
 build/
 coverage/
 .next/

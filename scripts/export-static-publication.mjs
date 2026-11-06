@@ -29,7 +29,8 @@ export function safeStaticPath(path){return typeof path==="string"&&path.length<
 export function assertStaticBudget(path,bytes,count){if(bytes>MAX)fail("STATIC_FILE_TOO_LARGE",path);if(count>=COUNT)fail("STATIC_FILE_COUNT",path);}
 async function bounded(response,limit,name){if(!response.ok||!response.body)fail("STATIC_FETCH",name);const reader=response.body.getReader(),chunks=[];let n=0;try{for(;;){const {done,value}=await reader.read();if(done)break;n+=value.length;if(n>limit)fail("STATIC_FILE_TOO_LARGE",name);chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}return Buffer.concat(chunks);}
 /** Only the public, already-published API projection is accepted; no database or private source reads. */
-export async function exportStaticPublication({origin,publicationId,runtimeRoot,output,fetcher=fetch,studioDemo=false,privateEditor=false}){
+export async function exportStaticPublication({origin,publicationId,runtimeRoot,output,fetcher=fetch,studioDemo=false,privateEditor=false,coverCompanion='native'}){
+ if(coverCompanion!=='native'&&coverCompanion!=='reference-demo')fail('STATIC_COVER_COMPANION','coverCompanion');
  let url;try{url=new URL(origin);}catch{fail("STATIC_LOCAL_ORIGIN","origin");}if(!["http:","https:"].includes(url.protocol)||!["localhost","127.0.0.1","[::1]"].includes(url.hostname)||url.username||url.password||url.pathname!=="/"||url.search||url.hash)fail("STATIC_LOCAL_ORIGIN","origin");
  if(!uuid.test(publicationId))fail("STATIC_PUBLICATION_ID",publicationId);
  const request=path=>fetcher(new URL(path===`/api/v1/publications/${publicationId}`?path+'?footsteps=1':path,url),{credentials:"omit",redirect:"error",signal:AbortSignal.timeout(30000)});
@@ -116,7 +117,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  const index=Buffer.from(JSON.stringify({version:furnishingNotices.length?3:stepResources.length?2:1,publication:{path:pPath,bytes:p.length,sha256:sha(p),mime:"application/json"},assets:assetIndex,...(stepResources.length?{resources:resourceIndex}:{}),...(furnishingNotices.length?{furnishingNotices:noticeIndex}:{})}));if(index.length>1048576)fail("STATIC_INDEX_SIZE","static-publication-index.json");await put("static-publication-index.json",index);
  // New theme bootstraps use the same compiled React presentation modules as the Viewer.
  // Fixed trusted source-build companion, never code loaded from caller-supplied runtimeRoot.
- const themeShell=raw.exhibition.extensions?.['org.exhibitos.viewer/entrance']?.design?await import('../apps/web/dist-cover-shell/entrance-shell.js').then(m=>m.renderEntranceShell(raw.exhibition)):null;
+ const themeShell=raw.exhibition.extensions?.['org.exhibitos.viewer/entrance']?.design?await (coverCompanion==='reference-demo'?import('../apps/web/dist-reference-demo-cover/entrance-shell.js'):import('../apps/web/dist-cover-shell/entrance-shell.js')).then(m=>m.renderEntranceShell(raw.exhibition)):null;
  const runtime=resolve(runtimeRoot),optionalPacks=[];
  // Retain verified bytes until the entire pack is accepted; never emit a partial choice.
  // Check every ancestor before reading so unavailable optional symlinks are not followed.
