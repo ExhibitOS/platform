@@ -16,7 +16,7 @@ test('candidate import schema stays outside all current packages and the v5 cata
   const excluded=nativePackageExcludedFiles(fresh,selected);
   assert.ok(excluded.has('database/native-oex-workspace-import/033_workspace_material_import_provenance.sql'));
   assert.ok(excluded.has('database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql'));
-  assert.ok(excluded.has(intake));assert.ok(excluded.has(workspaceOex));assert.ok(excluded.has(wall));assert.ok(excluded.has('database/native-workspace-furnishing/036_workspace_furnishing.sql'));
+  assert.ok(excluded.has(intake));assert.ok(excluded.has(workspaceOex));assert.ok(excluded.has(wall));assert.ok(excluded.has('database/native-workspace-furnishing/036_workspace_furnishing.sql'));assert.ok(excluded.has('database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql'));
   assert.equal(excluded.has(migration),!fresh);assert.equal(excluded.has(normal),!selected);
  }
  assert.equal((await verifyWorkspaceMaterialMigrations(join(root,'database/native-oex-normal'))).length,2);
