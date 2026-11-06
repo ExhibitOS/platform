@@ -14,6 +14,7 @@ import {Oex,withoutImportedPreviews,checkOexProfile,requireSupportedOexImport} f
 import {pngCrc} from './png-pixels.ts';
 import {planWorkspaceMaterialImportSource,validateWorkspaceMaterialImportSourceBytes} from './workspace-material-import-source.ts';
 import {decodePackedOexDocumentsV2,decodePackedWorkspaceOexDocuments} from './oex-packed-documents-v2.ts';
+import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
 
 describe('internal bounded OEX producer',()=>{
  it('writes workspace floor color as a draft.12 resource and enforces output authority',async()=>{
@@ -36,6 +37,7 @@ describe('internal bounded OEX producer',()=>{
    const job='22222222-2222-4222-8222-222222222222',attempt='33333333-3333-4333-8333-333333333333',key=`${session.tenantId}/oex-import/${job}/${attempt}/44444444-4444-4444-8444-444444444444`;
    const source=planWorkspaceMaterialImportSource({tenantId:session.tenantId,jobId:job,attemptId:attempt,manifest:result.manifest,scene:result.exhibition,sourceKeys:new Map([[resource.path,key]])});const imported=await result.files.get(resource.path);expect(imported).toBeDefined();await validateWorkspaceMaterialImportSourceBytes(source[0]!,Buffer.from(imported!));expect(source[0]!.objectKey).toBe(key);
    const m=Buffer.from((await result.files.get('manifest.json'))!),e=Buffer.from((await result.files.get('exhibition.json'))!);expect(decodePackedWorkspaceOexDocuments(m,sha256(m),e,sha256(e)).exhibition.id).toBe(candidate.id);expect(()=>decodePackedOexDocumentsV2(m,sha256(m),e,sha256(e))).toThrow('OEX_PACKED_MANIFEST');expect(()=>decodePackedWorkspaceOexDocuments(m,'0'.repeat(64),e,sha256(e))).toThrow('OEX_PACKED_MANIFEST');
+   expect(packedWorkspaceOexInventory(result.manifest).get(resource.path)).toEqual({bytes:resource.bytes,sha256:resource.sha256});expect(()=>packedOexInventory(result.manifest)).toThrow('OEX_PACKED_OUTPUT');expect(()=>packedWorkspaceOexInventory({...result.manifest,workspaceMaterialResources:[resource,resource]})).toThrow('OEX_PACKED_OUTPUT');
    const altered=JSON.parse(m.toString()) as {workspaceMaterialResources:Array<{sha256:string}>};altered.workspaceMaterialResources[0]!.sha256='0'.repeat(64);const mismatched=Buffer.from(JSON.stringify(altered));expect(()=>decodePackedWorkspaceOexDocuments(mismatched,sha256(mismatched),e,sha256(e))).toThrow();
   });}finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
    const ordinary=await readOex(await oex.export(client,session,candidate.id,match));expect(ordinary.manifest.formatVersion).toBe('1.0.0-draft.12');
