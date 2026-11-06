@@ -17,13 +17,12 @@ CREATE TABLE workspace_oex_import_terminal_proof (
  CHECK(encode(sha256(result_bytes),'hex')=result_sha256),
  -- All interpolated strings have constrained ASCII characters and no spaces.
  -- Require the producer's exact ordered JSON encoding, not JSONB equivalence.
- CHECK(proof_bytes=convert_to(replace(replace(json_build_object(
-  'version',1,'kind','workspace-oex-import-terminal','workspaceId',workspace_id::text,
-  'tenantId',tenant_id::text,'principalId',principal_id::text,'jobId',import_job_id::text,
-  'attemptId',attempt_id::text,'importRequestId',import_request_id::text,
-  'sourceArchiveSha256',source_archive_sha256,'archiveFormat','1.0.0-draft.12',
-  'exhibitionId',exhibition_id::text,'immutableRevisionId',immutable_revision_id::text,
-  'studioETag',studio_etag,'resultBytes',octet_length(result_bytes),'resultSha256',result_sha256)::text,': ',':'),', ',','),'UTF8'))
+ CHECK(proof_bytes=convert_to('{"version":1,"kind":"workspace-oex-import-terminal","workspaceId":"' || workspace_id::text ||
+  '","tenantId":"' || tenant_id::text || '","principalId":"' || principal_id::text || '","jobId":"' || import_job_id::text ||
+  '","attemptId":"' || attempt_id::text || '","importRequestId":"' || import_request_id::text ||
+  '","sourceArchiveSha256":"' || source_archive_sha256 || '","archiveFormat":"1.0.0-draft.12","exhibitionId":"' || exhibition_id::text ||
+  '","immutableRevisionId":"' || immutable_revision_id::text || '","studioETag":' || to_json(studio_etag)::text ||
+  ',"resultBytes":' || octet_length(result_bytes)::text || ',"resultSha256":"' || result_sha256 || '"}','UTF8'))
 );
 CREATE TRIGGER workspace_oex_terminal_proof_immutable BEFORE UPDATE OR DELETE ON workspace_oex_import_terminal_proof
  FOR EACH ROW EXECUTE FUNCTION immutable_revision();
