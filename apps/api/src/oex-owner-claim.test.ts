@@ -12,7 +12,7 @@ import {createNativeOexDiagnostic} from './native-oex-diagnostic.ts';
 import {prepareWorkspaceOexTerminalProof} from './workspace-oex-terminal-proof.ts';
 import {etag,type Draft} from './studio.ts';
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
-it('binds actual journal and provider records to the simulated owned-channel exchange',async()=>{
+it.each(['success','lease-failure'])('binds actual journal and provider records to the simulated owned-channel exchange (%s)',async scenario=>{
  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-owner-claim-')));
  try{
   const [journalRoot,budgetRoot,store]=await Promise.all(['journal-','budget-','store-'].map(x=>mkdtemp(join(root,x)))),st=await stat(store!,{bigint:true});
@@ -33,7 +33,9 @@ it('binds actual journal and provider records to the simulated owned-channel exc
   expect(verified.binding.receiptDigest).toBe(result.receiptDigest);expect(channel.close).not.toHaveBeenCalled();
   expect(Object.getPrototypeOf(verified.claim.owner)).toBeNull();expect(samePublicationDiskOwner(request.owner,verified.claim.owner)).toBe(true);
   for(const key of ['databaseSystemId','databaseOid','storeRoot','storeDevice','storeInode'] as const)expect(samePublicationDiskOwner({...request.owner,[key]:request.owner[key]+'-changed'},verified.claim.owner)).toBe(false);
-  const lease={jobId:id(12),requestId:id(7),userId:id(6),leaseId:id(14),archiveBytes:100,archiveSha256:'b'.repeat(64)},verifyLease=vi.fn(async()=>{}),readyFrame=await sendOexClaimReady(result,lease,verifyLease);
+  const lease={jobId:id(12),requestId:id(7),userId:id(6),leaseId:id(14),archiveBytes:100,archiveSha256:'b'.repeat(64)},verifyLease=vi.fn(async()=>{if(scenario==='lease-failure')throw Object.assign(new Error('secret /private/path'),{code:'FORBIDDEN'});});
+  if(scenario==='lease-failure'){await expect(sendOexClaimReady(result,lease,verifyLease,diagnostic)).rejects.toMatchObject({code:'FORBIDDEN'});expect(diagnostic.report()).toBe('NATIVE_OEX_DIAGNOSTIC claim-ready-lease-1 FORBIDDEN unknown');expect(diagnostic.report()).not.toContain('secret');expect(channel.close).toHaveBeenCalledTimes(1);return;}
+  const readyFrame=await sendOexClaimReady(result,lease,verifyLease,diagnostic);
   expect(readyFrame.kind).toBe('claim-ready');expect(verifyLease).toHaveBeenCalledTimes(2);expect(verifyLease).toHaveBeenCalledWith(lease);
   await expect(sendOexClaimReady(result,lease,verifyLease)).rejects.toThrow('OEX_OWNER_CLAIM');
   const identity={correlationId:result.correlationId,attemptId:request.attemptId,runtimeGeneration:request.runtimeGeneration,generation:request.generation,reservationId:request.reservationId,reservationGeneration:result.receipt.generation,receiptDigest:result.receiptDigest};
