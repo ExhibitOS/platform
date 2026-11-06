@@ -48,3 +48,4 @@ it('keeps the exact room × placement matrix for a rotated ghost under nonunifor
  const expected=new Matrix4().copy(s.room.matrixWorld).multiply(new Matrix4().compose(new Vector3(),new Quaternion(...rotation),new Vector3(1,1,1)));
  expect(s.scene.children[1]!.matrix.elements).toEqual(expected.elements);expect(s.scene.children[1]!.matrixAutoUpdate).toBe(false);s.preview.dispose();
 });
+it('adds outline and transparent ghost only after the reserved load succeeds',async()=>{const s=setup(true),ghost=s.scene.children[1]!;expect(ghost.children).toHaveLength(0);s.resolve();await Promise.resolve();expect(ghost.children).toHaveLength(2);const model=ghost.children[1]!,mesh=model as Mesh;expect((mesh.material as MeshBasicMaterial).transparent).toBe(true);s.clear();expect(s.release).toHaveBeenCalledOnce();s.preview.dispose();});

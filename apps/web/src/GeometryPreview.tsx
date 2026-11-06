@@ -1,3 +1,4 @@
+import {resizeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
@@ -214,7 +215,7 @@ export function GeometryPreview({
   openingViewpoint?: {viewpointId:string;sequence:number};
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
-  ownerWorkspaceFurnishings?: DeviceBudget;
+  ownerWorkspaceFurnishings?: {budget:DeviceBudget;signal:AbortSignal;expiresAt:number;invalidate:()=>void};
   publicSource?: {
     publicationId: string;
     revisionSha256: string;
@@ -472,7 +473,7 @@ export function GeometryPreview({
       if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const initialSnapshotPose=publicSource&&snapshotEnabled&&initialSnapshot?inspectionCameraPose(document,initialSnapshot.placementId,initialSnapshot.inspectionCamera):undefined;
       const hasWorkspaceFurnishings=!!document.extensions&&Object.hasOwn(document.extensions,WORKSPACE_FURNISHING_NAMESPACE);
-      if(hasWorkspaceFurnishings&&(!ownerWorkspaceFurnishings||!session||publicSource||viewerBudget))throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
+      if(hasWorkspaceFurnishings&&(!ownerWorkspaceFurnishings||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt||!session||publicSource||viewerBudget))throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -845,8 +846,9 @@ export function GeometryPreview({
       const presenceDiagnostics=()=>{renderer.domElement.dataset.realtimeAvatars=JSON.stringify([...remoteAvatars].map(([visitorId,group])=>({visitorId,position:group.position.toArray(),yaw:group.rotation.y})));};
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
-      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);void catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;});}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);void catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);});}
+      const catalogSettled:Promise<unknown>[]=[];
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -999,6 +1001,7 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        if(hasWorkspaceFurnishings){ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);ownerWorkspaceFurnishings?.invalidate();}
         clearQualityFrame();
         mapThumbnailRefresh.current?.();
         sculptureOrbitRuntime.current?.actions.stop();
@@ -1521,23 +1524,7 @@ export function GeometryPreview({
               Math.max(bitmap.width, bitmap.height) > declared
             )
               throw Error("DECODE_VARIANT_UNDERCLAIM");
-            if (
-              imageBudget &&
-              Math.max(bitmap.width, bitmap.height) >
-                imageBudget.maxTextureSize
-            ) {
-              const factor =
-                imageBudget.maxTextureSize /
-                Math.max(bitmap.width, bitmap.height);
-              const resized = await createImageBitmap(bitmap, {
-                // The initial bitmap is already oriented for GPU upload; do not flip it again.
-                imageOrientation: "none",
-                resizeWidth: Math.max(1, Math.round(bitmap.width * factor)),
-                resizeHeight: Math.max(1, Math.round(bitmap.height * factor)),
-              });
-              bitmap.close();
-              bitmap = resized;
-            }
+            bitmap=await resizeArtworkBitmap(bitmap,imageBudget);
             if (disposed || signal.aborted) {
               bitmap.close();
               throw Error("DISPOSED");
@@ -1686,7 +1673,8 @@ export function GeometryPreview({
             const pose=viewpointPose(document,request.viewpointId);
             snapshotCamera={viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov};
           }
-          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;ownerFurnishings?.enforce();if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+          ownerFurnishings?.enforce();
+          return captureScenePng({three,renderer,scene,beforeDiagnostics:()=>ownerFurnishings?.enforce(),near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;ownerFurnishings?.enforce();if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
         }});
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
@@ -1694,16 +1682,16 @@ export function GeometryPreview({
           load:async(artwork,signal)=>{
             const owner=ownerFurnishings;
             if(hasWorkspaceFurnishings&&!owner)throw Error('WORKSPACE_SCENE_BUDGET');
-            const reserveGeometry=(object:InstanceType<typeof three.Object3D>)=>{if(!owner)return ()=>{};const cost=existingSceneCost(three,object);return owner.reservePreview(cost.draws,cost.triangles);};
+            const reserveGeometry=(object:InstanceType<typeof three.Object3D>)=>{if(!owner)return ()=>{};const cost=existingSceneCost(three,object,true);return owner.reservePreview(cost.draws+1,cost.triangles);};
             const shared=sources.get(artwork.revisionId);
-            if(shared){const object=await shared;signal.throwIfAborted();const unreserve=reserveGeometry(object);let done=false;return {object,release:()=>{if(!done){done=true;unreserve();}}};}
+            if(shared){const object=await shared;signal.throwIfAborted();const key=`owner-preview-art:${crypto.randomUUID()}`;if(owner)owner.ledger.reserve(key,1024*1024);let unreserve:()=>void;try{unreserve=reserveGeometry(object);}catch(error){owner?.ledger.release(key);throw error;}let done=false;return {object,release:()=>{if(!done){done=true;unreserve();owner?.ledger.release(key);}}};}
             const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);if(!inventory)throw Error('WORKSPACE_SCENE_BUDGET');
-            const key=`owner-preview-art:${crypto.randomUUID()}`;let reserved=false,decodeStarted=false;
-            if(owner){owner.ledger.reserve(key,inventory.bytes*4);reserved=true;}
+            const key=`owner-preview-art:${crypto.randomUUID()}`;let reserved=false,decodeStarted=false,decodeReserve=0;
+            if(owner){owner.ledger.reserve(key,inventory.bytes*4+1024*1024);reserved=true;}
             try{
-              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{owner.ledger.reserve(key,assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!,bytes));decodeStarted=true;}:undefined);
+              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{decodeReserve=assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!.budget,bytes)+1024*1024;owner.ledger.reserve(key,decodeReserve);decodeStarted=true;}:undefined,undefined,ownerWorkspaceFurnishings?.budget);
               const resources=decodedResources.get(object)??[];decodedResources.delete(object);let unreserve:()=>void;
-              try{unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(reserved&&!failed)owner!.ledger.release(key);throw error;}
+              try{if(owner){const actual=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(actual)||actual<0)throw Error('WORKSPACE_SCENE_BUDGET');owner.ledger.reserve(key,Math.max(decodeReserve,actual+1024*1024));}unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(reserved&&!failed)owner!.ledger.release(key);throw error;}
               let released=false;return {object,release:()=>{if(released)return;released=true;let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed){unreserve();if(reserved)owner!.ledger.release(key);}}};
             }catch(error){if(reserved&&!decodeStarted)owner!.ledger.release(key);throw error;}
           },
@@ -2659,8 +2647,9 @@ export function GeometryPreview({
         }
       }
       if(hasWorkspaceFurnishings&&session&&ownerWorkspaceFurnishings&&!disposed&&!gpuLost){
+        await Promise.allSettled(catalogSettled);if(disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;
         const changed=()=>{if(disposed||gpuLost||ownerFurnishingFrame)return;ownerFurnishingFrame=requestAnimationFrame(()=>{ownerFurnishingFrame=0;if(!disposed&&!gpuLost){if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());shadowPass.invalidate();render();}});};
-        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:ownerWorkspaceFurnishings,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed});
+        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed});
         const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');changed();}
       }
     };

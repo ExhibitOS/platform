@@ -60,3 +60,4 @@ test('failed and cancelled inspection captures restore renderer and overlays bef
  const g=fixture(1.25,true),abort=new AbortController();let late:((blob:Blob)=>void)|undefined;g.canvas.toBlob=done=>{late=done;};
  const pending=captureScenePng({...g.input,camera,signal:abort.signal});expect(late).toBeDefined();abort.abort();await expect(pending).rejects.toMatchObject({name:'AbortError'});g.assertRestored();late!(new Blob(['late inspection png']));g.assertRestored();expect(camera).toEqual(before);
 });
+test('applies owner visibility before snapshot ray diagnostics',async()=>{const f=fixture(),wall=new three.Mesh(new three.BoxGeometry(2,2,.1),new three.MeshBasicMaterial());wall.position.z=1.5;f.model.add(wall);const checked=vi.fn(()=>{wall.visible=false;});const result=await captureScenePng({...f.input,beforeDiagnostics:checked});expect(checked).toHaveBeenCalledOnce();expect(result.target.centerRay).toBe('clear');f.assertRestored();});
