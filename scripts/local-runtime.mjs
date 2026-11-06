@@ -26,7 +26,7 @@ import {hasWorkspaceFurnishingCapability,verifyWorkspaceFurnishingMigration,WORK
 import {assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 import {WorkspaceFurnishingIntakes} from '../apps/api/dist/workspace-furnishing-intakes.js';
 import {hasWorkspaceFurnishingWriterCapability,verifyWorkspaceFurnishingWriterMigration,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256} from './native-oex-normal-catalog.mjs';
-import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission,assertIssuedFurnishingOrdinaryAdmission,furnishingOrdinaryStopControl} from './native-workspace-furnishing-admission.mjs';
+import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission,assertIssuedFurnishingOrdinaryAdmission,furnishingOrdinaryStopControl,finalizeFurnishingOrdinaryStop} from './native-workspace-furnishing-admission.mjs';
 import {pinNativeOexPayloadManifest} from '../apps/api/dist/native-oex-payload.js';
 
 import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
@@ -165,7 +165,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController();
+  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
   let ownerTask=Promise.resolve();
@@ -178,7 +178,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     if(payloadAcquisition)await payloadAcquisition.catch(()=>{});if(proxyCreation)await proxyCreation.catch(()=>{});if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});if(deferredWork)await deferredWork.catch(()=>{});
     if(proxy){await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());if(proxy.listening)await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));}
     await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});if(app)await attempt(()=>app.close());await attempt(()=>pool.end());
-    if(normalStop&&!failed)await attempt(()=>ordinaryStop.drained());
+    if(normalStop&&!failed&&!terminalFailure){await attempt(()=>finalizeFurnishingOrdinaryStop(ordinaryStop,async()=>{if(pinnedPayload){await pinnedPayload.close();pinnedPayload=undefined;}},()=>terminalFailure));}else if(normalStop)failed=true;
     if(pinnedPayload)await attempt(()=>pinnedPayload.close());ordinaryStop?.dispose();ownerAbort.abort();if(ownerChannel)await attempt(()=>ownerChannel.close());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
   })();
   shutdown=close;
@@ -285,7 +285,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     }
     if(furnishingMode){deferredWork=(async()=>{for(const task of deferredStartup){await writerLease.assertLive();await task();await writerLease.assertLive();}})();await deferredWork;if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');runtimeReady=true;void ordinaryStop.wait().then(()=>{if(!ownerStopped)void close(true).catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}).catch(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();void close().catch(()=>{process.exitCode=1;});}});}
     const importer = new Imports(pool, blobs); let failures = 0;
-    const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
+    const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { terminalFailure=true;runtimeReady=false;stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     if(!selectedOex)running = tick();
     if((selectedOex||furnishingMode)&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
     return { app, proxy, pool, origin, close };

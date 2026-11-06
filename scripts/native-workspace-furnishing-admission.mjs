@@ -46,10 +46,16 @@ export function furnishingOrdinaryStopControl(admission,channel,secret){
  assertIssuedFurnishingOrdinaryAdmission(admission);
  if(stopControls.has(admission)||issuedChannels.get(admission.writer)!==channel||!(secret instanceof Uint8Array)||secret.byteLength!==32)throw Error('FURNISHING_ADMISSION_INVALID');
  stopControls.add(admission);
- const key=Buffer.from(secret);let started=false,requested=false,finished=false;
+ const key=Buffer.from(secret);let started=false,requested=false,verified=false,finished=false;
  return Object.freeze({
   wait:async()=>{if(started||finished)throw Error('FURNISHING_ADMISSION_INVALID');started=true;try{const frame=await channel.receive(0);await admission.writer.assertLive();verifyFurnishingOrdinaryAssertion(frame,'furnishing-ordinary-stop',admission.fields,key);if(!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');requested=true;}catch(error){finished=true;key.fill(0);void channel.close().catch(()=>{});throw error;}},
-  drained:async()=>{if(!requested||finished||!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');finished=true;try{await admission.writer.assertLive();await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-drained',admission.fields,key));}finally{key.fill(0);}},
+  verify:async()=>{if(!requested||finished||verified||!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');await admission.writer.assertLive();if(!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');verified=true;},
+  drained:async()=>{if(!requested||!verified||finished||!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');finished=true;try{await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-drained',admission.fields,key));}finally{key.fill(0);}},
   dispose:()=>{finished=true;key.fill(0);},
  });
+}
+
+export async function finalizeFurnishingOrdinaryStop(control,closePayload,isFailed){
+ const healthy=()=>{if(isFailed())throw Error('LOCAL_RUNTIME_CLOSE_FAILED');};
+ healthy();await control.verify();healthy();await closePayload();healthy();await control.drained();
 }
