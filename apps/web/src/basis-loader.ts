@@ -9,7 +9,7 @@ export async function basisLoader(renderer:WebGLRenderer,input:ArrayBuffer) {
   const {KTX2Loader}=await import('three/addons/loaders/KTX2Loader.js');
   const loader=new KTX2Loader().setTranscoderPath('/basis/').setWorkerLimit(1).detectSupport(renderer);
   const internal=loader as unknown as {workerConfig:Record<string,boolean>;workerPool:{setWorkerCreator(create:()=>Worker):void};transcoderBinary:ArrayBuffer};
-  if(!Object.values(internal.workerConfig).some(Boolean))return undefined;
+  if(!Object.values(internal.workerConfig).some(Boolean)){loader.dispose();return undefined;}
   const originalDispose=loader.dispose.bind(loader);let retired=false;
   loader.dispose=()=>{if(!retired){retired=true;originalDispose();}};
   try{
