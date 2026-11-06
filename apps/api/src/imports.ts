@@ -7,6 +7,8 @@ import { ApiError, type Session } from './auth.ts';
 import { validRights,allowedRights } from './rights.ts';
 import {preparedImageInput,preparedImageHeader,type PreparedImage} from './prepared-image.ts';
 import {MAX_UPLOAD} from './upload-limits.ts';
+import {privatePaintingImportCandidate,checkPrivatePaintingImport} from './private-painting-import-authority.ts';
+import {decodePrivatePaintingPng} from './private-painting-validation.ts';
 export {MAX_UPLOAD} from './upload-limits.ts';
 export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; }
 import {decode} from './validation-client.ts';
@@ -37,7 +39,7 @@ export class Imports {
   const prior=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND idempotency_key=$2',[s.tenantId,input.idempotencyKey]);
   if(prior.rowCount){if(prior.rows[0].request_hash!==hash)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');return this.view(prior.rows[0]);}
   const id=randomUUID(),key=`${s.tenantId}/quarantine/import-${id}/${input.sha256}`,target=`${s.tenantId}/approved/${derived?.sha256??input.sha256}`,preparedKey=derived?`${s.tenantId}/quarantine/import-${id}/prepared-${derived.sha256}`:null;
-  const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation,png_drain_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,derived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null,input.mime==='image/png'?1:0]);
+  const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation,png_drain_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,derived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null,input.mime==='image/png'||privatePaintingImportCandidate({tenant_id:s.tenantId,artwork_id:input.artworkId,mime:input.mime,expected_hash:input.sha256},derived)?1:0]);
   return this.view(row.rows[0]);
  }
  model(row:Record<string,unknown>){
@@ -82,13 +84,13 @@ export class Imports {
   const row=await this.access(c,s,id);
   if(action==='cancel'){
    if(row.state==='approved')throw new ApiError(409,'JOB_STATE');
-   if((this.model(row)||row.mime==='image/png'&&row.png_drain_version===1)&&row.lease_id!=null)await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
+   if((this.model(row)||row.png_drain_version===1)&&row.lease_id!=null)await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
    else await c.query("UPDATE import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }else{
    const model=this.model(row),value=row.model_derivation as {result?:Record<string,unknown>}|null;
    const optionalRetry=!!model&&row.state==='approved'&&row.asset_id!=null&&value?.result?.status==='failed'&&row.lease_id==null;
    if(!optionalRetry&&row.state!=='failed'||row.attempts>=5||new Date(row.available_at).getTime()>Date.now())throw new ApiError(409,'JOB_STATE');
-   if(row.mime==='image/png'&&row.png_drain_version===1&&(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length!==0))throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
+   if(row.png_drain_version===1&&(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length!==0))throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
    if(model){const result={...(value?.result??{}),status:'pending'} as Record<string,unknown>;delete result.errorCode;await c.query('UPDATE import_jobs SET model_derivation=$3 WHERE tenant_id=$1 AND id=$2',[s.tenantId,id,{kind:'model-texture-pair',request:model,result}]);}
    await c.query("UPDATE import_jobs SET state='queued',error_code=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }
@@ -98,20 +100,20 @@ export class Imports {
   const lease=randomUUID();
   const row=await transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (mime='image/png' AND png_drain_version=1 AND cardinality(png_worker_tokens)>0)");
-   const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (mime='image/png' AND png_drain_version=1 AND cardinality(png_worker_tokens)>0) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
+   await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)");
+   const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
    if(!found.rowCount)return null;const r=found.rows[0];
-   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN mime='image/png' AND png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
+   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
   });if(!row)return false;
   try{
    const bytes=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return Buffer.from(await this.blobs.get(row.object_key));});if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
-   const derived=this.prepared(row);let display:Buffer=bytes;
+   const derived=this.prepared(row),privateApproval=privatePaintingImportCandidate(row,derived);let display:Buffer=bytes;
    if(derived){
     // Bounded private original custody, not server JPEG codec or pixel-equivalence certification.
     if(bytes.length<4||bytes[0]!==255||bytes[1]!==216)throw new ApiError(422,'FORMAT_REJECTED');
-    display=await transaction(this.pool,async c=>{await c.query('SELECT pg_advisory_xact_lock_shared(82002)');return this.preparedBytes(row,derived);});preparedImageHeader(display);
+    display=await transaction(this.pool,async c=>{if(privateApproval)await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');const prepared=await this.preparedBytes(row,derived);if(privateApproval){const current=await c.query("SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() FOR UPDATE",[row.tenant_id,row.id,lease]);if(!current.rowCount)throw new ApiError(409,'LEASE_EXPIRED');await checkPrivatePaintingImport(c,current.rows[0],privateApproval,bytes,prepared);}return prepared;});if(!privateApproval)preparedImageHeader(display);
    }
-   await decode(display,derived?'image/png':row.mime,{classifyPngPixelLimit:row.mime==='image/png'&&!derived});
+   if(privateApproval){if(row.png_drain_version!==1)throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');await decodePrivatePaintingPng(display,privateApproval.profile);}else await decode(display,derived?'image/png':row.mime,{classifyPngPixelLimit:row.mime==='image/png'&&!derived});
    const model=this.model(row);let pair:ModelPairResult|undefined;
    if(model){try{pair=await prepareModelPair(display,model);}catch{/* Preserve a successfully decoded original without registering a partial derivative. */}}
    await hooks?.beforeCommit?.();
@@ -119,13 +121,17 @@ export class Imports {
     await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     const current=await c.query("SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND lease_until>clock_timestamp() FOR UPDATE",[row.tenant_id,row.id,lease]);if(!current.rowCount)return;
     // Recheck current membership and ownership, including revocation during decoding.
+    if(privateApproval){const currentRow=current.rows[0];if(currentRow.object_key!==row.object_key||currentRow.derived_object_key!==row.derived_object_key||currentRow.user_id!==row.user_id)throw new ApiError(409,'IMPORT_CHANGED');const liveOriginal=Buffer.from(await this.blobs.get(currentRow.object_key)),livePrepared=Buffer.from(await this.blobs.get(currentRow.derived_object_key));await checkPrivatePaintingImport(c,currentRow,privateApproval,liveOriginal,livePrepared);if(!liveOriginal.equals(bytes)||!livePrepared.equals(display))throw new ApiError(409,'UPLOAD_INTEGRITY');}
     const artwork=await artworkAccess(c,{tenantId:row.tenant_id,userId:row.user_id},row.artwork_id,true);
     if(model&&artwork.revision!==model.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');
     const existing=model&&row.asset_id?(await c.query("SELECT a.*,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL FOR SHARE OF a,r",[row.tenant_id,row.artwork_id,row.asset_id])).rows[0]:undefined;
     if(model&&row.asset_id){
      if(!existing||existing.mime!=='model/gltf-binary'||existing.sha256!==row.expected_hash||Number(existing.bytes)!==row.expected_bytes||existing.object_key!==row.approved_key||!isDeepStrictEqual(existing.rights,row.rights)||!allowedRights(existing.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
      if(!Buffer.from(await this.blobs.get(existing.object_key)).equals(display))throw new ApiError(409,'ASSET_INTEGRITY');
-    }else await this.blobs.put(row.approved_key,display);
+    }else if(!privateApproval)await this.blobs.put(row.approved_key,display);
+    // The private input already has a unique job-owned staging key. Commit its
+    // reference atomically instead of copying to a shared content-addressed key.
+    const assetKey=privateApproval?row.derived_object_key:row.approved_key;
     await hooks?.afterCopy?.();
     const deadline=await c.query('SELECT lease_until>clock_timestamp() AS valid FROM import_jobs WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id]);if(!deadline.rows[0]?.valid)throw new ApiError(409,'LEASE_EXPIRED');
     const asset=existing?.id??randomUUID(),rights=existing?.rights_id??randomUUID();if(!existing)await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[row.tenant_id,rights,row.rights]);
@@ -134,8 +140,8 @@ export class Imports {
      originalAsset=randomUUID();
      await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'quarantine')",[row.tenant_id,originalAsset,row.artwork_id,rights,row.object_key,row.expected_hash,row.expected_bytes,row.mime,row.scale_meters]);
     }
-    if(!existing)await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'approved')",[row.tenant_id,asset,row.artwork_id,rights,row.approved_key,derived?.sha256??row.expected_hash,derived?.bytes??row.expected_bytes,derived?'image/png':row.mime,row.scale_meters]);
-    if(derived)await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),originalAsset,{version:1,kind:'image-preparation',originalAssetId:originalAsset,derivedAssetId:asset,original:{mime:row.mime,sha256:row.expected_hash,bytes:row.expected_bytes},derived:{mime:derived.mime,sha256:derived.sha256,bytes:derived.bytes},recipe:derived.recipe,provenance:'client-declared'}]);
+    if(!existing)await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'approved')",[row.tenant_id,asset,row.artwork_id,rights,assetKey,derived?.sha256??row.expected_hash,derived?.bytes??row.expected_bytes,derived?'image/png':row.mime,row.scale_meters]);
+    if(derived)await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),originalAsset,{version:1,kind:'image-preparation',originalAssetId:originalAsset,derivedAssetId:asset,original:{mime:row.mime,sha256:row.expected_hash,bytes:row.expected_bytes},derived:{mime:derived.mime,sha256:derived.sha256,bytes:derived.bytes},recipe:derived.recipe,provenance:'client-declared',...(privateApproval?{privateAdmission:{version:1,receiptSha256:privateApproval.receiptSha256,profile:privateApproval.profile,colour:privateApproval.colour,...(privateApproval.pngEncoding?{pngEncoding:privateApproval.pngEncoding}:{})}}:{})}]);
     if(model){
      let reducedAsset:string|undefined;
      if(pair){
@@ -148,6 +154,7 @@ export class Imports {
      await c.query('UPDATE import_jobs SET model_derivation=$3 WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id,{kind:'model-texture-pair',request:model,result}]);
      const currentLease=await c.query('SELECT lease_until>clock_timestamp() AS valid FROM import_jobs WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id]);if(!currentLease.rows[0]?.valid)throw new ApiError(409,'LEASE_EXPIRED');
     }
+    if(privateApproval)await c.query('UPDATE import_jobs SET approved_key=$3 WHERE tenant_id=$1 AND id=$2',[row.tenant_id,row.id,assetKey]);
     await c.query("UPDATE import_jobs SET state='approved',asset_id=$3,original_asset_id=$4,progress=100,error_code=NULL,lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,asset,originalAsset]);
    });
   }catch(error){
@@ -156,8 +163,8 @@ export class Imports {
   }finally{
    // Only the actual completed worker/decoder call reaches this owner cleanup.
    // A cancellation response keeps this lease until close; timeout is not drain.
-   if(this.model(row)||row.mime==='image/png'&&row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
-   if(row.mime==='image/png'&&row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
+   if(row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET state=CASE WHEN state='processing' AND lease_id=$3 THEN 'failed' ELSE state END,error_code=CASE WHEN state='processing' AND lease_id=$3 THEN 'LEASE_EXPIRED' ELSE error_code END,lease_id=CASE WHEN state IN ('processing','cancelled') AND lease_id=$3 THEN NULL ELSE lease_id END,lease_until=CASE WHEN state IN ('processing','cancelled') AND lease_id=$3 THEN NULL ELSE lease_until END,png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
+   else if(this.model(row))await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
   }return true;
  }
 }
