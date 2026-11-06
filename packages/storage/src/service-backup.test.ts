@@ -177,3 +177,16 @@ test('streamed top-level inventory still rejects an overrun before decrypting',a
  expect(JSON.parse(await readFile(join(destination,'failed.json'),'utf8'))).toEqual({status:'failed',phase:'archive-initial',archiveReason:'BACKUP_ARCHIVE_INVENTORY'});
  await expect(access(join(destination,'manifest.json'))).rejects.toThrow();
 });
+
+test('archives one shared object key and an unused catalog object, then restores both into an empty store',async()=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-workspace-backup-')));try{
+  await mkdir(join(root,'source-objects'),{mode:0o700});await mkdir(join(root,'target-objects'),{mode:0o700});const source=new FileBlobStore(join(root,'source-objects')),target=new FileBlobStore(join(root,'target-objects'));
+  const shared=Buffer.from('synthetic shared glb'),unused=Buffer.from('synthetic unused asset'),sharedKey='synthetic/assets/shared.glb',unusedKey='synthetic/assets/unused.glb';await source.put(sharedKey,shared);await source.put(unusedKey,unused);
+  const checksum=(b:Buffer)=>createHash('sha256').update(b).digest('hex'),scene={exhibitions:[{asset:sharedKey,position:[0,0,0]},{asset:sharedKey,position:[2,0,0]}],catalog:[sharedKey,unusedKey]},inventory:ServiceInventory={schemaVersion:'1.0.0-draft.1',createdAt:new Date().toISOString(),schemaDigest:hash('schema'),migrations:[{name:'001.sql',sha256:hash('migration')}],tables:[],objects:[{key:sharedKey,bytes:shared.length,sha256:checksum(shared),referenced:true,bindings:['exhibition:one','exhibition:two']},{key:unusedKey,bytes:unused.length,sha256:checksum(unused),referenced:true,bindings:['catalog:unused']}],references:[],issues:[]};
+  const pool=(system:string)=>({async connect(){return {async query(sql:string){return {rows:sql.includes('pg_control_system')?[{system,oid:'456',database:'synthetic'}]:sql.includes('pg_export_snapshot')?[{id:'00000001-00000002-1'}]:[]};},release(){}};}} as unknown as Pool),key=randomBytes(32),archive=join(root,'archive');
+  const receipt=await createServiceBackup({pool:pool('123'),store:source,destination:archive,encryptionKey:key,snapshot:async()=>inventory,dump:async(path,snapshotId)=>{expect(snapshotId).toBe('00000001-00000002-1');await writeFile(path,JSON.stringify(scene),{mode:0o600,flag:'wx'});}});expect(receipt.objectCount).toBe(2);
+  const verified=await verifyServiceBackup({source:archive,encryptionKey:key,destination:join(root,'verify')});expect(verified.manifest.files.filter(x=>x.role==='object'&&x.sha256===checksum(shared))).toHaveLength(1);expect(verified.manifest.files.filter(x=>x.role==='object'&&x.sha256===checksum(unused))).toHaveLength(1);
+  let restoredScene:typeof scene|undefined;await restoreServiceBackup({pool:pool('789'),store:target,source:archive,encryptionKey:key,destination:join(root,'restore'),snapshot:async()=>inventory,restore:async path=>{restoredScene=JSON.parse(await readFile(path,'utf8'));}});
+  expect(restoredScene).toEqual(scene);expect(await target.get(sharedKey)).toEqual(shared);expect(await target.get(unusedKey)).toEqual(unused);
+ }finally{await fsPromises.rm(root,{recursive:true,force:true});}
+});

@@ -4,7 +4,12 @@
 **전체 key 목록**을 함께 백업합니다. 참조된 작품, 공개 전시, PCM 오디오,
 OEX staging·cleanup, 고정 전시와 보존 runtime, trash·quarantine 및 tenant 목록에
 없는 orphan도 포함합니다. 모든 객체의 실제 크기와 SHA-256을 기록하고,
-필수 참조·migration·schema·table contents를 검증합니다. Git bundle이나
+필수 참조·migration·schema·table contents를 검증합니다.
+동일 객체 키를 여러 전시가 참조하면 백업 객체는 한 벌입니다. 서로 다른 키에
+같은 바이트가 저장된 경우에는 각각 보존합니다. 개인 작업공간의 선택형
+026–035 catalog는 존재하는 행과 해당 packaged SQL의 정확한 해시가 일치해야
+인식하며, 이 확인이 기존 작업공간의 migration을 실행하지는 않습니다.
+새 개인 작업공간으로의 복원·활성화는 Manager의 별도 소유권 검증을 거칩니다. Git bundle이나
 OEX/.oef 하나로 계정·작업 상태·전체 서비스 데이터를 복원할 수는 없습니다.
 
 백업은 AES-256-GCM으로 파일마다 별도 nonce를 사용해 암호화합니다. 암호화된
