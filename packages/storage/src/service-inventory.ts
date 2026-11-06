@@ -63,6 +63,14 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   for(const role of roles){const map=maps[role];if(!obj(map)||!bytes(map.bytes)||!hex(map.sha256)){issues.push({code:'INVALID_INVENTORY',binding:binding+':'+role});continue;}add(objectKeys[role],true,map.bytes,map.sha256,':'+String(row.version)+':'+role);}
   break;
  }
+ case 'workspace_material_import_stage':{
+  const canonicalUuid=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
+  const {import_job_id:job,attempt_id:attempt,source_material_id:source,source_material_version:version,object_key:key,sha256:digest,role,source_path:path}=row;
+  if(!canonicalUuid(tenant)||!canonicalUuid(job)||!canonicalUuid(attempt)||!canonicalUuid(source)||!Number.isSafeInteger(version)||Number(version)<1||role!=='color'||!hex(digest)||!bytes(row.bytes)||Number(row.bytes)>8388608||typeof key!=='string'||!key.startsWith(`${tenant}/oex-import/${job}/${attempt}/`)||!canonicalUuid(key.slice(`${tenant}/oex-import/${job}/${attempt}/`.length))||path!==`resources/workspace-materials/${source}/${version}/color-${digest}.png`){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  // A failed attempt may have removed this staged object. A successfully
+  // attached immutable version independently requires the same key/hash.
+  add(key,false,row.bytes,digest,`:${String(job)}:${String(attempt)}:${String(source)}:${String(version)}:color`);break;
+ }
  case 'oex_import_jobs':{
   const required=row.state==='queued'||row.state==='processing';
   keys(row.staging_keys,required,':staging',required?{bytes:row.expected_bytes,sha256:row.payload_sha256}:undefined);
@@ -86,7 +94,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  return {references,issues};
 }
 const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
-const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','freeze_requests','exhibition_freezes']);
+const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
 export type MigrationCatalogEntry = {name:string;sha256:string};
