@@ -10,6 +10,7 @@ import {withReadinessStage,stageReadinessBytes,PublicationStageError,type Public
 import {PublicationFileOperation} from './publication-file-operation.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
+import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -182,6 +183,9 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     return projectPublicationCore(candidate,prepared,at,media,cover,furnishings,publicationBytesHash);
 }
 function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at:string,media:PreparedMedia[],cover:PreparedCover|undefined,furnishings:PreparedFurnishing[],byteHash:(bytes:PublicationBytes)=>string){
+    // A workspace map must never be silently dropped from a public projection.
+    // Until byte authority and public resource delivery are connected, fail closed.
+    if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))throw new ApiError(422,'WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
     if(!validateViewingPlan(candidate).valid||!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateLightAttachments(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     checkedPreparedFurnishings(candidate,furnishings);
     const furniture=furnishingsFor(candidate);
