@@ -1,12 +1,12 @@
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {furnishingResourcePair} from './furnishings.ts';
-import {VIEWING_PLAN_NAMESPACE,validateViewingPlan,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
-import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,validateArtworkThumbnail} from '@exhibitos/studio-contract';
+import {VIEWING_PLAN_NAMESPACE,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
+import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor} from '@exhibitos/studio-contract';
 import {validateThumbnailBytes} from './artwork-thumbnail.ts';
 import {ArtworkThumbnailReceipts,validFrozenThumbnailPin,type FrozenThumbnailPin} from './artwork-thumbnail-receipts.ts';
 import {floorResourceBytes} from './floor-resources.ts';
 import {footstepResourceBytes} from './footstep-resources.ts';
-import {OEX_FOOTSTEP_RESOURCE_VERSION,FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor,type FootstepResource} from '@exhibitos/spec/footstep-resources';
+import {OEX_FOOTSTEP_RESOURCE_VERSION,footstepResourcesFor,type FootstepResource} from '@exhibitos/spec/footstep-resources';
 import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {WORKSPACE_MATERIAL_NAMESPACE,type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {workspaceMaterialOutputBytes,workspaceMaterialOutputInventory} from './workspace-material-output.ts';
@@ -14,34 +14,29 @@ import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type Surface
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
 import type {FloorResourceEntry} from '@exhibitos/spec/floor-resources';
-import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
+import {FLOOR_NAMESPACE,remapStudioFloors,type StudioFloors} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
-import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
 import {PLAQUE_NAMESPACE,remapStudioPlaques,type StudioPlaques} from '@exhibitos/studio-contract';
-import {validateStudioPlaques} from '@exhibitos/studio-contract';
-import {SPACE_LIGHTING_NAMESPACE} from '@exhibitos/studio-contract';
-import {validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,remapLightAttachments,type StudioLightAttachments} from '@exhibitos/studio-contract';
-import {validateStudioBenches,BENCH_NAMESPACE,remapStudioBenches,type StudioBenches} from '@exhibitos/studio-contract';
-import {qualifyDemoDisplay} from './demo-display-policy.ts';
-import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
-import {INSTALLATION_NAMESPACE,validateStudioInstallation,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
-import { ENTRANCE_NAMESPACE, validateViewerEntrance } from '@exhibitos/studio-contract';
+import {LIGHT_DETAILS_NAMESPACE,remapStudioLightDetails,type StudioLightDetails,LIGHT_ATTACHMENT_NAMESPACE,remapLightAttachments,type StudioLightAttachments} from '@exhibitos/studio-contract';
+import {BENCH_NAMESPACE,remapStudioBenches,type StudioBenches} from '@exhibitos/studio-contract';
+import {checkPortableOexProfile} from './oex-profile.ts';
+import {INSTALLATION_NAMESPACE,remapStudioInstallation,type StudioInstallation} from '@exhibitos/studio-contract';
 import { fileURLToPath } from 'node:url';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {SPATIAL_NAMESPACE,validateSpatialProfile,remapSpatialProgram,type SpatialProgram} from '@exhibitos/studio-contract';
+import {SPATIAL_NAMESPACE,remapSpatialProgram,type SpatialProgram} from '@exhibitos/studio-contract';
 import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {transaction,sha256,type BlobStore} from '@exhibitos/storage';
-import {writeOex,writeOexFile,validateExhibition,validateFurnishingInventory,packageFurnishingAssetManifest,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
+import {writeOex,writeOexFile,validateFurnishingInventory,packageFurnishingAssetManifest,packageCompleteAssetManifest,packageSpaceStillAssetManifest,packageMediaAssetManifest,packageFurnishingNoticeManifest,type Exhibition} from '@exhibitos/spec';
 import {SPACE_STILL_NAMESPACE,spaceStillFor} from '@exhibitos/spec/space-still';
 import {CoverImages,coverImageAsset,validateCoverImage} from './cover-images.ts';
-import {DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,curationDurationValid,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails,creationYearFor} from '@exhibitos/studio-contract';
+import {curationDurationValid,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,LOD_NAMESPACE,creationYearFor} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {Studio,etag,type Draft} from './studio.ts';
 import {Cms,validMetadata,type ArtworkMetadata} from './cms.ts';
-import {validRights,allowedRights} from './rights.ts';
-import {decode,MAX_UPLOAD} from './imports.ts';
+import {allowedRights} from './rights.ts';
+import {decode} from './imports.ts';
 import {validatePcmWav,audioMedia,type AudioRow} from './audio.ts';
 export const MAX_OEX_UPLOAD=67108864;
 /** Package overhead is included in the limit and can reject before bytes return. */
@@ -50,7 +45,6 @@ export async function writeOexWithinBudget(write:()=>Promise<Buffer>,dropOptiona
  try{return await attempt();}catch(error){if(!(error instanceof ApiError)||error.code!=='OEX_LIMIT'||!dropOptional)throw error;dropOptional();return attempt();}
 }
 const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
-const LEGAL_NOTICES={'org.exhibitos/apache-license':'Apache-2.0','org.exhibitos/cc0-license':'CC0-1.0'}as const;
 // Public contract entity identities and reference fields; licenseId is authored rights data.
 const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','imageAssetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
@@ -126,30 +120,8 @@ interface Job {tenant_id:string;id:string;user_id:string;request_id:string;paylo
 const legacyJobSql="(to_jsonb(oex_import_jobs)->>'archive_profile') IS NULL AND (to_jsonb(oex_import_jobs)->>'oex_format') IS NULL AND expected_bytes<=67108864";
 function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==null&&Number.isSafeInteger(row.expected_bytes)&&row.expected_bytes>0&&row.expected_bytes<=MAX_OEX_UPLOAD;}
 function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
-/** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
-export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false){
- if(workspaceOutput)workspaceMaterialOutputInventory(e);
- for(const[namespace,licenseId]of Object.entries(LEGAL_NOTICES))if(e.extensions&&Object.hasOwn(e.extensions,namespace)){
-  const notice=e.extensions[namespace];
-  if(!object(notice)||Object.keys(notice).length!==3||!['scope','licenseId','text'].every(k=>Object.hasOwn(notice,k))||notice.licenseId!==licenseId||typeof notice.scope!=='string'||notice.scope.length<1||notice.scope.length>512||!notice.scope.trim()||typeof notice.text!=='string'||notice.text.length<1||notice.text.length>32768||!notice.text.trim())throw new ApiError(422,'OEX_LEGAL_NOTICE_INVALID');
- }
-
-
- if(!validateFurnishings(e).valid||e.artworks.length>64||e.mediaAssets.length>32||!validateExhibition(e,{archiveProfile}).valid||!validateArchitecture(e,true).valid||!validateStudioMaterials(e).valid||!validateStudioPresentation(e).valid||!validateStudioLightDetails(e).valid||!validateLightAttachments(e).valid||!validateArchitecturalFinishes(e).valid || !validateStudioPlaques(e).valid || !validateStudioBenches(e).valid||!validateStudioInstallation(e).valid||!validateStudioFloors(e).valid||!validateViewerEntrance(e).valid||!validateSpatialProfile(e).valid||!validateViewerCuration(e).valid||!validateViewingPlan(e).valid||!validateViewerExperience(e).valid||e.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkDisplayPolicy(a).valid||!validateArtworkThumbnail(a).valid))throw new ApiError(422,'OEX_PROFILE_INVALID');
- const scan=(v:unknown,scope:'exhibition'|'artwork'|'nested')=>{
-  if(Array.isArray(v)){for(const x of v)scan(x,'nested');return;}
-  if(!object(v))return;
-  if(Object.hasOwn(v,'extensions')){
-   if(!object(v.extensions))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-   const allowed=scope==='exhibition'?[FURNISHING_NAMESPACE,DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,INSTALLATION_NAMESPACE,FLOOR_NAMESPACE,BENCH_NAMESPACE,ARCHITECTURAL_FINISH_NAMESPACE,PLAQUE_NAMESPACE,LIGHT_DETAILS_NAMESPACE,LIGHT_ATTACHMENT_NAMESPACE,SPACE_LIGHTING_NAMESPACE,ENTRANCE_NAMESPACE,SPACE_STILL_NAMESPACE,EXPERIENCE_NAMESPACE,CURATION_NAMESPACE,VIEWING_PLAN_NAMESPACE,SPATIAL_NAMESPACE,FOOTSTEP_RESOURCE_NAMESPACE,...(workspaceOutput?[WORKSPACE_MATERIAL_NAMESPACE]:[]),...Object.keys(LEGAL_NOTICES)]:scope==='artwork'?[LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,DISPLAY_POLICY_NAMESPACE,ARTWORK_THUMBNAIL_NAMESPACE,...(v.schemaVersion==='1.0.0-draft.2'?['org.exhibitos.studio/display-reference']:[]),...(privateBindings?[CMS]:[])]:[];
-   if(Object.keys(v.extensions).some(k=>!allowed.includes(k)))throw new ApiError(422,'OEX_EXTENSION_UNSUPPORTED');
-  }
-  for(const [k,x]of Object.entries(v)){if(k==='extensions')continue;if(k==='artworks'&&scope==='exhibition'){for(const a of x as unknown[])scan(a,'artwork');}else scan(x,'nested');}
- };
- scan(e,'exhibition');
- for(const a of e.artworks){qualifyDemoDisplay(a);if(!validRights(a.rights)||a.assets.length>8||a.assets.some(x=>!['image/png','model/gltf-binary'].includes(x.mime)||x.bytes>MAX_UPLOAD))throw new ApiError(422,'OEX_PROFILE_INVALID');}
- for(const m of e.mediaAssets)if(m.mime!=='audio/wav'||!validRights(m.rights))throw new ApiError(422,'OEX_PROFILE_INVALID');
-}
+/** Keep workspace byte-inventory admission at the native OEX boundary. */
+export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false){if(workspaceOutput)workspaceMaterialOutputInventory(e);return checkPortableOexProfile(e,privateBindings,archiveProfile,workspaceOutput);}
 /** Native OEX11 import is not qualified; reject before preparing or staging any assets. */
 export function requireSupportedOexImport(e:Exhibition){if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');}
 /** Verify the complete selected catalogue pair before staging any import blob.

@@ -6,8 +6,13 @@ The reference demo build writes its Viewer and cover companion to
 `apps/web/dist-reference-demo-static` and `apps/web/dist-reference-demo-cover`.
 The native runtime producer continues to use `dist-static` and
 `dist-cover-shell`; the exporter selects only these two fixed companion
-locations. This separates build outputs, not their shared source dependencies
-or deployment triggers. Approved publication and previous-copy pins remain
+locations. The demo also compiles the public export validation closure to
+`apps/api/dist-public-export` instead of building the full API. Contract,
+storage, spec, web renderer, schemas, validators, codecs, notices and approved
+assets remain shared inputs. Build in separate checkouts when running the
+native and demo pipelines concurrently: contract and storage distributions and
+generated web notices are still shared within a checkout. Deployment triggers
+are managed separately. Approved publication and previous-copy pins remain
 inputs to the reference demo build.
 
 ## Manager flow

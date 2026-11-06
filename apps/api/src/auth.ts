@@ -5,7 +5,8 @@ import { transaction, membership, artworkAccess, exhibitionAccess, AccessDenied 
 export const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 export const roles = ['admin','artist','curator','viewer'] as const;
 export type Role = typeof roles[number];
-export class ApiError extends Error { readonly status:number; readonly code:string; constructor(status:number,code:string) {super(code);this.status=status;this.code=code;} }
+import {ApiError} from './api-error.ts';
+export {ApiError} from './api-error.ts';
 export interface AuthConfig { mode: 'local'|'network'; origin: string; bindHost: string; clientOrigin?: string; }
 export function config(input: AuthConfig) {
  const origin = new URL(input.origin);
