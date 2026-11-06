@@ -12,6 +12,7 @@ import type {Session} from './auth.ts';
 import {etag} from './studio.ts';
 import {Oex,withoutImportedPreviews,checkOexProfile,requireSupportedOexImport} from './oex.ts';
 import {pngCrc} from './png-pixels.ts';
+import {planWorkspaceMaterialImportSource,validateWorkspaceMaterialImportSourceBytes} from './workspace-material-import-source.ts';
 
 describe('internal bounded OEX producer',()=>{
  it('writes workspace floor color as a draft.12 resource and enforces output authority',async()=>{
@@ -30,7 +31,10 @@ describe('internal bounded OEX producer',()=>{
   vi.spyOn(intern,'currentExportAsset').mockImplementation(async(_c,_s,a,asset)=>({bytes:files.get((asset as typeof candidate.artworks[number]['assets'][number]).path)!,storedRights:(a as typeof candidate.artworks[number]).rights}));
   const client={query:vi.fn(async()=>({rows:[{snapshot:metadata}]}))} as unknown as PoolClient;
   const dir=await mkdtemp(join(tmpdir(),'exhibitos-workspace-output-'));
-  try{const path=join(dir,'result.oex');await oex.exportBoundedFile(client,session,candidate.id,match,path,new AbortController().signal);const file=await open(path,'r');try{await withOexFileHandle(file,async result=>{expect(result.manifest.formatVersion).toBe('1.0.0-draft.12');if(!('workspaceMaterialResources' in result.manifest))throw Error('missing workspace resources');expect(result.manifest.workspaceMaterialResources?.[0]).toMatchObject({materialId:material.id,role:'color',sha256:sha256(bytes)});});}finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
+  try{const path=join(dir,'result.oex');await oex.exportBoundedFile(client,session,candidate.id,match,path,new AbortController().signal);const file=await open(path,'r');try{await withOexFileHandle(file,async result=>{expect(result.manifest.formatVersion).toBe('1.0.0-draft.12');if(!('workspaceMaterialResources' in result.manifest))throw Error('missing workspace resources');const resource=result.manifest.workspaceMaterialResources[0]!;expect(resource).toMatchObject({materialId:material.id,role:'color',sha256:sha256(bytes)});
+   const job='22222222-2222-4222-8222-222222222222',attempt='33333333-3333-4333-8333-333333333333',key=`${session.tenantId}/oex-import/${job}/${attempt}/44444444-4444-4444-8444-444444444444`;
+   const source=planWorkspaceMaterialImportSource({tenantId:session.tenantId,jobId:job,attemptId:attempt,manifest:result.manifest,scene:result.exhibition,sourceKeys:new Map([[resource.path,key]])});const imported=await result.files.get(resource.path);expect(imported).toBeDefined();await validateWorkspaceMaterialImportSourceBytes(source[0]!,Buffer.from(imported!));expect(source[0]!.objectKey).toBe(key);
+  });}finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
    const ordinary=await readOex(await oex.export(client,session,candidate.id,match));expect(ordinary.manifest.formatVersion).toBe('1.0.0-draft.12');
    // The first grant expires while the second resource is reloaded in the
    // final authorization pass; checking each map alone misses that race.
