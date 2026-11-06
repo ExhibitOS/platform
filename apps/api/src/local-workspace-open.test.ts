@@ -26,4 +26,9 @@ describe.skipIf(!mac)('private local workspace opening',()=>{
   await expect(openLocalWorkspace(pool,input,'native',async()=>{}, {isolation:'read committed',beforeCommit:()=>{if(!live)throw Error('NATIVE_OWNER_UNAVAILABLE');}})).rejects.toThrow('NATIVE_OWNER_UNAVAILABLE');
   expect(query.mock.calls.map(call=>call[0])).toContain('ROLLBACK');expect(query.mock.calls.map(call=>call[0])).not.toContain('COMMIT');
  });
+ it('awaits an asynchronous owner check and rolls back if it fails',async()=>{
+  const query=vi.fn(async(sql:string)=>sql.startsWith('SELECT * FROM local_workspaces')?{rowCount:0,rows:[]} : sql.startsWith('SELECT (EXISTS')?{rowCount:1,rows:[{occupied:false}]}:{rowCount:0,rows:[]}),pool={connect:async()=>({query,release:vi.fn()})} as unknown as Pool;
+  await expect(openLocalWorkspace(pool,input,'native',undefined,{isolation:'read committed',beforeCommit:async()=>{await Promise.resolve();throw Error('OWNER_LOST');}})).rejects.toThrow('OWNER_LOST');
+  expect(query.mock.calls.map(call=>call[0])).toContain('ROLLBACK');expect(query.mock.calls.map(call=>call[0])).not.toContain('COMMIT');
+ });
 });

@@ -28,7 +28,7 @@ export function validateLocalWorkspace(value: unknown, runtimeMode: string | und
   return v;
 }
 
-export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true;beforeCommit?:()=>void}) {
+export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true;beforeCommit?:()=>void|Promise<void>}) {
   const v = validateLocalWorkspace(input, runtimeMode);
   if(options!==undefined&&(options.isolation!=='read committed'||Object.keys(options).some(key=>!['isolation','requireExisting','beforeCommit'].includes(key))||options.requireExisting!==undefined&&options.requireExisting!==true||options.beforeCommit!==undefined&&typeof options.beforeCommit!=='function'))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
   return transaction(pool, async c => {
@@ -56,7 +56,7 @@ export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput,
     // previous sessions and never resets a password or grants a legacy owner.
     await c.query('UPDATE auth_sessions SET revoked=true WHERE tenant_id=$1 AND user_id=$2', [v.tenantId, v.principalId]);
     await c.query("INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '8 hours')", [randomUUID(), digest(v.sessionToken), digest(v.csrfToken), v.csrfToken, v.tenantId, v.principalId]);
-    options?.beforeCommit?.();
+    await options?.beforeCommit?.();
     return { workspaceId: v.workspaceId, tenantId: v.tenantId, principalId: v.principalId };
   });
 }
