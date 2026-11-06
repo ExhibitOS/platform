@@ -21,7 +21,7 @@ export function parsePackedWorkspaceOexAck(raw:Uint8Array,expected:Omit<Expected
  return parse(raw,expected,true) as ReturnType<typeof parse> & {manifest:ReturnType<typeof decodePackedWorkspaceOexDocuments>['manifest']};
 }
 function parse(raw:Uint8Array,expected:Omit<Expected,'archiveFormat'>&{archiveFormat?:NativeOexFileFormat|'1.0.0-draft.12'},workspace:boolean){
- if(workspace&&(expected.archiveFormat!=='1.0.0-draft.12'||expected.preflight===undefined))throw Error('OEX_PACKED_ACK');
+ if(workspace&&(!expected||typeof expected!=='object'||expected.archiveFormat!=='1.0.0-draft.12'||expected.preflight===undefined))throw Error('OEX_PACKED_ACK');
  if(!(raw instanceof Uint8Array)||raw.byteLength<1||raw.byteLength>4*1024*1024||!expected||![expected.attemptId,expected.runtimeGeneration,expected.reservationId,expected.reservationGeneration].every(v=>typeof v==='string'&&uuid.test(v))||![expected.controlSha256,expected.archiveSha256].every(v=>typeof v==='string'&&hex.test(v))||![expected.outputDevice,expected.outputInode].every(v=>typeof v==='string'&&decimal.test(v))||!Number.isSafeInteger(expected.capacity)||expected.capacity<0||expected.capacity>512*1024*1024)throw Error('OEX_PACKED_ACK');
  const preflight=expected.preflight;
  if(preflight!==undefined&&(!preflight||typeof preflight!=='object'||typeof preflight.manifestSha256!=='string'||!hex.test(preflight.manifestSha256)||!Number.isSafeInteger(preflight.packedBytes)||preflight.packedBytes<0||preflight.packedBytes>expected.capacity))throw Error('OEX_PACKED_ACK');
