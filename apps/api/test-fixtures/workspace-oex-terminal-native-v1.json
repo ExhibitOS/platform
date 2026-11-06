@@ -1,0 +1,1478 @@
+{
+  "kind": "synthetic-full-workspace-terminal-v1",
+  "scope": {
+    "workspaceId": "50ed5798-c1c9-4753-a9d8-be483fd7deca",
+    "tenantId": "e29a6d07-d443-49ce-b443-6cf2b92c50c4",
+    "principalId": "fa9be060-61f1-4b9c-91c2-2f23dd85574c",
+    "jobId": "9d8eee8f-e084-455c-8d30-5b2b6fa9a853",
+    "attemptId": "a276233c-4c28-48d6-b822-138b493e4ec0",
+    "importRequestId": "3747828b-0f93-4f8f-9da1-4afadd75f4f0",
+    "sourceArchiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "sourceFloorId": "d8930c76-483b-4d54-9630-18923f230755",
+  "sourceMaterialId": "23d3eddf-e222-4b32-9c2b-0253227f3c83",
+  "colorPngBase64": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAC0lEQVR4nGNgQAYAAA4AAamRc7EAAAAASUVORK5CYII=",
+  "result": {
+    "revision": 1,
+    "etag": "\"studio-r1-cef62c92a28d0a50a0c03e6444e540c9a17dce0bcbc25624fafcae993b0e00c2\"",
+    "draft": {
+      "createdAt": "2026-11-06T01:26:59.297Z",
+      "candidate": {
+        "openings": [
+          {
+            "surfaceId": "6f20976f-b9d7-4e7f-b004-70282ad370d8",
+            "type": "door",
+            "dimensions": {
+              "height": 2.5,
+              "width": 1
+            },
+            "exterior": true,
+            "offset": [
+              -4,
+              -0.75
+            ],
+            "id": "c5e046c0-758a-47fe-86ad-df05b9c47e57"
+          }
+        ],
+        "mediaAssets": [
+          {
+            "sha256": "c726d333dd159a31423f3480dbb1c5c4a9dfcd30efe1f7e12ade390dc92e8908",
+            "id": "bf12412a-c341-47d0-aa0d-48c5af2c35c8",
+            "rights": {
+              "ownership": "owner",
+              "licenseId": "CC0-1.0",
+              "permissions": {
+                "download": true,
+                "commercial": true,
+                "display": true,
+                "export": true
+              },
+              "holder": "ExhibitOS contributors",
+              "creditLine": "Original synthetic silence; CC0-1.0"
+            },
+            "mime": "audio/wav",
+            "path": "media/4d07744f-9fc4-4ed9-8794-6bdf2fb8ea3d/audio.wav",
+            "bytes": 1644
+          }
+        ],
+        "rooms": [
+          {
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                0,
+                0,
+                0
+              ]
+            },
+            "dimensions": {
+              "width": 12,
+              "depth": 8,
+              "height": 4
+            },
+            "name": "Synthetic white cube",
+            "id": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+          }
+        ],
+        "lights": [
+          {
+            "intensity": 100,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                -3,
+                3,
+                -2
+              ]
+            },
+            "castsShadow": false,
+            "type": "point",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "id": "cb2bc197-9a29-43df-8464-141b15bd7191",
+            "unit": "candela"
+          },
+          {
+            "intensity": 100,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                3,
+                3,
+                -2
+              ]
+            },
+            "castsShadow": false,
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "type": "point",
+            "id": "7b5684d5-11b5-4ae2-8fd5-cb0382d5ebfa",
+            "unit": "candela"
+          },
+          {
+            "intensity": 100,
+            "castsShadow": false,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                -3,
+                3,
+                2
+              ]
+            },
+            "type": "point",
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "id": "cfaaf325-3104-4c73-8335-9baa27570c93",
+            "unit": "candela"
+          },
+          {
+            "intensity": 100,
+            "castsShadow": false,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                3,
+                3,
+                2
+              ]
+            },
+            "type": "point",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "id": "2bb464dd-d6a2-4ab6-8aac-df71432d182e",
+            "unit": "candela"
+          }
+        ],
+        "createdAt": "2026-10-02T09:00:00Z",
+        "coordinates": "right-handed-y-up",
+        "audioZones": [
+          {
+            "volume": 0.5,
+            "autoplay": false,
+            "transcript": "Original synthetic silence.",
+            "radius": 1,
+            "assetId": "bf12412a-c341-47d0-aa0d-48c5af2c35c8",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "id": "f6ea24a4-17fb-41a6-bbc7-9c0a25188d5a"
+          }
+        ],
+        "extensions": {
+          "org.exhibitos/cc0-license": {
+            "scope": "Original synthetic binary artwork assets only",
+            "text": "Creative Commons Legal Code\n\nCC0 1.0 Universal\n\n    CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE\n    LEGAL SERVICES. DISTRIBUTION OF THIS DOCUMENT DOES NOT CREATE AN\n    ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS\n    INFORMATION ON AN \"AS-IS\" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES\n    REGARDING THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS\n    PROVIDED HEREUNDER, AND DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM\n    THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS PROVIDED\n    HEREUNDER.\n\nStatement of Purpose\n\nThe laws of most jurisdictions throughout the world automatically confer\nexclusive Copyright and Related Rights (defined below) upon the creator\nand subsequent owner(s) (each and all, an \"owner\") of an original work of\nauthorship and/or a database (each, a \"Work\").\n\nCertain owners wish to permanently relinquish those rights to a Work for\nthe purpose of contributing to a commons of creative, cultural and\nscientific works (\"Commons\") that the public can reliably and without fear\nof later claims of infringement build upon, modify, incorporate in other\nworks, reuse and redistribute as freely as possible in any form whatsoever\nand for any purposes, including without limitation commercial purposes.\nThese owners may contribute to the Commons to promote the ideal of a free\nculture and the further production of creative, cultural and scientific\nworks, or to gain reputation or greater distribution for their Work in\npart through the use and efforts of others.\n\nFor these and/or other purposes and motivations, and without any\nexpectation of additional consideration or compensation, the person\nassociating CC0 with a Work (the \"Affirmer\"), to the extent that he or she\nis an owner of Copyright and Related Rights in the Work, voluntarily\nelects to apply CC0 to the Work and publicly distribute the Work under its\nterms, with knowledge of his or her Copyright and Related Rights in the\nWork and the meaning and intended legal effect of CC0 on those rights.\n\n1. Copyright and Related Rights. A Work made available under CC0 may be\nprotected by copyright and related or neighboring rights (\"Copyright and\nRelated Rights\"). Copyright and Related Rights include, but are not\nlimited to, the following:\n\n  i. the right to reproduce, adapt, distribute, perform, display,\n     communicate, and translate a Work;\n ii. moral rights retained by the original author(s) and/or performer(s);\niii. publicity and privacy rights pertaining to a person's image or\n     likeness depicted in a Work;\n iv. rights protecting against unfair competition in regards to a Work,\n     subject to the limitations in paragraph 4(a), below;\n  v. rights protecting the extraction, dissemination, use and reuse of data\n     in a Work;\n vi. database rights (such as those arising under Directive 96/9/EC of the\n     European Parliament and of the Council of 11 March 1996 on the legal\n     protection of databases, and under any national implementation\n     thereof, including any amended or successor version of such\n     directive); and\nvii. other similar, equivalent or corresponding rights throughout the\n     world based on applicable law or treaty, and any national\n     implementations thereof.\n\n2. Waiver. To the greatest extent permitted by, but not in contravention\nof, applicable law, Affirmer hereby overtly, fully, permanently,\nirrevocably and unconditionally waives, abandons, and surrenders all of\nAffirmer's Copyright and Related Rights and associated claims and causes\nof action, whether now known or unknown (including existing as well as\nfuture claims and causes of action), in the Work (i) in all territories\nworldwide, (ii) for the maximum duration provided by applicable law or\ntreaty (including future time extensions), (iii) in any current or future\nmedium and for any number of copies, and (iv) for any purpose whatsoever,\nincluding without limitation commercial, advertising or promotional\npurposes (the \"Waiver\"). Affirmer makes the Waiver for the benefit of each\nmember of the public at large and to the detriment of Affirmer's heirs and\nsuccessors, fully intending that such Waiver shall not be subject to\nrevocation, rescission, cancellation, termination, or any other legal or\nequitable action to disrupt the quiet enjoyment of the Work by the public\nas contemplated by Affirmer's express Statement of Purpose.\n\n3. Public License Fallback. Should any part of the Waiver for any reason\nbe judged legally invalid or ineffective under applicable law, then the\nWaiver shall be preserved to the maximum extent permitted taking into\naccount Affirmer's express Statement of Purpose. In addition, to the\nextent the Waiver is so judged Affirmer hereby grants to each affected\nperson a royalty-free, non transferable, non sublicensable, non exclusive,\nirrevocable and unconditional license to exercise Affirmer's Copyright and\nRelated Rights in the Work (i) in all territories worldwide, (ii) for the\nmaximum duration provided by applicable law or treaty (including future\ntime extensions), (iii) in any current or future medium and for any number\nof copies, and (iv) for any purpose whatsoever, including without\nlimitation commercial, advertising or promotional purposes (the\n\"License\"). The License shall be deemed effective as of the date CC0 was\napplied by Affirmer to the Work. Should any part of the License for any\nreason be judged legally invalid or ineffective under applicable law, such\npartial invalidity or ineffectiveness shall not invalidate the remainder\nof the License, and in such case Affirmer hereby affirms that he or she\nwill not (i) exercise any of his or her remaining Copyright and Related\nRights in the Work or (ii) assert any associated claims and causes of\naction with respect to the Work, in either case contrary to Affirmer's\nexpress Statement of Purpose.\n\n4. Limitations and Disclaimers.\n\n a. No trademark or patent rights held by Affirmer are waived, abandoned,\n    surrendered, licensed or otherwise affected by this document.\n b. Affirmer offers the Work as-is and makes no representations or\n    warranties of any kind concerning the Work, express, implied,\n    statutory or otherwise, including without limitation warranties of\n    title, merchantability, fitness for a particular purpose, non\n    infringement, or the absence of latent or other defects, accuracy, or\n    the present or absence of errors, whether or not discoverable, all to\n    the greatest extent permissible under applicable law.\n c. Affirmer disclaims responsibility for clearing rights of other persons\n    that may apply to the Work or any use thereof, including without\n    limitation any person's Copyright and Related Rights in the Work.\n    Further, Affirmer disclaims responsibility for obtaining any necessary\n    consents, permissions or other rights required for any use of the\n    Work.\n d. Affirmer understands and acknowledges that Creative Commons is not a\n    party to this document and has no duty or obligation with respect to\n    this CC0 or use of the Work.\n",
+            "licenseId": "CC0-1.0"
+          },
+          "org.exhibitos/apache-license": {
+            "scope": "Generated package metadata and documentation",
+            "text": "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   1. Definitions.\n\n      \"License\" shall mean the terms and conditions for use, reproduction,\n      and distribution as defined by Sections 1 through 9 of this document.\n\n      \"Licensor\" shall mean the copyright owner or entity authorized by\n      the copyright owner that is granting the License.\n\n      \"Legal Entity\" shall mean the union of the acting entity and all\n      other entities that control, are controlled by, or are under common\n      control with that entity. For the purposes of this definition,\n      \"control\" means (i) the power, direct or indirect, to cause the\n      direction or management of such entity, whether by contract or\n      otherwise, or (ii) ownership of fifty percent (50%) or more of the\n      outstanding shares, or (iii) beneficial ownership of such entity.\n\n      \"You\" (or \"Your\") shall mean an individual or Legal Entity\n      exercising permissions granted by this License.\n\n      \"Source\" form shall mean the preferred form for making modifications,\n      including but not limited to software source code, documentation\n      source, and configuration files.\n\n      \"Object\" form shall mean any form resulting from mechanical\n      transformation or translation of a Source form, including but\n      not limited to compiled object code, generated documentation,\n      and conversions to other media types.\n\n      \"Work\" shall mean the work of authorship, whether in Source or\n      Object form, made available under the License, as indicated by a\n      copyright notice that is included in or attached to the work\n      (an example is provided in the Appendix below).\n\n      \"Derivative Works\" shall mean any work, whether in Source or Object\n      form, that is based on (or derived from) the Work and for which the\n      editorial revisions, annotations, elaborations, or other modifications\n      represent, as a whole, an original work of authorship. For the purposes\n      of this License, Derivative Works shall not include works that remain\n      separable from, or merely link (or bind by name) to the interfaces of,\n      the Work and Derivative Works thereof.\n\n      \"Contribution\" shall mean any work of authorship, including\n      the original version of the Work and any modifications or additions\n      to that Work or Derivative Works thereof, that is intentionally\n      submitted to Licensor for inclusion in the Work by the copyright owner\n      or by an individual or Legal Entity authorized to submit on behalf of\n      the copyright owner. For the purposes of this definition, \"submitted\"\n      means any form of electronic, verbal, or written communication sent\n      to the Licensor or its representatives, including but not limited to\n      communication on electronic mailing lists, source code control systems,\n      and issue tracking systems that are managed by, or on behalf of, the\n      Licensor for the purpose of discussing and improving the Work, but\n      excluding communication that is conspicuously marked or otherwise\n      designated in writing by the copyright owner as \"Not a Contribution.\"\n\n      \"Contributor\" shall mean Licensor and any individual or Legal Entity\n      on behalf of whom a Contribution has been received by Licensor and\n      subsequently incorporated within the Work.\n\n   2. Grant of Copyright License. Subject to the terms and conditions of\n      this License, each Contributor hereby grants to You a perpetual,\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n      copyright license to reproduce, prepare Derivative Works of,\n      publicly display, publicly perform, sublicense, and distribute the\n      Work and such Derivative Works in Source or Object form.\n\n   3. Grant of Patent License. Subject to the terms and conditions of\n      this License, each Contributor hereby grants to You a perpetual,\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n      (except as stated in this section) patent license to make, have made,\n      use, offer to sell, sell, import, and otherwise transfer the Work,\n      where such license applies only to those patent claims licensable\n      by such Contributor that are necessarily infringed by their\n      Contribution(s) alone or by combination of their Contribution(s)\n      with the Work to which such Contribution(s) was submitted. If You\n      institute patent litigation against any entity (including a\n      cross-claim or counterclaim in a lawsuit) alleging that the Work\n      or a Contribution incorporated within the Work constitutes direct\n      or contributory patent infringement, then any patent licenses\n      granted to You under this License for that Work shall terminate\n      as of the date such litigation is filed.\n\n   4. Redistribution. You may reproduce and distribute copies of the\n      Work or Derivative Works thereof in any medium, with or without\n      modifications, and in Source or Object form, provided that You\n      meet the following conditions:\n\n      (a) You must give any other recipients of the Work or\n          Derivative Works a copy of this License; and\n\n      (b) You must cause any modified files to carry prominent notices\n          stating that You changed the files; and\n\n      (c) You must retain, in the Source form of any Derivative Works\n          that You distribute, all copyright, patent, trademark, and\n          attribution notices from the Source form of the Work,\n          excluding those notices that do not pertain to any part of\n          the Derivative Works; and\n\n      (d) If the Work includes a \"NOTICE\" text file as part of its\n          distribution, then any Derivative Works that You distribute must\n          include a readable copy of the attribution notices contained\n          within such NOTICE file, excluding those notices that do not\n          pertain to any part of the Derivative Works, in at least one\n          of the following places: within a NOTICE text file distributed\n          as part of the Derivative Works; within the Source form or\n          documentation, if provided along with the Derivative Works; or,\n          within a display generated by the Derivative Works, if and\n          wherever such third-party notices normally appear. The contents\n          of the NOTICE file are for informational purposes only and\n          do not modify the License. You may add Your own attribution\n          notices within Derivative Works that You distribute, alongside\n          or as an addendum to the NOTICE text from the Work, provided\n          that such additional attribution notices cannot be construed\n          as modifying the License.\n\n      You may add Your own copyright statement to Your modifications and\n      may provide additional or different license terms and conditions\n      for use, reproduction, or distribution of Your modifications, or\n      for any such Derivative Works as a whole, provided Your use,\n      reproduction, and distribution of the Work otherwise complies with\n      the conditions stated in this License.\n\n   5. Submission of Contributions. Unless You explicitly state otherwise,\n      any Contribution intentionally submitted for inclusion in the Work\n      by You to the Licensor shall be under the terms and conditions of\n      this License, without any additional terms or conditions.\n      Notwithstanding the above, nothing herein shall supersede or modify\n      the terms of any separate license agreement you may have executed\n      with Licensor regarding such Contributions.\n\n   6. Trademarks. This License does not grant permission to use the trade\n      names, trademarks, service marks, or product names of the Licensor,\n      except as required for reasonable and customary use in describing the\n      origin of the Work and reproducing the content of the NOTICE file.\n\n   7. Disclaimer of Warranty. Unless required by applicable law or\n      agreed to in writing, Licensor provides the Work (and each\n      Contributor provides its Contributions) on an \"AS IS\" BASIS,\n      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n      implied, including, without limitation, any warranties or conditions\n      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n      PARTICULAR PURPOSE. You are solely responsible for determining the\n      appropriateness of using or redistributing the Work and assume any\n      risks associated with Your exercise of permissions under this License.\n\n   8. Limitation of Liability. In no event and under no legal theory,\n      whether in tort (including negligence), contract, or otherwise,\n      unless required by applicable law (such as deliberate and grossly\n      negligent acts) or agreed to in writing, shall any Contributor be\n      liable to You for damages, including any direct, indirect, special,\n      incidental, or consequential damages of any character arising as a\n      result of this License or out of the use or inability to use the\n      Work (including but not limited to damages for loss of goodwill,\n      work stoppage, computer failure or malfunction, or any and all\n      other commercial damages or losses), even if such Contributor\n      has been advised of the possibility of such damages.\n\n   9. Accepting Warranty or Additional Liability. While redistributing\n      the Work or Derivative Works thereof, You may choose to offer,\n      and charge a fee for, acceptance of support, warranty, indemnity,\n      or other liability obligations and/or rights consistent with this\n      License. However, in accepting such obligations, You may act only\n      on Your own behalf and on Your sole responsibility, not on behalf\n      of any other Contributor, and only if You agree to indemnify,\n      defend, and hold each Contributor harmless for any liability\n      incurred by, or claims asserted against, such Contributor by reason\n      of your accepting any such warranty or additional liability.\n\n   END OF TERMS AND CONDITIONS\n\n   APPENDIX: How to apply the Apache License to your work.\n\n      To apply the Apache License to your work, attach the following\n      boilerplate notice, with the fields enclosed by brackets \"[]\"\n      replaced with your own identifying information. (Don't include\n      the brackets!)  The text should be enclosed in the appropriate\n      comment syntax for the file format. We also recommend that a\n      file or class name and description of purpose be included on the\n      same \"printed page\" as the copyright notice for easier\n      identification within third-party archives.\n\n   Copyright [yyyy] [name of copyright owner]\n\n   Licensed under the Apache License, Version 2.0 (the \"License\");\n   you may not use this file except in compliance with the License.\n   You may obtain a copy of the License at\n\n       http://www.apache.org/licenses/LICENSE-2.0\n\n   Unless required by applicable law or agreed to in writing, software\n   distributed under the License is distributed on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n   See the License for the specific language governing permissions and\n   limitations under the License.\n",
+            "licenseId": "Apache-2.0"
+          },
+          "org.exhibitos.studio/floors": {
+            "version": 1,
+            "bindings": [
+              {
+                "repeatMeters": [
+                  0.9,
+                  0.9
+                ],
+                "target": {
+                  "kind": "room-base",
+                  "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+                },
+                "texturePack": {
+                  "version": 1,
+                  "id": "quiet-oak-herringbone"
+                },
+                "rotation": 0,
+                "materialOverride": {
+                  "color": "#ffffff",
+                  "roughness": 1,
+                  "metalness": 0
+                },
+                "preset": "wood",
+                "aoStrength": 0,
+                "normalScale": 1,
+                "sound": {
+                  "mode": "material-default",
+                  "gain": 1
+                }
+              }
+            ]
+          },
+          "org.exhibitos.studio/workspace-materials": {
+            "version": 1,
+            "materials": [
+              {
+                "id": "fa2346b2-a195-4ff2-87f9-28eb7d37dba9",
+                "version": 1,
+                "kind": "floor",
+                "name": "Synthetic fixture floor",
+                "rights": {
+                  "holder": "Synthetic fixture",
+                  "ownership": "owner",
+                  "licenseId": "CC0-1.0",
+                  "creditLine": "Synthetic fixture",
+                  "permissions": {
+                    "display": true,
+                    "download": false,
+                    "export": true,
+                    "commercial": true
+                  }
+                },
+                "provenance": "Synthetic fixture",
+                "maps": {
+                  "color": {
+                    "mime": "image/png",
+                    "bytes": 68,
+                    "sha256": "7899d6ced52159786ff083934df42788da01a30b7ed9bb7756d7f3f5a94ef685",
+                    "width": 2,
+                    "height": 2,
+                    "colorSpace": "srgb"
+                  }
+                }
+              }
+            ],
+            "bindings": [
+              {
+                "surfaceId": "09b00bd4-afef-4e94-ab30-88be9d5e960d",
+                "materialId": "fa2346b2-a195-4ff2-87f9-28eb7d37dba9",
+                "materialVersion": 1,
+                "repeatMeters": [
+                  2,
+                  2
+                ],
+                "rotation": 0
+              }
+            ]
+          }
+        },
+        "schemaVersion": "1.0.0-draft.1",
+        "artworks": [
+          {
+            "provenance": {
+              "authorship": "synthetic",
+              "events": [
+                {
+                  "id": "86ce0c6c-af16-43e7-9772-186f5758ff75",
+                  "description": "Deterministically generated original fixture with baked meter geometry.",
+                  "tool": {
+                    "version": "1",
+                    "name": "ExhibitOS synthetic generator"
+                  },
+                  "type": "created",
+                  "at": "2026-10-01T00:00:00Z"
+                }
+              ]
+            },
+            "primaryAssetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+            "artworkType": "sculpture",
+            "rights": {
+              "creditLine": "ExhibitOS original synthetic fixtures (optional credit)",
+              "licenseId": "CC0-1.0",
+              "permissions": {
+                "download": true,
+                "display": true,
+                "commercial": true,
+                "export": true
+              },
+              "holder": "ExhibitOS contributors",
+              "ownership": "owner"
+            },
+            "createdAt": "2026-10-01T00:00:00Z",
+            "extensions": {
+              "org.exhibitos.studio/cms": {
+                "tenantId": "e29a6d07-d443-49ce-b443-6cf2b92c50c4",
+                "artworkId": "055d7618-8bed-4702-b7bc-5f2fe9df440b",
+                "revision": 1
+              }
+            },
+            "coordinates": "right-handed-y-up",
+            "schemaVersion": "1.0.0-draft.1",
+            "dimensions": {
+              "depth": 1,
+              "width": 1,
+              "height": 1
+            },
+            "assets": [
+              {
+                "sha256": "1e4e53565fdbc5a71b1aaa83d6b25df6e8025add2f08b35fdca20475fbbca460",
+                "mime": "model/gltf-binary",
+                "role": "model",
+                "path": "sculpture.glb",
+                "id": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+                "bytes": 1516
+              }
+            ],
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                0,
+                0,
+                0
+              ]
+            },
+            "kind": "artwork",
+            "metadata": {
+              "language": "en",
+              "artist": "ExhibitOS contributors",
+              "description": "Original fixture; no private artwork or Capture input.",
+              "title": "Synthetic meter cube",
+              "medium": "synthetic geometry"
+            },
+            "revision": 1,
+            "id": "055d7618-8bed-4702-b7bc-5f2fe9df440b",
+            "units": "meter",
+            "revisionId": "f021af65-49b2-428d-8620-63cbfd77a07c"
+          },
+          {
+            "provenance": {
+              "events": [
+                {
+                  "id": "1a664185-6e23-453c-8921-398d59efb931",
+                  "description": "Deterministically generated original fixture with baked meter geometry.",
+                  "at": "2026-10-01T00:00:00Z",
+                  "tool": {
+                    "name": "ExhibitOS synthetic generator",
+                    "version": "1"
+                  },
+                  "type": "created"
+                }
+              ],
+              "authorship": "synthetic"
+            },
+            "primaryAssetId": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+            "artworkType": "image",
+            "rights": {
+              "ownership": "owner",
+              "permissions": {
+                "export": true,
+                "display": true,
+                "commercial": true,
+                "download": true
+              },
+              "holder": "ExhibitOS contributors",
+              "licenseId": "CC0-1.0",
+              "creditLine": "ExhibitOS original synthetic fixtures (optional credit)"
+            },
+            "createdAt": "2026-10-01T00:00:00Z",
+            "extensions": {
+              "org.exhibitos.studio/cms": {
+                "tenantId": "e29a6d07-d443-49ce-b443-6cf2b92c50c4",
+                "artworkId": "140c2203-3bfd-45de-b800-079a691a4f7d",
+                "revision": 1
+              }
+            },
+            "coordinates": "right-handed-y-up",
+            "kind": "artwork",
+            "assets": [
+              {
+                "sha256": "33035fadc694f8a64d89d07425a2ed0babb9352208cf34aab657ed5922a55fe9",
+                "bytes": 196960,
+                "role": "image",
+                "mime": "image/png",
+                "id": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+                "path": "painting.png"
+              }
+            ],
+            "schemaVersion": "1.0.0-draft.1",
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            "dimensions": {
+              "height": 1,
+              "width": 1
+            },
+            "metadata": {
+              "language": "en",
+              "medium": "synthetic color grid",
+              "title": "Synthetic color grid",
+              "artist": "ExhibitOS contributors",
+              "description": "Original fixture; no private artwork or Capture input."
+            },
+            "revision": 1,
+            "id": "140c2203-3bfd-45de-b800-079a691a4f7d",
+            "units": "meter",
+            "revisionId": "89480b40-cfae-44de-9a36-5f8f4967a629"
+          }
+        ],
+        "title": "Synthetic contract reference exhibition",
+        "kind": "exhibition-revision",
+        "annotations": [
+          {
+            "id": "19fb297d-8561-4411-b1ea-f949d4139c97",
+            "placementId": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+            "text": "Original generated color grid; no real artwork."
+          }
+        ],
+        "surfaces": [
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "dimensions": {
+              "width": 12,
+              "height": 4
+            },
+            "type": "wall",
+            "id": "6f20976f-b9d7-4e7f-b004-70282ad370d8",
+            "transform": {
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "position": [
+                0,
+                2,
+                -4
+              ]
+            }
+          },
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "dimensions": {
+              "width": 12,
+              "height": 8
+            },
+            "type": "floor",
+            "id": "09b00bd4-afef-4e94-ab30-88be9d5e960d",
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                -0.7071067811865476,
+                0,
+                0,
+                0.7071067811865476
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          }
+        ],
+        "revision": 1,
+        "navigation": [
+          {
+            "name": "Stationary reference route",
+            "waypoints": [
+              {
+                "position": [
+                  0,
+                  1.6,
+                  2
+                ],
+                "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+              },
+              {
+                "position": [
+                  0,
+                  1.6,
+                  0
+                ],
+                "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+              }
+            ],
+            "id": "9fc7b4df-f398-4047-a0ee-3e42bbb886e7",
+            "accessible": true
+          }
+        ],
+        "scripts": [
+          {
+            "enabled": false,
+            "trigger": {
+              "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+              "type": "room-enter"
+            },
+            "id": "27c3e362-2ec6-43c2-8c50-2cc327d9357a",
+            "actions": [
+              {
+                "delayMs": 0,
+                "targetId": "19fb297d-8561-4411-b1ea-f949d4139c97",
+                "type": "show-annotation"
+              }
+            ]
+          }
+        ],
+        "id": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+        "accessibility": {
+          "reducedMotion": true,
+          "keyboardNavigation": true,
+          "artworkDescriptions": [
+            {
+              "placementId": "4b9d182f-3fd1-4ecf-943b-1da4e5494da9",
+              "text": "Original synthetic meter cube"
+            },
+            {
+              "placementId": "ee59de64-89f2-4481-96e4-aa38e7b3598b",
+              "text": "Original synthetic meter cube"
+            },
+            {
+              "placementId": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+              "text": "Original synthetic color grid"
+            }
+          ],
+          "stationaryNavigation": true,
+          "alternativeView": "list",
+          "routeIds": [
+            "9fc7b4df-f398-4047-a0ee-3e42bbb886e7"
+          ]
+        },
+        "placements": [
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "id": "4b9d182f-3fd1-4ecf-943b-1da4e5494da9",
+            "assetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+            "transform": {
+              "position": [
+                -2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "artworkRevisionId": "f021af65-49b2-428d-8620-63cbfd77a07c"
+          },
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "id": "ee59de64-89f2-4481-96e4-aa38e7b3598b",
+            "assetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+            "transform": {
+              "position": [
+                2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "artworkRevisionId": "f021af65-49b2-428d-8620-63cbfd77a07c"
+          },
+          {
+            "id": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "assetId": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+            "transform": {
+              "position": [
+                0,
+                1.5,
+                -3.99
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            "artworkRevisionId": "89480b40-cfae-44de-9a36-5f8f4967a629"
+          }
+        ],
+        "units": "meter",
+        "revisionId": "03d108ea-ea7b-4821-aae2-5575abef1a52"
+      },
+      "kind": "exhibition-draft",
+      "exhibitionId": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+      "updatedAt": "2026-11-06T01:26:59.297Z",
+      "editVersion": 1,
+      "schemaVersion": "1.0.0-draft.1",
+      "id": "816a93f7-9c3d-45b5-8125-8eec51d2d0de"
+    },
+    "exhibitionId": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+    "idMap": {
+      "7143911a-1c9c-4dbe-a700-3da1faac4cf8": "c5e046c0-758a-47fe-86ad-df05b9c47e57",
+      "4d07744f-9fc4-4ed9-8794-6bdf2fb8ea3d": "bf12412a-c341-47d0-aa0d-48c5af2c35c8",
+      "5c65be0c-063f-46ff-8e56-e86a8686b13f": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+      "3ea25f2a-6c04-4aa3-a32f-9d52bd415a8c": "cb2bc197-9a29-43df-8464-141b15bd7191",
+      "767bea28-a13d-4cf9-bfd6-e25841086d0c": "7b5684d5-11b5-4ae2-8fd5-cb0382d5ebfa",
+      "ab8e137f-c367-4d6b-9074-0a7b074f08a7": "cfaaf325-3104-4c73-8335-9baa27570c93",
+      "b8bc8706-0423-4a68-9098-ec55c25360ee": "2bb464dd-d6a2-4ab6-8aac-df71432d182e",
+      "9345367f-8a22-4c14-a159-a3ac92900f3a": "f6ea24a4-17fb-41a6-bbc7-9c0a25188d5a",
+      "5f265efc-21ba-4a1d-a98c-dbde68e5bf42": "86ce0c6c-af16-43e7-9772-186f5758ff75",
+      "c6281fff-d3fe-4744-893b-810d227d94ec": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+      "a7a47797-4ddc-4029-a173-1fe526f5f006": "055d7618-8bed-4702-b7bc-5f2fe9df440b",
+      "bb9ddcdb-f0c8-4256-b33c-a76e01c4887e": "f021af65-49b2-428d-8620-63cbfd77a07c",
+      "4071bef2-be81-463c-b9fa-e93709ccc438": "1a664185-6e23-453c-8921-398d59efb931",
+      "3cec700d-4e57-4866-9018-d6aed826094c": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+      "d009aee3-e2ab-42bf-b1fe-278454ff4a41": "140c2203-3bfd-45de-b800-079a691a4f7d",
+      "1edb3672-4008-428a-ae61-2742b0d4e4e8": "89480b40-cfae-44de-9a36-5f8f4967a629",
+      "292ede36-9682-4e24-8d73-fffbe788af84": "19fb297d-8561-4411-b1ea-f949d4139c97",
+      "1b1c8f72-8f8f-4da2-ab6c-2e6b3ad85e8c": "6f20976f-b9d7-4e7f-b004-70282ad370d8",
+      "f3f8cb3e-4ed4-41d5-aa37-d9329a00bbac": "9fc7b4df-f398-4047-a0ee-3e42bbb886e7",
+      "1a8fd9ce-a7d4-4aa4-910d-467c2ba5c20f": "27c3e362-2ec6-43c2-8c50-2cc327d9357a",
+      "55cc457f-e3ec-4e03-bcad-0e5ae26acd8f": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+      "05eda4a9-324f-4c69-9c05-d9e051c7acca": "4b9d182f-3fd1-4ecf-943b-1da4e5494da9",
+      "6af3b456-9393-413f-9f90-55860bb3aaba": "ee59de64-89f2-4481-96e4-aa38e7b3598b",
+      "3759590b-58cc-424f-a591-21485fd2e0b2": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+      "585723f9-2ce9-4844-8943-8d2195f18d53": "03d108ea-ea7b-4821-aae2-5575abef1a52",
+      "d8930c76-483b-4d54-9630-18923f230755": "09b00bd4-afef-4e94-ab30-88be9d5e960d",
+      "23d3eddf-e222-4b32-9c2b-0253227f3c83": "fa2346b2-a195-4ff2-87f9-28eb7d37dba9"
+    },
+    "assetAliases": [
+      {
+        "sourceAssetId": "c6281fff-d3fe-4744-893b-810d227d94ec",
+        "sourceArtworkRevisionId": "bb9ddcdb-f0c8-4256-b33c-a76e01c4887e",
+        "destinationArtworkId": "055d7618-8bed-4702-b7bc-5f2fe9df440b",
+        "destinationArtworkRevisionId": "f021af65-49b2-428d-8620-63cbfd77a07c",
+        "destinationAssetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+        "sourceArtifactPath": "sculpture.glb",
+        "destinationArtifactPath": "sculpture.glb"
+      },
+      {
+        "sourceAssetId": "3cec700d-4e57-4866-9018-d6aed826094c",
+        "sourceArtworkRevisionId": "1edb3672-4008-428a-ae61-2742b0d4e4e8",
+        "destinationArtworkId": "140c2203-3bfd-45de-b800-079a691a4f7d",
+        "destinationArtworkRevisionId": "89480b40-cfae-44de-9a36-5f8f4967a629",
+        "destinationAssetId": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+        "sourceArtifactPath": "painting.png",
+        "destinationArtifactPath": "painting.png"
+      }
+    ]
+  },
+  "proof": {
+    "version": 1,
+    "kind": "workspace-oex-import-terminal",
+    "workspaceId": "50ed5798-c1c9-4753-a9d8-be483fd7deca",
+    "tenantId": "e29a6d07-d443-49ce-b443-6cf2b92c50c4",
+    "principalId": "fa9be060-61f1-4b9c-91c2-2f23dd85574c",
+    "jobId": "9d8eee8f-e084-455c-8d30-5b2b6fa9a853",
+    "attemptId": "a276233c-4c28-48d6-b822-138b493e4ec0",
+    "importRequestId": "3747828b-0f93-4f8f-9da1-4afadd75f4f0",
+    "sourceArchiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "archiveFormat": "1.0.0-draft.12",
+    "exhibitionId": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+    "immutableRevisionId": "03d108ea-ea7b-4821-aae2-5575abef1a52",
+    "studioETag": "\"studio-r1-cef62c92a28d0a50a0c03e6444e540c9a17dce0bcbc25624fafcae993b0e00c2\"",
+    "resultBytes": 31503,
+    "resultSha256": "99f2f5adc98e30e170813b96fee742db67e767ac60fb21185abdc5a20641c497"
+  },
+  "resultUtf8": "{\"assetAliases\":[{\"destinationArtifactPath\":\"sculpture.glb\",\"destinationArtworkId\":\"055d7618-8bed-4702-b7bc-5f2fe9df440b\",\"destinationArtworkRevisionId\":\"f021af65-49b2-428d-8620-63cbfd77a07c\",\"destinationAssetId\":\"127976e2-f4ec-4d1f-a2fd-d731483e4696\",\"sourceArtifactPath\":\"sculpture.glb\",\"sourceArtworkRevisionId\":\"bb9ddcdb-f0c8-4256-b33c-a76e01c4887e\",\"sourceAssetId\":\"c6281fff-d3fe-4744-893b-810d227d94ec\"},{\"destinationArtifactPath\":\"painting.png\",\"destinationArtworkId\":\"140c2203-3bfd-45de-b800-079a691a4f7d\",\"destinationArtworkRevisionId\":\"89480b40-cfae-44de-9a36-5f8f4967a629\",\"destinationAssetId\":\"ee7e24f6-370e-4ecf-8aae-66340578fe2d\",\"sourceArtifactPath\":\"painting.png\",\"sourceArtworkRevisionId\":\"1edb3672-4008-428a-ae61-2742b0d4e4e8\",\"sourceAssetId\":\"3cec700d-4e57-4866-9018-d6aed826094c\"}],\"draft\":{\"candidate\":{\"accessibility\":{\"alternativeView\":\"list\",\"artworkDescriptions\":[{\"placementId\":\"4b9d182f-3fd1-4ecf-943b-1da4e5494da9\",\"text\":\"Original synthetic meter cube\"},{\"placementId\":\"ee59de64-89f2-4481-96e4-aa38e7b3598b\",\"text\":\"Original synthetic meter cube\"},{\"placementId\":\"b63f75aa-0c23-4bd4-9e5a-c703da4208b1\",\"text\":\"Original synthetic color grid\"}],\"keyboardNavigation\":true,\"reducedMotion\":true,\"routeIds\":[\"9fc7b4df-f398-4047-a0ee-3e42bbb886e7\"],\"stationaryNavigation\":true},\"annotations\":[{\"id\":\"19fb297d-8561-4411-b1ea-f949d4139c97\",\"placementId\":\"b63f75aa-0c23-4bd4-9e5a-c703da4208b1\",\"text\":\"Original generated color grid; no real artwork.\"}],\"artworks\":[{\"artworkType\":\"sculpture\",\"assets\":[{\"bytes\":1516,\"id\":\"127976e2-f4ec-4d1f-a2fd-d731483e4696\",\"mime\":\"model/gltf-binary\",\"path\":\"sculpture.glb\",\"role\":\"model\",\"sha256\":\"1e4e53565fdbc5a71b1aaa83d6b25df6e8025add2f08b35fdca20475fbbca460\"}],\"coordinates\":\"right-handed-y-up\",\"createdAt\":\"2026-10-01T00:00:00Z\",\"dimensions\":{\"depth\":1,\"height\":1,\"width\":1},\"extensions\":{\"org.exhibitos.studio/cms\":{\"artworkId\":\"055d7618-8bed-4702-b7bc-5f2fe9df440b\",\"revision\":1,\"tenantId\":\"e29a6d07-d443-49ce-b443-6cf2b92c50c4\"}},\"id\":\"055d7618-8bed-4702-b7bc-5f2fe9df440b\",\"kind\":\"artwork\",\"metadata\":{\"artist\":\"ExhibitOS contributors\",\"description\":\"Original fixture; no private artwork or Capture input.\",\"language\":\"en\",\"medium\":\"synthetic geometry\",\"title\":\"Synthetic meter cube\"},\"primaryAssetId\":\"127976e2-f4ec-4d1f-a2fd-d731483e4696\",\"provenance\":{\"authorship\":\"synthetic\",\"events\":[{\"at\":\"2026-10-01T00:00:00Z\",\"description\":\"Deterministically generated original fixture with baked meter geometry.\",\"id\":\"86ce0c6c-af16-43e7-9772-186f5758ff75\",\"tool\":{\"name\":\"ExhibitOS synthetic generator\",\"version\":\"1\"},\"type\":\"created\"}]},\"revision\":1,\"revisionId\":\"f021af65-49b2-428d-8620-63cbfd77a07c\",\"rights\":{\"creditLine\":\"ExhibitOS original synthetic fixtures (optional credit)\",\"holder\":\"ExhibitOS contributors\",\"licenseId\":\"CC0-1.0\",\"ownership\":\"owner\",\"permissions\":{\"commercial\":true,\"display\":true,\"download\":true,\"export\":true}},\"schemaVersion\":\"1.0.0-draft.1\",\"transform\":{\"position\":[0,0,0],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"units\":\"meter\"},{\"artworkType\":\"image\",\"assets\":[{\"bytes\":196960,\"id\":\"ee7e24f6-370e-4ecf-8aae-66340578fe2d\",\"mime\":\"image/png\",\"path\":\"painting.png\",\"role\":\"image\",\"sha256\":\"33035fadc694f8a64d89d07425a2ed0babb9352208cf34aab657ed5922a55fe9\"}],\"coordinates\":\"right-handed-y-up\",\"createdAt\":\"2026-10-01T00:00:00Z\",\"dimensions\":{\"height\":1,\"width\":1},\"extensions\":{\"org.exhibitos.studio/cms\":{\"artworkId\":\"140c2203-3bfd-45de-b800-079a691a4f7d\",\"revision\":1,\"tenantId\":\"e29a6d07-d443-49ce-b443-6cf2b92c50c4\"}},\"id\":\"140c2203-3bfd-45de-b800-079a691a4f7d\",\"kind\":\"artwork\",\"metadata\":{\"artist\":\"ExhibitOS contributors\",\"description\":\"Original fixture; no private artwork or Capture input.\",\"language\":\"en\",\"medium\":\"synthetic color grid\",\"title\":\"Synthetic color grid\"},\"primaryAssetId\":\"ee7e24f6-370e-4ecf-8aae-66340578fe2d\",\"provenance\":{\"authorship\":\"synthetic\",\"events\":[{\"at\":\"2026-10-01T00:00:00Z\",\"description\":\"Deterministically generated original fixture with baked meter geometry.\",\"id\":\"1a664185-6e23-453c-8921-398d59efb931\",\"tool\":{\"name\":\"ExhibitOS synthetic generator\",\"version\":\"1\"},\"type\":\"created\"}]},\"revision\":1,\"revisionId\":\"89480b40-cfae-44de-9a36-5f8f4967a629\",\"rights\":{\"creditLine\":\"ExhibitOS original synthetic fixtures (optional credit)\",\"holder\":\"ExhibitOS contributors\",\"licenseId\":\"CC0-1.0\",\"ownership\":\"owner\",\"permissions\":{\"commercial\":true,\"display\":true,\"download\":true,\"export\":true}},\"schemaVersion\":\"1.0.0-draft.1\",\"transform\":{\"position\":[0,0,0],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"units\":\"meter\"}],\"audioZones\":[{\"assetId\":\"bf12412a-c341-47d0-aa0d-48c5af2c35c8\",\"autoplay\":false,\"id\":\"f6ea24a4-17fb-41a6-bbc7-9c0a25188d5a\",\"position\":[0,0,0],\"radius\":1,\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transcript\":\"Original synthetic silence.\",\"volume\":0.5}],\"coordinates\":\"right-handed-y-up\",\"createdAt\":\"2026-10-02T09:00:00Z\",\"extensions\":{\"org.exhibitos.studio/floors\":{\"bindings\":[{\"aoStrength\":0,\"materialOverride\":{\"color\":\"#ffffff\",\"metalness\":0,\"roughness\":1},\"normalScale\":1,\"preset\":\"wood\",\"repeatMeters\":[0.9,0.9],\"rotation\":0,\"sound\":{\"gain\":1,\"mode\":\"material-default\"},\"target\":{\"kind\":\"room-base\",\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\"},\"texturePack\":{\"id\":\"quiet-oak-herringbone\",\"version\":1}}],\"version\":1},\"org.exhibitos.studio/workspace-materials\":{\"bindings\":[{\"materialId\":\"fa2346b2-a195-4ff2-87f9-28eb7d37dba9\",\"materialVersion\":1,\"repeatMeters\":[2,2],\"rotation\":0,\"surfaceId\":\"09b00bd4-afef-4e94-ab30-88be9d5e960d\"}],\"materials\":[{\"id\":\"fa2346b2-a195-4ff2-87f9-28eb7d37dba9\",\"kind\":\"floor\",\"maps\":{\"color\":{\"bytes\":68,\"colorSpace\":\"srgb\",\"height\":2,\"mime\":\"image/png\",\"sha256\":\"7899d6ced52159786ff083934df42788da01a30b7ed9bb7756d7f3f5a94ef685\",\"width\":2}},\"name\":\"Synthetic fixture floor\",\"provenance\":\"Synthetic fixture\",\"rights\":{\"creditLine\":\"Synthetic fixture\",\"holder\":\"Synthetic fixture\",\"licenseId\":\"CC0-1.0\",\"ownership\":\"owner\",\"permissions\":{\"commercial\":true,\"display\":true,\"download\":false,\"export\":true}},\"version\":1}],\"version\":1},\"org.exhibitos/apache-license\":{\"licenseId\":\"Apache-2.0\",\"scope\":\"Generated package metadata and documentation\",\"text\":\"\\n                                 Apache License\\n                           Version 2.0, January 2004\\n                        http://www.apache.org/licenses/\\n\\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\\n\\n   1. Definitions.\\n\\n      \\\"License\\\" shall mean the terms and conditions for use, reproduction,\\n      and distribution as defined by Sections 1 through 9 of this document.\\n\\n      \\\"Licensor\\\" shall mean the copyright owner or entity authorized by\\n      the copyright owner that is granting the License.\\n\\n      \\\"Legal Entity\\\" shall mean the union of the acting entity and all\\n      other entities that control, are controlled by, or are under common\\n      control with that entity. For the purposes of this definition,\\n      \\\"control\\\" means (i) the power, direct or indirect, to cause the\\n      direction or management of such entity, whether by contract or\\n      otherwise, or (ii) ownership of fifty percent (50%) or more of the\\n      outstanding shares, or (iii) beneficial ownership of such entity.\\n\\n      \\\"You\\\" (or \\\"Your\\\") shall mean an individual or Legal Entity\\n      exercising permissions granted by this License.\\n\\n      \\\"Source\\\" form shall mean the preferred form for making modifications,\\n      including but not limited to software source code, documentation\\n      source, and configuration files.\\n\\n      \\\"Object\\\" form shall mean any form resulting from mechanical\\n      transformation or translation of a Source form, including but\\n      not limited to compiled object code, generated documentation,\\n      and conversions to other media types.\\n\\n      \\\"Work\\\" shall mean the work of authorship, whether in Source or\\n      Object form, made available under the License, as indicated by a\\n      copyright notice that is included in or attached to the work\\n      (an example is provided in the Appendix below).\\n\\n      \\\"Derivative Works\\\" shall mean any work, whether in Source or Object\\n      form, that is based on (or derived from) the Work and for which the\\n      editorial revisions, annotations, elaborations, or other modifications\\n      represent, as a whole, an original work of authorship. For the purposes\\n      of this License, Derivative Works shall not include works that remain\\n      separable from, or merely link (or bind by name) to the interfaces of,\\n      the Work and Derivative Works thereof.\\n\\n      \\\"Contribution\\\" shall mean any work of authorship, including\\n      the original version of the Work and any modifications or additions\\n      to that Work or Derivative Works thereof, that is intentionally\\n      submitted to Licensor for inclusion in the Work by the copyright owner\\n      or by an individual or Legal Entity authorized to submit on behalf of\\n      the copyright owner. For the purposes of this definition, \\\"submitted\\\"\\n      means any form of electronic, verbal, or written communication sent\\n      to the Licensor or its representatives, including but not limited to\\n      communication on electronic mailing lists, source code control systems,\\n      and issue tracking systems that are managed by, or on behalf of, the\\n      Licensor for the purpose of discussing and improving the Work, but\\n      excluding communication that is conspicuously marked or otherwise\\n      designated in writing by the copyright owner as \\\"Not a Contribution.\\\"\\n\\n      \\\"Contributor\\\" shall mean Licensor and any individual or Legal Entity\\n      on behalf of whom a Contribution has been received by Licensor and\\n      subsequently incorporated within the Work.\\n\\n   2. Grant of Copyright License. Subject to the terms and conditions of\\n      this License, each Contributor hereby grants to You a perpetual,\\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\\n      copyright license to reproduce, prepare Derivative Works of,\\n      publicly display, publicly perform, sublicense, and distribute the\\n      Work and such Derivative Works in Source or Object form.\\n\\n   3. Grant of Patent License. Subject to the terms and conditions of\\n      this License, each Contributor hereby grants to You a perpetual,\\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\\n      (except as stated in this section) patent license to make, have made,\\n      use, offer to sell, sell, import, and otherwise transfer the Work,\\n      where such license applies only to those patent claims licensable\\n      by such Contributor that are necessarily infringed by their\\n      Contribution(s) alone or by combination of their Contribution(s)\\n      with the Work to which such Contribution(s) was submitted. If You\\n      institute patent litigation against any entity (including a\\n      cross-claim or counterclaim in a lawsuit) alleging that the Work\\n      or a Contribution incorporated within the Work constitutes direct\\n      or contributory patent infringement, then any patent licenses\\n      granted to You under this License for that Work shall terminate\\n      as of the date such litigation is filed.\\n\\n   4. Redistribution. You may reproduce and distribute copies of the\\n      Work or Derivative Works thereof in any medium, with or without\\n      modifications, and in Source or Object form, provided that You\\n      meet the following conditions:\\n\\n      (a) You must give any other recipients of the Work or\\n          Derivative Works a copy of this License; and\\n\\n      (b) You must cause any modified files to carry prominent notices\\n          stating that You changed the files; and\\n\\n      (c) You must retain, in the Source form of any Derivative Works\\n          that You distribute, all copyright, patent, trademark, and\\n          attribution notices from the Source form of the Work,\\n          excluding those notices that do not pertain to any part of\\n          the Derivative Works; and\\n\\n      (d) If the Work includes a \\\"NOTICE\\\" text file as part of its\\n          distribution, then any Derivative Works that You distribute must\\n          include a readable copy of the attribution notices contained\\n          within such NOTICE file, excluding those notices that do not\\n          pertain to any part of the Derivative Works, in at least one\\n          of the following places: within a NOTICE text file distributed\\n          as part of the Derivative Works; within the Source form or\\n          documentation, if provided along with the Derivative Works; or,\\n          within a display generated by the Derivative Works, if and\\n          wherever such third-party notices normally appear. The contents\\n          of the NOTICE file are for informational purposes only and\\n          do not modify the License. You may add Your own attribution\\n          notices within Derivative Works that You distribute, alongside\\n          or as an addendum to the NOTICE text from the Work, provided\\n          that such additional attribution notices cannot be construed\\n          as modifying the License.\\n\\n      You may add Your own copyright statement to Your modifications and\\n      may provide additional or different license terms and conditions\\n      for use, reproduction, or distribution of Your modifications, or\\n      for any such Derivative Works as a whole, provided Your use,\\n      reproduction, and distribution of the Work otherwise complies with\\n      the conditions stated in this License.\\n\\n   5. Submission of Contributions. Unless You explicitly state otherwise,\\n      any Contribution intentionally submitted for inclusion in the Work\\n      by You to the Licensor shall be under the terms and conditions of\\n      this License, without any additional terms or conditions.\\n      Notwithstanding the above, nothing herein shall supersede or modify\\n      the terms of any separate license agreement you may have executed\\n      with Licensor regarding such Contributions.\\n\\n   6. Trademarks. This License does not grant permission to use the trade\\n      names, trademarks, service marks, or product names of the Licensor,\\n      except as required for reasonable and customary use in describing the\\n      origin of the Work and reproducing the content of the NOTICE file.\\n\\n   7. Disclaimer of Warranty. Unless required by applicable law or\\n      agreed to in writing, Licensor provides the Work (and each\\n      Contributor provides its Contributions) on an \\\"AS IS\\\" BASIS,\\n      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\\n      implied, including, without limitation, any warranties or conditions\\n      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\\n      PARTICULAR PURPOSE. You are solely responsible for determining the\\n      appropriateness of using or redistributing the Work and assume any\\n      risks associated with Your exercise of permissions under this License.\\n\\n   8. Limitation of Liability. In no event and under no legal theory,\\n      whether in tort (including negligence), contract, or otherwise,\\n      unless required by applicable law (such as deliberate and grossly\\n      negligent acts) or agreed to in writing, shall any Contributor be\\n      liable to You for damages, including any direct, indirect, special,\\n      incidental, or consequential damages of any character arising as a\\n      result of this License or out of the use or inability to use the\\n      Work (including but not limited to damages for loss of goodwill,\\n      work stoppage, computer failure or malfunction, or any and all\\n      other commercial damages or losses), even if such Contributor\\n      has been advised of the possibility of such damages.\\n\\n   9. Accepting Warranty or Additional Liability. While redistributing\\n      the Work or Derivative Works thereof, You may choose to offer,\\n      and charge a fee for, acceptance of support, warranty, indemnity,\\n      or other liability obligations and/or rights consistent with this\\n      License. However, in accepting such obligations, You may act only\\n      on Your own behalf and on Your sole responsibility, not on behalf\\n      of any other Contributor, and only if You agree to indemnify,\\n      defend, and hold each Contributor harmless for any liability\\n      incurred by, or claims asserted against, such Contributor by reason\\n      of your accepting any such warranty or additional liability.\\n\\n   END OF TERMS AND CONDITIONS\\n\\n   APPENDIX: How to apply the Apache License to your work.\\n\\n      To apply the Apache License to your work, attach the following\\n      boilerplate notice, with the fields enclosed by brackets \\\"[]\\\"\\n      replaced with your own identifying information. (Don't include\\n      the brackets!)  The text should be enclosed in the appropriate\\n      comment syntax for the file format. We also recommend that a\\n      file or class name and description of purpose be included on the\\n      same \\\"printed page\\\" as the copyright notice for easier\\n      identification within third-party archives.\\n\\n   Copyright [yyyy] [name of copyright owner]\\n\\n   Licensed under the Apache License, Version 2.0 (the \\\"License\\\");\\n   you may not use this file except in compliance with the License.\\n   You may obtain a copy of the License at\\n\\n       http://www.apache.org/licenses/LICENSE-2.0\\n\\n   Unless required by applicable law or agreed to in writing, software\\n   distributed under the License is distributed on an \\\"AS IS\\\" BASIS,\\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\\n   See the License for the specific language governing permissions and\\n   limitations under the License.\\n\"},\"org.exhibitos/cc0-license\":{\"licenseId\":\"CC0-1.0\",\"scope\":\"Original synthetic binary artwork assets only\",\"text\":\"Creative Commons Legal Code\\n\\nCC0 1.0 Universal\\n\\n    CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE\\n    LEGAL SERVICES. DISTRIBUTION OF THIS DOCUMENT DOES NOT CREATE AN\\n    ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS\\n    INFORMATION ON AN \\\"AS-IS\\\" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES\\n    REGARDING THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS\\n    PROVIDED HEREUNDER, AND DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM\\n    THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS PROVIDED\\n    HEREUNDER.\\n\\nStatement of Purpose\\n\\nThe laws of most jurisdictions throughout the world automatically confer\\nexclusive Copyright and Related Rights (defined below) upon the creator\\nand subsequent owner(s) (each and all, an \\\"owner\\\") of an original work of\\nauthorship and/or a database (each, a \\\"Work\\\").\\n\\nCertain owners wish to permanently relinquish those rights to a Work for\\nthe purpose of contributing to a commons of creative, cultural and\\nscientific works (\\\"Commons\\\") that the public can reliably and without fear\\nof later claims of infringement build upon, modify, incorporate in other\\nworks, reuse and redistribute as freely as possible in any form whatsoever\\nand for any purposes, including without limitation commercial purposes.\\nThese owners may contribute to the Commons to promote the ideal of a free\\nculture and the further production of creative, cultural and scientific\\nworks, or to gain reputation or greater distribution for their Work in\\npart through the use and efforts of others.\\n\\nFor these and/or other purposes and motivations, and without any\\nexpectation of additional consideration or compensation, the person\\nassociating CC0 with a Work (the \\\"Affirmer\\\"), to the extent that he or she\\nis an owner of Copyright and Related Rights in the Work, voluntarily\\nelects to apply CC0 to the Work and publicly distribute the Work under its\\nterms, with knowledge of his or her Copyright and Related Rights in the\\nWork and the meaning and intended legal effect of CC0 on those rights.\\n\\n1. Copyright and Related Rights. A Work made available under CC0 may be\\nprotected by copyright and related or neighboring rights (\\\"Copyright and\\nRelated Rights\\\"). Copyright and Related Rights include, but are not\\nlimited to, the following:\\n\\n  i. the right to reproduce, adapt, distribute, perform, display,\\n     communicate, and translate a Work;\\n ii. moral rights retained by the original author(s) and/or performer(s);\\niii. publicity and privacy rights pertaining to a person's image or\\n     likeness depicted in a Work;\\n iv. rights protecting against unfair competition in regards to a Work,\\n     subject to the limitations in paragraph 4(a), below;\\n  v. rights protecting the extraction, dissemination, use and reuse of data\\n     in a Work;\\n vi. database rights (such as those arising under Directive 96/9/EC of the\\n     European Parliament and of the Council of 11 March 1996 on the legal\\n     protection of databases, and under any national implementation\\n     thereof, including any amended or successor version of such\\n     directive); and\\nvii. other similar, equivalent or corresponding rights throughout the\\n     world based on applicable law or treaty, and any national\\n     implementations thereof.\\n\\n2. Waiver. To the greatest extent permitted by, but not in contravention\\nof, applicable law, Affirmer hereby overtly, fully, permanently,\\nirrevocably and unconditionally waives, abandons, and surrenders all of\\nAffirmer's Copyright and Related Rights and associated claims and causes\\nof action, whether now known or unknown (including existing as well as\\nfuture claims and causes of action), in the Work (i) in all territories\\nworldwide, (ii) for the maximum duration provided by applicable law or\\ntreaty (including future time extensions), (iii) in any current or future\\nmedium and for any number of copies, and (iv) for any purpose whatsoever,\\nincluding without limitation commercial, advertising or promotional\\npurposes (the \\\"Waiver\\\"). Affirmer makes the Waiver for the benefit of each\\nmember of the public at large and to the detriment of Affirmer's heirs and\\nsuccessors, fully intending that such Waiver shall not be subject to\\nrevocation, rescission, cancellation, termination, or any other legal or\\nequitable action to disrupt the quiet enjoyment of the Work by the public\\nas contemplated by Affirmer's express Statement of Purpose.\\n\\n3. Public License Fallback. Should any part of the Waiver for any reason\\nbe judged legally invalid or ineffective under applicable law, then the\\nWaiver shall be preserved to the maximum extent permitted taking into\\naccount Affirmer's express Statement of Purpose. In addition, to the\\nextent the Waiver is so judged Affirmer hereby grants to each affected\\nperson a royalty-free, non transferable, non sublicensable, non exclusive,\\nirrevocable and unconditional license to exercise Affirmer's Copyright and\\nRelated Rights in the Work (i) in all territories worldwide, (ii) for the\\nmaximum duration provided by applicable law or treaty (including future\\ntime extensions), (iii) in any current or future medium and for any number\\nof copies, and (iv) for any purpose whatsoever, including without\\nlimitation commercial, advertising or promotional purposes (the\\n\\\"License\\\"). The License shall be deemed effective as of the date CC0 was\\napplied by Affirmer to the Work. Should any part of the License for any\\nreason be judged legally invalid or ineffective under applicable law, such\\npartial invalidity or ineffectiveness shall not invalidate the remainder\\nof the License, and in such case Affirmer hereby affirms that he or she\\nwill not (i) exercise any of his or her remaining Copyright and Related\\nRights in the Work or (ii) assert any associated claims and causes of\\naction with respect to the Work, in either case contrary to Affirmer's\\nexpress Statement of Purpose.\\n\\n4. Limitations and Disclaimers.\\n\\n a. No trademark or patent rights held by Affirmer are waived, abandoned,\\n    surrendered, licensed or otherwise affected by this document.\\n b. Affirmer offers the Work as-is and makes no representations or\\n    warranties of any kind concerning the Work, express, implied,\\n    statutory or otherwise, including without limitation warranties of\\n    title, merchantability, fitness for a particular purpose, non\\n    infringement, or the absence of latent or other defects, accuracy, or\\n    the present or absence of errors, whether or not discoverable, all to\\n    the greatest extent permissible under applicable law.\\n c. Affirmer disclaims responsibility for clearing rights of other persons\\n    that may apply to the Work or any use thereof, including without\\n    limitation any person's Copyright and Related Rights in the Work.\\n    Further, Affirmer disclaims responsibility for obtaining any necessary\\n    consents, permissions or other rights required for any use of the\\n    Work.\\n d. Affirmer understands and acknowledges that Creative Commons is not a\\n    party to this document and has no duty or obligation with respect to\\n    this CC0 or use of the Work.\\n\"}},\"id\":\"d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d\",\"kind\":\"exhibition-revision\",\"lights\":[{\"castsShadow\":false,\"color\":[1,1,1],\"id\":\"cb2bc197-9a29-43df-8464-141b15bd7191\",\"intensity\":100,\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[-3,3,-2],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"type\":\"point\",\"unit\":\"candela\"},{\"castsShadow\":false,\"color\":[1,1,1],\"id\":\"7b5684d5-11b5-4ae2-8fd5-cb0382d5ebfa\",\"intensity\":100,\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[3,3,-2],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"type\":\"point\",\"unit\":\"candela\"},{\"castsShadow\":false,\"color\":[1,1,1],\"id\":\"cfaaf325-3104-4c73-8335-9baa27570c93\",\"intensity\":100,\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[-3,3,2],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"type\":\"point\",\"unit\":\"candela\"},{\"castsShadow\":false,\"color\":[1,1,1],\"id\":\"2bb464dd-d6a2-4ab6-8aac-df71432d182e\",\"intensity\":100,\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[3,3,2],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"type\":\"point\",\"unit\":\"candela\"}],\"mediaAssets\":[{\"bytes\":1644,\"id\":\"bf12412a-c341-47d0-aa0d-48c5af2c35c8\",\"mime\":\"audio/wav\",\"path\":\"media/4d07744f-9fc4-4ed9-8794-6bdf2fb8ea3d/audio.wav\",\"rights\":{\"creditLine\":\"Original synthetic silence; CC0-1.0\",\"holder\":\"ExhibitOS contributors\",\"licenseId\":\"CC0-1.0\",\"ownership\":\"owner\",\"permissions\":{\"commercial\":true,\"display\":true,\"download\":true,\"export\":true}},\"sha256\":\"c726d333dd159a31423f3480dbb1c5c4a9dfcd30efe1f7e12ade390dc92e8908\"}],\"navigation\":[{\"accessible\":true,\"id\":\"9fc7b4df-f398-4047-a0ee-3e42bbb886e7\",\"name\":\"Stationary reference route\",\"waypoints\":[{\"position\":[0,1.6,2],\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\"},{\"position\":[0,1.6,0],\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\"}]}],\"openings\":[{\"dimensions\":{\"height\":2.5,\"width\":1},\"exterior\":true,\"id\":\"c5e046c0-758a-47fe-86ad-df05b9c47e57\",\"offset\":[-4,-0.75],\"surfaceId\":\"6f20976f-b9d7-4e7f-b004-70282ad370d8\",\"type\":\"door\"}],\"placements\":[{\"artworkRevisionId\":\"f021af65-49b2-428d-8620-63cbfd77a07c\",\"assetId\":\"127976e2-f4ec-4d1f-a2fd-d731483e4696\",\"id\":\"4b9d182f-3fd1-4ecf-943b-1da4e5494da9\",\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[-2,0,0],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]}},{\"artworkRevisionId\":\"f021af65-49b2-428d-8620-63cbfd77a07c\",\"assetId\":\"127976e2-f4ec-4d1f-a2fd-d731483e4696\",\"id\":\"ee59de64-89f2-4481-96e4-aa38e7b3598b\",\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[2,0,0],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]}},{\"artworkRevisionId\":\"89480b40-cfae-44de-9a36-5f8f4967a629\",\"assetId\":\"ee7e24f6-370e-4ecf-8aae-66340578fe2d\",\"id\":\"b63f75aa-0c23-4bd4-9e5a-c703da4208b1\",\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[0,1.5,-3.99],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]}}],\"revision\":1,\"revisionId\":\"03d108ea-ea7b-4821-aae2-5575abef1a52\",\"rooms\":[{\"dimensions\":{\"depth\":8,\"height\":4,\"width\":12},\"id\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"name\":\"Synthetic white cube\",\"transform\":{\"position\":[0,0,0],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]}}],\"schemaVersion\":\"1.0.0-draft.1\",\"scripts\":[{\"actions\":[{\"delayMs\":0,\"targetId\":\"19fb297d-8561-4411-b1ea-f949d4139c97\",\"type\":\"show-annotation\"}],\"enabled\":false,\"id\":\"27c3e362-2ec6-43c2-8c50-2cc327d9357a\",\"trigger\":{\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"type\":\"room-enter\"}}],\"surfaces\":[{\"dimensions\":{\"height\":4,\"width\":12},\"id\":\"6f20976f-b9d7-4e7f-b004-70282ad370d8\",\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[0,2,-4],\"rotation\":[0,0,0,1],\"scale\":[1,1,1]},\"type\":\"wall\"},{\"dimensions\":{\"height\":8,\"width\":12},\"id\":\"09b00bd4-afef-4e94-ab30-88be9d5e960d\",\"roomId\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"transform\":{\"position\":[0,0,0],\"rotation\":[-0.7071067811865476,0,0,0.7071067811865476],\"scale\":[1,1,1]},\"type\":\"floor\"}],\"title\":\"Synthetic contract reference exhibition\",\"units\":\"meter\"},\"createdAt\":\"2026-11-06T01:26:59.297Z\",\"editVersion\":1,\"exhibitionId\":\"d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d\",\"id\":\"816a93f7-9c3d-45b5-8125-8eec51d2d0de\",\"kind\":\"exhibition-draft\",\"schemaVersion\":\"1.0.0-draft.1\",\"updatedAt\":\"2026-11-06T01:26:59.297Z\"},\"etag\":\"\\\"studio-r1-cef62c92a28d0a50a0c03e6444e540c9a17dce0bcbc25624fafcae993b0e00c2\\\"\",\"exhibitionId\":\"d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d\",\"idMap\":{\"05eda4a9-324f-4c69-9c05-d9e051c7acca\":\"4b9d182f-3fd1-4ecf-943b-1da4e5494da9\",\"1a8fd9ce-a7d4-4aa4-910d-467c2ba5c20f\":\"27c3e362-2ec6-43c2-8c50-2cc327d9357a\",\"1b1c8f72-8f8f-4da2-ab6c-2e6b3ad85e8c\":\"6f20976f-b9d7-4e7f-b004-70282ad370d8\",\"1edb3672-4008-428a-ae61-2742b0d4e4e8\":\"89480b40-cfae-44de-9a36-5f8f4967a629\",\"23d3eddf-e222-4b32-9c2b-0253227f3c83\":\"fa2346b2-a195-4ff2-87f9-28eb7d37dba9\",\"292ede36-9682-4e24-8d73-fffbe788af84\":\"19fb297d-8561-4411-b1ea-f949d4139c97\",\"3759590b-58cc-424f-a591-21485fd2e0b2\":\"b63f75aa-0c23-4bd4-9e5a-c703da4208b1\",\"3cec700d-4e57-4866-9018-d6aed826094c\":\"ee7e24f6-370e-4ecf-8aae-66340578fe2d\",\"3ea25f2a-6c04-4aa3-a32f-9d52bd415a8c\":\"cb2bc197-9a29-43df-8464-141b15bd7191\",\"4071bef2-be81-463c-b9fa-e93709ccc438\":\"1a664185-6e23-453c-8921-398d59efb931\",\"4d07744f-9fc4-4ed9-8794-6bdf2fb8ea3d\":\"bf12412a-c341-47d0-aa0d-48c5af2c35c8\",\"55cc457f-e3ec-4e03-bcad-0e5ae26acd8f\":\"d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d\",\"585723f9-2ce9-4844-8943-8d2195f18d53\":\"03d108ea-ea7b-4821-aae2-5575abef1a52\",\"5c65be0c-063f-46ff-8e56-e86a8686b13f\":\"e8ecc2ce-e80a-43cd-b192-44c50307c7ca\",\"5f265efc-21ba-4a1d-a98c-dbde68e5bf42\":\"86ce0c6c-af16-43e7-9772-186f5758ff75\",\"6af3b456-9393-413f-9f90-55860bb3aaba\":\"ee59de64-89f2-4481-96e4-aa38e7b3598b\",\"7143911a-1c9c-4dbe-a700-3da1faac4cf8\":\"c5e046c0-758a-47fe-86ad-df05b9c47e57\",\"767bea28-a13d-4cf9-bfd6-e25841086d0c\":\"7b5684d5-11b5-4ae2-8fd5-cb0382d5ebfa\",\"9345367f-8a22-4c14-a159-a3ac92900f3a\":\"f6ea24a4-17fb-41a6-bbc7-9c0a25188d5a\",\"a7a47797-4ddc-4029-a173-1fe526f5f006\":\"055d7618-8bed-4702-b7bc-5f2fe9df440b\",\"ab8e137f-c367-4d6b-9074-0a7b074f08a7\":\"cfaaf325-3104-4c73-8335-9baa27570c93\",\"b8bc8706-0423-4a68-9098-ec55c25360ee\":\"2bb464dd-d6a2-4ab6-8aac-df71432d182e\",\"bb9ddcdb-f0c8-4256-b33c-a76e01c4887e\":\"f021af65-49b2-428d-8620-63cbfd77a07c\",\"c6281fff-d3fe-4744-893b-810d227d94ec\":\"127976e2-f4ec-4d1f-a2fd-d731483e4696\",\"d009aee3-e2ab-42bf-b1fe-278454ff4a41\":\"140c2203-3bfd-45de-b800-079a691a4f7d\",\"d8930c76-483b-4d54-9630-18923f230755\":\"09b00bd4-afef-4e94-ab30-88be9d5e960d\",\"f3f8cb3e-4ed4-41d5-aa37-d9329a00bbac\":\"9fc7b4df-f398-4047-a0ee-3e42bbb886e7\"},\"revision\":1}",
+  "proofUtf8": "{\"version\":1,\"kind\":\"workspace-oex-import-terminal\",\"workspaceId\":\"50ed5798-c1c9-4753-a9d8-be483fd7deca\",\"tenantId\":\"e29a6d07-d443-49ce-b443-6cf2b92c50c4\",\"principalId\":\"fa9be060-61f1-4b9c-91c2-2f23dd85574c\",\"jobId\":\"9d8eee8f-e084-455c-8d30-5b2b6fa9a853\",\"attemptId\":\"a276233c-4c28-48d6-b822-138b493e4ec0\",\"importRequestId\":\"3747828b-0f93-4f8f-9da1-4afadd75f4f0\",\"sourceArchiveSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"archiveFormat\":\"1.0.0-draft.12\",\"exhibitionId\":\"d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d\",\"immutableRevisionId\":\"03d108ea-ea7b-4821-aae2-5575abef1a52\",\"studioETag\":\"\\\"studio-r1-cef62c92a28d0a50a0c03e6444e540c9a17dce0bcbc25624fafcae993b0e00c2\\\"\",\"resultBytes\":31503,\"resultSha256\":\"99f2f5adc98e30e170813b96fee742db67e767ac60fb21185abdc5a20641c497\"}",
+  "saved": {
+    "revision": 2,
+    "etag": "\"studio-r2-cef62c92a28d0a50a0c03e6444e540c9a17dce0bcbc25624fafcae993b0e00c2\"",
+    "draft": {
+      "createdAt": "2026-11-06T01:26:59.297Z",
+      "candidate": {
+        "openings": [
+          {
+            "surfaceId": "6f20976f-b9d7-4e7f-b004-70282ad370d8",
+            "type": "door",
+            "dimensions": {
+              "height": 2.5,
+              "width": 1
+            },
+            "exterior": true,
+            "offset": [
+              -4,
+              -0.75
+            ],
+            "id": "c5e046c0-758a-47fe-86ad-df05b9c47e57"
+          }
+        ],
+        "mediaAssets": [
+          {
+            "sha256": "c726d333dd159a31423f3480dbb1c5c4a9dfcd30efe1f7e12ade390dc92e8908",
+            "id": "bf12412a-c341-47d0-aa0d-48c5af2c35c8",
+            "rights": {
+              "ownership": "owner",
+              "licenseId": "CC0-1.0",
+              "permissions": {
+                "download": true,
+                "commercial": true,
+                "display": true,
+                "export": true
+              },
+              "holder": "ExhibitOS contributors",
+              "creditLine": "Original synthetic silence; CC0-1.0"
+            },
+            "mime": "audio/wav",
+            "path": "media/4d07744f-9fc4-4ed9-8794-6bdf2fb8ea3d/audio.wav",
+            "bytes": 1644
+          }
+        ],
+        "rooms": [
+          {
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                0,
+                0,
+                0
+              ]
+            },
+            "dimensions": {
+              "width": 12,
+              "depth": 8,
+              "height": 4
+            },
+            "name": "Synthetic white cube",
+            "id": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+          }
+        ],
+        "lights": [
+          {
+            "intensity": 100,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                -3,
+                3,
+                -2
+              ]
+            },
+            "castsShadow": false,
+            "type": "point",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "id": "cb2bc197-9a29-43df-8464-141b15bd7191",
+            "unit": "candela"
+          },
+          {
+            "intensity": 100,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                3,
+                3,
+                -2
+              ]
+            },
+            "castsShadow": false,
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "type": "point",
+            "id": "7b5684d5-11b5-4ae2-8fd5-cb0382d5ebfa",
+            "unit": "candela"
+          },
+          {
+            "intensity": 100,
+            "castsShadow": false,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                -3,
+                3,
+                2
+              ]
+            },
+            "type": "point",
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "id": "cfaaf325-3104-4c73-8335-9baa27570c93",
+            "unit": "candela"
+          },
+          {
+            "intensity": 100,
+            "castsShadow": false,
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                3,
+                3,
+                2
+              ]
+            },
+            "type": "point",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "color": [
+              1,
+              1,
+              1
+            ],
+            "id": "2bb464dd-d6a2-4ab6-8aac-df71432d182e",
+            "unit": "candela"
+          }
+        ],
+        "createdAt": "2026-10-02T09:00:00Z",
+        "coordinates": "right-handed-y-up",
+        "audioZones": [
+          {
+            "volume": 0.5,
+            "autoplay": false,
+            "transcript": "Original synthetic silence.",
+            "radius": 1,
+            "assetId": "bf12412a-c341-47d0-aa0d-48c5af2c35c8",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "id": "f6ea24a4-17fb-41a6-bbc7-9c0a25188d5a"
+          }
+        ],
+        "extensions": {
+          "org.exhibitos/cc0-license": {
+            "scope": "Original synthetic binary artwork assets only",
+            "text": "Creative Commons Legal Code\n\nCC0 1.0 Universal\n\n    CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE\n    LEGAL SERVICES. DISTRIBUTION OF THIS DOCUMENT DOES NOT CREATE AN\n    ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS\n    INFORMATION ON AN \"AS-IS\" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES\n    REGARDING THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS\n    PROVIDED HEREUNDER, AND DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM\n    THE USE OF THIS DOCUMENT OR THE INFORMATION OR WORKS PROVIDED\n    HEREUNDER.\n\nStatement of Purpose\n\nThe laws of most jurisdictions throughout the world automatically confer\nexclusive Copyright and Related Rights (defined below) upon the creator\nand subsequent owner(s) (each and all, an \"owner\") of an original work of\nauthorship and/or a database (each, a \"Work\").\n\nCertain owners wish to permanently relinquish those rights to a Work for\nthe purpose of contributing to a commons of creative, cultural and\nscientific works (\"Commons\") that the public can reliably and without fear\nof later claims of infringement build upon, modify, incorporate in other\nworks, reuse and redistribute as freely as possible in any form whatsoever\nand for any purposes, including without limitation commercial purposes.\nThese owners may contribute to the Commons to promote the ideal of a free\nculture and the further production of creative, cultural and scientific\nworks, or to gain reputation or greater distribution for their Work in\npart through the use and efforts of others.\n\nFor these and/or other purposes and motivations, and without any\nexpectation of additional consideration or compensation, the person\nassociating CC0 with a Work (the \"Affirmer\"), to the extent that he or she\nis an owner of Copyright and Related Rights in the Work, voluntarily\nelects to apply CC0 to the Work and publicly distribute the Work under its\nterms, with knowledge of his or her Copyright and Related Rights in the\nWork and the meaning and intended legal effect of CC0 on those rights.\n\n1. Copyright and Related Rights. A Work made available under CC0 may be\nprotected by copyright and related or neighboring rights (\"Copyright and\nRelated Rights\"). Copyright and Related Rights include, but are not\nlimited to, the following:\n\n  i. the right to reproduce, adapt, distribute, perform, display,\n     communicate, and translate a Work;\n ii. moral rights retained by the original author(s) and/or performer(s);\niii. publicity and privacy rights pertaining to a person's image or\n     likeness depicted in a Work;\n iv. rights protecting against unfair competition in regards to a Work,\n     subject to the limitations in paragraph 4(a), below;\n  v. rights protecting the extraction, dissemination, use and reuse of data\n     in a Work;\n vi. database rights (such as those arising under Directive 96/9/EC of the\n     European Parliament and of the Council of 11 March 1996 on the legal\n     protection of databases, and under any national implementation\n     thereof, including any amended or successor version of such\n     directive); and\nvii. other similar, equivalent or corresponding rights throughout the\n     world based on applicable law or treaty, and any national\n     implementations thereof.\n\n2. Waiver. To the greatest extent permitted by, but not in contravention\nof, applicable law, Affirmer hereby overtly, fully, permanently,\nirrevocably and unconditionally waives, abandons, and surrenders all of\nAffirmer's Copyright and Related Rights and associated claims and causes\nof action, whether now known or unknown (including existing as well as\nfuture claims and causes of action), in the Work (i) in all territories\nworldwide, (ii) for the maximum duration provided by applicable law or\ntreaty (including future time extensions), (iii) in any current or future\nmedium and for any number of copies, and (iv) for any purpose whatsoever,\nincluding without limitation commercial, advertising or promotional\npurposes (the \"Waiver\"). Affirmer makes the Waiver for the benefit of each\nmember of the public at large and to the detriment of Affirmer's heirs and\nsuccessors, fully intending that such Waiver shall not be subject to\nrevocation, rescission, cancellation, termination, or any other legal or\nequitable action to disrupt the quiet enjoyment of the Work by the public\nas contemplated by Affirmer's express Statement of Purpose.\n\n3. Public License Fallback. Should any part of the Waiver for any reason\nbe judged legally invalid or ineffective under applicable law, then the\nWaiver shall be preserved to the maximum extent permitted taking into\naccount Affirmer's express Statement of Purpose. In addition, to the\nextent the Waiver is so judged Affirmer hereby grants to each affected\nperson a royalty-free, non transferable, non sublicensable, non exclusive,\nirrevocable and unconditional license to exercise Affirmer's Copyright and\nRelated Rights in the Work (i) in all territories worldwide, (ii) for the\nmaximum duration provided by applicable law or treaty (including future\ntime extensions), (iii) in any current or future medium and for any number\nof copies, and (iv) for any purpose whatsoever, including without\nlimitation commercial, advertising or promotional purposes (the\n\"License\"). The License shall be deemed effective as of the date CC0 was\napplied by Affirmer to the Work. Should any part of the License for any\nreason be judged legally invalid or ineffective under applicable law, such\npartial invalidity or ineffectiveness shall not invalidate the remainder\nof the License, and in such case Affirmer hereby affirms that he or she\nwill not (i) exercise any of his or her remaining Copyright and Related\nRights in the Work or (ii) assert any associated claims and causes of\naction with respect to the Work, in either case contrary to Affirmer's\nexpress Statement of Purpose.\n\n4. Limitations and Disclaimers.\n\n a. No trademark or patent rights held by Affirmer are waived, abandoned,\n    surrendered, licensed or otherwise affected by this document.\n b. Affirmer offers the Work as-is and makes no representations or\n    warranties of any kind concerning the Work, express, implied,\n    statutory or otherwise, including without limitation warranties of\n    title, merchantability, fitness for a particular purpose, non\n    infringement, or the absence of latent or other defects, accuracy, or\n    the present or absence of errors, whether or not discoverable, all to\n    the greatest extent permissible under applicable law.\n c. Affirmer disclaims responsibility for clearing rights of other persons\n    that may apply to the Work or any use thereof, including without\n    limitation any person's Copyright and Related Rights in the Work.\n    Further, Affirmer disclaims responsibility for obtaining any necessary\n    consents, permissions or other rights required for any use of the\n    Work.\n d. Affirmer understands and acknowledges that Creative Commons is not a\n    party to this document and has no duty or obligation with respect to\n    this CC0 or use of the Work.\n",
+            "licenseId": "CC0-1.0"
+          },
+          "org.exhibitos/apache-license": {
+            "scope": "Generated package metadata and documentation",
+            "text": "\n                                 Apache License\n                           Version 2.0, January 2004\n                        http://www.apache.org/licenses/\n\n   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n   1. Definitions.\n\n      \"License\" shall mean the terms and conditions for use, reproduction,\n      and distribution as defined by Sections 1 through 9 of this document.\n\n      \"Licensor\" shall mean the copyright owner or entity authorized by\n      the copyright owner that is granting the License.\n\n      \"Legal Entity\" shall mean the union of the acting entity and all\n      other entities that control, are controlled by, or are under common\n      control with that entity. For the purposes of this definition,\n      \"control\" means (i) the power, direct or indirect, to cause the\n      direction or management of such entity, whether by contract or\n      otherwise, or (ii) ownership of fifty percent (50%) or more of the\n      outstanding shares, or (iii) beneficial ownership of such entity.\n\n      \"You\" (or \"Your\") shall mean an individual or Legal Entity\n      exercising permissions granted by this License.\n\n      \"Source\" form shall mean the preferred form for making modifications,\n      including but not limited to software source code, documentation\n      source, and configuration files.\n\n      \"Object\" form shall mean any form resulting from mechanical\n      transformation or translation of a Source form, including but\n      not limited to compiled object code, generated documentation,\n      and conversions to other media types.\n\n      \"Work\" shall mean the work of authorship, whether in Source or\n      Object form, made available under the License, as indicated by a\n      copyright notice that is included in or attached to the work\n      (an example is provided in the Appendix below).\n\n      \"Derivative Works\" shall mean any work, whether in Source or Object\n      form, that is based on (or derived from) the Work and for which the\n      editorial revisions, annotations, elaborations, or other modifications\n      represent, as a whole, an original work of authorship. For the purposes\n      of this License, Derivative Works shall not include works that remain\n      separable from, or merely link (or bind by name) to the interfaces of,\n      the Work and Derivative Works thereof.\n\n      \"Contribution\" shall mean any work of authorship, including\n      the original version of the Work and any modifications or additions\n      to that Work or Derivative Works thereof, that is intentionally\n      submitted to Licensor for inclusion in the Work by the copyright owner\n      or by an individual or Legal Entity authorized to submit on behalf of\n      the copyright owner. For the purposes of this definition, \"submitted\"\n      means any form of electronic, verbal, or written communication sent\n      to the Licensor or its representatives, including but not limited to\n      communication on electronic mailing lists, source code control systems,\n      and issue tracking systems that are managed by, or on behalf of, the\n      Licensor for the purpose of discussing and improving the Work, but\n      excluding communication that is conspicuously marked or otherwise\n      designated in writing by the copyright owner as \"Not a Contribution.\"\n\n      \"Contributor\" shall mean Licensor and any individual or Legal Entity\n      on behalf of whom a Contribution has been received by Licensor and\n      subsequently incorporated within the Work.\n\n   2. Grant of Copyright License. Subject to the terms and conditions of\n      this License, each Contributor hereby grants to You a perpetual,\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n      copyright license to reproduce, prepare Derivative Works of,\n      publicly display, publicly perform, sublicense, and distribute the\n      Work and such Derivative Works in Source or Object form.\n\n   3. Grant of Patent License. Subject to the terms and conditions of\n      this License, each Contributor hereby grants to You a perpetual,\n      worldwide, non-exclusive, no-charge, royalty-free, irrevocable\n      (except as stated in this section) patent license to make, have made,\n      use, offer to sell, sell, import, and otherwise transfer the Work,\n      where such license applies only to those patent claims licensable\n      by such Contributor that are necessarily infringed by their\n      Contribution(s) alone or by combination of their Contribution(s)\n      with the Work to which such Contribution(s) was submitted. If You\n      institute patent litigation against any entity (including a\n      cross-claim or counterclaim in a lawsuit) alleging that the Work\n      or a Contribution incorporated within the Work constitutes direct\n      or contributory patent infringement, then any patent licenses\n      granted to You under this License for that Work shall terminate\n      as of the date such litigation is filed.\n\n   4. Redistribution. You may reproduce and distribute copies of the\n      Work or Derivative Works thereof in any medium, with or without\n      modifications, and in Source or Object form, provided that You\n      meet the following conditions:\n\n      (a) You must give any other recipients of the Work or\n          Derivative Works a copy of this License; and\n\n      (b) You must cause any modified files to carry prominent notices\n          stating that You changed the files; and\n\n      (c) You must retain, in the Source form of any Derivative Works\n          that You distribute, all copyright, patent, trademark, and\n          attribution notices from the Source form of the Work,\n          excluding those notices that do not pertain to any part of\n          the Derivative Works; and\n\n      (d) If the Work includes a \"NOTICE\" text file as part of its\n          distribution, then any Derivative Works that You distribute must\n          include a readable copy of the attribution notices contained\n          within such NOTICE file, excluding those notices that do not\n          pertain to any part of the Derivative Works, in at least one\n          of the following places: within a NOTICE text file distributed\n          as part of the Derivative Works; within the Source form or\n          documentation, if provided along with the Derivative Works; or,\n          within a display generated by the Derivative Works, if and\n          wherever such third-party notices normally appear. The contents\n          of the NOTICE file are for informational purposes only and\n          do not modify the License. You may add Your own attribution\n          notices within Derivative Works that You distribute, alongside\n          or as an addendum to the NOTICE text from the Work, provided\n          that such additional attribution notices cannot be construed\n          as modifying the License.\n\n      You may add Your own copyright statement to Your modifications and\n      may provide additional or different license terms and conditions\n      for use, reproduction, or distribution of Your modifications, or\n      for any such Derivative Works as a whole, provided Your use,\n      reproduction, and distribution of the Work otherwise complies with\n      the conditions stated in this License.\n\n   5. Submission of Contributions. Unless You explicitly state otherwise,\n      any Contribution intentionally submitted for inclusion in the Work\n      by You to the Licensor shall be under the terms and conditions of\n      this License, without any additional terms or conditions.\n      Notwithstanding the above, nothing herein shall supersede or modify\n      the terms of any separate license agreement you may have executed\n      with Licensor regarding such Contributions.\n\n   6. Trademarks. This License does not grant permission to use the trade\n      names, trademarks, service marks, or product names of the Licensor,\n      except as required for reasonable and customary use in describing the\n      origin of the Work and reproducing the content of the NOTICE file.\n\n   7. Disclaimer of Warranty. Unless required by applicable law or\n      agreed to in writing, Licensor provides the Work (and each\n      Contributor provides its Contributions) on an \"AS IS\" BASIS,\n      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or\n      implied, including, without limitation, any warranties or conditions\n      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A\n      PARTICULAR PURPOSE. You are solely responsible for determining the\n      appropriateness of using or redistributing the Work and assume any\n      risks associated with Your exercise of permissions under this License.\n\n   8. Limitation of Liability. In no event and under no legal theory,\n      whether in tort (including negligence), contract, or otherwise,\n      unless required by applicable law (such as deliberate and grossly\n      negligent acts) or agreed to in writing, shall any Contributor be\n      liable to You for damages, including any direct, indirect, special,\n      incidental, or consequential damages of any character arising as a\n      result of this License or out of the use or inability to use the\n      Work (including but not limited to damages for loss of goodwill,\n      work stoppage, computer failure or malfunction, or any and all\n      other commercial damages or losses), even if such Contributor\n      has been advised of the possibility of such damages.\n\n   9. Accepting Warranty or Additional Liability. While redistributing\n      the Work or Derivative Works thereof, You may choose to offer,\n      and charge a fee for, acceptance of support, warranty, indemnity,\n      or other liability obligations and/or rights consistent with this\n      License. However, in accepting such obligations, You may act only\n      on Your own behalf and on Your sole responsibility, not on behalf\n      of any other Contributor, and only if You agree to indemnify,\n      defend, and hold each Contributor harmless for any liability\n      incurred by, or claims asserted against, such Contributor by reason\n      of your accepting any such warranty or additional liability.\n\n   END OF TERMS AND CONDITIONS\n\n   APPENDIX: How to apply the Apache License to your work.\n\n      To apply the Apache License to your work, attach the following\n      boilerplate notice, with the fields enclosed by brackets \"[]\"\n      replaced with your own identifying information. (Don't include\n      the brackets!)  The text should be enclosed in the appropriate\n      comment syntax for the file format. We also recommend that a\n      file or class name and description of purpose be included on the\n      same \"printed page\" as the copyright notice for easier\n      identification within third-party archives.\n\n   Copyright [yyyy] [name of copyright owner]\n\n   Licensed under the Apache License, Version 2.0 (the \"License\");\n   you may not use this file except in compliance with the License.\n   You may obtain a copy of the License at\n\n       http://www.apache.org/licenses/LICENSE-2.0\n\n   Unless required by applicable law or agreed to in writing, software\n   distributed under the License is distributed on an \"AS IS\" BASIS,\n   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n   See the License for the specific language governing permissions and\n   limitations under the License.\n",
+            "licenseId": "Apache-2.0"
+          },
+          "org.exhibitos.studio/floors": {
+            "version": 1,
+            "bindings": [
+              {
+                "repeatMeters": [
+                  0.9,
+                  0.9
+                ],
+                "target": {
+                  "kind": "room-base",
+                  "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+                },
+                "texturePack": {
+                  "version": 1,
+                  "id": "quiet-oak-herringbone"
+                },
+                "rotation": 0,
+                "materialOverride": {
+                  "color": "#ffffff",
+                  "roughness": 1,
+                  "metalness": 0
+                },
+                "preset": "wood",
+                "aoStrength": 0,
+                "normalScale": 1,
+                "sound": {
+                  "mode": "material-default",
+                  "gain": 1
+                }
+              }
+            ]
+          },
+          "org.exhibitos.studio/workspace-materials": {
+            "version": 1,
+            "materials": [
+              {
+                "id": "fa2346b2-a195-4ff2-87f9-28eb7d37dba9",
+                "version": 1,
+                "kind": "floor",
+                "name": "Synthetic fixture floor",
+                "rights": {
+                  "holder": "Synthetic fixture",
+                  "ownership": "owner",
+                  "licenseId": "CC0-1.0",
+                  "creditLine": "Synthetic fixture",
+                  "permissions": {
+                    "display": true,
+                    "download": false,
+                    "export": true,
+                    "commercial": true
+                  }
+                },
+                "provenance": "Synthetic fixture",
+                "maps": {
+                  "color": {
+                    "mime": "image/png",
+                    "bytes": 68,
+                    "sha256": "7899d6ced52159786ff083934df42788da01a30b7ed9bb7756d7f3f5a94ef685",
+                    "width": 2,
+                    "height": 2,
+                    "colorSpace": "srgb"
+                  }
+                }
+              }
+            ],
+            "bindings": [
+              {
+                "surfaceId": "09b00bd4-afef-4e94-ab30-88be9d5e960d",
+                "materialId": "fa2346b2-a195-4ff2-87f9-28eb7d37dba9",
+                "materialVersion": 1,
+                "repeatMeters": [
+                  2,
+                  2
+                ],
+                "rotation": 0
+              }
+            ]
+          }
+        },
+        "schemaVersion": "1.0.0-draft.1",
+        "artworks": [
+          {
+            "provenance": {
+              "authorship": "synthetic",
+              "events": [
+                {
+                  "id": "86ce0c6c-af16-43e7-9772-186f5758ff75",
+                  "description": "Deterministically generated original fixture with baked meter geometry.",
+                  "tool": {
+                    "version": "1",
+                    "name": "ExhibitOS synthetic generator"
+                  },
+                  "type": "created",
+                  "at": "2026-10-01T00:00:00Z"
+                }
+              ]
+            },
+            "primaryAssetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+            "artworkType": "sculpture",
+            "rights": {
+              "creditLine": "ExhibitOS original synthetic fixtures (optional credit)",
+              "licenseId": "CC0-1.0",
+              "permissions": {
+                "download": true,
+                "display": true,
+                "commercial": true,
+                "export": true
+              },
+              "holder": "ExhibitOS contributors",
+              "ownership": "owner"
+            },
+            "createdAt": "2026-10-01T00:00:00Z",
+            "extensions": {
+              "org.exhibitos.studio/cms": {
+                "tenantId": "e29a6d07-d443-49ce-b443-6cf2b92c50c4",
+                "artworkId": "055d7618-8bed-4702-b7bc-5f2fe9df440b",
+                "revision": 1
+              }
+            },
+            "coordinates": "right-handed-y-up",
+            "schemaVersion": "1.0.0-draft.1",
+            "dimensions": {
+              "depth": 1,
+              "width": 1,
+              "height": 1
+            },
+            "assets": [
+              {
+                "sha256": "1e4e53565fdbc5a71b1aaa83d6b25df6e8025add2f08b35fdca20475fbbca460",
+                "mime": "model/gltf-binary",
+                "role": "model",
+                "path": "sculpture.glb",
+                "id": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+                "bytes": 1516
+              }
+            ],
+            "transform": {
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "position": [
+                0,
+                0,
+                0
+              ]
+            },
+            "kind": "artwork",
+            "metadata": {
+              "language": "en",
+              "artist": "ExhibitOS contributors",
+              "description": "Original fixture; no private artwork or Capture input.",
+              "title": "Synthetic meter cube",
+              "medium": "synthetic geometry"
+            },
+            "revision": 1,
+            "id": "055d7618-8bed-4702-b7bc-5f2fe9df440b",
+            "units": "meter",
+            "revisionId": "f021af65-49b2-428d-8620-63cbfd77a07c"
+          },
+          {
+            "provenance": {
+              "events": [
+                {
+                  "id": "1a664185-6e23-453c-8921-398d59efb931",
+                  "description": "Deterministically generated original fixture with baked meter geometry.",
+                  "at": "2026-10-01T00:00:00Z",
+                  "tool": {
+                    "name": "ExhibitOS synthetic generator",
+                    "version": "1"
+                  },
+                  "type": "created"
+                }
+              ],
+              "authorship": "synthetic"
+            },
+            "primaryAssetId": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+            "artworkType": "image",
+            "rights": {
+              "ownership": "owner",
+              "permissions": {
+                "export": true,
+                "display": true,
+                "commercial": true,
+                "download": true
+              },
+              "holder": "ExhibitOS contributors",
+              "licenseId": "CC0-1.0",
+              "creditLine": "ExhibitOS original synthetic fixtures (optional credit)"
+            },
+            "createdAt": "2026-10-01T00:00:00Z",
+            "extensions": {
+              "org.exhibitos.studio/cms": {
+                "tenantId": "e29a6d07-d443-49ce-b443-6cf2b92c50c4",
+                "artworkId": "140c2203-3bfd-45de-b800-079a691a4f7d",
+                "revision": 1
+              }
+            },
+            "coordinates": "right-handed-y-up",
+            "kind": "artwork",
+            "assets": [
+              {
+                "sha256": "33035fadc694f8a64d89d07425a2ed0babb9352208cf34aab657ed5922a55fe9",
+                "bytes": 196960,
+                "role": "image",
+                "mime": "image/png",
+                "id": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+                "path": "painting.png"
+              }
+            ],
+            "schemaVersion": "1.0.0-draft.1",
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            "dimensions": {
+              "height": 1,
+              "width": 1
+            },
+            "metadata": {
+              "language": "en",
+              "medium": "synthetic color grid",
+              "title": "Synthetic color grid",
+              "artist": "ExhibitOS contributors",
+              "description": "Original fixture; no private artwork or Capture input."
+            },
+            "revision": 1,
+            "id": "140c2203-3bfd-45de-b800-079a691a4f7d",
+            "units": "meter",
+            "revisionId": "89480b40-cfae-44de-9a36-5f8f4967a629"
+          }
+        ],
+        "title": "Synthetic contract reference exhibition",
+        "kind": "exhibition-revision",
+        "annotations": [
+          {
+            "id": "19fb297d-8561-4411-b1ea-f949d4139c97",
+            "placementId": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+            "text": "Original generated color grid; no real artwork."
+          }
+        ],
+        "surfaces": [
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "dimensions": {
+              "width": 12,
+              "height": 4
+            },
+            "type": "wall",
+            "id": "6f20976f-b9d7-4e7f-b004-70282ad370d8",
+            "transform": {
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "position": [
+                0,
+                2,
+                -4
+              ]
+            }
+          },
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "dimensions": {
+              "width": 12,
+              "height": 8
+            },
+            "type": "floor",
+            "id": "09b00bd4-afef-4e94-ab30-88be9d5e960d",
+            "transform": {
+              "position": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                -0.7071067811865476,
+                0,
+                0,
+                0.7071067811865476
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            }
+          }
+        ],
+        "revision": 1,
+        "navigation": [
+          {
+            "name": "Stationary reference route",
+            "waypoints": [
+              {
+                "position": [
+                  0,
+                  1.6,
+                  2
+                ],
+                "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+              },
+              {
+                "position": [
+                  0,
+                  1.6,
+                  0
+                ],
+                "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca"
+              }
+            ],
+            "id": "9fc7b4df-f398-4047-a0ee-3e42bbb886e7",
+            "accessible": true
+          }
+        ],
+        "scripts": [
+          {
+            "enabled": false,
+            "trigger": {
+              "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+              "type": "room-enter"
+            },
+            "id": "27c3e362-2ec6-43c2-8c50-2cc327d9357a",
+            "actions": [
+              {
+                "delayMs": 0,
+                "targetId": "19fb297d-8561-4411-b1ea-f949d4139c97",
+                "type": "show-annotation"
+              }
+            ]
+          }
+        ],
+        "id": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+        "accessibility": {
+          "reducedMotion": true,
+          "keyboardNavigation": true,
+          "artworkDescriptions": [
+            {
+              "placementId": "4b9d182f-3fd1-4ecf-943b-1da4e5494da9",
+              "text": "Original synthetic meter cube"
+            },
+            {
+              "placementId": "ee59de64-89f2-4481-96e4-aa38e7b3598b",
+              "text": "Original synthetic meter cube"
+            },
+            {
+              "placementId": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+              "text": "Original synthetic color grid"
+            }
+          ],
+          "stationaryNavigation": true,
+          "alternativeView": "list",
+          "routeIds": [
+            "9fc7b4df-f398-4047-a0ee-3e42bbb886e7"
+          ]
+        },
+        "placements": [
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "id": "4b9d182f-3fd1-4ecf-943b-1da4e5494da9",
+            "assetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+            "transform": {
+              "position": [
+                -2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "artworkRevisionId": "f021af65-49b2-428d-8620-63cbfd77a07c"
+          },
+          {
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "id": "ee59de64-89f2-4481-96e4-aa38e7b3598b",
+            "assetId": "127976e2-f4ec-4d1f-a2fd-d731483e4696",
+            "transform": {
+              "position": [
+                2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "artworkRevisionId": "f021af65-49b2-428d-8620-63cbfd77a07c"
+          },
+          {
+            "id": "b63f75aa-0c23-4bd4-9e5a-c703da4208b1",
+            "roomId": "e8ecc2ce-e80a-43cd-b192-44c50307c7ca",
+            "assetId": "ee7e24f6-370e-4ecf-8aae-66340578fe2d",
+            "transform": {
+              "position": [
+                0,
+                1.5,
+                -3.99
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ]
+            },
+            "artworkRevisionId": "89480b40-cfae-44de-9a36-5f8f4967a629"
+          }
+        ],
+        "units": "meter",
+        "revisionId": "03d108ea-ea7b-4821-aae2-5575abef1a52"
+      },
+      "kind": "exhibition-draft",
+      "exhibitionId": "d8d4f1e9-34c1-4e3b-a7d0-2cdb6914d66d",
+      "updatedAt": "2026-11-06T01:26:59.297Z",
+      "editVersion": 1,
+      "schemaVersion": "1.0.0-draft.1",
+      "id": "816a93f7-9c3d-45b5-8125-8eec51d2d0de"
+    }
+  }
+}
