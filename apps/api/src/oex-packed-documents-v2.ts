@@ -26,6 +26,7 @@ function decode(manifestBytes:Uint8Array,manifestSha256:string,exhibitionInput:U
  if(!validateExhibition(document,{archiveProfile:'bounded-file-v1'}).valid)throw Error('OEX_PACKED_DOCUMENT');
  const e=document as Exhibition,source=manifest.exhibition;
  if(e.id!==source.id||e.revisionId!==source.revisionId||revisionHash(e)!==source.revisionSha256)throw Error('OEX_PACKED_DOCUMENT');
+ if(workspace&&(manifest.oesExhibitionVersion!==e.schemaVersion||manifest.oesArtworkVersion!==e.schemaVersion))throw Error('OEX_PACKED_DOCUMENT');
  const same=(a:unknown,b:unknown)=>revisionHash(a)===revisionHash(b);
  if(!same(packageCompleteAssetManifest(e),manifest.assets)||!same(packageFloorResourceManifest(e),manifest.floorResources??[])||!same(packageFurnishingNoticeManifest(e),manifest.furnishingNotices??[])||!same(packageSurfaceMaterialManifest(e),manifest.materialResources??[])||!same(footstepResourcesFor(e),manifest.footstepResources??[]))throw Error('OEX_PACKED_DOCUMENT');
  if(workspace&&(!('workspaceMaterialResources' in manifest)||!same(workspaceMaterialOutputInventory(e),manifest.workspaceMaterialResources)))throw Error('OEX_PACKED_DOCUMENT');
