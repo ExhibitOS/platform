@@ -28,3 +28,7 @@ it('binds draft10 only to an independently selected draft10 claim and keeps lega
  expect(()=>parsePackedOexControlV2(frame(control),{...expected,archiveFormat:'1.0.0-draft.10'})).toThrow('OEX_PACKED_CONTROL');
  expect(()=>parsePackedOexControlV2(frame({...ten,format:'1.0.0-draft.11'}),{...expected,archiveFormat:'1.0.0-draft.10'})).toThrow('OEX_PACKED_CONTROL');
 });
+it('accepts draft12 only for the explicitly selected v3 workspace path',()=>{
+ const twelve={...control,format:'1.0.0-draft.12'},raw=Buffer.from(JSON.stringify({version:1,kind:'worker-control-v3',correlationId,attemptId:control.attemptId,control:twelve})),selected={...expected,archiveFormat:'1.0.0-draft.12' as const};
+ expect(parsePackedOexControlV2(raw,selected,'v3',true).outputInode).toBe('3');expect(()=>parsePackedOexControlV2(raw,selected,'v3')).toThrow('OEX_PACKED_CONTROL');expect(()=>parsePackedOexControlV2(frame(twelve),selected,undefined,true)).toThrow('OEX_PACKED_CONTROL');expect(()=>parsePackedOexControlV2(raw,{...expected,archiveFormat:'1.0.0-draft.10'},'v3',true)).toThrow('OEX_PACKED_CONTROL');
+});
