@@ -48,6 +48,9 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   add(row.approved_key,row.state==='approved',row.expected_bytes,row.expected_hash,':approved');break;
  }
  case 'workspace_furnishing_intakes':{
+  // A durable claim may outlive the originating process or a restored DB.
+  // Backup/restore cannot infer that its old validator and blob work drained.
+  if(row.worker_token!==null&&row.worker_token!==undefined)issues.push({code:'FURNISHING_WORKER_DRAIN_UNCONFIRMED',binding});
   const phase=String(row.phase);if(!['uploading','validating','cancelling','registered','failed','cancelled'].includes(phase)){issues.push({code:'INVALID_INVENTORY',binding});break;}
   if(phase==='cancelled')break;if(row.received===null||row.received===undefined){if(!['uploading','cancelling'].includes(phase))issues.push({code:'INVALID_INVENTORY',binding});break;}
   if(!obj(row.received)||!obj(row.declaration)||!obj(row.declaration.model)||!bytes(row.received.bytes)||!hex(row.received.sha256)||row.declaration.model.bytes!==row.received.bytes||row.declaration.model.sha256!==row.received.sha256||row.received.key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.id}/${row.received.sha256}`){issues.push({code:'INVALID_INVENTORY',binding});break;}

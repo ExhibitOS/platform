@@ -121,6 +121,8 @@ it('retains registered and unused workspace furnishing GLB references in full ba
  expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'cancelling',received:receipt}).references[0]?.required).toBe(false);
  expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'registered',received:{...receipt,key}}).issues[0]?.code).toBe('INVALID_INVENTORY');
  expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'registered',received:{...receipt,bytes:124}}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ for(const phase of ['validating','cancelling'])expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase,received:receipt,worker_token:id}).issues.some(issue=>issue.code==='FURNISHING_WORKER_DRAIN_UNCONFIRMED')).toBe(true);
+ expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'validating',received:receipt,worker_token:null}).issues).toEqual([]);
  expect(rowObjectReferences('workspace_furnishing_intakes',{tenant_id:tenant,id,phase:'cancelled',received:receipt}).references).toEqual([]);
  expect(rowObjectReferences('workspace_furnishing_versions',{...version,object_key:'other/foreign'}).issues[0]?.code).toBe('INVALID_REFERENCE');
  expect(rowObjectReferences('workspace_furnishing_versions',{...version,descriptor:{...version.descriptor,id:'different'}}).issues[0]?.code).toBe('INVALID_INVENTORY');

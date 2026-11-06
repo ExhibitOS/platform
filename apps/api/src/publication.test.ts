@@ -6,7 +6,9 @@ import { readFile } from "node:fs/promises";
 import { fixtureURL, validateExhibition, type Exhibition } from "@exhibitos/spec";
 import { sha256 } from "@exhibitos/storage";
 import { CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
-import { projectPublication, approvedPublicationSource, authorizedArtworkAssets, admitOptionalThumbnails } from "./publication.ts";
+import { projectPublication, approvedPublicationSource, authorizedArtworkAssets, admitOptionalThumbnails, Publications } from "./publication.ts";
+import type {Pool,PoolClient} from 'pg';
+import type {Session} from './auth.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
 import {LOD_NAMESPACE,validateViewerLod} from '@exhibitos/studio-contract';
 import {remapOex,checkOexProfile} from './oex.ts';
@@ -66,6 +68,13 @@ it('preserves authored PNG coarse/full through public projection and typed OEX i
  const lod=remapped.artworks[0]!.extensions![LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]};expect(lod.variants.find(v=>v.detail==='full')!.assetId).toBe(remapped.artworks[0]!.primaryAssetId);expect(lod.variants.every(v=>remapped.artworks[0]!.assets.some(a=>a.id===v.assetId))).toBe(true);
 });
 describe("immutable anonymous publication projection", () => {
+    it('blocks readiness and projection for workspace furnishing snapshots until output is supported',async()=>{
+        const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+        candidate.extensions={...candidate.extensions,'org.exhibitos.studio/workspace-furnishings':{version:1,furnishings:[],placements:[]}} as never;
+        expect(()=>projectPublication(candidate,[],'2026-10-27T00:00:00Z')).toThrow('WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED');
+        const publisher=new Publications({} as Pool),prepare=publisher as unknown as {prepare:(c:PoolClient,s:Session,e:Exhibition,id:string)=>Promise<{issues:{code:string}[]}>};
+        const result=await prepare.prepare({} as PoolClient,{} as Session,candidate,candidate.id);expect(result.issues.some(issue=>issue.code==='WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED')).toBe(true);
+    });
     it('refuses workspace material snapshots rather than silently dropping their appearance',async()=>{
         const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
         candidate.extensions={...candidate.extensions,'org.exhibitos.studio/workspace-materials':{version:1,materials:[],bindings:[]}} as never;

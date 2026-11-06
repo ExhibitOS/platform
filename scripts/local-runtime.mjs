@@ -23,7 +23,7 @@ import {createSelectedStudioPutSlot} from "../apps/api/dist/native-selected-stud
 import {runFreshNativeOexOwner} from "../apps/api/dist/native-fresh-oex-owner.js";
 import {bindNativeOexWorkspace,bindNativeLocalExportWorkspace} from "../apps/api/dist/native-oex-provenance.js";
 import {hasWorkspaceFurnishingCapability,verifyWorkspaceFurnishingMigration,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
-import {prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 import {WorkspaceFurnishingIntakes} from '../apps/api/dist/workspace-furnishing-intakes.js';
 
 import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
@@ -140,6 +140,9 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
   const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
   const furnishingMode=['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(privateOwner?.mode);
+  // Admission remains disabled until a retained prior worker is known drained
+  // and owner-loss gates have been qualified across commit and listener start.
+  assertWorkspaceFurnishingRuntimeAdmission(privateOwner?.mode);
   const normalOexV7=privateOwner?.mode==='normal-oex-workspace-import-v7',normalOexV6=privateOwner?.mode==='normal-oex-workspace-import-v6'||normalOexV7,normalOexV5=privateOwner?.mode==='normal-oex-workspace-v5'||normalOexV6,normalOexV4=privateOwner?.mode==='normal-oex-028-v4'||normalOexV5,normalOexV3=privateOwner?.mode==='normal-oex-027-v3'||normalOexV4,normalOexV2=privateOwner?.mode==='normal-oex-027-v2'||normalOexV3,normalOex=privateOwner?.mode==='normal-oex-v1'||normalOexV2,selectedOex=freshOexTest||normalOex;
   if((selectedOex||furnishingMode)&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
   if (environment.EXHIBITOS_AUTHORING_MODE !== undefined && !personal) throw Error("LOCAL_AUTHORING_MODE_INVALID");
@@ -204,7 +207,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       await transaction(pool,async c=>{if(workspaceImportCapability)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,normalDirectory,{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory});await migrateInTransaction(c,migrationDirectory);});
     }else await migrate(pool,migrationDirectory);
     stage = "BOOTSTRAP";
-    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE,furnishingMode?c=>prepareWorkspaceFurnishingCatalog(c,{mode:privateOwner.mode,base:migrationDirectory,normal:supplementalMigrationDirectory,imports:workspaceImportDirectory,wall:workspaceWallImportDirectory,furnishing:workspaceFurnishingDirectory,channel:ownerChannel}):!selectedOex&&environment.EXHIBITOS_RUNTIME_MODE==='native'?async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory});}:undefined,workspaceImportCapability?{isolation:'read committed',...(privateOwner?.mode==='workspace-furnishing-036-reopen-v1'?{requireExisting:true}:{})}:undefined);
+    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE,furnishingMode?c=>prepareWorkspaceFurnishingCatalog(c,{mode:privateOwner.mode,base:migrationDirectory,normal:supplementalMigrationDirectory,imports:workspaceImportDirectory,wall:workspaceWallImportDirectory,furnishing:workspaceFurnishingDirectory,channel:ownerChannel}):!selectedOex&&environment.EXHIBITOS_RUNTIME_MODE==='native'?async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory});}:undefined,workspaceImportCapability?{isolation:'read committed',...(privateOwner?.mode==='workspace-furnishing-036-reopen-v1'?{requireExisting:true}:{}),...(furnishingMode?{beforeCommit:()=>{if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}}:{})}:undefined);
     else {
       if ((await pool.query("SELECT 1 FROM local_workspaces LIMIT 1")).rowCount) throw Error("LOCAL_WORKSPACE_ACCOUNT_MODE_REFUSED");
       if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);

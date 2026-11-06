@@ -11,6 +11,7 @@ import {PublicationFileOperation} from './publication-file-operation.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
+import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {footstepResourceBytes} from './footstep-resources.ts';
 import {FLOOR_NAMESPACE,validateStudioFloors,remapStudioFloors,type StudioFloors,remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {ARCHITECTURAL_FINISH_NAMESPACE,remapArchitecturalFinishes,type ArchitecturalFinishes} from '@exhibitos/studio-contract';
@@ -186,6 +187,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     // A workspace map must never be silently dropped from a public projection.
     // Until byte authority and public resource delivery are connected, fail closed.
     if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))throw new ApiError(422,'WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
+    if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))throw new ApiError(422,'WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED');
     if(!validateViewingPlan(candidate).valid||!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateLightAttachments(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     checkedPreparedFurnishings(candidate,furnishings);
     const furniture=furnishingsFor(candidate);
@@ -300,6 +302,7 @@ export class Publications {
         let totalBytes = 0;
         const at = new Date().toISOString();
         if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))errors.push(issue('WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED','/candidate/extensions/org.exhibitos.studio~1workspace-materials','Workspace material publication is not available.','Keep the private draft until material resource publication is supported.'));
+        if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))errors.push(issue('WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED','/candidate/extensions/org.exhibitos.studio~1workspace-furnishings','Workspace furnishing publication is not available.','Keep the private draft until furnishing resource publication is supported.'));
         for(const e of [...validateFurnishings(candidate).errors,...validateStudioFloors(candidate).errors,...validateStudioPresentation(candidate).errors,...validateStudioLightDetails(candidate).errors,...validateLightAttachments(candidate).errors,...validateArchitecturalFinishes(candidate).errors,...validateStudioPlaques(candidate).errors,...validateStudioBenches(candidate).errors,...validateStudioInstallation(candidate).errors,...validateViewerEntrance(candidate).errors,...validateArchitecture(candidate,true).errors,...validateSpatialProfile(candidate).errors,...validateViewerCuration(candidate).errors,...validateViewingPlan(candidate).errors])errors.push(issue(e.code,e.path,e.message,"Correct template licensing, architecture or curation controls before publishing."));
         for(const id of spatialAudioWithoutTranscript(candidate)) errors.push(issue("SPATIAL_AUDIO_TRANSCRIPT","/candidate/extensions/org.exhibitos.runtime~1spatial-scripting","Script audio lacks a readable original transcript: "+id,"Bind the approved audio to an authored voice or audio zone with its original transcript before publishing."));
         const valid = validateExhibition(candidate, { publicationTime: at });

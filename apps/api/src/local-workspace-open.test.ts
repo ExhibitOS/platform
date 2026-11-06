@@ -21,4 +21,9 @@ describe.skipIf(!mac)('private local workspace opening',()=>{
   await expect(openLocalWorkspace(pool,input,'native',async()=>({requireExisting:true}),{isolation:'read committed'})).rejects.toMatchObject({code:'LOCAL_WORKSPACE_OWNER_UNAVAILABLE'});
   expect(query.mock.calls.map(call=>call[0])).toContain('ROLLBACK');expect(query.mock.calls.some(call=>/^INSERT|^UPDATE/.test(call[0]))).toBe(false);
  });
+ it('rolls back owner and session writes when the owner connection is lost before commit',async()=>{
+  let live=true;const query=vi.fn(async(sql:string)=>{if(sql.startsWith('SELECT * FROM local_workspaces'))return {rowCount:0,rows:[]};if(sql.startsWith('SELECT (EXISTS'))return {rowCount:1,rows:[{occupied:false}]};if(sql.startsWith('INSERT INTO auth_sessions'))live=false;return {rowCount:0,rows:[]};}),release=vi.fn(),pool={connect:async()=>({query,release})} as unknown as Pool;
+  await expect(openLocalWorkspace(pool,input,'native',async()=>{}, {isolation:'read committed',beforeCommit:()=>{if(!live)throw Error('NATIVE_OWNER_UNAVAILABLE');}})).rejects.toThrow('NATIVE_OWNER_UNAVAILABLE');
+  expect(query.mock.calls.map(call=>call[0])).toContain('ROLLBACK');expect(query.mock.calls.map(call=>call[0])).not.toContain('COMMIT');
+ });
 });

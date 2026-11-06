@@ -4,6 +4,13 @@
 import {migrateInTransaction} from '../packages/storage/dist/index.js';
 import {recognizeNormalOexCatalog,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,verifyWorkspaceMaterialMigrations,verifyWorkspaceImportMigrations,verifyWorkspaceWallImportMigration,verifyWorkspaceFurnishingMigration,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
 
+// Neither a new owner hello nor an available DB lock proves that a crashed
+// predecessor's validator and blob cleanup have drained. Keep both proposed
+// modes out of the runtime until a generation-bound drain proof is qualified.
+export function assertWorkspaceFurnishingRuntimeAdmission(mode){
+ if(['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(mode))throw Error('WORKSPACE_FURNISHING_RUNTIME_UNAVAILABLE');
+}
+
 export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,channel}){
  if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
  await c.query('SELECT pg_advisory_xact_lock(82001)');
