@@ -2,15 +2,39 @@
 import {mkdtemp,open,readFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {deflateSync} from 'node:zlib';
 import {fixtureURL,readOex,withOexFileHandle} from '@exhibitos/spec';
 import {describe,expect,it,vi} from 'vitest';
 import type {Pool,PoolClient} from 'pg';
-import type {BlobStore} from '@exhibitos/storage';
+import {sha256,type BlobStore} from '@exhibitos/storage';
+import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import type {Session} from './auth.ts';
 import {etag} from './studio.ts';
 import {Oex,withoutImportedPreviews,checkOexProfile,requireSupportedOexImport} from './oex.ts';
+import {pngCrc} from './png-pixels.ts';
 
 describe('internal bounded OEX producer',()=>{
+ it('writes workspace floor color as a draft.12 resource and enforces output authority',async()=>{
+  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),candidate=structuredClone(original.exhibition),floor={...structuredClone(candidate.surfaces[0]!),id:'33333333-3333-4333-8333-333333333333',type:'floor' as const,dimensions:{width:12,height:8},transform:{position:[0,0,0] as [number,number,number],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2] as [number,number,number,number],scale:[1,1,1] as [number,number,number]}};
+  candidate.surfaces.push(floor);
+  const chunk=(type:string,body:Buffer)=>{const t=Buffer.from(type),out=Buffer.alloc(body.length+12);out.writeUInt32BE(body.length);t.copy(out,4);body.copy(out,8);out.writeUInt32BE(pngCrc(Buffer.concat([t,body])),body.length+8);return out;};
+  const header=Buffer.alloc(13);header.writeUInt32BE(2,0);header.writeUInt32BE(2,4);header[8]=8;header[9]=2;
+  const bytes=Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('IDAT',deflateSync(Buffer.alloc(14))),chunk('IEND',Buffer.alloc(0))]),material={id:'11111111-1111-4111-8111-111111111111',version:1,kind:'floor',name:'Synthetic',rights:{holder:'Example',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,download:false,export:true,commercial:true}},provenance:'Synthetic',maps:{color:{mime:'image/png',bytes:bytes.length,sha256:sha256(bytes),width:2,height:2,colorSpace:'srgb'}}};
+  candidate.extensions={...candidate.extensions,'org.exhibitos.studio/workspace-materials':{version:1,materials:[material],bindings:[{surfaceId:floor.id,materialId:material.id,materialVersion:1,repeatMeters:[2,2],rotation:0}]}} as never;
+  const files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!])),metadata={kind:'exhibition-draft',candidate},row={revision:1,metadata},match=etag(1,metadata as Parameters<typeof etag>[1]);
+  const service={readVersion:vi.fn(async()=>material),exportMap:vi.fn(async()=>{if(!material.rights.permissions.export)throw Object.assign(new Error('RIGHTS_DENIED'),{code:'RIGHTS_DENIED'});return {bytes,mime:'image/png',sha256:sha256(bytes)};})} as unknown as WorkspaceMaterialIntakes;
+  const oex=new Oex({} as Pool,{} as BlobStore,undefined,service),session={tenantId:'10000000-0000-4000-8000-000000000001',userId:'20000000-0000-4000-8000-000000000002',role:'artist'} as Session;
+  vi.spyOn(oex.studio,'access').mockResolvedValue(row as never);
+  const intern=oex as unknown as {currentExportArtwork:(...args:unknown[])=>Promise<unknown>;currentExportAsset:(...args:unknown[])=>Promise<unknown>};
+  vi.spyOn(intern,'currentExportArtwork').mockImplementation(async(_c,_s,a)=>({rights:(a as typeof candidate.artworks[number]).rights}));
+  vi.spyOn(intern,'currentExportAsset').mockImplementation(async(_c,_s,a,asset)=>({bytes:files.get((asset as typeof candidate.artworks[number]['assets'][number]).path)!,storedRights:(a as typeof candidate.artworks[number]).rights}));
+  const client={query:vi.fn(async()=>({rows:[{snapshot:metadata}]}))} as unknown as PoolClient;
+  const dir=await mkdtemp(join(tmpdir(),'exhibitos-workspace-output-'));
+  try{const path=join(dir,'result.oex');await oex.exportBoundedFile(client,session,candidate.id,match,path,new AbortController().signal);const file=await open(path,'r');try{await withOexFileHandle(file,async result=>{expect(result.manifest.formatVersion).toBe('1.0.0-draft.12');if(!('workspaceMaterialResources' in result.manifest))throw Error('missing workspace resources');expect(result.manifest.workspaceMaterialResources?.[0]).toMatchObject({materialId:material.id,role:'color',sha256:sha256(bytes)});});}finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
+   const ordinary=await readOex(await oex.export(client,session,candidate.id,match));expect(ordinary.manifest.formatVersion).toBe('1.0.0-draft.12');
+   material.rights.permissions.export=false;await expect(oex.exportBoundedFile(client,session,candidate.id,etag(1,metadata as Parameters<typeof etag>[1]),join(dir,'denied.oex'),new AbortController().signal)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+  }finally{await rm(dir,{recursive:true,force:true});}
+ });
  it('keeps bounded profile validation when checking optional preview omissions above the legacy total',async()=>{
   const {exhibition}=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),source=structuredClone(exhibition),base=source.artworks[0]!;
   for(let i=0;i<9;i++){
