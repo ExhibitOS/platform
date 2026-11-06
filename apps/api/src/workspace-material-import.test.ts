@@ -12,6 +12,8 @@ it('refuses a missing surface mapping, identity collision or unsupported maps',(
  expect(()=>remapWorkspaceMaterialImport(source(),{},()=>mappedMaterial)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
  expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface,[materialId]:mappedMaterial},()=>mappedMaterial)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
  expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface},()=>mappedSurface)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
+ expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface},()=>materialId)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
+ expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface},()=>surface)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
  const extra=source();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{roughness:{...extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps.color,colorSpace:'linear'}});expect(()=>remapWorkspaceMaterialImport(extra,{[surface]:mappedSurface},()=>mappedMaterial)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
 });
 it('assigns one destination material ID across versions and a fresh one on reimport',()=>{
