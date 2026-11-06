@@ -44,3 +44,9 @@ test('opening shell joins the front panels at the head and omits the internal ja
   expect(ray(0)).toHaveLength(0);expect(ray(1.5).length).toBeGreaterThan(0);
  }finally{result.dispose();material.dispose();}
 });
+test('workspace wall texture uses metre UVs on the owned structure and reserves its geometry',()=>{
+ const {d,wall}=fixture(),parent=new Three.Group(),material=new Three.MeshStandardMaterial(),binding={repeatMeters:[2,4] as [number,number],rotation:0},targets=new Map([[wall.id.toLowerCase(),binding]]),plan=surfaceTexturePlan(d,512,32*1024*1024,targets);
+ const result=installArchitecturalFinishes(Three,d,new Map([[wall.id.toLowerCase(),parent]]),new Map([[wall.id.toLowerCase(),material]]),targets);
+ try{const mesh=result.meshes[0]!,geometry=mesh.geometry,p=geometry.getAttribute('position'),n=geometry.getAttribute('normal'),uv=geometry.getAttribute('uv');expect(mesh.material).toBe(material);expect(mesh).not.toBeInstanceOf(Three.InstancedMesh);expect(plan.geometryReserve).toBeGreaterThan(0);for(let i=0;i<p.count;i++)if(Math.abs(n.getZ(i))>.5){expect(uv.getX(i)).toBeCloseTo(p.getX(i)/2);expect(uv.getY(i)).toBeCloseTo(p.getY(i)/4);}}
+ finally{result.dispose();material.dispose();}
+});

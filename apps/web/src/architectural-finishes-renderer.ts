@@ -5,7 +5,7 @@ import {wallFinishesFor,architecturalWallBoxes,validateArchitecturalFinishes,sur
 import {wallOpeningShell} from './wall-opening-shell';
 /** One draw per wall structure, as before, with continuous metre UVs across
  * opening-split front faces and real depth on reveals. No unit-box stretch. */
-export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof architecturalWallBoxes>,parent:Three.Object3D,binding:SurfaceTextureBinding){
+export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof architecturalWallBoxes>,parent:Three.Object3D,binding:Pick<SurfaceTextureBinding,'repeatMeters'|'rotation'>){
  parent.updateWorldMatrix(true,false);
  const scale=[0,1,2].map(axis=>new three.Vector3().setFromMatrixColumn(parent.matrixWorld,axis).length()),matrix=new three.Matrix3().setUvTransform(0,0,1/binding.repeatMeters[0],1/binding.repeatMeters[1],binding.rotation,0,0),point=new three.Vector2();
  const {dimensions,position}=boxes[0]!;
@@ -22,7 +22,7 @@ export function texturedWallGeometry(three:typeof Three,boxes:ReturnType<typeof 
  return geometry.setAttribute('uv',new three.Float32BufferAttribute(uvs,2));
 }
 /** Base surface materials are borrowed. Box geometry and two finish materials belong to this scene. */
-export function installArchitecturalFinishes(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,baseMaterials:ReadonlyMap<string,Three.MeshStandardMaterial>){
+export function installArchitecturalFinishes(three:typeof Three,document:Exhibition,surfaces:ReadonlyMap<string,Three.Group>,baseMaterials:ReadonlyMap<string,Three.MeshStandardMaterial>,workspaceBindings?:ReadonlyMap<string,Pick<SurfaceTextureBinding,'repeatMeters'|'rotation'>>){
  if(!validateArchitecturalFinishes(document).valid)throw Error('ARCHITECTURAL_FINISH_INVALID');
  const walls=wallFinishesFor(document),geometry=walls.length?new three.BoxGeometry(1,1,1):undefined,materials=new Map<string,Three.MeshStandardMaterial>(),meshes:Three.Mesh[]=[],ownedGeometries:Three.BufferGeometry[]=[];
  const records:{surfaceId:string;depth:number;preset:string;boxes:number;triangles:number;openingWidths:number[]}[]=[];let disposed=false;
@@ -33,7 +33,7 @@ export function installArchitecturalFinishes(three:typeof Three,document:Exhibit
   let triangles=0;
   for(const kind of ['structure','finish'] as const){const items=boxes.filter(b=>b.kind===kind);if(!items.length)continue;let material=base;
    if(kind==='finish'){let own=materials.get(wall.preset);if(!own){own=new three.MeshStandardMaterial(wall.preset==='dark-edge'?{color:'#293b36',roughness:.4,metalness:.7}:{color:'#dedbd2',roughness:.8,metalness:0});materials.set(wall.preset,own);}material=own;}
-   const binding=kind==='structure'?surfaceTextureFor(document,surface.id):undefined;let mesh:Three.Mesh;
+   const binding=kind==='structure'?(workspaceBindings?.get(surface.id.toLowerCase())??surfaceTextureFor(document,surface.id)):undefined;let mesh:Three.Mesh;
    if(binding||kind==='structure'&&items.length>1){
     const own=binding?texturedWallGeometry(three,items,parent,binding):wallOpeningShell(three,items);
     ownedGeometries.push(own);own.computeBoundingBox();own.computeBoundingSphere();
