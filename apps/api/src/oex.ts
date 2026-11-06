@@ -10,6 +10,8 @@ import {OEX_FOOTSTEP_RESOURCE_VERSION,footstepResourcesFor,type FootstepResource
 import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {WORKSPACE_MATERIAL_NAMESPACE,type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {workspaceMaterialOutputBytes,workspaceMaterialOutputInventory} from './workspace-material-output.ts';
+import {workspaceFurnishingOutputBytes,workspaceFurnishingOutputInventory} from './workspace-furnishing-output.ts';
+import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
@@ -49,7 +51,7 @@ const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
 const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','imageAssetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
-const workspaceOutputRights=(e:Exhibition)=>((e.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as unknown as WorkspaceMaterialBindings|undefined)?.materials??[]).map(m=>m.rights);
+const workspaceOutputRights=(e:Exhibition)=>[...((e.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as unknown as WorkspaceMaterialBindings|undefined)?.materials??[]).map(m=>m.rights),...((e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined)?.furnishings??[]).map(f=>f.rights)];
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 /** Match both the qualified reference and its authored pose to the immutable CMS metadata. */
 export function approvedDimensionsMatch(a:Exhibition['artworks'][number],m:ArtworkMetadata){
@@ -62,9 +64,9 @@ export function portableOexSnapshot(candidate:Exhibition){const result=structure
 export type NativeOexExportProgress={phase:'preparing'|'verifying'}|{phase:'packing';completedItems:number;totalItems:number};
 export interface ImportedPreviewOmission {artworkId:string;assetId:string;sha256:string}
 /** Remove only an unreferenced optional imported preview, preserving the draft. */
-export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPreviewOmission[],archiveProfile?:'bounded-file-v1',workspaceOutput=false){
+export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPreviewOmission[],archiveProfile?:'bounded-file-v1',workspaceOutput=false,workspaceFurnishingOutput=false){
  if(!Array.isArray(omissions)||omissions.length>source.artworks.length)throw new ApiError(409,'FREEZE_INTEGRITY');
- checkOexProfile(source,true,archiveProfile,workspaceOutput);const result=structuredClone(source),seen=new Set<string>();
+ checkOexProfile(source,true,archiveProfile,workspaceOutput,workspaceFurnishingOutput);const result=structuredClone(source),seen=new Set<string>();
  for(const omission of omissions){
   if(!object(omission)||Object.keys(omission).sort().join(',')!=='artworkId,assetId,sha256'||typeof omission.artworkId!=='string'||typeof omission.assetId!=='string'||typeof omission.sha256!=='string'||!/^[a-f0-9]{64}$/.test(omission.sha256))throw new ApiError(409,'FREEZE_INTEGRITY');
   const key=omission.artworkId.toLowerCase(),art=result.artworks.find(a=>a.id.toLowerCase()===key),preview=art&&artworkThumbnailFor(art);
@@ -74,12 +76,12 @@ export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPrev
   const scan=(v:unknown,field='')=>{if(typeof v==='string'&&((REFERENCE_FIELDS.has(field)&&v.toLowerCase()===preview.id.toLowerCase())||(field==='path'&&v.toLowerCase()===preview.path.toLowerCase())))referenced=true;else if(Array.isArray(v))for(const item of v)scan(item,field);else if(object(v))for(const [key,item]of Object.entries(v))scan(item,key);};
   scan(result);if(referenced)throw new ApiError(409,'FREEZE_INTEGRITY');
  }
- checkOexProfile(result,true,archiveProfile,workspaceOutput);return result;
+ checkOexProfile(result,true,archiveProfile,workspaceOutput,workspaceFurnishingOutput);return result;
 }
 /** A pinned authority can add only the exact optional images to the original scene. */
-export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPin[],workspaceOutput=false){
+export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPin[],workspaceOutput=false,workspaceFurnishingOutput=false){
  if(!Array.isArray(pins)||pins.length>source.artworks.length)throw new ApiError(409,'FREEZE_INTEGRITY');
- checkOexProfile(source,true,undefined,workspaceOutput);
+ checkOexProfile(source,true,undefined,workspaceOutput,workspaceFurnishingOutput);
  const result=structuredClone(source),seen=new Set<string>(),used=new Set<string>();
  const collect=(value:unknown,field='')=>{if(typeof value==='string'&&REFERENCE_FIELDS.has(field))used.add(value.toLowerCase());else if(Array.isArray(value))for(const item of value)collect(item,field);else if(object(value))for(const [key,item] of Object.entries(value))collect(item,key);};
  collect(source);
@@ -92,7 +94,7 @@ export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPi
   art.assets.push({id:pin.thumbnailAssetId,path,role:'preview',mime:'image/png',bytes:pin.bytes,sha256:pin.thumbnailSha256});
   art.extensions={...art.extensions,[ARTWORK_THUMBNAIL_NAMESPACE]:{version:1,assetId:pin.thumbnailAssetId}};
  }
- checkOexProfile(result,true,undefined,workspaceOutput);return result;
+ checkOexProfile(result,true,undefined,workspaceOutput,workspaceFurnishingOutput);return result;
 }
 export function approvedImportedThumbnail(artwork:Exhibition['artworks'][number],approval:unknown){
  const thumbnail=artworkThumbnailFor(artwork);if(!thumbnail)return true;
@@ -121,7 +123,7 @@ const legacyJobSql="(to_jsonb(oex_import_jobs)->>'archive_profile') IS NULL AND 
 function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==null&&Number.isSafeInteger(row.expected_bytes)&&row.expected_bytes>0&&row.expected_bytes<=MAX_OEX_UPLOAD;}
 function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
 /** Keep workspace byte-inventory admission at the native OEX boundary. */
-export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false){if(workspaceOutput)workspaceMaterialOutputInventory(e);return checkPortableOexProfile(e,privateBindings,archiveProfile,workspaceOutput);}
+export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false,workspaceFurnishingOutput=false){if(workspaceOutput)workspaceMaterialOutputInventory(e);if(workspaceFurnishingOutput)workspaceFurnishingOutputInventory(e);return checkPortableOexProfile(e,privateBindings,archiveProfile,workspaceOutput,workspaceFurnishingOutput);}
 /** Native OEX11 import is not qualified; reject before preparing or staging any assets. */
 export function requireSupportedOexImport(e:Exhibition){if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');}
 /** Verify the complete selected catalogue pair before staging any import blob.
@@ -209,8 +211,8 @@ export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map
 }
 export class Oex {
  readonly studio:Studio;readonly cms:Cms;
- readonly pool:Pool;readonly blobs:BlobStore;private readonly workspaceMaterial:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes|undefined;
- constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes){this.pool=pool;this.blobs=blobs;this.workspaceMaterial=workspaceMaterial;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace,false,workspaceMaterial);}
+ readonly pool:Pool;readonly blobs:BlobStore;private readonly workspaceMaterial:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes|undefined;private readonly workspaceFurnishing:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes|undefined;
+ constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes,workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes){this.pool=pool;this.blobs=blobs;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace,false,workspaceMaterial,workspaceFurnishing);}
  private role(s:Session){if(!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');}
  view(row:Job){return {id:row.id,state:row.state,errorCode:row.error_code,attempts:row.attempts,result:row.result,cleanupPending:row.cleanup_pending};}
  async access(c:PoolClient,s:Session,id:string):Promise<Job>{this.role(s);uuid(id);const row=(await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id])).rows[0];if(!row||(s.role!=='admin'&&row.user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');return row;}
@@ -270,7 +272,7 @@ export class Oex {
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
   if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
   const original=structuredClone(snapshot.candidate) as Exhibition;
-  let e=structuredClone(original);checkOexProfile(e,true,undefined,true);const files=new Map<string,Uint8Array>();
+  let e=structuredClone(original);checkOexProfile(e,true,undefined,true,true);const files=new Map<string,Uint8Array>();
   const rights:unknown[]=[];let total=0;
   const pendingImported:{artwork:Exhibition['artworks'][number];asset:NonNullable<ReturnType<typeof artworkThumbnailFor>>}[]=[];
   for(const a of e.artworks){
@@ -278,7 +280,7 @@ export class Oex {
    const optional=artworkThumbnailFor(a);
    for(const asset of a.assets){
     if(optional&&asset.id.toLowerCase()===optional.id.toLowerCase()){
-     try{withoutImportedPreviews(original,[{artworkId:a.id,assetId:optional.id,sha256:optional.sha256}],undefined,true);pendingImported.push({artwork:structuredClone(a),asset:optional});continue;}catch{/* A referenced preview remains required. */}
+     try{withoutImportedPreviews(original,[{artworkId:a.id,assetId:optional.id,sha256:optional.sha256}],undefined,true,true);pendingImported.push({artwork:structuredClone(a),asset:optional});continue;}catch{/* A referenced preview remains required. */}
     }
     const {bytes,storedRights}=await this.currentExportAsset(c,s,a,asset,m);
     rights.push(m.rights,storedRights,a.rights);total+=bytes.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(asset.path)&&sha256(files.get(asset.path)!)!==asset.sha256)throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(asset.path,bytes);
@@ -314,6 +316,7 @@ export class Oex {
   for(const resource of workspaceMaterialOutputInventory(original)){
    const {bytes:data}=await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
   }
+  for(const resource of workspaceFurnishingOutputInventory(original)){const {bytes:data}=await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);}
   const omittedImported:ImportedPreviewOmission[]=[],retainedImported:{omission:ImportedPreviewOmission;path:string;rights:unknown}[]=[];
   for(const {artwork,asset} of pendingImported){
    try{
@@ -325,7 +328,7 @@ export class Oex {
     files.set(asset.path,bytes);total+=bytes.length;retainedImported.push({omission:{artworkId:artwork.id,assetId:asset.id,sha256:asset.sha256},path:asset.path,rights:stored.rights});
    }catch{omittedImported.push({artworkId:artwork.id,assetId:asset.id,sha256:asset.sha256});}
   }
-  let source=withoutImportedPreviews(original,omittedImported,undefined,true);e=portableOexSnapshot(source);
+  let source=withoutImportedPreviews(original,omittedImported,undefined,true,true);e=portableOexSnapshot(source);
   const receipts=new ArtworkThumbnailReceipts(this.blobs),pins:FrozenThumbnailPin[]=[],optionalPaths:string[]=[];
   // Load every required resource first; an optional preview must not consume its budget.
   for(const art of source.artworks){
@@ -333,14 +336,14 @@ export class Oex {
    try{
     const selected=await receipts.selectedForPublication(c,s,art.id,art.revision,primary.id,primary.sha256);if(!selected)continue;
     const pin:FrozenThumbnailPin={artworkId:art.id,revision:art.revision,bindingId:selected.id,sourceAssetId:primary.id,sourceSha256:primary.sha256,thumbnailAssetId:selected.assetId,thumbnailSha256:selected.sha256,bytes:selected.bytes.length};
-    const authority=pinnedAuthoritySnapshot(source,[...pins,pin],true),path=`assets/${pin.thumbnailAssetId}/thumbnail.png`;
+    const authority=pinnedAuthoritySnapshot(source,[...pins,pin],true,true),path=`assets/${pin.thumbnailAssetId}/thumbnail.png`;
     if(files.has(path)||total+selected.bytes.length>MAX_OEX_UPLOAD)continue;
     await receipts.pinnedForExport(c,s,pin);pins.push(pin);optionalPaths.push(path);files.set(path,selected.bytes);total+=selected.bytes.length;e=portableOexSnapshot(authority);
    }catch{/* A missing, invalid or unauthorized optional image does not remove the artwork. */}
   }
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
-  const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported,undefined,true);e=portableOexSnapshot(source);}:undefined;
-  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length+workspaceMaterialOutputInventory(e).length;};
+  const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported,undefined,true,true);e=portableOexSnapshot(source);}:undefined;
+  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length+workspaceMaterialOutputInventory(e).length+workspaceFurnishingOutputInventory(e).length;};
   if(dropOptional&&packageEntries()>254)dropOptional();
   let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
@@ -353,13 +356,14 @@ export class Oex {
     catch{files.delete(optionalPaths[index]!);optionalPaths.splice(index,1);pins.splice(index,1);changed=true;break;}
    }
    if(!changed){const index=retainedImported.findIndex(item=>!allowedRights(item.rights,'export')||!allowedRights(item.rights,'display'));
-    if(index>=0){const item=retainedImported[index]!;files.delete(item.path);omittedImported.push(item.omission);retainedImported.splice(index,1);source=withoutImportedPreviews(original,omittedImported,undefined,true);changed=true;}
+    if(index>=0){const item=retainedImported[index]!;files.delete(item.path);omittedImported.push(item.omission);retainedImported.splice(index,1);source=withoutImportedPreviews(original,omittedImported,undefined,true,true);changed=true;}
    }
    if(!changed)break;
-   e=portableOexSnapshot(pinnedAuthoritySnapshot(source,pins,true));try{bytes=await write();}catch{throw new ApiError(422,'OEX_INVALID');}if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');
+   e=portableOexSnapshot(pinnedAuthoritySnapshot(source,pins,true,true));try{bytes=await write();}catch{throw new ApiError(422,'OEX_INVALID');}if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');
   }
   if(rights.some(r=>!allowedRights(r,'export'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');
   for(const resource of workspaceMaterialOutputInventory(original))await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');
+  for(const resource of workspaceFurnishingOutputInventory(original))await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');
   if(rights.some(r=>!allowedRights(r,'export'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');
   return {bytes,pins,omittedImported};
  }
@@ -372,7 +376,7 @@ export class Oex {
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
   if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
   onProgress?.({phase:'preparing'});
-  const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1',true);
+  const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1',true,true);
   const inputs=new Map<string,()=>Promise<Uint8Array>>(),artworkInputs=new Map<string,Array<()=>Promise<Uint8Array>>>(),rights:unknown[]=[],previewRights:unknown[]=[],omitted:ImportedPreviewOmission[]=[];
   const add=(path:string,load:()=>Promise<Uint8Array>)=>{if(inputs.has(path))throw new ApiError(422,'OEX_PATH_CONFLICT');inputs.set(path,load);};
   for(const a of original.artworks){
@@ -380,7 +384,7 @@ export class Oex {
    for(const asset of a.assets){
     if(optional&&asset.id.toLowerCase()===optional.id.toLowerCase()){
      const omission={artworkId:a.id,assetId:optional.id,sha256:optional.sha256};let removable=false;
-     try{withoutImportedPreviews(original,[...omitted,omission],'bounded-file-v1',true);removable=true;}catch{/* Referenced previews remain required. */}
+     try{withoutImportedPreviews(original,[...omitted,omission],'bounded-file-v1',true,true);removable=true;}catch{/* Referenced previews remain required. */}
      if(removable){
       try{await this.currentExportPreview(c,s,a,optional);const loaders=artworkInputs.get(asset.path)??[];loaders.push(async()=>{signal.throwIfAborted();const {bytes,storedRights}=await this.currentExportPreview(c,s,a,optional);previewRights.push(storedRights);signal.throwIfAborted();return bytes;});artworkInputs.set(asset.path,loaders);}
       catch{signal.throwIfAborted();omitted.push(omission);}continue;
@@ -408,7 +412,8 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   for(const resource of footstepResourcesFor(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   for(const resource of workspaceMaterialOutputInventory(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const {bytes}=await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');signal.throwIfAborted();return bytes;});
-  const exhibition=portableOexSnapshot(withoutImportedPreviews(original,omitted,'bounded-file-v1',true));checkOexProfile(exhibition,false,'bounded-file-v1',true);signal.throwIfAborted();
+  for(const resource of workspaceFurnishingOutputInventory(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const {bytes}=await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');signal.throwIfAborted();return bytes;});
+  const exhibition=portableOexSnapshot(withoutImportedPreviews(original,omitted,'bounded-file-v1',true,true));checkOexProfile(exhibition,false,'bounded-file-v1',true,true);signal.throwIfAborted();
   let supplied=0;
   const result=await writeOexFile(exhibition,{paths:[...inputs.keys()],get:async path=>{
    signal.throwIfAborted();
@@ -430,8 +435,8 @@ export class Oex {
   const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
   if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
-  const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1',true);
-  const retained=withoutImportedPreviews(original,omitted,'bounded-file-v1',true),rights:unknown[]=[],displayRights:unknown[]=[];
+  const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1',true,true);
+  const retained=withoutImportedPreviews(original,omitted,'bounded-file-v1',true,true),rights:unknown[]=[],displayRights:unknown[]=[];
   for(const a of original.artworks){
    const m=await this.currentExportArtwork(c,s,a),current=retained.artworks.find(x=>x.id===a.id);if(!current)throw new ApiError(409,'OEX_SOURCE_CHANGED');
    for(const asset of current.assets){const stored=await this.currentExportAssetRecord(c,s,a,asset,m);rights.push(m.rights,stored.rights,a.rights);const preview=artworkThumbnailFor(a);if(preview?.id.toLowerCase()===asset.id.toLowerCase()){if(!allowedRights(stored.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');displayRights.push(stored.rights);}}
@@ -447,6 +452,7 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(original))await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);
   for(const resource of footstepResourcesFor(original))await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);
   for(const resource of workspaceMaterialOutputInventory(original))await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');
+  for(const resource of workspaceFurnishingOutputInventory(original))await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');
   const checkRights=()=>{if(rights.some(r=>!allowedRights(r,'export'))||displayRights.some(r=>!allowedRights(r,'display'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');};checkRights();return checkRights;
  }
  /** Omission never makes an unapproved imported preview authoritative. */
