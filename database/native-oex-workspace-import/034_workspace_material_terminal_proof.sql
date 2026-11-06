@@ -54,12 +54,6 @@ $$;
 CREATE CONSTRAINT TRIGGER workspace_oex_terminal_proof_complete_check AFTER INSERT ON workspace_oex_import_terminal_proof
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION workspace_oex_terminal_proof_complete();
 
--- Activation must not silently adopt an earlier unproved terminal result.
-DO $$ BEGIN
- IF EXISTS(SELECT 1 FROM oex_import_jobs WHERE state='complete' AND oex_format='1.0.0-draft.12') THEN
-  RAISE EXCEPTION 'Unproved workspace terminal result';
- END IF;
-END $$;
 -- A newly completed draft.12 job cannot commit before its immutable proof.
 -- Legacy 9/10 rows and transitions remain untouched.
 CREATE FUNCTION workspace_oex_terminal_proof_required() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -73,3 +67,10 @@ $$;
 CREATE CONSTRAINT TRIGGER workspace_oex_terminal_proof_required_check AFTER INSERT OR UPDATE ON oex_import_jobs
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='complete' AND NEW.oex_format='1.0.0-draft.12')
  EXECUTE FUNCTION workspace_oex_terminal_proof_required();
+-- Install the write-conflicting trigger before scanning, in the migration's
+-- transaction. Concurrent completions cannot slip between scan and activation.
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM oex_import_jobs WHERE state='complete' AND oex_format='1.0.0-draft.12') THEN
+  RAISE EXCEPTION 'Unproved workspace terminal result';
+ END IF;
+END $$;
