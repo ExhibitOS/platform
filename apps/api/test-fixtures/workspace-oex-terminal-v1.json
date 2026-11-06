@@ -1,0 +1,52 @@
+{
+  "scope": {
+    "workspaceId": "10000000-0000-4000-8000-000000000001",
+    "tenantId": "10000000-0000-4000-8000-000000000002",
+    "principalId": "10000000-0000-4000-8000-000000000003",
+    "jobId": "10000000-0000-4000-8000-000000000004",
+    "attemptId": "10000000-0000-4000-8000-000000000005",
+    "importRequestId": "10000000-0000-4000-8000-000000000006",
+    "sourceArchiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "result": {
+    "revision": 1,
+    "etag": "\"studio-r1-b9359baaab46e1ad33e1ed13675a936e20fac80c29964043380b309fecafe11d\"",
+    "draft": {
+      "kind": "exhibition-draft",
+      "exhibitionId": "10000000-0000-4000-8000-000000000007",
+      "candidate": {
+        "id": "10000000-0000-4000-8000-000000000007",
+        "revisionId": "10000000-0000-4000-8000-000000000008",
+        "label": "한글 \"A\"",
+        "numbers": [
+          0,
+          1e-7
+        ]
+      }
+    },
+    "exhibitionId": "10000000-0000-4000-8000-000000000007",
+    "idMap": {
+      "10000000-0000-4000-8000-000000000009": "10000000-0000-4000-8000-000000000010"
+    },
+    "assetAliases": []
+  },
+  "proof": {
+    "version": 1,
+    "kind": "workspace-oex-import-terminal",
+    "workspaceId": "10000000-0000-4000-8000-000000000001",
+    "tenantId": "10000000-0000-4000-8000-000000000002",
+    "principalId": "10000000-0000-4000-8000-000000000003",
+    "jobId": "10000000-0000-4000-8000-000000000004",
+    "attemptId": "10000000-0000-4000-8000-000000000005",
+    "importRequestId": "10000000-0000-4000-8000-000000000006",
+    "sourceArchiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "archiveFormat": "1.0.0-draft.12",
+    "exhibitionId": "10000000-0000-4000-8000-000000000007",
+    "immutableRevisionId": "10000000-0000-4000-8000-000000000008",
+    "studioETag": "\"studio-r1-b9359baaab46e1ad33e1ed13675a936e20fac80c29964043380b309fecafe11d\"",
+    "resultBytes": 504,
+    "resultSha256": "95031f60731ab9f8f06480a13d9f99a6cad9264285f4b327b0119469e07387a1"
+  },
+  "resultUtf8": "{\"assetAliases\":[],\"draft\":{\"candidate\":{\"id\":\"10000000-0000-4000-8000-000000000007\",\"label\":\"한글 \\\"A\\\"\",\"numbers\":[0,1e-7],\"revisionId\":\"10000000-0000-4000-8000-000000000008\"},\"exhibitionId\":\"10000000-0000-4000-8000-000000000007\",\"kind\":\"exhibition-draft\"},\"etag\":\"\\\"studio-r1-b9359baaab46e1ad33e1ed13675a936e20fac80c29964043380b309fecafe11d\\\"\",\"exhibitionId\":\"10000000-0000-4000-8000-000000000007\",\"idMap\":{\"10000000-0000-4000-8000-000000000009\":\"10000000-0000-4000-8000-000000000010\"},\"revision\":1}",
+  "proofUtf8": "{\"version\":1,\"kind\":\"workspace-oex-import-terminal\",\"workspaceId\":\"10000000-0000-4000-8000-000000000001\",\"tenantId\":\"10000000-0000-4000-8000-000000000002\",\"principalId\":\"10000000-0000-4000-8000-000000000003\",\"jobId\":\"10000000-0000-4000-8000-000000000004\",\"attemptId\":\"10000000-0000-4000-8000-000000000005\",\"importRequestId\":\"10000000-0000-4000-8000-000000000006\",\"sourceArchiveSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"archiveFormat\":\"1.0.0-draft.12\",\"exhibitionId\":\"10000000-0000-4000-8000-000000000007\",\"immutableRevisionId\":\"10000000-0000-4000-8000-000000000008\",\"studioETag\":\"\\\"studio-r1-b9359baaab46e1ad33e1ed13675a936e20fac80c29964043380b309fecafe11d\\\"\",\"resultBytes\":504,\"resultSha256\":\"95031f60731ab9f8f06480a13d9f99a6cad9264285f4b327b0119469e07387a1\"}"
+}
