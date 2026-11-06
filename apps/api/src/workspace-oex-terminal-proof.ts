@@ -45,3 +45,13 @@ export function prepareWorkspaceOexTerminalProof(scope:Scope,result:unknown){
  const proofBytes=Buffer.from(JSON.stringify(proof),'utf8');if(proofBytes.length>PROOF_LIMIT)throw Error('OEX_TERMINAL_PROOF');
  return {proof:Object.freeze(proof),proofBytes,resultBytes:bytes};
 }
+
+/** Revalidate stored exact bytes before any future replay. Caller must still
+ * authenticate the owner and prove the row is durably committed and drained. */
+export function readWorkspaceOexTerminalProof(scope:Scope,input:{proofBytes:Uint8Array;resultBytes:Uint8Array}){
+ if(!input||!(input.proofBytes instanceof Uint8Array)||!(input.resultBytes instanceof Uint8Array)||input.proofBytes.byteLength<1||input.proofBytes.byteLength>PROOF_LIMIT||input.resultBytes.byteLength<1||input.resultBytes.byteLength>LIMIT)throw Error('OEX_TERMINAL_PROOF');
+ const proofBytes=Buffer.from(input.proofBytes),resultBytes=Buffer.from(input.resultBytes);let result:unknown;
+ try{result=JSON.parse(new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(resultBytes));}catch{throw Error('OEX_TERMINAL_PROOF');}
+ const prepared=prepareWorkspaceOexTerminalProof(scope,result);if(!prepared.proofBytes.equals(proofBytes)||!prepared.resultBytes.equals(resultBytes))throw Error('OEX_TERMINAL_PROOF');
+ return {proof:prepared.proof,resultBytes};
+}

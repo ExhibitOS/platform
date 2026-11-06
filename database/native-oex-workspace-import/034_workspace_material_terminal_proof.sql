@@ -15,19 +15,23 @@ CREATE TABLE workspace_oex_import_terminal_proof (
  FOREIGN KEY(workspace_id,tenant_id,principal_id) REFERENCES local_workspaces(id,tenant_id,user_id),
  FOREIGN KEY(tenant_id,import_job_id) REFERENCES native_oex_exhibition_provenance(tenant_id,import_job_id) DEFERRABLE INITIALLY DEFERRED,
  CHECK(encode(sha256(result_bytes),'hex')=result_sha256),
- CHECK(convert_from(proof_bytes,'UTF8')::jsonb=jsonb_build_object(
+ -- All interpolated strings have constrained ASCII characters and no spaces.
+ -- Require the producer's exact ordered JSON encoding, not JSONB equivalence.
+ CHECK(proof_bytes=convert_to(replace(replace(json_build_object(
   'version',1,'kind','workspace-oex-import-terminal','workspaceId',workspace_id::text,
   'tenantId',tenant_id::text,'principalId',principal_id::text,'jobId',import_job_id::text,
   'attemptId',attempt_id::text,'importRequestId',import_request_id::text,
   'sourceArchiveSha256',source_archive_sha256,'archiveFormat','1.0.0-draft.12',
   'exhibitionId',exhibition_id::text,'immutableRevisionId',immutable_revision_id::text,
-  'studioETag',studio_etag,'resultBytes',octet_length(result_bytes),'resultSha256',result_sha256))
+  'studioETag',studio_etag,'resultBytes',octet_length(result_bytes),'resultSha256',result_sha256)::text,': ',':'),', ',','),'UTF8'))
 );
 CREATE TRIGGER workspace_oex_terminal_proof_immutable BEFORE UPDATE OR DELETE ON workspace_oex_import_terminal_proof
  FOR EACH ROW EXECUTE FUNCTION immutable_revision();
 
--- Result and exact bytes commit together, and the revision and native owner
--- provenance must describe the same completed bounded draft.12 import.
+-- Result bytes are bound here by SHA and JSONB semantics. The trusted writer
+-- enforces canonical result bytes; any replay must revalidate those exact bytes
+-- before exposing them. The revision and native provenance must describe the
+-- same completed bounded draft.12 import.
 CREATE FUNCTION workspace_oex_terminal_proof_complete() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF NOT EXISTS (
@@ -50,3 +54,23 @@ END;
 $$;
 CREATE CONSTRAINT TRIGGER workspace_oex_terminal_proof_complete_check AFTER INSERT ON workspace_oex_import_terminal_proof
  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION workspace_oex_terminal_proof_complete();
+
+-- Activation must not silently adopt an earlier unproved terminal result.
+DO $$ BEGIN
+ IF EXISTS(SELECT 1 FROM oex_import_jobs WHERE state='complete' AND oex_format='1.0.0-draft.12') THEN
+  RAISE EXCEPTION 'Unproved workspace terminal result';
+ END IF;
+END $$;
+-- A newly completed draft.12 job cannot commit before its immutable proof.
+-- Legacy 9/10 rows and transitions remain untouched.
+CREATE FUNCTION workspace_oex_terminal_proof_required() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM workspace_oex_import_terminal_proof p WHERE p.tenant_id=NEW.tenant_id AND p.import_job_id=NEW.id) THEN
+  RAISE EXCEPTION 'Workspace terminal proof required';
+ END IF;
+ RETURN NULL;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER workspace_oex_terminal_proof_required_check AFTER INSERT OR UPDATE ON oex_import_jobs
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.state='complete' AND NEW.oex_format='1.0.0-draft.12')
+ EXECUTE FUNCTION workspace_oex_terminal_proof_required();
