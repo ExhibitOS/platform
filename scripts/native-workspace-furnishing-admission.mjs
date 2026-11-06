@@ -4,7 +4,7 @@
 import {authenticateFurnishingLeaseFrame,encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {inspectFurnishingWriterFd} from './native-workspace-furnishing-fd.mjs';
 import {createHash} from 'node:crypto';
-import {authenticateFurnishingOrdinaryAssertion,encodeFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
+import {authenticateFurnishingOrdinaryAssertion,encodeFurnishingOrdinaryAssertion,verifyFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
 const scoped=['workspaceId','tenantId','principalId','runtimeGeneration','mode'];
 const issued=new WeakSet(),issuedChannels=new WeakMap();
 export function assertIssuedFurnishingWriterLease(value){if(!value||!issued.has(value))throw Error('FURNISHING_LEASE_INVALID');}
@@ -25,7 +25,7 @@ export async function acceptFurnishingWriterLease({channel,secret,scope,payload,
 
 // An authenticated assertion is useful only after a separately issued lease;
 // the Manager remains responsible for durable Active transition semantics.
-const ordinaryIssued=new WeakSet(),ordinaryConsumed=new WeakSet();
+const ordinaryIssued=new WeakSet(),ordinaryConsumed=new WeakSet(),stopControls=new WeakSet();
 export function assertIssuedFurnishingOrdinaryAdmission(value){if(!value||!ordinaryIssued.has(value))throw Error('FURNISHING_ADMISSION_INVALID');}
 export async function acceptFurnishingOrdinaryAdmission({writer,channel,secret}){
  assertIssuedFurnishingWriterLease(writer);
@@ -37,4 +37,19 @@ export async function acceptFurnishingOrdinaryAdmission({writer,channel,secret})
   if(fields.runtimeGeneration!==writer.identity.runtimeGeneration||fields.leaseTranscriptSHA256!==writer.leaseTranscriptSHA256||(fields.admissionKind==='fresh-empty')!==(writer.identity.mode==='workspace-furnishing-036-initialize-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
   await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission-ack',fields,key));await writer.assertLive();const admission=Object.freeze({fields:Object.freeze(fields),writer});ordinaryIssued.add(admission);return admission;
  }catch(error){void channel.close().catch(()=>{});throw error;}finally{key.fill(0);}
+}
+
+/** One authenticated normal-stop exchange on the same owner channel. The
+ * caller must close admission synchronously when wait resolves and may send
+ * drained only after all already-admitted work and the pool have settled. */
+export function furnishingOrdinaryStopControl(admission,channel,secret){
+ assertIssuedFurnishingOrdinaryAdmission(admission);
+ if(stopControls.has(admission)||issuedChannels.get(admission.writer)!==channel||!(secret instanceof Uint8Array)||secret.byteLength!==32)throw Error('FURNISHING_ADMISSION_INVALID');
+ stopControls.add(admission);
+ const key=Buffer.from(secret);let started=false,requested=false,finished=false;
+ return Object.freeze({
+  wait:async()=>{if(started||finished)throw Error('FURNISHING_ADMISSION_INVALID');started=true;try{const frame=await channel.receive(0);await admission.writer.assertLive();verifyFurnishingOrdinaryAssertion(frame,'furnishing-ordinary-stop',admission.fields,key);if(!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');requested=true;}catch(error){finished=true;key.fill(0);void channel.close().catch(()=>{});throw error;}},
+  drained:async()=>{if(!requested||finished||!channel.isOpen())throw Error('FURNISHING_ADMISSION_INVALID');finished=true;try{await admission.writer.assertLive();await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-drained',admission.fields,key));}finally{key.fill(0);}},
+  dispose:()=>{finished=true;key.fill(0);},
+ });
 }
