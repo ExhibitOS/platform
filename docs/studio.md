@@ -143,9 +143,8 @@ appearance binding does not alter the separately stored floor sound.
 The shared Spec defines a distinct OEX draft.12 profile for portable material
 bytes and bindings. The private bounded OEX candidate handles floor and wall
 color-only materials; other map roles remain unsupported for OEX output.
-Selected draft.12 import currently accepts floor color only; wall and mixed
-imports remain blocked until the Manager validates their terminal proof.
-Native restart still requires joint Manager/runtime
+Selected draft.12 import supports floor, wall and mixed color-only bindings
+when the native Manager validates their terminal proof. Native restart still requires joint Manager/runtime
 qualification. Workspace-material static publication and public Viewer output
 remain unsupported. The existing formats are not reinterpreted.
 

@@ -22,3 +22,10 @@ it('assigns one destination material ID across versions and a fresh one on reimp
  const first=remapWorkspaceMaterialImport(value,{[surface]:mappedSurface,[surface2]:mapped2},()=>mappedMaterial),second=remapWorkspaceMaterialImport(value,{[surface]:mappedSurface,[surface2]:mapped2},()=> '77777777-7777-4777-8777-777777777777');
  expect(first.extension?.materials.map(m=>m.id)).toEqual([mappedMaterial,mappedMaterial]);expect(first.extension?.bindings.map(b=>b.materialVersion)).toEqual([1,2]);expect(second.extension?.materials[0]?.id).not.toBe(first.extension?.materials[0]?.id);
 });
+it('preserves distinct floor and wall kinds and rejects crossed surface bindings',()=>{
+ const value=source(),wall='55555555-5555-4555-8555-555555555555',wallSurface='66666666-6666-4666-8666-666666666666',mappedWall='77777777-7777-4777-8777-777777777777',mappedWallSurface='88888888-8888-4888-8888-888888888888';
+ value.surfaces.push({id:wallSurface,type:'wall'});const ext=value.extensions['org.exhibitos.studio/workspace-materials'];ext.materials.push({...structuredClone(ext.materials[0]!),id:wall,kind:'wall'});ext.bindings.push({surfaceId:wallSurface,materialId:wall,materialVersion:1,repeatMeters:[3,2],rotation:0});
+ const ids=[mappedMaterial,mappedWall],result=remapWorkspaceMaterialImport(value,{[surface]:mappedSurface,[wallSurface]:mappedWallSurface},()=>ids.shift()!);
+ expect(result.extension?.materials.map(m=>m.kind)).toEqual(['floor','wall']);expect(result.extension?.bindings.map(b=>b.surfaceId)).toEqual([mappedSurface,mappedWallSurface]);
+ ext.bindings[1]!.surfaceId=surface;expect(()=>remapWorkspaceMaterialImport(value,{[surface]:mappedSurface,[wallSurface]:mappedWallSurface},()=>mappedWall)).toThrow();
+});

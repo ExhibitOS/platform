@@ -8,16 +8,12 @@ import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 
 /** The initial output profile handles floor and wall color maps. Reject other
  * declared content explicitly instead of producing an incomplete archive. */
-export function workspaceMaterialOutputInventory(candidate:{extensions?:Record<string,unknown>;surfaces?:unknown},purpose:'output'|'import'='output'):WorkspaceMaterialResource[]{
+export function workspaceMaterialOutputInventory(candidate:{extensions?:Record<string,unknown>;surfaces?:unknown}):WorkspaceMaterialResource[]{
  const value=candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];if(value===undefined)return [];
  let resources:WorkspaceMaterialResource[];
  try{resources=packageWorkspaceMaterialManifest(candidate);}catch{throw new ApiError(422,'DRAFT_INVALID');}
  const data=value as WorkspaceMaterialBindings;
  if(!resources.length||data.materials.some(m=>!['floor','wall'].includes(m.kind)||Object.keys(m.maps).length!==1||!m.maps.color)||resources.some(r=>r.role!=='color'))throw new ApiError(422,'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
- // The Manager's selected-import terminal proof currently supports floor
- // bindings only. Refuse wall imports before attachment until that consumer
- // validates wall and mixed inventories as well.
- if(purpose==='import'&&data.materials.some(m=>m.kind!=='floor'))throw new ApiError(422,'WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');
  return resources;
 }
 

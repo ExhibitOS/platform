@@ -29,13 +29,14 @@ it('rejects mismatched descriptors, missing and duplicate resources and foreign 
  const aliases=fixture();aliases.sourceKeys.set('assets/other',aliases.sourceKeys.values().next().value!);expect(()=>planWorkspaceMaterialImportSource(aliases)).toThrow('OEX_WORKSPACE_SOURCE_INVALID');
  const unbounded=fixture();delete unbounded.manifest.archiveProfile;expect(()=>planWorkspaceMaterialImportSource(unbounded)).toThrow('OEX_WORKSPACE_SOURCE_INVALID');
 });
-it('rejects wall and mixed source inventories before planning import keys',()=>{
+it('plans wall and mixed source inventories with distinct attempt keys',()=>{
  for(const mixed of [false,true]){
   const input=fixture(),ext=input.scene.extensions['org.exhibitos.studio/workspace-materials'];
   if(mixed){const wall='77777777-7777-4777-8777-777777777777',wallSurface='88888888-8888-4888-8888-888888888888';input.scene.surfaces.push({id:wallSurface,type:'wall'});ext.materials.push({...structuredClone(ext.materials[0]!),id:wall,kind:'wall'});ext.bindings.push({surfaceId:wallSurface,materialId:wall,materialVersion:1,repeatMeters:[1,1],rotation:0});}
   else{input.scene.surfaces[0]!.type='wall';ext.materials[0]!.kind='wall';}
-  input.manifest.workspaceMaterialResources=workspaceMaterialOutputInventory(input.scene);
-  expect(()=>planWorkspaceMaterialImportSource(input)).toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');
+  const resources=workspaceMaterialOutputInventory(input.scene);input.manifest.workspaceMaterialResources=resources;
+  input.sourceKeys=new Map(resources.map((resource,index)=>[resource.path,`${tenant}/oex-import/${job}/${attempt}/90000000-0000-4000-8000-${String(index+1).padStart(12,'0')}`]));
+  expect(planWorkspaceMaterialImportSource(input)).toHaveLength(mixed?2:1);
  }
 });
 it('uses the canonical source ID when a valid scene uses uppercase UUIDs',()=>{
