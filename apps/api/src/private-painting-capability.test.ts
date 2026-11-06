@@ -54,7 +54,8 @@ test('a valid exact model approval cannot issue a painting capability',async()=>
 test('requires an exact explicit colour claim and binds it to the cache identity',async()=>{
  const c=await fixture(),entry=approved.find(v=>String(v.approvalId)==='10000000-0000-4000-8000-000000000090')! as DemoDisplayApproval,candidate=entry.privatePaintingCandidate!,cap=issuePrivatePaintingCapability(c),original=privatePaintingCacheIdentity(cap,c);
  const icc={kind:'icc-to-srgb',version:1,algorithm:'icc-to-srgb-jpeg-rgb8-v1',sourceIccSha256:'b'.repeat(64)} as const;
- const invalid:unknown[]=[undefined,{}, {kind:'unknown'}, {kind:'no-profile-srgb-assumed',sourceIccSha256:'0'.repeat(64)}, {...icc,sourceIccSha256:undefined}, {...icc,sourceIccSha256:'bad'}, {...icc,version:2}, {...icc,algorithm:'other'}, {...icc,extra:true}];
+ const inherited=Object.assign(Object.create({kind:'no-profile-srgb-assumed'}),{unexpected:true});
+ const invalid:unknown[]=[undefined,{},inherited, {kind:'unknown'}, {kind:'no-profile-srgb-assumed',sourceIccSha256:'0'.repeat(64)}, {...icc,sourceIccSha256:undefined}, {...icc,sourceIccSha256:'bad'}, {...icc,version:2}, {...icc,algorithm:'other'}, {...icc,extra:true}];
  try{
   for(const colour of invalid){entry.privatePaintingCandidate={...candidate,colour:colour as never};expect(()=>issuePrivatePaintingCapability(c)).toThrow('DISPLAY_POLICY_INVALID');}
   entry.privatePaintingCandidate={...candidate,colour:icc};expect(()=>privatePaintingCandidateRecipe(cap,c)).toThrow('DISPLAY_POLICY_INVALID');

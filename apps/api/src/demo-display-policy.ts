@@ -30,7 +30,7 @@ const privatePaintingIssued=new WeakMap<PrivatePaintingCapability,{snapshot:Artw
 function privatePaintingColour(value:unknown):PrivatePaintingColour{
  if(!value||typeof value!=='object'||Array.isArray(value))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  const v=value as Record<string,unknown>,keys=Object.keys(v);
- if(v.kind==='no-profile-srgb-assumed'&&keys.length===1)return Object.freeze({kind:'no-profile-srgb-assumed'});
+ if(v.kind==='no-profile-srgb-assumed'&&keys.length===1&&keys[0]==='kind')return Object.freeze({kind:'no-profile-srgb-assumed'});
  if(v.kind==='icc-to-srgb'&&keys.length===4&&keys.every(k=>['kind','version','algorithm','sourceIccSha256'].includes(k))&&v.version===1&&v.algorithm==='icc-to-srgb-jpeg-rgb8-v1'&&typeof v.sourceIccSha256==='string'&&/^[a-f0-9]{64}$/.test(v.sourceIccSha256))return Object.freeze({kind:'icc-to-srgb',version:1,algorithm:'icc-to-srgb-jpeg-rgb8-v1',sourceIccSha256:v.sourceIccSha256});
  throw new ApiError(422,'DISPLAY_POLICY_INVALID');
 }
