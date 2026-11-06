@@ -6,6 +6,7 @@ import {APPROVED_DEMO_DISPLAY_FILES} from './approved-demo-display-files.ts';
 import {ApiError} from './api-error.ts';
 import {allowedRights} from './rights.ts';
 import {isDeepStrictEqual} from 'node:util';
+import {pngCrc} from './png-pixels.ts';
 /** Optional exact-file additions to the same Docs-owned immutable manifest.
  * Existing records keep their original 2 MP admission and primary-only approval. */
 export type DemoDisplayApproval = typeof APPROVED_DEMO_DISPLAY_FILES[number] & {
@@ -15,11 +16,11 @@ export type DemoDisplayApproval = typeof APPROVED_DEMO_DISPLAY_FILES[number] & {
  canonicalTriangles?:number;canonicalMaxTextureSize?:number;
  /** Reserved for a separately reviewed exact private candidate; no current
   * production approval grants this authority. */
- privatePaintingCandidate?:PrivatePaintingProfile;
+ privatePaintingCandidate?:Readonly<{profile:PrivatePaintingProfile;sourceWidth:number;sourceHeight:number;recipeSha256:string;sourceIccSha256:string}>;
 };
 export type PrivatePaintingProfile='painting-1926x2634'|'painting-2419x2552'|'painting-2135x1362';
 const privatePaintingProfiles=Object.freeze({'painting-1926x2634':Object.freeze({width:1926,height:2634}),'painting-2419x2552':Object.freeze({width:2419,height:2552}),'painting-2135x1362':Object.freeze({width:2135,height:1362})});
-export type PrivatePaintingCapability=Readonly<{profile:PrivatePaintingProfile;width:number;height:number}>;
+export type PrivatePaintingCapability=Readonly<{profile:PrivatePaintingProfile;width:number;height:number;sourceWidth:number;sourceHeight:number;recipeSha256:string;sourceIccSha256:string}>;
 export type PrivatePaintingContext={artwork:Artwork;currentArtwork:Artwork;tenantId:string;assetId:string;bytes:Buffer;purpose:'full'|'coarse'};
 const privatePaintingIssued=new WeakMap<PrivatePaintingCapability,{snapshot:Artwork;tenantId:string;assetId:string;sourceSha256:string;sourceBytes:number}>();
 /** Called at the legitimate OEX/publication producer boundary. Inventory declarations
@@ -71,10 +72,11 @@ export function issuePrivatePaintingCapability(context:PrivatePaintingContext):P
  const {artwork,currentArtwork,tenantId,assetId,bytes,purpose}=context;
  const binding=artwork.extensions?.['org.exhibitos.studio/cms'] as unknown as {tenantId?:unknown;artworkId?:unknown;revision?:unknown}|undefined;
  if(purpose!=='full'||!binding||!Number.isSafeInteger(artwork.revision)||artwork.revision<1||binding.tenantId!==tenantId||binding.artworkId!==artwork.id||binding.revision!==artwork.revision||!isDeepStrictEqual(artwork,currentArtwork)||assetId!==artwork.primaryAssetId)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
- const approval=qualifyDemoDisplay(artwork,bytes);qualifyDemoDisplayAsset(artwork,assetId,bytes);
- const profile=approval?.privatePaintingCandidate;
- if(!profile||!Object.hasOwn(privatePaintingProfiles,profile)||bytes.length>8388608)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
- const size=privatePaintingProfiles[profile],capability=Object.freeze({profile,...size});
+ const approval=qualifyDemoDisplay(artwork,bytes),imageApproval=qualifyDemoDisplayAsset(artwork,assetId,bytes),candidate=approval?.privatePaintingCandidate;
+ if(!imageApproval||!candidate||!Object.hasOwn(privatePaintingProfiles,candidate.profile)||bytes.length>8388608||bytes.length<33||bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.readUInt32BE(8)!==13||bytes.toString('ascii',12,16)!=='IHDR'||bytes[24]!==8||bytes[25]!==2||bytes.readUInt32BE(29)!==pngCrc(bytes.subarray(12,29))||!/^[a-f0-9]{64}$/.test(candidate.recipeSha256)||!/^[a-f0-9]{64}$/.test(candidate.sourceIccSha256))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ const {profile,sourceWidth,sourceHeight,recipeSha256,sourceIccSha256}=candidate,size=privatePaintingProfiles[profile];
+ if(sourceWidth!==size.width||sourceHeight!==size.height||bytes.readUInt32BE(16)!==sourceWidth||bytes.readUInt32BE(20)!==sourceHeight)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ const capability=Object.freeze({profile,...size,sourceWidth,sourceHeight,recipeSha256,sourceIccSha256});
  privatePaintingIssued.set(capability,{snapshot:structuredClone(artwork),tenantId,assetId,sourceSha256:sha256(bytes),sourceBytes:bytes.length});return capability;
 }
 /** Recheck the exact source and CMS snapshot before consuming the opaque
@@ -83,6 +85,6 @@ export function privatePaintingCandidateRecipe(capability:PrivatePaintingCapabil
  const issued=privatePaintingIssued.get(capability);
  if(!issued||issued.tenantId!==context.tenantId||issued.assetId!==context.assetId||issued.sourceBytes!==context.bytes.length||issued.sourceSha256!==sha256(context.bytes)||!isDeepStrictEqual(issued.snapshot,context.artwork))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  const current=issuePrivatePaintingCapability(context);
- if(current.profile!==capability.profile)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
- return Object.freeze({version:1 as const,profile:capability.profile,sourceSha256:issued.sourceSha256,width:capability.width,height:capability.height});
+ if(!isDeepStrictEqual(current,capability))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ return Object.freeze({version:1 as const,profile:capability.profile,sourceSha256:issued.sourceSha256,width:capability.width,height:capability.height,sourceWidth:capability.sourceWidth,sourceHeight:capability.sourceHeight,recipeSha256:capability.recipeSha256,sourceIccSha256:capability.sourceIccSha256});
 }

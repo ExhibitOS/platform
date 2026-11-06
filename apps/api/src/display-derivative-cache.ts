@@ -13,7 +13,7 @@ export function privatePaintingCacheIdentity(capability:PrivatePaintingCapabilit
  let watermark=normalizeDisplayWatermark(requestedWatermark);
  if(watermark.mode!=='embedded')watermark={version:1,mode:'none'};
  else{const label=watermark.text??'EXHIBITOS';if(!embeddedWatermarkTextSupported(label))throw new ApiError(422,'WATERMARK_TEXT_UNSUPPORTED');watermark={...watermark,text:label.toUpperCase()};}
- const recipe={...privatePaintingCandidateRecipe(capability,context),watermark},recipeSha256=sha256(Buffer.from(JSON.stringify(recipe)));
+ const recipe=Object.freeze({...privatePaintingCandidateRecipe(capability,context),watermark:Object.freeze(watermark)}),recipeSha256=sha256(Buffer.from(JSON.stringify(recipe)));
  const identity=createHash('sha256').update(`${context.tenantId}:${context.assetId}:${recipe.sourceSha256}:${recipeSha256}`).digest('hex');
  return Object.freeze({recipe,recipeSha256,identity});
 }
