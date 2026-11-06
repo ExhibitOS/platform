@@ -5,6 +5,11 @@ export interface MaterialMapCost {
  role:'color'|'normal'|'roughness'|'ao';
  bytes:number;width:number;height:number;
 }
+/** Fit inside an edge budget without changing the source aspect ratio. */
+export function materialResizeDimensions(width:number,height:number,edge:number){
+ const scale=Math.min(1,edge/Math.max(width,height));
+ return {width:Math.max(1,Math.round(width*scale)),height:Math.max(1,Math.round(height*scale))};
+}
 /** Planning includes temporary source decode/copies; completion releases only
  * that hold. The retained bitmap/GPU and styled geometry remain charged. */
 export function materialPhaseBytes(plan:{reserveBytes:number;residentBytes:number;geometryReserve?:number},settled:boolean){
@@ -36,12 +41,13 @@ export async function loadMaterialPhases(floor:()=>Promise<unknown>,surface:()=>
 export function materialMapPlan(files:readonly MaterialMapCost[],maxTextureSize:number,availableBytes:number){
  const limit=Math.max(0,Math.floor(availableBytes*.65));
  if(!files.length)return {sizes:[] as number[],reserveBytes:0,residentBytes:0,blocked:false};
- if(!Number.isFinite(maxTextureSize)||!Number.isFinite(availableBytes)||files.some(f=>!Number.isSafeInteger(f.bytes)||f.bytes<=0||!Number.isSafeInteger(f.width)||!Number.isSafeInteger(f.height)||f.width!==f.height||f.width<=0))return {sizes:[],reserveBytes:0,residentBytes:0,blocked:true};
+ if(!Number.isFinite(maxTextureSize)||!Number.isFinite(availableBytes)||files.some(f=>!Number.isSafeInteger(f.bytes)||f.bytes<=0||!Number.isSafeInteger(f.width)||!Number.isSafeInteger(f.height)||f.width<=0||f.height<=0))return {sizes:[],reserveBytes:0,residentBytes:0,blocked:true};
  const ceiling=Math.min(2048,2**Math.floor(Math.log2(Math.max(1,maxTextureSize))));
  for(let edge=ceiling;edge>=128;edge/=2){
-  const sizes=files.map(f=>Math.min(f.width,Math.max(128,f.role==='roughness'||f.role==='ao'?edge/2:edge)));
-  const residentBytes=files.reduce((n,_,i)=>n+textureResidentBytes(sizes[i]!,sizes[i]!),0);
-  const peak=Math.max(...files.map((f,i)=>3*f.bytes+f.width*f.height*4+(sizes[i]!<f.width?sizes[i]!*sizes[i]!*4:0)));
+  const sizes=files.map(f=>Math.min(Math.max(f.width,f.height),Math.max(128,f.role==='roughness'||f.role==='ao'?edge/2:edge)));
+  const dimensions=files.map((f,i)=>materialResizeDimensions(f.width,f.height,sizes[i]!));
+  const residentBytes=dimensions.reduce((n,d)=>n+textureResidentBytes(d.width,d.height),0);
+  const peak=Math.max(...files.map((f,i)=>3*f.bytes+f.width*f.height*4+(sizes[i]!<Math.max(f.width,f.height)?dimensions[i]!.width*dimensions[i]!.height*4:0)));
   if(residentBytes+peak<=limit)return {sizes,reserveBytes:residentBytes+peak,residentBytes,blocked:false};
  }
  return {sizes:[],reserveBytes:0,residentBytes:0,blocked:true};
