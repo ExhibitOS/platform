@@ -23,7 +23,7 @@ export function planWorkspaceMaterialImportSource(input:{tenantId:string;jobId:s
  if(byPath.size!==resources.length||new Set(declared.map(resource=>resource.path)).size!==declared.length)throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
  const prefix=`${input.tenantId}/oex-import/${input.jobId}/${input.attemptId}/`;
  return declared.map(resource=>{
-  const expected=byPath.get(resource.path),key=sourceKeys.get(resource.path),material=bindings.materials.find(item=>item.id===resource.materialId&&item.version===resource.materialVersion);
+  const expected=byPath.get(resource.path),key=sourceKeys.get(resource.path),material=bindings.materials.find(item=>item.id.toLowerCase()===resource.materialId&&item.version===resource.materialVersion);
   if(!expected||!isDeepStrictEqual(expected,resource)||!material||!material.maps.color||resource.role!=='color'||typeof key!=='string'||!key.startsWith(prefix))throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
   const suffix=key.slice(prefix.length);try{uuid(suffix);}catch{throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');}if(suffix!==suffix.toLowerCase())throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
   return Object.freeze({sourceMaterialId:resource.materialId,sourceMaterialVersion:resource.materialVersion,role:'color' as const,sourcePath:resource.path,sha256:resource.sha256,bytes:resource.bytes,objectKey:key,descriptor:Object.freeze(structuredClone(material.maps.color))});
