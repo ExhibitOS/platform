@@ -1,0 +1,68 @@
+{
+  "qualification": "source-bound conservative inventory, not a complete runtime graph or deployment whitelist",
+  "platformCommit": "2dd4b749321c76da654efd3d4d49cb0f3a6fa9d6",
+  "platformTree": "85a6af592d28ccb5912b563be81a8c4ce82d2ec6",
+  "node": "24.21.0",
+  "npm": "11.19.0",
+  "componentGitObjects": {
+    "apps/web": "eb98aa5b1e242daef83bf639e50fb617c41cccdc",
+    "packages/studio-contract": "60273273860db2568a879574dd465f8803ef3dbf",
+    "packages/storage": "e7059d25bf9aee1860be17bd9948865848538707",
+    "scripts": "9e3e7b641dd53dc801be4e7b268683d336a40bdc",
+    "vendor": "e04c8abdb9859625315a90873543ce171d983c41",
+    "demos/reference-exhibition": "a615cb8a3c8fe6caeeeb9719078f2042eb8be4b7",
+    "assets/furnishings": "6bba183b3b24a82642095fed3ab1edcef3b3d8c6",
+    "apps/api/tsconfig.public-export.json": "6003ee47871144c8bfd3cc88fe878ea70cf77518",
+    "apps/api/tsconfig.build.json": "5c256819147996b0dd6b72a61afface212107e31",
+    "apps/api/tsconfig.json": "e5edf1b1afc0b8ba9a8ced75cc4fc3be7e769822",
+    "apps/api/package.json": "feeb7608dc36586159b4e89e0fed322df173d763",
+    "package.json": "80131e846379b86e35bf0162a0e054c3e7705c57",
+    "package-lock.json": "24b2bfe85d66dda25bffab83d1379fdcfb91bb73",
+    "tsconfig.base.json": "71ce4ca70baebd5154718383b661cc6dbe3b7c03",
+    ".nvmrc": "df6ae3370f9f89272d88629c442cf554d6c1f9fb",
+    "wrangler.demo.jsonc": "44a33436fab47ebe6837c10085ed81c476a3a97a",
+    "LICENSE": "be3f7b28e564e7dd05eaf59d64adba1a4065ac0e",
+    "apps/web/public/THIRD_PARTY_NOTICES.txt": "3cb6e0b4cd896f5ff756957003189f5a59b49226",
+    "vendor/notices/basis-provenance.json": "e8bb700d75e08a221cea80209dfc6b6074e410a1"
+  },
+  "publicApiTypeScriptFiles": {
+    "apps/api/src/api-error.ts": "5ca9ac64888c67aae15f6109c434de292e8ce898",
+    "apps/api/src/approved-cover-projection.ts": "b2a16f899b6888c6d7d53ea5bf23861fac47b568",
+    "apps/api/src/approved-demo-display-files.ts": "26c892ba68b032e491ac2c72694540a6f53bbc8a",
+    "apps/api/src/approved-lod-pair.ts": "20139ff46a6e9c56f755a47eb86996aa003f8b05",
+    "apps/api/src/basis-payload.ts": "dbf994dd37e936138f322ee170a3d6929a1acad9",
+    "apps/api/src/cover-validation.ts": "3ae9a5ff60b0a3cb600bdeb801ce86f4252fc233",
+    "apps/api/src/demo-display-policy.ts": "ca9f0f85aaaee45ad5d9cf36977dc0b1a262e051",
+    "apps/api/src/furnishing-assets.ts": "cba988db0914b6231de9db44f2312735970ad8e1",
+    "apps/api/src/gltf-validator.d.ts": "3e8a7a8b4b1d87aa4ba936e59071a4bf53979fc6",
+    "apps/api/src/oex-profile.ts": "280efdf281dba1f800c9a740ce4618e3d0ab18f2",
+    "apps/api/src/png-pixels.ts": "97fb40afd7b02f3871f3dc076a053041fe0a216d",
+    "apps/api/src/rights.ts": "f540400b7d722981bf96b1de7e7fa480b89d587d",
+    "apps/api/src/upload-limits.ts": "e768fb2e2c69f901821958b6385c7ddb10ae07a2",
+    "apps/api/src/validation-client.ts": "b02b0dc9c5218688ebeb9d5d86ee795fe645f634",
+    "apps/api/src/validation-worker.ts": "0d03289064c40f70ade315edc5119ef64db9f71c",
+    "apps/api/src/viewer-variant-worker.ts": "5a11a4f0cfb3faaa28eb2c67c8021f58e594294c",
+    "apps/api/src/viewer-variants.ts": "bb3980db1a1c05fe47ea131faf21c6d185186de5",
+    "apps/api/src/watermark-label.ts": "5bb849c885d6ce546ea9a3c29f70b27ebda6c2de"
+  },
+  "publicApiTypeScriptListCommand": "npx tsc -p apps/api/tsconfig.public-export.json --listFilesOnly",
+  "dynamicWorkers": [
+    "apps/api/src/validation-worker.ts",
+    "apps/api/src/viewer-variant-worker.ts"
+  ],
+  "lockSha256": "1e4d294813f07e611d01387b3ea8a62787c00b50d4d8585cf93276ac24c85aaf",
+  "specTarball": "vendor/exhibitos-spec-0.1.0-draft.17.tgz",
+  "threeVersion": "0.186.1",
+  "publication": {
+    "publicationId": "a3a7434d-1915-4f21-a133-1604746534a5",
+    "revisionSha256": "2ecfb415f54f58a1619058a7931e37f105a3c1135f87e7e27157d5f9e411b6f2",
+    "indexSha256": "2e7174ff9cd805a5e72bf084adda8a6e9169696a214d74052b052547e73fd6fd"
+  },
+  "priorCopyBaseCount": 10,
+  "approvedOutput": {
+    "files": 128,
+    "indexSha256": "2e7174ff9cd805a5e72bf084adda8a6e9169696a214d74052b052547e73fd6fd",
+    "manifestSha256": "2ee42fbd5db4244789f53e7fd90616be6329ae2148dd95b137cc89704f7ed07d"
+  },
+  "sourcePublicationReference": "https://github.com/ExhibitOS/platform/tree/2dd4b749321c76da654efd3d4d49cb0f3a6fa9d6"
+}
