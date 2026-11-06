@@ -11,7 +11,9 @@ import {validateWorkspaceMaterialPng,type WorkspaceMaterialMapDescriptor} from '
  * validate the archive, bind its raw manifest and scene to the selected owner
  * and live lease, and commit the returned rows in the SAME fenced transaction
  * as the cleanup inventory. This function neither proves nor grants those
- * properties and is not connected to the existing native import protocol. */
+ * properties and is not connected to the existing native import protocol.
+ * A future caller must allocate attempt-scoped keys explicitly and retain the
+ * separate lease authority; do not substitute a legacy lease-scoped key. */
 export function planWorkspaceMaterialImportSource(input:{tenantId:string;jobId:string;attemptId:string;manifest:OexWorkspaceMaterialManifest;scene:{extensions?:Record<string,unknown>;surfaces?:unknown};sourceKeys:ReadonlyMap<string,string>}){
  for(const id of [input.tenantId,input.jobId,input.attemptId]){uuid(id);if(id!==id.toLowerCase())throw new ApiError(400,'INVALID_INPUT');}
  const {manifest,scene,sourceKeys}=input;
