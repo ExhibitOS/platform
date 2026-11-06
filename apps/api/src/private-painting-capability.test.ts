@@ -63,3 +63,19 @@ test('requires an exact explicit colour claim and binds it to the cache identity
   entry.privatePaintingCandidate={...candidate,colour:{...icc,sourceIccSha256:'d'.repeat(64)}};expect(()=>privatePaintingCandidateRecipe(changed,c)).toThrow('DISPLAY_POLICY_INVALID');
  }finally{entry.privatePaintingCandidate=candidate;}
 });
+
+test('strict validation requires an issued exact capability and rejects corrupted full PNGs',async()=>{
+ const {validatePrivatePainting}=await import('./private-painting-validation.ts'),{createHash}=await import('node:crypto');
+ const c=await fixture(),cap=issuePrivatePaintingCapability(c);await expect(validatePrivatePainting(cap,c)).resolves.toBeUndefined();
+ await expect(validatePrivatePainting({...cap},c)).rejects.toThrow('DISPLAY_POLICY_INVALID');
+ const controller=new AbortController();controller.abort();await expect(validatePrivatePainting(cap,c,controller.signal)).rejects.toThrow('VALIDATION_CANCELLED');
+ const entry=approved.find(v=>String(v.approvalId)==='10000000-0000-4000-8000-000000000090')! as DemoDisplayApproval,oldHash=entry.canonicalAssetSha256;
+ const bad=Buffer.from(c.bytes);bad[bad.length-1]=(bad[bad.length-1]??0)^1;const hash=createHash('sha256').update(bad).digest('hex');
+ try{
+  (entry as {canonicalAssetSha256:string}).canonicalAssetSha256=hash;
+  const artwork=structuredClone(c.artwork),primary=artwork.assets.find(a=>a.id===artwork.primaryAssetId)!;primary.sha256=hash;
+  (artwork.extensions![N] as {sourceAssetSha256:string}).sourceAssetSha256=hash;
+  const invalid={...c,artwork,currentArtwork:structuredClone(artwork),bytes:bad},badCap=issuePrivatePaintingCapability(invalid);
+  await expect(validatePrivatePainting(badCap,invalid)).rejects.toThrow('FORMAT_REJECTED');
+ }finally{(entry as {canonicalAssetSha256:string}).canonicalAssetSha256=oldHash;}
+});

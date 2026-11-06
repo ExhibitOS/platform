@@ -6,7 +6,7 @@ import {embeddedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsL
 import { validateBytes } from "gltf-validator";
 import {normalizeDisplayWatermark} from '@exhibitos/studio-contract';
 import {renderPngDerivative} from './png-display-derivative.ts';
-const LIMIT = 32 * 1024 * 1024;
+const LIMIT = process.argv[3] === "private-painting-png" ? 8 * 1024 * 1024 : 32 * 1024 * 1024;
 let count = 0;
 const chunks: Buffer[] = [];
 for await (const chunk of process.stdin) {
@@ -273,6 +273,11 @@ try {
       // Embedded model marking is not a supported capability.
       process.stdout.write(bytes);
     } else fail();
+  } else if (process.argv[3] === "private-painting-png") {
+    const sizes:Record<string,readonly [number,number]>={"painting-1925x2634":[1925,2634],"painting-2419x2552":[2419,2552],"painting-2135x1361":[2135,1361]};
+    const profile=process.argv[4], size=profile&&Object.hasOwn(sizes,profile)?sizes[profile]:undefined;
+    if(process.argv[2]!=="image/png"||!size||bytes.length>8388608||bytes.length<33||bytes.readUInt32BE(16)!==size[0]||bytes.readUInt32BE(20)!==size[1]||bytes[24]!==8||bytes[25]!==2)fail();
+    png(bytes,size[0]*size[1],Math.max(...size));
   } else if (process.argv[3] === "png-original" || process.argv[3] === "workspace-material-png") {
     if(process.argv[2]!=="image/png")fail();
     png(bytes);
