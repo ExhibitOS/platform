@@ -10,20 +10,20 @@ import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapa
 import {WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_IMPORT_CAPABILITY,hasWorkspaceMaterialCapability,verifyWorkspaceMaterialMigrations} from './native-oex-normal-catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const spec='vendor/exhibitos-spec-0.1.0-draft.17.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql',floor='database/native-oex-normal/029_oex_quiet_oak_floor.sql',concrete='database/native-oex-normal/030_oex_concrete_surface.sql';
-const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql',stage='database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',proof='database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql';
+const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql',stage='database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',proof='database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql',wall='database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql';
 test('candidate import schema stays outside all current packages and the v5 catalog remains valid',async()=>{
  for(const fresh of [false,true])for(const selected of [false,true]){
   const excluded=nativePackageExcludedFiles(fresh,selected);
   assert.ok(excluded.has('database/native-oex-workspace-import/033_workspace_material_import_provenance.sql'));
   assert.ok(excluded.has('database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql'));
-  assert.ok(excluded.has(intake));assert.ok(excluded.has(workspaceOex));
+  assert.ok(excluded.has(intake));assert.ok(excluded.has(workspaceOex));assert.ok(excluded.has(wall));
   assert.equal(excluded.has(migration),!fresh);assert.equal(excluded.has(normal),!selected);
  }
  assert.equal((await verifyWorkspaceMaterialMigrations(join(root,'database/native-oex-normal'))).length,2);
 });
 async function fixture(){
  const temp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-oex-package-'))),source=join(temp,'source'),output=join(temp,'output');await mkdir(source);await mkdir(output);
- for(const name of [spec,migration,normal,provenance,material,floor,concrete,intake,workspaceOex,stage,proof]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
+ for(const name of [spec,migration,normal,provenance,material,floor,concrete,intake,workspaceOex,stage,proof,wall]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
  await writeFile(join(source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':`file:${spec}`}}}}));
  return {temp,source,output,tracked:new Map([['database',new Set()],['vendor',new Set()]])};
 }
@@ -92,3 +92,12 @@ test('draft12 package inputs and capability require explicit selected V6 and exa
  await mkdir(join(f.output,'scripts'));await writeNormalOexCapability(f.output,true,true,true);const marker=await readFile(join(f.output,'scripts/native-workspace-oex-import-capability-v6.json'));assert.equal(marker.toString(),WORKSPACE_IMPORT_CAPABILITY);assert.equal(createHash('sha256').update(marker).digest('hex'),'1d5177c8c4ddb9dec26ed7724178376ae4ca615e06e64573b132b7c7abfa25e8');const value=JSON.parse(marker.toString());assert.equal(value.archiveFormat,'1.0.0-draft.12');assert.equal(value.parentCapabilitySHA256,createHash('sha256').update(WORKSPACE_MATERIAL_CAPABILITY).digest('hex'));assert.equal(value.stageSchemaSHA256,createHash('sha256').update(await readFile(join(f.source,stage))).digest('hex'));assert.equal(value.proofSchemaSHA256,createHash('sha256').update(await readFile(join(f.source,proof))).digest('hex'));
  await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'other'),f.tracked,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);await assert.rejects(writeNormalOexCapability(f.output,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);await writeFile(join(f.source,proof),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'third'),f.tracked,true,true,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
  }finally{await rm(f.temp,{recursive:true,force:true});}});
+
+
+test('v7 file selection keeps default and v6 unchanged and binds exact 035 and marker',async()=>{
+ for(const mode of ['default','v6','v7']){const f=await fixture();try{
+  const selected=mode!=='default',v7=mode==='v7';await copyNormalOexSelectedFile(f.source,f.output,f.tracked,selected,selected,selected,v7);await mkdir(join(f.output,'scripts'));await writeNormalOexCapability(f.output,selected,selected,selected,v7);
+  const marker=join(f.output,'scripts/native-workspace-oex-import-capability-v7.json');if(!v7){await assert.rejects(readFile(join(f.output,wall)),{code:'ENOENT'});await assert.rejects(readFile(marker),{code:'ENOENT'});}else{assert.deepEqual(await readFile(join(f.output,wall)),await readFile(join(f.source,wall)));assert.equal(createHash('sha256').update(await readFile(join(f.output,wall))).digest('hex'),'c347183b3e58805c46d1dde7ae6e2defc37762af52f585846357181b9635a544');assert.equal(createHash('sha256').update(await readFile(marker)).digest('hex'),'7229cba9fbf98301960f44d39927c8d528ed55c3eb5e5fbdf203341261f342d5');assert.equal(createHash('sha256').update(await readFile(join(f.output,'scripts/native-workspace-oex-import-capability-v6.json'))).digest('hex'),'1d5177c8c4ddb9dec26ed7724178376ae4ca615e06e64573b132b7c7abfa25e8');}
+ }finally{await rm(f.temp,{recursive:true,force:true});}}
+ const f=await fixture();try{await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);await assert.rejects(writeNormalOexCapability(f.output,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);await writeFile(join(f.source,wall),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true,true,true),/NATIVE_PACKAGE_SOURCE_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}
+});

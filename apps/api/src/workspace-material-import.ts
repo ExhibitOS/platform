@@ -8,7 +8,7 @@ import {workspaceMaterialOutputInventory} from './workspace-material-output.ts';
  * rows or authority are created; attachment must still verify the exact staged
  * bytes and commit the destination workspace under the live import fence. */
 export function remapWorkspaceMaterialImport(source:{extensions?:Record<string,unknown>;surfaces?:unknown},existing:Readonly<Record<string,string>>,nextId:()=>string=randomUUID){
- const resources=workspaceMaterialOutputInventory(source,'import');if(!resources.length)return {extension:undefined,idMap:{...existing}};
+ const resources=workspaceMaterialOutputInventory(source);if(!resources.length)return {extension:undefined,idMap:{...existing}};
  const sourceBindings=source.extensions![WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings,idMap={...existing},destinations=new Set(Object.values(existing).map(id=>id.toLowerCase())),mappedMaterials=new Set<string>();
  if(destinations.size!==Object.keys(existing).length)throw new ApiError(422,'OEX_WORKSPACE_ID_CONFLICT');
  for(const [from,to] of Object.entries(existing)){try{uuid(from);uuid(to);}catch{throw new ApiError(422,'OEX_WORKSPACE_ID_CONFLICT');}if(from!==from.toLowerCase()||to!==to.toLowerCase())throw new ApiError(422,'OEX_WORKSPACE_ID_CONFLICT');}

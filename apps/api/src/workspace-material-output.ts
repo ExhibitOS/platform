@@ -6,18 +6,21 @@ import {ApiError,type Session} from './auth.ts';
 import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 
+/** Restrict V6 selected imports before inventory writes. Only the locally
+ * issued V7 catalog context can grant wall support to the owner pipeline. */
+export function assertWorkspaceImportKind(candidate:{extensions?:Record<string,unknown>},wallImport:boolean){
+ const ext=candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings|undefined;
+ if(!ext||!Array.isArray(ext.materials)||!wallImport&&ext.materials.some(m=>m.kind!=='floor'))throw new ApiError(422,'WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');
+}
+
 /** The initial output profile handles floor and wall color maps. Reject other
  * declared content explicitly instead of producing an incomplete archive. */
-export function workspaceMaterialOutputInventory(candidate:{extensions?:Record<string,unknown>;surfaces?:unknown},purpose:'output'|'import'='output'):WorkspaceMaterialResource[]{
+export function workspaceMaterialOutputInventory(candidate:{extensions?:Record<string,unknown>;surfaces?:unknown}):WorkspaceMaterialResource[]{
  const value=candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];if(value===undefined)return [];
  let resources:WorkspaceMaterialResource[];
  try{resources=packageWorkspaceMaterialManifest(candidate);}catch{throw new ApiError(422,'DRAFT_INVALID');}
  const data=value as WorkspaceMaterialBindings;
  if(!resources.length||data.materials.some(m=>!['floor','wall'].includes(m.kind)||Object.keys(m.maps).length!==1||!m.maps.color)||resources.some(r=>r.role!=='color'))throw new ApiError(422,'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
- // The Manager's selected-import terminal proof currently supports floor
- // bindings only. Refuse wall imports before attachment until that consumer
- // validates wall and mixed inventories as well.
- if(purpose==='import'&&data.materials.some(m=>m.kind!=='floor'))throw new ApiError(422,'WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');
  return resources;
 }
 

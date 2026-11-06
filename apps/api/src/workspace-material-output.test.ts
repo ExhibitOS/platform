@@ -12,10 +12,8 @@ it('selects validated floor and wall color inventory and refuses unsupported con
  expect(workspaceMaterialOutputInventory({extensions:{}})).toEqual([]);
  const value=candidate(),[entry]=workspaceMaterialOutputInventory(value);expect(entry).toMatchObject({materialId:id,materialVersion:1,role:'color',sha256:'a'.repeat(64)});
  const wall=candidate();wall.surfaces[0]!.type='wall';wall.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.kind='wall';expect(workspaceMaterialOutputInventory(wall)).toEqual([entry]);
- expect(()=>workspaceMaterialOutputInventory(wall,'import')).toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');expect(workspaceMaterialOutputInventory(value,'import')).toEqual([entry]);
  const mismatch=candidate();mismatch.surfaces[0]!.type='wall';expect(()=>workspaceMaterialOutputInventory(mismatch)).toThrow('DRAFT_INVALID');
  const mixed=candidate(),wallId='33333333-3333-4333-8333-333333333333',wallSurface='44444444-4444-4444-8444-444444444444';mixed.surfaces.push({id:wallSurface,type:'wall'});mixed.extensions['org.exhibitos.studio/workspace-materials'].materials.push({...material(),id:wallId,kind:'wall'});mixed.extensions['org.exhibitos.studio/workspace-materials'].bindings.push({surfaceId:wallSurface,materialId:wallId,materialVersion:1,repeatMeters:[2,2],rotation:0});expect(workspaceMaterialOutputInventory(mixed).map(v=>v.materialId).sort()).toEqual([id,wallId]);
- expect(()=>workspaceMaterialOutputInventory(mixed,'import')).toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');
  const extra=candidate();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{roughness:{...material().maps.color,colorSpace:'linear'}});expect(()=>workspaceMaterialOutputInventory(extra)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
 });
 it('rechecks owner descriptor and chooses the purpose-specific byte authority',async()=>{
@@ -31,4 +29,13 @@ it('normalizes an expired display grant to the export receipt denial',async()=>{
  const service={readVersion:vi.fn().mockResolvedValue(denied)} as unknown as WorkspaceMaterialIntakes;
  await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'export')).rejects.toMatchObject({code:'RIGHTS_DENIED'});
  await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'display')).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});
+});
+
+it('permits wall imports only when the owned V7 catalog is active',async()=>{
+ const {assertWorkspaceImportKind}=await import('./workspace-material-output.ts');
+ const candidate=(...kinds:string[])=>({extensions:{'org.exhibitos.studio/workspace-materials':{materials:kinds.map(kind=>({kind}))}}});
+ expect(()=>assertWorkspaceImportKind(candidate('floor'),false)).not.toThrow();
+ expect(()=>assertWorkspaceImportKind(candidate('wall'),false)).toThrow();
+ expect(()=>assertWorkspaceImportKind(candidate('floor','wall'),false)).toThrow();
+ expect(()=>assertWorkspaceImportKind(candidate('floor','wall'),true)).not.toThrow();
 });
