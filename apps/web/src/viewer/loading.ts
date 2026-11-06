@@ -199,6 +199,7 @@ export class AssetPeakBudget {
   this.reservations.set(key,bytes);
  }
  release(key:string){this.reservations.delete(key);}
+ reservedBytes(){return [...this.reservations.values()].reduce((sum,value)=>sum+value,0);}
  total(except?:string){return this.resident()+[...this.reservations].reduce((n,[key,bytes])=>n+(key===except?0:bytes),0);}
 }
 /** CPU bitmap plus mipmapped GPU texture, rounded up to integral bytes so a
