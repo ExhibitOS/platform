@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomUUID} from 'node:crypto';
-import {packedOexInventory} from './oex-packed-output.ts';
+import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
 
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 type Entry={path:string;offset:number;bytes:number;sha256:string};
@@ -12,9 +12,17 @@ type Channel={send(value:Uint8Array):Promise<void>;receive():Promise<Uint8Array>
  * BlobStore.put and commit only after worker/rights/claim revalidation. This
  * function provides bytes/integrity, not Session or drain authority. */
 export async function createPackedOexStreamReceiver(manifest:unknown,input:unknown,attemptId:string,capacity:number,channel:Channel){
+ return createReceiver(manifest,input,attemptId,capacity,channel,false);
+}
+/** Inactive draft.12 receiver. The same owner, inventory, drain and commit
+ * obligations apply; accepting chunks does not establish those properties. */
+export async function createPackedWorkspaceOexStreamReceiver(manifest:unknown,input:unknown,attemptId:string,capacity:number,channel:Channel){
+ return createReceiver(manifest,input,attemptId,capacity,channel,true);
+}
+async function createReceiver(manifest:unknown,input:unknown,attemptId:string,capacity:number,channel:Channel,workspace:boolean){
  try{
  if(typeof attemptId!=='string'||!uuid.test(attemptId)||!Number.isSafeInteger(capacity)||capacity<0||capacity>512*1024*1024||!Array.isArray(input)||!channel||typeof channel.send!=='function'||typeof channel.receive!=='function'||typeof channel.close!=='function')throw Error('OEX_PACKED_STREAM');
- const expected=packedOexInventory(manifest),items=input as unknown[];if(items.length!==expected.size)throw Error('OEX_PACKED_STREAM');
+ const expected=(workspace?packedWorkspaceOexInventory:packedOexInventory)(manifest),items=input as unknown[];if(items.length!==expected.size)throw Error('OEX_PACKED_STREAM');
  const seen=new Set<string>(),entries:Readonly<Entry>[]=[];let total=0;
  for(const item of items){
   if(!item||typeof item!=='object'||Array.isArray(item)||Object.keys(item).sort().join(',')!=='bytes,offset,path,sha256')throw Error('OEX_PACKED_STREAM');
