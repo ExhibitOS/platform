@@ -14,6 +14,7 @@ test('keeps legacy FD0 input and accepts only the closed opt-in envelope',()=>{
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:{version:2,runtimeGeneration:id,secret,mode:'normal-oex-027-v2'}}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:'normal-oex-027-v2'}});
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:{version:3,runtimeGeneration:id,secret,mode:'normal-oex-027-v3'}}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:'normal-oex-027-v3'}});
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:{version:3,runtimeGeneration:id,secret,mode:'normal-oex-workspace-v5'}}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:'normal-oex-workspace-v5'}});
+ assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel:{version:3,runtimeGeneration:id,secret,mode:'normal-oex-workspace-import-v6'}}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:'normal-oex-workspace-import-v6'}});
  for(const value of [{version:2,mode:'normal-oex-027-v3'},{version:3,mode:'normal-oex-027-v2'},{version:3,mode:'normal-oex-v1'}])assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{...value,runtimeGeneration:id,secret}}));
  assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{version:2,runtimeGeneration:id,secret,mode:'other'}}));
  assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{...owner,mode:'fresh-oex-test-v1'}}));

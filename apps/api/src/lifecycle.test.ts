@@ -77,3 +77,8 @@ it('checks only the applied supplemental catalog while rejecting drift and unexp
  rows[2]!.sha256='0'.repeat(64);expect((await readiness(pool,both)).ready).toBe(false);rows.pop();expect((await readiness(pool,both)).ready).toBe(false);
  expect((await readiness(pool,{...options,supplementalMigrationNames:['026.sql','026.sql']})).ready).toBe(false);
 });
+it('requires the exact separate workspace import schema pair and full matching ledger',async()=>{
+ const {config,pool,rows}=await fixture(),supplemental=join(config.migrationDirectory,'..','selected-v6'),imports=join(config.migrationDirectory,'..','imports-v6'),digest=(v:string)=>createHash('sha256').update(v).digest('hex');await mkdir(supplemental);await mkdir(imports);
+ const a='SELECT 26;',b='SELECT 33;',c='SELECT 34;';await writeFile(join(supplemental,'026.sql'),a);await writeFile(join(imports,'033_workspace_material_import_provenance.sql'),b);await writeFile(join(imports,'034_workspace_material_terminal_proof.sql'),c);rows.push({name:'026.sql',sha256:digest(a)},{name:'033_workspace_material_import_provenance.sql',sha256:digest(b)},{name:'034_workspace_material_terminal_proof.sql',sha256:digest(c)});
+ const options={...config,supplementalMigrationDirectory:supplemental,supplementalMigrationNames:['026.sql'],workspaceImportMigrationDirectory:imports};expect((await readiness(pool,options)).ready).toBe(true);await rm(join(imports,'034_workspace_material_terminal_proof.sql'));expect((await readiness(pool,options)).ready).toBe(false);await writeFile(join(imports,'034_workspace_material_terminal_proof.sql'),c);await writeFile(join(imports,'035_unexpected.sql'),'SELECT 35;');expect((await readiness(pool,options)).ready).toBe(false);
+});

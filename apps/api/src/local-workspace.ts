@@ -28,9 +28,11 @@ export function validateLocalWorkspace(value: unknown, runtimeMode: string | und
   return v;
 }
 
-export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void>) {
+export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void>, options?:{isolation:'read committed'}) {
   const v = validateLocalWorkspace(input, runtimeMode);
+  if(options!==undefined&&(Object.keys(options).join(',')!=='isolation'||options.isolation!=='read committed'))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
   return transaction(pool, async c => {
+    if(options)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
     await c.query('SELECT pg_advisory_xact_lock(82003)');
     await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
     if(beforeOpen)await beforeOpen(c);
