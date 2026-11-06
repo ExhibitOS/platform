@@ -27,6 +27,7 @@ export async function verifyWorkspaceOexCommitted(pool:Pool,s:Session,owner:Owne
  const result=JSON.parse(resultBytes.toString('utf8')) as {draft:Draft;etag:string};
  const expectedPayload=createHash('sha256').update(freezeCanonical({method:'PUT',id:save.exhibitionId,match:proof.studioETag,input:{draft:result.draft,requestId:save.requestId}})).digest('hex');
  await transaction(pool,async c=>{
+  await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
   await c.query("SELECT set_config('lock_timeout','5000ms',true),set_config('statement_timeout','10000ms',true)");await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
   const requireActive=async()=>{const active=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL FOR SHARE OF a,u,m,t",[session.id,session.tenantId,session.userId]);if(active.rowCount!==1||active.rows[0]?.role!==session.role)throw Error('OEX_TERMINAL_COMMITTED_INVALID');};
   await requireActive();await owner.assertDatabase(c);await owner.assertImportCatalog(c);
