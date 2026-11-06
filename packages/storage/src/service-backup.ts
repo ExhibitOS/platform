@@ -8,8 +8,8 @@ import type {Pool,PoolClient} from 'pg';
 import type {BlobStore} from './blobs.js';
 import {inventoryCanonical,type ServiceInventory,type MigrationCatalogEntry} from './service-inventory.js';
 import {encryptBackupFile,decryptBackupFile,hashBackupFile,type EncryptedFile} from './encrypted-files.js';
-export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration'|'deployment';path:string;key?:string;name?:string}
-export interface BackupManifest {schemaVersion:'1.0.0-draft.1'|'1.0.0-draft.2';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
+export interface BackupFile extends EncryptedFile {role:'database'|'object'|'runtime'|'configuration'|'deployment';path:string;key?:string;name?:string;aliases?:string[]}
+export interface BackupManifest {schemaVersion:'1.0.0-draft.1'|'1.0.0-draft.2'|'1.0.0-draft.3';kind:'service-backup';id:string;createdAt:string;sourceIdentity:{systemIdentifier:string;databaseOid:string;database:string};inventory:ServiceInventory;runtimeMetadata?:unknown;files:BackupFile[]}
 export interface BackupReceipt {id:string;status:'complete';manifestSha256:string;objectCount:number}
 type Snapshot=(client:PoolClient,authenticatedMigrations?:readonly MigrationCatalogEntry[])=>Promise<ServiceInventory>;
 // Never expose the live comparison target to a collector callback.
@@ -62,15 +62,20 @@ function validateInventory(v:ServiceInventory){
  if(new Set(v.objects.map(o=>o.key)).size!==v.objects.length)throw Error('BACKUP_INVENTORY_INVALID');
 }
 function validateManifest(m:BackupManifest){
- if(!m||!['1.0.0-draft.1','1.0.0-draft.2'].includes(m.schemaVersion)||m.kind!=='service-backup'||typeof m.id!=='string'||!/^[-a-f0-9]{36}$/.test(m.id)||typeof m.createdAt!=='string'||!Number.isFinite(Date.parse(m.createdAt))||!m.sourceIdentity||!/^\d+$/.test(m.sourceIdentity.systemIdentifier)||!/^\d+$/.test(m.sourceIdentity.databaseOid)||typeof m.sourceIdentity.database!=='string'||!Array.isArray(m.files)||m.files.length>100000)throw Error('BACKUP_MANIFEST_INVALID');
- validateInventory(m.inventory);const paths=new Set<string>(),keys=new Set<string>(),names=new Set<string>();let databases=0;
+ if(!m||!['1.0.0-draft.1','1.0.0-draft.2','1.0.0-draft.3'].includes(m.schemaVersion)||m.kind!=='service-backup'||typeof m.id!=='string'||!/^[-a-f0-9]{36}$/.test(m.id)||typeof m.createdAt!=='string'||!Number.isFinite(Date.parse(m.createdAt))||!m.sourceIdentity||!/^\d+$/.test(m.sourceIdentity.systemIdentifier)||!/^\d+$/.test(m.sourceIdentity.databaseOid)||typeof m.sourceIdentity.database!=='string'||!Array.isArray(m.files)||m.files.length>100000)throw Error('BACKUP_MANIFEST_INVALID');
+ validateInventory(m.inventory);const paths=new Set<string>(),keys=new Set<string>(),names=new Set<string>(),inventoryObjects=new Map(m.inventory.objects.map(o=>[o.key,o]));let databases=0,aliasCount=0;
  for(const f of m.files){
-  if(!f||!['database','object','runtime','configuration',...(m.schemaVersion==='1.0.0-draft.2'?['deployment']:[])].includes(f.role)||typeof f.path!=='string'||!/^files\/[0-9]{8}\.gcm$/.test(f.path)||paths.has(f.path)||!Number.isSafeInteger(f.bytes)||f.bytes<1||!Number.isSafeInteger(f.cipherBytes)||f.cipherBytes!==f.bytes+36||!hex(f.sha256)||!hex(f.cipherSha256))throw Error('BACKUP_MANIFEST_INVALID');paths.add(f.path);
+  if(!f||!['database','object','runtime','configuration',...(m.schemaVersion!=='1.0.0-draft.1'?['deployment']:[])].includes(f.role)||typeof f.path!=='string'||!/^files\/[0-9]{8}\.gcm$/.test(f.path)||paths.has(f.path)||!Number.isSafeInteger(f.bytes)||f.bytes<1||!Number.isSafeInteger(f.cipherBytes)||f.cipherBytes!==f.bytes+36||!hex(f.sha256)||!hex(f.cipherSha256))throw Error('BACKUP_MANIFEST_INVALID');paths.add(f.path);
+  if(f.role!=='object'&&f.aliases!==undefined)throw Error('BACKUP_MANIFEST_INVALID');
   if(f.role==='database'){databases++;if(f.key!==undefined||f.name!==undefined)throw Error('BACKUP_MANIFEST_INVALID');}
-  else if(f.role==='object'){if(!objectKey(f.key)||f.name!==undefined||keys.has(f.key))throw Error('BACKUP_MANIFEST_INVALID');keys.add(f.key);const o=m.inventory.objects.find(o=>o.key===f.key);if(!o||o.bytes!==f.bytes||o.sha256!==f.sha256)throw Error('BACKUP_MANIFEST_INVALID');}
+  else if(f.role==='object'){
+   if(!objectKey(f.key)||f.name!==undefined||f.aliases!==undefined&&(m.schemaVersion!=='1.0.0-draft.3'||!Array.isArray(f.aliases)||!f.aliases.length||f.aliases.some((key,i)=>!objectKey(key)||key===f.key||i>0&&f.aliases![i-1]!>=key)))throw Error('BACKUP_MANIFEST_INVALID');
+   for(const key of [f.key,...(f.aliases??[])]){if(keys.has(key))throw Error('BACKUP_MANIFEST_INVALID');keys.add(key);const o=inventoryObjects.get(key);if(!o||o.bytes!==f.bytes||o.sha256!==f.sha256)throw Error('BACKUP_MANIFEST_INVALID');}
+   aliasCount+=f.aliases?.length??0;
+  }
   else {if(f.role==='deployment'&&(f.bytes>8*1024*1024*1024||m.files.filter(v=>v.role==='deployment').length>32))throw Error('BACKUP_MANIFEST_INVALID');if(!nameValid(f.name)||f.key!==undefined||names.has(f.role+':'+f.name))throw Error('BACKUP_MANIFEST_INVALID');names.add(f.role+':'+f.name);}
  }
- if(databases!==1||keys.size!==m.inventory.objects.length)throw Error('BACKUP_MANIFEST_INVALID');
+ if(databases!==1||keys.size!==m.inventory.objects.length||(m.schemaVersion==='1.0.0-draft.3')!==(aliasCount>0))throw Error('BACKUP_MANIFEST_INVALID');
 }
 /** Operator only: contains all tenants, account hashes and signing configuration. */
 export async function createServiceBackup(options:{pool:Pool;store:BlobStore;destination:string;encryptionKey:Uint8Array;snapshot:Snapshot;dump:(path:string,snapshotId:string)=>Promise<void>;runtime?:{metadata:unknown;files:Map<string,Uint8Array>};configuration?:Map<string,Uint8Array>;deployment?:Map<string,{path:string;bytes:number;sha256:string}>}):Promise<BackupReceipt>{
@@ -86,7 +91,14 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
   const manifest:BackupManifest={schemaVersion:options.deployment?.size?'1.0.0-draft.2':'1.0.0-draft.1',kind:'service-backup',id,createdAt,sourceIdentity,inventory,...(options.runtime?{runtimeMetadata:options.runtime.metadata}:{}),files:[]};
   const append=async(role:BackupFile['role'],plain:string,extra:{key?:string;name?:string}={},expected?:{bytes:number;sha256:string})=>{const path=`files/${String(manifest.files.length).padStart(8,'0')}.gcm`;const hashes=await encryptBackupFile(plain,join(directory,path),options.encryptionKey,id+':'+path,expected);manifest.files.push({role,path,...extra,...hashes});};
   const dump=join(scratch,'database.dump');await options.dump(dump,snapshotId);await append('database',dump);
-  for(const o of inventory.objects){const data=await options.store.get(o.key);if(data.length!==o.bytes||sha(data)!==o.sha256)throw Error('BACKUP_SOURCE_CHANGED');const plain=join(scratch,`object-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append('object',plain,{key:o.key});}
+  const content=new Map<string,BackupFile>();
+  for(const o of inventory.objects){
+   const data=await options.store.get(o.key);if(data.length!==o.bytes||sha(data)!==o.sha256)throw Error('BACKUP_SOURCE_CHANGED');
+   const identity=`${o.sha256}:${o.bytes}`,existing=content.get(identity);
+   if(existing){(existing.aliases??=[]).push(o.key);manifest.schemaVersion='1.0.0-draft.3';continue;}
+   const plain=join(scratch,`object-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append('object',plain,{key:o.key});content.set(identity,manifest.files.at(-1)!);
+  }
+  for(const file of content.values())file.aliases?.sort();
   for(const [role,files]of [['runtime',options.runtime?.files],['configuration',options.configuration]] as const){if(!files)continue;for(const [name,data]of files){if(!nameValid(name)||!data.length)throw Error('BACKUP_CONFIG');const plain=join(scratch,`extra-${manifest.files.length}`);await writeFile(plain,data,{mode:0o600,flag:'wx'});await append(role,plain,{name});}}
   if(options.deployment){if(options.deployment.size>32)throw Error('BACKUP_DEPLOYMENT_LIMIT');for(const [name,file]of options.deployment){if(!nameValid(name)||!Number.isSafeInteger(file.bytes)||file.bytes<1||file.bytes>8*1024*1024*1024||!hex(file.sha256)||resolve(file.path)!==await realpath(file.path))throw Error('BACKUP_DEPLOYMENT_INVALID');await append('deployment',file.path,{name},file);}}
   // Recheck the entire DB/object inventory before publishing a complete receipt.
@@ -147,7 +159,7 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   const definitions=(await c.query("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' UNION ALL SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' UNION ALL SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'")).rows;
   if(definitions.length||(await options.store.listAll()).length)throw Error('RESTORE_TARGET_NOT_EMPTY');
   await options.restore(verified.files.find(f=>f.role==='database')!.plainPath);
-  for(const f of verified.files.filter(f=>f.role==='object')){await options.store.put(f.key!,await readFile(f.plainPath));}
+  for(const f of verified.files.filter(f=>f.role==='object')){const data=await readFile(f.plainPath);for(const key of [f.key!,...(f.aliases??[])])await options.store.put(key,data);}
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');transaction=true;
   const inventory=await options.snapshot(c,retainedMigrations(verified.manifest.inventory));validateInventory(inventory);if(comparable(inventory)!==comparable(verified.manifest.inventory))throw Error('RESTORE_INVENTORY_MISMATCH');
   await c.query('COMMIT');transaction=false;
@@ -172,7 +184,7 @@ export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:Bl
   const current=await identity(client);
   if(current.systemIdentifier!==options.snapshotSystemIdentifier||current.systemIdentifier===verified.manifest.sourceIdentity.systemIdentifier||current.database!==verified.manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
  }finally{client.release();}
- const expected=new Map(verified.files.filter(f=>f.role==='object').map(f=>[f.key!,f]));
+ const expected=new Map(verified.files.filter(f=>f.role==='object').flatMap(f=>[f.key!,...(f.aliases??[])].map(key=>[key,f] as const)));
  const existing=await options.store.listAll();
  if(existing.some(key=>!expected.has(key)))throw Error('RESTORE_OBJECT_CONFLICT');
  const present=new Set(existing);

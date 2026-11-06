@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Pool} from 'pg';
 import {FileBlobStore} from './blobs.js';
-import {createServiceBackup,verifyServiceBackup,restoreServiceBackup} from './service-backup.js';
+import {createServiceBackup,verifyServiceBackup,restoreServiceBackup,reconcileRestoredServiceBackup} from './service-backup.js';
 import * as encryptedFiles from './encrypted-files.js';
 import * as fsPromises from 'node:fs/promises';
 vi.mock('node:fs/promises',async importOriginal=>{
@@ -189,4 +189,63 @@ test('archives one shared object key and an unused catalog object, then restores
   let restoredScene:typeof scene|undefined;await restoreServiceBackup({pool:pool('789'),store:target,source:archive,encryptionKey:key,destination:join(root,'restore'),snapshot:async()=>inventory,restore:async path=>{restoredScene=JSON.parse(await readFile(path,'utf8'));}});
   expect(restoredScene).toEqual(scene);expect(await target.get(sharedKey)).toEqual(shared);expect(await target.get(unusedKey)).toEqual(unused);
  }finally{await fsPromises.rm(root,{recursive:true,force:true});}
+});
+
+
+// Real encryption and blob IO, with a synthetic SQL adapter. This is not proof
+// of the Manager-owned fresh-workspace lifecycle or a real PostgreSQL restore.
+async function aliasBackupFixture(){
+ const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-alias-backup-')));await mkdir(join(root,'source'),{mode:0o700});
+ const source=new FileBlobStore(join(root,'source')),shared=Buffer.from('same synthetic glb'),unused=Buffer.from('unused synthetic asset'),keys=['synthetic/assets/a.glb','synthetic/assets/b.glb','synthetic/assets/unused.glb'];
+ await source.put(keys[0]!,shared);await source.put(keys[1]!,shared);await source.put(keys[2]!,unused);const digest=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
+ const inventory:ServiceInventory={schemaVersion:'1.0.0-draft.1',createdAt:new Date().toISOString(),schemaDigest:hash('schema'),migrations:[{name:'001.sql',sha256:hash('migration')}],tables:[],objects:keys.map((key,i)=>({key,bytes:(i===2?unused:shared).length,sha256:digest(i===2?unused:shared),referenced:true,bindings:[`logical:${i}`]})),references:[],issues:[]};
+ const pool=(system:string)=>({async connect(){return {async query(sql:string){return {rows:sql.includes('pg_control_system')?[{system,oid:'456',database:'synthetic'}]:sql.includes('pg_export_snapshot')?[{id:'00000001-00000002-1'}]:sql.includes('pg_try_advisory_lock')?[{locked:true}]:sql.includes('pg_advisory_unlock')?[{unlocked:true}]:[]};},release(){}};}} as unknown as Pool);
+ const key=randomBytes(32),archive=join(root,'archive'),receipt=await createServiceBackup({pool:pool('123'),store:source,destination:archive,encryptionKey:key,snapshot:async()=>inventory,dump:async path=>{await writeFile(path,'synthetic dump',{mode:0o600,flag:'wx'});}});
+ return {root,source,shared,unused,keys,inventory,pool,key,archive,receipt};
+}
+
+test('draft3 authenticates one physical object for two logical keys and restores and reconciles both',async()=>{
+ const f=await aliasBackupFixture();try{
+  expect(f.receipt.objectCount).toBe(3);const verified=await verifyServiceBackup({source:f.archive,encryptionKey:f.key,destination:join(f.root,'verify')});expect(verified.manifest.schemaVersion).toBe('1.0.0-draft.3');
+  const objects=verified.manifest.files.filter(v=>v.role==='object');expect(objects).toHaveLength(2);expect(objects.find(v=>v.key===f.keys[0])).toMatchObject({aliases:[f.keys[1]]});expect(objects.find(v=>v.key===f.keys[2])?.aliases).toBeUndefined();
+  await mkdir(join(f.root,'target'),{mode:0o700});const target=new FileBlobStore(join(f.root,'target'));await restoreServiceBackup({pool:f.pool('789'),store:target,source:f.archive,encryptionKey:f.key,destination:join(f.root,'restore'),snapshot:async()=>f.inventory,restore:async()=>{}});
+  expect(await target.listAll()).toEqual(f.keys);expect(await target.get(f.keys[0]!)).toEqual(f.shared);expect(await target.get(f.keys[1]!)).toEqual(f.shared);expect(await target.get(f.keys[2]!)).toEqual(f.unused);
+  await mkdir(join(f.root,'reconcile-store'),{mode:0o700});const partial=new FileBlobStore(join(f.root,'reconcile-store'));await partial.put(f.keys[1]!,f.shared);
+  await reconcileRestoredServiceBackup({pool:f.pool('789'),store:partial,source:f.archive,encryptionKey:f.key,destination:join(f.root,'reconcile'),snapshot:async()=>f.inventory,snapshotSystemIdentifier:'789'});expect(await partial.listAll()).toEqual(f.keys);expect(await partial.get(f.keys[0]!)).toEqual(f.shared);expect(await partial.get(f.keys[2]!)).toEqual(f.unused);
+ }finally{await fsPromises.rm(f.root,{recursive:true,force:true});}
+});
+
+test.each(['missing-key','wrong-content','duplicate-key','empty','unsorted','non-object','old-version','duplicate-path','tampered-cipher'] as const)('draft3 rejects authenticated invalid alias or cipher: %s',async variant=>{
+ const f=await aliasBackupFixture();try{
+  const checked=await verifyServiceBackup({source:f.archive,encryptionKey:f.key,destination:join(f.root,'initial-check')}),manifest=structuredClone(checked.manifest),object=manifest.files.find(v=>v.role==='object'&&v.aliases)!;
+  if(variant==='missing-key')object.aliases=['synthetic/assets/not-in-inventory.glb'];
+  if(variant==='wrong-content')object.aliases=[f.keys[2]!];
+  if(variant==='duplicate-key')object.aliases=[f.keys[0]!];
+  if(variant==='empty')object.aliases=[];
+  if(variant==='unsorted')object.aliases=['synthetic/assets/z.glb','synthetic/assets/a.glb'];
+  if(variant==='non-object')manifest.files.find(v=>v.role==='database')!.aliases=[f.keys[1]!];
+  if(variant==='old-version')manifest.schemaVersion='1.0.0-draft.1';
+  if(variant==='duplicate-path')manifest.files.find(v=>v.role==='database')!.path=object.path;
+  if(variant==='tampered-cipher'){const path=join(f.archive,object.path),data=await readFile(path);data[data.length-1]=data[data.length-1]!^1;await writeFile(path,data);}
+  else{const plain=join(f.root,'replacement.json');await writeFile(plain,JSON.stringify(manifest),{mode:0o600,flag:'wx'});await unlink(join(f.archive,'manifest.gcm'));const encrypted=await encryptedFiles.encryptBackupFile(plain,join(f.archive,'manifest.gcm'),f.key,manifest.id+':manifest');await writeFile(join(f.archive,'complete.json'),JSON.stringify({...f.receipt,manifestSha256:encrypted.cipherSha256}),{mode:0o600});}
+  await expect(verifyServiceBackup({source:f.archive,encryptionKey:f.key,destination:join(f.root,'invalid-check')})).rejects.toThrow('BACKUP_VERIFY_FAILED');
+ }finally{await fsPromises.rm(f.root,{recursive:true,force:true});}
+});
+
+
+test('draft3 also preserves authenticated deployment entries',async()=>{
+ const f=await aliasBackupFixture();try{
+  const artifact=join(f.root,'deployment.tar'),bytes=Buffer.from('synthetic deployment');await writeFile(artifact,bytes,{mode:0o600,flag:'wx'});
+  const archive=join(f.root,'deployment-archive');await createServiceBackup({pool:f.pool('123'),store:f.source,destination:archive,encryptionKey:f.key,snapshot:async()=>f.inventory,dump:async path=>{await writeFile(path,'synthetic dump',{mode:0o600,flag:'wx'});},deployment:new Map([['images/platform.tar',{path:artifact,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')} ]])});
+  const verified=await verifyServiceBackup({source:archive,encryptionKey:f.key,destination:join(f.root,'deployment-verify')});expect(verified.manifest.schemaVersion).toBe('1.0.0-draft.3');expect(verified.manifest.files.find(v=>v.role==='deployment')?.name).toBe('images/platform.tar');
+  await mkdir(join(f.root,'deployment-target'),{mode:0o700});await restoreServiceBackup({pool:f.pool('789'),store:new FileBlobStore(join(f.root,'deployment-target')),source:archive,encryptionKey:f.key,destination:join(f.root,'deployment-restore'),snapshot:async()=>f.inventory,restore:async()=>{}});expect(await readFile(join(f.root,'deployment-restore/deployment/images/platform.tar'))).toEqual(bytes);
+ }finally{await fsPromises.rm(f.root,{recursive:true,force:true});}
+});
+
+test('draft3 reconciliation rejects a conflicting already-present alias',async()=>{
+ const f=await aliasBackupFixture();try{
+  await mkdir(join(f.root,'conflict-store'),{mode:0o700});const target=new FileBlobStore(join(f.root,'conflict-store'));await target.put(f.keys[1]!,Buffer.from('different bytes'));
+  await expect(reconcileRestoredServiceBackup({pool:f.pool('789'),store:target,source:f.archive,encryptionKey:f.key,destination:join(f.root,'conflict-reconcile'),snapshot:async()=>f.inventory,snapshotSystemIdentifier:'789'})).rejects.toThrow('RESTORE_OBJECT_CONFLICT');
+  expect(await target.get(f.keys[1]!)).toEqual(Buffer.from('different bytes'));expect(await f.source.get(f.keys[0]!)).toEqual(f.shared);
+ }finally{await fsPromises.rm(f.root,{recursive:true,force:true});}
 });
