@@ -35,3 +35,10 @@ it('emits only fixed selected-flow labels and ignores untrusted values',()=>{
   expect(log.mock.calls).toEqual([['NATIVE_OEX_SELECTED put-received'],['NATIVE_OEX_SELECTED save-observed-frame-validated'],['NATIVE_OEX_SELECTED put-observer-resolved'],['NATIVE_OEX_SELECTED independent-reopen-matched'],['NATIVE_OEX_SELECTED save-verified-sent']]);
  }finally{log.mockRestore();}
 });
+
+
+it('records only fixed claim-ready boundaries and fixed error categories',()=>{
+ const stages=['claim-ready-live-1','claim-ready-lease-1','claim-ready-db-begin','claim-ready-db-isolation','claim-ready-db-locks','claim-ready-db-owner','claim-ready-db-lease','claim-ready-journal','claim-ready-workspace','claim-ready-compare','claim-ready-live-2','claim-ready-lease-2','claim-ready-send'] as const;
+ for(const stage of stages){const d=createNativeOexDiagnostic();d.step(stage);d.fail({code:'NATIVE_OEX_PROVENANCE_INVALID',message:'token /private/path'},{});expect(d.report()).toBe(`NATIVE_OEX_DIAGNOSTIC ${stage} NATIVE_OEX_PROVENANCE_INVALID unknown`);expect(d.report()).not.toContain('private');}
+ const d=createNativeOexDiagnostic();d.step('claim-ready-db-lease');d.fail({code:'customer-identifier',message:'sensitive path'},{});expect(d.report()).toBe('NATIVE_OEX_DIAGNOSTIC claim-ready-db-lease OTHER unknown');
+});
