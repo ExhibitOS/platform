@@ -1,0 +1,102 @@
+{
+  "schema": "org.exhibitos.default-furnishings/v1",
+  "bundleVersion": "1.0.0",
+  "assets": [
+    {
+      "catalogId": "backless-oak-bench",
+      "catalogVersion": 1,
+      "name": "Backless Oak Bench",
+      "hostKind": "bench",
+      "model": {
+        "path": "assets/furnishings/user-authored-20261027/backless-oak-bench/model.glb",
+        "mime": "model/gltf-binary",
+        "bytes": 205668,
+        "sha256": "364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b"
+      },
+      "rights": {
+        "licenseId": "CC0-1.0",
+        "notice": {
+          "path": "assets/furnishings/user-authored-20261027/backless-oak-bench/LICENSE-NOTICE.txt",
+          "bytes": 1569,
+          "sha256": "aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5"
+        }
+      },
+      "provenance": {
+        "sourceSha256": "364f12fc71c4572df5df5ea1b77b4b7c00d77d256459ec1c24657bb92a5c0e2b",
+        "recipe": "original-v1"
+      }
+    },
+    {
+      "catalogId": "museum-track-spot",
+      "catalogVersion": 1,
+      "name": "Museum Track Spotlight",
+      "hostKind": "light",
+      "model": {
+        "path": "assets/furnishings/user-authored-20261027/museum-track-spot/model.glb",
+        "mime": "model/gltf-binary",
+        "bytes": 257676,
+        "sha256": "4385cd058231a400b0e1bffd1f107ca3b0c7281a41671a8858f8fa7ed3721f90"
+      },
+      "rights": {
+        "licenseId": "CC0-1.0",
+        "notice": {
+          "path": "assets/furnishings/user-authored-20261027/museum-track-spot/LICENSE-NOTICE.txt",
+          "bytes": 1568,
+          "sha256": "dc091044c4c102c72b23cf334224fd131b54018d7bf78f84c3bc1d080208953e"
+        }
+      },
+      "provenance": {
+        "sourceSha256": "4385cd058231a400b0e1bffd1f107ca3b0c7281a41671a8858f8fa7ed3721f90",
+        "recipe": "original-v1"
+      }
+    },
+    {
+      "catalogId": "gallery-open-portal",
+      "catalogVersion": 1,
+      "name": "Gallery Open Portal",
+      "hostKind": "opening",
+      "model": {
+        "path": "assets/furnishings/user-authored-20261027/gallery-open-portal/model.glb",
+        "mime": "model/gltf-binary",
+        "bytes": 166324,
+        "sha256": "b4117f9d48416feaf52f17889208050e49e984f79d6cf89c1e1de70432b6e432"
+      },
+      "rights": {
+        "licenseId": "CC0-1.0",
+        "notice": {
+          "path": "assets/furnishings/user-authored-20261027/gallery-open-portal/LICENSE-NOTICE.txt",
+          "bytes": 1570,
+          "sha256": "1742a70e169067b643abda76877788f1b1816fba3036dfb1cabd6d23fd57ef73"
+        }
+      },
+      "provenance": {
+        "sourceSha256": "b4117f9d48416feaf52f17889208050e49e984f79d6cf89c1e1de70432b6e432",
+        "recipe": "original-v1"
+      }
+    },
+    {
+      "catalogId": "rectangular-plinth",
+      "catalogVersion": 1,
+      "name": "Rectangular Plinth",
+      "hostKind": "pedestal",
+      "model": {
+        "path": "assets/furnishings/user-authored-20261027/rectangular-plinth/model.glb",
+        "mime": "model/gltf-binary",
+        "bytes": 38412,
+        "sha256": "67db8564375294bf9dcd867d94fa5754c6cbcefb67c5e2a5563aed876f79c02b"
+      },
+      "rights": {
+        "licenseId": "CC0-1.0",
+        "notice": {
+          "path": "assets/furnishings/user-authored-20261027/rectangular-plinth/LICENSE-NOTICE.txt",
+          "bytes": 1569,
+          "sha256": "3aeee5cc3a90033b182872c4944ca8b6985c09a7016d3782a85a868642e19e03"
+        }
+      },
+      "provenance": {
+        "sourceSha256": "67db8564375294bf9dcd867d94fa5754c6cbcefb67c5e2a5563aed876f79c02b",
+        "recipe": "original-v1"
+      }
+    }
+  ]
+}

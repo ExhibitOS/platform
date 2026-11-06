@@ -109,6 +109,32 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and
 // after copying; do not copy the broader authored-asset library.
+const DEFAULT_FURNISHINGS_COMMIT='4ac7d23c1b557d8e303ad04d78379bcefab50b40';
+const DEFAULT_FURNISHINGS_MANIFEST='f11ba6f4407e31531230cdb94921d7d7baef3caca49b1859f8696fa1a39c4530';
+const DEFAULT_FURNISHINGS_HOSTS={'backless-oak-bench':'bench','museum-track-spot':'light','gallery-open-portal':'opening','rectangular-plinth':'pedestal'};
+/** Validate the immutable public release against the already-qualified runtime catalogue. */
+export async function verifyDefaultFurnishingsManifest(root){
+  const manifestPath=join(root,'manifest.json');
+  if(await checkedSource(manifestPath,'file')!==manifestPath||(await lstat(manifestPath)).size!==3562)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const bytes=await readFile(manifestPath);if(createHash('sha256').update(bytes).digest('hex')!==DEFAULT_FURNISHINGS_MANIFEST)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const manifest=JSON.parse(bytes.toString('utf8'));
+  if(manifest.schema!=='org.exhibitos.default-furnishings/v1'||manifest.bundleVersion!=='1.0.0'||!Array.isArray(manifest.assets)||manifest.assets.length!==4)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const seen=new Set();
+  for(const item of manifest.assets){
+    const id=item.catalogId;if(!Object.hasOwn(DEFAULT_FURNISHINGS_HOSTS,id)||seen.has(id))fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');seen.add(id);
+    const entry=furnishingCatalogueEntry(id),model=item.model,notice=item.rights?.notice;
+    if(item.catalogVersion!==entry.version||item.hostKind!==DEFAULT_FURNISHINGS_HOSTS[id]||model?.path!==entry.path||model.mime!==entry.mime||model.bytes!==entry.bytes||model.sha256!==entry.sha256||item.rights?.licenseId!==entry.rights.licenseId||notice?.path!==entry.rights.noticePath||notice.bytes!==entry.rights.noticeBytes||notice.sha256!==entry.rights.noticeSha256||item.provenance?.sourceSha256!==entry.provenance.sourceSha256||item.provenance?.recipe!==entry.provenance.recipe)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  }
+  return {commit:DEFAULT_FURNISHINGS_COMMIT,manifestSHA256:DEFAULT_FURNISHINGS_MANIFEST};
+}
+export async function checkedDefaultFurnishingsRoot(root){
+  if(typeof root!=='string'||!isAbsolute(root)||resolve(root)!==root)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const canonical=await checkedSource(root,'directory');if(canonical!==root)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('GIT_')));
+  let top,commit;try{top=await command('/usr/bin/git',['--no-replace-objects','rev-parse','--show-toplevel'],{cwd:root,capture:true,env});commit=await command('/usr/bin/git',['--no-replace-objects','rev-parse','HEAD^{commit}'],{cwd:root,capture:true,env});}catch{fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');}
+  if(top!==root||commit!==DEFAULT_FURNISHINGS_COMMIT)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
+  await verifyDefaultFurnishingsManifest(root);return canonical;
+}
 export async function copyNativeFurnishings(sourceRoot, platformRoot) {
   const ids = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth'];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== ids.length || ids.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
@@ -190,13 +216,14 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
-export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false}) {
+export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, defaultFurnishingsRoot}) {
   if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || typeof privateStaticEditor !== 'boolean' || typeof workspaceMaterialSelected !== 'boolean' || typeof workspaceImportSelected !== 'boolean' || workspaceImportSelected && !workspaceMaterialSelected || workspaceMaterialSelected && !normalOexSelected || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
   const selection = postgresRuntimeSelection(postgresProfile);
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.version !== 'v24.21.0') fail('NATIVE_PACKAGE_TOOLCHAIN_INVALID');
   if (!isAbsolute(destination) || resolve(destination) !== destination) fail('NATIVE_PACKAGE_DESTINATION_INVALID');
   nodeBinary = await checkedSource(nodeBinary, 'file'); nodeLicense = await checkedSource(nodeLicense, 'file');
   npmCLI = await checkedSource(npmCLI, 'file'); postgresRoot = await checkedSource(postgresRoot, 'directory');
+  const furnishingsRoot=defaultFurnishingsRoot===undefined?source:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
   const provenance = JSON.parse(await readFile(postgresSourceReceipt, 'utf8'));
   if (provenance.release !== 'v2.9.6' || provenance.assetID !== 512422981 || provenance.sha256 !== '9fc7d0dc08cf46dfd94bb32cbaaad81b41b37847a42d6dcb2f9fbd292813defb') fail('NATIVE_PACKAGE_POSTGRES_SOURCE_INVALID');
   const noticeRoot = join(source, 'notices/native-runtime');
@@ -238,7 +265,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
   await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected);
-  await copyNativeFurnishings(source, platform);
+  await copyNativeFurnishings(furnishingsRoot, platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
   await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
@@ -293,7 +320,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
       + (sourceModified ? ' Source commit is the checkout baseline; uncommitted source changes are present and are not identified by that commit.' : '')
   };
   await writeFile(join(root,'manifest.json'),JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});
-  return {directory:root,files:files.length,manifestSHA256:await hash(join(root,'manifest.json')),redistributionQualified:false};
+  return {directory:root,files:files.length,manifestSHA256:await hash(join(root,'manifest.json')),redistributionQualified:false,...(defaultFurnishingsRoot===undefined?{}:{defaultFurnishings:{commit:DEFAULT_FURNISHINGS_COMMIT,manifestSHA256:DEFAULT_FURNISHINGS_MANIFEST}})};
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
