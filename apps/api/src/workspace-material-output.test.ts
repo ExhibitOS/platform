@@ -30,3 +30,12 @@ it('normalizes an expired display grant to the export receipt denial',async()=>{
  await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'export')).rejects.toMatchObject({code:'RIGHTS_DENIED'});
  await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'display')).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});
 });
+
+it('permits wall imports only when the owned V7 catalog is active',async()=>{
+ const {assertWorkspaceImportKind}=await import('./workspace-material-output.ts');
+ const candidate=(...kinds:string[])=>({extensions:{'org.exhibitos.studio/workspace-materials':{materials:kinds.map(kind=>({kind}))}}});
+ expect(()=>assertWorkspaceImportKind(candidate('floor'),false)).not.toThrow();
+ expect(()=>assertWorkspaceImportKind(candidate('wall'),false)).toThrow();
+ expect(()=>assertWorkspaceImportKind(candidate('floor','wall'),false)).toThrow();
+ expect(()=>assertWorkspaceImportKind(candidate('floor','wall'),true)).not.toThrow();
+});

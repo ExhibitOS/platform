@@ -27,6 +27,11 @@ export const WORKSPACE_IMPORT_STAGE_SHA256='f69d3dc12d7b89f1a342daef1d7bca087876
 export const WORKSPACE_IMPORT_PROOF_MIGRATION='034_workspace_material_terminal_proof.sql';
 export const WORKSPACE_IMPORT_PROOF_SHA256='ebf2300ef875b635617d82369f4c7cad4cbe6d8fa43677bdbd2e5e21dd74da21';
 export const WORKSPACE_IMPORT_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-oex-import',protocol:'normal-oex-workspace-import-v6',ownerChannelVersion:3,parentCapabilityPath:'platform/scripts/native-workspace-material-capability-v5.json',parentCapabilitySHA256:'8c5f7f44fb7b0a898611977064f95d4988eeff4945093c0df351f7b6baaf217a',stageSchemaPath:'platform/database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',stageSchemaSHA256:WORKSPACE_IMPORT_STAGE_SHA256,proofSchemaPath:'platform/database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql',proofSchemaSHA256:WORKSPACE_IMPORT_PROOF_SHA256,archiveFormat:'1.0.0-draft.12',maxArchiveBytes:536870912,oneShot:true});
+export const WORKSPACE_WALL_IMPORT_MIGRATION='035_workspace_material_wall_import.sql';
+export const WORKSPACE_WALL_IMPORT_SHA256='c347183b3e58805c46d1dde7ae6e2defc37762af52f585846357181b9635a544';
+export const WORKSPACE_WALL_IMPORT_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-wall-import',protocol:'normal-oex-workspace-import-v7',ownerChannelVersion:3,parentCapabilityPath:'platform/scripts/native-workspace-oex-import-capability-v6.json',parentCapabilitySHA256:'1d5177c8c4ddb9dec26ed7724178376ae4ca615e06e64573b132b7c7abfa25e8',wallSchemaPath:'platform/database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql',wallSchemaSHA256:WORKSPACE_WALL_IMPORT_SHA256,archiveFormat:'1.0.0-draft.12',oneShot:true});
+export async function hasWorkspaceWallImportCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(WORKSPACE_WALL_IMPORT_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
+export async function verifyWorkspaceWallImportMigration(path){const before=await directory(path),names=(await readdir(path)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(JSON.stringify(names)!==JSON.stringify([WORKSPACE_WALL_IMPORT_MIGRATION]))throw Error('NATIVE_OEX_CATALOG');const bytes=await regular(join(path,WORKSPACE_WALL_IMPORT_MIGRATION));if(sha(bytes)!==WORKSPACE_WALL_IMPORT_SHA256||!same(before,await directory(path)))throw Error('NATIVE_OEX_CATALOG');return bytes.toString('utf8');}
 const supplementalCatalog=[[NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256],[NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256],[NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256],[NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256],[NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256],[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256],[WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256]];
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const same=(a,b)=>a.dev===b.dev&&a.ino===b.ino;
@@ -100,12 +105,13 @@ export async function verifyWorkspaceImportMigrations(importDirectory){
 
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
-export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory}={}){
+export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory}={}){
  const rows=(await pool.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
  if(!Array.isArray(rows)||!rows.some(row=>row?.name===NORMAL_OEX_MIGRATION))return undefined;
  const base=await directory(migrationDirectory);const names=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();
- const importing=rows.length===34;if(names.length!==25||rows.length<26||rows.length>34||rows.length===31||rows.length===33||importing&&!workspaceImportDirectory||names.some((name,i)=>name!==rows[i]?.name)||supplementalCatalog.slice(0,Math.min(rows.length-25,7)).some(([name,hash],i)=>rows[25+i]?.name!==name||rows[25+i]?.sha256!==hash))throw Error('NATIVE_OEX_CATALOG');
+ const importing=rows.length>=34,wall=rows.length===35;if(names.length!==25||rows.length<26||rows.length>35||wall&&!workspaceWallImportDirectory||rows.length===31||rows.length===33||importing&&!workspaceImportDirectory||names.some((name,i)=>name!==rows[i]?.name)||supplementalCatalog.slice(0,Math.min(rows.length-25,7)).some(([name,hash],i)=>rows[25+i]?.name!==name||rows[25+i]?.sha256!==hash))throw Error('NATIVE_OEX_CATALOG');
  if(importing){const expected=[[WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256],[WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256]];if(expected.some(([name,hash],i)=>rows[32+i]?.name!==name||rows[32+i]?.sha256!==hash))throw Error('NATIVE_OEX_CATALOG');await verifyWorkspaceImportMigrations(workspaceImportDirectory);}
+ if(wall){if(rows[34]?.name!==WORKSPACE_WALL_IMPORT_MIGRATION||rows[34]?.sha256!==WORKSPACE_WALL_IMPORT_SHA256)throw Error('NATIVE_OEX_CATALOG');await verifyWorkspaceWallImportMigration(workspaceWallImportDirectory);}
  await verifyNormalOexMigration(supplementalDirectory);
  for(const [name,hash] of supplementalCatalog.slice(0,Math.min(rows.length-25,7)))if(sha(await regular(join(supplementalDirectory,name)))!==hash)throw Error('NATIVE_OEX_CATALOG');
  for(let i=0;i<names.length;i++)if(sha(await regular(join(migrationDirectory,names[i])))!==rows[i]?.sha256)throw Error('NATIVE_OEX_CATALOG');
@@ -115,7 +121,7 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
 
 /** Before ordinary native startup writes anything, reject unknown catalog rows.
  * Caller holds migration 82001 in the surrounding transaction. */
-export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory}={}){
+export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory,workspaceWallImportDirectory}={}){
  const relation=(await client.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name;
  if(!relation)return undefined;
  const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
@@ -123,6 +129,6 @@ export async function preflightNormalOexCatalog(client,migrationDirectory,supple
  if(!allowWorkspaceMaterial&&rows.some(row=>row?.name===WORKSPACE_MATERIAL_MIGRATION||row?.name===WORKSPACE_MATERIAL_OEX_MIGRATION)||workspaceImportDirectory&&!allowWorkspaceMaterial)throw Error('NATIVE_OEX_CATALOG');
  const names=new Set((await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)));
  if(!rows.some(row=>!names.has(row.name)))return undefined;
- const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory});
+ const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory});
  if(!selected)throw Error('NATIVE_OEX_CATALOG');return selected;
 }
