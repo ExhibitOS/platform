@@ -22,7 +22,8 @@ export function workspaceMaterialOutputInventory(candidate:{extensions?:Record<s
 export async function workspaceMaterialOutputBytes(c:PoolClient,s:Session,candidate:{extensions?:Record<string,unknown>;surfaces?:unknown},service:WorkspaceMaterialIntakes|undefined,resource:WorkspaceMaterialResource,purpose:'display'|'export'){
  const inventory=workspaceMaterialOutputInventory(candidate);
  if(!inventory.some(item=>isDeepStrictEqual(item,resource)))throw new ApiError(422,'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
- await assertWorkspaceMaterialSnapshot(c,s,candidate,service);
+ try{await assertWorkspaceMaterialSnapshot(c,s,candidate,service);}
+ catch(error){if(purpose==='export'&&error instanceof ApiError&&error.code==='DISPLAY_PERMISSION_REQUIRED')throw new ApiError(403,'RIGHTS_DENIED');throw error;}
  if(!service)throw new ApiError(422,'WORKSPACE_MATERIAL_UNAVAILABLE');
  return purpose==='display'?service.preview(c,s,resource.materialId,resource.materialVersion,resource.role):service.exportMap(c,s,resource.materialId,resource.materialVersion,resource.role);
 }

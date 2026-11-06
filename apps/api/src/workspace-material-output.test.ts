@@ -22,3 +22,9 @@ it('rechecks owner descriptor and chooses the purpose-specific byte authority',a
  await expect(workspaceMaterialOutputBytes(c,s,value,service,{...entry,sha256:'b'.repeat(64)},'export')).rejects.toMatchObject({code:'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED'});
  (service.readVersion as ReturnType<typeof vi.fn>).mockResolvedValue({...material(),name:'other'});await expect(workspaceMaterialOutputBytes(c,s,value,service,entry,'export')).rejects.toMatchObject({code:'MATERIAL_VERSION_MISMATCH'});
 });
+it('normalizes an expired display grant to the export receipt denial',async()=>{
+ const value=candidate(),entry=workspaceMaterialOutputInventory(value)[0]!,denied=material();denied.rights.permissions.display=false;value.extensions['org.exhibitos.studio/workspace-materials'].materials=[denied];
+ const service={readVersion:vi.fn().mockResolvedValue(denied)} as unknown as WorkspaceMaterialIntakes;
+ await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'export')).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+ await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'display')).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});
+});

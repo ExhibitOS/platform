@@ -388,6 +388,7 @@ export class Oex {
   }
   if(rights.some(r=>!allowedRights(r,'export'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');
   for(const resource of workspaceMaterialOutputInventory(original))await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');
+  if(rights.some(r=>!allowedRights(r,'export'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');
   return {bytes,pins,omittedImported};
  }
  /** Internal producer. The caller owns a fresh private destination, the live
