@@ -17,7 +17,7 @@ describe.skipIf(!ready)('isolated PostgreSQL private painting import',()=>{
  let pool:Pool,imports:Imports,session:Session,tenant:string,artwork:string,files:Map<string,Buffer>,derived:Record<string,unknown>,original:Buffer,png:Buffer;
  beforeAll(async()=>{
   const parsed=new URL(url!);if(parsed.hostname!=='127.0.0.1'||!/^\/private_pg_[a-f0-9]{32}$/.test(parsed.pathname))throw Error('SYNTHETIC_PG_ONLY');
-  pool=new Pool({connectionString:url,connectionTimeoutMillis:2000,statement_timeout:5000,max:8});
+  pool=new Pool({connectionString:url,connectionTimeoutMillis:2000,statement_timeout:5000,max:8,application_name:'private-pg-fixture'});
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
   tenant=randomUUID();const actor=await bootstrap(pool,tenant,'private.synthetic.admin','Synthetic-password-12345');session={id:randomUUID(),tenantId:tenant,userId:actor.userId,role:'admin',csrfToken:'',expiresAt:'2099-01-01T00:00:00Z'};
   const artist=randomUUID();artwork=randomUUID();await pool.query("INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,'{}')",[tenant,artist,actor.userId]);await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata) VALUES($1,$2,$3,$4)',[tenant,artwork,artist,{rights}]);
@@ -38,9 +38,13 @@ describe.skipIf(!ready)('isolated PostgreSQL private painting import',()=>{
  });
  it('fences expiry and exhaustion until decoder close and enforces retry limits',async()=>{
   const id=await job();let entered!:()=>void,release!:()=>void;const started=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{release=r;});fixture.decode.mockImplementationOnce(async()=>{entered();await gate;});
-  const running=imports.work();await started;
-  try{await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()-interval '1 second',attempts=5 WHERE tenant_id=$1 AND id=$2",[tenant,id]);expect(await imports.work()).toBe(false);const active=(await pool.query('SELECT state,lease_id,png_worker_tokens FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(active.state).toBe('processing');expect(active.png_worker_tokens).toContain(active.lease_id);}
-  finally{release();await running;}
+  const running=imports.work();
+  try{
+   await Promise.race([started,running.then(()=>{throw Error('WORKER_ENDED_BEFORE_DECODER');})]);const calls=fixture.decode.mock.calls.length;
+   await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()-interval '1 second',attempts=1 WHERE tenant_id=$1 AND id=$2",[tenant,id]);expect(await imports.work()).toBe(false);expect(fixture.decode.mock.calls.length).toBe(calls);
+   await pool.query('UPDATE import_jobs SET attempts=5 WHERE tenant_id=$1 AND id=$2',[tenant,id]);expect(await imports.work()).toBe(false);
+   const active=(await pool.query('SELECT state,lease_id,png_worker_tokens FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(active.state).toBe('processing');expect(active.png_worker_tokens).toContain(active.lease_id);
+  }finally{release();await running;}
   const stopped=(await pool.query('SELECT state,lease_id,png_worker_tokens,asset_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(stopped.state).toBe('failed');expect(stopped.lease_id).toBeNull();expect(stopped.png_worker_tokens).toEqual([]);expect(stopped.asset_id).toBeNull();await expect(transaction(pool,c=>imports.action(c,session,id,'retry'))).rejects.toMatchObject({code:'JOB_STATE'});
  });
  it('rejects changed revision before asset insertion',async()=>{
@@ -49,14 +53,14 @@ describe.skipIf(!ready)('isolated PostgreSQL private painting import',()=>{
  it('does not hold maintenance lock while waiting for auth lock',async()=>{
   const id=await job(),auth=await pool.connect(),probe=await pool.connect();let running:Promise<boolean>|undefined;
   try{
-   await auth.query('SELECT pg_advisory_lock(82003)');running=imports.work();let claimed=false;
-   for(let n=0;n<100;n++){const row=(await pool.query('SELECT state FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];if(row.state==='processing'){claimed=true;break;}await new Promise(r=>setTimeout(r,20));}
-   expect(claimed).toBe(true);const available=(await probe.query('SELECT pg_try_advisory_lock(82002) AS acquired')).rows[0].acquired;expect(available).toBe(true);if(available)await probe.query('SELECT pg_advisory_unlock(82002)');
+   await auth.query('SELECT pg_advisory_lock(82003)');running=imports.work();let waiting=false;
+   for(let n=0;n<100;n++){const lock=await pool.query("SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE a.application_name='private-pg-fixture' AND l.locktype='advisory' AND l.objid=82003 AND NOT l.granted AND a.query LIKE 'SELECT pg_advisory_xact_lock_shared(82003)%'");if(lock.rowCount){waiting=true;break;}await new Promise(r=>setTimeout(r,20));}
+   expect(waiting).toBe(true);expect((await pool.query('SELECT state FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0].state).toBe('processing');const available=(await probe.query('SELECT pg_try_advisory_lock(82002) AS acquired')).rows[0].acquired;expect(available).toBe(true);if(available)await probe.query('SELECT pg_advisory_unlock(82002)');
   }finally{await auth.query('SELECT pg_advisory_unlock_all()');auth.release();await probe.query('SELECT pg_advisory_unlock_all()');probe.release();await running;}
  });
  it('preserves cancellation ownership until mocked decoder completion',async()=>{
-  const id=await job();let entered!:()=>void,release!:()=>void;const started=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{release=r;});fixture.decode.mockImplementationOnce(async()=>{entered();await gate;});const running=imports.work();await started;
-  try{await transaction(pool,c=>imports.action(c,session,id,'cancel'));const pending=(await pool.query('SELECT state,lease_id,png_worker_tokens FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(pending.state).toBe('cancelled');expect(pending.png_worker_tokens).toContain(pending.lease_id);}
+  const id=await job();let entered!:()=>void,release!:()=>void;const started=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{release=r;});fixture.decode.mockImplementationOnce(async()=>{entered();await gate;});const running=imports.work();
+  try{await Promise.race([started,running.then(()=>{throw Error('WORKER_ENDED_BEFORE_DECODER');})]);await transaction(pool,c=>imports.action(c,session,id,'cancel'));const pending=(await pool.query('SELECT state,lease_id,png_worker_tokens FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(pending.state).toBe('cancelled');expect(pending.png_worker_tokens).toContain(pending.lease_id);}
   finally{release();await running;}
   const closed=(await pool.query('SELECT state,lease_id,png_worker_tokens,asset_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(closed.state).toBe('cancelled');expect(closed.lease_id).toBeNull();expect(closed.png_worker_tokens).toEqual([]);expect(closed.asset_id).toBeNull();
  });
@@ -65,13 +69,14 @@ describe.skipIf(!ready)('isolated PostgreSQL private painting import',()=>{
  });
 
  it('rolls back inserted assets if derivative metadata insertion fails',async()=>{
-  const id=await job(),before=Number((await pool.query('SELECT count(*) AS n FROM assets WHERE tenant_id=$1',[tenant])).rows[0].n);
+  const id=await job(),before=(await pool.query('SELECT (SELECT count(*) FROM assets WHERE tenant_id=$1) AS assets,(SELECT count(*) FROM rights WHERE tenant_id=$1) AS rights,(SELECT count(*) FROM asset_derivatives WHERE tenant_id=$1) AS derivatives',[tenant])).rows[0];
+  await pool.query('CREATE SEQUENCE public.synthetic_failure_reached');
   // A permanent function belongs only to the disposable database and enables a
   // separate transaction/client to observe the forced insertion failure.
-  await pool.query("CREATE FUNCTION public.synthetic_private_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic rollback'; END $$");
+  await pool.query("CREATE FUNCTION public.synthetic_private_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM nextval('public.synthetic_failure_reached'); RAISE EXCEPTION 'synthetic rollback'; END $$");
   await pool.query('CREATE TRIGGER synthetic_private_fail BEFORE INSERT ON asset_derivatives FOR EACH ROW EXECUTE FUNCTION public.synthetic_private_fail()');
-  try{await imports.work();const row=(await pool.query('SELECT state,asset_id,derived_object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(row.state).toBe('failed');expect(row.asset_id).toBeNull();expect(Number((await pool.query('SELECT count(*) AS n FROM assets WHERE tenant_id=$1',[tenant])).rows[0].n)).toBe(before);expect(files.get(row.derived_object_key)).toEqual(png);}
-  finally{await pool.query('DROP TRIGGER synthetic_private_fail ON asset_derivatives');await pool.query('DROP FUNCTION public.synthetic_private_fail()');}
+  try{await imports.work();const row=(await pool.query('SELECT state,asset_id,derived_object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenant,id])).rows[0];expect(row.state).toBe('failed');expect(row.asset_id).toBeNull();const after=(await pool.query('SELECT (SELECT count(*) FROM assets WHERE tenant_id=$1) AS assets,(SELECT count(*) FROM rights WHERE tenant_id=$1) AS rights,(SELECT count(*) FROM asset_derivatives WHERE tenant_id=$1) AS derivatives',[tenant])).rows[0];expect(after).toEqual(before);expect((await pool.query('SELECT is_called FROM public.synthetic_failure_reached')).rows[0].is_called).toBe(true);expect(files.get(row.derived_object_key)).toEqual(png);}
+  finally{await pool.query('DROP TRIGGER synthetic_private_fail ON asset_derivatives');await pool.query('DROP FUNCTION public.synthetic_private_fail()');await pool.query('DROP SEQUENCE public.synthetic_failure_reached');}
  });
 
  it('refuses a changed prepared object before commit',async()=>{
