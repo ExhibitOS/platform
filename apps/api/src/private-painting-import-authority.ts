@@ -10,7 +10,8 @@ import type {PreparedImage} from './prepared-image.ts';
 /** Select only from the server list. A request, OEX or receipt cannot add an entry. */
 export function privatePaintingImportCandidate(row:Record<string,unknown>,prepared:PreparedImage|undefined){
  if(!prepared||row.mime!=='image/jpeg')return undefined;
- return APPROVED_PRIVATE_PAINTING_IMPORTS.find(a=>a.originalSha256===row.expected_hash&&a.prepared.sha256===prepared.sha256);
+ const matches=APPROVED_PRIVATE_PAINTING_IMPORTS.filter(a=>a.tenantId===row.tenant_id&&a.artworkId===row.artwork_id&&a.originalSha256===row.expected_hash&&a.prepared.sha256===prepared.sha256);
+ if(matches.length>1)throw new ApiError(409,'PRIVATE_PAINTING_AUTHORITY_AMBIGUOUS');return matches[0];
 }
 /** Called in each transaction at validation and before committing the asset. */
 export async function checkPrivatePaintingImport(c:PoolClient,row:Record<string,unknown>,approval:PrivatePaintingImportApproval,original:Buffer,prepared:Buffer){
