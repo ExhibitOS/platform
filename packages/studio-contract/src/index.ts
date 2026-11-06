@@ -269,3 +269,4 @@ export * from './artwork-thumbnail.js';
 export * from './room-envelope.js';
 
 export * from './door-connection.js';
+export * from './workspace-furnishing.js';

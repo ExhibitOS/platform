@@ -110,3 +110,20 @@ it('tracks staged workspace import bytes as optional until an immutable version 
  const version={tenant_id:tenant,id,version:1,descriptor:{maps:{color:{bytes:123,sha256:digest}}},object_keys:{color:key}};
  expect(rowObjectReferences('workspace_material_versions',version).references[0]).toMatchObject({key,required:true,expectedBytes:123,expectedSha256:digest});
 });
+
+
+it('retains registered and unused workspace furnishing GLB references in full backup inventory',()=>{
+ const workspace='9d0bd5cc-76c5-4df4-b763-63d0f2484777',modelKey=`${tenant}/workspace-furnishing-intake/${workspace}/${id}/${sha}`,receipt={key:modelKey,bytes:123,sha256:sha},intake={tenant_id:tenant,workspace_id:workspace,id,declaration:{model:{bytes:123,sha256:sha}}},version={tenant_id:tenant,id,version:1,descriptor:{id,version:1,model:{mime:'model/gltf-binary',bytes:123,sha256:sha}},object_key:key};
+ expect(rowObjectReferences('workspace_furnishing_versions',version)).toEqual({issues:[],references:[expect.objectContaining({key,required:true,expectedBytes:123,expectedSha256:sha})]});
+ for(const phase of ['uploading','validating','registered','failed'])expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase,received:receipt}).references[0]?.required).toBe(true);
+ expect(rowObjectReferences('workspace_furnishing_intakes',{tenant_id:tenant,id,phase:'uploading',received:null})).toEqual({references:[],issues:[]});
+ expect(rowObjectReferences('workspace_furnishing_intakes',{tenant_id:tenant,id,phase:'validating',received:null}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'cancelling',received:receipt}).references[0]?.required).toBe(false);
+ expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'registered',received:{...receipt,key}}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'registered',received:{...receipt,bytes:124}}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ for(const phase of ['validating','cancelling'])expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase,received:receipt,worker_token:id}).issues.some(issue=>issue.code==='FURNISHING_WORKER_DRAIN_UNCONFIRMED')).toBe(true);
+ expect(rowObjectReferences('workspace_furnishing_intakes',{...intake,phase:'validating',received:receipt,worker_token:null}).issues).toEqual([]);
+ expect(rowObjectReferences('workspace_furnishing_intakes',{tenant_id:tenant,id,phase:'cancelled',received:receipt}).references).toEqual([]);
+ expect(rowObjectReferences('workspace_furnishing_versions',{...version,object_key:'other/foreign'}).issues[0]?.code).toBe('INVALID_REFERENCE');
+ expect(rowObjectReferences('workspace_furnishing_versions',{...version,descriptor:{...version.descriptor,id:'different'}}).issues[0]?.code).toBe('INVALID_INVENTORY');
+});

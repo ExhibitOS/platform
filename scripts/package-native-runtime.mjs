@@ -6,7 +6,7 @@ import {cp, mkdir, lstat, readFile, readdir, realpath, writeFile} from 'node:fs/
 import {createHash} from 'node:crypto';
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256} from './native-oex-normal-catalog.mjs';
+import {WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
 import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
@@ -61,7 +61,7 @@ const NORMAL_OEX_PROVENANCE_HASH='09bd82b3195e2f54545f6af45173bbab569effac95553a
 const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
 // The candidate import schema is inert until a future, separately selected capability.
 export function nativePackageExcludedFiles(freshOexValidation,normalOexSelected){
-  return new Set(['database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql','database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql','database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
+  return new Set(['database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql','database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql','database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql','database/native-workspace-furnishing/036_workspace_furnishing.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
 }
 /** Copy a fixed checked input if Git did not already copy it. Source/destination
  * validation is point-in-time, not protection from a concurrent same-UID writer. */
@@ -81,17 +81,18 @@ export async function copyFreshOexValidationFiles(sourceRoot, platformRoot, trac
   else if (requireOexSpec) fail('NATIVE_PACKAGE_SOURCE_INVALID');
   if (freshOexValidation) await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,OEX_MIGRATION_PATH,OEX_MIGRATION_HASH);
 }
-export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected,workspaceMaterialSelected=false,workspaceImportSelected=false,workspaceWallImportSelected=false){
-  if(workspaceWallImportSelected&&!workspaceImportSelected||workspaceImportSelected&&!workspaceMaterialSelected||workspaceMaterialSelected&&!normalOexSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');
+export async function copyNormalOexSelectedFile(sourceRoot,platformRoot,tracked,normalOexSelected,workspaceMaterialSelected=false,workspaceImportSelected=false,workspaceWallImportSelected=false,workspaceFurnishingSelected=false){
+  if(workspaceFurnishingSelected&&!workspaceWallImportSelected||workspaceWallImportSelected&&!workspaceImportSelected||workspaceImportSelected&&!workspaceMaterialSelected||workspaceMaterialSelected&&!normalOexSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');
   if (normalOexSelected) {await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_MIGRATION_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_PROVENANCE_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_MATERIAL_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_FLOOR_HASH);await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,NORMAL_OEX_CONCRETE_PATH,NORMAL_OEX_CONCRETE_HASH);}
   if(workspaceMaterialSelected){if(!normalOexSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');for(const [name,digest] of [[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256],[WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256]])await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,'database/native-oex-normal/'+name,digest);}
   if(workspaceImportSelected){if(!workspaceMaterialSelected||!normalOexSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');for(const [name,digest] of [[WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256],[WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256]])await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,'database/native-oex-workspace-import/'+name,digest);}
   if(workspaceWallImportSelected)await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,'database/native-oex-workspace-import-wall/'+WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256);
+  if(workspaceFurnishingSelected)await copyCheckedValidationFile(sourceRoot,platformRoot,tracked,'database/native-workspace-furnishing/'+WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256);
 }
 // A sealed-inventory declaration, never authority to select or run an operation.
 // oneShot means one selected operation in a newly provisioned empty workspace/session.
-export async function writeNormalOexCapability(platformRoot, normalOexSelected, workspaceMaterialSelected=false, workspaceImportSelected=false, workspaceWallImportSelected=false) {
-  if(workspaceWallImportSelected&&!workspaceImportSelected||workspaceMaterialSelected&&!normalOexSelected||workspaceImportSelected&&!workspaceMaterialSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');
+export async function writeNormalOexCapability(platformRoot, normalOexSelected, workspaceMaterialSelected=false, workspaceImportSelected=false, workspaceWallImportSelected=false,workspaceFurnishingSelected=false) {
+  if(workspaceFurnishingSelected&&!workspaceWallImportSelected||workspaceWallImportSelected&&!workspaceImportSelected||workspaceMaterialSelected&&!normalOexSelected||workspaceImportSelected&&!workspaceMaterialSelected)fail('NATIVE_PACKAGE_INPUT_INVALID');
   if (!normalOexSelected) return;
   const bytes = '{"format":1,"kind":"exhibitos-native-normal-oex","protocol":"normal-oex-v1","ownerChannelVersion":2,"schemaPath":"platform/database/native-oex-normal/026_oex_file_profile.sql","schemaSHA256":"9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112","archiveFormat":"1.0.0-draft.9","maxArchiveBytes":536870912,"oneShot":true}';
   await writeFile(join(platformRoot,'scripts/native-normal-oex-capability-v1.json'),bytes,{flag:'wx',mode:0o600});
@@ -107,6 +108,7 @@ export async function writeNormalOexCapability(platformRoot, normalOexSelected, 
   if(workspaceMaterialSelected)await writeFile(join(platformRoot,'scripts/native-workspace-material-capability-v5.json'),WORKSPACE_MATERIAL_CAPABILITY,{flag:'wx',mode:0o600});
   if(workspaceImportSelected)await writeFile(join(platformRoot,'scripts/native-workspace-oex-import-capability-v6.json'),WORKSPACE_IMPORT_CAPABILITY,{flag:'wx',mode:0o600});
   if(workspaceWallImportSelected)await writeFile(join(platformRoot,'scripts/native-workspace-oex-import-capability-v7.json'),WORKSPACE_WALL_IMPORT_CAPABILITY,{flag:'wx',mode:0o600});
+  if(workspaceFurnishingSelected)await writeFile(join(platformRoot,'scripts/native-workspace-furnishing-capability-v1.json'),WORKSPACE_FURNISHING_CAPABILITY,{flag:'wx',mode:0o600});
 }
 // Only the four already-qualified catalogue pairs are part of this native
 // runtime. Verify the existing catalogue's exact bytes and notices before and
@@ -218,8 +220,8 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
-export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, defaultFurnishingsRoot}) {
-  if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || typeof privateStaticEditor !== 'boolean' || typeof workspaceMaterialSelected !== 'boolean' || typeof workspaceImportSelected !== 'boolean' || typeof workspaceWallImportSelected !== 'boolean' || workspaceWallImportSelected && !workspaceImportSelected || workspaceImportSelected && !workspaceMaterialSelected || workspaceMaterialSelected && !normalOexSelected || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
+export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, defaultFurnishingsRoot}) {
+  if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || typeof privateStaticEditor !== 'boolean' || typeof workspaceMaterialSelected !== 'boolean' || typeof workspaceImportSelected !== 'boolean' || typeof workspaceWallImportSelected !== 'boolean' || typeof workspaceFurnishingSelected !== 'boolean' || workspaceFurnishingSelected && !workspaceWallImportSelected || workspaceWallImportSelected && !workspaceImportSelected || workspaceImportSelected && !workspaceMaterialSelected || workspaceMaterialSelected && !normalOexSelected || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
   const selection = postgresRuntimeSelection(postgresProfile);
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.version !== 'v24.21.0') fail('NATIVE_PACKAGE_TOOLCHAIN_INVALID');
   if (!isAbsolute(destination) || resolve(destination) !== destination) fail('NATIVE_PACKAGE_DESTINATION_INVALID');
@@ -266,12 +268,13 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   const excluded = nativePackageExcludedFiles(freshOexValidation,normalOexSelected);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
   await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
-  await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected);
+  await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected);
   await copyNativeFurnishings(furnishingsRoot, platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
   await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
-  await writeNormalOexCapability(platform,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected);
+  await copy(join(source,'scripts/native-workspace-furnishing-bootstrap.mjs'),join(platform,'scripts/native-workspace-furnishing-bootstrap.mjs'));
+  await writeNormalOexCapability(platform,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected);
   await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
   await copy(join(source,'scripts/native-owner-frames.mjs'),join(platform,'scripts/native-owner-frames.mjs'));
   // Producer capability declaration only; Manager must still admit the exact

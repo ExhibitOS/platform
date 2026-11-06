@@ -1,3 +1,4 @@
+import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {privateFloorMaterialCatalog,readPrivateMaterialPreview} from './private-floor-material-catalog.ts';
 import {MODEL_DERIVATION_SCHEMA} from './model-derivation.ts';
@@ -37,10 +38,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
  if(selectedWorkspaceMaterial&&(!(selectedWorkspaceMaterial instanceof WorkspaceMaterialIntakes)||!freshOexTest||input.mode!=='local'||workspaceMaterial||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.workspaceMaterials||!selectedWorkspaceMaterial.matchesBinding(nativeOexWorkspace,store)))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
- const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing,workspaceMaterial),selectedStudio=selectedWorkspaceMaterial?new Studio(nativeOexWorkspace,false,selectedWorkspaceMaterial):studio;
+ const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing,workspaceMaterial,workspaceFurnishing),selectedStudio=selectedWorkspaceMaterial?new Studio(nativeOexWorkspace,false,selectedWorkspaceMaterial):studio;
  if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,selectedStudio,saveSlot,!!nativeOexWorkspace);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
@@ -75,12 +76,29 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   if(params.tenantId) uuid(params.tenantId);
   return auth.request(token(req),params.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,mutate,(client,s)=>work(client,s,req,reply));
  };
- app.get('/api/v1/auth/session',call(false,async(c,s)=>{let result:Record<string,unknown>={...s};if(nativeExportWorkspace&&store instanceof FileBlobStore&&s.tenantId===nativeExportWorkspace.tenantId&&s.userId===nativeExportWorkspace.principalId){try{await nativeExportWorkspace.assertDatabase(c);result={...result,nativeOexExportProfile:'bounded-file-v1',nativePublicationProfile:'bounded-local-v1'};}catch{/* Keep the existing session usable without advertising an unavailable route. */}}if(workspaceMaterial)try{await workspaceMaterial.authorize(c,s);result={...result,workspaceMaterialProfile:'workspace-material-intake-v1'};}catch{/* No material capability when its owner binding is unavailable. */}return result;}));
+ app.get('/api/v1/auth/session',call(false,async(c,s)=>{let result:Record<string,unknown>={...s};if(nativeExportWorkspace&&store instanceof FileBlobStore&&s.tenantId===nativeExportWorkspace.tenantId&&s.userId===nativeExportWorkspace.principalId){try{await nativeExportWorkspace.assertDatabase(c);result={...result,nativeOexExportProfile:'bounded-file-v1',nativePublicationProfile:'bounded-local-v1'};}catch{/* Keep the existing session usable without advertising an unavailable route. */}}if(workspaceMaterial)try{await workspaceMaterial.authorize(c,s);result={...result,workspaceMaterialProfile:'workspace-material-intake-v1'};}catch{/* No material capability when its owner binding is unavailable. */}if(workspaceFurnishing)try{await workspaceFurnishing.authorize(c,s);result={...result,workspaceFurnishingProfile:'workspace-furnishing-intake-v1'};}catch{/* No capability when its owner binding is unavailable. */}return result;}));
  app.post('/api/v1/auth/logout',call(true,async(client,s,_req,reply)=>{
   await client.query('UPDATE auth_sessions SET revoked=true WHERE id=$1',[s.id]);
   reply.header('set-cookie',cookie('',true)); return {loggedOut:true};
  }));
  const prefix='/api/v1/tenants/:tenantId';
+ if(workspaceFurnishing){
+  if(!(workspaceFurnishing instanceof WorkspaceFurnishingIntakes)||input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||![nativeOexWorkspace,nativeExportWorkspace].some(context=>context&&workspaceFurnishing.matchesBinding(context,store)))throw Error('WORKSPACE_FURNISHING_CONFIGURATION');
+  const root=`${prefix}/workspace/furnishing-intakes`,library=`${prefix}/workspace/furnishings`,params=(req:FastifyRequest)=>req.params as {id:string;version:string};
+  const cursor=(req:FastifyRequest)=>{const q=req.query as Record<string,unknown>;if(Object.keys(q).some(k=>k!=='cursor')||q.cursor!==undefined&&typeof q.cursor!=='string')throw new ApiError(400,'INVALID_CURSOR');return q.cursor as string|undefined;};
+  const version=(req:FastifyRequest)=>{const value=params(req).version;if(value!=='1')throw new ApiError(400,'INVALID_INPUT');return 1;};
+  app.post(root,{bodyLimit:65536},call(true,async(c,s,req,reply)=>{reply.code(201);return workspaceFurnishing.create(c,s,req.body);}));
+  app.get(root,call(false,async(c,s,req)=>workspaceFurnishing.listIntakes(c,s,cursor(req))));
+  app.get(`${root}/:id`,call(false,async(c,s,req)=>workspaceFurnishing.read(c,s,params(req).id)));
+  app.put(`${root}/:id/model`,{bodyLimit:32*1024*1024},call(true,async(c,s,req)=>{if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return workspaceFurnishing.upload(c,s,params(req).id,req.body);}));
+  for(const action of ['complete','cancel','retry'] as const)app.post(`${root}/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>workspaceFurnishing[action](c,s,params(req).id)));
+  app.get(library,call(false,async(c,s,req)=>workspaceFurnishing.list(c,s,cursor(req))));
+  app.get(`${library}/:id/versions/:version`,call(false,async(c,s,req)=>workspaceFurnishing.readVersion(c,s,params(req).id,version(req))));
+  const previewRead=call(false,async(c,s,req)=>workspaceFurnishing.model(c,s,params(req).id,version(req),'display'));
+  app.get(`${library}/:id/versions/:version/model`,async(req,reply)=>{const result=await previewRead(req,reply) as {bytes:Buffer;mime:string;sha256:string};return reply.header('content-type',result.mime).header('content-length',String(result.bytes.length)).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.sha256).send(result.bytes);});
+  let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;const tick=async()=>{try{await workspaceFurnishing.work(pool);}catch{app.log.error('Workspace furnishing worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM workspace_furnishing_intakes LIMIT 0');running=tick();});app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
+ }
  if(workspaceMaterial){
   if(input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||![nativeOexWorkspace,nativeExportWorkspace].some(context=>context&&workspaceMaterial.matchesBinding(context,store)))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
   const root=`${prefix}/workspace/material-intakes`,library=`${prefix}/workspace/materials`;
