@@ -57,3 +57,7 @@ it('retires only completed ordinary PNG parser owners without detaching geometry
   const legacy=embeddedPNGManager(new LoadingManager(),imageFixture());expect(legacy.releaseEncoded()).toBe(false);expect(legacy.bytes.byteLength).toBeGreaterThan(0);legacy.dispose();
  }finally{vi.unstubAllGlobals();}
 });
+it('isolates individual cleanup failures and retires owned handlers and backing',async()=>{
+ const close=vi.fn();vi.stubGlobal('createImageBitmap',async()=>({width:2,height:2,close}));
+ try{const manager=new LoadingManager(),scope=embeddedPNGManager(manager,ordinaryThreeRoleFixture(2));const load=(n:number)=>new Promise<Texture>((resolve,reject)=>manager.getHandler(`exhibitos-embedded-png-${n}`)!.load(`exhibitos-embedded-png-${n}`,v=>resolve(v as Texture),undefined,reject));const textures=await Promise.all([load(0),load(1),load(2)]);vi.spyOn(textures[0]!,'dispose').mockImplementation(()=>{throw Error('LISTENER_FAILURE');});const second=vi.spyOn(textures[1]!,'dispose');scope.dispose();expect(second).toHaveBeenCalledOnce();expect(close).toHaveBeenCalledTimes(3);expect(scope.cleanupOK()).toBe(false);await scope.drain();scope.retire();expect(manager.getHandler('exhibitos-embedded-png-0')).toBeNull();expect(()=>scope.bytes).toThrow('EXTERNAL_RESOURCE_REJECTED');}finally{vi.unstubAllGlobals();}
+});

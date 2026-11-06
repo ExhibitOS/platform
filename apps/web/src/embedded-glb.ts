@@ -4,7 +4,7 @@ import type { LoadingManager, Texture } from 'three';
 function parsedPngBacking(manager:LoadingManager,handlers:RegExp[],owned:Set<string>,assertLoaded:()=>void,bytes:ArrayBuffer){
   let backing:ArrayBuffer|undefined=bytes;
   const reject=():never=>{throw Error('EXTERNAL_RESOURCE_REJECTED');};
-  return {get bytes():ArrayBuffer{return backing??reject();},releaseEncoded(){
+  return {get bytes():ArrayBuffer{return backing??reject();},retireBacking(){backing=undefined;},releaseEncoded(){
     // Geometry keeps its own backing. Do not detach it or close scene images.
     assertLoaded();backing=undefined;
     for(const pattern of handlers)manager.removeHandler(pattern);handlers.length=0;
@@ -21,10 +21,16 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
   const pairs=(doc:ReturnType<typeof JSON.parse>,read:(index:number)=>Uint8Array)=>{try{return embeddedBasisPairs(doc,read);}catch{return reject();}};
   const doc = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(20,20+size)));
   const compressedImages=new Map<string,Uint8Array>();
-  const owned = new Set<string>(), textures=new Set<Texture>(), bitmaps=new Set<ImageBitmap>(),handlers:RegExp[]=[];let disposed=false,phasedPng=false;
-  const dispose=()=>{if(disposed)return;disposed=true;for(const t of textures)t.dispose();textures.clear();for(const b of bitmaps)b.close();bitmaps.clear();};
+  const owned = new Set<string>(), textures=new Set<Texture>(), bitmaps=new Set<ImageBitmap>(),handlers:RegExp[]=[],pending=new Set<Promise<void>>();let disposed=false,phasedPng=false,cleanupFailed=false;
+  const attempt=(fn:()=>void)=>{try{fn();}catch{cleanupFailed=true;}};
+  const dispose=()=>{if(disposed)return;disposed=true;for(const t of textures)attempt(()=>t.dispose());textures.clear();for(const b of bitmaps)attempt(()=>b.close());bitmaps.clear();};
+  const track=()=>{let done!:()=>void;const task=new Promise<void>(resolve=>{done=resolve;});pending.add(task);return ()=>{pending.delete(task);done();};};
+  const drain=async()=>{while(pending.size)await Promise.all([...pending]);};
+  const retire=()=>{for(const pattern of handlers)manager.removeHandler(pattern);handlers.length=0;owned.clear();compressedImages.clear();manager.setURLModifier(()=>reject());};
+  const cleanupOK=()=>!cleanupFailed;
   let expectedTextures=0;const assertLoaded=()=>{if(disposed||textures.size!==expectedTextures)reject();},ownsTexture=(texture:Texture)=>textures.has(texture);
-  if (doc.images === undefined) {pairs(doc,()=>reject());manager.setURLModifier(()=>reject());return {bytes:input,dispose,assertLoaded,ownsTexture,releaseEncoded:()=>false,ktx2Loader:undefined};}
+  const legacyBacking=(value:ArrayBuffer)=>{let backing:ArrayBuffer|undefined=value;return {get bytes(){return backing??reject();},retire(){backing=undefined;retire();}};};
+  if (doc.images === undefined) {pairs(doc,()=>reject());manager.setURLModifier(()=>reject());return Object.assign(legacyBacking(input),{dispose,assertLoaded,ownsTexture,drain,cleanupOK,releaseEncoded:()=>false,ktx2Loader:undefined});}
   if (doc.images !== undefined) {
     if (!Array.isArray(doc.images) || doc.images.length > 16 || !doc.images.length || view.getUint32(24+size,true) !== 0x004e4942 || view.getUint32(20+size,true) + start !== bytes.length || doc.buffers?.length !== 1 || Object.keys(doc.buffers[0]).some(k=>k!=='byteLength') || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength<1 || doc.buffers[0].byteLength>bytes.length-start || bytes.length-start-doc.buffers[0].byteLength>3) reject();
     const basis=pairs(doc,(i)=>{const im=doc.images[i],bv=doc.bufferViews?.[im?.bufferView],o=bv?.byteOffset??0,n=bv?.byteLength;if(!bv||bv.buffer!==0||!Number.isSafeInteger(o)||o<0||!Number.isSafeInteger(n)||n<1||o+n>doc.buffers[0].byteLength)reject();return bytes.subarray(start+o,start+o+n);});
@@ -47,19 +53,21 @@ export function embeddedPNGManager(manager: LoadingManager, input: ArrayBuffer, 
       image.uri = key; delete image.bufferView;
       const loader = {
         load(_url: string,onLoad: (texture: unknown)=>void,_progress: unknown,onError: (error: unknown)=>void) {
+          if(disposed){onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}const finish=track();
           import('three').then(async three=>{
             const bitmap=await createImageBitmap(new Blob([png],{type:'image/png'}),{imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'});
-            if(disposed){bitmap.close();throw Error('EMBEDDED_IMAGE_DISPOSED');}
+            if(disposed){attempt(()=>bitmap.close());throw Error('EMBEDDED_IMAGE_DISPOSED');}
             bitmaps.add(bitmap);const texture=new three.Texture(bitmap);texture.needsUpdate=true;textures.add(texture);onLoad(texture);
-          }).catch(onError);
+          }).catch(onError).finally(finish);
         }
       };
       const pattern=new RegExp('^'+key+'$');handlers.push(pattern);manager.addHandler(pattern,loader as never);
     }
   }
-  const ktx2Loader=compressed?{load(url:string,onLoad:(texture:Texture)=>void,_progress:unknown,onError:(error:unknown)=>void){const data=compressedImages.get(url);if(!data||disposed){onError(Error('EXTERNAL_RESOURCE_REJECTED'));return;}compressed.parse(data.slice().buffer,texture=>{if(disposed){texture.dispose();onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}textures.add(texture);onLoad(texture);},onError);}}:undefined;
+  const ktx2Loader=compressed?{load(url:string,onLoad:(texture:Texture)=>void,_progress:unknown,onError:(error:unknown)=>void){const data=compressedImages.get(url);if(!data||disposed){onError(Error('EXTERNAL_RESOURCE_REJECTED'));return;}const finish=track();let ended=false;const end=()=>{if(!ended){ended=true;finish();}};try{compressed.parse(data.slice().buffer,texture=>{try{if(disposed){attempt(()=>texture.dispose());onError(Error('EMBEDDED_IMAGE_DISPOSED'));return;}textures.add(texture);onLoad(texture);}finally{end();}},error=>{try{onError(error);}finally{end();}});}catch(error){try{onError(error);}finally{end();}}}}:undefined;
   manager.setURLModifier(url=>{if(owned.has(url))return url;return reject();});
   const json=new TextEncoder().encode(JSON.stringify(doc)), padded=Math.ceil(json.length/4)*4, bin=bytes.subarray(start);if(padded>1048576||28+padded+bin.length>33554432)reject();const result=new ArrayBuffer(28+padded+bin.length), out=new Uint8Array(result), header=new DataView(result);header.setUint32(0,0x46546c67,true);header.setUint32(4,2,true);header.setUint32(8,out.length,true);header.setUint32(12,padded,true);header.setUint32(16,0x4e4f534a,true);out.fill(32,20,20+padded);out.set(json,20);header.setUint32(20+padded,bin.length,true);header.setUint32(24+padded,0x004e4942,true);out.set(bin,28+padded);
-  if(!phasedPng)return {bytes:result,dispose,assertLoaded,ownsTexture,releaseEncoded:()=>false,ktx2Loader};
-  return Object.assign(parsedPngBacking(manager,handlers,owned,assertLoaded,result),{dispose,assertLoaded,ownsTexture,ktx2Loader});
+  if(!phasedPng)return Object.assign(legacyBacking(result),{dispose,assertLoaded,ownsTexture,drain,cleanupOK,releaseEncoded:()=>false,ktx2Loader});
+  const backing=parsedPngBacking(manager,handlers,owned,assertLoaded,result);
+  return Object.assign(backing,{dispose,assertLoaded,ownsTexture,drain,retire(){backing.retireBacking();retire();},cleanupOK,ktx2Loader});
 }
