@@ -7,10 +7,10 @@ import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability,nativePackageExcludedFiles} from './package-native-runtime.mjs';
-import {WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_FURNISHING_CAPABILITY,hasWorkspaceMaterialCapability,hasWorkspaceFurnishingCapability,verifyWorkspaceMaterialMigrations} from './native-oex-normal-catalog.mjs';
+import {WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_WRITER_CAPABILITY,hasWorkspaceMaterialCapability,hasWorkspaceFurnishingCapability,hasWorkspaceFurnishingWriterCapability,verifyWorkspaceMaterialMigrations} from './native-oex-normal-catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const spec='vendor/exhibitos-spec-0.1.0-draft.18.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql',floor='database/native-oex-normal/029_oex_quiet_oak_floor.sql',concrete='database/native-oex-normal/030_oex_concrete_surface.sql';
-const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql',stage='database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',proof='database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql',wall='database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql',furnishing='database/native-workspace-furnishing/036_workspace_furnishing.sql';
+const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql',stage='database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',proof='database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql',wall='database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql',furnishing='database/native-workspace-furnishing/036_workspace_furnishing.sql',writer='database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql';
 test('candidate import schema stays outside all current packages and the v5 catalog remains valid',async()=>{
  for(const fresh of [false,true])for(const selected of [false,true]){
   const excluded=nativePackageExcludedFiles(fresh,selected);
@@ -23,7 +23,7 @@ test('candidate import schema stays outside all current packages and the v5 cata
 });
 async function fixture(){
  const temp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-oex-package-'))),source=join(temp,'source'),output=join(temp,'output');await mkdir(source);await mkdir(output);
- for(const name of [spec,migration,normal,provenance,material,floor,concrete,intake,workspaceOex,stage,proof,wall,furnishing]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
+ for(const name of [spec,migration,normal,provenance,material,floor,concrete,intake,workspaceOex,stage,proof,wall,furnishing,writer]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
  await writeFile(join(source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':`file:${spec}`}}}}));
  return {temp,source,output,tracked:new Map([['database',new Set()],['vendor',new Set()]])};
 }
@@ -40,6 +40,12 @@ test('036 packaged inventory requires explicit selection, exact bytes and the co
  await copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true,true,true,true);await mkdir(join(f.output,'scripts'));await writeNormalOexCapability(f.output,true,true,true,true,true);
  assert.deepEqual(await readFile(join(f.output,furnishing)),await readFile(join(f.source,furnishing)));const marker=join(f.output,'scripts/native-workspace-furnishing-capability-v1.json');assert.equal(await readFile(marker,'utf8'),WORKSPACE_FURNISHING_CAPABILITY);assert.equal(await hasWorkspaceFurnishingCapability(marker),true);await writeFile(marker,'changed');await assert.rejects(hasWorkspaceFurnishingCapability(marker),/NATIVE_OEX_CATALOG/);
  await writeFile(join(f.source,furnishing),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'other'),f.tracked,true,true,true,true,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
+}finally{await rm(f.temp,{recursive:true,force:true});}});
+
+test('037 writer inventory requires explicit 036 parent and exact schema and marker bytes',async()=>{const f=await fixture();try{
+ await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);await assert.rejects(writeNormalOexCapability(f.output,true,true,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);
+ await copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true,true,true,true,true);await mkdir(join(f.output,'scripts'));await writeNormalOexCapability(f.output,true,true,true,true,true,true);
+ assert.deepEqual(await readFile(join(f.output,writer)),await readFile(join(f.source,writer)));const marker=join(f.output,'scripts/native-workspace-furnishing-writer-capability-v1.json');assert.equal(await readFile(marker,'utf8'),WORKSPACE_FURNISHING_WRITER_CAPABILITY);assert.equal(await hasWorkspaceFurnishingWriterCapability(marker),true);const value=JSON.parse(WORKSPACE_FURNISHING_WRITER_CAPABILITY);assert.equal(value.parentCapabilitySHA256,createHash('sha256').update(WORKSPACE_FURNISHING_CAPABILITY).digest('hex'));assert.equal(value.schemaSHA256,createHash('sha256').update(await readFile(join(f.source,writer))).digest('hex'));await writeFile(marker,'changed');await assert.rejects(hasWorkspaceFurnishingWriterCapability(marker),/NATIVE_OEX_CATALOG/);await writeFile(join(f.source,writer),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'other'),f.tracked,true,true,true,true,true,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
 }finally{await rm(f.temp,{recursive:true,force:true});}});
 test('rejects changed or symlinked input and verifies already-copied tracked output',async()=>{
  const f=await fixture();try{
