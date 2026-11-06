@@ -157,7 +157,7 @@ type SettlementState={binding:DiskReservationBinding;claimDigest:string;verifyLi
 const authorities=new WeakMap<object,SettlementState>();
 const canonicalSettlement=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
 type V3Save={exhibitionId:string;etag:string;requestId:string};
-type V3AuthorityState={bindings:DiskReservationBinding[];claimDigest:string;verifyLive:()=>Promise<void>;assertCommitted:()=>Promise<void>;drainGuard:()=>Promise<void>;signal:AbortSignal;channel:Channel;frame:Record<string,unknown>;consumed:boolean;retirementRecorded:boolean;receiptStarted:boolean;receiptAcknowledged:boolean};
+type V3AuthorityState={bindings:DiskReservationBinding[];claimDigest:string;jobId:string;verifyLive:()=>Promise<void>;assertCommitted:()=>Promise<void>;drainGuard:()=>Promise<void>;signal:AbortSignal;channel:Channel;frame:Record<string,unknown>;consumed:boolean;retirementRecorded:boolean;receiptStarted:boolean;receiptAcknowledged:boolean};
 const v3Authorities=new WeakMap<object,V3AuthorityState>();
 export type SelectedV3SettlementAuthority=Readonly<{readonly __selectedV3Settlement:unique symbol}>;
 /** Issued only on the original confirmed v3 channel after real local drain,
@@ -177,7 +177,7 @@ export async function requestSelectedV3Settlement(bound:Awaited<ReturnType<typeo
   const frame={version:1,kind:'settle-check-v3',correlationId:randomUUID(),operationCorrelationId:f.correlationId,attemptId:f.attemptId,runtimeGeneration:f.runtimeGeneration,generation:r.generation,stageId:f.stageId,reportSha256:f.reportSha256,inputReservationId:f.inputReservationId,inputReservationGeneration:f.inputReservationGeneration,inputReceiptDigest:f.inputReceiptDigest,outputReservationId:f.outputReservationId,outputReservationGeneration:f.outputReservationGeneration,outputReceiptDigest:f.outputReceiptDigest,exhibitionId:save.exhibitionId,etag:save.etag,requestId:save.requestId};
   signal.throwIfAborted();await channel.send(Buffer.from(JSON.stringify(frame)));const raw=await channel.receive(120000);if(!(raw instanceof Uint8Array)||raw.byteLength<1||raw.byteLength>8192||new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(raw)!==JSON.stringify({...frame,kind:'settle-ready-v3'}))throw Error('OEX_V3_SETTLEMENT');
   await state.verifyCommittedPreflight();await drain();await checkCommit();signal.throwIfAborted();const authority=Object.freeze({}) as SelectedV3SettlementAuthority;
-  v3Authorities.set(authority,{bindings:structuredClone(bindings),claimDigest:bound.handle.digest,verifyLive:state.verifyLive,assertCommitted:checkCommit,drainGuard:drain,signal,channel,frame,consumed:false,retirementRecorded:false,receiptStarted:false,receiptAcknowledged:false});return authority;
+  v3Authorities.set(authority,{bindings:structuredClone(bindings),claimDigest:bound.handle.digest,jobId:state.jobId,verifyLive:state.verifyLive,assertCommitted:checkCommit,drainGuard:drain,signal,channel,frame,consumed:false,retirementRecorded:false,receiptStarted:false,receiptAcknowledged:false});return authority;
  }catch(error){await channel.close().catch(()=>{});throw error;}finally{signal.removeEventListener('abort',abort);}
 }
 export async function verifySelectedV3Settlement(authority:SelectedV3SettlementAuthority,bindings:DiskReservationBinding[],claimDigest:string,save:V3Save){
@@ -201,6 +201,12 @@ export async function finishSelectedV3Settlement(authority:SelectedV3SettlementA
 }
 export async function finalizeSelectedV3Authority(authority:SelectedV3SettlementAuthority,claimDigest:string){
  const state=v3Authorities.get(authority);if(!state||!state.receiptAcknowledged||state.claimDigest!==claimDigest)throw Error('OEX_V3_SETTLEMENT');await revalidateSelectedV3Settlement(authority);
+}
+/** Bind workspace finalization to the original owner-claim job and the exact
+ * acknowledged saved outcome; this remains a live, one-use authority. */
+export async function verifySelectedWorkspaceV3Authority(authority:SelectedV3SettlementAuthority,claimDigest:string,jobId:string,save:V3Save){
+ const state=v3Authorities.get(authority);if(!state||state.jobId!==jobId||state.frame.exhibitionId!==save.exhibitionId||state.frame.etag!==save.etag||state.frame.requestId!==save.requestId)throw Error('OEX_V3_SETTLEMENT');
+ await finalizeSelectedV3Authority(authority,claimDigest);
 }
 export function forgetSelectedV3Authority(authority:SelectedV3SettlementAuthority){v3Authorities.delete(authority);}
 export type SelectedSettlementAuthority=Readonly<{readonly __selectedSettlement:unique symbol}>;
