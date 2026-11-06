@@ -1,3 +1,4 @@
+import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
 import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
@@ -48,7 +49,6 @@ import {installBenches} from './bench-renderer';
 import {benchesFor} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
-import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
@@ -1498,14 +1498,14 @@ export function GeometryPreview({
         reserveDecode?: (bytes:ArrayBuffer)=>void,
         stage?: (value:string)=>void,
         imageBudget = viewerBudget,
-        onCleanImageFailure?:()=>void,
+        onCleanDecodeFailure?:()=>void,
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
         const bytes=await readArtworkBytes(artwork,inventory,signal);
         stage?.('verified-download');
         reserveDecode?.(bytes!);
         stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
-        const resources: Array<{ dispose: () => void }> = [];
+        const resources: Array<{ dispose: () => void }> = [];let glbMayOwnAsync=false;
         try {
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0,decodeBackingReleased=false;
@@ -1535,10 +1535,9 @@ export function GeometryPreview({
             object = new three.Mesh(geometry, material);
             decodeBackingReleased=true;
           } else {
-            const { GLTFLoader } =
-              await import("three/addons/loaders/GLTFLoader.js");
+            const {GLTFLoader,basis}=await prepareArtworkGlb(renderer,bytes!,signal,value=>{glbMayOwnAsync=value;});
             const manager = new three.LoadingManager();
-            const basis=await basisLoader(renderer,bytes!);if(basis)resources.push(basis);
+            if(basis)resources.push(basis);
             if(disposed||signal.aborted){basis?.dispose();throw new DOMException('Aborted','AbortError');}
             const protectedBytes = embeddedPNGManager(manager, bytes!,basis);
             resources.push(protectedBytes);
@@ -1547,7 +1546,7 @@ export function GeometryPreview({
             const backing=retainEncodedBuffer(byteCache,inventory.id,protectedBytes.bytes);
             resources.push(backing);retainedModelBytes=backing.retainedBytes;
             const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
-            let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
+            glbMayOwnAsync=true;let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
                 resources.push(node.geometry);
@@ -1638,7 +1637,7 @@ export function GeometryPreview({
           return object;
         } catch (error) {
           let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
-          if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&artwork.artworkType==='image')onCleanImageFailure?.();
+          if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&(artwork.artworkType==='image'||!glbMayOwnAsync))onCleanDecodeFailure?.();
           throw error;
         }
       };
@@ -1678,7 +1677,7 @@ export function GeometryPreview({
             const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);if(!inventory)throw Error('WORKSPACE_SCENE_BUDGET');
             const key=`owner-preview-art:${crypto.randomUUID()}`;let decodeReserve=0;const hold=owner?new OwnerArtworkHold(owner.ledger,key,inventory.bytes*4+1024*1024):undefined;
             try{
-              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{decodeReserve=assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!.budget,bytes)+1024*1024;hold!.reserveDecode(decodeReserve);}:undefined,undefined,ownerWorkspaceFurnishings?.budget,()=>hold?.markCleanImageFailure());
+              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{decodeReserve=assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!.budget,bytes)+1024*1024;hold!.reserveDecode(decodeReserve);}:undefined,undefined,ownerWorkspaceFurnishings?.budget,()=>hold?.markCleanFailure());
               const resources=decodedResources.get(object)??[];decodedResources.delete(object);let unreserve:()=>void;
               try{if(owner){const actual=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(actual)||actual<0)throw Error('WORKSPACE_SCENE_BUDGET');owner.ledger.reserve(key,Math.max(decodeReserve,actual+1024*1024));}unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed)hold?.release();throw error;}
               let released=false;return {object,release:()=>{if(released)return;released=true;let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed){unreserve();hold?.release();}}};
