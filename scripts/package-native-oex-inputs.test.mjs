@@ -15,6 +15,7 @@ test('candidate import schema stays outside all current packages and the v5 cata
  for(const fresh of [false,true])for(const selected of [false,true]){
   const excluded=nativePackageExcludedFiles(fresh,selected);
   assert.ok(excluded.has('database/native-oex-workspace-import/033_workspace_material_import_provenance.sql'));
+  assert.ok(excluded.has('database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql'));
   assert.ok(excluded.has(intake));assert.ok(excluded.has(workspaceOex));
   assert.equal(excluded.has(migration),!fresh);assert.equal(excluded.has(normal),!selected);
  }
