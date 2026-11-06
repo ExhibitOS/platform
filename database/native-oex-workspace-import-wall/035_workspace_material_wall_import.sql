@@ -19,7 +19,7 @@ BEGIN
    AND j.result->'idMap'->>NEW.source_material_id::text=NEW.material_id::text
    AND v.descriptor->>'id'=NEW.material_id::text AND (v.descriptor->>'version')::integer=NEW.material_version
    AND v.descriptor->>'kind' IN ('floor','wall') AND jsonb_typeof(v.descriptor->'maps')='object'
-   AND v.descriptor #>> '{rights,permissions,display}'='true' AND v.descriptor #>> '{rights,permissions,export}'='true'
+   AND v.descriptor #> '{rights,permissions,display}'='true'::jsonb AND v.descriptor #> '{rights,permissions,export}'='true'::jsonb
    AND EXISTS (SELECT 1 FROM jsonb_array_elements(er.snapshot #> '{candidate,extensions,org.exhibitos.studio/workspace-materials,bindings}') b
      JOIN LATERAL jsonb_array_elements(er.snapshot #> '{candidate,surfaces}') s ON s->>'id'=b->>'surfaceId'
      WHERE b->>'materialId'=NEW.material_id::text AND (b->>'materialVersion')::integer=NEW.material_version AND s->>'type'=v.descriptor->>'kind')
