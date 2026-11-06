@@ -2,6 +2,14 @@
 
 The first public deployment uses Cloudflare Pages for the approved static exhibition and optional Render Node API/Realtime with Render Postgres. Ubuntu and Railway deployment remain preserved development work, outside the first-release requirement. Capture and final Mac Processing roles are unchanged.
 
+The reference demo build writes its Viewer and cover companion to
+`apps/web/dist-reference-demo-static` and `apps/web/dist-reference-demo-cover`.
+The native runtime producer continues to use `dist-static` and
+`dist-cover-shell`; the exporter selects only these two fixed companion
+locations. This separates build outputs, not their shared source dependencies
+or deployment triggers. Approved publication and previous-copy pins remain
+inputs to the reference demo build.
+
 ## Manager flow
 
 Choose static only or static with dynamic services, connect each provider using its own masked token, select an account/workspace and approved exhibition export, then deploy and open the observed public URL. Static only needs no Render account, database or API address. Credentials and deployment recovery references remain in macOS Keychain; disconnecting removes the local connection and does not delete remote resources. The current implementation accepts the existing approved static export folder through the native picker. Automatic export selection from the local CMS catalog is not yet connected.

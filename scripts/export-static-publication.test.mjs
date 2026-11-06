@@ -9,6 +9,10 @@ import { randomUUID,createHash } from "node:crypto";
 import {deflateSync} from "node:zlib";
 import { fixtureURL,readOex,revisionHash } from "@exhibitos/spec";
 import { exportStaticPublication,exportStaticStudioDemo,safeStaticPath,assertStaticBudget,staticCoverShell } from "./export-static-publication.mjs";
+
+test('rejects an arbitrary cover companion before fetching or writing',async()=>{
+ let fetched=false;await assert.rejects(exportStaticPublication({coverCompanion:'../external',fetcher:async()=>{fetched=true;}}),/STATIC_COVER_COMPANION/);assert.equal(fetched,false);
+});
 import {FLOOR_TEXTURE_FILES,FLOOR_TEXTURE_PACKS,floorTextureFiles,floorTextureNotice,furnishingCatalogueEntry,applyBenchCommand,applyFurnishingCommand,furnishingsFor} from '@exhibitos/studio-contract';
 import {SURFACE_MATERIAL_FILES,SURFACE_MATERIAL_PACKS} from '@exhibitos/spec/surface-material-resources';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
