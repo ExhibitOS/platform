@@ -78,6 +78,7 @@ BEGIN
    AND jsonb_typeof(v.object_keys)='object' AND (SELECT count(*) FROM jsonb_object_keys(v.object_keys))=1
    AND stage.user_id=NEW.user_id AND stage.lease_id=NEW.lease_id AND stage.object_key=v.object_keys->>'color'
    AND stage.sha256=v.descriptor #>> '{maps,color,sha256}' AND stage.bytes=(v.descriptor #>> '{maps,color,bytes}')::integer
+   AND j.cleanup_keys @> jsonb_build_array(stage.object_key)
    -- Stage rows must have committed before this attachment transaction.
    AND stage.stage_txid<>pg_current_xact_id()
    AND EXISTS (SELECT 1 FROM jsonb_array_elements(er.snapshot #> '{candidate,extensions,org.exhibitos.studio/workspace-materials,materials}') m WHERE m=v.descriptor)
