@@ -3,7 +3,7 @@ import type {Artwork} from '@exhibitos/spec';
 import {artworkDisplayPolicy,LOD_NAMESPACE,validateViewerLod} from '@exhibitos/studio-contract';
 import {sha256} from '@exhibitos/storage';
 import {APPROVED_DEMO_DISPLAY_FILES} from './approved-demo-display-files.ts';
-import {ApiError} from './auth.ts';
+import {ApiError} from './api-error.ts';
 import {allowedRights} from './rights.ts';
 /** Optional exact-file additions to the same Docs-owned immutable manifest.
  * Existing records keep their original 2 MP admission and primary-only approval. */

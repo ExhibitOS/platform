@@ -35,9 +35,17 @@ export async function staticFixture(){
  let reads=0;const fetcher=async url=>{const path=new URL(url).pathname;if(path===`/api/v1/publications/${id}`){reads++;return Response.json(raw);}const asset=decoded.manifest.assets.find(a=>path===`/api/v1/publications/${id}/assets/${a.id}`);if(!asset)return new Response(null,{status:404});return new Response(decoded.files.get(asset.path),{headers:{"content-type":asset.mime,"x-exhibitos-publication-revision":raw.publication.revisionSha256}});};
  return {decoded,raw,id,fetcher,get reads(){return reads;}};
 }
+test('public export cover validation runs its own worker and rejects corrupted PNG bytes',async()=>{
+ const {decoded}=await staticFixture(),image=decoded.manifest.assets.find(asset=>asset.mime==='image/png'),bytes=decoded.files.get(image.path);
+ const {validateCoverImage}=await import('../apps/api/dist-public-export/cover-validation.js');
+ await validateCoverImage(bytes);
+ const corrupted=Buffer.from(bytes);corrupted[corrupted.length-8]^=1;
+ await assert.rejects(validateCoverImage(corrupted),/FORMAT_REJECTED/);
+});
 async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
-test('selected furnishing model and notice survive static and Pages roundtrip with fail-closed integrity',async t=>{
+for(const contract of ['native','reference-demo'])test(`${contract}: selected furnishing model and notice survive static and Pages roundtrip with fail-closed integrity`,async t=>{
  const {fixture,options,directory}=await setup(t),room=fixture.raw.exhibition.rooms[0],id=randomUUID(),viewpointId=randomUUID(),catalog=furnishingCatalogueEntry('backless-oak-bench'),{min,max}=catalog.bounds;
+ options.coverCompanion=contract;
  const bench={id,name:'bench',roomId:room.id,position:[0,0,0],yaw:0,kind:'slab',dimensions:{width:max[0]-min[0],depth:max[2]-min[2],height:.45},material:{preset:'wood',color:'#755741',roughness:.7,metalness:0},viewpointId};
  fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.viewer/footstep-resources':{version:1,families:['wood']}};
  const base=applyBenchCommand(fixture.raw.exhibition,{type:'add-bench',bench,viewpoint:{id:viewpointId,name:'seat',roomId:room.id,position:[0,1.15,0],target:[0,1.15,-2],fov:50}}),doc=applyFurnishingCommand(base,{type:'set-furnishing-visual',hostKind:'bench',hostId:id,catalogId:'backless-oak-bench',catalogVersion:1,pose:{position:[0,0,0],yaw:0,scale:1}}),asset=furnishingsFor(doc).assets[0];
@@ -45,7 +53,7 @@ test('selected furnishing model and notice survive static and Pages roundtrip wi
  const steps=footstepResourcesFor(doc);fixture.raw.resources=steps.map(item=>({sha256:item.sha256,bytes:item.bytes,mime:item.mime,url:`/api/v1/publications/${fixture.id}/resources/${item.sha256}`}));
  const fetcher=options.fetcher;options.fetcher=async(input,init)=>{const path=new URL(input).pathname;if(path.endsWith(`/furnishing-notices/${asset.id}`))return new Response(notice,{headers:{'content-type':'text/plain; charset=utf-8','x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256}});const step=steps.find(v=>path.endsWith(`/resources/${v.sha256}`));if(step)return new Response(await readFile(new URL('../apps/web/public/'+step.artifactPath,import.meta.url)),{headers:{'content-type':step.mime,'x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256}});return fetcher(input,init);};
  const result=await exportStaticPublication(options),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json')));assert.equal(index.version,3);assert.equal(index.furnishingNotices.length,1);
- const source=createPagesPublicationSource({origin:'https://synthetic.pages.dev',publicationId:fixture.id,revisionSha256:result.revisionSha256,indexSha256:result.indexSha256,fetch:async url=>{try{return new Response(await readFile(join(result.output,url.pathname)));}catch{return new Response(null,{status:404});}}});
+ const source=createPagesPublicationSource({contract,origin:'https://synthetic.pages.dev',publicationId:fixture.id,revisionSha256:result.revisionSha256,indexSha256:result.indexSha256,fetch:async url=>{try{return new Response(await readFile(join(result.output,url.pathname)));}catch{return new Response(null,{status:404});}}});
  assert.deepEqual((await source.asset(fixture.id,asset.id)).bytes,model);assert.deepEqual((await source.furnishingNotice(fixture.id,asset.id)).bytes,notice);assert.equal(sha((await source.resource(fixture.id,steps[0].sha256)).bytes),steps[0].sha256);await assert.rejects(source.furnishingNotice(fixture.id,randomUUID()),/PAGES_PUBLICATION_UNAVAILABLE/);
  const bad=options.fetcher;options.fetcher=async(input,init)=>new URL(input).pathname.includes('/furnishing-notices/')?new Response(Buffer.alloc(notice.length),{headers:{'content-type':'text/plain','x-exhibitos-publication-revision':fixture.raw.publication.revisionSha256}}):bad(input,init);await assert.rejects(exportStaticPublication({...options,output:join(directory,'bad-notice')}),/STATIC_FURNISHING_HASH/);
 });
@@ -71,12 +79,13 @@ test('selected footsteps export exact versioned resources and remain publication
  raw.resources[0].sha256='0'.repeat(64);await assert.rejects(exportStaticPublication({...options,output:join(directory,'bad')}),/STATIC_RESOURCE_INVENTORY/);
 });
 test("published public projection exports exact synthetic GLB PNG audio and bound revision, excluding private fields",async t=>{const {fixture,options}=await setup(t),result=await exportStaticPublication(options);assert.equal(fixture.reads,2);const indexBytes=await readFile(join(result.output,"static-publication-index.json")),index=JSON.parse(indexBytes);assert.equal(sha(indexBytes),result.indexSha256);assert.match(await readFile(join(result.output,"index.html"),"utf8"),new RegExp(result.indexSha256));const publication=await readFile(join(result.output,index.publication.path),"utf8");assert(!publication.includes("must-never-export"));for(const entry of index.assets){const bytes=await readFile(join(result.output,entry.path));assert.equal(sha(bytes),entry.sha256);assert.deepEqual(bytes,fixture.decoded.files.get(fixture.decoded.manifest.assets.find(a=>a.id===entry.assetId).path));}const manifest=JSON.parse(await readFile(join(result.output,"static-export-manifest.json")));assert.equal(manifest.format,"exhibitos-static-publication-v1");assert.equal(sha(await readFile(join(result.output,"static-export-manifest.json"))),result.manifestSha256);assert.equal(manifest.files.length+1,result.files);for(const f of manifest.files){const b=await readFile(join(result.output,f.path));assert.equal(sha(b),f.sha256);assert.equal(b.length,f.bytes);}assert.equal(index.assets.length,3);await assert.rejects(exportStaticPublication(options),/STATIC_OUTPUT_EXISTS/);});
-test('source-bound cover descriptor survives exact static inventory and changes abort export',async t=>{
+for(const contract of ['native','reference-demo'])test(`${contract}: source-bound cover descriptor survives exact static inventory and changes abort export`,async t=>{
  const {fixture,options,directory}=await setup(t),{raw,id,decoded}=fixture,art=raw.exhibition.artworks.find(a=>a.artworkType==='image'),primary=art.assets.find(a=>a.id===art.primaryAssetId),coarseId=randomUUID();
+ options.coverCompanion=contract;
  const crc=data=>{let x=0xffffffff;for(const b of data){x^=b;for(let i=0;i<8;i++)x=(x>>>1)^((x&1)?0xedb88320:0);}return(x^0xffffffff)>>>0;};
  const chunk=(name,body)=>{const h=Buffer.alloc(8),tail=Buffer.alloc(4);h.writeUInt32BE(body.length);h.write(name,4);tail.writeUInt32BE(crc(Buffer.concat([h.subarray(4),body])));return Buffer.concat([h,body,tail]);};
  const png=(w,h)=>{const head=Buffer.alloc(13),pixels=Buffer.alloc((w*3+1)*h);head.writeUInt32BE(w);head.writeUInt32BE(h,4);head[8]=8;head[9]=2;for(let y=0;y<h;y++)for(let x=0;x<w;x++)pixels.set([x*7%256,y*7%256,(x+y)*7%256],y*(w*3+1)+1+x*3);return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',head),chunk('IDAT',deflateSync(pixels)),chunk('IEND',Buffer.alloc(0))]);};
- const full=png(1024,512),{viewerVariants}=await import('../apps/api/dist/viewer-variants.js'),generated=await viewerVariants(full,'image/png'),small=generated.bytes,coarsePath=`assets/${coarseId}/image.png`;assert(small&&small.length<full.length);
+ const full=png(1024,512),{viewerVariants}=await import(contract==='native'?'../apps/api/dist/viewer-variants.js':'../apps/api/dist-public-export/viewer-variants.js'),generated=await viewerVariants(full,'image/png'),small=generated.bytes,coarsePath=`assets/${coarseId}/image.png`;assert(small&&small.length<full.length);
  Object.assign(primary,{bytes:full.length,sha256:sha(full)});decoded.files.set('assets/'+primary.path,full);
  const coarse={id:coarseId,path:coarsePath,role:'image',mime:'image/png',bytes:small.length,sha256:sha(small)};art.assets.push(coarse);art.extensions={...art.extensions,'org.exhibitos.viewer/lod':{version:1,variants:[{assetId:primary.id,detail:'full',textureSize:1024},{assetId:coarseId,detail:'coarse',textureSize:512}]}};decoded.manifest.assets.push({id:coarseId,path:'assets/'+coarsePath,mime:'image/png'});decoded.files.set('assets/'+coarsePath,small);raw.assets.push({assetId:coarseId,mime:'image/png',url:`/api/v1/publications/${id}/assets/${coarseId}`});
  raw.exhibition.extensions={...raw.exhibition.extensions,'org.exhibitos.viewer/entrance':{version:1,artist:'Synthetic',introduction:'',imageAssetId:primary.id,imageAlt:'Synthetic test',mobilePosition:'center'}};raw.publication.revisionSha256=revisionHash(raw.exhibition);
@@ -110,6 +119,14 @@ test("Pages per-file and file-count bounds report exact filename without reducti
 test("paths and local API origin reject traversal, credentials and remote endpoints",async t=>{for(const path of ["../x","a/../x","a\\b","a//b","/x",".env","con.txt","a/x."])assert.equal(safeStaticPath(path),false,path);const {options}=await setup(t);for(const origin of ["https://example.com","http://user:pass@127.0.0.1","http://127.0.0.1/path"])await assert.rejects(exportStaticPublication({...options,origin}),/STATIC_LOCAL_ORIGIN/);});
 
 test("known display rights expiry is retained and enforced before static export",async t=>{const {fixture,options}=await setup(t);fixture.raw.exhibition.artworks[0].rights.expiresAt="2026-01-01T00:00:00.000Z";fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);await assert.rejects(exportStaticPublication(options),/STATIC_DISPLAY_RIGHTS/);await assert.rejects(lstat(options.output),{code:"ENOENT"});});
+test('reference demo rejects expired rights and corrupt asset bytes without publishing',async t=>{
+ const {fixture,options,directory}=await setup(t);options.coverCompanion='reference-demo';
+ fixture.raw.exhibition.artworks[0].rights.expiresAt='2026-01-01T00:00:00.000Z';fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ await assert.rejects(exportStaticPublication(options),/STATIC_DISPLAY_RIGHTS/);await assert.rejects(lstat(options.output),{code:'ENOENT'});
+ delete fixture.raw.exhibition.artworks[0].rights.expiresAt;fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);
+ const fetcher=options.fetcher;options.fetcher=async(...args)=>{const response=await fetcher(...args);if(!new URL(args[0]).pathname.includes('/assets/'))return response;const bytes=Buffer.from(await response.arrayBuffer());bytes[bytes.length-1]^=1;return new Response(bytes,{headers:response.headers});};
+ await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt')}),/STATIC_ASSET_HASH/);await assert.rejects(lstat(join(directory,'corrupt')),{code:'ENOENT'});
+});
 
 test("explicit demo exports only the fixed CC0 sample and separate Studio entry",async t=>{
  const {runtime,options,fixture,directory}=await setup(t);
@@ -317,8 +334,8 @@ async function isolatedBenchExporter(t){
  // must never rename or modify the shared catalogue or another checkout.
  const code=join(state.directory,'trusted-code'),api=join(code,'apps/api/dist');await mkdir(api,{recursive:true});await mkdir(join(code,'scripts'));
  await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
- for(const name of ['oex.js','cover-images.js','auth.js','approved-cover-projection.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
- await copyFile(new URL('../apps/api/dist/furnishings.js',import.meta.url),join(api,'furnishings.js'));
+ for(const name of ['oex-profile.js','cover-validation.js','api-error.js','approved-cover-projection.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
+ await copyFile(new URL('../apps/api/dist/furnishing-assets.js',import.meta.url),join(api,'furnishing-assets.js'));
  const web=join(code,'apps/web/src');await mkdir(web,{recursive:true});await copyFile(new URL('../apps/web/src/cover-variant-descriptor.mjs',import.meta.url),join(web,'cover-variant-descriptor.mjs'));
  await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
  const entry=furnishingCatalogueEntry('backless-oak-bench');

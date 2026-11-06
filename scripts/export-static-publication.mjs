@@ -6,14 +6,11 @@ import { resolve,dirname,join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { fixtureURL,readOex,revisionHash,validateArtworkFiles,validateExhibition,packageFurnishingNoticeManifest } from "@exhibitos/spec";
-import { checkOexProfile } from "../apps/api/dist/oex.js";
-import {validateCoverImage} from '../apps/api/dist/cover-images.js';
 import {FLOOR_TEXTURE_PACKS,FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTextureNotice,furnishingAsset,furnishingCatalogueEntry,furnishingsFor,validateFurnishings,artworkThumbnailFor,ARTWORK_THUMBNAIL_NAMESPACE} from '@exhibitos/studio-contract';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {footstepResourcesFor,FOOTSTEP_SAMPLES,FOOTSTEP_NOTICES} from '@exhibitos/spec/footstep-resources';
 import {SURFACE_MATERIAL_PACKS,SURFACE_MATERIAL_FILES,packageSurfaceMaterialManifest} from '@exhibitos/spec/surface-material-resources';
 import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
-import {coverProjectionFromVerifiedSource} from '../apps/api/dist/approved-cover-projection.js';
 /** Inert public text only; actionable entry waits for verified index/document data. */
 export function staticCoverShell(title,artist="",introduction="",hasImage=false,unfold=true,ratio=4/3){
  const escape=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -31,6 +28,8 @@ async function bounded(response,limit,name){if(!response.ok||!response.body)fail
 /** Only the public, already-published API projection is accepted; no database or private source reads. */
 export async function exportStaticPublication({origin,publicationId,runtimeRoot,output,fetcher=fetch,studioDemo=false,privateEditor=false,coverCompanion='native'}){
  if(coverCompanion!=='native'&&coverCompanion!=='reference-demo')fail('STATIC_COVER_COMPANION','coverCompanion');
+ const [profile,cover,projection]=await (coverCompanion==='reference-demo'?Promise.all([import('../apps/api/dist-public-export/oex-profile.js'),import('../apps/api/dist-public-export/cover-validation.js'),import('../apps/api/dist-public-export/approved-cover-projection.js')]):Promise.all([import('../apps/api/dist/oex-profile.js'),import('../apps/api/dist/cover-validation.js'),import('../apps/api/dist/approved-cover-projection.js')]));
+ const {checkPublicOexProfile:checkOexProfile}=profile,{validateCoverImage}=cover,{coverProjectionFromVerifiedSource}=projection;
  let url;try{url=new URL(origin);}catch{fail("STATIC_LOCAL_ORIGIN","origin");}if(!["http:","https:"].includes(url.protocol)||!["localhost","127.0.0.1","[::1]"].includes(url.hostname)||url.username||url.password||url.pathname!=="/"||url.search||url.hash)fail("STATIC_LOCAL_ORIGIN","origin");
  if(!uuid.test(publicationId))fail("STATIC_PUBLICATION_ID",publicationId);
  const request=path=>fetcher(new URL(path===`/api/v1/publications/${publicationId}`?path+'?footsteps=1':path,url),{credentials:"omit",redirect:"error",signal:AbortSignal.timeout(30000)});
@@ -150,7 +149,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  if(privateEditor)try{
   const id='backless-oak-bench',entry=furnishingCatalogueEntry(id);
   if(entry.rights.licenseId==='CC0-1.0'){
-   const asset=furnishingAsset(publicationId,id),{readFurnishingBytes}=await import('../apps/api/dist/furnishings.js');
+   const asset=furnishingAsset(publicationId,id),{readFurnishingBytes}=await (coverCompanion==='reference-demo'?import('../apps/api/dist-public-export/furnishing-assets.js'):import('../apps/api/dist/furnishing-assets.js'));
    const model=await readFurnishingBytes(asset,'model'),notice=await readFurnishingBytes(asset,'notice');
    benchFiles=[['furnish-catalog/backless-oak-bench/1/model.glb',model],['furnish-catalog/backless-oak-bench/1/LICENSE-NOTICE.txt',notice]];
   }

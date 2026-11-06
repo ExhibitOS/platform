@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": { "outDir": "dist-public-export" },
+  "include": [
+    "src/gltf-validator.d.ts",
+    "src/oex-profile.ts",
+    "src/cover-validation.ts",
+    "src/approved-cover-projection.ts",
+    "src/furnishing-assets.ts",
+    "src/validation-worker.ts",
+    "src/viewer-variant-worker.ts"
+  ],
+  "exclude": ["src/**/*.test.ts"]
+}
