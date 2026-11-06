@@ -13,13 +13,15 @@ export function assertWorkspaceFurnishingRuntimeAdmission(mode){
  if(['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(mode))throw Error('WORKSPACE_FURNISHING_RUNTIME_UNAVAILABLE');
 }
 
-export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,writer,channel}){
+export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,writer,channel,ordinaryAdmission}){
  if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+ if(ordinaryAdmission!==undefined&&(!['fresh-empty','clean-reopen','verified-restore'].includes(ordinaryAdmission)||(ordinaryAdmission==='fresh-empty')!==(mode==='workspace-furnishing-036-initialize-v1')))throw Error('FURNISHING_ADMISSION_INVALID');
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  const writerOptions=writerDirectory?{workspaceFurnishingWriterDirectory:writerDirectory}:{};
  await c.query('SELECT pg_advisory_xact_lock(82001)');
  const occupied=(await c.query("SELECT EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname<>'information_schema' AND (n.nspname<>'public' OR EXISTS(SELECT 1 FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m','S','f')) OR EXISTS(SELECT 1 FROM pg_proc p WHERE p.pronamespace=n.oid) OR EXISTS(SELECT 1 FROM pg_type t WHERE t.typnamespace=n.oid AND t.typtype IN ('e','d','c')))) AS occupied")).rows[0]?.occupied;
  if(occupied!==false){
+  if(ordinaryAdmission==='fresh-empty')throw Error('FRESH_DATABASE_OCCUPIED');
   if(occupied!==true||(await c.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name==null)throw Error('FRESH_DATABASE_OCCUPIED');
   const rows=(await c.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
   if(rows.length!==(writerDirectory?37:36)||!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');

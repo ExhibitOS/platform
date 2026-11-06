@@ -28,14 +28,15 @@ export function validateLocalWorkspace(value: unknown, runtimeMode: string | und
   return v;
 }
 
-export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true;beforeCommit?:()=>void|Promise<void>}) {
+export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true;beforeCommit?:()=>void|Promise<void>;furnishingExclusive?:true}) {
   const v = validateLocalWorkspace(input, runtimeMode);
-  if(options!==undefined&&(options.isolation!=='read committed'||Object.keys(options).some(key=>!['isolation','requireExisting','beforeCommit'].includes(key))||options.requireExisting!==undefined&&options.requireExisting!==true||options.beforeCommit!==undefined&&typeof options.beforeCommit!=='function'))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
+  if(options!==undefined&&(options.isolation!=='read committed'||Object.keys(options).some(key=>!['isolation','requireExisting','beforeCommit','furnishingExclusive'].includes(key))||options.requireExisting!==undefined&&options.requireExisting!==true||options.beforeCommit!==undefined&&typeof options.beforeCommit!=='function'||options.furnishingExclusive!==undefined&&(options.furnishingExclusive!==true||!beforeOpen||!options.beforeCommit)))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
   return transaction(pool, async c => {
     if(options)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
     await c.query('SELECT pg_advisory_xact_lock(82003)');
-    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+    await c.query(options?.furnishingExclusive?'SELECT pg_advisory_xact_lock(82002)':'SELECT pg_advisory_xact_lock_shared(82002)');
     const preflight=beforeOpen?await beforeOpen(c):undefined;
+    if(options?.furnishingExclusive){const pending=await c.query('SELECT EXISTS (SELECT 1 FROM workspace_furnishing_intakes WHERE worker_token IS NOT NULL) AS pending');if(pending.rows[0]?.pending!==false)throw new ApiError(409,'FURNISHING_RECOVERY_UNAVAILABLE');}
     const existing = await c.query('SELECT * FROM local_workspaces WHERE id=$1 FOR UPDATE', [v.workspaceId]);
     if (!existing.rowCount) {
       if(options?.requireExisting||preflight?.requireExisting)throw new ApiError(409,'LOCAL_WORKSPACE_OWNER_UNAVAILABLE');

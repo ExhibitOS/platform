@@ -31,4 +31,14 @@ describe.skipIf(!mac)('private local workspace opening',()=>{
   await expect(openLocalWorkspace(pool,input,'native',undefined,{isolation:'read committed',beforeCommit:async()=>{await Promise.resolve();throw Error('OWNER_LOST');}})).rejects.toThrow('OWNER_LOST');
   expect(query.mock.calls.map(call=>call[0])).toContain('ROLLBACK');expect(query.mock.calls.map(call=>call[0])).not.toContain('COMMIT');
  });
+ it('rejects retained furnishing claims before owner writes under an exclusive maintenance fence',async()=>{
+  const query=vi.fn(async(sql:string)=>sql.includes('workspace_furnishing_intakes')?{rows:[{pending:true}]}:{rows:[]}),pool={connect:async()=>({query,release:vi.fn()})} as unknown as Pool;
+  await expect(openLocalWorkspace(pool,input,'native',async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');},{isolation:'read committed',furnishingExclusive:true,beforeCommit:()=>{}})).rejects.toMatchObject({code:'FURNISHING_RECOVERY_UNAVAILABLE'});
+  const calls=query.mock.calls.map(call=>call[0]);expect(calls.indexOf('SELECT pg_advisory_xact_lock(82003)')).toBeLessThan(calls.indexOf('SELECT pg_advisory_xact_lock(82002)'));expect(calls.indexOf('SELECT pg_advisory_xact_lock(82002)')).toBeLessThan(calls.indexOf('SELECT pg_advisory_xact_lock(82001)'));expect(calls).toContain('ROLLBACK');expect(calls.some(sql=>/^(INSERT|UPDATE)/.test(sql))).toBe(false);
+ });
+ it('opens only after an exclusive furnishing fence observes no claims',async()=>{
+  const query=vi.fn(async(sql:string)=>sql.includes('workspace_furnishing_intakes')?{rows:[{pending:false}]}:sql.startsWith('SELECT * FROM local_workspaces')?{rowCount:0,rows:[]}:sql.startsWith('SELECT (EXISTS')?{rows:[{occupied:false}]}:{rows:[]}),pool={connect:async()=>({query,release:vi.fn()})} as unknown as Pool;
+  await openLocalWorkspace(pool,input,'native',async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');},{isolation:'read committed',furnishingExclusive:true,beforeCommit:()=>{}});
+  const calls=query.mock.calls.map(call=>call[0]);expect(calls.findIndex(sql=>sql.includes('workspace_furnishing_intakes'))).toBeLessThan(calls.findIndex(sql=>sql.startsWith('INSERT INTO tenants')));expect(calls).toContain('COMMIT');
+ });
 });
