@@ -90,3 +90,14 @@ it('retains immutable imported floor, surface material and footstep resources fo
   expect(rowObjectReferences(table,{...row,object_key:'another-tenant/oex-import/job/map'}).issues[0]?.code).toBe('INVALID_REFERENCE');
  }
 });
+
+
+it('tracks workspace material receipts and immutable maps without treating cancelled uploads as live',()=>{
+ const map={bytes:123,sha256:sha},receipt={...map,key},version={tenant_id:tenant,id,version:1,descriptor:{maps:{color:map}},object_keys:{color:key}};
+ expect(rowObjectReferences('workspace_material_versions',version)).toEqual({issues:[],references:[expect.objectContaining({key,required:true,expectedBytes:123,expectedSha256:sha})]});
+ expect(rowObjectReferences('workspace_material_versions',{...version,object_keys:{color:'other/objects/x'}}).issues[0]?.code).toBe('INVALID_REFERENCE');
+ expect(rowObjectReferences('workspace_material_versions',{...version,object_keys:{}}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ for(const phase of ['uploading','validating','failed','registered'])expect(rowObjectReferences('workspace_material_intakes',{tenant_id:tenant,id,phase,received:{color:receipt}}).references[0]?.required).toBe(true);
+ expect(rowObjectReferences('workspace_material_intakes',{tenant_id:tenant,id,phase:'cancelling',received:{color:receipt}}).references[0]?.required).toBe(false);
+ expect(rowObjectReferences('workspace_material_intakes',{tenant_id:tenant,id,phase:'cancelled',received:{color:receipt}}).references).toEqual([]);
+});

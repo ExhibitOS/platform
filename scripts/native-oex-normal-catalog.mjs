@@ -19,6 +19,7 @@ export const WORKSPACE_MATERIAL_MIGRATION='031_workspace_material.sql';
 export const WORKSPACE_MATERIAL_SHA256='2425f4d24859bf1627d1be9bb3d4b0ecc7829d074437a4aebd9e52d57bf45eb5';
 export const WORKSPACE_MATERIAL_OEX_MIGRATION='032_oex_workspace_material.sql';
 export const WORKSPACE_MATERIAL_OEX_SHA256='bc0017937498f37cfc98acf2851cd70752c76be353208e466aa6a2a5b1808efc';
+export const WORKSPACE_MATERIAL_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-material',protocol:'normal-oex-workspace-v5',ownerChannelVersion:3,baseCapabilityPath:'platform/scripts/native-normal-oex-028-capability-v4.json',baseCapabilitySHA256:'9ffbff5c770be6c70e5bbffd4183006003ed73dabb807e18f496a19af94a58b4',intakeSchemaPath:'platform/database/native-oex-normal/031_workspace_material.sql',intakeSchemaSHA256:WORKSPACE_MATERIAL_SHA256,oexSchemaPath:'platform/database/native-oex-normal/032_oex_workspace_material.sql',oexSchemaSHA256:WORKSPACE_MATERIAL_OEX_SHA256,archiveFormats:['1.0.0-draft.9','1.0.0-draft.10'],freshOnly:true});
 const supplementalCatalog=[[NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256],[NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256],[NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256],[NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256],[NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256],[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256],[WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256]];
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const same=(a,b)=>a.dev===b.dev&&a.ino===b.ino;
@@ -62,6 +63,21 @@ export async function verifyNormalOexConcreteMigration(supplementalDirectory){
  if(!same(before,after)||sha(bytes)!==NORMAL_OEX_CONCRETE_SHA256)throw Error('NATIVE_OEX_CATALOG');return bytes.toString('utf8');
 }
 
+/** A payload marker declares installed bytes, not authorization. */
+export async function hasWorkspaceMaterialCapability(path){
+ try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(WORKSPACE_MATERIAL_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}
+ catch(error){if(error?.code==='ENOENT')return false;throw error;}
+}
+
+/** Read only the pinned pair, after checking the complete supplemental catalog. */
+export async function verifyWorkspaceMaterialMigrations(supplementalDirectory){
+ const before=await directory(supplementalDirectory);await verifyNormalOexConcreteMigration(supplementalDirectory);
+ const pair=[];for(const [name,hash] of supplementalCatalog.slice(5)){
+  const bytes=await regular(join(supplementalDirectory,name));if(sha(bytes)!==hash)throw Error('NATIVE_OEX_CATALOG');pair.push(bytes.toString('utf8'));
+ }
+ if(!same(before,await directory(supplementalDirectory)))throw Error('NATIVE_OEX_CATALOG');return pair;
+}
+
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
 export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory){
@@ -78,12 +94,12 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
 
 /** Before ordinary native startup writes anything, reject unknown catalog rows.
  * Caller holds migration 82001 in the surrounding transaction. */
-export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory){
+export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false}={}){
  const relation=(await client.query("SELECT to_regclass('public.schema_migrations') AS name")).rows[0]?.name;
  if(!relation)return undefined;
  const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
  // Runtime activation is not wired yet. Never write or start against the new ledger.
- if(rows.some(row=>row?.name===WORKSPACE_MATERIAL_MIGRATION||row?.name===WORKSPACE_MATERIAL_OEX_MIGRATION))throw Error('NATIVE_OEX_CATALOG');
+ if(!allowWorkspaceMaterial&&rows.some(row=>row?.name===WORKSPACE_MATERIAL_MIGRATION||row?.name===WORKSPACE_MATERIAL_OEX_MIGRATION))throw Error('NATIVE_OEX_CATALOG');
  const names=new Set((await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)));
  if(!rows.some(row=>!names.has(row.name)))return undefined;
  const selected=await recognizeNormalOexCatalog(client,migrationDirectory,supplementalDirectory);

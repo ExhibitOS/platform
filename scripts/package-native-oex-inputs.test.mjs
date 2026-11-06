@@ -7,11 +7,13 @@ import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability} from './package-native-runtime.mjs';
+import {WORKSPACE_MATERIAL_CAPABILITY,hasWorkspaceMaterialCapability} from './native-oex-normal-catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const spec='vendor/exhibitos-spec-0.1.0-draft.17.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql',floor='database/native-oex-normal/029_oex_quiet_oak_floor.sql',concrete='database/native-oex-normal/030_oex_concrete_surface.sql';
+const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql';
 async function fixture(){
  const temp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-oex-package-'))),source=join(temp,'source'),output=join(temp,'output');await mkdir(source);await mkdir(output);
- for(const name of [spec,migration,normal,provenance,material,floor,concrete]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
+ for(const name of [spec,migration,normal,provenance,material,floor,concrete,intake,workspaceOex]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
  await writeFile(join(source,'package-lock.json'),JSON.stringify({packages:{'':{dependencies:{'@exhibitos/spec':`file:${spec}`}}}}));
  return {temp,source,output,tracked:new Map([['database',new Set()],['vendor',new Set()]])};
 }
@@ -64,3 +66,13 @@ test('rejects changed or symlinked028 material input',async()=>{for(const kind o
 test('rejects changed, symlinked or drifted tracked029 floor migration',async()=>{for(const kind of ['changed','symlink','tracked']){const f=await fixture();try{if(kind==='changed')await writeFile(join(f.source,floor),'changed');else if(kind==='symlink'){await rm(join(f.source,floor));await symlink(join(root,floor),join(f.source,floor));}else{await mkdir(dirname(join(f.output,floor)),{recursive:true});await writeFile(join(f.output,floor),'changed');f.tracked.get('database').add(floor);}await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true),/NATIVE_PACKAGE_(SOURCE|INPUT)_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}}});
 
 test('rejects changed or symlinked concrete migration',async()=>{for(const kind of ['changed','symlink']){const f=await fixture();try{if(kind==='changed')await writeFile(join(f.source,concrete),'changed');else{await rm(join(f.source,concrete));await symlink(join(root,concrete),join(f.source,concrete));}await assert.rejects(copyNormalOexSelectedFile(f.source,f.output,f.tracked,true),/NATIVE_PACKAGE_(SOURCE|INPUT)_INVALID/);}finally{await rm(f.temp,{recursive:true,force:true});}}});
+
+
+test('workspace capability and schema pair require explicit v5 selection and exact bytes',async()=>{const f=await fixture();try{
+ await copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true);
+ for(const path of [intake,workspaceOex])assert.deepEqual(await readFile(join(f.output,path)),await readFile(join(f.source,path)));
+ await mkdir(join(f.output,'scripts'));await writeNormalOexCapability(f.output,true,true);
+ const marker=join(f.output,'scripts/native-workspace-material-capability-v5.json');assert.equal(await readFile(marker,'utf8'),WORKSPACE_MATERIAL_CAPABILITY);assert.equal(await hasWorkspaceMaterialCapability(marker),true);
+ await writeFile(marker,'bad');await assert.rejects(hasWorkspaceMaterialCapability(marker),/NATIVE_OEX_CATALOG/);
+ await writeFile(join(f.source,intake),'changed');await assert.rejects(copyNormalOexSelectedFile(f.source,join(f.temp,'other'),f.tracked,true,true),/NATIVE_PACKAGE_SOURCE_INVALID/);
+ }finally{await rm(f.temp,{recursive:true,force:true});}});

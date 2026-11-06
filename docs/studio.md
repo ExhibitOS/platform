@@ -108,13 +108,16 @@ as offline-browser proof. The browser-only Apache public validator adaptation is
 documented in [its source notice](../apps/web/src/drafts/README.md); the server
 uses the original pinned public package.
 
-## Workspace material intake — contract draft
+## Workspace material intake
 
-This section is a proposed interface for review, not an implemented API or a
-claim that existing OEX readers support user materials. Built-in registered
-material packs retain their existing identifiers and behavior. The first slice
-covers a user's floor and wall PNG maps; furnishing GLB follows through the
-same workspace-owned intake boundary with its own format validation.
+The intake API is implemented behind an explicitly supplied personal-workspace
+owner and file store. It is disabled by default. The v5 validation candidate
+exposes it on ordinary native reopen only after the exact capability and
+031/032 ledger checks; production runtime admission and Manager's product
+allowlist are not yet established. Check `GET /api/v1/auth/session` for
+`workspaceMaterialProfile: "workspace-material-intake-v1"` before using it.
+Built-in packs keep their existing identities. This slice accepts floor and wall
+PNG maps; direct furnishing GLB intake is not implemented.
 
 A personal workspace owner creates an intake for `floor` or `wall` with an
 idempotency key, name, explicit rights and provenance, and role descriptors.
@@ -127,70 +130,112 @@ completion. Client paths and external URLs are never authority. Material
 registration is scoped to the authenticated workspace; sharing or promotion to
 the built-in catalogue is a separate action.
 
-The intended flow is create → upload required role bytes → complete and inspect
-validation → list/read the workspace material and preview → apply to a floor or
-wall through the existing Studio save and ETag. Failed or cancelled intake must
-leave earlier resources and the saved exhibition unchanged. Retrying the same
+The available API flow is create → upload declared role bytes → complete and
+inspect validation → list/read the workspace material and preview. A validated
+workspace-material snapshot can be saved through Studio with `If-Match`; the
+interactive surface preview/apply workflow remains under development. Failed
+or cancelled intake must leave earlier resources and the saved exhibition unchanged. Retrying the same
 idempotency key and content returns the same operation; using it for different
-content is a conflict. Another workspace cannot read, complete, apply, or export
-its owner’s material. Applying floor appearance preserves existing sound unless
-sound is explicitly edited through its own supported operation.
+content is a conflict. Another workspace cannot read or complete its owner’s
+material, and the snapshot guard rejects another workspace’s version. An
+appearance binding does not alter the separately stored floor sound.
 
-A new explicitly versioned OEX profile is required for exact referenced user
-materials, rights, provenance, and map bytes. Existing OEX versions are not
-reinterpreted. Import must verify bytes and references, bind material ownership
-to the destination workspace and remap IDs without changing the source; static
-export must carry only authorized referenced materials. This contract still
-requires precise endpoint schemas and error codes, shared Spec implementation,
-Manager CLI/GUI integration, and actual save/reopen/export/Viewer verification.
+The shared Spec defines a distinct OEX draft.12 profile for portable material
+bytes and bindings. The v5 native validation candidate accepts draft.9 and
+10 selected imports; draft.12 import/export, static publication and Viewer
+rendering of workspace materials are not implemented or qualified. The existing
+formats are not reinterpreted.
 
-The current endpoint proposal, pending Manager and Spec review, is under the
-existing `/api/v1/tenants/:tenantId` prefix:
+The API routes are under `/api/v1/tenants/:tenantId`:
 
 - `POST /workspace/material-intakes` declares request ID, kind, name, rights,
   provenance, and role descriptors; the server issues the material identity.
 - `PUT /workspace/material-intakes/:id/maps/:role` supplies exact bytes;
   `GET /workspace/material-intakes/:id` reads progress; `POST .../complete`
-  validates and registers; `POST .../cancel` cancels the owned attempt.
+  validates and registers; `POST .../cancel` cancels the owned attempt and
+  `POST .../retry` retries a server-classified transient failure.
 - `GET /workspace/materials`, `GET /workspace/materials/:id/versions/:version`,
   and `GET .../maps/:role` list, inspect, and preview approved owned versions.
 
-These routes do not exist yet. The proposed portable profile is a distinct
-OEX draft.12; it is not admitted by existing draft.9/10 native runtimes.
-The draft must also cover bounded import, immutable byte and rights checks,
-and remapped workspace identities before portable use can be claimed.
+For example, a color-only `declaration.json` has this shape. Replace the
+example digest, byte count, dimensions, rights and request ID with the actual
+source and the owner's declaration:
 
-### Candidate request and response details
+```json
+{
+  "requestId": "11111111-1111-4111-8111-111111111111",
+  "kind": "floor",
+  "name": "Example floor",
+  "rights": {
+    "holder": "Example owner",
+    "ownership": "owner",
+    "licenseId": "CC0-1.0",
+    "creditLine": "Example credit",
+    "permissions": {"display": true, "download": true, "export": true, "commercial": true}
+  },
+  "provenance": "Owner-provided example",
+  "maps": {
+    "color": {"mime": "image/png", "bytes": 1234,
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "width": 256, "height": 256, "colorSpace": "srgb"}
+  }
+}
+```
 
-The following details are proposed for the shared review; until the server and
-Spec implement them they are not production behavior. All routes are available
-only to the authenticated personal workspace owner, under the tenant prefix.
+With an authenticated local session cookie in `$COOKIE` and its CSRF token in
+`$CSRF`, create and upload the declared bytes:
+
+```sh
+curl -H "Cookie: $COOKIE" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
+  -H 'Content-Type: application/json' --data-binary @declaration.json \
+  "$ORIGIN/api/v1/tenants/$TENANT/workspace/material-intakes"
+curl -X PUT -H "Cookie: $COOKIE" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
+  -H 'Content-Type: application/octet-stream' --data-binary @color.png \
+  "$ORIGIN/api/v1/tenants/$TENANT/workspace/material-intakes/$INTAKE/maps/color"
+curl -H "Cookie: $COOKIE" -H "Origin: $ORIGIN" -H "X-CSRF-Token: $CSRF" \
+  -H 'Content-Type: application/json' --data '{}' \
+  "$ORIGIN/api/v1/tenants/$TENANT/workspace/material-intakes/$INTAKE/complete"
+```
+
+Poll `GET .../material-intakes/$INTAKE` until `registered` or `failed`;
+completion is asynchronous. Use the returned material ID/version with
+`GET .../workspace/materials/$MATERIAL/versions/$VERSION/maps/color` for an
+authenticated preview. Paths supplied to `curl` are client-side inputs, not
+server authority.
+
+### Request and response details
+
+All routes require the authenticated personal workspace owner under the tenant
+prefix. These details describe the validation candidate, not product admission.
 Create takes a UUID `requestId`, `kind`, `name`, `rights`, `provenance`, and a
 role-keyed `maps` object. A map has `mime`, `bytes`, `sha256`, `width`, `height`,
 and `colorSpace`; normal also has `normalY: "up"`. Each PNG is at most 8 MiB,
 at most 4,194,304 pixels, and 8-bit noninterlaced RGB or RGBA. The untagged
 color map is interpreted as sRGB only when explicitly declared; data maps are
-linear and must not have an sRGB chunk. Other roles and URLs/paths are rejected.
+linear and must not have an sRGB chunk. Other roles, including height, and
+URLs/paths in the descriptor are rejected; retain excluded source maps separately.
 Repeat and rotation belong to each surface binding, not the immutable resource.
 
-An intake response is intended to carry `intakeId`, `requestId`, `kind`, a
+An intake response carries `intakeId`, `requestId`, `kind`, a
 phase (`uploading`, `validating`, `cancelling`, `registered`, `failed`, or `cancelled`), a
 role-keyed received map with verified byte count and hash, `retryable`, and
-`error` (`code`, optional `role` and `field`) or the completed material
-`descriptor`. Every operation remains readable by the same workspace owner.
-`GET /workspace/materials` is proposed as a cursor-paginated list with at most
+`error` (`code`, optional `role` and `field`) or the completed descriptor in
+`material`. Every operation remains readable by the same workspace owner.
+`GET /workspace/materials` is a cursor-paginated list with at most
 50 bounded summaries per page (`id`, `version`, `kind`, `name`, and current
 rights availability), plus `nextCursor`. Full rights, provenance, and map
-descriptors are returned only by the single-version read. Preview responses return PNG bytes, MIME, byte count and
-SHA-256 from the authorized descriptor with no redirect. Preview requires a
-current display grant; archive export and original download separately require
-the corresponding grant. The authorization decision is checked at use time.
+descriptors are returned by the single-version read and registered intake's
+`material`, not by the list summaries. Preview responses
+return PNG bytes, MIME, byte count and SHA-256 with no redirect, and require a
+current display grant. Future archive export and original download must separately
+check the corresponding grant; those material operations are not yet implemented.
 
 The same request UUID and identical normalized declaration returns the existing
-intake; a different declaration is `IDEMPOTENCY_CONFLICT` (409). A repeated PUT
-with the identical declared bytes succeeds. Before a role is received, bytes
+intake; a different declaration is `IDEMPOTENCY_CONFLICT` (409). While uploading,
+a repeated PUT with the identical declared bytes succeeds. Before a role is received, bytes
 that do not match its declaration are `UPLOAD_INTEGRITY` (422); after receipt,
-an attempt to replace it with different bytes is `ROLE_CONFLICT` (409). Complete
+an attempt to replace it with different bytes is `ROLE_CONFLICT` (409). PUT after
+the uploading phase returns `JOB_STATE` (409). Complete
 is idempotent in validating or registered state. Cancel cannot delete a
 registered material or a previously saved binding. A failed validation may be
 retried only after its worker has physically drained; invalid source remains
@@ -198,15 +243,17 @@ available for the owner to choose a new intake, never silently modified. A
 cross-workspace operation is forbidden, with no resource bytes disclosed.
 Validation may return `MATERIAL_MAP_DESCRIPTOR`, `UPLOAD_INTEGRITY`,
 `PNG_PIXEL_LIMIT_EXCEEDED`, `MATERIAL_MAP_DIMENSIONS`,
-`MATERIAL_MAP_COLOR_SPACE`, or `FORMAT_REJECTED`, together with the affected role.
+`MATERIAL_MAP_COLOR_SPACE`, or `FORMAT_REJECTED`; an intake status error can
+include the affected role.
 Additional storage/rights/ownership error semantics must be fixed alongside
 implementation and remain distinguishable from format validation.
 
-The proposed binding is per existing surface UUID and includes the exact
-workspace material UUID/version, repeat meters, rotation, and applicable PBR
-scalars. A floor and a wall use their own typed surface checks. The server must
-resolve the immutable version under the same workspace, recheck display rights,
-and save through existing Studio `If-Match`; it must not infer sound changes.
+The snapshot binding is per existing surface UUID and includes the exact
+workspace material UUID/version, repeat meters, rotation, and optional normal
+scale and AO strength. Floor and wall bindings require matching
+typed surfaces. On save the server resolves the immutable version under the
+same workspace, rechecks display rights, and uses Studio `If-Match`. The binding
+does not itself modify sound.
 Portable import must allocate destination ownership and remap all typed IDs;
 new-format output must not be represented as a legacy format. Capability and
 exact runtime inventory are to be agreed with Manager before an execution claim.
@@ -215,8 +262,10 @@ exact runtime inventory are to be agreed with Manager before an execution claim.
 
 For the reviewed client contract, `received` means only that the declared
 bytes and digest were received, not that their contents or rights passed
-validation. `registered` means all required maps and declared rights passed
-the server's validation and the immutable workspace version was committed.
+validation. `registered` means all declared maps passed byte/PNG validation, the rights
+declaration passed schema validation, and the immutable version was committed.
+Display permission is separately checked on preview and save; future export must
+check export permission.
 
 `POST /workspace/material-intakes/:id/retry` is the only retry action for a
 failed attempt. It is available only for a server-classified transient failure
@@ -230,7 +279,7 @@ until workers actually exit and cleanup is complete, then `cancelled`; the
 client must not equate acceptance of cancellation with resource return.
 
 Non-success HTTP responses use the existing API envelope `{code, message,
-fieldErrors, requestId}` with optional safe `role` or `field` when available.
+fieldErrors, requestId}`.
 A failed intake status carries `{code, role?, field?}` in its `error` field.
 The HTTP status is separate and the stable `code` has the same meaning in both. The optional
 role is one of `color`, `normal`, `roughness`, or `ao`, and field is a bounded
@@ -239,9 +288,9 @@ contains no raw decoder log. Preview is authenticated inline PNG, redirect-free,
 and independently checked by the client against its descriptor; preview
 authority does not imply download or export permission.
 
-### Candidate appearance precedence
+### Intended appearance precedence
 
-For review, an active workspace-material binding overrides only the built-in
+The following rendering behavior remains to be implemented and verified. An active workspace-material binding overrides only the built-in
 texture maps for its exact surface. Existing floor preset/binding, authored
 sound and legacy experience footsteps remain stored and continue to determine
 sound. Existing floor or wall scalar color, roughness and metalness remain the
