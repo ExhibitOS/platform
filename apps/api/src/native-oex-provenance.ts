@@ -2,7 +2,7 @@
 import {isNativeOexFileFormat,type NativeOexFileFormat} from './oex-file-format.ts';
 import type {PoolClient} from 'pg';
 import {ApiError,uuid,type Session} from './auth.ts';
-import {publicationDiskOwner} from './publication-attempt.ts';
+import {publicationDiskOwner,samePublicationDiskOwner} from './publication-attempt.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {createHash} from 'node:crypto';
 
@@ -53,7 +53,9 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  if(wantsWorkspaceImport&&!isDeepStrictEqual(initial,workspaceCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(wantsWorkspaceImport)await assertImportCatalog(c);
  await verifyWorkspace(c);await assertCatalog(c);const owner=await publicationDiskOwner(c,blobRoot);
  const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);if(wantsWorkspaceImport)await assertImportCatalog(client);else await assertCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
- const context=Object.freeze({workspaceId,tenantId,principalId,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsWorkspaceImport?{workspaceImport:true as const,...(wantsWall?{workspaceWallImport:true as const}:{}),assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{if(!isDeepStrictEqual(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,assertRecord:async(client:PoolClient,record:Parameters<NativeOexWorkspaceContext['assertRecord']>[1])=>{
+ // Canonical journal records have a null prototype; compare their exact own
+ // fields while retaining the issued-context and physical-owner checks.
+ const context=Object.freeze({workspaceId,tenantId,principalId,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsWorkspaceImport?{workspaceImport:true as const,...(wantsWall?{workspaceWallImport:true as const}:{}),assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{const proto=candidate&&typeof candidate==='object'?Object.getPrototypeOf(candidate):undefined;if((proto!==null&&proto!==Object.prototype)||!isDeepStrictEqual({...candidate},owner)||!samePublicationDiskOwner(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,assertRecord:async(client:PoolClient,record:Parameters<NativeOexWorkspaceContext['assertRecord']>[1])=>{
   await assertDatabase(client);if(record.workspaceId!==workspaceId||record.tenantId!==tenantId||record.principalId!==principalId||record.sourceDatabaseSystemId!==owner.databaseSystemId||record.sourceDatabaseOid!==owner.databaseOid)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  }} satisfies NativeOexWorkspaceContext);if(wantsWorkspaceImport)issuedWorkspaceImports.add(context);return context;
 }
