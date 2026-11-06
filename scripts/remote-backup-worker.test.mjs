@@ -147,3 +147,17 @@ test('selected native backup recognizes only its exact supplemental catalog',asy
  rows=original;assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra),{migrationDirectory:base});assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,original),{migrationCatalog:original});
  rows=structuredClone(catalog);rows[25].sha256='0'.repeat(64);await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
 });
+
+test('native backup binds every selected V5/V6/V7 catalog row and rejects gaps, drift and a changed supplement',async()=>{
+ const fs=await import('node:fs/promises'),{tmpdir}=await import('node:os'),{join}=await import('node:path'),{fileURLToPath}=await import('node:url'),{createHash}=await import('node:crypto');
+ const {inventorySnapshotOptionsForDatabase}=await import('./service-backup.mjs');const base=fileURLToPath(new URL('../database/migrations/',import.meta.url)),source=fileURLToPath(new URL('../database/',import.meta.url)),root=await fs.mkdtemp(join(tmpdir(),'exhibitos-backup-v7-catalog-')),extra=join(root,'native-oex-normal');
+ const digest=b=>createHash('sha256').update(b).digest('hex');try{
+  for(const dir of ['native-oex-normal','native-oex-workspace-import','native-oex-workspace-import-wall'])await fs.cp(join(source,dir),join(root,dir),{recursive:true});
+  const names=(await fs.readdir(base)).filter(n=>/^\d+.*\.sql$/.test(n)).sort(),normal=(await fs.readdir(extra)).filter(n=>/^\d+.*\.sql$/.test(n)).sort(),imports=(await fs.readdir(join(root,'native-oex-workspace-import'))).filter(n=>/^\d+.*\.sql$/.test(n)).sort(),wall=(await fs.readdir(join(root,'native-oex-workspace-import-wall'))).filter(n=>/^\d+.*\.sql$/.test(n)).sort(),catalog=[];
+  for(const name of names)catalog.push({name,sha256:digest(await fs.readFile(join(base,name)))});for(const [dir,list] of [[extra,normal],[join(root,'native-oex-workspace-import'),imports],[join(root,'native-oex-workspace-import-wall'),wall]])for(const name of list)catalog.push({name,sha256:digest(await fs.readFile(join(dir,name)))});
+  assert.equal(catalog.length,35);let rows=[];const client={query:async()=>({rows})};
+  for(const count of [30,32,34,35]){rows=structuredClone(catalog.slice(0,count));assert.deepEqual(await inventorySnapshotOptionsForDatabase(client,base,extra,rows),{migrationCatalog:rows});}
+  rows=structuredClone(catalog);await assert.rejects(inventorySnapshotOptionsForDatabase(client,base,extra,catalog.slice(0,34)),/BACKUP_MIGRATION_CATALOG/);rows[34].sha256='0'.repeat(64);await assert.rejects(inventorySnapshotOptionsForDatabase(client,base,extra),/NATIVE_OEX_CATALOG/);
+  rows=structuredClone(catalog);rows.splice(33,1);await assert.rejects(inventorySnapshotOptionsForDatabase(client,base,extra),/NATIVE_OEX_CATALOG/);rows=structuredClone(catalog);await fs.writeFile(join(root,'native-oex-workspace-import-wall',wall[0]),'changed');await assert.rejects(inventorySnapshotOptionsForDatabase(client,base,extra),/NATIVE_OEX_CATALOG/);
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});
