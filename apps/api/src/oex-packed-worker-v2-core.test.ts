@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {fixtureURL,readOex,withOexFileHandle,writeOexFile,writeOex} from '@exhibitos/spec';
 import {expect,it,vi} from 'vitest';
 import {FileBlobStore} from '@exhibitos/storage';
-import {preparePackedOexV2} from './oex-packed-worker-v2-core.ts';
+import {preparePackedOexV2,preparePackedWorkspaceOex} from './oex-packed-worker-v2-core.ts';
 import {parsePackedOexAckV2} from './oex-packed-ack-v2.ts';
 import {preflightOexSize} from './oex-size-preflight.ts';
 import {consumeBoundedOex} from './oex-bounded-consume.ts';
@@ -48,6 +48,7 @@ it.each(['1.0.0-draft.9','1.0.0-draft.10'] as const)('derives and consumes exact
   const preflight=await preflightOexSize(input,{bytes:archive.length,sha256:sha(archive)}),hint=await selectedOexFormat(input);
   expect(preflight.archiveFormat).toBe(archiveFormat);expect(hint.archiveFormat).toBe(archiveFormat);expect(hint.manifestSha256).toBe(preflight.manifestSha256);expect(Object.keys(hint)).toEqual(['version','kind','archiveFormat','archiveBytes','manifestSha256','inputDevice','inputInode']);
   const receipt={archiveBytes:archive.length,archiveSha256:sha(archive),capacity:16*1024*1024};
+  await expect(preparePackedWorkspaceOex(input,output,receipt,withOexFileHandle)).rejects.toThrow('OEX_PACKED_DOCUMENT');expect((await output.stat()).size).toBe(0);
   await expect(preparePackedOexV2(input,output,receipt,withOexFileHandle,archiveFormat==='1.0.0-draft.9'?'1.0.0-draft.10':'1.0.0-draft.9')).rejects.toThrow();expect((await output.stat()).size).toBe(0);
   const result=await preparePackedOexV2(input,output,receipt,withOexFileHandle,archiveFormat);
   const expected=await withOexFileHandle(input,async({files})=>({manifest:await files.get('manifest.json'),exhibition:await files.get('exhibition.json')}));

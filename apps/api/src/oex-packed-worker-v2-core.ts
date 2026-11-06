@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isNativeOexFileManifest,isNativeOexFileFormat,type NativeOexFileFormat} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
-import {writePackedOexAssets} from './oex-packed-writer.ts';
+import {writePackedOexAssets,writePackedWorkspaceOexAssets} from './oex-packed-writer.ts';
 
 interface ReadHandle {stat(options:{bigint:true}):Promise<{dev:bigint;ino:bigint;size:bigint;mtimeNs:bigint;ctimeNs:bigint;isFile():boolean}>;read(buffer:Uint8Array,offset:number,length:number,position:number):Promise<{bytesRead:number}>}
 interface WriteHandle {write(buffer:Uint8Array,offset:number,length:number,position:number):Promise<{bytesWritten:number}>}
@@ -15,6 +15,14 @@ const hex=/^[a-f0-9]{64}$/,DOCUMENT_LIMIT=1024*1024;
  * authority. Manager must own/drain the worker and keep the input/output FDs,
  * live Session, fence and reservation through the actual consuming transaction. */
 export async function preparePackedOexV2(input:ReadHandle,output:WriteHandle,receipt:Receipt,openValidated:OpenValidated,expectedFormat?:NativeOexFileFormat){
+ return prepare(input,output,receipt,openValidated,expectedFormat,false);
+}
+/** Draft.12 preparation remains inactive; caller retains the same owned FD,
+ * Session, fence, capacity, actual drain and separate attachment obligations. */
+export async function preparePackedWorkspaceOex(input:ReadHandle,output:WriteHandle,receipt:Receipt,openValidated:OpenValidated){
+ return prepare(input,output,receipt,openValidated,undefined,true);
+}
+async function prepare(input:ReadHandle,output:WriteHandle,receipt:Receipt,openValidated:OpenValidated,expectedFormat:NativeOexFileFormat|undefined,workspace:boolean){
  if(!receipt||Object.keys(receipt).sort().join(',')!=='archiveBytes,archiveSha256,capacity')throw Error('OEX_PACKED_RECEIPT');
  const values=['archiveBytes','archiveSha256','capacity'].map(key=>Object.getOwnPropertyDescriptor(receipt,key));if(values.some(v=>!v||!('value' in v)))throw Error('OEX_PACKED_RECEIPT');
  const r={archiveBytes:values[0]!.value as number,archiveSha256:values[1]!.value as string,capacity:values[2]!.value as number};
@@ -29,10 +37,11 @@ export async function preparePackedOexV2(input:ReadHandle,output:WriteHandle,rec
  await check();let result:{manifest:Buffer;exhibition:Buffer;entries:Awaited<ReturnType<typeof writePackedOexAssets>>}|undefined;
  await openValidated(input,async({manifest,files})=>{
   if(result)throw Error('OEX_PACKED_OUTPUT');
-  if(!isNativeOexFileManifest(manifest)||expectedFormat!==undefined&&manifest.formatVersion!==expectedFormat)throw Error('OEX_PACKED_DOCUMENT');
+  const selected=workspace&&!!manifest&&typeof manifest==='object'&&!Array.isArray(manifest)&&(manifest as Record<string,unknown>).formatVersion==='1.0.0-draft.12'&&(manifest as Record<string,unknown>).archiveProfile==='bounded-file-v1';
+  if(!(workspace?selected:isNativeOexFileManifest(manifest))||!workspace&&expectedFormat!==undefined&&(manifest as {formatVersion:string}).formatVersion!==expectedFormat)throw Error('OEX_PACKED_DOCUMENT');
   const m=await files.get('manifest.json'),e=await files.get('exhibition.json');
   if(!m||!e||m.byteLength<1||e.byteLength<1||m.byteLength>DOCUMENT_LIMIT||e.byteLength>DOCUMENT_LIMIT)throw Error('OEX_PACKED_DOCUMENT');
-  const manifestBytes=Buffer.from(m),exhibitionBytes=Buffer.from(e),entries=await writePackedOexAssets(output,manifest,files,r.capacity);
+  const manifestBytes=Buffer.from(m),exhibitionBytes=Buffer.from(e),entries=await (workspace?writePackedWorkspaceOexAssets:writePackedOexAssets)(output,manifest,files,r.capacity);
   result={manifest:manifestBytes,exhibition:exhibitionBytes,entries};
  });
  if(!result)throw Error('OEX_PACKED_OUTPUT');await check();

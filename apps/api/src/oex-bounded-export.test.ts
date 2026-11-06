@@ -15,6 +15,7 @@ import {pngCrc} from './png-pixels.ts';
 import {planWorkspaceMaterialImportSource,validateWorkspaceMaterialImportSourceBytes} from './workspace-material-import-source.ts';
 import {decodePackedOexDocumentsV2,decodePackedWorkspaceOexDocuments} from './oex-packed-documents-v2.ts';
 import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
+import {preparePackedOexV2,preparePackedWorkspaceOex} from './oex-packed-worker-v2-core.ts';
 
 describe('internal bounded OEX producer',()=>{
  it('writes workspace floor color as a draft.12 resource and enforces output authority',async()=>{
@@ -40,7 +41,16 @@ describe('internal bounded OEX producer',()=>{
    expect(packedWorkspaceOexInventory(result.manifest).get(resource.path)).toEqual({bytes:resource.bytes,sha256:resource.sha256});expect(()=>packedOexInventory(result.manifest)).toThrow('OEX_PACKED_OUTPUT');expect(()=>packedWorkspaceOexInventory({...result.manifest,workspaceMaterialResources:[resource,resource]})).toThrow('OEX_PACKED_OUTPUT');
    const altered=JSON.parse(m.toString()) as {workspaceMaterialResources:Array<{sha256:string}>};altered.workspaceMaterialResources[0]!.sha256='0'.repeat(64);const mismatched=Buffer.from(JSON.stringify(altered));expect(()=>decodePackedWorkspaceOexDocuments(mismatched,sha256(mismatched),e,sha256(e))).toThrow();
    const versions=JSON.parse(m.toString()) as {oesExhibitionVersion:string;oesArtworkVersion:string};versions.oesExhibitionVersion='1.0.0-draft.2';versions.oesArtworkVersion='1.0.0-draft.2';const wrongVersion=Buffer.from(JSON.stringify(versions));expect(()=>decodePackedWorkspaceOexDocuments(wrongVersion,sha256(wrongVersion),e,sha256(e))).toThrow('OEX_PACKED_DOCUMENT');
-  });}finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
+  });
+  const archive=await readFile(path),output=await open(join(dir,'workspace-packed'),'wx+',0o600),receipt={archiveBytes:archive.length,archiveSha256:sha256(archive),capacity:16*1024*1024};
+  try{
+   await expect(preparePackedOexV2(file,output,receipt,withOexFileHandle)).rejects.toThrow('OEX_PACKED_DOCUMENT');
+   await expect(preparePackedWorkspaceOex(file,output,{...receipt,archiveSha256:'0'.repeat(64)},withOexFileHandle)).rejects.toThrow('OEX_PACKED_INPUT');
+   await expect(preparePackedWorkspaceOex(file,output,{...receipt,capacity:1},withOexFileHandle)).rejects.toThrow('OEX_PACKED_OUTPUT');expect((await output.stat()).size).toBe(0);
+   const packed=await preparePackedWorkspaceOex(file,output,receipt,withOexFileHandle),entry=packed.entries.find(item=>item.path.includes('workspace-materials/'))!;expect(entry.sha256).toBe(sha256(bytes));const actual=Buffer.alloc(entry.bytes);expect((await output.read(actual,0,entry.bytes,entry.offset)).bytesRead).toBe(entry.bytes);expect(actual).toEqual(bytes);
+   expect(decodePackedWorkspaceOexDocuments(packed.manifest,packed.manifestSha256,packed.exhibition,packed.exhibitionSha256).exhibition.id).toBe(candidate.id);
+  }finally{await output.close();}
+  }finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
    const ordinary=await readOex(await oex.export(client,session,candidate.id,match));expect(ordinary.manifest.formatVersion).toBe('1.0.0-draft.12');
    // The first grant expires while the second resource is reloaded in the
    // final authorization pass; checking each map alone misses that race.
