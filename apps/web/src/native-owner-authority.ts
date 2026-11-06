@@ -11,7 +11,7 @@ export class NativeOwnerAuthorityGate {
   if(this.fingerprint!==fingerprint){this.invalidate();this.fingerprint=fingerprint;}
   if((!this.value||this.value.signal.aborted)&&Number.isFinite(expires)&&expires>Date.now()){
    const controller=new AbortController(),signal=AbortSignal.any([controller.signal,AbortSignal.timeout(Math.min(2147483647,expires-Date.now()))]);
-   this.value={controller,signal,expiresAt:expires,budget:DEVICE_BUDGETS.desktop,invalidate:this.invalidateViewport};
+   const value:NativeOwnerAuthority={controller,signal,expiresAt:expires,budget:DEVICE_BUDGETS.desktop,invalidate:()=>{if(this.value===value&&!value.signal.aborted)this.invalidateViewport();}};this.value=value;
   }
   return this.value?.signal.aborted?undefined:this.value;
  }

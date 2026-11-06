@@ -1,4 +1,5 @@
-import {resizeArtworkBitmap} from './viewer/image-budget';
+import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
+import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
@@ -1497,6 +1498,7 @@ export function GeometryPreview({
         reserveDecode?: (bytes:ArrayBuffer)=>void,
         stage?: (value:string)=>void,
         imageBudget = viewerBudget,
+        onCleanImageFailure?:()=>void,
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
         const bytes=await readArtworkBytes(artwork,inventory,signal);
@@ -1509,26 +1511,13 @@ export function GeometryPreview({
           let retainedModelBytes=0,decodeBackingReleased=false;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
-            let bitmap = await createImageBitmap(
-              new Blob([bytes!], { type: "image/png" }),
-              { imageOrientation: "flipY" },
-            );
-            resources.push({ dispose: () => bitmap.close() });
-            if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
-            const declared = lodVariantsFor(artwork).find(
-              (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
-            )?.textureSize;
-            if (
-              publicSource &&
-              declared !== undefined &&
-              Math.max(bitmap.width, bitmap.height) > declared
-            )
-              throw Error("DECODE_VARIANT_UNDERCLAIM");
-            bitmap=await resizeArtworkBitmap(bitmap,imageBudget);
-            if (disposed || signal.aborted) {
-              bitmap.close();
-              throw Error("DISPOSED");
-            }
+            const bitmap=await decodeArtworkBitmap(bytes!,imageBudget,signal,bitmap=>{
+              if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
+              const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
+              if(publicSource&&declared!==undefined&&Math.max(bitmap.width,bitmap.height)>declared)throw Error('DECODE_VARIANT_UNDERCLAIM');
+            });
+            resources.push({dispose:()=>bitmap.close()});
+            if(disposed||signal.aborted)throw Error('DISPOSED');
             const texture = new three.Texture(bitmap);
             texture.colorSpace = three.SRGBColorSpace;
             texture.needsUpdate = true;
@@ -1648,7 +1637,8 @@ export function GeometryPreview({
           decodedResources.set(object, resources);
           return object;
         } catch (error) {
-          for (const resource of resources) resource.dispose();
+          let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
+          if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&artwork.artworkType==='image')onCleanImageFailure?.();
           throw error;
         }
       };
@@ -1686,14 +1676,13 @@ export function GeometryPreview({
             const shared=sources.get(artwork.revisionId);
             if(shared){const object=await shared;signal.throwIfAborted();const key=`owner-preview-art:${crypto.randomUUID()}`;if(owner)owner.ledger.reserve(key,1024*1024);let unreserve:()=>void;try{unreserve=reserveGeometry(object);}catch(error){owner?.ledger.release(key);throw error;}let done=false;return {object,release:()=>{if(!done){done=true;unreserve();owner?.ledger.release(key);}}};}
             const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);if(!inventory)throw Error('WORKSPACE_SCENE_BUDGET');
-            const key=`owner-preview-art:${crypto.randomUUID()}`;let reserved=false,decodeStarted=false,decodeReserve=0;
-            if(owner){owner.ledger.reserve(key,inventory.bytes*4+1024*1024);reserved=true;}
+            const key=`owner-preview-art:${crypto.randomUUID()}`;let decodeReserve=0;const hold=owner?new OwnerArtworkHold(owner.ledger,key,inventory.bytes*4+1024*1024):undefined;
             try{
-              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{decodeReserve=assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!.budget,bytes)+1024*1024;owner.ledger.reserve(key,decodeReserve);decodeStarted=true;}:undefined,undefined,ownerWorkspaceFurnishings?.budget);
+              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{decodeReserve=assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!.budget,bytes)+1024*1024;hold!.reserveDecode(decodeReserve);}:undefined,undefined,ownerWorkspaceFurnishings?.budget,()=>hold?.markCleanImageFailure());
               const resources=decodedResources.get(object)??[];decodedResources.delete(object);let unreserve:()=>void;
-              try{if(owner){const actual=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(actual)||actual<0)throw Error('WORKSPACE_SCENE_BUDGET');owner.ledger.reserve(key,Math.max(decodeReserve,actual+1024*1024));}unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(reserved&&!failed)owner!.ledger.release(key);throw error;}
-              let released=false;return {object,release:()=>{if(released)return;released=true;let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed){unreserve();if(reserved)owner!.ledger.release(key);}}};
-            }catch(error){if(reserved&&!decodeStarted)owner!.ledger.release(key);throw error;}
+              try{if(owner){const actual=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(actual)||actual<0)throw Error('WORKSPACE_SCENE_BUDGET');owner.ledger.reserve(key,Math.max(decodeReserve,actual+1024*1024));}unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed)hold?.release();throw error;}
+              let released=false;return {object,release:()=>{if(released)return;released=true;let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed){unreserve();hold?.release();}}};
+            }catch(error){hold?.failure();throw error;}
           },
         });
         placementSync.current=preview.sync;placementRelease=preview.dispose;
