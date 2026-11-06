@@ -15,14 +15,25 @@ export type DemoDisplayApproval = typeof APPROVED_DEMO_DISPLAY_FILES[number] & {
  canonicalMime?:'model/gltf-binary';canonicalRole?:'model';artworkType?:'sculpture';
  canonicalTriangles?:number;canonicalMaxTextureSize?:number;
  /** Reserved for a separately reviewed exact private candidate; no current
-  * production approval grants this authority. */
- privatePaintingCandidate?:Readonly<{profile:PrivatePaintingProfile;sourceWidth:number;sourceHeight:number;recipeSha256:string;sourceIccSha256:string}>;
+  * production approval grants this authority. recipeSha256 binds the private
+  * preparation receipt settingsSHA256, not independently verified settings. */
+ privatePaintingCandidate?:Readonly<{profile:PrivatePaintingProfile;sourceWidth:number;sourceHeight:number;recipeID:'native-private-demo-painting-rgb8';recipeVersion:1;recipeSha256:string;colour:PrivatePaintingColour}>;
 };
-export type PrivatePaintingProfile='painting-1926x2634'|'painting-2419x2552'|'painting-2135x1362';
-const privatePaintingProfiles=Object.freeze({'painting-1926x2634':Object.freeze({width:1926,height:2634}),'painting-2419x2552':Object.freeze({width:2419,height:2552}),'painting-2135x1362':Object.freeze({width:2135,height:1362})});
-export type PrivatePaintingCapability=Readonly<{profile:PrivatePaintingProfile;width:number;height:number;sourceWidth:number;sourceHeight:number;recipeSha256:string;sourceIccSha256:string}>;
+export type PrivatePaintingProfile='painting-1925x2634'|'painting-2419x2552'|'painting-2135x1361';
+/** These are approval-bound preparation claims, not independent verification
+ * of the original JPEG's ICC profile or its absence. */
+export type PrivatePaintingColour=Readonly<{kind:'no-profile-srgb-assumed'}>|Readonly<{kind:'icc-to-srgb';version:1;algorithm:'icc-to-srgb-jpeg-rgb8-v1';sourceIccSha256:string}>;
+const privatePaintingProfiles=Object.freeze({'painting-1925x2634':Object.freeze({width:1925,height:2634}),'painting-2419x2552':Object.freeze({width:2419,height:2552}),'painting-2135x1361':Object.freeze({width:2135,height:1361})});
+export type PrivatePaintingCapability=Readonly<{profile:PrivatePaintingProfile;width:number;height:number;sourceWidth:number;sourceHeight:number;recipeID:'native-private-demo-painting-rgb8';recipeVersion:1;recipeSha256:string;colour:PrivatePaintingColour}>;
 export type PrivatePaintingContext={artwork:Artwork;currentArtwork:Artwork;tenantId:string;assetId:string;bytes:Buffer;purpose:'full'|'coarse'};
 const privatePaintingIssued=new WeakMap<PrivatePaintingCapability,{snapshot:Artwork;tenantId:string;assetId:string;sourceSha256:string;sourceBytes:number}>();
+function privatePaintingColour(value:unknown):PrivatePaintingColour{
+ if(!value||typeof value!=='object'||Array.isArray(value))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ const v=value as Record<string,unknown>,keys=Object.keys(v);
+ if(v.kind==='no-profile-srgb-assumed'&&keys.length===1)return Object.freeze({kind:'no-profile-srgb-assumed'});
+ if(v.kind==='icc-to-srgb'&&keys.length===4&&keys.every(k=>['kind','version','algorithm','sourceIccSha256'].includes(k))&&v.version===1&&v.algorithm==='icc-to-srgb-jpeg-rgb8-v1'&&typeof v.sourceIccSha256==='string'&&/^[a-f0-9]{64}$/.test(v.sourceIccSha256))return Object.freeze({kind:'icc-to-srgb',version:1,algorithm:'icc-to-srgb-jpeg-rgb8-v1',sourceIccSha256:v.sourceIccSha256});
+ throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+}
 /** Called at the legitimate OEX/publication producer boundary. Inventory declarations
  * alone never prove bytes; a producing caller supplies the observed primary bytes.
  * Current CMS approval/revision/resource rights remain the caller's existing gates.
@@ -73,10 +84,10 @@ export function issuePrivatePaintingCapability(context:PrivatePaintingContext):P
  const binding=artwork.extensions?.['org.exhibitos.studio/cms'] as unknown as {tenantId?:unknown;artworkId?:unknown;revision?:unknown}|undefined;
  if(purpose!=='full'||!binding||!Number.isSafeInteger(artwork.revision)||artwork.revision<1||binding.tenantId!==tenantId||binding.artworkId!==artwork.id||binding.revision!==artwork.revision||!isDeepStrictEqual(artwork,currentArtwork)||assetId!==artwork.primaryAssetId)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  const approval=qualifyDemoDisplay(artwork,bytes),imageApproval=qualifyDemoDisplayAsset(artwork,assetId,bytes),candidate=approval?.privatePaintingCandidate;
- if(!imageApproval||!candidate||!Object.hasOwn(privatePaintingProfiles,candidate.profile)||bytes.length>8388608||bytes.length<33||bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.readUInt32BE(8)!==13||bytes.toString('ascii',12,16)!=='IHDR'||bytes[24]!==8||bytes[25]!==2||bytes.readUInt32BE(29)!==pngCrc(bytes.subarray(12,29))||!/^[a-f0-9]{64}$/.test(candidate.recipeSha256)||!/^[a-f0-9]{64}$/.test(candidate.sourceIccSha256))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
- const {profile,sourceWidth,sourceHeight,recipeSha256,sourceIccSha256}=candidate,size=privatePaintingProfiles[profile];
+ if(!imageApproval||!candidate||!Object.hasOwn(privatePaintingProfiles,candidate.profile)||bytes.length>8388608||bytes.length<33||bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.readUInt32BE(8)!==13||bytes.toString('ascii',12,16)!=='IHDR'||bytes[24]!==8||bytes[25]!==2||bytes.readUInt32BE(29)!==pngCrc(bytes.subarray(12,29))||candidate.recipeID!=='native-private-demo-painting-rgb8'||candidate.recipeVersion!==1||typeof candidate.recipeSha256!=='string'||!/^[a-f0-9]{64}$/.test(candidate.recipeSha256))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
+ const {profile,sourceWidth,sourceHeight,recipeID,recipeVersion,recipeSha256}=candidate,size=privatePaintingProfiles[profile],colour=privatePaintingColour(candidate.colour);
  if(sourceWidth!==size.width||sourceHeight!==size.height||bytes.readUInt32BE(16)!==sourceWidth||bytes.readUInt32BE(20)!==sourceHeight)throw new ApiError(422,'DISPLAY_POLICY_INVALID');
- const capability=Object.freeze({profile,...size,sourceWidth,sourceHeight,recipeSha256,sourceIccSha256});
+ const capability=Object.freeze({profile,...size,sourceWidth,sourceHeight,recipeID,recipeVersion,recipeSha256,colour});
  privatePaintingIssued.set(capability,{snapshot:structuredClone(artwork),tenantId,assetId,sourceSha256:sha256(bytes),sourceBytes:bytes.length});return capability;
 }
 /** Recheck the exact source and CMS snapshot before consuming the opaque
@@ -86,5 +97,5 @@ export function privatePaintingCandidateRecipe(capability:PrivatePaintingCapabil
  if(!issued||issued.tenantId!==context.tenantId||issued.assetId!==context.assetId||issued.sourceBytes!==context.bytes.length||issued.sourceSha256!==sha256(context.bytes)||!isDeepStrictEqual(issued.snapshot,context.artwork))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
  const current=issuePrivatePaintingCapability(context);
  if(!isDeepStrictEqual(current,capability))throw new ApiError(422,'DISPLAY_POLICY_INVALID');
- return Object.freeze({version:1 as const,profile:capability.profile,sourceSha256:issued.sourceSha256,width:capability.width,height:capability.height,sourceWidth:capability.sourceWidth,sourceHeight:capability.sourceHeight,recipeSha256:capability.recipeSha256,sourceIccSha256:capability.sourceIccSha256});
+ return Object.freeze({version:1 as const,profile:capability.profile,sourceSha256:issued.sourceSha256,width:capability.width,height:capability.height,sourceWidth:capability.sourceWidth,sourceHeight:capability.sourceHeight,recipeID:capability.recipeID,recipeVersion:capability.recipeVersion,recipeSha256:capability.recipeSha256,colour:capability.colour});
 }
