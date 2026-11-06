@@ -15,12 +15,12 @@ export function parseThumbnailCandidate(value:unknown){
 }
 
 /** Admit dimensions before the isolated decoder; a header alone is never accepted. */
-export async function validateThumbnailBytes(bytes:Buffer){
+export async function validateThumbnailBytes(bytes:Buffer,hooks?:{onSpawn?:(child:import('node:child_process').ChildProcess)=>void}){
  try{
   if(bytes.length<33||bytes.length>MAX_ARTWORK_THUMBNAIL_BYTES||bytes.subarray(0,8).toString('hex')!=='89504e470d0a1a0a'||bytes.readUInt32BE(8)!==13||bytes.toString('ascii',12,16)!=='IHDR')throw Error('header');
   const width=bytes.readUInt32BE(16),height=bytes.readUInt32BE(20);
   if(!width||!height||width>256||height>256)throw Error('dimensions');
-  await decode(bytes,'image/png');
+  await decode(bytes,'image/png',hooks);
   return {width,height};
  }catch{throw new ApiError(422,'ARTWORK_THUMBNAIL_INVALID');}
 }

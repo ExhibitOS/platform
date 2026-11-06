@@ -13,11 +13,11 @@ const digest=(value:unknown)=>sha256(Buffer.from(JSON.stringify(canonical(value)
 export interface CoverImageInput {requestId:string;mime:'image/png';bytes:number;sha256:string;rights:SpaceStillAsset['rights']}
 export interface CoverImageRow {tenant_id:string;exhibition_id:string;id:string;created_by:string;sha256:string;bytes:number;mime:'image/png';rights:SpaceStillAsset['rights'];object_key:string;state:'uploading'|'validated'|'approved';revoked:boolean}
 export const coverImageAsset=(row:CoverImageRow):SpaceStillAsset=>({id:row.id,path:`space-still/${row.id}/image.png`,mime:'image/png',bytes:Number(row.bytes),sha256:row.sha256,rights:structuredClone(row.rights)});
-export async function validateCoverImage(bytes:Buffer){
+export async function validateCoverImage(bytes:Buffer,hooks?:{onSpawn?:(child:import('node:child_process').ChildProcess)=>void}){
  if(bytes.length<33||bytes.length>MAX_SPACE_STILL_BYTES||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||bytes.readUInt32BE(8)!==13||bytes.toString('ascii',12,16)!=='IHDR')throw new ApiError(422,'COVER_IMAGE_INVALID');
  const width=bytes.readUInt32BE(16),height=bytes.readUInt32BE(20);
  if(!width||!height||width>MAX_SPACE_STILL_DIMENSION||height>MAX_SPACE_STILL_DIMENSION||width*height>MAX_SPACE_STILL_PIXELS)throw new ApiError(422,'COVER_IMAGE_LIMIT');
- await decode(bytes,'image/png');
+ await decode(bytes,'image/png',hooks);
 }
 /** Existing immutable upload/approval, BlobStore, rights and isolated PNG decoder
  * policy, with a separate image identity. No original/download endpoint. */
