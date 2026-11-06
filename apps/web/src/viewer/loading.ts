@@ -251,20 +251,25 @@ export function assetDecodeReserve(artwork:Artwork,inventory:Artwork['assets'][n
 function modelDecodeReserve(inventoryBytes:number,budget:DeviceBudget,bytes:ArrayBuffer,textureSize:number|undefined,phase:'complete'|'cpu'){
  const header=new DataView(bytes);if(bytes.byteLength<20||header.getUint32(0,true)!==0x46546c67||header.getUint32(16,true)!==0x4e4f534a)throw Error('DECODE_BUDGET_EXCEEDED');
  const length=header.getUint32(12,true);if(length>bytes.byteLength-20)throw Error('DECODE_BUDGET_EXCEEDED');
- const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source?:number;extensions?:{KHR_texture_basisu?:{source?:number}}}>;extensionsUsed?:unknown;extensionsRequired?:unknown;animations?:unknown;skins?:unknown};
+ const glb=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,length))) as Parameters<typeof modelGeometryResidentBytes>[0]&{bufferViews?:Array<{buffer?:number;byteOffset?:number;byteLength:number;byteStride?:number}>;images?:Array<{bufferView?:number;mimeType?:string}>;textures?:Array<{source?:number;extensions?:{KHR_texture_basisu?:{source?:number}}}>;extensionsUsed?:unknown;extensionsRequired?:unknown;animations?:unknown;skins?:unknown};
  const binBytes=bytes.byteLength-28-length;if(binBytes<0)throw Error('DECODE_BUDGET_EXCEEDED');const geometryBytes=modelGeometryResidentBytes(glb,binBytes);
+ if(geometryBytes>budget.maxCacheBytes)throw Error('MODEL_RESIDENT_BUDGET');
+ if(glb.images!==undefined&&!Array.isArray(glb.images)||glb.textures!==undefined&&!Array.isArray(glb.textures)||(glb.images?.length??0)>16||(glb.textures?.length??0)>8)throw Error('DECODE_BUDGET_EXCEEDED');
+ const references=new Map<number,number>();for(const texture of glb.textures??[]){for(const index of new Set([texture.source,texture.extensions?.KHR_texture_basisu?.source])){if(index===undefined)continue;if(!Number.isSafeInteger(index)||index<0||index>=(glb.images?.length??0))throw Error('DECODE_BUDGET_EXCEEDED');references.set(index,(references.get(index)??0)+1);}}
  let textureBytes=0,cpuTextureBytes=0;
  let phasedPng=phase==='cpu'&&ordinaryPngRoleSet(glb)&&glb.extensionsUsed===undefined&&glb.extensionsRequired===undefined&&glb.animations===undefined&&glb.skins===undefined&&(glb.meshes??[]).every(mesh=>mesh.primitives.every(primitive=>!('targets' in primitive)));
  for(const [index,image] of (glb.images??[]).entries()){
-  const view=image.bufferView===undefined?undefined:glb.bufferViews?.[image.bufferView];
-  const offset=28+length+(view?.byteOffset??0);
-  if(!view||view.byteLength<28||offset+view.byteLength>bytes.byteLength)throw Error('DECODE_BUDGET_EXCEEDED');
+  const view=Number.isSafeInteger(image.bufferView)&&image.bufferView!==undefined&&image.bufferView>=0?glb.bufferViews?.[image.bufferView]:undefined;
+  const relative=view?.byteOffset??0,offset=28+length+relative;
+  if(!view||view.buffer!==0||!Number.isSafeInteger(relative)||relative<0||!Number.isSafeInteger(view.byteLength)||view.byteLength<28||relative+view.byteLength>binBytes)throw Error('DECODE_BUDGET_EXCEEDED');
   const png=image.mimeType==='image/png',ktx=image.mimeType==='image/ktx2';if(!png&&!ktx)throw Error('DECODE_BUDGET_EXCEEDED');
+  if(ktx&&(view.byteLength<40||header.getUint32(offset+28,true)!==0||header.getUint32(offset+32,true)!==0||header.getUint32(offset+36,true)!==1))throw Error('DECODE_BUDGET_EXCEEDED');
   const w=header.getUint32(offset+(png?16:20),ktx),h=header.getUint32(offset+(png?20:24),ktx);
   if(!w||!h||Math.max(w,h)>Math.min(textureSize??budget.maxTextureSize,budget.maxTextureSize))throw Error('DECODE_BUDGET_EXCEEDED');
-  const copies=Math.max(1,(glb.textures??[]).filter(t=>t.source===index||t.extensions?.KHR_texture_basisu?.source===index).length);
+  const copies=Math.max(1,references.get(index)??0);
   textureBytes+=copies*w*h*4*(1+4/3);
   cpuTextureBytes+=copies*w*h*4;
+  if(!Number.isFinite(textureBytes)||geometryBytes+textureBytes>budget.maxCacheBytes)throw Error('MODEL_RESIDENT_BUDGET');
   phasedPng=phasedPng&&png&&header.getUint8(offset+24)===8&&header.getUint8(offset+25)===2;
  }
  // An individually oversized resident can never fit after a ready-before-swap transition.
@@ -277,17 +282,18 @@ function modelDecodeReserve(inventoryBytes:number,budget:DeviceBudget,bytes:Arra
 /** Header-only accounting for an already authenticated and hash-verified
  * workspace GLB. Registration still owns full glTF/profile validation. */
 export function workspaceFurnishingModelPreflight(bytes:ArrayBuffer,declaredBytes:number,budget:DeviceBudget){
- if(!Number.isSafeInteger(declaredBytes)||declaredBytes<28||declaredBytes>32*1024*1024||bytes.byteLength!==declaredBytes)throw Error('DECODE_BUDGET_EXCEEDED');
+ if(!Number.isSafeInteger(declaredBytes)||declaredBytes<28||declaredBytes>32*1024*1024||bytes.byteLength!==declaredBytes||!Number.isSafeInteger(budget.maxTriangles)||budget.maxTriangles<0||!Number.isSafeInteger(budget.maxCacheBytes)||budget.maxCacheBytes<1||!Number.isSafeInteger(budget.maxTextureSize)||budget.maxTextureSize<1||budget.maxTransitionBytes!==undefined&&(!Number.isSafeInteger(budget.maxTransitionBytes)||budget.maxTransitionBytes<1))throw Error('DECODE_BUDGET_EXCEEDED');
  const view=new DataView(bytes),jsonLength=view.getUint32(12,true);
  if(view.getUint32(0,true)!==0x46546c67||view.getUint32(4,true)!==2||view.getUint32(8,true)!==bytes.byteLength||view.getUint32(16,true)!==0x4e4f534a||jsonLength>1024*1024||jsonLength%4!==0||20+jsonLength+8>bytes.byteLength||view.getUint32(24+jsonLength,true)!==0x004e4942||view.getUint32(20+jsonLength,true)!==bytes.byteLength-28-jsonLength)throw Error('DECODE_BUDGET_EXCEEDED');
- const doc=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,jsonLength))) as {accessors?:Array<{count?:number}>;meshes?:Array<{primitives?:Array<{mode?:number;indices?:number;attributes?:{POSITION?:number};targets?:unknown}>}>;nodes?:Array<{mesh?:number;children?:number[]}>;scenes?:Array<{nodes?:number[]}>;scene?:number;skins?:unknown;animations?:unknown};
+ const doc=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(new Uint8Array(bytes,20,jsonLength))) as {bufferViews?:Array<{buffer?:number;byteOffset?:number;byteLength?:number}>;accessors?:Array<{count?:number}>;meshes?:Array<{primitives?:Array<{mode?:number;indices?:number;attributes?:{POSITION?:number};targets?:unknown}>}>;nodes?:Array<{mesh?:number;children?:number[];extensions?:unknown}>;scenes?:Array<{nodes?:number[]}>;scene?:number;skins?:unknown;animations?:unknown};
+ if(!Array.isArray(doc.bufferViews)||doc.bufferViews.length>100000)throw Error('DECODE_BUDGET_EXCEEDED');for(const entry of doc.bufferViews){const offset=entry?.byteOffset??0,length=entry?.byteLength;if(!entry||entry.buffer!==0||!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(length)||length===undefined||length<1||offset+length>bytes.byteLength-28-jsonLength)throw Error('DECODE_BUDGET_EXCEEDED');}
  if(doc.skins!==undefined||doc.animations!==undefined||(doc.meshes??[]).some(mesh=>mesh.primitives?.some(primitive=>primitive.targets!==undefined)))throw Error('WORKSPACE_FURNISHING_UNSUPPORTED');
- const scene=doc.scenes?.[doc.scene??0];if(!scene||!Array.isArray(scene.nodes)||!Array.isArray(doc.nodes))throw Error('DECODE_BUDGET_EXCEEDED');
+ const scene=doc.scenes?.[doc.scene??0];if(!scene||!Array.isArray(scene.nodes)||scene.nodes.length>100000||!Array.isArray(doc.nodes))throw Error('DECODE_BUDGET_EXCEEDED');
  let triangles=0,draws=0;const pending=[...scene.nodes],visited=new Set<number>();
- while(pending.length){const index=pending.pop();if(!Number.isSafeInteger(index)||index===undefined||index<0||visited.has(index)||visited.size>=100000)throw Error('DECODE_BUDGET_EXCEEDED');visited.add(index);const node=doc.nodes[index];if(!node)throw Error('DECODE_BUDGET_EXCEEDED');if(node.children!==undefined){if(!Array.isArray(node.children)||pending.length+node.children.length>100000)throw Error('DECODE_BUDGET_EXCEEDED');for(const child of node.children)pending.push(child);}
-  if(node.mesh!==undefined){if(!Number.isSafeInteger(node.mesh)||node.mesh<0)throw Error('DECODE_BUDGET_EXCEEDED');const mesh=doc.meshes?.[node.mesh];if(!mesh||!Array.isArray(mesh.primitives))throw Error('DECODE_BUDGET_EXCEEDED');for(const primitive of mesh.primitives){const accessorIndex=primitive.indices??primitive.attributes?.POSITION,count=accessorIndex===undefined?undefined:doc.accessors?.[accessorIndex]?.count,mode=primitive.mode??4;if(!Number.isSafeInteger(count)||count===undefined||count<1||!Number.isSafeInteger(mode)||mode<0||mode>6||mode===4&&count%3!==0)throw Error('DECODE_BUDGET_EXCEEDED');draws++;triangles+=mode===4?count/3:mode===5||mode===6?Math.max(0,count-2):0;if(draws>256||!Number.isSafeInteger(triangles)||triangles>budget.maxTriangles)throw Error('ASSET_BUDGET_EXCEEDED');}}
+ while(pending.length){const index=pending.pop();if(!Number.isSafeInteger(index)||index===undefined||index<0||visited.has(index)||visited.size>=100000)throw Error('DECODE_BUDGET_EXCEEDED');visited.add(index);const node=doc.nodes[index];if(!node)throw Error('DECODE_BUDGET_EXCEEDED');if(node.extensions!==undefined)throw Error('WORKSPACE_FURNISHING_UNSUPPORTED');if(node.children!==undefined){if(!Array.isArray(node.children)||pending.length+node.children.length>100000)throw Error('DECODE_BUDGET_EXCEEDED');for(const child of node.children)pending.push(child);}
+  if(node.mesh!==undefined){if(!Number.isSafeInteger(node.mesh)||node.mesh<0)throw Error('DECODE_BUDGET_EXCEEDED');const mesh=doc.meshes?.[node.mesh];if(!mesh||!Array.isArray(mesh.primitives))throw Error('DECODE_BUDGET_EXCEEDED');for(const primitive of mesh.primitives){const accessorIndex=primitive.indices??primitive.attributes?.POSITION,count=accessorIndex===undefined?undefined:doc.accessors?.[accessorIndex]?.count,mode=primitive.mode??4;if(!Number.isSafeInteger(count)||count===undefined||count<1||!Number.isSafeInteger(mode)||mode<0||mode>6||mode===4&&count%3!==0)throw Error('DECODE_BUDGET_EXCEEDED');if(mode===5||mode===6)throw Error('WORKSPACE_FURNISHING_UNSUPPORTED');draws++;triangles+=mode===4?count/3:0;if(draws>256||!Number.isSafeInteger(triangles)||triangles>budget.maxTriangles)throw Error('ASSET_BUDGET_EXCEEDED');}}
  }
- if(!draws)throw Error('DECODE_BUDGET_EXCEEDED');return {triangles,draws,reserveBytes:modelDecodeReserve(declaredBytes,budget,bytes,undefined,'complete')};
+ if(!draws)throw Error('DECODE_BUDGET_EXCEEDED');const reserveBytes=modelDecodeReserve(declaredBytes,budget,bytes,undefined,'complete');if(!Number.isSafeInteger(reserveBytes)||reserveBytes>(budget.maxTransitionBytes??budget.maxCacheBytes))throw Error('ASSET_BUDGET_EXCEEDED');return {triangles,draws,reserveBytes};
 }
 /** Header allocation guard before the browser decoder; hash/profile admission is separate. */
 export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Artwork['assets'][number],budget:DeviceBudget){
