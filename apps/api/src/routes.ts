@@ -83,18 +83,19 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  }));
  const prefix='/api/v1/tenants/:tenantId';
  if(workspaceFurnishing){
-  if(!(workspaceFurnishing instanceof WorkspaceFurnishingIntakes)||input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||![nativeOexWorkspace,nativeExportWorkspace].some(context=>context&&workspaceFurnishing.matchesBinding(context,store)))throw Error('WORKSPACE_FURNISHING_CONFIGURATION');
+  if(!(workspaceFurnishing instanceof WorkspaceFurnishingIntakes)||!workspaceFurnishing.hasWriterLease()||input.mode!=='local'||freshOexTest||!(store instanceof FileBlobStore)||![nativeOexWorkspace,nativeExportWorkspace].some(context=>context&&workspaceFurnishing.matchesBinding(context,store)))throw Error('WORKSPACE_FURNISHING_CONFIGURATION');
+  const ownedCall=(mutate:boolean,work:(client:PoolClient,s:Session,req:FastifyRequest,reply:FastifyReply)=>Promise<unknown>)=>call(mutate,async(c,s,req,reply)=>{const result=await work(c,s,req,reply);await workspaceFurnishing.authorize(c,s);return result;});
   const root=`${prefix}/workspace/furnishing-intakes`,library=`${prefix}/workspace/furnishings`,params=(req:FastifyRequest)=>req.params as {id:string;version:string};
   const cursor=(req:FastifyRequest)=>{const q=req.query as Record<string,unknown>;if(Object.keys(q).some(k=>k!=='cursor')||q.cursor!==undefined&&typeof q.cursor!=='string')throw new ApiError(400,'INVALID_CURSOR');return q.cursor as string|undefined;};
   const version=(req:FastifyRequest)=>{const value=params(req).version;if(value!=='1')throw new ApiError(400,'INVALID_INPUT');return 1;};
-  app.post(root,{bodyLimit:65536},call(true,async(c,s,req,reply)=>{reply.code(201);return workspaceFurnishing.create(c,s,req.body);}));
-  app.get(root,call(false,async(c,s,req)=>workspaceFurnishing.listIntakes(c,s,cursor(req))));
-  app.get(`${root}/:id`,call(false,async(c,s,req)=>workspaceFurnishing.read(c,s,params(req).id)));
-  app.put(`${root}/:id/model`,{bodyLimit:32*1024*1024},call(true,async(c,s,req)=>{if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return workspaceFurnishing.upload(c,s,params(req).id,req.body);}));
-  for(const action of ['complete','cancel','retry'] as const)app.post(`${root}/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>workspaceFurnishing[action](c,s,params(req).id)));
-  app.get(library,call(false,async(c,s,req)=>workspaceFurnishing.list(c,s,cursor(req))));
-  app.get(`${library}/:id/versions/:version`,call(false,async(c,s,req)=>workspaceFurnishing.readVersion(c,s,params(req).id,version(req))));
-  const previewRead=call(false,async(c,s,req)=>workspaceFurnishing.model(c,s,params(req).id,version(req),'display'));
+  app.post(root,{bodyLimit:65536},ownedCall(true,async(c,s,req,reply)=>{reply.code(201);return workspaceFurnishing.create(c,s,req.body);}));
+  app.get(root,ownedCall(false,async(c,s,req)=>workspaceFurnishing.listIntakes(c,s,cursor(req))));
+  app.get(`${root}/:id`,ownedCall(false,async(c,s,req)=>workspaceFurnishing.read(c,s,params(req).id)));
+  app.put(`${root}/:id/model`,{bodyLimit:32*1024*1024},ownedCall(true,async(c,s,req)=>{if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return workspaceFurnishing.upload(c,s,params(req).id,req.body);}));
+  for(const action of ['complete','cancel','retry'] as const)app.post(`${root}/:id/${action}`,{schema:{body:object({})}},ownedCall(true,async(c,s,req)=>workspaceFurnishing[action](c,s,params(req).id)));
+  app.get(library,ownedCall(false,async(c,s,req)=>workspaceFurnishing.list(c,s,cursor(req))));
+  app.get(`${library}/:id/versions/:version`,ownedCall(false,async(c,s,req)=>workspaceFurnishing.readVersion(c,s,params(req).id,version(req))));
+  const previewRead=ownedCall(false,async(c,s,req)=>workspaceFurnishing.model(c,s,params(req).id,version(req),'display'));
   app.get(`${library}/:id/versions/:version/model`,async(req,reply)=>{const result=await previewRead(req,reply) as {bytes:Buffer;mime:string;sha256:string};return reply.header('content-type',result.mime).header('content-length',String(result.bytes.length)).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.sha256).send(result.bytes);});
   let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;const tick=async()=>{try{await workspaceFurnishing.work(pool);}catch{app.log.error('Workspace furnishing worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM workspace_furnishing_intakes LIMIT 0');running=tick();});app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
