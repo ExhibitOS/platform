@@ -26,6 +26,11 @@ export interface NativeOexWorkspaceContext {
   * evidence, not an independently verified or revived live claim. */
  assertRecord(client:PoolClient,record:Readonly<{workspaceId:string;tenantId:string;principalId:string;importJobId:string;requestId:string;attemptId:string;claimSha256:string;payloadManifestSha256:string;sourceDatabaseSystemId:string;sourceDatabaseOid:string;sourceSha256:string;exhibitionId:string}>):Promise<void>;
 }
+const issuedWorkspaceImports=new WeakSet<NativeOexWorkspaceContext>();
+export function assertIssuedWorkspaceImport(context:NativeOexWorkspaceContext,owner:import('./publication-disk-budget.ts').DiskOwner){
+ if(!issuedWorkspaceImports.has(context)||!context.assertOwner)throw new ApiError(403,'FORBIDDEN');
+ context.assertOwner(owner);
+}
 
 /** Issued by native bootstrap after validating FD0 workspace, catalog and
  * local owner; not an HTTP option. The frozen DB/store snapshot is rechecked
@@ -47,9 +52,9 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  if(wantsWorkspaceImport&&!isDeepStrictEqual(initial,workspaceCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(wantsWorkspaceImport)await assertImportCatalog(c);
  await verifyWorkspace(c);await assertCatalog(c);const owner=await publicationDiskOwner(c,blobRoot);
  const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);if(wantsWorkspaceImport)await assertImportCatalog(client);else await assertCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
- return Object.freeze({workspaceId,tenantId,principalId,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsWorkspaceImport?{workspaceImport:true as const,assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{if(!isDeepStrictEqual(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,assertRecord:async(client,record)=>{
+ const context=Object.freeze({workspaceId,tenantId,principalId,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsWorkspaceImport?{workspaceImport:true as const,assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{if(!isDeepStrictEqual(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,assertRecord:async(client:PoolClient,record:Parameters<NativeOexWorkspaceContext['assertRecord']>[1])=>{
   await assertDatabase(client);if(record.workspaceId!==workspaceId||record.tenantId!==tenantId||record.principalId!==principalId||record.sourceDatabaseSystemId!==owner.databaseSystemId||record.sourceDatabaseOid!==owner.databaseOid)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
- }} satisfies NativeOexWorkspaceContext);
+ }} satisfies NativeOexWorkspaceContext);if(wantsWorkspaceImport)issuedWorkspaceImports.add(context);return context;
 }
 
 /** Private default-native workspace binding for local file export. It does not

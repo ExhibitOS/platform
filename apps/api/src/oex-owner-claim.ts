@@ -11,7 +11,7 @@ import {sendOexReservationReceipt} from './oex-reservation-wire.ts';
 import type {NativeOexDiagnostic} from './native-oex-diagnostic.ts';
 
 type Channel={send(value:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>};
-type CommittedLease={archiveFormat?:NativeOexFileFormat;jobId:string;requestId:string;userId:string;leaseId:string;archiveBytes:number;archiveSha256:string};
+type CommittedLease={archiveFormat?:NativeOexFileFormat|'1.0.0-draft.12';jobId:string;requestId:string;userId:string;leaseId:string;archiveBytes:number;archiveSha256:string};
 type PackedFacts={correlationId:string;attemptId:string;runtimeGeneration:string;stageId:string;reportSha256:string;inputReservationId:string;inputReservationGeneration:string;inputReceiptDigest:string;outputReservationId:string|null;outputReservationGeneration:string|null;outputReceiptDigest:string|null;archiveBytes:number;archiveSha256:string;inputDevice:string;inputInode:string;packedBytes:number;manifestSha256:string};
 type ClaimState={channel:Channel;journal:PublicationAttempts;provider:PublicationDiskBudget;workspaceId:string;principalId:string;jobId:string;verifyLive:()=>Promise<void>;signal:AbortSignal;variant:'v2'|'v3';readySent?:boolean;lease?:Readonly<CommittedLease>;preflightStarted?:boolean;verifyPreflight?:()=>Promise<void>;verifyCommittedPreflight?:()=>Promise<void>;packedFacts?:Readonly<PackedFacts>;packedStarted?:boolean;packedAccepted?:boolean;drainStarted?:boolean;drainGuard?:()=>Promise<void>;settlementStarted?:boolean};
 const issued=new WeakMap<object,ClaimState>();
@@ -85,6 +85,7 @@ export async function bindOexPreflightV3(bound:Awaited<ReturnType<typeof bindOex
   const live=async()=>{await verifyLease(lease);return ownerLive();};
   const initial=await live(),r=initial.claim,stagePlan=initial.binding.receipt.plan[0];
   if(r.plan.length!==1||!stagePlan||stage.stageDevice!==stagePlan.device||typeof stage.stageInode!=='string'||!/^(0|[1-9][0-9]{0,23})$/.test(stage.stageInode)||lease.archiveBytes!==r.plan[0]!.bytes||lease.archiveSha256!==r.sourceDigest)throw Error('OEX_PREFLIGHT_BINDING');
+  if(lease.archiveFormat!==undefined&&!isNativeOexFileFormat(lease.archiveFormat))throw Error('OEX_PREFLIGHT_BINDING');
   const raw=await channel.receive(300000);const report=parseOexPreflightReportV3(raw,{correlationId:bound.correlationId,attemptId:r.attemptId,runtimeGeneration:r.runtimeGeneration,stageId:r.stageId,reservationId:r.reservationId,reservationGeneration:initial.binding.receipt.generation,reservationDigest:bound.receiptDigest,archiveBytes:lease.archiveBytes,archiveSha256:lease.archiveSha256,inputDevice:stage.stageDevice,inputInode:stage.stageInode,...(lease.archiveFormat!==undefined?{archiveFormat:lease.archiveFormat}:{})});
   await live();const evidence=report.evidence;let output:DiskReservationBinding|null=null;
   if(evidence.packedBytes>0){const plan=[{root:r.plan[0]!.root,bytes:evidence.packedBytes},{root:r.owner.storeRoot,bytes:evidence.packedBytes}],reserved=await provider.acquire('oex-import',r.owner,randomUUID(),plan);output={id:reserved.id,generation:reserved.generation,operation:'oex-import',owner:r.owner,plan};}
