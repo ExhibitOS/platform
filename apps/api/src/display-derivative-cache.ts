@@ -5,7 +5,18 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import {normalizeDisplayWatermark,embeddedWatermarkTextSupported,type DisplayWatermark} from '@exhibitos/studio-contract';
 import {derivative,type DerivativeOptions} from './derivative.ts';
 import {ApiError} from './auth.ts';
+import {privatePaintingCandidateRecipe,type PrivatePaintingCapability,type PrivatePaintingContext} from './demo-display-policy.ts';
 export interface DisplayDerivativeCache {client:PoolClient;blobs:BlobStore;tenantId:string;assetId:string;sourceSha256:string}
+/** Candidate-only identity preparation. This does not create or read a cache
+ * record and is not connected to the public derivative path. */
+export function privatePaintingCacheIdentity(capability:PrivatePaintingCapability,context:PrivatePaintingContext,requestedWatermark?:DisplayWatermark){
+ let watermark=normalizeDisplayWatermark(requestedWatermark);
+ if(watermark.mode!=='embedded')watermark={version:1,mode:'none'};
+ else{const label=watermark.text??'EXHIBITOS';if(!embeddedWatermarkTextSupported(label))throw new ApiError(422,'WATERMARK_TEXT_UNSUPPORTED');watermark={...watermark,text:label.toUpperCase()};}
+ const recipe=Object.freeze({...privatePaintingCandidateRecipe(capability,context),watermark:Object.freeze(watermark)}),recipeSha256=sha256(Buffer.from(JSON.stringify(recipe)));
+ const identity=createHash('sha256').update(`${context.tenantId}:${context.assetId}:${recipe.sourceSha256}:${recipeSha256}`).digest('hex');
+ return Object.freeze({recipe,recipeSha256,identity});
+}
 /** Current approval/rights are checked by the caller on every use. Cache identity
  * grants neither access nor an exception to source/byte integrity. */
 export async function cachedDisplayDerivative(original:Buffer,mime:string,options:DerivativeOptions={},cache?:DisplayDerivativeCache){
