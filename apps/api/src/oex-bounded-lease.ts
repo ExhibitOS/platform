@@ -6,8 +6,8 @@ import {ApiError,uuid,type Session} from './auth.ts';
 import {assertIssuedWorkspaceImport,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 const hex=/^[a-f0-9]{64}$/;
 type OwnerFormat=NativeOexFileFormat|'1.0.0-draft.12';
-type WorkspaceAuthority={context:NativeOexWorkspaceContext;workspaceId:string;owner:import('./publication-disk-budget.ts').DiskOwner};
-async function workspaceAuthority(c:PoolClient,s:Session,authority:WorkspaceAuthority|undefined){const context=authority?.context;if(!authority||!context||context.workspaceImport!==true||context.workspaceMaterials!==true||authority.workspaceId!==context.workspaceId||s.tenantId!==context.tenantId||s.userId!==context.principalId||typeof context.assertImportCatalog!=='function')throw new ApiError(403,'FORBIDDEN');assertIssuedWorkspaceImport(context,authority.owner);await context.assertDatabase(c);}
+export type WorkspaceAuthority={context:NativeOexWorkspaceContext;workspaceId:string;owner:import('./publication-disk-budget.ts').DiskOwner};
+export async function workspaceAuthority(c:PoolClient,s:Session,authority:WorkspaceAuthority|undefined){const context=authority?.context;if(!authority||!context||context.workspaceImport!==true||context.workspaceMaterials!==true||authority.workspaceId!==context.workspaceId||s.tenantId!==context.tenantId||s.userId!==context.principalId||typeof context.assertImportCatalog!=='function')throw new ApiError(403,'FORBIDDEN');assertIssuedWorkspaceImport(context,authority.owner);await context.assertDatabase(c);}
 /** Transactional queued-job claim for the single private bounded operation.
  * The caller holds the shared authorization/maintenance locks, the same
  * issued resource claim and workspace fence, has

@@ -3,8 +3,9 @@
 // This process writes no archive/output files and grants no reservation authority.
 import {closeSync,fstatSync,readSync,writeSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {preflightOexSize} from './oex-size-preflight.ts';
+import {preflightOexSize,preflightWorkspaceOexSize} from './oex-size-preflight.ts';
 import {isNativeOexFileFormat} from './oex-file-format.ts';
+import {fileURLToPath} from 'node:url';
 
 const keys=['version','kind','attemptId','runtimeGeneration','stageId','reservationId','reservationGeneration','reservationDigest','archiveBytes','archiveSha256','inputDevice','inputInode'] as const;
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -20,7 +21,7 @@ async function readControl(fd:number){
  return {v,digest:createHash('sha256').update(bytes).digest('hex')};
 }
 async function writeAll(fd:number,bytes:Buffer){const deadline=process.hrtime.bigint()+5_000_000_000n;let n=0;while(n<bytes.length){const count=await io(()=>writeSync(fd,bytes,n,bytes.length-n,null),deadline);if(!count)throw Error('OUTPUT_SHORT');n+=count;}}
-async function main(){
+export async function runOwnedOexPreflight(workspace=false){
  const text=process.env.EXHIBITOS_OEX_PREFLIGHT_FDS;if(!text||text.length>14)throw Error('FD_LIST');const parts=text.split(',');if(parts.length!==3||parts.some(x=>!/^[1-9][0-9]{1,3}$/.test(x)||Number(x)<64||Number(x)>1023))throw Error('FD_LIST');const fds=parts.map(Number);if(new Set(fds).size!==3)throw Error('FD_LIST');
  const [controlFd,ackFd,inputFd]=fds as [number,number,number],controlStat=fstatSync(controlFd,{bigint:true}),ackStat=fstatSync(ackFd,{bigint:true});if((!controlStat.isFIFO()&&!controlStat.isSocket())||(!ackStat.isFIFO()&&!ackStat.isSocket())||controlStat.dev===ackStat.dev&&controlStat.ino===ackStat.ino)throw Error('CONTROL_FD');
  let request:Awaited<ReturnType<typeof readControl>>;try{request=await readControl(controlFd);}finally{closeSync(controlFd);}
@@ -28,8 +29,8 @@ async function main(){
  if(!inputStat.isFile()||inputStat.nlink>1n||(inputStat.mode&0o077n)!==0n||inputStat.uid!==BigInt(process.getuid?.()??-1)||String(inputStat.dev)!==v.inputDevice||String(inputStat.ino)!==v.inputInode||inputStat.size!==BigInt(v.archiveBytes as number))throw Error('FD_IDENTITY');
  const input={stat:async()=>fstatSync(inputFd,{bigint:true}),read:async(buffer:Uint8Array,offset:number,length:number,position:number)=>({bytesRead:readSync(inputFd,buffer,offset,length,position)})};
  const selectedFormat=process.env.EXHIBITOS_OEX_PREFLIGHT_FORMAT;
- if(selectedFormat!==undefined&&!isNativeOexFileFormat(selectedFormat))throw Error('CONTROL_FORMAT');
- const {archiveFormat,...legacy}=await preflightOexSize(input,{bytes:v.archiveBytes as number,sha256:v.archiveSha256 as string});closeSync(inputFd);
+ if(workspace?selectedFormat!=='1.0.0-draft.12':selectedFormat!==undefined&&!isNativeOexFileFormat(selectedFormat))throw Error('CONTROL_FORMAT');
+ const {archiveFormat,...legacy}=await (workspace?preflightWorkspaceOexSize:preflightOexSize)(input,{bytes:v.archiveBytes as number,sha256:v.archiveSha256 as string});closeSync(inputFd);
  if(archiveFormat!==(selectedFormat??'1.0.0-draft.9'))throw Error('CONTROL_FORMAT');
  // Preserve the exact legacy ACK and key order unless the new owner mode
  // explicitly selected its format. Neither form grants drain authority.
@@ -37,4 +38,4 @@ async function main(){
  const ack=Buffer.from(JSON.stringify({version:1,kind:'preflight-complete',attemptId:v.attemptId,runtimeGeneration:v.runtimeGeneration,stageId:v.stageId,reservationId:v.reservationId,reservationGeneration:v.reservationGeneration,controlSha256:digest,...result}));
  if(ack.length>4096)throw Error('ACK_SIZE');await writeAll(ackFd,ack);closeSync(ackFd);
 }
-try{await main();}catch{process.exitCode=1;}
+if(process.argv[1]===fileURLToPath(import.meta.url))try{await runOwnedOexPreflight();}catch{process.exitCode=1;}

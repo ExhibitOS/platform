@@ -89,7 +89,8 @@ export async function hasNativeBoundedProvenance(c:PoolClient,s:Session,exhibiti
  if(result.rowCount===0)return false;
  if(result.rowCount!==1)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  const row=result.rows[0];
- if(row.workspace_id!==context.workspaceId||row.principal_id!==s.userId||row.workspace_tenant!==s.tenantId||row.workspace_principal!==s.userId||row.user_id!==s.userId||row.archive_profile!=='bounded-file-v1'||row.job_profile!=='bounded-file-v1'||!isNativeOexFileFormat(row.oex_format)||!((context.archiveFormats??['1.0.0-draft.9']).includes(row.oex_format))||row.state!=='complete'||row.source_sha256!==row.payload_sha256||row.result_exhibition!==exhibitionId)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
+ const formatAllowed=isNativeOexFileFormat(row.oex_format)?(context.archiveFormats??['1.0.0-draft.9']).includes(row.oex_format):row.oex_format==='1.0.0-draft.12'&&issuedWorkspaceImports.has(context);
+ if(row.workspace_id!==context.workspaceId||row.principal_id!==s.userId||row.workspace_tenant!==s.tenantId||row.workspace_principal!==s.userId||row.user_id!==s.userId||row.archive_profile!=='bounded-file-v1'||row.job_profile!=='bounded-file-v1'||!formatAllowed||row.state!=='complete'||row.source_sha256!==row.payload_sha256||row.result_exhibition!==exhibitionId)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  await context.assertRecord(c,Object.freeze({workspaceId:context.workspaceId,tenantId:s.tenantId,principalId:s.userId,importJobId:row.import_job_id,requestId:row.request_id,attemptId:row.attempt_id,claimSha256:row.claim_sha256,payloadManifestSha256:row.payload_manifest_sha256,sourceDatabaseSystemId:row.source_database_system_id,sourceDatabaseOid:row.source_database_oid,sourceSha256:row.source_sha256,exhibitionId}));
  await context.assertDatabase(c);return true;
 }
@@ -106,14 +107,15 @@ const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof
 function draftDigest(draft:unknown){return createHash('sha256').update(canonical(draft)).digest('hex');}
 /** The private caller MUST already hold the selected owner claim and PG
  * operation fence; assertLive revalidates that actual issued claim. */
-export async function issueNativeSelectedDraftGrant(c:PoolClient,s:Session,draft:unknown,input:SelectedBinding,assertLive:()=>Promise<void>):Promise<NativeSelectedDraftGrant>{
+export async function issueNativeSelectedDraftGrant(c:PoolClient,s:Session,draft:unknown,input:SelectedBinding,assertLive:()=>Promise<void>,workspace?:{context:NativeOexWorkspaceContext;owner:import('./publication-disk-budget.ts').DiskOwner}):Promise<NativeSelectedDraftGrant>{
  const binding=structuredClone(input),hex=/^[a-f0-9]{64}$/;
  for(const v of [binding.workspaceId,binding.tenantId,binding.principalId,binding.jobId,binding.attemptId,binding.exhibitionId]){uuid(v);if(v!==v.toLowerCase())throw new ApiError(403,'FORBIDDEN');}
  if(!draft||typeof draft!=='object'||(draft as {exhibitionId?:unknown}).exhibitionId!==binding.exhibitionId||binding.tenantId!==s.tenantId||binding.principalId!==s.userId||typeof assertLive!=='function'||![binding.sourceSha256,binding.claimSha256,binding.payloadManifestSha256].every(v=>hex.test(v))||![binding.sourceDatabaseSystemId,binding.sourceDatabaseOid].every(v=>/^[0-9]{1,24}$/.test(v)))throw new ApiError(403,'FORBIDDEN');
  const draftHash=draftDigest(draft);
- await assertLive();
- const r=await c.query("SELECT 1 FROM local_workspaces w JOIN oex_import_jobs j ON (j.tenant_id,j.user_id)=(w.tenant_id,w.user_id) WHERE w.id=$1 AND w.tenant_id=$2 AND w.user_id=$3 AND j.id=$4 AND j.state='processing' AND j.archive_profile='bounded-file-v1' AND j.oex_format IN ('1.0.0-draft.9','1.0.0-draft.10') AND j.payload_sha256=$5 FOR UPDATE OF j",[binding.workspaceId,s.tenantId,s.userId,binding.jobId,binding.sourceSha256]);
- if(r.rowCount!==1)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');await assertLive();
+ const verifyWorkspace=async()=>{if(workspace){assertIssuedWorkspaceImport(workspace.context,workspace.owner);if(workspace.context.workspaceId!==binding.workspaceId||workspace.context.tenantId!==s.tenantId||workspace.context.principalId!==s.userId||workspace.owner.databaseSystemId!==binding.sourceDatabaseSystemId||workspace.owner.databaseOid!==binding.sourceDatabaseOid)throw new ApiError(403,'FORBIDDEN');await workspace.context.assertDatabase(c);}};
+ await assertLive();await verifyWorkspace();
+ const r=await c.query("SELECT 1 FROM local_workspaces w JOIN oex_import_jobs j ON (j.tenant_id,j.user_id)=(w.tenant_id,w.user_id) WHERE w.id=$1 AND w.tenant_id=$2 AND w.user_id=$3 AND j.id=$4 AND j.state='processing' AND j.archive_profile='bounded-file-v1' AND j.oex_format = ANY($6::text[]) AND j.payload_sha256=$5 FOR UPDATE OF j",[binding.workspaceId,s.tenantId,s.userId,binding.jobId,binding.sourceSha256,workspace?['1.0.0-draft.12']:['1.0.0-draft.9','1.0.0-draft.10']]);
+ if(r.rowCount!==1)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');await verifyWorkspace();await assertLive();
  const grant=Object.freeze(Object.create(null)) as NativeSelectedDraftGrant;
  grants.set(grant,{client:c,sessionId:s.id,binding:Object.freeze(binding),draftHash,used:false,recorded:false,assertLive});return grant;
 }
