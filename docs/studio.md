@@ -141,10 +141,13 @@ material, and the snapshot guard rejects another workspace’s version. An
 appearance binding does not alter the separately stored floor sound.
 
 The shared Spec defines a distinct OEX draft.12 profile for portable material
-bytes and bindings. The v5 native validation candidate accepts draft.9 and
-10 selected imports; draft.12 import/export, static publication and Viewer
-rendering of workspace materials are not implemented or qualified. The existing
-formats are not reinterpreted.
+bytes and bindings. The private bounded OEX candidate handles floor and wall
+color-only materials; other map roles remain unsupported for OEX output.
+Selected draft.12 import currently accepts floor color only; wall and mixed
+imports remain blocked until the Manager validates their terminal proof.
+Native restart still requires joint Manager/runtime
+qualification. Workspace-material static publication and public Viewer output
+remain unsupported. The existing formats are not reinterpreted.
 
 The API routes are under `/api/v1/tenants/:tenantId`:
 

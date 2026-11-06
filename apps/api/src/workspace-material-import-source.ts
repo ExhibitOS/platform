@@ -18,7 +18,7 @@ export function planWorkspaceMaterialImportSource(input:{tenantId:string;jobId:s
  for(const id of [input.tenantId,input.jobId,input.attemptId]){uuid(id);if(id!==id.toLowerCase())throw new ApiError(400,'INVALID_INPUT');}
  const {manifest,scene,sourceKeys}=input;
  if(!manifest||manifest.formatVersion!=='1.0.0-draft.12'||manifest.archiveProfile!=='bounded-file-v1'||!Array.isArray(manifest.workspaceMaterialResources)||!(sourceKeys instanceof Map))throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
- const resources=workspaceMaterialOutputInventory(scene),declared=manifest.workspaceMaterialResources;
+ const resources=workspaceMaterialOutputInventory(scene,'import'),declared=manifest.workspaceMaterialResources;
  if(!resources.length||resources.length!==declared.length||new Set(sourceKeys.values()).size!==sourceKeys.size)throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
  const bindings=scene.extensions![WORKSPACE_MATERIAL_NAMESPACE] as WorkspaceMaterialBindings;
  const byPath=new Map(resources.map(resource=>[resource.path,resource]));

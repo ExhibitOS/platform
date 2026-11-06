@@ -8,10 +8,14 @@ import {workspaceMaterialOutputBytes,workspaceMaterialOutputInventory} from './w
 const id='11111111-1111-4111-8111-111111111111',surface='22222222-2222-4222-8222-222222222222';
 const material=()=>({id,version:1,kind:'floor',name:'Synthetic',rights:{holder:'Example',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,download:false,export:true,commercial:true}},provenance:'Synthetic',maps:{color:{mime:'image/png',bytes:100,sha256:'a'.repeat(64),width:10,height:10,colorSpace:'srgb'}}});
 const candidate=()=>({surfaces:[{id:surface,type:'floor'}],extensions:{'org.exhibitos.studio/workspace-materials':{version:1,materials:[material()],bindings:[{surfaceId:surface,materialId:id,materialVersion:1,repeatMeters:[2,2],rotation:0}]}}});
-it('selects only validated floor color inventory and refuses unsupported content',()=>{
+it('selects validated floor and wall color inventory and refuses unsupported content',()=>{
  expect(workspaceMaterialOutputInventory({extensions:{}})).toEqual([]);
  const value=candidate(),[entry]=workspaceMaterialOutputInventory(value);expect(entry).toMatchObject({materialId:id,materialVersion:1,role:'color',sha256:'a'.repeat(64)});
- const wall=candidate();wall.surfaces[0]!.type='wall';wall.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.kind='wall';expect(()=>workspaceMaterialOutputInventory(wall)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
+ const wall=candidate();wall.surfaces[0]!.type='wall';wall.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.kind='wall';expect(workspaceMaterialOutputInventory(wall)).toEqual([entry]);
+ expect(()=>workspaceMaterialOutputInventory(wall,'import')).toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');expect(workspaceMaterialOutputInventory(value,'import')).toEqual([entry]);
+ const mismatch=candidate();mismatch.surfaces[0]!.type='wall';expect(()=>workspaceMaterialOutputInventory(mismatch)).toThrow('DRAFT_INVALID');
+ const mixed=candidate(),wallId='33333333-3333-4333-8333-333333333333',wallSurface='44444444-4444-4444-8444-444444444444';mixed.surfaces.push({id:wallSurface,type:'wall'});mixed.extensions['org.exhibitos.studio/workspace-materials'].materials.push({...material(),id:wallId,kind:'wall'});mixed.extensions['org.exhibitos.studio/workspace-materials'].bindings.push({surfaceId:wallSurface,materialId:wallId,materialVersion:1,repeatMeters:[2,2],rotation:0});expect(workspaceMaterialOutputInventory(mixed).map(v=>v.materialId).sort()).toEqual([id,wallId]);
+ expect(()=>workspaceMaterialOutputInventory(mixed,'import')).toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');
  const extra=candidate();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{roughness:{...material().maps.color,colorSpace:'linear'}});expect(()=>workspaceMaterialOutputInventory(extra)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
 });
 it('rechecks owner descriptor and chooses the purpose-specific byte authority',async()=>{
