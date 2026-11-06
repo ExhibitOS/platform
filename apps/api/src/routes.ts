@@ -215,7 +215,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${fp}/:freezeId/authorize`,grantBody,call(true,async(c,s,req)=>(await target(c,s,req)).authorize(c,s,freezeId(req),(req.body as {seconds:number}).seconds)));
  for(const action of ['revoke','restore'] as const)app.post(`${fp}/:freezeId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>(await target(c,s,req)).availability(c,s,freezeId(req),action==='restore')));
  if(freezes&&!freshOexTest)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
- const oex=store?new Oex(pool,store,nativeOexWorkspace,workspaceMaterial):null;
+ const oex=store?new Oex(pool,store,nativeOexWorkspace,workspaceMaterial,workspaceFurnishing):null;
  if(nativeExportWorkspace&&store instanceof FileBlobStore&&oex)registerNativeBoundedOexExport(app,{auth,config:input,context:nativeExportWorkspace,blobRoot:store.root,oex,guard:(req,mutate)=>guarded(req,mutate),token});
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;

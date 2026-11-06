@@ -10,6 +10,8 @@ import {OEX_FOOTSTEP_RESOURCE_VERSION,footstepResourcesFor,type FootstepResource
 import {surfaceMaterialResourceBytes} from './surface-materials.ts';
 import {WORKSPACE_MATERIAL_NAMESPACE,type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {workspaceMaterialOutputBytes,workspaceMaterialOutputInventory} from './workspace-material-output.ts';
+import {workspaceFurnishingOutputBytes,workspaceFurnishingOutputInventory} from './workspace-furnishing-output.ts';
+import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {OEX_SURFACE_MATERIAL_VERSION,packageSurfaceMaterialManifest,type SurfaceMaterialResourceEntry} from '@exhibitos/spec/surface-material-resources';
 import {remapStudioMaterials,type StudioMaterials} from '@exhibitos/studio-contract';
 import {OEX_FLOOR_RESOURCE_VERSION,OEX_FURNISHING_VERSION,packageFloorResourceManifest} from '@exhibitos/spec';
@@ -49,7 +51,7 @@ const CHUNK=16*1024*1024, CMS='org.exhibitos.studio/cms';
 const REFERENCE_FIELDS=new Set(['id','revisionId','primaryAssetId','sourceAssetIds','appliedToAssetIds','roomId','surfaceId','connectsToOpeningId','artworkRevisionId','assetId','imageAssetId','targetPlacementId','viaOpeningId','routeIds','placementId','targetId','annotationId','zoneId','routeId']);
 const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
-const workspaceOutputRights=(e:Exhibition)=>((e.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as unknown as WorkspaceMaterialBindings|undefined)?.materials??[]).map(m=>m.rights);
+const workspaceOutputRights=(e:Exhibition)=>[...((e.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as unknown as WorkspaceMaterialBindings|undefined)?.materials??[]).map(m=>m.rights),...((e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined)?.furnishings??[]).map(f=>f.rights)];
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 /** Match both the qualified reference and its authored pose to the immutable CMS metadata. */
 export function approvedDimensionsMatch(a:Exhibition['artworks'][number],m:ArtworkMetadata){
@@ -121,7 +123,7 @@ const legacyJobSql="(to_jsonb(oex_import_jobs)->>'archive_profile') IS NULL AND 
 function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==null&&Number.isSafeInteger(row.expected_bytes)&&row.expected_bytes>0&&row.expected_bytes<=MAX_OEX_UPLOAD;}
 function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
 /** Keep workspace byte-inventory admission at the native OEX boundary. */
-export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false){if(workspaceOutput)workspaceMaterialOutputInventory(e);return checkPortableOexProfile(e,privateBindings,archiveProfile,workspaceOutput);}
+export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false){if(workspaceOutput){workspaceMaterialOutputInventory(e);workspaceFurnishingOutputInventory(e);}return checkPortableOexProfile(e,privateBindings,archiveProfile,workspaceOutput);}
 /** Native OEX11 import is not qualified; reject before preparing or staging any assets. */
 export function requireSupportedOexImport(e:Exhibition){if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');}
 /** Verify the complete selected catalogue pair before staging any import blob.
@@ -209,8 +211,8 @@ export function decodeOex(bytes:Buffer):Promise<{exhibition:Exhibition;files:Map
 }
 export class Oex {
  readonly studio:Studio;readonly cms:Cms;
- readonly pool:Pool;readonly blobs:BlobStore;private readonly workspaceMaterial:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes|undefined;
- constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes){this.pool=pool;this.blobs=blobs;this.workspaceMaterial=workspaceMaterial;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace,false,workspaceMaterial);}
+ readonly pool:Pool;readonly blobs:BlobStore;private readonly workspaceMaterial:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes|undefined;private readonly workspaceFurnishing:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes|undefined;
+ constructor(pool:Pool,blobs:BlobStore,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes,workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes){this.pool=pool;this.blobs=blobs;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;this.cms=new Cms(blobs);this.studio=new Studio(nativeOexWorkspace,false,workspaceMaterial,workspaceFurnishing);}
  private role(s:Session){if(!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');}
  view(row:Job){return {id:row.id,state:row.state,errorCode:row.error_code,attempts:row.attempts,result:row.result,cleanupPending:row.cleanup_pending};}
  async access(c:PoolClient,s:Session,id:string):Promise<Job>{this.role(s);uuid(id);const row=(await c.query('SELECT * FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id])).rows[0];if(!row||(s.role!=='admin'&&row.user_id!==s.userId))throw new ApiError(403,'FORBIDDEN');return row;}
@@ -314,6 +316,7 @@ export class Oex {
   for(const resource of workspaceMaterialOutputInventory(original)){
    const {bytes:data}=await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);
   }
+  for(const resource of workspaceFurnishingOutputInventory(original)){const {bytes:data}=await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');total+=data.length;if(total>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(files.has(resource.artifactPath))throw new ApiError(422,'OEX_PATH_CONFLICT');files.set(resource.artifactPath,data);}
   const omittedImported:ImportedPreviewOmission[]=[],retainedImported:{omission:ImportedPreviewOmission;path:string;rights:unknown}[]=[];
   for(const {artwork,asset} of pendingImported){
    try{
@@ -340,7 +343,7 @@ export class Oex {
   }
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
   const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported,undefined,true);e=portableOexSnapshot(source);}:undefined;
-  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length+workspaceMaterialOutputInventory(e).length;};
+  const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length+workspaceMaterialOutputInventory(e).length+workspaceFurnishingOutputInventory(e).length;};
   if(dropOptional&&packageEntries()>254)dropOptional();
   let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
@@ -360,6 +363,7 @@ export class Oex {
   }
   if(rights.some(r=>!allowedRights(r,'export'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');
   for(const resource of workspaceMaterialOutputInventory(original))await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');
+  for(const resource of workspaceFurnishingOutputInventory(original))await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');
   if(rights.some(r=>!allowedRights(r,'export'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');
   return {bytes,pins,omittedImported};
  }
@@ -408,6 +412,7 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   for(const resource of footstepResourcesFor(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   for(const resource of workspaceMaterialOutputInventory(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const {bytes}=await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');signal.throwIfAborted();return bytes;});
+  for(const resource of workspaceFurnishingOutputInventory(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const {bytes}=await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');signal.throwIfAborted();return bytes;});
   const exhibition=portableOexSnapshot(withoutImportedPreviews(original,omitted,'bounded-file-v1',true));checkOexProfile(exhibition,false,'bounded-file-v1',true);signal.throwIfAborted();
   let supplied=0;
   const result=await writeOexFile(exhibition,{paths:[...inputs.keys()],get:async path=>{
@@ -447,6 +452,7 @@ export class Oex {
   for(const resource of packageSurfaceMaterialManifest(original))await surfaceMaterialResourceBytes(c,this.blobs,s.tenantId,id,resource);
   for(const resource of footstepResourcesFor(original))await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);
   for(const resource of workspaceMaterialOutputInventory(original))await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');
+  for(const resource of workspaceFurnishingOutputInventory(original))await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');
   const checkRights=()=>{if(rights.some(r=>!allowedRights(r,'export'))||displayRights.some(r=>!allowedRights(r,'display'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');};checkRights();return checkRights;
  }
  /** Omission never makes an unapproved imported preview authoritative. */
