@@ -101,3 +101,12 @@ it('tracks workspace material receipts and immutable maps without treating cance
  expect(rowObjectReferences('workspace_material_intakes',{tenant_id:tenant,id,phase:'cancelling',received:{color:receipt}}).references[0]?.required).toBe(false);
  expect(rowObjectReferences('workspace_material_intakes',{tenant_id:tenant,id,phase:'cancelled',received:{color:receipt}}).references).toEqual([]);
 });
+it('tracks staged workspace import bytes as optional until an immutable version requires them',()=>{
+ const job='22222222-2222-4222-8222-222222222222',attempt='33333333-3333-4333-8333-333333333333',source='44444444-4444-4444-8444-444444444444',object='55555555-5555-4555-8555-555555555555',key=`${tenant}/oex-import/${job}/${attempt}/${object}`,digest='a'.repeat(64);
+ const stage={tenant_id:tenant,import_job_id:job,attempt_id:attempt,source_material_id:source,source_material_version:1,role:'color',source_path:`resources/workspace-materials/${source}/1/color-${digest}.png`,object_key:key,bytes:123,sha256:digest};
+ expect(rowObjectReferences('workspace_material_import_stage',stage)).toEqual({issues:[],references:[expect.objectContaining({key,required:false,expectedBytes:123,expectedSha256:digest})]});
+ expect(rowObjectReferences('workspace_material_import_stage',{...stage,object_key:key+'/other'}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ expect(rowObjectReferences('workspace_material_import_stage',{...stage,source_path:'resources/other.png'}).issues[0]?.code).toBe('INVALID_INVENTORY');
+ const version={tenant_id:tenant,id,version:1,descriptor:{maps:{color:{bytes:123,sha256:digest}}},object_keys:{color:key}};
+ expect(rowObjectReferences('workspace_material_versions',version).references[0]).toMatchObject({key,required:true,expectedBytes:123,expectedSha256:digest});
+});

@@ -59,6 +59,10 @@ const NORMAL_OEX_CONCRETE_HASH='8c42cecb6a90c61eab4c72c4af81af42801db6bac60a567b
 const NORMAL_OEX_PROVENANCE_PATH='database/native-oex-normal/027_oex_exhibition_provenance.sql';
 const NORMAL_OEX_PROVENANCE_HASH='09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7';
 const NORMAL_OEX_MIGRATION_HASH='9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112';
+// The candidate import schema is inert until a future, separately selected capability.
+export function nativePackageExcludedFiles(freshOexValidation,normalOexSelected){
+  return new Set(['database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql','database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
+}
 /** Copy a fixed checked input if Git did not already copy it. Source/destination
  * validation is point-in-time, not protection from a concurrent same-UID writer. */
 async function copyCheckedValidationFile(sourceRoot,platformRoot,tracked,path,expected){
@@ -227,7 +231,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
     await copy(join(source,workspace,'dist'),join(platform,workspace,'dist'));
   }
   const tracked = new Map();
-  const excluded = new Set(['database/native-oex-normal/031_workspace_material.sql','database/native-oex-normal/032_oex_workspace_material.sql',...(freshOexValidation?[]:[OEX_MIGRATION_PATH]),...(normalOexSelected?[]:[NORMAL_OEX_MIGRATION_PATH,NORMAL_OEX_PROVENANCE_PATH,NORMAL_OEX_MATERIAL_PATH,NORMAL_OEX_FLOOR_PATH,NORMAL_OEX_CONCRETE_PATH])]);
+  const excluded = nativePackageExcludedFiles(freshOexValidation,normalOexSelected);
   for (const name of ['database','contracts','vendor']) tracked.set(name,await copyTrackedTree(name,platform,excluded));
   await copyFreshOexValidationFiles(source,platform,tracked,freshOexValidation,freshOexValidation||normalOexSelected);
   await copyNormalOexSelectedFile(source,platform,tracked,normalOexSelected,workspaceMaterialSelected);

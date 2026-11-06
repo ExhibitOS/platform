@@ -6,11 +6,20 @@ import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability} from './package-native-runtime.mjs';
-import {WORKSPACE_MATERIAL_CAPABILITY,hasWorkspaceMaterialCapability} from './native-oex-normal-catalog.mjs';
+import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability,nativePackageExcludedFiles} from './package-native-runtime.mjs';
+import {WORKSPACE_MATERIAL_CAPABILITY,hasWorkspaceMaterialCapability,verifyWorkspaceMaterialMigrations} from './native-oex-normal-catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const spec='vendor/exhibitos-spec-0.1.0-draft.17.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql',floor='database/native-oex-normal/029_oex_quiet_oak_floor.sql',concrete='database/native-oex-normal/030_oex_concrete_surface.sql';
 const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql';
+test('candidate import schema stays outside all current packages and the v5 catalog remains valid',async()=>{
+ for(const fresh of [false,true])for(const selected of [false,true]){
+  const excluded=nativePackageExcludedFiles(fresh,selected);
+  assert.ok(excluded.has('database/native-oex-workspace-import/033_workspace_material_import_provenance.sql'));
+  assert.ok(excluded.has(intake));assert.ok(excluded.has(workspaceOex));
+  assert.equal(excluded.has(migration),!fresh);assert.equal(excluded.has(normal),!selected);
+ }
+ assert.equal((await verifyWorkspaceMaterialMigrations(join(root,'database/native-oex-normal'))).length,2);
+});
 async function fixture(){
  const temp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-oex-package-'))),source=join(temp,'source'),output=join(temp,'output');await mkdir(source);await mkdir(output);
  for(const name of [spec,migration,normal,provenance,material,floor,concrete,intake,workspaceOex]){await mkdir(dirname(join(source,name)),{recursive:true});await copyFile(join(root,name),join(source,name));}
