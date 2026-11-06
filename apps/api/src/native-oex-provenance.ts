@@ -14,6 +14,10 @@ export interface NativeOexWorkspaceContext {
  readonly principalId:string;
  readonly archiveFormats?:readonly NativeOexFileFormat[];
  readonly workspaceMaterials?:boolean;
+ /** Inactive until an exact v6 runtime catalog issues the context. */
+ readonly workspaceImport?:true;
+ assertImportCatalog?(client:PoolClient):Promise<void>;
+ assertOwner?(owner:import('./publication-disk-budget.ts').DiskOwner):void;
  /** DB-only check usable inside the selected operation's fenced transaction. */
  assertCatalog(client:PoolClient):Promise<void>;
  /** Checks the live database and store against the retained native owner. */
@@ -26,8 +30,8 @@ export interface NativeOexWorkspaceContext {
 /** Issued by native bootstrap after validating FD0 workspace, catalog and
  * local owner; not an HTTP option. The frozen DB/store snapshot is rechecked
  * on every use. Prior claims are evidence only, not revived live authority. */
-export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string}):Promise<NativeOexWorkspaceContext>{
- const {workspaceId,tenantId,principalId,ownerUid,blobRoot}=input;for(const value of [workspaceId,tenantId,principalId])uuid(value);
+export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string;workspaceImport?:true}):Promise<NativeOexWorkspaceContext>{
+ const {workspaceId,tenantId,principalId,ownerUid,blobRoot}=input;if(input.workspaceImport!==undefined&&input.workspaceImport!==true)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');const wantsWorkspaceImport=input.workspaceImport===true;for(const value of [workspaceId,tenantId,principalId])uuid(value);
  if(!Number.isSafeInteger(ownerUid)||ownerUid<=0||ownerUid!==process.getuid?.()||typeof blobRoot!=='string')throw new ApiError(403,'FORBIDDEN');
  const verifyWorkspace=async(client:PoolClient)=>{const rows=await client.query('SELECT 1 FROM local_workspaces WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND mac_uid=$4',[workspaceId,tenantId,principalId,ownerUid]);if(rows.rowCount!==1)throw new ApiError(403,'FORBIDDEN');};
  const legacy=[{name:'026_oex_file_profile.sql',sha256:'9e2a204ef9f24132f25ca2247415604c65f3f301c04e70a6a2a2facbc9122112'},{name:'027_oex_exhibition_provenance.sql',sha256:'09bd82b3195e2f54545f6af45173bbab569effac95553a50f573745dab96f2c7'}];
@@ -38,9 +42,12 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
  if(!isDeepStrictEqual(initial,workspaceCatalogue)&&!isDeepStrictEqual(initial,concreteCatalogue)&&!isDeepStrictEqual(initial,legacy)&&!isDeepStrictEqual(initial,catalogue)&&!isDeepStrictEqual(initial,floorCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  const archiveFormats:readonly NativeOexFileFormat[]=Object.freeze(initial.length>=3?['1.0.0-draft.9','1.0.0-draft.10']:['1.0.0-draft.9']);
  const assertCatalog=async(client:PoolClient)=>{if(!isDeepStrictEqual(await readCatalog(client),initial))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
+ const expectedImport=[{name:'033_workspace_material_import_provenance.sql',sha256:'f69d3dc12d7b89f1a342daef1d7bca08787667efacdfca3d214d3101b051d1dd'},{name:'034_workspace_material_terminal_proof.sql',sha256:'ebf2300ef875b635617d82369f4c7cad4cbe6d8fa43677bdbd2e5e21dd74da21'}];
+ const assertImportCatalog=async(client:PoolClient)=>{await assertCatalog(client);const rows=(await client.query('SELECT name,sha256 FROM schema_migrations WHERE name IN ($1,$2) ORDER BY name',expectedImport.map(x=>x.name))).rows;if(!isDeepStrictEqual(rows,expectedImport))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
+ if(wantsWorkspaceImport&&!isDeepStrictEqual(initial,workspaceCatalogue))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');if(wantsWorkspaceImport)await assertImportCatalog(c);
  await verifyWorkspace(c);await assertCatalog(c);const owner=await publicationDiskOwner(c,blobRoot);
- const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);await assertCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
- return Object.freeze({workspaceId,tenantId,principalId,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),assertCatalog,assertDatabase,assertRecord:async(client,record)=>{
+ const assertDatabase=async(client:PoolClient)=>{await verifyWorkspace(client);if(wantsWorkspaceImport)await assertImportCatalog(client);else await assertCatalog(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');};
+ return Object.freeze({workspaceId,tenantId,principalId,archiveFormats,workspaceMaterials:isDeepStrictEqual(initial,workspaceCatalogue),...(wantsWorkspaceImport?{workspaceImport:true as const,assertImportCatalog,assertOwner:(candidate:import('./publication-disk-budget.ts').DiskOwner)=>{if(!isDeepStrictEqual(candidate,owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}}:{}),assertCatalog,assertDatabase,assertRecord:async(client,record)=>{
   await assertDatabase(client);if(record.workspaceId!==workspaceId||record.tenantId!==tenantId||record.principalId!==principalId||record.sourceDatabaseSystemId!==owner.databaseSystemId||record.sourceDatabaseOid!==owner.databaseOid)throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');
  }} satisfies NativeOexWorkspaceContext);
 }
