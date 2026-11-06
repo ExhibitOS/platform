@@ -3,8 +3,9 @@ import type * as Three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTexturePack,type FloorBinding,type FloorMapRole,type FloorTextureFile,type FloorTexturePackDescriptor} from '@exhibitos/studio-contract';
 import {MemoryAssetCache,textureResidentBytes} from './viewer/loading';
+import {materialResizeDimensions} from './material-texture-plan';
 
-export interface MaterialTextureFile extends Omit<FloorTextureFile,'width'|'height'> {readonly width:number;readonly height:number}
+export interface MaterialTextureFile extends Pick<FloorTextureFile,'path'|'mime'|'bytes'|'sha256'|'colorSpace'> {readonly width:number;readonly height:number}
 export interface MaterialTexturePack {readonly id:string;readonly maps:Readonly<Partial<Record<FloorMapRole,MaterialTextureFile>>>}
 interface TextureBinding {normalScale?:number;aoStrength?:number}
 
@@ -60,14 +61,19 @@ export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<ty
  return createRegisteredMaterialTextureRenderer(three,{packs:plan.packs,blocked:plan.blocked,residentBytes:plan.residentBytes,sizeFor:()=>plan.maxSize},FLOOR_TEXTURE_FILES,floorTexturePack,signal,unavailable,floorFetcher);
 }
 
-export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch){
+export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch,allowed:(binding:B)=>boolean=()=>true){
  type Target={material:Three.MeshStandardMaterial;binding:B;pack:MaterialTexturePack};
  const targets:Target[]=[],cache=new MemoryAssetCache<TextureValue>(Math.max(1,plan.residentBytes),value=>{value.texture.dispose();value.bitmap.close();});
  let readyMaps=new Map<MaterialTexturePack,Partial<Record<FloorMapRole,TextureValue>>>(),settled=false,reductionAttempted=false;
  const reducedOwned=new Set<TextureValue>();
- const key=(file:MaterialTextureFile)=>file.sha256+':'+file.colorSpace+':'+plan.sizeFor(file);
+ const key=(file:MaterialTextureFile)=>file.path+':'+file.sha256+':'+file.colorSpace+':'+plan.sizeFor(file);
  let disposed=false;const inactive=()=>disposed||signal.aborted||unavailable();
  const add=(material:Three.MeshStandardMaterial,binding:B)=>{const pack=packFor(binding);if(pack&&plan.packs.includes(pack))targets.push({material,binding,pack});};
+ const revoke=(predicate:(binding:B)=>boolean)=>{let changed=false;const affected=new Set<MaterialTexturePack>();
+  for(let i=targets.length-1;i>=0;i--){const target=targets[i]!;if(!predicate(target.binding))continue;target.material.map=null;target.material.roughnessMap=null;target.material.normalMap=null;target.material.aoMap=null;target.material.needsUpdate=true;affected.add(target.pack);targets.splice(i,1);changed=true;}
+  for(const pack of affected)if(!targets.some(target=>target.pack===pack)&&readyMaps.has(pack)){readyMaps.delete(pack);for(const file of Object.values(pack.maps))if(file){cache.release(key(file));cache.delete(key(file));}}
+  return changed;
+ };
  async function load(file:MaterialTextureFile){
   const maxSize=plan.sizeFor(file);if(!Number.isSafeInteger(maxSize)||maxSize<1||maxSize>Math.max(file.width,file.height))throw Error('FLOOR_TEXTURE_BUDGET');
   const known=cache.acquire(key(file));if(known)return known;
@@ -77,7 +83,7 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
    bitmap=await createImageBitmap(new Blob([bytes],{type:file.mime}),{imageOrientation:'flipY',colorSpaceConversion:'none',premultiplyAlpha:'none'});
    if(bitmap.width!==file.width||bitmap.height!==file.height)throw Error('FLOOR_TEXTURE_DIMENSIONS');
    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
-   if(bitmap.width>maxSize||bitmap.height>maxSize){const original=bitmap;bitmap=undefined;try{bitmap=await createImageBitmap(original,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:maxSize,resizeHeight:maxSize,resizeQuality:'high'});}finally{original.close();}}
+   if(bitmap.width>maxSize||bitmap.height>maxSize){const original=bitmap,size=materialResizeDimensions(bitmap.width,bitmap.height,maxSize);bitmap=undefined;try{bitmap=await createImageBitmap(original,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:size.width,resizeHeight:size.height,resizeQuality:'high'});}finally{original.close();}}
    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
    texture=new three.Texture(bitmap);texture.flipY=false;texture.colorSpace=file.colorSpace==='srgb'?three.SRGBColorSpace:three.NoColorSpace;
    texture.wrapS=texture.wrapT=three.RepeatWrapping;texture.minFilter=three.LinearMipmapLinearFilter;texture.magFilter=three.LinearFilter;texture.generateMipmaps=true;texture.needsUpdate=true;
@@ -90,14 +96,18 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
   target.material.map=maps.color?.texture??null;target.material.roughnessMap=maps.roughness?.texture??null;target.material.normalMap=maps.normal?.texture??null;
   target.material.normalScale.setScalar(target.binding.normalScale??1);target.material.aoMap=maps.ao?.texture??null;target.material.aoMapIntensity=target.binding.aoStrength??1;target.material.needsUpdate=true;
  };
- return {add,async start(changed:()=>void){
+ return {add,revoke,async start(changed:()=>void){
   // One map at a time; all roles must be ready before any material uses a pack.
   const status:Record<string,string>=Object.fromEntries(plan.blocked.map(id=>[id,'budget-fallback']));
   for(const pack of plan.packs){
    if(inactive())break;
+   revoke(binding=>!allowed(binding));
+   if(!targets.some(target=>target.pack===pack)){status[pack.id]='unavailable';continue;}
    const maps:Partial<Record<FloorMapRole,TextureValue>>={},loadedFiles:MaterialTextureFile[]=[];
    try{for(const [role,file]of Object.entries(pack.maps)){if(file){maps[role as FloorMapRole]=await load(file);loadedFiles.push(file);}}
     if(inactive())break;
+    revoke(binding=>!allowed(binding));
+    if(!targets.some(target=>target.pack===pack)){for(const file of loadedFiles){cache.release(key(file));cache.delete(key(file));}status[pack.id]='unavailable';continue;}
     for(const target of targets.filter(t=>t.pack===pack))publish(target,maps);
     readyMaps.set(pack,maps);
     status[pack.id]='ready';
@@ -112,9 +122,9 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
   // Reuse retained bitmaps: no refetch, source decode, role loss or new cache.
   if(!settled||inactive()||reductionAttempted||!readyMaps.size)return;
   reductionAttempted=true;
-  const old=[...new Set([...readyMaps.values()].flatMap(m=>Object.values(m)))],sizes=old.map(v=>Math.max(128,Math.floor(v.bitmap.width/2)));
-  if(!old.some((v,i)=>sizes[i]!<v.bitmap.width))return;
-  const residentBytes=sizes.reduce((n,size)=>n+textureResidentBytes(size,size),0);
+  const old=[...new Set([...readyMaps.values()].flatMap(m=>Object.values(m)))],sizes=old.map(v=>materialResizeDimensions(v.bitmap.width,v.bitmap.height,Math.max(128,Math.floor(Math.max(v.bitmap.width,v.bitmap.height)/2))));
+  if(!old.some((v,i)=>sizes[i]!.width<v.bitmap.width||sizes[i]!.height<v.bitmap.height))return;
+  const residentBytes=sizes.reduce((n,size)=>n+textureResidentBytes(size.width,size.height),0);
   // Old CPU/GPU images stay charged; reserve new CPU/GPU plus one serial
   // resize source copy before the first allocation or upload.
   const release=reserve(residentBytes+Math.max(...old.map(v=>v.bitmap.width*v.bitmap.height*4)));
@@ -123,7 +133,7 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
   try{
    for(const [i,value]of old.entries()){
     if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
-    const bitmap=await createImageBitmap(value.bitmap,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:sizes[i]!,resizeHeight:sizes[i]!,resizeQuality:'high'});
+    const bitmap=await createImageBitmap(value.bitmap,{imageOrientation:'none',colorSpaceConversion:'none',premultiplyAlpha:'none',resizeWidth:sizes[i]!.width,resizeHeight:sizes[i]!.height,resizeQuality:'high'});
     if(inactive()){bitmap.close();throw Error('FLOOR_TEXTURE_CANCELLED');}
     let texture:Three.Texture|undefined;
     try{texture=new three.Texture(bitmap);texture.flipY=value.texture.flipY;texture.colorSpace=value.texture.colorSpace;texture.wrapS=value.texture.wrapS;texture.wrapT=value.texture.wrapT;texture.minFilter=value.texture.minFilter;texture.magFilter=value.texture.magFilter;texture.generateMipmaps=value.texture.generateMipmaps;texture.needsUpdate=true;prepare(texture);replacements.set(value,{texture,bitmap});}
