@@ -2,8 +2,9 @@
 import {isNativeOexFileManifest} from './oex-file-format.ts';
 import {createHash} from 'node:crypto';
 import {withOexFileHandle,type OexReadHandle} from '@exhibitos/spec';
-import {decodePackedOexDocumentsV2} from './oex-packed-documents-v2.ts';
-import {packedOexInventory} from './oex-packed-output.ts';
+import {decodePackedOexDocumentsV2,decodePackedWorkspaceOexDocuments} from './oex-packed-documents-v2.ts';
+import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
+import type {NativeOexFileFormat} from './oex-file-format.ts';
 
 const MAX=512*1024*1024;
 const hex=/^[a-f0-9]{64}$/;
@@ -16,7 +17,16 @@ const same=(a:Identity,b:Identity)=>a.dev===b.dev&&a.ino===b.ino&&a.size===b.siz
  * requires an owned, bounded, cancellable and actually drained worker. This
  * does not replace the product decoder. Caller retains a stable input FD;
  * resource ownership, sealing, budget and actual output checks are separate. */
-export async function preflightOexSize(file:OexReadHandle,expected:{bytes:number;sha256:string}){
+type Evidence<F extends string>={archiveFormat:F;archiveBytes:number;expandedBytes:number;packedBytes:number;manifestSha256:string;entryCount:number;archiveSha256:string;inputDevice:string;inputInode:string};
+export function preflightOexSize(file:OexReadHandle,expected:{bytes:number;sha256:string}){
+ return preflight(file,expected,false) as Promise<Readonly<Evidence<NativeOexFileFormat>>>;
+}
+/** Separate, inactive bounded draft.12 sizing; it grants no reservation,
+ * owner authority, output integrity or worker-drain proof. */
+export function preflightWorkspaceOexSize(file:OexReadHandle,expected:{bytes:number;sha256:string}){
+ return preflight(file,expected,true) as Promise<Readonly<Evidence<'1.0.0-draft.12'>>>;
+}
+async function preflight(file:OexReadHandle,expected:{bytes:number;sha256:string},workspace:boolean){
  const bytes=expected?.bytes,sha256=expected?.sha256;
  if(!file||!Number.isSafeInteger(bytes)||bytes<1||bytes>MAX||typeof sha256!=='string'||!hex.test(sha256))throw Error('OEX_PREFLIGHT_INPUT');
  const initial=await file.stat({bigint:true});
@@ -36,10 +46,10 @@ export async function preflightOexSize(file:OexReadHandle,expected:{bytes:number
   if(typeof indexed.archiveBytes!=='number'||typeof indexed.expandedBytes!=='number'||!Number.isSafeInteger(indexed.archiveBytes)||!Number.isSafeInteger(indexed.expandedBytes)||indexed.expandedBytes<0)throw Error('OEX_PREFLIGHT_LIMIT');
   const manifestBytes=await files.get('manifest.json'),exhibitionBytes=await files.get('exhibition.json');
   if(!manifestBytes||!exhibitionBytes)throw Error('OEX_PREFLIGHT_DOCUMENT');
-  const manifestSha256=digest(manifestBytes),decoded=decodePackedOexDocumentsV2(manifestBytes,manifestSha256,exhibitionBytes,digest(exhibitionBytes));
-  const inventory=packedOexInventory(decoded.manifest);let packedBytes=0;
+  const manifestSha256=digest(manifestBytes),decoded=(workspace?decodePackedWorkspaceOexDocuments:decodePackedOexDocumentsV2)(manifestBytes,manifestSha256,exhibitionBytes,digest(exhibitionBytes));
+  const inventory=(workspace?packedWorkspaceOexInventory:packedOexInventory)(decoded.manifest);let packedBytes=0;
   for(const item of inventory.values()){packedBytes+=item.bytes;if(!Number.isSafeInteger(packedBytes)||packedBytes>MAX)throw Error('OEX_PREFLIGHT_LIMIT');}
-  if(packedBytes>indexed.expandedBytes||indexed.archiveBytes!==bytes||!isNativeOexFileManifest(manifest))throw Error('OEX_PREFLIGHT_LIMIT');
+  if(packedBytes>indexed.expandedBytes||indexed.archiveBytes!==bytes||(workspace?(manifest.formatVersion!=='1.0.0-draft.12'||manifest.archiveProfile!=='bounded-file-v1'):!isNativeOexFileManifest(manifest)))throw Error('OEX_PREFLIGHT_LIMIT');
   return {archiveFormat:manifest.formatVersion,archiveBytes:indexed.archiveBytes,expandedBytes:indexed.expandedBytes,packedBytes,manifestSha256,entryCount:files.size};
  });
  if(await hashInput()!==sha256)throw Error('OEX_PREFLIGHT_HASH');

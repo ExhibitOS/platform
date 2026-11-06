@@ -18,6 +18,8 @@ import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-outpu
 import {preparePackedOexV2,preparePackedWorkspaceOex} from './oex-packed-worker-v2-core.ts';
 import {parsePackedOexAckV2,parsePackedWorkspaceOexAck} from './oex-packed-ack-v2.ts';
 import {consumeBoundedWorkspaceOex} from './oex-bounded-consume.ts';
+import {preflightOexSize,preflightWorkspaceOexSize} from './oex-size-preflight.ts';
+import {selectedOexFormat,selectedWorkspaceOexFormat} from './oex-selected-format.ts';
 
 describe('internal bounded OEX producer',()=>{
  it('writes workspace floor color as a draft.12 resource and enforces output authority',async()=>{
@@ -46,10 +48,12 @@ describe('internal bounded OEX producer',()=>{
   });
   const archive=await readFile(path),output=await open(join(dir,'workspace-packed'),'wx+',0o600),receipt={archiveBytes:archive.length,archiveSha256:sha256(archive),capacity:16*1024*1024};
   try{
+   const hint=await selectedWorkspaceOexFormat(file),preflight=await preflightWorkspaceOexSize(file,{bytes:archive.length,sha256:sha256(archive)});expect(hint.archiveFormat).toBe('1.0.0-draft.12');expect(preflight.archiveFormat).toBe(hint.archiveFormat);expect(preflight.manifestSha256).toBe(hint.manifestSha256);await expect(selectedOexFormat(file)).rejects.toThrow('OEX_FORMAT_HINT');await expect(preflightOexSize(file,{bytes:archive.length,sha256:sha256(archive)})).rejects.toThrow();await expect(preflightWorkspaceOexSize(file,{bytes:archive.length,sha256:'0'.repeat(64)})).rejects.toThrow('OEX_PREFLIGHT_HASH');
    await expect(preparePackedOexV2(file,output,receipt,withOexFileHandle)).rejects.toThrow('OEX_PACKED_DOCUMENT');
    await expect(preparePackedWorkspaceOex(file,output,{...receipt,archiveSha256:'0'.repeat(64)},withOexFileHandle)).rejects.toThrow('OEX_PACKED_INPUT');
    await expect(preparePackedWorkspaceOex(file,output,{...receipt,capacity:1},withOexFileHandle)).rejects.toThrow('OEX_PACKED_OUTPUT');expect((await output.stat()).size).toBe(0);
    const packed=await preparePackedWorkspaceOex(file,output,receipt,withOexFileHandle),entry=packed.entries.find(item=>item.path.includes('workspace-materials/'))!;expect(entry.sha256).toBe(sha256(bytes));const actual=Buffer.alloc(entry.bytes);expect((await output.read(actual,0,entry.bytes,entry.offset)).bytesRead).toBe(entry.bytes);expect(actual).toEqual(bytes);
+   expect(preflight.packedBytes).toBe(packed.entries.reduce((n,item)=>n+item.bytes,0));expect(preflight.manifestSha256).toBe(packed.manifestSha256);
    expect(decodePackedWorkspaceOexDocuments(packed.manifest,packed.manifestSha256,packed.exhibition,packed.exhibitionSha256).exhibition.id).toBe(candidate.id);
    const id='10000000-0000-4000-8000-000000000001',controlSha256='a'.repeat(64),expected={attemptId:id,runtimeGeneration:id,reservationId:id,reservationGeneration:id,controlSha256,archiveSha256:receipt.archiveSha256,outputDevice:'1',outputInode:'2',capacity:receipt.capacity,archiveFormat:'1.0.0-draft.12' as const,preflight:{manifestSha256:packed.manifestSha256,packedBytes:packed.entries.reduce((n,item)=>n+item.bytes,0)}};
    const ack={version:2,kind:'prepared',status:'complete',attemptId:id,runtimeGeneration:id,reservationId:id,reservationGeneration:id,receiptSha256:controlSha256,archiveSha256:receipt.archiveSha256,manifestSha256:packed.manifestSha256,exhibitionSha256:packed.exhibitionSha256,manifestBase64:packed.manifest.toString('base64'),exhibitionBase64:packed.exhibition.toString('base64'),outputDevice:'1',outputInode:'2',outputBytes:expected.preflight.packedBytes,entries:packed.entries};const wire=Buffer.from(JSON.stringify(ack));
