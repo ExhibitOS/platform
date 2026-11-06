@@ -47,7 +47,9 @@ export async function runFreshNativeOexOwner(input:{pool:Pool;databaseUrl:string
   const journalRoot=join(root,`native-oex-journal-${runtimeGeneration}`),budgetRoot=join(root,`native-oex-budget-${runtimeGeneration}`);await mkdir(journalRoot,{mode:0o700});await mkdir(budgetRoot,{mode:0o700});
   const journal=new PublicationAttempts(journalRoot,{resourceClaims:true}),provider=await PublicationDiskBudget.open(budgetRoot,{claimJournal:await journal.claimJournalIdentity()});
   ownedPool=new Pool({connectionString:databaseUrl,max:1,connectionTimeoutMillis:5000,statement_timeout:30000});ownedPool.on('error',()=>{});const lifecycle=new FileOperationLifecycle(ownedPool,1,30000);
-  const accepted=await acceptNativeOexSelection({pool,channel,workspaceId,tenantId,principalId,runtimeGeneration,ownerUid,archiveFormats:input.nativeOexWorkspace?.archiveFormats,verifyOwner:assertLive,assertDatabase,install:chosen=>installSelectedNativeUpload(uploadSlot,owner,chosen),signal}),selection=accepted.selection;
+  const workspaceAuthority=input.nativeOexWorkspace?.workspaceImport===true?{context:input.nativeOexWorkspace,workspaceId,owner:databaseOwner}:undefined;
+  if(workspaceAuthority&&(!v3||!input.selectedWorkspaceMaterial))throw Error('NATIVE_OEX_OWNER');
+  const accepted=await acceptNativeOexSelection({pool,channel,workspaceId,tenantId,principalId,runtimeGeneration,ownerUid,archiveFormats:input.nativeOexWorkspace?.archiveFormats,workspaceAuthority,verifyOwner:assertLive,assertDatabase,install:chosen=>installSelectedNativeUpload(uploadSlot,owner,chosen,chosen.archiveFormat==='1.0.0-draft.12'?workspaceAuthority:undefined),signal}),selection=accepted.selection;
   diagnostic.step('owner-selected');
   const scheduleExpiry=()=>{const remaining=accepted.expiresAt-Date.now();if(!Number.isFinite(remaining)||remaining<=0){closeSelectedNativeUploadSlot(uploadSlot);closeSelectedStudioPutSlot(saveSlot);void channel.close().catch(()=>{});return;}expiryTimer=setTimeout(scheduleExpiry,Math.min(remaining,2147483647));};scheduleExpiry();
   const rawOpen=await channel.receive(0),openFrame=parseNativeOwnerOperation(rawOpen);if(openFrame.kind!==(v3?'claim-open-v3':'claim-open')||openFrame.workspaceId!==workspaceId||openFrame.tenantId!==tenantId||openFrame.runtimeGeneration!==runtimeGeneration)throw Error('NATIVE_OEX_OWNER');await assertLive();
@@ -72,7 +74,7 @@ export async function runFreshNativeOexOwner(input:{pool:Pool;databaseUrl:string
     const observed=awaitSelectedStudioPut(saveSlot);void observed.catch(()=>{});
     let timer:ReturnType<typeof setTimeout>|undefined;
     try{
-     const initial=await armSelectedStudioPut(saveSlot,saveOwner,expected);if(initial.etag!==committed.etag||!isDeepStrictEqual(initial.draft,committed.draft))throw Error('NATIVE_OEX_OWNER');
+     const workspaceSave=selection.archiveFormat==='1.0.0-draft.12';const initial=await armSelectedStudioPut(saveSlot,saveOwner,expected,workspaceSave?workspaceAuthority:undefined,workspaceSave?snapshot.session.role:undefined);if(initial.etag!==committed.etag||!isDeepStrictEqual(initial.draft,committed.draft))throw Error('NATIVE_OEX_OWNER');
      timer=setTimeout(()=>{closeSelectedStudioPutSlot(saveSlot);void channel.close().catch(()=>{});},120000);
      const correlationId=randomUUID(),v3Fields=claim.v3;if(v3&&!v3Fields)throw Error('NATIVE_OEX_OWNER');const identity=v3?{correlationId,...v3Fields,attemptId:claim.attemptId}:undefined;
      const saveFrame=v3?{version:1,kind:'save-ready-v3',correlationId,operationCorrelationId:identity!.operationCorrelationId,attemptId:claim.attemptId,runtimeGeneration:identity!.runtimeGeneration,stageId:identity!.stageId,reportSha256:identity!.reportSha256,exhibitionId:committed.exhibitionId,etag:initial.etag,requestId:saveRequestId}:{version:1,kind:'save-ready',correlationId,attemptId:claim.attemptId,exhibitionId:committed.exhibitionId,etag:initial.etag,requestId:saveRequestId};

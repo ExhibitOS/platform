@@ -6,13 +6,15 @@ import type {PoolClient} from 'pg';
 import {FileBlobStore} from '@exhibitos/storage';
 import {Auth,ApiError,config,uuid,type AuthConfig,type Session} from './auth.ts';
 import {createBoundedOexJob,putBoundedOexChunk,queueBoundedOexJob} from './oex-bounded-chunks.ts';
+import {workspaceAuthority,type WorkspaceAuthority} from './oex-bounded-lease.ts';
+import {assertIssuedWorkspaceImport} from './native-oex-provenance.ts';
 
 const CHUNK=16*1024*1024,MAX=512*1024*1024,hex=/^[a-f0-9]{64}$/;
 export interface SelectedNativeUpload {
  /** Exact server Auth session ID from authenticated native bootstrap, never
   * an HTTP field or another session of the same personal principal. */
  sessionId:string;tenantId:string;principalId:string;workspaceId:string;runtimeGeneration:string;
- requestId:string;bytes:number;sha256:string;archiveFormat?:NativeOexFileFormat;
+ requestId:string;bytes:number;sha256:string;archiveFormat?:NativeOexFileFormat|'1.0.0-draft.12';
 }
 /** Implemented ONLY by the future authenticated native bootstrap. It must
  * hold and revalidate the same actual Session, retained owner connection and
@@ -28,23 +30,23 @@ export interface NativeUploadOwner {
 }
 declare const privateCapability:unique symbol;
 export interface NativeBoundedUploadCapability {readonly [privateCapability]:true}
-interface State {selection:Readonly<SelectedNativeUpload>;assertLive:()=>Promise<void>;assertDatabase:NativeUploadOwner['assertDatabase'];runScoped:NativeUploadOwner['runScoped'];busy:boolean;closed:boolean;queued:boolean;jobId?:string;active:Set<Promise<void>>;cancelIncoming:Set<()=>void>}
+interface State {selection:Readonly<SelectedNativeUpload>;workspaceAuthority?:WorkspaceAuthority;assertLive:()=>Promise<void>;assertDatabase:NativeUploadOwner['assertDatabase'];runScoped:NativeUploadOwner['runScoped'];busy:boolean;closed:boolean;queued:boolean;jobId?:string;active:Set<Promise<void>>;cancelIncoming:Set<()=>void>}
 const issued=new WeakMap<NativeBoundedUploadCapability,State>();
 
 /** Internal configuration seam for a FUTURE native-bootstrap caller only.
  * This factory does not authenticate an owner. Never call it from a route,
  * environment/HTTP parser or receipt loader; never reconstruct after loss.
  * Nothing in this module wires a bootstrap or enables the selected mode. */
-export function bindSelectedNativeUpload(owner:NativeUploadOwner,input:SelectedNativeUpload):NativeBoundedUploadCapability{
+export function bindSelectedNativeUpload(owner:NativeUploadOwner,input:SelectedNativeUpload,authority?:WorkspaceAuthority):NativeBoundedUploadCapability{
  const explicitFormat=Object.hasOwn(input??{},'archiveFormat');
  const names=['sessionId','tenantId','principalId','workspaceId','runtimeGeneration','requestId','bytes','sha256',...(explicitFormat?['archiveFormat' as const]:[])] as const;
  if(!input||typeof input!=='object'||Reflect.ownKeys(input).length!==names.length||Reflect.ownKeys(input).some(key=>typeof key!=='string'||!names.includes(key as typeof names[number])))throw Error('NATIVE_UPLOAD_CONFIGURATION');
  const snapshot:Record<string,unknown>={};for(const name of names){const d=Object.getOwnPropertyDescriptor(input,name);if(!d||!('value'in d))throw Error('NATIVE_UPLOAD_CONFIGURATION');snapshot[name]=d.value;}
  for(const name of names.slice(0,6)){uuid(snapshot[name]);if(snapshot[name]!==String(snapshot[name]).toLowerCase())throw Error('NATIVE_UPLOAD_CONFIGURATION');}
- if(explicitFormat&&!isNativeOexFileFormat(snapshot.archiveFormat))throw Error('NATIVE_UPLOAD_CONFIGURATION');
+ if(snapshot.archiveFormat==='1.0.0-draft.12'){if(!authority||authority.workspaceId!==snapshot.workspaceId||authority.context.tenantId!==snapshot.tenantId||authority.context.principalId!==snapshot.principalId)throw Error('NATIVE_UPLOAD_CONFIGURATION');assertIssuedWorkspaceImport(authority.context,authority.owner);}else if(authority||explicitFormat&&!isNativeOexFileFormat(snapshot.archiveFormat))throw Error('NATIVE_UPLOAD_CONFIGURATION');
  if(!Number.isSafeInteger(snapshot.bytes)||Number(snapshot.bytes)<1||Number(snapshot.bytes)>MAX||typeof snapshot.sha256!=='string'||!hex.test(snapshot.sha256)||!owner||typeof owner.assertLive!=='function'||typeof owner.assertDatabase!=='function'||typeof owner.runScoped!=='function')throw Error('NATIVE_UPLOAD_CONFIGURATION');
  const capability=Object.freeze(Object.create(null)) as NativeBoundedUploadCapability;
- issued.set(capability,{selection:Object.freeze(snapshot) as unknown as Readonly<SelectedNativeUpload>,assertLive:owner.assertLive.bind(owner),assertDatabase:owner.assertDatabase.bind(owner),runScoped:owner.runScoped.bind(owner),busy:false,closed:false,queued:false,active:new Set(),cancelIncoming:new Set()});
+ issued.set(capability,{selection:Object.freeze(snapshot) as unknown as Readonly<SelectedNativeUpload>,...(authority?{workspaceAuthority:Object.freeze({context:authority.context,workspaceId:authority.workspaceId,owner:Object.freeze(structuredClone(authority.owner))})}:{}),assertLive:owner.assertLive.bind(owner),assertDatabase:owner.assertDatabase.bind(owner),runScoped:owner.runScoped.bind(owner),busy:false,closed:false,queued:false,active:new Set(),cancelIncoming:new Set()});
  return capability;
 }
 
@@ -77,12 +79,12 @@ export async function drainSelectedNativeUploadSlot(slot:NativeBoundedUploadSlot
  * authenticated current server Session.id resolution. Input remains a config
  * seam, NOT evidence that this missing socket/bootstrap issuer exists.
  * Invalid selection, lost owner or reinstallation permanently closes it. */
-export async function installSelectedNativeUpload(slot:NativeBoundedUploadSlot,owner:NativeUploadOwner,input:SelectedNativeUpload):Promise<void>{
+export async function installSelectedNativeUpload(slot:NativeBoundedUploadSlot,owner:NativeUploadOwner,input:SelectedNativeUpload,authority?:WorkspaceAuthority):Promise<void>{
  const entry=slots.get(slot);if(!entry)throw Error('NATIVE_UPLOAD_SLOT');
  if(entry.attempted||entry.closed){closeSelectedNativeUploadSlot(slot);throw Error('NATIVE_UPLOAD_SLOT_CLOSED');}entry.attempted=true;
  let candidate:NativeBoundedUploadCapability|undefined;
  try{
-  candidate=bindSelectedNativeUpload(owner,input);const selected=issued.get(candidate)!;
+  candidate=bindSelectedNativeUpload(owner,input,authority);const selected=issued.get(candidate)!;
   entry.installing=Promise.resolve().then(()=>selected.assertLive());await entry.installing;
   if(entry.closed)throw Error('NATIVE_UPLOAD_SLOT_CLOSED');entry.capability=candidate;
  }catch(error){entry.closed=true;if(candidate)issued.get(candidate)!.closed=true;throw error;}
@@ -163,9 +165,11 @@ function registerUploadRoutes(app:FastifyInstance,auth:Auth,input:AuthConfig,blo
    const actual=(async()=>{
     current();await state.assertLive();current();
     // Await the WHOLE auth.request promise: its work callback is pre-COMMIT.
-    const result=await auth.request(token(req),state.selection.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,true,async(c,s)=>{
+    const invoke=state.workspaceAuthority?auth.requestForNativeWorkspaceMutation.bind(auth):(token:string|undefined,tenantId:string,csrf:string|undefined,work:(c:PoolClient,s:Session)=>Promise<T>)=>auth.request(token,tenantId,csrf,true,work);
+    const result=await invoke(token(req),state.selection.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,async(c,s)=>{
      if(s.id!==state.selection.sessionId||s.tenantId!==state.selection.tenantId||s.userId!==state.selection.principalId||!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');
-     current();await state.assertDatabase(c);current();await state.assertLive();current();const value=await work(c,s);await state.assertLive();current();await state.assertDatabase(c);current();return value;
+     const active=async(lock=false)=>{const r=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL"+(lock?' FOR SHARE OF a,u,m,t':''),[s.id,s.tenantId,s.userId]);if(r.rowCount!==1||r.rows[0]?.role!==s.role)throw new ApiError(403,'FORBIDDEN');};
+     if(state.workspaceAuthority){await active(true);await workspaceAuthority(c,s,state.workspaceAuthority);}current();await state.assertDatabase(c);current();await state.assertLive();current();const value=await work(c,s);await state.assertLive();current();await state.assertDatabase(c);if(state.workspaceAuthority){await workspaceAuthority(c,s,state.workspaceAuthority);await active();}current();return value;
     });
     await state.assertLive();current();afterCommit?.(result);return result;
    })();entry.actual=actual;return actual;
@@ -195,7 +199,7 @@ function registerUploadRoutes(app:FastifyInstance,auth:Auth,input:AuthConfig,blo
     const value=req.body;if(req.headers['content-type']?.split(';')[0]!=='application/json'||!value||typeof value!=='object'||Array.isArray(value)||Buffer.isBuffer(value)||Object.keys(value).sort().join(',')!=='bytes,requestId,sha256')throw new ApiError(400,'INVALID_INPUT');
     const body=value as {requestId:string;bytes:number;sha256:string},selected=state.selection;
     if(body.requestId!==selected.requestId||body.bytes!==selected.bytes||body.sha256!==selected.sha256)throw new ApiError(409,'REQUEST_CONFLICT');
-    const created=await createBoundedOexJob(c,s,{...body,...(selected.archiveFormat?{archiveFormat:selected.archiveFormat}:{})});uuid(created.id);if(created.id!==created.id.toLowerCase()||state.jobId!==undefined&&created.id!==state.jobId||created.state!=='uploading')throw new ApiError(409,'NATIVE_UPLOAD_CLOSED');return created;
+    const created=await createBoundedOexJob(c,s,{...body,...(selected.archiveFormat?{archiveFormat:selected.archiveFormat}:{})},state.workspaceAuthority);uuid(created.id);if(created.id!==created.id.toLowerCase()||state.jobId!==undefined&&created.id!==state.jobId||created.state!=='uploading')throw new ApiError(409,'NATIVE_UPLOAD_CLOSED');return created;
    },created=>{state.jobId=created.id;});
    return reply.code(201).send(result);
   });
@@ -209,14 +213,14 @@ function registerUploadRoutes(app:FastifyInstance,auth:Auth,input:AuthConfig,blo
     if(bytes.length<1||bytes.length>CHUNK)throw new ApiError(413,'BODY_TOO_LARGE');
     if(typeof digest!=='string'||!hex.test(digest)||createHash('sha256').update(bytes).digest('hex')!==digest)throw new ApiError(422,'UPLOAD_INTEGRITY');
     const declared=req.headers['content-length'];if(declared!==undefined&&(!/^[1-9][0-9]*$/.test(declared)||Number(declared)!==bytes.length))throw new ApiError(400,'INVALID_INPUT');
-    return putBoundedOexChunk(c,s,id,Number(index),bytes,blobs);
+    return putBoundedOexChunk(c,s,id,Number(index),bytes,blobs,state.workspaceAuthority);
    });
   });
   scoped.post(path+'/:id/queue',{bodyLimit:1024,onRequest:onRequest('queue')},async(req,reply)=>{
    reply.header('cache-control','no-store');const state=admitted.get(req)!.state;return run(req,async(c,s)=>{
     const {id}=req.params as {id:string};uuid(id);if(id!==state.jobId)throw new ApiError(403,'FORBIDDEN');
     if(req.headers['content-type']?.split(';')[0]!=='application/json'||!req.body||typeof req.body!=='object'||Array.isArray(req.body)||Buffer.isBuffer(req.body)||Object.keys(req.body).length)throw new ApiError(400,'INVALID_INPUT');
-    return queueBoundedOexJob(c,s,id,blobs);
+    return queueBoundedOexJob(c,s,id,blobs,state.workspaceAuthority);
    },()=>{state.queued=true;});
   });
  });

@@ -84,14 +84,20 @@ export class Auth {
  request<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mutate:boolean,work:(client:PoolClient,session:Session)=>Promise<T>){
   return this.authorizedRequest(token,tenantId,csrf,mutate?'write':'read',work);
  }
+ /** Private selected workspace import requires a fresh snapshot after its
+  * maintenance locks even when the database default is repeatable read. */
+ requestForNativeWorkspaceMutation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
+  return this.authorizedRequest(token,tenantId,csrf,'write',work,true);
+ }
  /** CSRF-protected export preparation reads DB state under its existing row
   * and maintenance locks. Keep authorization stable while allowing status reads. */
  requestForExportPreparation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
   return this.authorizedRequest(token,tenantId,csrf,'export-preparation',work);
  }
- private async authorizedRequest<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mode:'read'|'write'|'export-preparation',work:(client:PoolClient,session:Session)=>Promise<T>){
+ private async authorizedRequest<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mode:'read'|'write'|'export-preparation',work:(client:PoolClient,session:Session)=>Promise<T>,readCommitted=false){
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new ApiError(401,'AUTH_REQUIRED');
   return transaction(this.pool, async client => {
+   if(readCommitted)await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
    await client.query(`SELECT pg_advisory_xact_lock${mode==='write' ? '' : '_shared'}(82003)`);
    if(mode!=='read') await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
    const result = await client.query('SELECT s.*,m.role FROM auth_sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(s.tenant_id,s.user_id) JOIN tenants t ON t.id=s.tenant_id WHERE s.token_hash=$1 AND NOT s.revoked AND s.expires_at>now() AND NOT u.disabled AND t.deleted_at IS NULL',[digest(token)]);

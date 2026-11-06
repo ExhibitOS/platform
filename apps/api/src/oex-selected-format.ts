@@ -28,10 +28,11 @@ async function select(file:OexReadHandle,workspace:boolean){
   return Object.freeze({version:1,kind:'oex-format-hint',archiveFormat:(manifest as {formatVersion:string}).formatVersion,archiveBytes:index.archiveBytes,manifestSha256:createHash('sha256').update(index.manifestBytes).digest('hex'),inputDevice:String(before.dev),inputInode:String(before.ino)});
  });
 }
-if(process.argv[1]===fileURLToPath(import.meta.url)){
+export async function runOexFormatHint(workspace=false){
  try{
   const text=process.env.EXHIBITOS_OEX_FORMAT_FD;if(!text||!/^([1-9][0-9]{1,3})$/.test(text)||Number(text)<64||Number(text)>1023)throw Error('OEX_FORMAT_HINT');
   const fd=Number(text);
-  try{const hint=await selectedOexFormat({stat:async()=>fstatSync(fd,{bigint:true}),read:async(buffer,offset,length,position)=>({bytesRead:readSync(fd,buffer,offset,length,position)})});process.stdout.write(JSON.stringify(hint)+'\n');}finally{closeSync(fd);}
+  try{const hint=await (workspace?selectedWorkspaceOexFormat:selectedOexFormat)({stat:async()=>fstatSync(fd,{bigint:true}),read:async(buffer,offset,length,position)=>({bytesRead:readSync(fd,buffer,offset,length,position)})});process.stdout.write(JSON.stringify(hint)+'\n');}finally{closeSync(fd);}
  }catch{process.exitCode=1;}
 }
+if(process.argv[1]===fileURLToPath(import.meta.url))await runOexFormatHint();
