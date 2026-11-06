@@ -66,6 +66,11 @@ it('preserves authored PNG coarse/full through public projection and typed OEX i
  const lod=remapped.artworks[0]!.extensions![LOD_NAMESPACE] as unknown as {variants:{assetId:string;detail:string}[]};expect(lod.variants.find(v=>v.detail==='full')!.assetId).toBe(remapped.artworks[0]!.primaryAssetId);expect(lod.variants.every(v=>remapped.artworks[0]!.assets.some(a=>a.id===v.assetId))).toBe(true);
 });
 describe("immutable anonymous publication projection", () => {
+    it('refuses workspace material snapshots rather than silently dropping their appearance',async()=>{
+        const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
+        candidate.extensions={...candidate.extensions,'org.exhibitos.studio/workspace-materials':{version:1,materials:[],bindings:[]}} as never;
+        expect(()=>projectPublication(candidate,[],'2026-10-27T00:00:00Z')).toThrow('WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
+    });
     it('remaps scalar and textured surface identities together without changing authored sampling',async()=>{
         const candidate=JSON.parse(await readFile(fixtureURL('oes/v1/examples/exhibition.json'),'utf8')) as Exhibition;
         const surface=candidate.surfaces[0]!;surface.type='wall';
