@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import * as three from 'three';
+import {afterEach,expect,it,vi} from 'vitest';
+import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {AssetPeakBudget,DEVICE_BUDGETS} from '../viewer/loading';
+import {mountOwnerWorkspacePlacement} from './owner-placement';
+import {loadWorkspaceFurnishingModel} from './model-loader';
+import {ownerWorkspaceModelSource} from './owner-source';
+vi.mock('./model-loader',()=>({loadWorkspaceFurnishingModel:vi.fn()}));
+vi.mock('./owner-source',()=>({ownerWorkspaceModelSource:vi.fn()}));
+afterEach(()=>{vi.useRealTimers();vi.clearAllMocks();});
+const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+function setup(){const object=new three.Group(),dispose=vi.fn(()=>object.removeFromParent()),check=vi.fn(async()=>{}),onRevoked=vi.fn(),room=new three.Group(),controller=new AbortController(),furnishing={id:id(2),version:1,kind:'bench',name:'Bench',rights:{},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:100,sha256:'a'.repeat(64)}},placement={id:id(3),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[1,0,2],yaw:.5,scale:1.5},candidate={rooms:[{id:id(1),dimensions:{width:8,height:3,depth:8}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:1,furnishings:[furnishing],placements:[placement]}}};vi.mocked(ownerWorkspaceModelSource).mockReturnValue({check,open:vi.fn()});vi.mocked(loadWorkspaceFurnishingModel).mockResolvedValue({object,dispose,draws:1,triangles:1,reserveBytes:1});return {object,dispose,check,onRevoked,room,controller,options:{three,renderer:{} as three.WebGLRenderer,candidate,tenantId:id(4),roomId:id(1),placementId:id(3),room,signal:controller.signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,ledger:new AssetPeakBudget(1024,()=>0),onRevoked}};}
+it('places the registered room-local pose and removes it when a later authority check fails',async()=>{vi.useFakeTimers();const f=setup(),mounted=await mountOwnerWorkspacePlacement(f.options);expect(f.room.children).toContain(f.object);expect(f.object.position.toArray()).toEqual([1,0,2]);expect(f.object.rotation.y).toBe(.5);expect(f.object.scale.x).toBe(1.5);f.check.mockRejectedValueOnce(Error('OWNER_REVOKED'));await vi.advanceTimersByTimeAsync(5000);expect(f.room.children).not.toContain(f.object);expect(f.dispose).toHaveBeenCalledOnce();expect(f.onRevoked).toHaveBeenCalledOnce();mounted.dispose();expect(f.dispose).toHaveBeenCalledOnce();});
+it('hides the placement while authority is pending and restores it only on success',async()=>{vi.useFakeTimers();const f=setup();let finish!:()=>void;f.check.mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;}));const mounted=await mountOwnerWorkspacePlacement(f.options);await vi.advanceTimersByTimeAsync(5000);expect(f.object.visible).toBe(false);finish();await vi.runAllTicks();expect(f.object.visible).toBe(true);mounted.dispose();});
+it('rejects another room and disposes immediately on teardown',async()=>{const f=setup();await expect(mountOwnerWorkspacePlacement({...f.options,roomId:id(9)})).rejects.toThrow('WORKSPACE_PLACEMENT_INVALID');expect(loadWorkspaceFurnishingModel).not.toHaveBeenCalled();await mountOwnerWorkspacePlacement(f.options);f.controller.abort();expect(f.dispose).toHaveBeenCalledOnce();expect(f.room.children).toHaveLength(0);});
