@@ -60,12 +60,12 @@ async function consume(input:{manifest:OexBoundedFileManifest|OexMaterialCatalog
   signal.throwIfAborted();await input.verifyLive();signal.throwIfAborted();const {path,bytes}=await reader.readNext(),descriptor=descriptors.get(path);
   if(!descriptor||seen.has(path)||!Buffer.isBuffer(bytes)||bytes.length!==descriptor.bytes||createHash('sha256').update(bytes).digest('hex')!==descriptor.sha256)throw Error('OEX_BOUNDED_CONSUME');seen.add(path);
   const matching=exhibition.artworks.flatMap(a=>a.assets.filter(asset=>`assets/${asset.path}`===path).map(asset=>({artwork:a,asset})));
-  for(const {artwork,asset} of matching){if(artworkThumbnailFor(artwork)?.id.toLowerCase()===asset.id.toLowerCase())await validateThumbnailBytes(bytes);else await decode(bytes,asset.mime);}
+  for(const {artwork,asset} of matching){if(artworkThumbnailFor(artwork)?.id.toLowerCase()===asset.id.toLowerCase())await validateThumbnailBytes(bytes,workspace);else await decode(bytes,asset.mime,workspace);}
   for(const media of exhibition.mediaAssets.filter(m=>`assets/${m.path}`===path)){
    const duration=validatePcmWav(bytes).durationSeconds;if(!curationDurationValid(exhibition,media.id,duration))throw Error('OEX_BOUNDED_CONSUME');
    const mappedId=mapped.idMap[media.id.toLowerCase()];if(!mappedId||mediaDurations.has(mappedId))throw Error('OEX_BOUNDED_CONSUME');mediaDurations.set(mappedId,duration);
   }
-  if(originalStill&&`assets/${originalStill.path}`===path)await validateCoverImage(bytes);
+  if(originalStill&&`assets/${originalStill.path}`===path)await validateCoverImage(bytes,workspace);
   const material=stage.find(item=>item.sourcePath===path);if(material)await validateWorkspaceMaterialImportSourceBytes(material,bytes,{onSpawn:workspace!.onSpawn});
   signal.throwIfAborted();await input.verifyLive();signal.throwIfAborted();await blobs.put(sourceKeys.get(path)!,bytes);
  }

@@ -1,4 +1,4 @@
-import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
+import {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {privateFloorMaterialCatalog,readPrivateMaterialPreview} from './private-floor-material-catalog.ts';
 import {MODEL_DERIVATION_SCHEMA} from './model-derivation.ts';
 import {furnishingCatalog,readFurnishingBytes} from './furnishings.ts';
@@ -37,10 +37,11 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
- const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing,workspaceMaterial);
- if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,studio,saveSlot,!!nativeOexWorkspace);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
+ if(selectedWorkspaceMaterial&&(!(selectedWorkspaceMaterial instanceof WorkspaceMaterialIntakes)||!freshOexTest||input.mode!=='local'||workspaceMaterial||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.workspaceMaterials||!selectedWorkspaceMaterial.matchesBinding(nativeOexWorkspace,store)))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
+ const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing,workspaceMaterial),selectedStudio=selectedWorkspaceMaterial?new Studio(nativeOexWorkspace,false,selectedWorkspaceMaterial):studio;
+ if(freshOexTest){if(!(store instanceof FileBlobStore)||!uploadSlot||!saveSlot)throw Error('OEX_TEST_CONFIGURATION');registerSelectedStudioPutGate(app,auth,input,selectedStudio,saveSlot,!!nativeOexWorkspace);registerSelectedNativeOexUploadSlot(app,auth,input,store,uploadSlot);}
  const token=(req:FastifyRequest) => {
   const cookies=(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(x=>x.startsWith(`${settings.cookieName}=`));
   return cookies.length===1 ? cookies[0]!.slice(settings.cookieName.length+1) : undefined;
@@ -177,7 +178,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.get(`${sp}/:id`,call(false,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.get(c,s,p.id);reply.header('etag',result.etag);return result;}));
  if(nativeOexWorkspace)app.get(`${sp}/:id/native-viewport-policy`,call(false,async(c,s,req)=>studio.nativeViewportPolicy(c,s,(req.params as {id:string}).id)));
  if(nativeOexWorkspace)app.post(`${sp}/:id/native-viewport-check`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req)=>studio.validateNativeViewport(c,s,(req.params as {id:string}).id,req.body as StudioInput,req.headers['if-match']===undefined?undefined:requiredMatch(req.headers['if-match']))));
- if(freshOexTest){app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},async(req,reply)=>{const p=req.params as {id:string};const result=await runSelectedStudioPut(saveSlot!,req,reply,(c,s)=>studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match'])));reply.header('etag',result.etag);return result;});}
+ if(freshOexTest){app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},async(req,reply)=>{const p=req.params as {id:string};const result=await runSelectedStudioPut(saveSlot!,req,reply,(c,s)=>selectedStudio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match'])));reply.header('etag',result.etag);return result;});}
  else app.put(`${sp}/:id`,{bodyLimit:1048576,schema:{body:studioBody}},call(true,async(c,s,req,reply)=>{const p=req.params as {id:string};const result=await studio.put(c,s,p.id,req.body as StudioInput,requiredMatch(req.headers['if-match']));reply.header('etag',result.etag);return result;}));
 
  const freezes=store&&freezeConfig?new Freezes(pool,store,freezeConfig):null;
