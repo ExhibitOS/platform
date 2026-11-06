@@ -10,7 +10,7 @@ import {OwnerPreviewBudget} from './owner-preview-budget';
 /** Owner preview only. Use the same scope for all placements in a scene and
  * call enforce() before each render, including after a suspended tab resumes.
  * Server-side rechecks remain required; no public authority is implied. */
-export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void}){
+export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void}){
  const {candidate,three,room,signal}=options;
  if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
  const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined,placement=extension?.placements.find(p=>p.id===options.placementId&&p.roomId===options.roomId),descriptor=extension?.furnishings.find(f=>f.id===placement?.furnishingId&&f.version===placement.furnishingVersion);
@@ -22,7 +22,8 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
  try{source=ownerWorkspaceModelSource(options.scope,descriptor,controller.signal);loaded=await loadWorkspaceFurnishingModel(three,options.renderer,descriptor.model,source,controller.signal,options.unavailable,options.budget,options.ledger);}catch(error){signal.removeEventListener('abort',abort);controller.abort();throw error;}
  let stopped=false,checking=false,timer:ReturnType<typeof setInterval>|undefined,expiryTimer:ReturnType<typeof setTimeout>|undefined,release:(()=>void)|undefined;
  const dispose=()=>{if(stopped)return;stopped=true;controller.abort();if(timer)clearInterval(timer);if(expiryTimer)clearTimeout(expiryTimer);signal.removeEventListener('abort',abort);signal.removeEventListener('abort',onAbort);if(typeof document!=='undefined')document.removeEventListener('visibilitychange',enforce);loaded.object.visible=false;loaded.dispose();release?.();};
- const fail=(error:unknown)=>{if(stopped)return;try{dispose();}catch{/* Failed resource cleanup retains the scene and byte holds. */}try{options.onRevoked(error);}catch{/* Consumer notification cannot restore visibility. */}};
+ const changed=()=>{try{options.onVisibilityChange?.();}catch{/* Rendering callbacks cannot grant authority. */}};
+ const fail=(error:unknown)=>{if(stopped)return;try{dispose();}catch{/* Failed resource cleanup retains the scene and byte holds. */}changed();try{options.onRevoked(error);}catch{/* Consumer notification cannot restore visibility. */}};
  const enforce=()=>{if(stopped)return false;try{if(controller.signal.aborted||options.unavailable()||Date.now()>=expires){fail(Error('WORKSPACE_MODEL_AUTHORITY'));return false;}return true;}catch(error){fail(error);return false;}};
  const onAbort=()=>fail(signal.reason);
  const scheduleExpiry=()=>{if(!Number.isFinite(expires))return;expiryTimer=setTimeout(()=>{if(enforce())scheduleExpiry();},Math.min(2147483647,Math.max(0,expires-Date.now())));};
@@ -30,7 +31,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   controller.signal.throwIfAborted();release=options.scope.reserve(loaded.draws,loaded.triangles);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   loaded.object.position.set(...pose.position);loaded.object.rotation.set(0,pose.yaw,0);loaded.object.scale.setScalar(pose.scale);room.add(loaded.object);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   signal.addEventListener('abort',onAbort,{once:true});if(signal.aborted)onAbort();if(stopped)throw Error('WORKSPACE_MODEL_AUTHORITY');if(typeof document!=='undefined')document.addEventListener('visibilitychange',enforce);scheduleExpiry();
-  timer=setInterval(()=>{if(!enforce()||checking)return;checking=true;loaded.object.visible=false;void Promise.resolve().then(()=>source.check()).then(()=>{if(enforce())loaded.object.visible=true;}).catch(fail).finally(()=>{checking=false;});},5000);
+  timer=setInterval(()=>{if(!enforce()||checking)return;checking=true;loaded.object.visible=false;changed();void Promise.resolve().then(()=>source.check()).then(()=>{if(enforce()){loaded.object.visible=true;changed();}}).catch(fail).finally(()=>{checking=false;});},5000);
   return {object:loaded.object,dispose,enforce};
  }catch(error){try{dispose();}catch{/* Retain the reservation if cleanup is uncertain. */}throw error;}
 }

@@ -1,3 +1,5 @@
+import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
+import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
 import {inspectionCameraPose} from './scene-snapshot-camera';
@@ -101,6 +103,7 @@ export function GeometryPreview({
   session,
   publicSource,
   privateCatalogue = false,
+  ownerWorkspaceFurnishings,
   initialPrivateView,
   onPrivateViewReady,
   viewerBudget,
@@ -211,6 +214,7 @@ export function GeometryPreview({
   openingViewpoint?: {viewpointId:string;sequence:number};
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
+  ownerWorkspaceFurnishings?: DeviceBudget;
   publicSource?: {
     publicationId: string;
     revisionSha256: string;
@@ -387,7 +391,7 @@ export function GeometryPreview({
   const snapshotCallback=useRef(onSceneSnapshotReady);snapshotCallback.current=onSceneSnapshotReady;
   const snapshotEnabled=!!onSceneSnapshotReady;
   const snapshotFrameToken=useRef(cameraFrameToken);snapshotFrameToken.current=cameraFrameToken;
-  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
+  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,ownerWorkspaceFurnishings,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
   const qualityRebuildReady=useRef(false);
   const qualityIntent=useRef({scope:qualityScope,budget:viewerBudget});
   qualityIntent.current={scope:qualityScope,budget:viewerBudget};
@@ -467,6 +471,8 @@ export function GeometryPreview({
         throw Error("PREVIEW_COMPLEXITY");
       if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const initialSnapshotPose=publicSource&&snapshotEnabled&&initialSnapshot?inspectionCameraPose(document,initialSnapshot.placementId,initialSnapshot.inspectionCamera):undefined;
+      const hasWorkspaceFurnishings=!!document.extensions&&Object.hasOwn(document.extensions,WORKSPACE_FURNISHING_NAMESPACE);
+      if(hasWorkspaceFurnishings&&(!ownerWorkspaceFurnishings||!session||publicSource||viewerBudget))throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -807,12 +813,14 @@ export function GeometryPreview({
         callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI,currentWalkMode.current.walking&&!currentWalkMode.current.paused);
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
+      let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
       const render = () => {
         if(sharedDetail){if(!disposed&&!gpuLost)sharedDetail.render();return;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
         if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
+          ownerFurnishings?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
@@ -1097,6 +1105,7 @@ export function GeometryPreview({
       editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
+        ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);
         snapshotCallback.current?.(null);
         if(mapPoseRefresh.current===publishMapPose)mapPoseRefresh.current=null;
         renderer.domElement.ownerDocument.removeEventListener('visibilitychange',mapPoseVisibility);
@@ -1677,17 +1686,26 @@ export function GeometryPreview({
             const pose=viewpointPose(document,request.viewpointId);
             snapshotCamera={viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov};
           }
-          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;ownerFurnishings?.enforce();if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
         }});
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
         const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,render,
           load:async(artwork,signal)=>{
+            const owner=ownerFurnishings;
+            if(hasWorkspaceFurnishings&&!owner)throw Error('WORKSPACE_SCENE_BUDGET');
+            const reserveGeometry=(object:InstanceType<typeof three.Object3D>)=>{if(!owner)return ()=>{};const cost=existingSceneCost(three,object);return owner.reservePreview(cost.draws,cost.triangles);};
             const shared=sources.get(artwork.revisionId);
-            if(shared){const object=await shared;signal.throwIfAborted();return {object,release:()=>{}};}
-            const object=await loadArtwork(artwork,undefined,signal);
-            const resources=decodedResources.get(object)??[];decodedResources.delete(object);
-            let released=false;return {object,release:()=>{if(released)return;released=true;for(const r of resources)r.dispose();}};
+            if(shared){const object=await shared;signal.throwIfAborted();const unreserve=reserveGeometry(object);let done=false;return {object,release:()=>{if(!done){done=true;unreserve();}}};}
+            const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);if(!inventory)throw Error('WORKSPACE_SCENE_BUDGET');
+            const key=`owner-preview-art:${crypto.randomUUID()}`;let reserved=false,decodeStarted=false;
+            if(owner){owner.ledger.reserve(key,inventory.bytes*4);reserved=true;}
+            try{
+              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{owner.ledger.reserve(key,assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!,bytes));decodeStarted=true;}:undefined);
+              const resources=decodedResources.get(object)??[];decodedResources.delete(object);let unreserve:()=>void;
+              try{unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(reserved&&!failed)owner!.ledger.release(key);throw error;}
+              let released=false;return {object,release:()=>{if(released)return;released=true;let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed){unreserve();if(reserved)owner!.ledger.release(key);}}};
+            }catch(error){if(reserved&&!decodeStarted)owner!.ledger.release(key);throw error;}
           },
         });
         placementSync.current=preview.sync;placementRelease=preview.dispose;
@@ -2591,7 +2609,7 @@ export function GeometryPreview({
       }
       // The local/native path uses the same bounded readout as public loading,
       // without adopting the public scheduler or its revision-based counters.
-      const localStages=createPreparationStages(document.artworks);
+      const localStages=createPreparationStages(document.artworks),residentArtwork=new Set<InstanceType<typeof three.Object3D>>();let localResidentBytes=0;
       for (const placement of document.placements) {
         const artwork = document.artworks.find(
           (a) =>
@@ -2618,6 +2636,7 @@ export function GeometryPreview({
             for (const r of decodedResources.get(object) ?? []) r.dispose();
             return;
           }
+          if(!residentArtwork.has(object)){const bytes=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(bytes)||bytes<0)throw Error('WORKSPACE_SCENE_BUDGET');localResidentBytes+=bytes;residentArtwork.add(object);}
           owned.push(...(decodedResources.get(object) ?? []));
           decodedResources.delete(object);
           const bounds = group.children[0];
@@ -2638,6 +2657,11 @@ export function GeometryPreview({
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
           );
         }
+      }
+      if(hasWorkspaceFurnishings&&session&&ownerWorkspaceFurnishings&&!disposed&&!gpuLost){
+        const changed=()=>{if(disposed||gpuLost||ownerFurnishingFrame)return;ownerFurnishingFrame=requestAnimationFrame(()=>{ownerFurnishingFrame=0;if(!disposed&&!gpuLost){if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());shadowPass.invalidate();render();}});};
+        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:ownerWorkspaceFurnishings,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed});
+        const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');changed();}
       }
     };
     void build().catch((error) => {
@@ -2676,6 +2700,7 @@ export function GeometryPreview({
     session,
     publicSource,
     privateCatalogue,
+    ownerWorkspaceFurnishings,
     viewerBudget,
     resourceBudget,
     restart,

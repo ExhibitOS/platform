@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {fixtureURL} from '@exhibitos/spec';
+import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import * as three from 'three';
+import {afterEach,expect,it,vi} from 'vitest';
+import {DEVICE_BUDGETS} from '../viewer/loading';
+import {createOwnerFurnishingScene,existingSceneCost} from './owner-scene';
+vi.mock('../basis-loader',()=>({basisLoader:vi.fn(async()=>undefined)}));
+afterEach(()=>{vi.useRealTimers();vi.clearAllMocks();});
+const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+async function fixture(){const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),item={id:id(2),version:1,kind:'bench',name:'Synthetic',rights:{permissions:{display:true}},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')}},placements=[{id:id(3),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[1,0,1],yaw:.5,scale:1},{id:id(4),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[-1,0,1],yaw:-.5,scale:1}],candidate={rooms:[{id:id(1),dimensions:{width:10,height:3,depth:10}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:1,furnishings:[item],placements}}},room=new three.Group(),scene=new three.Scene(),controller=new AbortController();scene.add(room);let authorized=true;const fetcher=vi.fn(async(input:RequestInfo|URL)=>!authorized?new Response('',{status:403}):String(input).endsWith('/display-check')?Response.json(item):new Response(new Uint8Array(bytes),{headers:{'content-type':'model/gltf-binary'}}));const changed=vi.fn(),runtime=createOwnerFurnishingScene({three,renderer:{} as three.WebGLRenderer,scene,rooms:new Map([[id(1),room]]),candidate,tenantId:id(9),signal:controller.signal,unavailable:()=>false,budget:DEVICE_BUDGETS.desktop,transitionBytes:64*1024*1024,resident:()=>0,changed,fetcher});return {runtime,room,controller,changed,fetcher,deny:()=>{authorized=false;}};}
+it('loads two distinct room poses through the owner adapter and tears both down',async()=>{const f=await fixture();expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(f.room.children).toHaveLength(2);expect(f.room.children.map(o=>o.position.x)).toEqual([1,-1]);expect(f.fetcher.mock.calls.filter(([url])=>String(url).endsWith('/model'))).toHaveLength(2);f.runtime.enforce();f.runtime.dispose();expect(f.room.children).toHaveLength(0);});
+it('removes mounted models when the actual owner check denies revalidation',async()=>{vi.useFakeTimers();const f=await fixture();await f.runtime.start();f.deny();await vi.advanceTimersByTimeAsync(5000);expect(f.room.children).toHaveLength(0);expect(f.changed).toHaveBeenCalled();f.runtime.dispose();});
+it('counts existing scene meshes and refuses a scene over the budget',()=>{const scene=new three.Scene(),geometry=new three.BoxGeometry(),material=new three.MeshBasicMaterial({transparent:true,side:three.DoubleSide}),mesh=new three.Mesh(geometry,material);scene.add(mesh);expect(existingSceneCost(three,scene)).toEqual({draws:2,triangles:24});geometry.dispose();material.dispose();});
+it('uses the same scene budget for a competing artwork preview',async()=>{const f=await fixture();expect(await f.runtime.start()).toEqual({loaded:2,failed:0});expect(()=>f.runtime.reservePreview(257,1)).toThrow('WORKSPACE_SCENE_BUDGET');const release=f.runtime.reservePreview(1,1);release();f.runtime.dispose();});
