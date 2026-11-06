@@ -7,8 +7,9 @@ import * as three from 'three';
 import {afterEach,expect,it,vi} from 'vitest';
 import {AssetPeakBudget,DEVICE_BUDGETS} from '../viewer/loading';
 import {loadWorkspaceFurnishingModel} from './model-loader';
+import {basisLoader} from '../basis-loader';
 vi.mock('../basis-loader',()=>({basisLoader:vi.fn(async()=>undefined)}));
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.unstubAllGlobals();vi.clearAllMocks();});
 const descriptor=(bytes:Buffer)=>({mime:'model/gltf-binary' as const,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')});
 const source=(bytes:Buffer)=>({check:vi.fn(async()=>{}),open:vi.fn(async()=>new Response(new Uint8Array(bytes),{headers:{'content-type':'model/gltf-binary'}}))});
 const renderer={} as three.WebGLRenderer;
@@ -46,4 +47,10 @@ it('quarantines the budget after an image rejection while sibling decodes are un
 });
 it('keeps the reservation if disposal of a scene resource throws',async()=>{
  const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),ledger=new AssetPeakBudget(64*1024*1024,()=>0),loaded=await loadWorkspaceFurnishingModel(three,renderer,descriptor(bytes),source(bytes),new AbortController().signal,()=>false,DEVICE_BUDGETS.desktop,ledger);let geometry:three.BufferGeometry|undefined;loaded.object.traverse(node=>{if(node instanceof three.Mesh)geometry=node.geometry;});vi.spyOn(geometry!,'dispose').mockImplementation(()=>{throw Error('LISTENER_FAILURE');});expect(()=>loaded.dispose()).toThrow('WORKSPACE_MODEL_DISPOSE_FAILED');expect(ledger.total()).toBeGreaterThan(0);
+});
+it('bounds an unresponsive Basis initialization without returning its uncertain reservation',async()=>{
+ const bytes=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb')),controller=new AbortController(),ledger=new AssetPeakBudget(64*1024*1024,()=>0);vi.mocked(basisLoader).mockImplementationOnce(()=>new Promise(()=>{}));const work=loadWorkspaceFurnishingModel(three,renderer,descriptor(bytes),source(bytes),controller.signal,()=>false,DEVICE_BUDGETS.desktop,ledger);await vi.waitFor(()=>expect(basisLoader).toHaveBeenCalled());controller.abort();await expect(work).rejects.toThrow();expect(ledger.total()).toBeGreaterThan(0);
+});
+it('terminates a non-callback compressed decoder on abort and keeps its uncertain reservation',async()=>{
+ const {publicTexturedGLB,publicTexturePNG,withPublicBasis}=createRequire(import.meta.url)('../../../../scripts/embedded-texture-fixture.mjs') as {publicTexturedGLB:(options:{png:Buffer})=>Buffer;publicTexturePNG:(width:number,height:number)=>Buffer;withPublicBasis:(bytes:Buffer)=>Buffer},bytes=withPublicBasis(publicTexturedGLB({png:publicTexturePNG(8,8)})),controller=new AbortController(),ledger=new AssetPeakBudget(64*1024*1024,()=>0),parse=vi.fn(),dispose=vi.fn();vi.mocked(basisLoader).mockResolvedValueOnce({parse,dispose} as never);vi.stubGlobal('self',globalThis);const work=loadWorkspaceFurnishingModel(three,renderer,descriptor(bytes),source(bytes),controller.signal,()=>false,DEVICE_BUDGETS.desktop,ledger);await vi.waitFor(()=>expect(parse).toHaveBeenCalledOnce());controller.abort();await expect(work).rejects.toThrow();expect(dispose).toHaveBeenCalledOnce();expect(ledger.total()).toBeGreaterThan(0);
 });
