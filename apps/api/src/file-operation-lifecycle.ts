@@ -36,8 +36,8 @@ export class FileOperationLifecycle implements FileOperationRunner {
  }
  /** Preparation that needs its own DB transactions must use a distinct pool. */
  ownsPool(pool:Pool){return this.pool===pool;}
- async runOperation<TPrepared,TResult>(input:FileOperationIdentity,hooks:FileOperationHooks<TPrepared,TResult>,signal:AbortSignal):Promise<TResult>{
-  const identity=identitySnapshot(input);signal.throwIfAborted();
+ async runOperation<TPrepared,TResult>(input:FileOperationIdentity,hooks:FileOperationHooks<TPrepared,TResult>,signal:AbortSignal,options?:{isolation:'read committed'}):Promise<TResult>{
+  const identity=identitySnapshot(input);if(options!==undefined&&(Object.keys(options).join(',')!=='isolation'||options.isolation!=='read committed'))throw Error('FILE_OPERATION_IDENTITY');signal.throwIfAborted();
   if(this.active>=this.capacity)throw Error('FILE_OPERATION_BUSY');
   this.active++;
   let client:PoolClient|undefined,locked=false,broken=false,inTransaction=false,committing=false;
@@ -47,6 +47,7 @@ export class FileOperationLifecycle implements FileOperationRunner {
   const transaction=async<T>(work:()=>Promise<T>):Promise<T>=>{
    try{await client!.query('BEGIN');inTransaction=true;}catch(error){broken=true;throw error;}
    try{
+    if(options)await client!.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
     await client!.query("SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$1,true)",[`${this.finalTimeoutMs}ms`]);
     const result=await work();combined.throwIfAborted();committing=true;
     await client!.query('COMMIT');committing=false;inTransaction=false;return result;

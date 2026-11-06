@@ -125,3 +125,8 @@ it.each(['resolved','rejected'] as const)('does not continue when cancellation r
  expect(f.calls).not.toContain('after-commit');expect(f.calls).not.toContain('ROLLBACK');
  if(outcome==='rejected')expect(f.calls.at(-1)).toBe('destroy');
 });
+it('sets READ COMMITTED before the first statement for explicitly scoped workspace transactions',async()=>{
+ const f=fixture(),owner=new FileOperationLifecycle(f.pool,1,1000);await owner.runOperation(identity(),f.hooks,new AbortController().signal,{isolation:'read committed'});
+ for(const index of f.calls.flatMap((call,i)=>call==='BEGIN'?[i]:[]))expect(f.calls[index+1]).toBe('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+ const g=fixture();await new FileOperationLifecycle(g.pool,1,1000).runOperation(identity(),g.hooks,new AbortController().signal);expect(g.calls).not.toContain('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+});
