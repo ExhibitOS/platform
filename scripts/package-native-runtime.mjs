@@ -222,6 +222,9 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
+export async function copyNativeFurnishingSupport(sourceRoot,platformRoot){
+ for(const name of ['native-workspace-furnishing-lease.mjs','native-workspace-furnishing-fd.mjs','native-workspace-furnishing-admission.mjs','native-workspace-furnishing-ordinary-assertion.mjs','native-workspace-furnishing-recovery.mjs'])await copy(join(sourceRoot,'scripts',name),join(platformRoot,'scripts',name));
+}
 export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense, npmCLI, postgresRoot, postgresSourceReceipt, postgresProfile = 'validation-full', freshOexValidation = false, normalOexSelected = false, privateStaticEditor = false, workspaceMaterialSelected = false, workspaceImportSelected = false, workspaceWallImportSelected = false, workspaceFurnishingSelected = false, workspaceFurnishingWriterSelected = false, defaultFurnishingsRoot}) {
   if (typeof freshOexValidation !== 'boolean' || typeof normalOexSelected !== 'boolean' || typeof privateStaticEditor !== 'boolean' || typeof workspaceMaterialSelected !== 'boolean' || typeof workspaceImportSelected !== 'boolean' || typeof workspaceWallImportSelected !== 'boolean' || typeof workspaceFurnishingSelected !== 'boolean' || typeof workspaceFurnishingWriterSelected !== 'boolean' || workspaceFurnishingWriterSelected && !workspaceFurnishingSelected || workspaceFurnishingSelected && !workspaceWallImportSelected || workspaceWallImportSelected && !workspaceImportSelected || workspaceImportSelected && !workspaceMaterialSelected || workspaceMaterialSelected && !normalOexSelected || freshOexValidation && normalOexSelected) fail('NATIVE_PACKAGE_INPUT_INVALID');
   const selection = postgresRuntimeSelection(postgresProfile);
@@ -276,7 +279,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
   await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
   await copy(join(source,'scripts/native-workspace-furnishing-bootstrap.mjs'),join(platform,'scripts/native-workspace-furnishing-bootstrap.mjs'));
-  for(const name of ['native-workspace-furnishing-lease.mjs','native-workspace-furnishing-fd.mjs','native-workspace-furnishing-admission.mjs','native-workspace-furnishing-recovery.mjs'])await copy(join(source,'scripts',name),join(platform,'scripts',name));
+  await copyNativeFurnishingSupport(source,platform);
   await writeNormalOexCapability(platform,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected,workspaceFurnishingWriterSelected);
   await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
   await copy(join(source,'scripts/native-owner-frames.mjs'),join(platform,'scripts/native-owner-frames.mjs'));
