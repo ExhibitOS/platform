@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
-import {copyNativeFurnishings} from './package-native-runtime.mjs';
+import {copyNativeFurnishings,verifyDefaultFurnishingsManifest,checkedDefaultFurnishingsRoot} from './package-native-runtime.mjs';
 
 test('native package includes only the four exact approved model and notice pairs', async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'exhibitos-native-furnishing-')));
@@ -35,4 +35,15 @@ test('native package includes only the four exact approved model and notice pair
   const linked = join(root, 'linked'); await mkdir(linked);
   await rm(join(source,paths[0])); await symlink(join(repository,paths[0]), join(source,paths[0]));
   await assert.rejects(copyNativeFurnishings(source, linked), /NATIVE_PACKAGE_INPUT_INVALID/);
+});
+
+test('pinned release manifest uses the existing catalogue and rejects substitutions',async t=>{
+  const root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-furnishings-release-')));t.after(()=>rm(root,{recursive:true,force:true}));
+  const fixture=fileURLToPath(new URL('./fixtures/default-furnishings-1.0.0.manifest.json',import.meta.url));
+  const bytes=await readFile(fixture);await writeFile(join(root,'manifest.json'),bytes);
+  assert.deepEqual(await verifyDefaultFurnishingsManifest(root),{commit:'4ac7d23c1b557d8e303ad04d78379bcefab50b40',manifestSHA256:'f11ba6f4407e31531230cdb94921d7d7baef3caca49b1859f8696fa1a39c4530'});
+  const changed=Buffer.from(bytes);changed[changed.length-2]^=1;await writeFile(join(root,'manifest.json'),changed);
+  await assert.rejects(verifyDefaultFurnishingsManifest(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+  await writeFile(join(root,'manifest.json'),bytes);await assert.rejects(checkedDefaultFurnishingsRoot(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+  await assert.rejects(checkedDefaultFurnishingsRoot('relative/path'),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
 });
