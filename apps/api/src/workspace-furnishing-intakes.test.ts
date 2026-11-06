@@ -55,6 +55,10 @@ it('binds a worker claim to its generation and passes the writer FD to validatio
  const f=fixture(true),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);expect(await f.service.work(f.pool)).toBe(true);
  const claim=f.query.mock.calls.find(([sql])=>sql.startsWith('UPDATE workspace_furnishing_intakes SET worker_token=$3,worker_generation=$4'));expect(claim?.[1]?.slice(3)).toEqual([f.writer.identity.runtimeGeneration,f.writer.identity.rootDevice,f.writer.identity.rootInode,f.writer.identity.lockDevice,f.writer.identity.lockInode]);expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(f.declaration.model,f.bytes,expect.objectContaining({writerFd:12}));expect(f.writer.assertLive).toHaveBeenCalled();
 });
+it('does not start a model write when the writer becomes unavailable after access',async()=>{
+ const f=fixture(true),first=await f.service.create(f.client,f.session,f.declaration);f.writer.assertLive.mockReset().mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined).mockRejectedValueOnce(Error('FURNISHING_LEASE_INVALID'));
+ await expect(f.service.upload(f.client,f.session,first.intakeId,f.bytes)).rejects.toThrow('FURNISHING_LEASE_INVALID');expect(f.blobs.put).not.toHaveBeenCalled();expect(f.getRow()!.received).toBeNull();
+});
 it('refuses a writer issued for a different workspace owner',()=>{const f=fixture(true);expect(()=>new WorkspaceFurnishingIntakes(f.blobs,f.owner,{...f.writer,identity:{...f.writer.identity,tenantId:id(9)}})).toThrow('FURNISHING_LEASE_INVALID');});
 it('does not attach a model after its claim identity is changed',async()=>{
  const f=fixture(true),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);
