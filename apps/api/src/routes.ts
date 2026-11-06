@@ -228,7 +228,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  for(const action of ['retry','cancel'] as const)app.post(`${op}/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>requireOex().action(c,s,jobId(req),action)));
  if(oexWorker&&oex){
   let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
-  const tick=async()=>{try{if(!runtimeAvailable||runtimeAvailable()){await oex.runNext();await freezes?.recover();}}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  const tick=async()=>{try{if(!runtimeAvailable||runtimeAvailable()){await oex.runNext();if(!runtimeAvailable||runtimeAvailable())await freezes?.recover();}}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM oex_import_jobs LIMIT 0');running=tick();});
   app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
  }

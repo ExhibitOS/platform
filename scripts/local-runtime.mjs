@@ -166,7 +166,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, pinnedPayload, ownerStopped=false, runtimeReady=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening;let stopping=false;const ownerAbort=new AbortController();
+  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, pinnedPayload, ownerStopped=false, runtimeReady=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
   let ownerTask=Promise.resolve();
@@ -176,7 +176,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     stopping=true;runtimeReady=false;ownerStopped=true;ownerAbort.abort();let failed=false;
     const attempt=async action=>{try{await action();}catch{failed=true;}};
     await attempt(()=>ownerTask);if(ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
-    if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});
+    if(payloadAcquisition)await payloadAcquisition.catch(()=>{});if(proxyCreation)await proxyCreation.catch(()=>{});if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});if(deferredWork)await deferredWork.catch(()=>{});
     if(proxy){await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());if(proxy.listening)await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));}
     await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});if(app)await attempt(()=>app.close());if(pinnedPayload)await attempt(()=>pinnedPayload.close());await attempt(()=>pool.end());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
   })();
@@ -220,7 +220,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     }else if(furnishingMode){
       stage='OWNER_CHANNEL';await ownerTask;if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       void ownerChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}});
-      stage='WRITER_LEASE';pinnedPayload=await pinNativeOexPayloadManifest(fileURLToPath(new URL('../../manifest.json',import.meta.url)));
+      stage='WRITER_LEASE';payloadAcquisition=pinNativeOexPayloadManifest(fileURLToPath(new URL('../../manifest.json',import.meta.url))).then(value=>{pinnedPayload=value;return value;});await payloadAcquisition;if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       writerLease=await acceptFurnishingWriterLease({channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex'),scope:{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,runtimeGeneration:privateOwner.runtimeGeneration,mode:privateOwner.mode},payload:pinnedPayload,writerFd:environment.EXHIBITOS_NATIVE_FURNISHING_WRITER_FD,ownerFd:environment.EXHIBITOS_NATIVE_OWNER_FD,blobRoot,configRoot});
       supplementalMigrationDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
     }else if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'){
@@ -269,7 +269,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     if(furnishingMode){stage='API_PRELISTEN';await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
     apiListening=app.listen({ host: "127.0.0.1", port: apiPort });await apiListening;
     if(furnishingMode){await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
-    stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex,...(furnishingMode?{isAvailable:isOwnerAvailable}:{}) });
+    stage = "WEB_PROXY"; proxyCreation=createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex,...(furnishingMode?{isAvailable:isOwnerAvailable}:{}) }).then(value=>{proxy=value;return value;});await proxyCreation;if((selectedOex||furnishingMode)&&(ownerStopped||!ownerChannel?.isOpen()))throw Error('NATIVE_OWNER_UNAVAILABLE');
     if(furnishingMode){stage='PROXY_PRELISTEN';await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
     proxyListening=new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });await proxyListening;
     if(furnishingMode){await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
@@ -277,7 +277,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       selectedTask=runFreshNativeOexOwner({pool,databaseUrl:environment.DATABASE_URL,blobs,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,runtimeGeneration:privateOwner.runtimeGeneration,secret:Buffer.from(privateOwner.secret,'hex'),channel:ownerChannel,payloadManifestPath:fileURLToPath(new URL('../../manifest.json',import.meta.url)),uploadSlot,saveSlot,signal:ownerAbort.signal,...(nativeOexWorkspace?{nativeOexWorkspace,requireCatalogProof:true}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}),...(normalOexV3?{variant:'v3'}:{})});
       void selectedTask.catch(()=>{});
     }
-    if(furnishingMode){for(const task of deferredStartup){await writerLease.assertLive();await task();await writerLease.assertLive();}if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');runtimeReady=true;}
+    if(furnishingMode){deferredWork=(async()=>{for(const task of deferredStartup){await writerLease.assertLive();await task();await writerLease.assertLive();}})();await deferredWork;if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');runtimeReady=true;}
     const importer = new Imports(pool, blobs); let failures = 0;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     if(!selectedOex)running = tick();
