@@ -6,6 +6,7 @@ import {ApiError,type Session} from './auth.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 vi.mock('./workspace-furnishing-glb.ts',()=>({validateWorkspaceFurnishingGlb:vi.fn(async()=>{})}));
+vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',()=>({assertIssuedFurnishingWriterLease:vi.fn()}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const rights={holder:'ExhibitOS',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:true,download:true,export:true,commercial:true}};
 function fixture(withWriter=false){
@@ -29,7 +30,7 @@ function fixture(withWriter=false){
   if(sql.startsWith('SELECT descriptor,object_key FROM workspace_furnishing_versions'))return {rows:version?[version]:[],rowCount:version?1:0};
   return {rows:[],rowCount:1};
  });
- const client={query,release:vi.fn()} as unknown as PoolClient,pool={connect:async()=>client} as unknown as Pool,owner={workspaceId:id(1),tenantId:id(2),principalId:id(3),assertDatabase:vi.fn(async()=>{})},session={id:id(5),tenantId:id(2),userId:id(3),role:'artist'} as Session,writer={writerFd:12,identity:{runtimeGeneration:id(8),rootDevice:'7',rootInode:'9007199254740993',lockDevice:'7',lockInode:'9007199254740997'},assertLive:vi.fn(async()=>{})},service=new WorkspaceFurnishingIntakes(blobs,owner,withWriter?writer:undefined);
+ const client={query,release:vi.fn()} as unknown as PoolClient,pool={connect:async()=>client} as unknown as Pool,owner={workspaceId:id(1),tenantId:id(2),principalId:id(3),assertDatabase:vi.fn(async()=>{})},session={id:id(5),tenantId:id(2),userId:id(3),role:'artist'} as Session,writer={writerFd:12,identity:{workspaceId:id(1),tenantId:id(2),principalId:id(3),runtimeGeneration:id(8),rootDevice:'7',rootInode:'9007199254740993',lockDevice:'7',lockInode:'9007199254740997'},assertLive:vi.fn(async()=>{})},service=new WorkspaceFurnishingIntakes(blobs,owner,withWriter?writer:undefined);
  return {bytes,declaration,blobs,query,client,pool,owner,session,service,writer,getRow:()=>row};
 }
 it('retains one owner-scoped intake across replay and registers original model after worker completion',async()=>{
@@ -54,6 +55,7 @@ it('binds a worker claim to its generation and passes the writer FD to validatio
  const f=fixture(true),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);expect(await f.service.work(f.pool)).toBe(true);
  const claim=f.query.mock.calls.find(([sql])=>sql.startsWith('UPDATE workspace_furnishing_intakes SET worker_token=$3,worker_generation=$4'));expect(claim?.[1]?.slice(3)).toEqual([f.writer.identity.runtimeGeneration,f.writer.identity.rootDevice,f.writer.identity.rootInode,f.writer.identity.lockDevice,f.writer.identity.lockInode]);expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(f.declaration.model,f.bytes,expect.objectContaining({writerFd:12}));expect(f.writer.assertLive).toHaveBeenCalled();
 });
+it('refuses a writer issued for a different workspace owner',()=>{const f=fixture(true);expect(()=>new WorkspaceFurnishingIntakes(f.blobs,f.owner,{...f.writer,identity:{...f.writer.identity,tenantId:id(9)}})).toThrow('FURNISHING_LEASE_INVALID');});
 it('does not attach a model after its claim identity is changed',async()=>{
  const f=fixture(true),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);
  await expect(f.service.work(f.pool,{afterClaim:()=>{f.getRow()!.worker_generation=id(9);}})).rejects.toThrow('FURNISHING_WORKER_OWNERSHIP');expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_versions'))).toBe(false);

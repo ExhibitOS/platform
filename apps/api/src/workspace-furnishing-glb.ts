@@ -15,7 +15,7 @@ export async function validateWorkspaceFurnishingGlb(model:WorkspaceFurnishingMo
   const path=new URL('./validation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))path.pathname=path.pathname.replace(/\.js$/,'.ts');
   let unavailable=false,output='',outBytes=0,errBytes=0;
   const stdio:('pipe'|number)[]=['pipe','pipe','pipe'];if(hooks?.writerFd!==undefined)stdio.push(hooks.writerFd);
-  const child=spawn(process.execPath,['--max-old-space-size=128',fileURLToPath(path),'model/gltf-binary','workspace-furnishing-glb'],{env:{PATH:process.env.PATH},stdio});
+  let child:ChildProcess;try{child=spawn(process.execPath,['--max-old-space-size=128',fileURLToPath(path),'model/gltf-binary','workspace-furnishing-glb'],{env:{PATH:process.env.PATH},stdio});}catch{reject(new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE'));return;}
   const kill=()=>{unavailable=true;try{child.kill('SIGKILL');}catch{/* Await actual close. */}};
   const timer=setTimeout(kill,5000);child.once('error',()=>{unavailable=true;});
   child.stdout?.on('data',(part:Buffer)=>{outBytes+=part.length;if(outBytes>4096)kill();else output+=part.toString('utf8');});

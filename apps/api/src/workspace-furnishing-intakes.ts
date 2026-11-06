@@ -7,9 +7,10 @@ import {validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
+import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 
 type Owner={workspaceId:string;tenantId:string;principalId:string;assertDatabase:(client:PoolClient)=>Promise<void>};
-type Writer={writerFd:number;identity:Readonly<{runtimeGeneration:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
+type Writer={writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
 type Receipt={bytes:number;sha256:string;key:string};
 type Row={id:string;request_id:string;request_sha256:string;declaration:WorkspaceFurnishingDeclaration;phase:string;received:Receipt|null;error:unknown;retryable:boolean;furnishing_id:string;furnishing_version:number;worker_token?:string|null;worker_generation?:string|null;worker_root_device?:string|null;worker_root_inode?:string|null;worker_lock_device?:string|null;worker_lock_inode?:string|null};
 const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
@@ -18,10 +19,11 @@ const canonical=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof
  * preview/placement and export before exposing any route or capability. */
 export class WorkspaceFurnishingIntakes {
  private readonly blobs:BlobStore;private readonly owner:Owner;private readonly writer:Writer|undefined;
- constructor(blobs:BlobStore,owner:Owner,writer?:Writer){this.blobs=blobs;this.owner=owner;this.writer=writer;}
+ constructor(blobs:BlobStore,owner:Owner,writer?:Writer){if(writer){assertIssuedFurnishingWriterLease(writer);if(writer.identity.workspaceId!==owner.workspaceId||writer.identity.tenantId!==owner.tenantId||writer.identity.principalId!==owner.principalId)throw Error('FURNISHING_LEASE_INVALID');}this.blobs=blobs;this.owner=owner;this.writer=writer;}
  private checkClaim(row:Row,token:string){const writer=this.writer;if(writer&&(row.worker_token!==token||row.worker_generation!==writer.identity.runtimeGeneration||row.worker_root_device!==writer.identity.rootDevice||row.worker_root_inode!==writer.identity.rootInode||row.worker_lock_device!==writer.identity.lockDevice||row.worker_lock_inode!==writer.identity.lockInode))throw Error('FURNISHING_WORKER_OWNERSHIP');}
- private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.owner.assertDatabase(c);}
+ private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();}
  matchesBinding(owner:unknown,store:unknown){return this.owner===owner&&this.blobs===store;}
+ hasWriterLease(){return this.writer!==undefined;}
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  private async access(c:PoolClient,s:Session,id:string){uuid(id);await this.checkOwner(c,s);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,id]);if(result.rowCount!==1)throw new ApiError(403,'FORBIDDEN');return result.rows[0] as Row;}
  private receipt(row:Row):Receipt{
