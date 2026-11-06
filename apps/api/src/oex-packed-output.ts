@@ -11,10 +11,19 @@ const same=(a:StatIdentity,b:StatIdentity)=>a.dev===b.dev&&a.ino===b.ino&&a.size
 
 /** Call only with a separately validated and receipt-bound Spec manifest. */
 export function packedOexInventory(trustedManifest:unknown){
+ return inventory(trustedManifest,false);
+}
+/** Draft.12 inventory only; caller must separately verify the owned archive
+ * and scene. This does not activate the existing worker or public routes. */
+export function packedWorkspaceOexInventory(trustedManifest:unknown){
+ return inventory(trustedManifest,true);
+}
+function inventory(trustedManifest:unknown,workspace:boolean){
  if(!trustedManifest||typeof trustedManifest!=='object'||Array.isArray(trustedManifest))throw Error('OEX_PACKED_OUTPUT');
- const trusted=trustedManifest as Record<string,unknown>;if(!isNativeOexFileManifest(trusted))throw Error('OEX_PACKED_OUTPUT');
+ const trusted=trustedManifest as Record<string,unknown>;
+ if(workspace?trusted.formatVersion!=='1.0.0-draft.12'||trusted.archiveProfile!=='bounded-file-v1'||!Array.isArray(trusted.workspaceMaterialResources):!isNativeOexFileManifest(trusted))throw Error('OEX_PACKED_OUTPUT');
  const inventory:unknown[]=[];
- for(const key of ['assets','floorResources','furnishingNotices','materialResources','footstepResources']){
+ for(const key of ['assets','floorResources','furnishingNotices','materialResources','footstepResources',...(workspace?['workspaceMaterialResources']:[])]){
   const part=trusted[key];if(part!==undefined&&!Array.isArray(part))throw Error('OEX_PACKED_OUTPUT');if(Array.isArray(part)){if(part.length>MAX_ENTRIES-inventory.length)throw Error('OEX_PACKED_OUTPUT');for(const entry of part)inventory.push(entry);}
  }
  const expected=new Map<string,{bytes:number;sha256:string}>();
