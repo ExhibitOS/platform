@@ -6,14 +6,14 @@ import {ApiError,type Session} from './auth.ts';
 import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 
-/** The initial output profile handles only floor color maps. Reject other
+/** The initial output profile handles floor and wall color maps. Reject other
  * declared content explicitly instead of producing an incomplete archive. */
 export function workspaceMaterialOutputInventory(candidate:{extensions?:Record<string,unknown>;surfaces?:unknown}):WorkspaceMaterialResource[]{
  const value=candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];if(value===undefined)return [];
  let resources:WorkspaceMaterialResource[];
  try{resources=packageWorkspaceMaterialManifest(candidate);}catch{throw new ApiError(422,'DRAFT_INVALID');}
  const data=value as WorkspaceMaterialBindings;
- if(!resources.length||data.materials.some(m=>m.kind!=='floor'||Object.keys(m.maps).length!==1||!m.maps.color)||resources.some(r=>r.role!=='color'))throw new ApiError(422,'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
+ if(!resources.length||data.materials.some(m=>!['floor','wall'].includes(m.kind)||Object.keys(m.maps).length!==1||!m.maps.color)||resources.some(r=>r.role!=='color'))throw new ApiError(422,'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
  return resources;
 }
 
