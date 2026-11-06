@@ -7,7 +7,7 @@ import {join,isAbsolute} from 'node:path';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,transaction,FileBlobStore} from '@exhibitos/storage';
 import {PublicationDiskBudget,diskReservationReceiptDigest,type DiskOwner,type DiskPlan,type DiskReservationBinding,type DiskReservationReceipt,type DiskClaimJournalBinding} from './publication-disk-budget.ts';
-import {verifySelectedSettlement,revalidateSelectedSettlement,verifySelectedV3Settlement,revalidateSelectedV3Settlement,recordSelectedV3Retirement,finalizeSelectedV3Authority,forgetSelectedV3Authority,type SelectedSettlementAuthority,type SelectedV3SettlementAuthority} from './oex-owner-claim.ts';
+import {verifySelectedSettlement,revalidateSelectedSettlement,verifySelectedV3Settlement,revalidateSelectedV3Settlement,recordSelectedV3Retirement,finalizeSelectedV3Authority,verifySelectedWorkspaceV3Authority,forgetSelectedV3Authority,type SelectedSettlementAuthority,type SelectedV3SettlementAuthority} from './oex-owner-claim.ts';
 
 export type SelectedV3ReleasePermit=Readonly<{readonly __selectedV3Release:unique symbol}>;
 const v3ReleasePermits=new WeakMap<object,{authority:SelectedV3SettlementAuthority;claimDigest:string;bindings:DiskReservationBinding[]}>();
@@ -342,6 +342,30 @@ export class PublicationAttempts {
    const state=await this.activeClaim(handle,true),base=state.record.attemptId,intent=await claimFile(join(this.root,base+'.settlement-terminal-v3.json')),terminal=await claimFile(join(this.root,base+'.reservation-released-v3.json'));
    if(state!==mutation||!state.outcomeStarted||intent.text!==terminal.text)throw Error('PUBLICATION_CLAIM_UNCERTAIN');
    await finalizeSelectedV3Authority(authority,handle.digest);await unlink(state.anchor);await syncDir(this.root);forgetSelectedV3Authority(authority);
+  }finally{mutation.mutationActive=false;}
+ }
+ /** Inactive draft.12 finalization. The caller holds the real owner fence and
+  * supplies a verifier that checks the exact durable 034 row, committed result,
+  * saved r2, active Session and workspace ownership. A persisted intent is not
+  * replay authority by itself: recovery must also establish anchor removal,
+  * exact journal/owner identity, actual process drain and confirmed commit. */
+ async finalizeSelectedWorkspaceOexV3(handle:ResourceClaimHandle,authority:SelectedV3SettlementAuthority,input:{scope:Parameters<typeof import('./workspace-oex-terminal-proof.ts').readWorkspaceOexTerminalProof>[0];proofBytes:Uint8Array;resultBytes:Uint8Array;verifyCommitted:(value:{proofBytes:Buffer;resultBytes:Buffer;proofSha256:string;resultSha256:string;save:Readonly<{exhibitionId:string;etag:string;requestId:string}>})=>Promise<void>}){
+  if(!input||!(input.proofBytes instanceof Uint8Array)||!(input.resultBytes instanceof Uint8Array)||typeof input.verifyCommitted!=='function')throw Error('OEX_WORKSPACE_FINALIZATION');
+  const scope=structuredClone(input.scope),proofBytes=Buffer.from(input.proofBytes),resultBytes=Buffer.from(input.resultBytes),verifyCommitted=input.verifyCommitted;
+  const {readWorkspaceOexTerminalProof}=await import('./workspace-oex-terminal-proof.ts'),{proof}=readWorkspaceOexTerminalProof(scope,{proofBytes,resultBytes}),proofSha256=sha256(proofBytes);
+  const mutation=this.beginMutation(handle,true);
+  try{
+   const state=await this.activeClaim(handle,true),r=state.record,base=r.attemptId,intent=await claimFile(join(this.root,base+'.settlement-terminal-v3.json')),terminal=await claimFile(join(this.root,base+'.reservation-released-v3.json'));
+   if(state!==mutation||!state.outcomeStarted||intent.text!==terminal.text||intent.stat.nlink!==1n||terminal.stat.nlink!==1n||r.operation!=='oex-import'||r.purpose!=='import'||r.tenantId!==scope.tenantId||r.userId!==scope.principalId||r.resourceId!==scope.workspaceId||r.attemptId!==scope.attemptId||r.requestId!==scope.importRequestId||r.sourceDigest!==scope.sourceArchiveSha256)throw Error('OEX_WORKSPACE_FINALIZATION');
+   const settlement=claimSnapshot(JSON.parse(intent.text)) as {kind?:unknown;claimDigest?:unknown;claim?:unknown;save?:{exhibitionId?:unknown;etag?:unknown;requestId?:unknown}};
+   if(settlement.kind!=='selected-oex-settlement-v3'||settlement.claimDigest!==handle.digest||canonical(settlement.claim)!==canonical(r)||settlement.save?.exhibitionId!==proof.exhibitionId||typeof settlement.save.etag!=='string'||!/^"studio-r2-[0-9a-f]{64}"$/.test(settlement.save.etag)||typeof settlement.save.requestId!=='string'||!uuid.test(settlement.save.requestId))throw Error('OEX_WORKSPACE_FINALIZATION');
+   const save=claimSnapshot({exhibitionId:proof.exhibitionId,etag:settlement.save.etag,requestId:settlement.save.requestId});
+   await verifySelectedWorkspaceV3Authority(authority,handle.digest,scope.jobId,save);
+   await verifyCommitted({proofBytes:Buffer.from(proofBytes),resultBytes:Buffer.from(resultBytes),proofSha256,resultSha256:proof.resultSha256,save});
+   await this.activeClaim(handle,true);await verifySelectedWorkspaceV3Authority(authority,handle.digest,scope.jobId,save);
+   const record=claimSnapshot({version:1,kind:'workspace-oex-finalization-intent',claimDigest:handle.digest,workspaceId:scope.workspaceId,tenantId:scope.tenantId,principalId:scope.principalId,jobId:scope.jobId,attemptId:scope.attemptId,importRequestId:scope.importRequestId,sourceArchiveSha256:scope.sourceArchiveSha256,exhibitionId:proof.exhibitionId,immutableRevisionId:proof.immutableRevisionId,studioETag:proof.studioETag,resultSha256:proof.resultSha256,proofSha256,save:settlement.save});
+   await this.claimWrite(join(this.root,base+'.workspace-oex-finalization-v1.json'),canonical(record));
+   await this.activeClaim(handle,true);await verifySelectedWorkspaceV3Authority(authority,handle.digest,scope.jobId,save);await unlink(state.anchor);await syncDir(this.root);forgetSelectedV3Authority(authority);
   }finally{mutation.mutationActive=false;}
  }
  async createForClaim(provider:PublicationDiskBudget,handle:ResourceClaimHandle,input:PublicationAttempt){
