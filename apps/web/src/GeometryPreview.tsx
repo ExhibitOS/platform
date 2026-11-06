@@ -9,6 +9,7 @@ import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
 import {SculptureOrbitControls} from './viewer/SculptureOrbitControls';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
+import {workspaceFloorPlan,createWorkspaceFloorRenderer} from './workspace-floor-renderer';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
@@ -503,13 +504,17 @@ export function GeometryPreview({
       const otherReserve=otherFurnishings.length&&beforeBench-benchReserve>FURNISHING_RESERVE_BYTES?FURNISHING_RESERVE_BYTES:0;
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
       const materialCapacity=Math.max(0,availableAssetBytes-qualityFrameReserve);
-      const floorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,materialCapacity);
+      const builtinFloorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,materialCapacity);
+      const workspacePlan=workspaceFloorPlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-builtinFloorPlan.residentBytes));
+      if(workspacePlan.targets.size&&(!session||publicSource)){renderer.dispose();renderer.forceContextLoss();throw Error('WORKSPACE_MATERIAL_SOURCE_UNAVAILABLE');}
+      const floorPlan={packs:[...builtinFloorPlan.packs,...workspacePlan.packs],blocked:[...builtinFloorPlan.blocked,...workspacePlan.blocked],residentBytes:builtinFloorPlan.residentBytes+workspacePlan.residentBytes,reserveBytes:Math.max(builtinFloorPlan.reserveBytes,builtinFloorPlan.residentBytes+workspacePlan.reserveBytes),maxSize:builtinFloorPlan.maxSize};
       // The surface source peak begins only after the floor source hold ends.
       // Reserve the retained floor even on fallback; never presume floor ready.
       const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-materialPhaseBytes(floorPlan,true)));
       const materialReserve=serialMaterialPhaseBytes(floorPlan,surfacePlan,false,false);
       if(materialReserve>=materialCapacity){renderer.dispose();renderer.forceContextLoss();throw Error('MATERIAL_SOURCE_BUDGET');}
-      const floorTextures=createFloorTextureRenderer(three,floorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
+      const floorTextures=createFloorTextureRenderer(three,builtinFloorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
+      const workspaceTextures=session?createWorkspaceFloorRenderer(three,workspacePlan,abort.signal,()=>disposed||gpuLost,session):undefined;
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
@@ -534,7 +539,7 @@ export function GeometryPreview({
       scene.background = new three.Color("#e9e9e1");
       const model = new three.Group(),
         owned: Array<{ dispose: () => void }> = [];
-      scene.add(model);owned.push(floorTextures,surfaceTextures);
+      scene.add(model);owned.push(floorTextures,surfaceTextures);if(workspaceTextures)owned.push(workspaceTextures);
       const spaceLighting=spaceLightingFor(document);
       const hemisphere = new three.HemisphereLight(
           0xffffff,
@@ -615,9 +620,11 @@ export function GeometryPreview({
             side: three.DoubleSide,
             transparent:!!editingRef.current&&transparentSpace,opacity:editingRef.current&&transparentSpace ? .32:1,depthWrite:!editingRef.current||!transparentSpace,
           });
+        const workspaceBinding=workspacePlan.targets.get(surface.id.toLowerCase());
         const floorBinding=surface.type==='floor'?floorFor(document,{roomId:surface.roomId,surfaceId:surface.id}):undefined;
-        if(floorBinding){const looks=floorAppearance(floorBinding,surface.id);material.color.copy(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;floorTextures.add(material,floorBinding);}
-        const surfaceBinding=surfaceTextureFor(document,surface.id);
+        if(floorBinding){const looks=floorAppearance(floorBinding,surface.id);material.color.copy(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;if(!workspaceBinding)floorTextures.add(material,floorBinding);}
+        if(workspaceBinding)workspaceTextures?.add(material,workspaceBinding);
+        const surfaceBinding=workspaceBinding?undefined:surfaceTextureFor(document,surface.id);
         if(surfaceBinding){const looks=materialFor(document,surface.id);material.color.set(looks.color);material.roughness=looks.roughness;material.metalness=looks.metalness;surfaceTextures.add(material,surfaceBinding);}
         owned.push(material);surfaceMaterials.set(surface.id.toLowerCase(),material);
         if(styledWalls.has(surface.id.toLowerCase()))return;
@@ -627,7 +634,8 @@ export function GeometryPreview({
               rectangle.height,
             ),
             mesh = new three.Mesh(geometry, material);
-          if(floorBinding)floorUvs(three,geometry,group,floorBinding,rectangle);
+          if(workspaceBinding)floorUvs(three,geometry,group,workspaceBinding,rectangle);
+          else if(floorBinding)floorUvs(three,geometry,group,floorBinding,rectangle);
           if(surfaceBinding)floorUvs(three,geometry,group,surfaceBinding,rectangle);
           mesh.position.set(rectangle.x, rectangle.y, 0);
           group.add(mesh);
@@ -1132,7 +1140,7 @@ export function GeometryPreview({
       mapPoseRefresh.current=publishMapPose;
       if(publicSource)renderer.domElement.ownerDocument.addEventListener('visibilitychange',mapPoseVisibility);
       void loadMaterialPhases(
-        async()=>{const status=await floorTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status,maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});},
+        async()=>{const changed=()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}};const status=await floorTextures.start(changed),workspaceStatus=workspaceTextures?await workspaceTextures.start(changed):{};if(!disposed&&!gpuLost)renderer.domElement.dataset.floorTextures=JSON.stringify({status:{...status,...workspaceStatus},maxSize:floorPlan.maxSize,reserveBytes:floorPlan.reserveBytes,residentBytes:floorPlan.residentBytes});},
         async()=>{const status=await surfaceTextures.start(()=>{if(!disposed&&!gpuLost){shadowPass.invalidate();render();}});if(!disposed&&!gpuLost){renderer.domElement.dataset.surfaceTextures=JSON.stringify({status,reserveBytes:surfacePlan.reserveBytes,residentBytes:surfacePlan.residentBytes,geometryReserve:surfacePlan.geometryReserve});setMaterialIssueCount(Object.values(status).filter(value=>value!=='ready').length);}},
         (kind,error)=>{
           if(error&&!disposed&&!gpuLost){

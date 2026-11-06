@@ -4,7 +4,7 @@ import type {Exhibition} from '@exhibitos/spec';
 import {FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTexturePack,type FloorBinding,type FloorMapRole,type FloorTextureFile,type FloorTexturePackDescriptor} from '@exhibitos/studio-contract';
 import {MemoryAssetCache,textureResidentBytes} from './viewer/loading';
 
-export interface MaterialTextureFile extends Omit<FloorTextureFile,'width'|'height'> {readonly width:number;readonly height:number}
+export interface MaterialTextureFile extends Pick<FloorTextureFile,'path'|'mime'|'bytes'|'sha256'|'colorSpace'> {readonly width:number;readonly height:number}
 export interface MaterialTexturePack {readonly id:string;readonly maps:Readonly<Partial<Record<FloorMapRole,MaterialTextureFile>>>}
 interface TextureBinding {normalScale?:number;aoStrength?:number}
 
