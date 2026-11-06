@@ -277,7 +277,7 @@ try {
     const sizes:Record<string,readonly [number,number]>={"painting-1925x2634":[1925,2634],"painting-2419x2552":[2419,2552],"painting-2135x1361":[2135,1361]};
     const profile=process.argv[4], size=profile&&Object.hasOwn(sizes,profile)?sizes[profile]:undefined;
     if(process.argv[2]!=="image/png"||!size||bytes.length>8388608||bytes.length<33||bytes.readUInt32BE(16)!==size[0]||bytes.readUInt32BE(20)!==size[1]||bytes[24]!==8||bytes[25]!==2)fail();
-    png(bytes,size[0]*size[1],Math.max(...size));
+    if(png(bytes,size[0]*size[1],Math.max(...size)).srgbIntent!==0)fail();
   } else if (process.argv[3] === "png-original" || process.argv[3] === "workspace-material-png") {
     if(process.argv[2]!=="image/png")fail();
     png(bytes);
@@ -286,6 +286,7 @@ try {
   else fail();
   if (!["derivative","texture-pair"].includes(process.argv[3]??"")) process.stdout.write("VALID\n");
 } catch (error) {
+  if(process.argv[2]==="image/png"&&process.argv[3]==="private-painting-png")process.stdout.write("FORMAT_REJECTED\n");
   if(process.argv[2]==="image/png"&&process.argv[3]==="png-original"&&error instanceof PngPixelLimitError)process.stdout.write("PNG_PIXEL_LIMIT_EXCEEDED\n");
   if(process.argv[2]==="image/png"&&process.argv[3]==="workspace-material-png")process.stdout.write(error instanceof PngPixelLimitError?"PNG_PIXEL_LIMIT_EXCEEDED\n":"FORMAT_REJECTED\n");
   if(process.argv[2]==="model/gltf-binary"&&process.argv[3]==="workspace-furnishing-glb")process.stdout.write("FORMAT_REJECTED\n");

@@ -13,7 +13,7 @@ vi.mock('./approved-demo-display-files.ts',async original=>{
  const real=await original<typeof import('./approved-demo-display-files.ts')>(),{createHash}=await import('node:crypto'),{deflateSync}=await import('node:zlib'),{pngCrc}=await import('./png-pixels.ts');
  const chunk=(name:string,body:Buffer)=>{const n=Buffer.alloc(4),c=Buffer.alloc(4),t=Buffer.from(name);n.writeUInt32BE(body.length);c.writeUInt32BE(pngCrc(Buffer.concat([t,body])));return Buffer.concat([n,t,body,c]);};
  const sizes=[[1925,2634],[2419,2552],[2135,1361]] as const;
- witness.images=sizes.map(([w,h])=>{const header=Buffer.alloc(13);header.writeUInt32BE(w);header.writeUInt32BE(h,4);header[8]=8;header[9]=2;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('sRGB',Buffer.from([1])),chunk('IDAT',deflateSync(Buffer.alloc((w*3+1)*h))),chunk('IEND',Buffer.alloc(0))]);});
+ witness.images=sizes.map(([w,h])=>{const header=Buffer.alloc(13);header.writeUInt32BE(w);header.writeUInt32BE(h,4);header[8]=8;header[9]=2;return Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('sRGB',Buffer.from([0])),chunk('IDAT',deflateSync(Buffer.alloc((w*3+1)*h))),chunk('IEND',Buffer.alloc(0))]);});
  const synthetic=(['painting-1925x2634','painting-2419x2552','painting-2135x1361',undefined,'painting-1925x2634'] as const).map((profile,index)=>{const image=witness.images[index<3?index:0]!,bytes=index===4?Buffer.concat([image,Buffer.alloc(8388609-image.length)]):image;const [sourceWidth,sourceHeight]=sizes[index<3?index:0]!;return {...real.APPROVED_DEMO_DISPLAY_FILES[0],approvalId:`10000000-0000-4000-8000-00000000009${index}`,canonicalAssetSha256:createHash('sha256').update(bytes).digest('hex'),canonicalBytes:bytes.length,...(profile?{privatePaintingCandidate:{profile,sourceWidth,sourceHeight,recipeID:'native-private-demo-painting-rgb8',recipeVersion:1,recipeSha256:'a'.repeat(64),colour:index===0?{kind:'no-profile-srgb-assumed'}:{kind:'icc-to-srgb',version:1,algorithm:'icc-to-srgb-jpeg-rgb8-v1',sourceIccSha256:'b'.repeat(64)}}}:{})};});
  const {readFile}=await import('node:fs/promises'),{fixtureURL,readOex}=await import('@exhibitos/spec'),{exhibition,files,manifest}=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),model=exhibition.artworks.find(a=>a.artworkType==='sculpture')!,entry=manifest.assets.find(v=>v.artifactPath===model.assets.find(a=>a.id===model.primaryAssetId)!.path)!;
  witness.model=Buffer.from(files.get(entry.path)!);const doc=JSON.parse(witness.model.toString('utf8',20,20+witness.model.readUInt32LE(12)));let triangles=0;for(const node of doc.nodes)for(const primitive of doc.meshes[node.mesh]?.primitives??[])triangles+=doc.accessors[primitive.indices??primitive.attributes.POSITION].count/3;
@@ -78,4 +78,17 @@ test('strict validation requires an issued exact capability and rejects corrupte
   const invalid={...c,artwork,currentArtwork:structuredClone(artwork),bytes:bad},badCap=issuePrivatePaintingCapability(invalid);
   await expect(validatePrivatePainting(badCap,invalid)).rejects.toThrow('FORMAT_REJECTED');
  }finally{(entry as {canonicalAssetSha256:string}).canonicalAssetSha256=oldHash;}
+});
+
+test('strict validation refuses approved RGB PNGs with absent or different sRGB intent',async()=>{
+ const {validatePrivatePainting}=await import('./private-painting-validation.ts'),{createHash}=await import('node:crypto'),{pngCrc}=await import('./png-pixels.ts');
+ const c=await fixture(),entry=approved.find(v=>String(v.approvalId)==='10000000-0000-4000-8000-000000000090')! as DemoDisplayApproval,oldHash=entry.canonicalAssetSha256,oldBytes=entry.canonicalBytes;
+ const absent=Buffer.concat([c.bytes.subarray(0,33),c.bytes.subarray(46)]),different=Buffer.from(c.bytes);different[41]=1;different.writeUInt32BE(pngCrc(different.subarray(37,42)),42);
+ try{for(const bytes of [absent,different]){
+  const hash=createHash('sha256').update(bytes).digest('hex');(entry as {canonicalAssetSha256:string;canonicalBytes:number}).canonicalAssetSha256=hash;(entry as {canonicalBytes:number}).canonicalBytes=bytes.length;
+  const artwork=structuredClone(c.artwork),primary=artwork.assets.find(a=>a.id===artwork.primaryAssetId)!;primary.sha256=hash;primary.bytes=bytes.length;
+  (artwork.extensions![N] as {sourceAssetSha256:string}).sourceAssetSha256=hash;
+  const invalid={...c,artwork,currentArtwork:structuredClone(artwork),bytes},cap=issuePrivatePaintingCapability(invalid);
+  await expect(validatePrivatePainting(cap,invalid)).rejects.toThrow('FORMAT_REJECTED');
+ }}finally{(entry as {canonicalAssetSha256:string;canonicalBytes:number}).canonicalAssetSha256=oldHash;(entry as {canonicalBytes:number}).canonicalBytes=oldBytes;}
 });
