@@ -9,6 +9,9 @@ import {ApiError,type Auth,type AuthConfig,type Session} from './auth.ts';
 import type {NativeLocalExportContext} from './native-oex-provenance.ts';
 import type {Oex} from './oex.ts';
 import {registerNativeBoundedOexExport} from './native-bounded-oex-export.ts';
+import {workspaceMaterialOutputBytes,workspaceMaterialOutputInventory} from './workspace-material-output.ts';
+import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
+import type {PoolClient} from 'pg';
 const workspaceId='10000000-0000-4000-8000-000000000001',tenantId='20000000-0000-4000-8000-000000000001',userId='30000000-0000-4000-8000-000000000001',sessionId='40000000-0000-4000-8000-000000000001';
 const session={id:sessionId,tenantId,userId,role:'artist',expiresAt:'2099-01-01T00:00:00.000Z'} as Session;
 async function setup(options:{failCommit?:boolean;failProducer?:boolean;failAuth?:boolean;stale?:boolean;otherSession?:boolean;statusDifferent?:boolean;statusRoleChanged?:boolean}={}){
@@ -45,6 +48,17 @@ it('reports a clean terminal as failed after rights change and permits a new exp
   await vi.waitFor(async()=>{const status=await x.status(operation);expect(status.json()).toEqual({operationId:operation,state:'failed'});});
   vi.mocked(x.oex.revalidateBoundedExport).mockResolvedValue(()=>{});const next=await x.request();expect(next.statusCode).toBe(200);
  }finally{await x.app.close();await rm(x.root,{recursive:true,force:true});}
+});
+it('observes an expired workspace display grant as terminal and permits the next export',async()=>{
+ const x=await setup(),surface='60000000-0000-4000-8000-000000000001',id='60000000-0000-4000-8000-000000000002';
+ const material={id,version:1,kind:'floor',name:'Synthetic',rights:{holder:'Example',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:true,download:false,export:true,commercial:true},expiresAt:'2090-01-01T00:00:00Z'},provenance:'Synthetic',maps:{color:{mime:'image/png',bytes:1,sha256:'a'.repeat(64),width:1,height:1,colorSpace:'srgb'}}};
+ const candidate={surfaces:[{id:surface,type:'floor'}],extensions:{'org.exhibitos.studio/workspace-materials':{version:1,materials:[material],bindings:[{surfaceId:surface,materialId:id,materialVersion:1,repeatMeters:[2,2],rotation:0}]}}},resource=workspaceMaterialOutputInventory(candidate)[0]!,service={readVersion:vi.fn().mockResolvedValue(material)} as unknown as WorkspaceMaterialIntakes;
+ const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2089-12-31T23:59:59Z'));
+ try{const response=await x.request(),operation=String(response.headers['x-exhibitos-oex-operation']);expect(response.statusCode).toBe(200);clock.mockReturnValue(Date.parse('2090-01-01T00:00:01Z'));
+  vi.mocked(x.oex.revalidateBoundedExport).mockImplementationOnce(async()=>{await workspaceMaterialOutputBytes({} as PoolClient,session,candidate,service,resource,'export');return ()=>{};});
+  await vi.waitFor(async()=>expect((await x.status(operation)).json()).toEqual({operationId:operation,state:'failed'}));
+  vi.mocked(x.oex.revalidateBoundedExport).mockResolvedValue(()=>{});expect((await x.request()).statusCode).toBe(200);
+ }finally{clock.mockRestore();await x.app.close();await rm(x.root,{recursive:true,force:true});}
 });
 it('keeps a clean receipt retryable when a resource revalidation is temporarily unavailable',async()=>{
  const x=await setup();try{const response=await x.request(),operation=String(response.headers['x-exhibitos-oex-operation']);expect(response.statusCode).toBe(200);await vi.waitFor(async()=>{await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});});

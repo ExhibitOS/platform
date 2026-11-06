@@ -152,12 +152,15 @@ export class WorkspaceMaterialIntakes {
   const r=await c.query('SELECT descriptor,object_keys FROM workspace_material_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[this.owner.workspaceId,s.tenantId,s.userId,id,version]);if(r.rowCount!==1)throw new ApiError(404,'MATERIAL_NOT_FOUND');return r.rows[0] as {descriptor:{rights:unknown;maps:Partial<Record<WorkspaceMaterialMapRole,WorkspaceMaterialMapDescriptor>>};object_keys:Partial<Record<WorkspaceMaterialMapRole,string>>};
  }
  async readVersion(c:PoolClient,s:Session,id:string,version:number){return (await this.version(c,s,id,version)).descriptor;}
- async preview(c:PoolClient,s:Session,id:string,version:number,role:string){
+ private async readMap(c:PoolClient,s:Session,id:string,version:number,role:string,purpose:'display'|'export'){
   const value=await this.version(c,s,id,version);if(!roles.includes(role as WorkspaceMaterialMapRole))throw new ApiError(400,'MATERIAL_MAP_ROLE');
-  if(!allowedRights(value.descriptor.rights,'display'))throw new ApiError(403,'DISPLAY_PERMISSION_REQUIRED');const typed=role as WorkspaceMaterialMapRole,descriptor=value.descriptor.maps[typed],key=value.object_keys[typed];if(!descriptor||!key)throw new ApiError(404,'MATERIAL_MAP_NOT_FOUND');
+  const denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(value.descriptor.rights,purpose))throw new ApiError(403,denied);const typed=role as WorkspaceMaterialMapRole,descriptor=value.descriptor.maps[typed],key=value.object_keys[typed];if(!descriptor||!key)throw new ApiError(404,'MATERIAL_MAP_NOT_FOUND');
   if(!key.startsWith(`${s.tenantId}/workspace-material-intake/${this.owner.workspaceId}/`))throw new ApiError(409,'ASSET_INTEGRITY');
   let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
-  if(bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(value.descriptor.rights,'display'))throw new ApiError(403,'DISPLAY_PERMISSION_REQUIRED');return {bytes,mime:descriptor.mime,sha256:descriptor.sha256};
+  if(bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(value.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:descriptor.mime,sha256:descriptor.sha256};
  }
+ async preview(c:PoolClient,s:Session,id:string,version:number,role:string){return this.readMap(c,s,id,version,role,'display');}
+ /** Internal export authority; never grants original download or display. */
+ async exportMap(c:PoolClient,s:Session,id:string,version:number,role:string){return this.readMap(c,s,id,version,role,'export');}
 
 }

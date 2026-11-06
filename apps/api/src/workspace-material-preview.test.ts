@@ -14,3 +14,15 @@ it('rechecks the display grant after the blob read and does not return expired b
  const service=new WorkspaceMaterialIntakes(store,{workspaceId:id(1),tenantId:id(2),principalId:id(3),assertDatabase:async()=>{}},()=>({valid:true,errors:[]}));
  vi.useFakeTimers();try{vi.setSystemTime(new Date('2026-11-05T23:59:59Z'));await expect(service.preview(c,s,id(5),1,'color')).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});}finally{vi.useRealTimers();}
 });
+it('separates export authority from display and rechecks byte integrity',async()=>{
+ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,bytes=Buffer.from('synthetic');
+ const rights={holder:'Example',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:false,download:false,export:true,commercial:false}};
+ const row={descriptor:{rights,maps:{color:{mime:'image/png',bytes:bytes.length,sha256:sha256(bytes)}}},object_keys:{color:`${id(2)}/workspace-material-intake/${id(1)}/synthetic/color/${sha256(bytes)}`}};
+ const c={query:vi.fn(async()=>({rowCount:1,rows:[row]}))} as unknown as PoolClient,s={id:id(4),tenantId:id(2),userId:id(3),role:'admin',csrfToken:'',expiresAt:'2099-01-01T00:00:00Z'} as Session;
+ let data=bytes;const store={get:async()=>data} as unknown as BlobStore;
+ const service=new WorkspaceMaterialIntakes(store,{workspaceId:id(1),tenantId:id(2),principalId:id(3),assertDatabase:async()=>{}},()=>({valid:true,errors:[]}));
+ await expect(service.preview(c,s,id(5),1,'color')).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});
+ expect((await service.exportMap(c,s,id(5),1,'color')).bytes).toEqual(bytes);
+ data=Buffer.from('corrupted');await expect(service.exportMap(c,s,id(5),1,'color')).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+ rights.permissions.export=false;await expect(service.exportMap(c,s,id(5),1,'color')).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+});
