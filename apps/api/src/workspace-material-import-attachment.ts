@@ -24,7 +24,7 @@ export async function attachWorkspaceMaterialImportVersions(c:PoolClient,s:Sessi
  if(!bindings||!Array.isArray(input.stage)||!input.stage.length||input.stage.length!==resources.length||input.stage.length!==bindings.materials.length||!input.idMap||typeof input.idMap!=='object')throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');
  const mappedIds=Object.values(input.idMap);if(new Set(mappedIds).size!==mappedIds.length)throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');
  for(const [from,to] of Object.entries(input.idMap)){try{uuid(from);uuid(to);}catch{throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');}if(from!==from.toLowerCase()||to!==to.toLowerCase())throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');}
- const allSourceIds=new Set(input.stage.map(item=>item.sourceMaterialId));
+ const allSourceIds=new Set([...Object.keys(input.idMap),...input.stage.map(item=>item.sourceMaterialId)]);
  const sourceIds=new Set<string>(),destinations=new Set<string>(),planned=input.stage.map(item=>{
   const source=`${item.sourceMaterialId}:${item.sourceMaterialVersion}`,destination=input.idMap[item.sourceMaterialId],material=bindings.materials.find(m=>m.id===destination&&m.version===item.sourceMaterialVersion);
   if(sourceIds.has(source)||typeof destination!=='string'||!material||item.role!=='color'||!isDeepStrictEqual(material.maps.color,item.descriptor)||item.sha256!==item.descriptor.sha256||item.bytes!==item.descriptor.bytes||!allowedRights(material.rights,'display')||!allowedRights(material.rights,'export'))throw new ApiError(422,'OEX_WORKSPACE_ATTACHMENT_INVALID');

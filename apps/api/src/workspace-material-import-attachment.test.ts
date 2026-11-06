@@ -26,6 +26,7 @@ it('writes the exact remapped descriptor and owned source provenance after check
 });
 it('rejects wrong mapping, missing stage and invalid transactions before inserting versions',async()=>{
  const a=fixture();a.idMap[id(8)]=id(13);const ca=client(a);await expect(attachWorkspaceMaterialImportVersions(ca as unknown as PoolClient,session,a)).rejects.toThrow('OEX_WORKSPACE_ATTACHMENT_INVALID');expect(ca.query).not.toHaveBeenCalled();
+ const cross=fixture();cross.idMap[id(8)]=id(7);cross.scene.extensions['org.exhibitos.studio/workspace-materials']!.materials[0]!.id=id(7);cross.scene.extensions['org.exhibitos.studio/workspace-materials']!.bindings[0]!.materialId=id(7);const cx=client(cross);await expect(attachWorkspaceMaterialImportVersions(cx as unknown as PoolClient,session,cross)).rejects.toThrow('OEX_WORKSPACE_ATTACHMENT_INVALID');expect(cx.query).not.toHaveBeenCalled();
  const b=fixture(),cb=client(b,{stage:false});await expect(attachWorkspaceMaterialImportVersions(cb as unknown as PoolClient,session,b)).rejects.toThrow('OEX_INVENTORY_UNAVAILABLE');expect(cb.query).toHaveBeenCalledTimes(4);
  const d=fixture(),cd=client(d,{transaction:false});await expect(attachWorkspaceMaterialImportVersions(cd as unknown as PoolClient,session,d)).rejects.toThrow('OEX_TRANSACTION_UNSUPPORTED');expect(cd.query).toHaveBeenCalledTimes(2);
  const e=fixture(),ce=client(e,{lease:false});await expect(attachWorkspaceMaterialImportVersions(ce as unknown as PoolClient,session,e)).rejects.toThrow('OEX_INVENTORY_UNAVAILABLE');expect(ce.query).toHaveBeenCalledTimes(3);
