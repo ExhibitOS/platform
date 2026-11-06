@@ -8,9 +8,9 @@ import {expect,it,vi} from 'vitest';
 import {FileBlobStore} from '@exhibitos/storage';
 import {preparePackedOexV2,preparePackedWorkspaceOex} from './oex-packed-worker-v2-core.ts';
 import {parsePackedOexAckV2} from './oex-packed-ack-v2.ts';
-import {preflightOexSize} from './oex-size-preflight.ts';
+import {preflightOexSize,preflightWorkspaceOexSize} from './oex-size-preflight.ts';
 import {consumeBoundedOex} from './oex-bounded-consume.ts';
-import {selectedOexFormat} from './oex-selected-format.ts';
+import {selectedOexFormat,selectedWorkspaceOexFormat} from './oex-selected-format.ts';
 import {FLOOR_NAMESPACE,floorPresetDefaults} from '@exhibitos/studio-contract';
 import {packageFloorResourceManifest,FLOOR_RESOURCE_PACKS,floorResourceNotice} from '@exhibitos/spec/floor-resources';
 const sha=(v:Uint8Array)=>createHash('sha256').update(v).digest('hex');
@@ -45,6 +45,7 @@ it.each(['1.0.0-draft.9','1.0.0-draft.10'] as const)('derives and consumes exact
   }
   const archivePath=join(dir,'synthetic.oex');await writeOexFile(original.exhibition,{paths:[...assets.keys()],get:async path=>assets.get(path)},archivePath,{createdAt:original.manifest.createdAt,generator:original.manifest.generator});
   const archive=await readFile(archivePath);input=await open(archivePath,'r');output=await open(join(dir,'packed'),'wx+',0o600);
+  await expect(selectedWorkspaceOexFormat(input)).rejects.toThrow('OEX_FORMAT_HINT');await expect(preflightWorkspaceOexSize(input,{bytes:archive.length,sha256:sha(archive)})).rejects.toThrow();
   const preflight=await preflightOexSize(input,{bytes:archive.length,sha256:sha(archive)}),hint=await selectedOexFormat(input);
   expect(preflight.archiveFormat).toBe(archiveFormat);expect(hint.archiveFormat).toBe(archiveFormat);expect(hint.manifestSha256).toBe(preflight.manifestSha256);expect(Object.keys(hint)).toEqual(['version','kind','archiveFormat','archiveBytes','manifestSha256','inputDevice','inputInode']);
   const receipt={archiveBytes:archive.length,archiveSha256:sha(archive),capacity:16*1024*1024};
