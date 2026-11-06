@@ -47,6 +47,16 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   }else if(row.mime==='image/jpeg')issues.push({code:'INVALID_PREPARED_IMPORT',binding});
   add(row.approved_key,row.state==='approved',row.expected_bytes,row.expected_hash,':approved');break;
  }
+ case 'workspace_furnishing_intakes':{
+  const phase=String(row.phase);if(!['uploading','validating','cancelling','registered','failed','cancelled'].includes(phase)){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  if(phase==='cancelled')break;if(row.received===null||row.received===undefined){if(!['uploading','cancelling'].includes(phase))issues.push({code:'INVALID_INVENTORY',binding});break;}
+  if(!obj(row.received)||!obj(row.declaration)||!obj(row.declaration.model)||!bytes(row.received.bytes)||!hex(row.received.sha256)||row.declaration.model.bytes!==row.received.bytes||row.declaration.model.sha256!==row.received.sha256||row.received.key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.id}/${row.received.sha256}`){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  add(row.received.key,phase!=='cancelling',row.received.bytes,row.received.sha256,':model');break;
+ }
+ case 'workspace_furnishing_versions':{
+  if(!obj(row.descriptor)||!obj(row.descriptor.model)||row.descriptor.model.mime!=='model/gltf-binary'||!bytes(row.descriptor.model.bytes)||!hex(row.descriptor.model.sha256)||row.descriptor.id!==row.id||row.descriptor.version!==row.version){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  add(row.object_key,true,row.descriptor.model.bytes,row.descriptor.model.sha256,':'+String(row.version)+':model');break;
+ }
  case 'workspace_material_intakes':{
   if(!obj(row.received)||!['uploading','validating','cancelling','registered','failed','cancelled'].includes(String(row.phase))){issues.push({code:'INVALID_INVENTORY',binding});break;}
   if(row.phase==='cancelled')break;
@@ -94,7 +104,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  return {references,issues};
 }
 const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
-const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','freeze_requests','exhibition_freezes']);
+const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','workspace_furnishing_intakes','workspace_furnishing_versions','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
 export type MigrationCatalogEntry = {name:string;sha256:string};

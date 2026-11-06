@@ -327,5 +327,6 @@ try {
 } catch (error) {
   if(process.argv[2]==="image/png"&&process.argv[3]==="png-original"&&error instanceof PngPixelLimitError)process.stdout.write("PNG_PIXEL_LIMIT_EXCEEDED\n");
   if(process.argv[2]==="image/png"&&process.argv[3]==="workspace-material-png")process.stdout.write(error instanceof PngPixelLimitError?"PNG_PIXEL_LIMIT_EXCEEDED\n":"FORMAT_REJECTED\n");
+  if(process.argv[2]==="model/gltf-binary"&&process.argv[3]==="workspace-furnishing-glb")process.stdout.write("FORMAT_REJECTED\n");
   process.exitCode = 1;
 }

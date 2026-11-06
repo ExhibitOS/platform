@@ -22,6 +22,9 @@ import {createSelectedNativeUploadSlot} from "../apps/api/dist/native-bounded-oe
 import {createSelectedStudioPutSlot} from "../apps/api/dist/native-selected-studio-put.js";
 import {runFreshNativeOexOwner} from "../apps/api/dist/native-fresh-oex-owner.js";
 import {bindNativeOexWorkspace,bindNativeLocalExportWorkspace} from "../apps/api/dist/native-oex-provenance.js";
+import {hasWorkspaceFurnishingCapability,verifyWorkspaceFurnishingMigration,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
+import {prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {WorkspaceFurnishingIntakes} from '../apps/api/dist/workspace-furnishing-intakes.js';
 
 import {FLOOR_TEXTURE_FILES,SURFACE_TEXTURE_FILES} from "@exhibitos/studio-contract";
 
@@ -136,8 +139,9 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
   const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
+  const furnishingMode=['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(privateOwner?.mode);
   const normalOexV7=privateOwner?.mode==='normal-oex-workspace-import-v7',normalOexV6=privateOwner?.mode==='normal-oex-workspace-import-v6'||normalOexV7,normalOexV5=privateOwner?.mode==='normal-oex-workspace-v5'||normalOexV6,normalOexV4=privateOwner?.mode==='normal-oex-028-v4'||normalOexV5,normalOexV3=privateOwner?.mode==='normal-oex-027-v3'||normalOexV4,normalOexV2=privateOwner?.mode==='normal-oex-027-v2'||normalOexV3,normalOex=privateOwner?.mode==='normal-oex-v1'||normalOexV2,selectedOex=freshOexTest||normalOex;
-  if(selectedOex&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
+  if((selectedOex||furnishingMode)&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
   if (environment.EXHIBITOS_AUTHORING_MODE !== undefined && !personal) throw Error("LOCAL_AUTHORING_MODE_INVALID");
   if (personal) {
     validateLocalWorkspace(privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE);
@@ -167,6 +171,9 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const workspaceImportDirectory=workspaceImportCapability?fileURLToPath(new URL('../database/native-oex-workspace-import/',import.meta.url)):undefined;
     const workspaceWallImportCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasWorkspaceWallImportCapability(fileURLToPath(new URL('./native-workspace-oex-import-capability-v7.json',import.meta.url))):false;
     const workspaceWallImportDirectory=workspaceWallImportCapability?fileURLToPath(new URL('../database/native-oex-workspace-import-wall/',import.meta.url)):undefined;
+    const workspaceFurnishingCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasWorkspaceFurnishingCapability(fileURLToPath(new URL('./native-workspace-furnishing-capability-v1.json',import.meta.url))):false;
+    const workspaceFurnishingDirectory=workspaceFurnishingCapability?fileURLToPath(new URL('../database/native-workspace-furnishing/',import.meta.url)):undefined;
+    if(workspaceFurnishingCapability&&!workspaceWallImportCapability||furnishingMode&&!workspaceFurnishingCapability)throw Error('NATIVE_OEX_CATALOG');
     if(workspaceWallImportCapability&&!workspaceImportCapability||normalOexV7&&!workspaceWallImportCapability)throw Error('NATIVE_OEX_CATALOG');
     if(workspaceImportCapability&&!workspaceCapability||normalOexV6&&!workspaceImportCapability)throw Error('NATIVE_OEX_CATALOG');
     if(normalOexV5&&!workspaceCapability)throw Error('NATIVE_OEX_CATALOG');
@@ -188,35 +195,42 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
         if(check.rows[0]?.occupied!==false||!ownerChannel?.isOpen())throw Error('FRESH_DATABASE_OCCUPIED');
         await migrateInTransaction(c,migrationDirectory);if(normalOex){await c.query(normalMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256]);if(normalOexV2){await c.query(provenanceMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256]);if(normalOexV4){await c.query(materialMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256]);await c.query(floorMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256]);await c.query(concreteMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256]);if(normalOexV5){await c.query(workspaceMigrations[0]);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256]);await c.query(workspaceMigrations[1]);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256]);if(normalOexV6){await c.query(workspaceImportMigrations[0]);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256]);await c.query(workspaceImportMigrations[1]);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256]);if(normalOexV7){await c.query(workspaceWallImportMigration);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256]);}}}}}}else await migrateInTransaction(c,supplementalMigrationDirectory);if(normalOexV6&&!await preflightNormalOexCatalog(c,migrationDirectory,supplementalMigrationDirectory,{allowWorkspaceMaterial:true,workspaceImportDirectory,workspaceWallImportDirectory}))throw Error('NATIVE_OEX_CATALOG');if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       });
+    }else if(furnishingMode){
+      stage='OWNER_CHANNEL';await ownerTask;if(!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+      void ownerChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}});
+      supplementalMigrationDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
     }else if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'){
       const normalDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
       await transaction(pool,async c=>{if(workspaceImportCapability)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,normalDirectory,{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory});await migrateInTransaction(c,migrationDirectory);});
     }else await migrate(pool,migrationDirectory);
     stage = "BOOTSTRAP";
-    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE,!selectedOex&&environment.EXHIBITOS_RUNTIME_MODE==='native'?async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory});}:undefined,workspaceImportCapability?{isolation:'read committed'}:undefined);
+    if (personal) await openLocalWorkspace(pool, privateWorkspace, environment.EXHIBITOS_RUNTIME_MODE,furnishingMode?c=>prepareWorkspaceFurnishingCatalog(c,{mode:privateOwner.mode,base:migrationDirectory,normal:supplementalMigrationDirectory,imports:workspaceImportDirectory,wall:workspaceWallImportDirectory,furnishing:workspaceFurnishingDirectory,channel:ownerChannel}):!selectedOex&&environment.EXHIBITOS_RUNTIME_MODE==='native'?async c=>{await c.query('SELECT pg_advisory_xact_lock(82001)');supplementalMigrationDirectory=await preflightNormalOexCatalog(c,migrationDirectory,fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url)),{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory});}:undefined,workspaceImportCapability?{isolation:'read committed',...(privateOwner?.mode==='workspace-furnishing-036-reopen-v1'?{requireExisting:true}:{})}:undefined);
     else {
       if ((await pool.query("SELECT 1 FROM local_workspaces LIMIT 1")).rowCount) throw Error("LOCAL_WORKSPACE_ACCOUNT_MODE_REFUSED");
       if (!(await pool.query("SELECT 1 FROM auth_credentials LIMIT 1")).rowCount) await bootstrap(pool, environment.TENANT_ID, environment.ADMIN_SUBJECT, environment.ADMIN_PASSWORD);
     }
-    if(selectedOex&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+    if((selectedOex||furnishingMode)&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
     stage = "STORAGE"; await mkdir(blobRoot, { recursive: true, mode: 0o700 });
     stage = "SIGNING_KEY";
     const keyFile = await signingKey(configRoot), freeze = await loadFreezeConfig({ runtimeRoot: webRoot, signingKeyFile: keyFile, origin });
     stage = "API"; const blobs = new FileBlobStore(blobRoot);
     let supplementalMigrationNames,workspaceImportApplied=false,workspaceWallImportApplied=false;
     if(supplementalMigrationDirectory&&!freshOexTest){const rows=(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;const provenance=rows.find(row=>row.name===NORMAL_OEX_PROVENANCE_MIGRATION);if(provenance&&provenance.sha256!==NORMAL_OEX_PROVENANCE_SHA256)throw Error('NATIVE_OEX_CATALOG');const material=rows.find(row=>row.name===NORMAL_OEX_MATERIAL_MIGRATION);if(material&&(!provenance||material.sha256!==NORMAL_OEX_MATERIAL_SHA256))throw Error('NATIVE_OEX_CATALOG');const floor=rows.find(row=>row.name===NORMAL_OEX_FLOOR_MIGRATION);if(floor&&(!material||floor.sha256!==NORMAL_OEX_FLOOR_SHA256))throw Error('NATIVE_OEX_CATALOG');const concrete=rows.find(row=>row.name===NORMAL_OEX_CONCRETE_MIGRATION);if(concrete&&(!floor||concrete.sha256!==NORMAL_OEX_CONCRETE_SHA256))throw Error('NATIVE_OEX_CATALOG');const intake=rows.find(row=>row.name===WORKSPACE_MATERIAL_MIGRATION),workspaceOex=rows.find(row=>row.name===WORKSPACE_MATERIAL_OEX_MIGRATION);if(!!intake!==!!workspaceOex||intake&&(!concrete||!workspaceCapability||intake.sha256!==WORKSPACE_MATERIAL_SHA256||workspaceOex.sha256!==WORKSPACE_MATERIAL_OEX_SHA256))throw Error('NATIVE_OEX_CATALOG');const importStage=rows.find(row=>row.name===WORKSPACE_IMPORT_STAGE_MIGRATION),importProof=rows.find(row=>row.name===WORKSPACE_IMPORT_PROOF_MIGRATION);if(!!importStage!==!!importProof||importStage&&(!workspaceImportCapability||!intake||importStage.sha256!==WORKSPACE_IMPORT_STAGE_SHA256||importProof.sha256!==WORKSPACE_IMPORT_PROOF_SHA256))throw Error('NATIVE_OEX_CATALOG');if(importStage)await verifyWorkspaceImportMigrations(workspaceImportDirectory);workspaceImportApplied=!!importStage;const wall=rows.find(row=>row.name===WORKSPACE_WALL_IMPORT_MIGRATION);if(wall&&(!workspaceWallImportCapability||!importStage||wall.sha256!==WORKSPACE_WALL_IMPORT_SHA256))throw Error('NATIVE_OEX_CATALOG');if(wall)await verifyWorkspaceWallImportMigration(workspaceWallImportDirectory);workspaceWallImportApplied=!!wall;supplementalMigrationNames=[NORMAL_OEX_MIGRATION,...(provenance?[NORMAL_OEX_PROVENANCE_MIGRATION]:[]),...(material?[NORMAL_OEX_MATERIAL_MIGRATION]:[]),...(floor?[NORMAL_OEX_FLOOR_MIGRATION]:[]),...(concrete?[NORMAL_OEX_CONCRETE_MIGRATION]:[]),...(intake?[WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_OEX_MIGRATION]:[])];}
+    if(furnishingMode){const rows=(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;if(rows.length!==36||rows[35]?.name!==WORKSPACE_FURNISHING_MIGRATION||rows[35]?.sha256!==WORKSPACE_FURNISHING_SHA256||!workspaceWallImportApplied||!ownerChannel?.isOpen())throw Error('NATIVE_OEX_CATALOG');await verifyWorkspaceFurnishingMigration(workspaceFurnishingDirectory);}
     assertWorkspaceImportOwnerMode(privateOwner?.mode,workspaceWallImportApplied);
     if(normalOexV2&&(!ownerChannel?.isOpen()||!supplementalMigrationNames?.includes(NORMAL_OEX_PROVENANCE_MIGRATION)))throw Error('NATIVE_OEX_CATALOG');
     if(normalOexV4&&(!supplementalMigrationNames?.includes(NORMAL_OEX_FLOOR_MIGRATION)||!supplementalMigrationNames?.includes(NORMAL_OEX_CONCRETE_MIGRATION)))throw Error('NATIVE_OEX_CATALOG');
     const nativeOexWorkspace=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&supplementalMigrationNames?.includes(NORMAL_OEX_PROVENANCE_MIGRATION)?await transaction(pool,async c=>{
       if(workspaceImportCapability)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
       await c.query('SELECT pg_advisory_xact_lock(82001)');
-      if(normalOexV2&&!ownerChannel?.isOpen()||!await preflightNormalOexCatalog(c,migrationDirectory,supplementalMigrationDirectory,{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory}))throw Error('NATIVE_OEX_CATALOG');
-      const context=await bindNativeOexWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot,...(workspaceImportApplied?{workspaceImport:true}:{}),...(workspaceWallImportApplied?{workspaceWallImport:true}:{})});
-      if(normalOexV2&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');return context;
+      if((normalOexV2||furnishingMode)&&!ownerChannel?.isOpen()||!await preflightNormalOexCatalog(c,migrationDirectory,supplementalMigrationDirectory,{allowWorkspaceMaterial:workspaceCapability,workspaceImportDirectory,workspaceWallImportDirectory,...(furnishingMode?{workspaceFurnishingDirectory}:{})}))throw Error('NATIVE_OEX_CATALOG');
+      const context=await bindNativeOexWorkspace(c,{workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,blobRoot,...(workspaceImportApplied?{workspaceImport:true}:{}),...(workspaceWallImportApplied?{workspaceWallImport:true}:{}),...(furnishingMode?{workspaceFurnishing:true}:{})});
+      if((normalOexV2||furnishingMode)&&!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');return context;
     }):undefined;
     if(normalOexV5&&(!nativeOexWorkspace?.workspaceMaterials||!workspaceCapability))throw Error('NATIVE_OEX_CATALOG');
     const workspaceMaterial=!selectedOex&&workspaceCapability&&nativeOexWorkspace?.workspaceMaterials?new WorkspaceMaterialIntakes(blobs,nativeOexWorkspace,validateWorkspaceMaterial):undefined;
+    if(furnishingMode&&!nativeOexWorkspace?.workspaceFurnishing)throw Error('NATIVE_OEX_CATALOG');
+    const workspaceFurnishing=furnishingMode?new WorkspaceFurnishingIntakes(blobs,nativeOexWorkspace):undefined;
     const selectedWorkspaceMaterial=normalOexV5&&workspaceCapability&&nativeOexWorkspace?.workspaceMaterials?new WorkspaceMaterialIntakes(blobs,nativeOexWorkspace,validateWorkspaceMaterial):undefined;
     let nativeExportWorkspace;
     if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&!selectedOex){
@@ -224,7 +238,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       catch{console.warn('Native bounded file export is unavailable for this workspace.');}
     }
     const uploadSlot=selectedOex?createSelectedNativeUploadSlot():undefined,saveSlot=selectedOex?createSelectedStudioPutSlot():undefined;
-    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}),...(workspaceMaterial?{workspaceMaterial}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}),...(workspaceImportApplied?{workspaceImportMigrationDirectory:workspaceImportDirectory}:{}),...(workspaceWallImportApplied?{workspaceWallImportMigrationDirectory:workspaceWallImportDirectory}:{}), webRoot, blobRoot } });
+    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}),...(workspaceMaterial?{workspaceMaterial}:{}),...(workspaceFurnishing?{workspaceFurnishing}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}),...(workspaceImportApplied?{workspaceImportMigrationDirectory:workspaceImportDirectory}:{}),...(workspaceWallImportApplied?{workspaceWallImportMigrationDirectory:workspaceWallImportDirectory}:{}),...(furnishingMode?{workspaceFurnishingMigrationDirectory:workspaceFurnishingDirectory}:{}), webRoot, blobRoot } });
     await app.listen({ host: "127.0.0.1", port: apiPort });
     stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex }); await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
     if(selectedOex){
@@ -241,7 +255,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));
       await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});await attempt(()=>app.close());await attempt(()=>pool.end());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
     })();
-    shutdown=close;if(selectedOex&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
+    shutdown=close;if((selectedOex||furnishingMode)&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
     return { app, proxy, pool, origin, close };
   } catch { ownerStopped=true;ownerAbort.abort();await ownerTask;if(ownerChannel)await ownerChannel.close();proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }

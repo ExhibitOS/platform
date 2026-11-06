@@ -28,16 +28,17 @@ export function validateLocalWorkspace(value: unknown, runtimeMode: string | und
   return v;
 }
 
-export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void>, options?:{isolation:'read committed'}) {
+export async function openLocalWorkspace(pool: Pool, input: LocalWorkspaceInput, runtimeMode: string | undefined, beforeOpen?: (client:PoolClient)=>Promise<void|{requireExisting:true}>, options?:{isolation:'read committed';requireExisting?:true}) {
   const v = validateLocalWorkspace(input, runtimeMode);
-  if(options!==undefined&&(Object.keys(options).join(',')!=='isolation'||options.isolation!=='read committed'))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
+  if(options!==undefined&&(options.isolation!=='read committed'||Object.keys(options).some(key=>!['isolation','requireExisting'].includes(key))||options.requireExisting!==undefined&&options.requireExisting!==true))throw new ApiError(400,'LOCAL_WORKSPACE_CHANNEL_INVALID');
   return transaction(pool, async c => {
     if(options)await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
     await c.query('SELECT pg_advisory_xact_lock(82003)');
     await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-    if(beforeOpen)await beforeOpen(c);
+    const preflight=beforeOpen?await beforeOpen(c):undefined;
     const existing = await c.query('SELECT * FROM local_workspaces WHERE id=$1 FOR UPDATE', [v.workspaceId]);
     if (!existing.rowCount) {
+      if(options?.requireExisting||preflight?.requireExisting)throw new ApiError(409,'LOCAL_WORKSPACE_OWNER_UNAVAILABLE');
       // A new personal workspace must never claim legacy account/tenant data.
       const occupied = await c.query('SELECT (EXISTS(SELECT 1 FROM users) OR EXISTS(SELECT 1 FROM tenants) OR EXISTS(SELECT 1 FROM local_workspaces)) AS occupied');
       if (occupied.rows[0]?.occupied) throw new ApiError(409, 'LOCAL_WORKSPACE_MIGRATION_REQUIRED');

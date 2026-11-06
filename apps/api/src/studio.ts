@@ -1,3 +1,5 @@
+import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
+import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
@@ -94,7 +96,8 @@ export class Studio {
   private readonly nativeOexWorkspace:NativeOexWorkspaceContext|undefined;
   private readonly nativeBoundedEditing:boolean;
   private readonly workspaceMaterial:WorkspaceMaterialIntakes|undefined;
-  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;}
+  private readonly workspaceFurnishing:WorkspaceFurnishingIntakes|undefined;
+  constructor(nativeOexWorkspace?:NativeOexWorkspaceContext,nativeBoundedEditing=false,workspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes) {this.nativeOexWorkspace=nativeOexWorkspace;this.nativeBoundedEditing=nativeBoundedEditing;this.workspaceMaterial=workspaceMaterial;this.workspaceFurnishing=workspaceFurnishing;}
   private boundedCapability(s:Session,row:{id:string;revision:number;metadata:Draft}) {
     if(!this.nativeOexWorkspace||!this.nativeBoundedEditing)throw new ApiError(403,'FORBIDDEN');
     return {version:1 as const,kind:'native-bounded-edit-v1' as const,tenantId:s.tenantId,principalId:s.userId,workspaceId:this.nativeOexWorkspace.workspaceId,exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata)};
@@ -163,6 +166,7 @@ export class Studio {
     if(typeof input.draft?.exhibitionId!=='string'||typeof input.draft?.id!=='string'||input.draft.exhibitionId.toLowerCase()!==id.toLowerCase()||input.draft.id.toLowerCase()!==row.metadata.id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
     checked(input,true);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
+    await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
@@ -234,6 +238,7 @@ export class Studio {
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
+    await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     const id = input.draft.exhibitionId;
     const existing = await c.query(
       "SELECT 1 FROM exhibitions WHERE tenant_id=$1 AND id=$2",
@@ -280,6 +285,7 @@ export class Studio {
     if (match !== etag(row.revision, row.metadata))
       throw new ApiError(412, "REMOTE_CONFLICT");
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
+    await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
     // This row is the private active draft. Published snapshots and their
     // immutable asset bindings are separate and are never changed by a save.
     if (row.revision >= 2147483647) throw new ApiError(409, "REVISION_LIMIT");
