@@ -76,3 +76,13 @@ test('v7 recognizes only exact 035 with separate capability and preserves v6 iso
  await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra,{workspaceImportDirectory:dir}),/NATIVE_OEX_CATALOG/);assert.equal(await recognizeNormalOexCatalog(f.pool,f.base,f.extra,{workspaceImportDirectory:dir,workspaceWallImportDirectory:wall}),f.extra);f.rows[34].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(f.pool,f.base,f.extra,{workspaceImportDirectory:dir,workspaceWallImportDirectory:wall}),/NATIVE_OEX_CATALOG/);
  const marker=join(f.root,'v7.json');assert.equal(sha(catalog.WORKSPACE_WALL_IMPORT_CAPABILITY),'7229cba9fbf98301960f44d39927c8d528ed55c3eb5e5fbdf203341261f342d5');await writeFile(marker,catalog.WORKSPACE_WALL_IMPORT_CAPABILITY);assert.equal(await catalog.hasWorkspaceWallImportCapability(marker),true);await writeFile(marker,catalog.WORKSPACE_WALL_IMPORT_CAPABILITY+'\n');await assert.rejects(catalog.hasWorkspaceWallImportCapability(marker),/NATIVE_OEX_CATALOG/);
  }finally{await rm(f.root,{recursive:true,force:true});}});
+
+
+test('selected V6 and V7 modes require matching wall ledger while ordinary reopen remains available',async()=>{
+ const {assertWorkspaceImportOwnerMode:check}=await import('./native-oex-normal-catalog.mjs');
+ assert.doesNotThrow(()=>check('normal-oex-workspace-import-v6',false));
+ assert.throws(()=>check('normal-oex-workspace-import-v6',true),/NATIVE_OEX_CATALOG/);
+ assert.throws(()=>check('normal-oex-workspace-import-v7',false),/NATIVE_OEX_CATALOG/);
+ assert.doesNotThrow(()=>check('normal-oex-workspace-import-v7',true));
+ assert.doesNotThrow(()=>check(undefined,true));
+});

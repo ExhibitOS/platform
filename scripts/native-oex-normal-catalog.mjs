@@ -103,6 +103,12 @@ export async function verifyWorkspaceImportMigrations(importDirectory){
  if(!same(before,await directory(importDirectory)))throw Error('NATIVE_OEX_CATALOG');return result;
 }
 
+/** Selected owner mode must match the applied ledger; ordinary reopen has no
+ * selected mode and is handled by exact catalog recognition. */
+export function assertWorkspaceImportOwnerMode(mode,wallApplied){
+ if(mode==='normal-oex-workspace-import-v7'&&!wallApplied||mode==='normal-oex-workspace-import-v6'&&wallApplied)throw Error('NATIVE_OEX_CATALOG');
+}
+
 /** Return the supplemental directory only for an exact full catalog. Missing,
  * unknown, drifted, or duplicate rows never cause a supplemental migration. */
 export async function recognizeNormalOexCatalog(pool,migrationDirectory,supplementalDirectory,{workspaceImportDirectory,workspaceWallImportDirectory}={}){
