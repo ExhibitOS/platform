@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {it,expect} from 'vitest';
+import {it,expect,vi} from 'vitest';
 import Fastify from 'fastify';
 import {WebSocket} from 'ws';
 import {createServer} from 'node:net';
@@ -18,6 +18,11 @@ async function service(maxBufferedBytes?:number){
  return {e,origin,api,connect,revoke:()=>{revoked=true;},close:async()=>{for(const ws of clients)ws.terminate();await delay(10);await app.close();}};
 }
 const join={version:1,type:'join',publicationId:id,revisionSha256:revision};
+it('rejects raw websocket upgrades while the runtime is unavailable',async()=>{
+ const app=Fastify(),openingUpgrade=vi.fn(()=>false),end=vi.fn();
+ registerRealtime(app,{origin:'http://127.0.0.1:13200',isAvailable:()=>false,openingUpgrade,publication:async()=>{throw Error('unavailable');}});
+ try{await app.ready();app.server.emit('upgrade',{url:`/api/v1/publications/${id}/presence`,headers:{}} as never,{end} as never,Buffer.alloc(0));expect(end).toHaveBeenCalledWith(expect.stringContaining('503 Rejected'));expect(openingUpgrade).not.toHaveBeenCalled();}finally{await app.close();}
+});
 it('real TCP admission, closed messages, serialized pose/ping, secure resume rotation, scope and revocation',async()=>{
  const s=await service();try{
   await expect(s.connect(id,'http://hostile.invalid')).rejects.toThrow();

@@ -75,6 +75,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disabl
       if (req.headers["content-length"] !== undefined && (!/^\d+$/.test(req.headers["content-length"]) || Number(req.headers["content-length"]) > MAX_BODY)) { req.resume(); deny(413); return; }
       const headers = Object.fromEntries(Object.entries(req.headers).filter(([name]) => !hop.has(name)));
       const upstream = httpRequest({ hostname: "127.0.0.1", port: apiPort, method: req.method, path: req.url, headers }, response => {
+        if(!isAvailable()){response.resume();deny(503);return;}
         reply.writeHead(response.statusCode ?? 502, Object.fromEntries(Object.entries(response.headers).filter(([name]) => !hop.has(name)))); response.once("error", () => reply.destroy()); response.pipe(reply);
       });
       let bytes = 0;
@@ -89,7 +90,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disabl
     if (!allowed.has(path)) { deny(404); return; }
     let file;
     try {
-      file = await safeStatic(root, path); reply.writeHead(200, { ...(path === "native-viewport.html" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'", "referrer-policy":"no-referrer"} : {}), ...(path === "basis/exhibitos-basis-worker.js" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'"} : {}), "content-type": path.endsWith(".wasm")?"application/wasm":mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": (await file.stat()).size });
+      file = await safeStatic(root, path);const size=(await file.stat()).size;if(!isAvailable()){await file.close();deny(503);return;}reply.writeHead(200, { ...(path === "native-viewport.html" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'", "referrer-policy":"no-referrer"} : {}), ...(path === "basis/exhibitos-basis-worker.js" ? {"content-security-policy": "default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'"} : {}), "content-type": path.endsWith(".wasm")?"application/wasm":mime(path), "x-content-type-options": "nosniff", "cache-control": "public, max-age=0, must-revalidate", "content-length": size });
       if (req.method === "HEAD") { reply.end(); await file.close(); }
       else { const stream = file.createReadStream(); stream.once("error", () => reply.destroy()); reply.once("close", () => { if (!reply.writableFinished) stream.destroy(); }); stream.pipe(reply); }
     } catch { await file?.close().catch(() => {}); if (!reply.headersSent) deny(404); else reply.destroy(); }
@@ -108,6 +109,7 @@ export async function createLocalProxy({ webRoot, origin, apiPort = 3000, disabl
     upstream.on("error",()=>{if(!socket.destroyed)reject(502);});
     upstream.on("response",response=>{response.resume();reject(response.statusCode===403?403:502);});
     upstream.on("upgrade",(response,remote,remoteHead)=>{
+      if(!isAvailable()){remote.destroy();reject(503);return;}
       if(response.statusCode!==101){remote.destroy();reject(502);return;}
       const accepted=response.headers["sec-websocket-accept"];
       if(typeof accepted!=="string"||!/^[a-zA-Z0-9+/]{27}=$/.test(accepted)){remote.destroy();reject(502);return;}
@@ -164,12 +166,21 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, pinnedPayload, ownerStopped=false, stage = "MIGRATIONS";const ownerAbort=new AbortController();
+  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, pinnedPayload, ownerStopped=false, runtimeReady=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening;let stopping=false;const ownerAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
   let ownerTask=Promise.resolve();
   if(personal&&privateOwner&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.started=true;ownerTask=openNativeOwnerChannel(environment.EXHIBITOS_NATIVE_OWNER_FD,privateWorkspace,privateOwner,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else ownerChannel=channel;}).catch(()=>{});}
   else if(privateOwner){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
+  const close = () => closed ??= (async () => {
+    stopping=true;runtimeReady=false;ownerStopped=true;ownerAbort.abort();let failed=false;
+    const attempt=async action=>{try{await action();}catch{failed=true;}};
+    await attempt(()=>ownerTask);if(ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
+    if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});
+    if(proxy){await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());if(proxy.listening)await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));}
+    await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});if(app)await attempt(()=>app.close());if(pinnedPayload)await attempt(()=>pinnedPayload.close());await attempt(()=>pool.end());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
+  })();
+  shutdown=close;
   try {
     // Either selected schema applies only to a genuinely empty DB in the
     // same authenticated native owner session, before listening.
@@ -252,33 +263,27 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       catch{console.warn('Native bounded file export is unavailable for this workspace.');}
     }
     const uploadSlot=selectedOex?createSelectedNativeUploadSlot():undefined,saveSlot=selectedOex?createSelectedStudioPutSlot():undefined;
-    app = buildApp({ pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}),...(workspaceMaterial?{workspaceMaterial}:{}),...(workspaceFurnishing?{workspaceFurnishing}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}),...(workspaceImportApplied?{workspaceImportMigrationDirectory:workspaceImportDirectory}:{}),...(workspaceWallImportApplied?{workspaceWallImportMigrationDirectory:workspaceWallImportDirectory}:{}),...(furnishingMode?{workspaceFurnishingMigrationDirectory:workspaceFurnishingDirectory,workspaceFurnishingWriterMigrationDirectory:workspaceFurnishingWriterDirectory}:{}), webRoot, blobRoot } });
-    const isOwnerAvailable=()=>!ownerStopped&&!!ownerChannel?.isOpen();
+    const isOwnerAvailable=()=>runtimeReady&&!ownerStopped&&!!ownerChannel?.isOpen(),deferredStartup=[];
+    app = buildApp({ ...(furnishingMode?{runtimeAvailable:isOwnerAvailable,deferredStartup}:{}), pool, blobs, auth: config({ mode: "local", origin, bindHost: "127.0.0.1" }), freeze, oexWorker: !selectedOex, ...(selectedOex?{freshOexTest:true,uploadSlot,saveSlot}:{}),...(nativeOexWorkspace?{nativeOexWorkspace,...(!selectedOex?{nativeBoundedEditing:true}:{})}:{}),...(nativeExportWorkspace?{nativeExportWorkspace}:{}),...(workspaceMaterial?{workspaceMaterial}:{}),...(workspaceFurnishing?{workspaceFurnishing}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}), lifecycle: { migrationDirectory, ...(supplementalMigrationDirectory?{supplementalMigrationDirectory,...(supplementalMigrationNames?{supplementalMigrationNames}:{})}:{}),...(workspaceImportApplied?{workspaceImportMigrationDirectory:workspaceImportDirectory}:{}),...(workspaceWallImportApplied?{workspaceWallImportMigrationDirectory:workspaceWallImportDirectory}:{}),...(furnishingMode?{workspaceFurnishingMigrationDirectory:workspaceFurnishingDirectory,workspaceFurnishingWriterMigrationDirectory:workspaceFurnishingWriterDirectory}:{}), webRoot, blobRoot } });
     if(furnishingMode)app.addHook('onRequest',async(_request,reply)=>{try{if(!isOwnerAvailable())throw Error();await writerLease.assertLive();if(!isOwnerAvailable())throw Error();}catch{return reply.code(503).send({code:'NATIVE_OWNER_UNAVAILABLE'});}});
-    if(furnishingMode){stage='API_PRELISTEN';await writerLease.assertLive();if(!isOwnerAvailable())throw Error('NATIVE_OWNER_UNAVAILABLE');}
-    await app.listen({ host: "127.0.0.1", port: apiPort });
-    if(furnishingMode){await writerLease.assertLive();if(!isOwnerAvailable())throw Error('NATIVE_OWNER_UNAVAILABLE');}
+    if(furnishingMode){stage='API_PRELISTEN';await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
+    apiListening=app.listen({ host: "127.0.0.1", port: apiPort });await apiListening;
+    if(furnishingMode){await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
     stage = "WEB_PROXY"; proxy = await createLocalProxy({ webRoot, origin, apiPort, disableUpgrades:selectedOex,...(furnishingMode?{isAvailable:isOwnerAvailable}:{}) });
-    if(furnishingMode){stage='PROXY_PRELISTEN';await writerLease.assertLive();if(!isOwnerAvailable())throw Error('NATIVE_OWNER_UNAVAILABLE');}
-    await new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });
-    if(furnishingMode){await writerLease.assertLive();if(!isOwnerAvailable())throw Error('NATIVE_OWNER_UNAVAILABLE');}
+    if(furnishingMode){stage='PROXY_PRELISTEN';await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
+    proxyListening=new Promise((resolve, reject) => { proxy.once("error", reject); proxy.listen(proxyPort, proxyHost, resolve); });await proxyListening;
+    if(furnishingMode){await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');}
     if(selectedOex){
       selectedTask=runFreshNativeOexOwner({pool,databaseUrl:environment.DATABASE_URL,blobs,workspaceId:privateWorkspace.workspaceId,tenantId:privateWorkspace.tenantId,principalId:privateWorkspace.principalId,ownerUid:privateWorkspace.ownerUid,runtimeGeneration:privateOwner.runtimeGeneration,secret:Buffer.from(privateOwner.secret,'hex'),channel:ownerChannel,payloadManifestPath:fileURLToPath(new URL('../../manifest.json',import.meta.url)),uploadSlot,saveSlot,signal:ownerAbort.signal,...(nativeOexWorkspace?{nativeOexWorkspace,requireCatalogProof:true}:{}),...(selectedWorkspaceMaterial?{selectedWorkspaceMaterial}:{}),...(normalOexV3?{variant:'v3'}:{})});
       void selectedTask.catch(()=>{});
     }
-    const importer = new Imports(pool, blobs); let stopping = false, timer, running, failures = 0, closed;
+    if(furnishingMode){for(const task of deferredStartup){await writerLease.assertLive();await task();await writerLease.assertLive();}if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');runtimeReady=true;}
+    const importer = new Imports(pool, blobs); let failures = 0;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     if(!selectedOex)running = tick();
-    const close = () => closed ??= (async () => {
-      stopping=true;ownerStopped=true;ownerAbort.abort();let failed=false;
-      const attempt=async action=>{try{await action();}catch{failed=true;}};
-      await attempt(()=>ownerTask);if(ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
-      await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));
-      await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});await attempt(()=>app.close());if(pinnedPayload)await attempt(()=>pinnedPayload.close());await attempt(()=>pool.end());if(failed)throw Error('LOCAL_RUNTIME_CLOSE_FAILED');
-    })();
-    shutdown=close;if((selectedOex||furnishingMode)&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
+    if((selectedOex||furnishingMode)&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');
     return { app, proxy, pool, origin, close };
-  } catch { ownerStopped=true;ownerAbort.abort();await ownerTask;if(ownerChannel)await ownerChannel.close();proxy?.closeAllConnections(); proxy?.close(); await app?.close().catch(() => {}); await pinnedPayload?.close().catch(() => {}); await pool.end(); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
+  } catch { await close().catch(()=>{}); throw Error(`LOCAL_RUNTIME_START_FAILED_${stage}`); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   let handedOff=false;

@@ -38,7 +38,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
 import type { Pool, PoolClient } from 'pg';
-export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes) {
+export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,store?:import('@exhibitos/storage').BlobStore,oexWorker=false,freezeConfig?:FreezeConfig,federationConfig?:FederationConfig,publicationSource?:import('./publication.ts').PublicationSource,freshOexTest=false,uploadSlot?:NativeBoundedUploadSlot,saveSlot?:SelectedStudioPutSlot,nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,nativeBoundedEditing=false,nativeExportWorkspace?:import('./native-oex-provenance.ts').NativeLocalExportContext,workspaceMaterial?:WorkspaceMaterialIntakes,selectedWorkspaceMaterial?:WorkspaceMaterialIntakes,workspaceFurnishing?:WorkspaceFurnishingIntakes,runtimeAvailable?:()=>boolean,deferredStartup?:Array<()=>Promise<void>>) {
  if(nativeBoundedEditing&&(!nativeOexWorkspace||freshOexTest||input.mode!=='local')||nativeExportWorkspace&&(freshOexTest||input.mode!=='local'))throw Error('NATIVE_BOUNDED_EDIT_CONFIGURATION');
  if(selectedWorkspaceMaterial&&(!(selectedWorkspaceMaterial instanceof WorkspaceMaterialIntakes)||!freshOexTest||input.mode!=='local'||workspaceMaterial||!(store instanceof FileBlobStore)||!nativeOexWorkspace?.workspaceMaterials||!selectedWorkspaceMaterial.matchesBinding(nativeOexWorkspace,store)))throw Error('WORKSPACE_MATERIAL_CONFIGURATION');
  const settings=config(input), auth=new Auth(pool),studio=new Studio(nativeOexWorkspace,nativeBoundedEditing,workspaceMaterial,workspaceFurnishing),selectedStudio=selectedWorkspaceMaterial?new Studio(nativeOexWorkspace,false,selectedWorkspaceMaterial):studio;
@@ -97,7 +97,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   app.get(`${library}/:id/versions/:version`,ownedCall(false,async(c,s,req)=>workspaceFurnishing.readVersion(c,s,params(req).id,version(req))));
   const previewRead=ownedCall(false,async(c,s,req)=>workspaceFurnishing.model(c,s,params(req).id,version(req),'display'));
   app.get(`${library}/:id/versions/:version/model`,async(req,reply)=>{const result=await previewRead(req,reply) as {bytes:Buffer;mime:string;sha256:string};return reply.header('content-type',result.mime).header('content-length',String(result.bytes.length)).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.sha256).send(result.bytes);});
-  let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;const tick=async()=>{try{await workspaceFurnishing.work(pool);}catch{app.log.error('Workspace furnishing worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;const tick=async()=>{try{if(!runtimeAvailable||runtimeAvailable())await workspaceFurnishing.work(pool);}catch{app.log.error('Workspace furnishing worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM workspace_furnishing_intakes LIMIT 0');running=tick();});app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
  }
  if(workspaceMaterial){
@@ -114,7 +114,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const previewRead=call(false,async(c,s,req)=>workspaceMaterial.preview(c,s,params(req).id,version(req),params(req).role));
   app.get(`${library}/:id/versions/:version/maps/:role`,async(req,reply)=>{const result=await previewRead(req,reply) as {bytes:Buffer;mime:string;sha256:string};return reply.header('content-type',result.mime).header('content-length',String(result.bytes.length)).header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-sha256',result.sha256).send(result.bytes);});
   let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
-  const tick=async()=>{try{await workspaceMaterial.work(pool);}catch{app.log.error('Workspace material worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  const tick=async()=>{try{if(!runtimeAvailable||runtimeAvailable())await workspaceMaterial.work(pool);}catch{app.log.error('Workspace material worker failed; retained token requires recovery');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM workspace_material_intakes LIMIT 0');running=tick();});
   app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
  }
@@ -214,7 +214,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${fp}/:freezeId/offline`,grantBody,call(true,async(c,s,req,reply)=>{const f=await target(c,s,req);return reply.header('content-disposition','attachment; filename="exhibition.oef"').send(await f.offline(c,s,freezeId(req),(req.body as {seconds:number}).seconds));}));
  app.post(`${fp}/:freezeId/authorize`,grantBody,call(true,async(c,s,req)=>(await target(c,s,req)).authorize(c,s,freezeId(req),(req.body as {seconds:number}).seconds)));
  for(const action of ['revoke','restore'] as const)app.post(`${fp}/:freezeId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>(await target(c,s,req)).availability(c,s,freezeId(req),action==='restore')));
- if(freezes&&!freshOexTest)app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');await freezes.recover();});
+ if(freezes&&!freshOexTest){if(deferredStartup)deferredStartup.push(async()=>{await freezes.recover();});app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');if(!deferredStartup)await freezes.recover();});}
  const oex=store?new Oex(pool,store,nativeOexWorkspace,workspaceMaterial,workspaceFurnishing):null;
  if(nativeExportWorkspace&&store instanceof FileBlobStore&&oex)registerNativeBoundedOexExport(app,{auth,config:input,context:nativeExportWorkspace,blobRoot:store.root,oex,guard:(req,mutate)=>guarded(req,mutate),token});
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
@@ -228,7 +228,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  for(const action of ['retry','cancel'] as const)app.post(`${op}/:id/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>requireOex().action(c,s,jobId(req),action)));
  if(oexWorker&&oex){
   let closing=false,timer:ReturnType<typeof setTimeout>|undefined,running:Promise<void>|undefined;
-  const tick=async()=>{try{await oex.runNext();await freezes?.recover();}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
+  const tick=async()=>{try{if(!runtimeAvailable||runtimeAvailable()){await oex.runNext();await freezes?.recover();}}catch{app.log.error('OEX worker iteration failed; pending jobs remain recoverable');}finally{if(!closing){timer=setTimeout(()=>{running=tick();},1000);timer.unref();}}};
   app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM oex_import_jobs LIMIT 0');running=tick();});
   app.addHook('onClose',async()=>{closing=true;if(timer)clearTimeout(timer);await running;});
  }
@@ -260,7 +260,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(!freshOexTest){
  const authorizeHost=openingHostAuthority(pool);
  const opening=registerOpening(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,authorizeHost});
- registerRealtime(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade});
+ registerRealtime(app,{origin:settings.origin,clientOrigin:settings.clientOrigin,publication:async id=>await readPublic(id,undefined,'footstep-resources-v1') as import('./realtime.ts').RealtimePublication,openingUpgrade:opening.upgrade,...(runtimeAvailable?{isAvailable:runtimeAvailable}:{})});
  app.post(`${prefix}/studio/publications/:id/opening-host`,{schema:{body:object({revisionSha256:{type:'string',pattern:'^[a-f0-9]{64}$'}})}},async(req,reply)=>{
   guarded(req,true);reply.header('cache-control','no-store');
   const params=req.params as {id:string;tenantId:string};uuid(params.id);uuid(params.tenantId);
