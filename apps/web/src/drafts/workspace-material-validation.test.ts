@@ -12,3 +12,8 @@ it('accepts a Spec-valid floor color binding and rejects inconsistent or unsuppo
  const invalid=sample();invalid.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps.color.sha256='invalid';expect(()=>workspaceFloorMaterials(invalid)).toThrow('WORKSPACE_MATERIAL_INVALID');
  expect(workspaceFloorMaterials({extensions:{}})).toEqual([]);
 });
+
+it('accepts a wall color binding only for a matching wall surface',()=>{
+ const value=sample();value.surfaces[0]!.type='wall';value.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.kind='wall';expect(validateWorkspaceMaterialBindings(value.extensions['org.exhibitos.studio/workspace-materials'],value.surfaces).valid).toBe(true);expect(workspaceFloorMaterials(value)[0]?.material.kind).toBe('wall');
+ const mismatch=sample();mismatch.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.kind='wall';expect(()=>workspaceFloorMaterials(mismatch)).toThrow('WORKSPACE_MATERIAL_INVALID');
+});

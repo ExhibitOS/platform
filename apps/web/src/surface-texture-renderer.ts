@@ -6,14 +6,14 @@ import {materialMapPlan} from './material-texture-plan';
 import {wallOpeningShellReserve} from './wall-opening-shell';
 import {createRegisteredMaterialTextureRenderer,type MaterialTextureFile} from './floor-texture-renderer';
 
-export function surfaceTexturePlan(document:Exhibition,maxTextureSize:number,availableBytes:number){
+export function surfaceTexturePlan(document:Exhibition,maxTextureSize:number,availableBytes:number,workspaceTargets?:ReadonlyMap<string,unknown>){
  const packs=requiredSurfaceTexturePacks(document),files=packs.flatMap(pack=>Object.entries(pack.maps).map(([role,file])=>({role:role as 'color'|'normal'|'roughness',file})));
  // Joined opening shells own buffers even when their surfaces use scalar paint.
  // Textured structures also own the metric UV buffer, including during fallback.
  const geometryReserve=wallFinishesFor(document).reduce((sum,w)=>{
   const surface=document.surfaces.find(s=>s.id.toLowerCase()===w.surfaceId.toLowerCase())!;
   const boxes=architecturalWallBoxes(surface,document.openings,w).filter(b=>b.kind==='structure');
-  const textured=surfaceTextureFor(document,w.surfaceId)!==undefined;
+  const textured=workspaceTargets?.has(w.surfaceId.toLowerCase())===true||surfaceTextureFor(document,w.surfaceId)!==undefined;
   if(boxes.length>1)return sum+wallOpeningShellReserve(boxes,textured);
   return sum+(textured?boxes.length*2*(24*32+36*4):0);
  },0);

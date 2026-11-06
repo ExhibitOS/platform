@@ -510,7 +510,7 @@ export function GeometryPreview({
       const floorPlan={packs:[...builtinFloorPlan.packs,...workspacePlan.packs],blocked:[...builtinFloorPlan.blocked,...workspacePlan.blocked],residentBytes:builtinFloorPlan.residentBytes+workspacePlan.residentBytes,reserveBytes:Math.max(builtinFloorPlan.reserveBytes,builtinFloorPlan.residentBytes+workspacePlan.reserveBytes),maxSize:builtinFloorPlan.maxSize};
       // The surface source peak begins only after the floor source hold ends.
       // Reserve the retained floor even on fallback; never presume floor ready.
-      const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-materialPhaseBytes(floorPlan,true)));
+      const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-materialPhaseBytes(floorPlan,true)),workspacePlan.targets);
       const materialReserve=serialMaterialPhaseBytes(floorPlan,surfacePlan,false,false);
       if(materialReserve>=materialCapacity){renderer.dispose();renderer.forceContextLoss();throw Error('MATERIAL_SOURCE_BUDGET');}
       const floorTextures=createFloorTextureRenderer(three,builtinFloorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
@@ -643,7 +643,7 @@ export function GeometryPreview({
         }
 
       });
-      const architecturalFinishes=installArchitecturalFinishes(three,document,surfaces,surfaceMaterials);owned.push(architecturalFinishes);
+      const architecturalFinishes=installArchitecturalFinishes(three,document,surfaces,surfaceMaterials,workspacePlan.targets);owned.push(architecturalFinishes);
       if(architecturalFinishes.records.length)renderer.domElement.dataset.architecturalFinishes=JSON.stringify(architecturalFinishes.records);
       for (const opening of editingEnabled ? document.openings : []) {
         const geometry = new three.PlaneGeometry(

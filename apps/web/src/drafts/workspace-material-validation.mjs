@@ -4,7 +4,7 @@ import {workspaceMaterialBindingsSchema} from './schema-standalone.mjs';
 import {validateRights} from './artwork-validation.mjs';
 
 export const WORKSPACE_MATERIAL_NAMESPACE='org.exhibitos.studio/workspace-materials';
-/** Validate the supported floor/color projection before deriving any resource
+/** Validate the supported floor/wall color projection before deriving any resource
  * path from a snapshot. Rights authority remains with the source serving bytes. */
 export function workspaceFloorMaterials(document){
  const value=document?.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];
@@ -15,13 +15,13 @@ export function workspaceFloorMaterials(document){
  const materials=new Map(),used=new Set(),targets=new Set();
  for(const material of value.materials){
   const key=material.id.toLowerCase()+':'+material.version;
-  if(materials.has(key)||material.kind!=='floor'||Object.keys(material.maps).join(',')!=='color'||material.maps.color.width*material.maps.color.height>4194304||!validateRights(material.rights).valid)throw Error('WORKSPACE_MATERIAL_UNSUPPORTED');
+  if(materials.has(key)||!['floor','wall'].includes(material.kind)||Object.keys(material.maps).join(',')!=='color'||material.maps.color.width*material.maps.color.height>4194304||!validateRights(material.rights).valid)throw Error('WORKSPACE_MATERIAL_UNSUPPORTED');
   materials.set(key,material);
  }
  const result=[];
  for(const binding of value.bindings){
   const target=binding.surfaceId.toLowerCase(),key=binding.materialId.toLowerCase()+':'+binding.materialVersion,material=materials.get(key);
-  if(targets.has(target)||!material||surfaces.get(target)!=='floor')throw Error('WORKSPACE_MATERIAL_INVALID');
+  if(targets.has(target)||!material||surfaces.get(target)!==material.kind)throw Error('WORKSPACE_MATERIAL_INVALID');
   targets.add(target);used.add(key);result.push({binding,material});
  }
  if(used.size!==materials.size||!result.length)throw Error('WORKSPACE_MATERIAL_INVALID');

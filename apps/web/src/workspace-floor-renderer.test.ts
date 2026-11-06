@@ -79,3 +79,9 @@ it('removes and disposes a mounted map at the expiry timer',async()=>{
  const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{tenantId:tenant} as Session);
  try{renderer.add(material,plan.targets.get(surface)!);await renderer.start(()=>{});expect(material.map).not.toBeNull();vi.advanceTimersByTime(1000);expect(material.map).toBeNull();expect(closed).toHaveBeenCalledOnce();}finally{renderer.dispose();material.dispose();}
 });
+
+it('loads a registered wall color texture through the same private owner checks',async()=>{
+ const bytes=new Uint8Array([1,2,3]),doc=scene(),value=doc.extensions!['org.exhibitos.studio/workspace-materials'] as unknown as {materials:Array<{kind:string;maps:{color:{bytes:number;sha256:string}}}>};(doc.surfaces[0] as {type:string}).type='wall';value.materials[0]!.kind='wall';value.materials[0]!.maps.color.bytes=bytes.length;value.materials[0]!.maps.color.sha256=createHash('sha256').update(bytes).digest('hex');
+ vi.stubGlobal('fetch',ownerFetch(doc,bytes));vi.stubGlobal('createImageBitmap',async()=>({width:256,height:256,close:vi.fn()}));const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{tenantId:tenant} as Session);
+ try{renderer.add(material,plan.targets.get(surface)!);expect(await renderer.start(()=>{})).toEqual({[id+':1']:'ready'});expect(material.map?.colorSpace).toBe(three.SRGBColorSpace);}finally{renderer.dispose();material.dispose();}
+});
