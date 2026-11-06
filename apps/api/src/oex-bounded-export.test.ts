@@ -16,6 +16,7 @@ import {planWorkspaceMaterialImportSource,validateWorkspaceMaterialImportSourceB
 import {decodePackedOexDocumentsV2,decodePackedWorkspaceOexDocuments} from './oex-packed-documents-v2.ts';
 import {packedOexInventory,packedWorkspaceOexInventory} from './oex-packed-output.ts';
 import {preparePackedOexV2,preparePackedWorkspaceOex} from './oex-packed-worker-v2-core.ts';
+import {parsePackedOexAckV2,parsePackedWorkspaceOexAck} from './oex-packed-ack-v2.ts';
 
 describe('internal bounded OEX producer',()=>{
  it('writes workspace floor color as a draft.12 resource and enforces output authority',async()=>{
@@ -49,6 +50,9 @@ describe('internal bounded OEX producer',()=>{
    await expect(preparePackedWorkspaceOex(file,output,{...receipt,capacity:1},withOexFileHandle)).rejects.toThrow('OEX_PACKED_OUTPUT');expect((await output.stat()).size).toBe(0);
    const packed=await preparePackedWorkspaceOex(file,output,receipt,withOexFileHandle),entry=packed.entries.find(item=>item.path.includes('workspace-materials/'))!;expect(entry.sha256).toBe(sha256(bytes));const actual=Buffer.alloc(entry.bytes);expect((await output.read(actual,0,entry.bytes,entry.offset)).bytesRead).toBe(entry.bytes);expect(actual).toEqual(bytes);
    expect(decodePackedWorkspaceOexDocuments(packed.manifest,packed.manifestSha256,packed.exhibition,packed.exhibitionSha256).exhibition.id).toBe(candidate.id);
+   const id='10000000-0000-4000-8000-000000000001',controlSha256='a'.repeat(64),expected={attemptId:id,runtimeGeneration:id,reservationId:id,reservationGeneration:id,controlSha256,archiveSha256:receipt.archiveSha256,outputDevice:'1',outputInode:'2',capacity:receipt.capacity,archiveFormat:'1.0.0-draft.12' as const,preflight:{manifestSha256:packed.manifestSha256,packedBytes:packed.entries.reduce((n,item)=>n+item.bytes,0)}};
+   const ack={version:2,kind:'prepared',status:'complete',attemptId:id,runtimeGeneration:id,reservationId:id,reservationGeneration:id,receiptSha256:controlSha256,archiveSha256:receipt.archiveSha256,manifestSha256:packed.manifestSha256,exhibitionSha256:packed.exhibitionSha256,manifestBase64:packed.manifest.toString('base64'),exhibitionBase64:packed.exhibition.toString('base64'),outputDevice:'1',outputInode:'2',outputBytes:expected.preflight.packedBytes,entries:packed.entries};const wire=Buffer.from(JSON.stringify(ack));
+   expect(parsePackedWorkspaceOexAck(wire,expected).entries).toEqual(packed.entries);expect(()=>parsePackedOexAckV2(wire,{...expected,archiveFormat:'1.0.0-draft.10'})).toThrow();expect(()=>parsePackedWorkspaceOexAck(wire,{...expected,preflight:undefined as never})).toThrow('OEX_PACKED_ACK');expect(()=>parsePackedWorkspaceOexAck(wire,{...expected,preflight:{...expected.preflight,manifestSha256:'0'.repeat(64)}})).toThrow('OEX_PACKED_ACK');expect(()=>parsePackedWorkspaceOexAck(Buffer.from(JSON.stringify({...ack,entries:packed.entries.filter(item=>item!==entry)})),expected)).toThrow('OEX_PACKED_ACK');
   }finally{await output.close();}
   }finally{await file.close();}expect(service.exportMap).toHaveBeenCalledOnce();
    const ordinary=await readOex(await oex.export(client,session,candidate.id,match));expect(ordinary.manifest.formatVersion).toBe('1.0.0-draft.12');
