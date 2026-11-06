@@ -86,7 +86,7 @@ export class Auth {
  }
  /** Private selected workspace import requires a fresh snapshot after its
   * maintenance locks even when the database default is repeatable read. */
- requestForNativeWorkspaceUpload<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
+ requestForNativeWorkspaceMutation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
   return this.authorizedRequest(token,tenantId,csrf,'write',work,true);
  }
  /** CSRF-protected export preparation reads DB state under its existing row

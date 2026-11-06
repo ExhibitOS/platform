@@ -74,7 +74,7 @@ export async function runFreshNativeOexOwner(input:{pool:Pool;databaseUrl:string
     const observed=awaitSelectedStudioPut(saveSlot);void observed.catch(()=>{});
     let timer:ReturnType<typeof setTimeout>|undefined;
     try{
-     const initial=await armSelectedStudioPut(saveSlot,saveOwner,expected);if(initial.etag!==committed.etag||!isDeepStrictEqual(initial.draft,committed.draft))throw Error('NATIVE_OEX_OWNER');
+     const initial=await armSelectedStudioPut(saveSlot,saveOwner,expected,selection.archiveFormat==='1.0.0-draft.12'?workspaceAuthority:undefined);if(initial.etag!==committed.etag||!isDeepStrictEqual(initial.draft,committed.draft))throw Error('NATIVE_OEX_OWNER');
      timer=setTimeout(()=>{closeSelectedStudioPutSlot(saveSlot);void channel.close().catch(()=>{});},120000);
      const correlationId=randomUUID(),v3Fields=claim.v3;if(v3&&!v3Fields)throw Error('NATIVE_OEX_OWNER');const identity=v3?{correlationId,...v3Fields,attemptId:claim.attemptId}:undefined;
      const saveFrame=v3?{version:1,kind:'save-ready-v3',correlationId,operationCorrelationId:identity!.operationCorrelationId,attemptId:claim.attemptId,runtimeGeneration:identity!.runtimeGeneration,stageId:identity!.stageId,reportSha256:identity!.reportSha256,exhibitionId:committed.exhibitionId,etag:initial.etag,requestId:saveRequestId}:{version:1,kind:'save-ready',correlationId,attemptId:claim.attemptId,exhibitionId:committed.exhibitionId,etag:initial.etag,requestId:saveRequestId};

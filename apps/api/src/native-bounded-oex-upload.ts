@@ -165,7 +165,7 @@ function registerUploadRoutes(app:FastifyInstance,auth:Auth,input:AuthConfig,blo
    const actual=(async()=>{
     current();await state.assertLive();current();
     // Await the WHOLE auth.request promise: its work callback is pre-COMMIT.
-    const invoke=state.workspaceAuthority?auth.requestForNativeWorkspaceUpload.bind(auth):(token:string|undefined,tenantId:string,csrf:string|undefined,work:(c:PoolClient,s:Session)=>Promise<T>)=>auth.request(token,tenantId,csrf,true,work);
+    const invoke=state.workspaceAuthority?auth.requestForNativeWorkspaceMutation.bind(auth):(token:string|undefined,tenantId:string,csrf:string|undefined,work:(c:PoolClient,s:Session)=>Promise<T>)=>auth.request(token,tenantId,csrf,true,work);
     const result=await invoke(token(req),state.selection.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,async(c,s)=>{
      if(s.id!==state.selection.sessionId||s.tenantId!==state.selection.tenantId||s.userId!==state.selection.principalId||!['admin','artist'].includes(s.role))throw new ApiError(403,'FORBIDDEN');
      const active=async(lock=false)=>{const r=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL"+(lock?' FOR SHARE OF a,u,m,t':''),[s.id,s.tenantId,s.userId]);if(r.rowCount!==1||r.rows[0]?.role!==s.role)throw new ApiError(403,'FORBIDDEN');};
