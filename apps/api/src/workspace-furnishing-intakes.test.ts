@@ -122,3 +122,9 @@ it('registers stool bytes only for an explicitly stool-capable owner',async()=>{
  expect(registered.furnishing).toMatchObject({kind:'stool',model:f.declaration.model});
  expect(await service.model(f.client,f.session,registered.furnishing!.id,1,'display')).toMatchObject({bytes:f.bytes,sha256:f.declaration.model.sha256});
 });
+
+it('requires both stool and room-visual owner capabilities before accepting a new visual kind',async()=>{
+ const f=fixture(),declaration={...f.declaration,kind:'partition'},stoolOnly=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true}),roomOnly=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingRoomVisual:true});
+ await expect(stoolOnly.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});await expect(roomOnly.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true}),intake=await service.create(f.client,f.session,declaration);await service.upload(f.client,f.session,intake.intakeId,f.bytes);await service.complete(f.client,f.session,intake.intakeId);expect(await service.work(f.pool)).toBe(true);expect((await service.read(f.client,f.session,intake.intakeId)).furnishing).toMatchObject({kind:'partition',model:f.declaration.model});
+});

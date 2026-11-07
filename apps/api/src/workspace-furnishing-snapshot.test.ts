@@ -19,3 +19,8 @@ it('requires an explicit stool-capable owner for version 2 snapshots',async()=>{
  service.supportsStool.mockReturnValue(true);
  await expect(assertWorkspaceFurnishingSnapshot(client,session,v2,service as never)).resolves.toBeUndefined();
 });
+
+it('rejects even old kinds in a v3 snapshot without the room-visual capability',async()=>{
+ const v3=structuredClone(candidate);v3.extensions['org.exhibitos.studio/workspace-furnishings'].version=3;
+ const service={supportsRoomVisual:vi.fn(()=>false),readVersion:vi.fn(async()=>structuredClone(item))};await expect(assertWorkspaceFurnishingSnapshot(client,session,v3,service as never)).rejects.toMatchObject({code:'WORKSPACE_FURNISHING_UNAVAILABLE'});expect(service.readVersion).not.toHaveBeenCalled();service.supportsRoomVisual.mockReturnValue(true);await expect(assertWorkspaceFurnishingSnapshot(client,session,v3,service as never)).resolves.toBeUndefined();
+});

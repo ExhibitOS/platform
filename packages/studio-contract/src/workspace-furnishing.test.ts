@@ -22,5 +22,14 @@ it('requires explicit v2 for stool while retaining v1 rejection',async()=>{
  const extension={version:2,furnishings:[{...descriptor,id,version:1}],placements:[{id:'10000000-0000-4000-8000-000000000004',roomId,furnishingId:id,furnishingVersion:1,position:[1,0,0],yaw:0,scale:1}]};
  const candidate={rooms:[{id:roomId,dimensions:{width:10,depth:10,height:4}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}};
  expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);
- for(const version of [1,3,'2']){extension.version=version as number;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);}
+ for(const version of [1,4,'2']){extension.version=version as number;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);}
+});
+
+it('accepts exact room-visual kinds only under v3 while retaining prior kinds',async()=>{
+ const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE}=await import('./workspace-furnishing.ts'),roomId='10000000-0000-4000-8000-000000000003',id='10000000-0000-4000-8000-000000000002';
+ for(const kind of ['partition','info-stand','barrier','display-case']){
+  const declaration={...base,kind};expect(validWorkspaceFurnishingDeclaration(declaration)).toBe(false);expect(validWorkspaceFurnishingDeclaration(declaration,{allowStool:true})).toBe(false);expect(validWorkspaceFurnishingDeclaration(declaration,{allowRoomVisual:true})).toBe(true);
+  const {requestId:_,...fields}=declaration;void _;const extension={version:3,furnishings:[{...fields,id,version:1}],placements:[{id:'10000000-0000-4000-8000-000000000004',roomId,furnishingId:id,furnishingVersion:1,position:[1,0,0],yaw:0,scale:1}]},candidate={rooms:[{id:roomId,dimensions:{width:10,depth:10,height:4}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}};
+  expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);extension.version=2;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);
+ }
 });

@@ -58,7 +58,7 @@ describe('static publication content-addressed reads',()=>{
  });
 });
 
-it.each([{version:1,kind:'pedestal'},{version:2,kind:'stool'}])('requires the canonical content-addressed path for workspace furnishing $kind before model I/O',async({version,kind})=>{
+it.each([{version:1,kind:'pedestal'},{version:2,kind:'stool'},{version:3,kind:'partition'},{version:3,kind:'info-stand'},{version:3,kind:'barrier'},{version:3,kind:'display-case'}])('requires the canonical content-addressed path for workspace furnishing $kind before model I/O',async({version,kind})=>{
  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),exhibition=original.exhibition,publicationId=randomUUID(),assetId=randomUUID(),room=exhibition.rooms[0]!,model=Buffer.from('synthetic GLB content'),sha=digest(model),url=`/api/v1/publications/${publicationId}/assets/${assetId}`;
  const furnishing={id:assetId,version:1,kind,name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary',bytes:model.length,sha256:sha}};exhibition.extensions={...exhibition.extensions,'org.exhibitos.studio/workspace-furnishings':{version,furnishings:[furnishing],placements:[{id:randomUUID(),roomId:room.id,furnishingId:assetId,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}} as never;
  const value={publication:{id:publicationId,status:'published',revisionSha256:digest(freezeCanonical(exhibition))},exhibition,assets:[{assetId,mime:'model/gltf-binary',url}]},pub=Buffer.from(JSON.stringify(value)),pubHash=digest(pub),pubPath=`data/${pubHash}.json`;

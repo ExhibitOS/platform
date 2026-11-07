@@ -129,3 +129,9 @@ test('stool capability is separate, exact and linked to the existing 040 marker'
   await assert.rejects(hasWorkspaceFurnishingStoolCapability(path),/NATIVE_OEX_CATALOG/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('room-visual capability binds the separate stool marker and exact v3 profile',async()=>{
+ const {WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,hasWorkspaceFurnishingRoomVisualCapability}=await import('./native-oex-normal-catalog.mjs');
+ const root=await mkdtemp(join(tmpdir(),'native-room-visual-marker-')),path=join(root,'room-visual.json');
+ try{assert.equal(await hasWorkspaceFurnishingRoomVisualCapability(path),false);await writeFile(path,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY);assert.equal(await hasWorkspaceFurnishingRoomVisualCapability(path),true);const marker=JSON.parse(WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY);assert.equal(marker.parentCapabilitySHA256,sha(WORKSPACE_FURNISHING_STOOL_CAPABILITY));assert.equal(marker.extensionVersion,3);assert.equal(marker.exportFormat,'1.0.0-draft.15');await writeFile(path,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY+' ');await assert.rejects(hasWorkspaceFurnishingRoomVisualCapability(path),/NATIVE_OEX_CATALOG/);}finally{await rm(root,{recursive:true,force:true});}
+});

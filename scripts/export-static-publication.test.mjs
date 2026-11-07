@@ -380,7 +380,7 @@ test('concrete thumbnail omission affects optional selection only; required wall
  });
 });
 
-for(const profile of [{version:1,kind:'pedestal'},{version:2,kind:'stool'}])test(`workspace ${profile.kind} exports exact declared bytes and rejects denied rights, corruption and Pages oversize`,async t=>{
+for(const profile of [{version:1,kind:'pedestal'},{version:2,kind:'stool'},{version:3,kind:'partition'},{version:3,kind:'info-stand'},{version:3,kind:'barrier'},{version:3,kind:'display-case'}])test(`workspace ${profile.kind} exports exact declared bytes and rejects denied rights, corruption and Pages oversize`,async t=>{
  const {fixture,options,directory}=await setup(t),room=fixture.raw.exhibition.rooms[0],id=randomUUID(),placementId=randomUUID(),model=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb'));
  const rights={holder:'Synthetic holder',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic credit',permissions:{display:true,download:true,export:true,commercial:true}},descriptor={id,version:1,kind:profile.kind,name:'Synthetic furnishing',rights,provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary',bytes:model.length,sha256:sha(model)}};
  fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.studio/workspace-furnishings':{version:profile.version,furnishings:[descriptor],placements:[{id:placementId,roomId:room.id,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}};
