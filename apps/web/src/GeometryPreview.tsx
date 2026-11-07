@@ -24,6 +24,7 @@ import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
 import {viewingPlanFor} from '@exhibitos/studio-contract';
+import {viewingRequestPriority} from './viewer/viewing-request-priority';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredByMaterialLoad,materialRetryWanted} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
@@ -2093,7 +2094,7 @@ export function GeometryPreview({
             // download/decode exactly when the viewer turns towards the work.
             const task=tasks.get(prior);
             if(task){task.manual=task.manual||manual;task.full=task.full||full;if(!prepareOnly)task.prepareOnly=false;}
-            if(art.revisionId===currentArtwork)void scheduler.request(prior,-100);
+            if(viewingPins.has(art.revisionId)||art.revisionId===currentArtwork)void scheduler.request(prior,viewingRequestPriority(viewingPins.has(art.revisionId),art.revisionId===currentArtwork,prepareOnly,arts.indexOf(art)));
             return;
           }
           const ready=prepared.get(inventory.id);
@@ -2125,7 +2126,7 @@ export function GeometryPreview({
           tasks.set(key,task);
           stages.begin(inventory.id,key);
           void scheduler
-            .request(key, art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art))
+            .request(key, viewingRequestPriority(viewingPins.has(art.revisionId),art.revisionId===currentArtwork,prepareOnly,arts.indexOf(art)))
             .then(result => {
               const {object}=result;
               peak.release(key);
