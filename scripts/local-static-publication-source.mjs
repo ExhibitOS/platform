@@ -28,7 +28,8 @@ export async function localStaticPublicationSource({sourceDir,sourceManifestSha2
  let total=0;const entries=new Map();for(const entry of manifest.files){if(!safe(entry.path)||entry.path==='static-export-manifest.json'||entries.has(entry.path)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0||entry.bytes>25*1024*1024||!sha.test(entry.sha256))fail();total+=entry.bytes;if(total>512*1024*1024)fail();entries.set(entry.path,entry);}
  if(entries.get('static-publication-index.json')?.sha256!==indexSha256)fail();
  const pending=new Set(entries.keys());
- let visited=0;async function walk(dir,prefix='',depth=0){if(cancelled())throw Error('REFRESH_CANCELLED');if(depth>32)fail();for(const item of await readdir(dir,{withFileTypes:true})){if(++visited>40000)fail();const path=prefix+item.name;if(item.isDirectory())await walk(join(dir,item.name),path+'/',depth+1);else if(item.isFile()&&path==='static-export-manifest.json'){}else if(item.isFile()&&pending.delete(path)){}else fail();}}
+ const directories=new Set([...entries.keys()].flatMap(path=>{const parts=path.split('/');return parts.slice(0,-1).map((_,i)=>parts.slice(0,i+1).join('/'));}));
+ let visited=0;async function walk(dir,prefix='',depth=0){if(cancelled())throw Error('REFRESH_CANCELLED');if(depth>32)fail();for(const item of await readdir(dir,{withFileTypes:true})){if(++visited>40000)fail();const path=prefix+item.name;if(item.isDirectory()){if(!directories.has(path))fail();await walk(join(dir,item.name),path+'/',depth+1);}else if(item.isFile()&&path==='static-export-manifest.json'){}else if(item.isFile()&&pending.delete(path)){}else fail();}}
  await walk(root);if(pending.size)fail();
  for(const [path,entry] of entries){const bytes=await readRegular(root,path,entry.bytes,cancelled);if(bytes.length!==entry.bytes||digest(bytes)!==entry.sha256)fail();}
  const origin='https://local-static-publication.invalid';
