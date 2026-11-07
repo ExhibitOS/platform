@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { EntranceReadingShell } from "./EntranceReadingShell";
 import { DynamicConnectionStatus } from "./DynamicConnectionStatus";
 import { PublicPublication } from "./PublicPublication";
+import { allowsPrivateEditorEntry } from "./private-editor/device-entry";
 import { loadStaticPublication } from "./static-publication-source";
 import "./style.css";
 import {spaceStillFor} from '@exhibitos/studio-contract';
@@ -23,7 +24,7 @@ async function load(){
   if(current!==generation)return;
   if(value.local&&document.querySelector<HTMLMetaElement>('meta[name="exhibitos-dynamic"]')?.content==="same-origin")value.local.dynamic=true;
   const privateEditorHref=document.querySelector<HTMLMetaElement>('meta[name="exhibitos-private-editor"]')?.content==="enabled"?"/studio.html":undefined;
-  root.render(<PublicPublication id={value.publication.id} initial={value} privateEditorHref={privateEditorHref} connectionStatus={value.local?.dynamic?<DynamicConnectionStatus publicationId={value.publication.id} revisionSha256={value.publication.revisionSha256}/>:undefined}/>);
+  root.render(<PublicPublication id={value.publication.id} initial={value} privateEditorHref={privateEditorHref} privateEditorRestricted={!!privateEditorHref&&!allowsPrivateEditorEntry(navigator)} connectionStatus={value.local?.dynamic?<DynamicConnectionStatus publicationId={value.publication.id} revisionSha256={value.publication.revisionSha256}/>:undefined}/>);
   const still=spaceStillFor(value.exhibition),expiry=Math.min(...[...value.exhibition.artworks,...value.exhibition.mediaAssets,...(still?[still]:[])].map(a=>a.rights.expiresAt?Date.parse(a.rights.expiresAt):Infinity));
   const schedule=()=>{if(current!==generation||!Number.isFinite(expiry))return;const remaining=expiry-Date.now();if(remaining<=0){failed();return;}timer=setTimeout(schedule,Math.min(remaining,2147483647));};schedule();
  }catch{if(current===generation)failed();}
