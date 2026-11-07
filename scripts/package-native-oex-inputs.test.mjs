@@ -6,10 +6,10 @@ import {join,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability,nativePackageExcludedFiles} from './package-native-runtime.mjs';
+import {packageNativeRuntime,copyFreshOexValidationFiles,copyNormalOexSelectedFile,writeNormalOexCapability,nativePackageExcludedFiles} from './package-native-runtime.mjs';
 import {WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,hasWorkspaceFurnishingPublicationCapability,hasWorkspaceMaterialCapability,hasWorkspaceFurnishingCapability,hasWorkspaceFurnishingWriterCapability,verifyWorkspaceMaterialMigrations} from './native-oex-normal-catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-const spec='vendor/exhibitos-spec-0.1.0-draft.18.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql',floor='database/native-oex-normal/029_oex_quiet_oak_floor.sql',concrete='database/native-oex-normal/030_oex_concrete_surface.sql';
+const spec='vendor/exhibitos-spec-0.1.0-draft.19.tgz',migration='database/fresh-oex-test/026_oex_bounded.sql',normal='database/native-oex-normal/026_oex_file_profile.sql',provenance='database/native-oex-normal/027_oex_exhibition_provenance.sql',material='database/native-oex-normal/028_oex_material_catalogue.sql',floor='database/native-oex-normal/029_oex_quiet_oak_floor.sql',concrete='database/native-oex-normal/030_oex_concrete_surface.sql';
 const materialPublication='database/native-workspace-material-publication/039_workspace_material_publication.sql';
 const intake='database/native-oex-normal/031_workspace_material.sql',workspaceOex='database/native-oex-normal/032_oex_workspace_material.sql',stage='database/native-oex-workspace-import/033_workspace_material_import_provenance.sql',proof='database/native-oex-workspace-import/034_workspace_material_terminal_proof.sql',wall='database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql',furnishing='database/native-workspace-furnishing/036_workspace_furnishing.sql',writer='database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql',publication='database/native-workspace-furnishing-publication/038_workspace_furnishing_publication.sql';
 test('candidate import schema stays outside all current packages and the v5 catalog remains valid',async()=>{
@@ -128,3 +128,7 @@ test('039 publication schema and capability require the exact 038 parent',async(
  await copyNormalOexSelectedFile(f.source,f.output,f.tracked,true,true,true,true,true,true,true,true);await mkdir(join(f.output,'scripts'));await writeNormalOexCapability(f.output,true,true,true,true,true,true,true,true);
  assert.deepEqual(await readFile(join(f.output,materialPublication)),await readFile(join(f.source,materialPublication)));const marker=await readFile(join(f.output,'scripts/native-workspace-material-publication-capability-v1.json'));assert.equal(marker.length,163);assert.equal(createHash('sha256').update(marker).digest('hex'),'c93117acc9cc397cb978bcb5d4bbc5732699af983f2f3c0413e9b4205455339c');
  }finally{await rm(f.temp,{recursive:true,force:true});}});
+
+test('stool packaging requires explicit 040 parent selection',async()=>{
+ await assert.rejects(packageNativeRuntime('/synthetic-unused',{workspaceFurnishingStoolSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
+});

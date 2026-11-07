@@ -22,3 +22,9 @@ it('stays hidden when a predicate, cleanup or notification throws',async()=>{vi.
 it('fails closed when authority check throws synchronously',async()=>{vi.useFakeTimers();const f=setup();f.check.mockImplementationOnce(()=>{throw Error('WORKSPACE_AUTHORITY_DRAINING');});await mountOwnerWorkspacePlacement(f.options);await vi.advanceTimersByTimeAsync(5000);expect(f.dispose).toHaveBeenCalledOnce();expect(f.object.visible).toBe(false);expect(f.onRevoked).toHaveBeenCalledOnce();});
 it('does not install a live mount if the parent aborts during room attachment',async()=>{vi.useFakeTimers();const f=setup();f.object.addEventListener('added',()=>f.controller.abort());await expect(mountOwnerWorkspacePlacement(f.options)).rejects.toThrow();expect(f.dispose).toHaveBeenCalledOnce();expect(f.room.children).toHaveLength(0);expect(vi.getTimerCount()).toBe(0);});
 it('removes the parent abort listener if authority source setup throws',async()=>{const f=setup(),remove=vi.spyOn(f.controller.signal,'removeEventListener');vi.mocked(ownerWorkspaceModelSource).mockImplementationOnce(()=>{throw Error('BAD_SCOPE');});await expect(mountOwnerWorkspacePlacement(f.options)).rejects.toThrow('BAD_SCOPE');expect(remove).toHaveBeenCalledWith('abort',expect.any(Function));expect(loadWorkspaceFurnishingModel).not.toHaveBeenCalled();});
+it('mounts a v2 stool at its room-local pose',async()=>{
+ const f=setup(),extension=f.options.candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE];extension.version=2;extension.furnishings[0]!.kind='stool';
+ const mounted=await mountOwnerWorkspacePlacement(f.options);
+ expect(f.room.children).toContain(f.object);expect(f.object.position.toArray()).toEqual([1,0,2]);expect(f.object.rotation.y).toBe(.5);expect(f.object.scale.x).toBe(1.5);
+ mounted.dispose();expect(f.room.children).toHaveLength(0);
+});

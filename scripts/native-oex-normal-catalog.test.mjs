@@ -114,3 +114,18 @@ test('039 selected capability has its independently agreed exact bytes',async()=
  assert.equal(Buffer.byteLength(marker),209);assert.equal(sha(marker),'4bded824d2c2eaab8be1f165903ed79b08f5182bb873065c9934226e135e6225');
  assert.equal(Buffer.byteLength(material),163);assert.equal(sha(material),'c93117acc9cc397cb978bcb5d4bbc5732699af983f2f3c0413e9b4205455339c');
 });
+
+test('stool capability is separate, exact and linked to the existing 040 marker',async()=>{
+ const {WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,hasWorkspaceFurnishingStoolCapability}=await import('./native-oex-normal-catalog.mjs');
+ const root=await mkdtemp(join(tmpdir(),'native-stool-marker-')),path=join(root,'stool.json');
+ try{
+  assert.equal(await hasWorkspaceFurnishingStoolCapability(path),false);
+  await writeFile(path,WORKSPACE_FURNISHING_STOOL_CAPABILITY);
+  assert.equal(await hasWorkspaceFurnishingStoolCapability(path),true);
+  const marker=JSON.parse(WORKSPACE_FURNISHING_STOOL_CAPABILITY);
+  assert.equal(marker.parentCapabilitySHA256,sha(WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY));
+  assert.equal(marker.extensionVersion,2);assert.equal(marker.exportFormat,'1.0.0-draft.14');
+  await writeFile(path,WORKSPACE_FURNISHING_STOOL_CAPABILITY+' ');
+  await assert.rejects(hasWorkspaceFurnishingStoolCapability(path),/NATIVE_OEX_CATALOG/);
+ }finally{await rm(root,{recursive:true,force:true});}
+});

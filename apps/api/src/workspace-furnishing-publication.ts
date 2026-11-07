@@ -15,7 +15,7 @@ export function projectWorkspaceFurnishings(candidate:{extensions?:Record<string
  if(!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(422,'DRAFT_INVALID');
  const bindings:Array<{publicId:string;descriptor:WorkspaceFurnishingDescriptor}>=source.furnishings.map(descriptor=>({publicId:map(descriptor.id),descriptor:structuredClone(descriptor)}));
  const furnishingIds=new Map(bindings.map(binding=>[binding.descriptor.id,binding.publicId]));
- const extension:WorkspaceFurnishings={version:1,furnishings:source.furnishings.map(descriptor=>({...structuredClone(descriptor),id:furnishingIds.get(descriptor.id)!,provenance:'Provided by the exhibition editor.'})),placements:source.placements.map(placement=>({...structuredClone(placement),id:map(placement.id),roomId:map(placement.roomId),furnishingId:furnishingIds.get(placement.furnishingId)!}))};
+ const extension:WorkspaceFurnishings={version:source.version,furnishings:source.furnishings.map(descriptor=>({...structuredClone(descriptor),id:furnishingIds.get(descriptor.id)!,provenance:'Provided by the exhibition editor.'})),placements:source.placements.map(placement=>({...structuredClone(placement),id:map(placement.id),roomId:map(placement.roomId),furnishingId:furnishingIds.get(placement.furnishingId)!}))};
  return {extension,bindings};
 }
 
