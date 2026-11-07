@@ -21,3 +21,12 @@ test('enforces u64 bounds, canonical integers and strict expected fields',()=>{
  for(const changed of [{rootDevice:'18446744073709551616'},{rootInode:'0'},{lockInode:'01'},{lockDevice:'-1'},{payloadManifestSHA256:'A'.repeat(64)},{mode:'other'},{extra:true}])assert.throws(()=>encodeFurnishingLeaseFrame(lease,{...fields,...changed},secret),/FURNISHING_LEASE_INVALID/);
  const maximum={...fields,lockInode:'18446744073709551615'};assert.deepEqual(verifyFurnishingLeaseFrame(encodeFurnishingLeaseFrame(lease,maximum,secret),lease,maximum,secret),maximum);
 });
+
+test('selected 038 has a separate authenticated mode and cannot impersonate existing modes',()=>{
+ const selected={...fields,mode:'workspace-furnishing-038-selected-import-v7'},frame=encodeFurnishingLeaseFrame(lease,selected,secret);
+ assert.equal(JSON.parse(frame).mac,'813f55583aa1cd1b00dc638b206228e6fac1b2bddd51600a94a0a8cdb0cc07e2');
+ assert.equal(JSON.parse(encodeFurnishingLeaseFrame(ack,selected,secret)).mac,'4e65a50d15bb2e610bce5bf35f04c2172374a32b160b2fc083df439bc544f7af');
+ assert.deepEqual(verifyFurnishingLeaseFrame(frame,lease,selected,secret),selected);
+ assert.throws(()=>verifyFurnishingLeaseFrame(frame,lease,fields,secret),/FURNISHING_LEASE_INVALID/);
+ assert.notEqual(JSON.parse(frame).mac,JSON.parse(encodeFurnishingLeaseFrame(lease,fields,secret)).mac);
+});

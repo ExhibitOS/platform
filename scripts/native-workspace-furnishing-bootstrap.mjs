@@ -10,16 +10,17 @@ import {recognizeNormalOexCatalog,verifyNormalOexMigration,verifyNormalOexProven
 // select these modes. The database's exclusive token check remains mandatory;
 // this admission never reclaims an unknown predecessor's retained work.
 export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission){
- const init='workspace-furnishing-036-initialize-v1',reopen='workspace-furnishing-036-reopen-v1';
- if(mode!==init&&mode!==reopen)return;
+ const init='workspace-furnishing-036-initialize-v1',reopen='workspace-furnishing-036-reopen-v1',selected='workspace-furnishing-038-selected-import-v7';
+ if(mode!==init&&mode!==reopen&&mode!==selected)return;
  assertIssuedFurnishingOrdinaryAdmission(admission);
- if(admission.writer.identity.mode!==mode||(mode===init?admission.fields.admissionKind!=='fresh-empty':!['clean-reopen','verified-restore'].includes(admission.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(admission.writer.identity.mode!==mode||(mode===init||mode===selected?admission.fields.admissionKind!=='fresh-empty':!['clean-reopen','verified-restore'].includes(admission.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
  await admission.writer.assertLive();
 }
 
 export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,writer,channel,ordinaryAdmission}){
- if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1'].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
- if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if(ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(mode==='workspace-furnishing-036-initialize-v1'))throw Error('FURNISHING_ADMISSION_INVALID');}
+ if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-038-selected-import-v7'].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+ if(mode==='workspace-furnishing-038-selected-import-v7'&&(!publicationDirectory||!writer||!ordinaryAdmission))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if(ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1','workspace-furnishing-038-selected-import-v7'].includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');}
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  if(publicationDirectory&&!writerDirectory)throw Error('NATIVE_OEX_CATALOG');
  const writerOptions={...(writerDirectory?{workspaceFurnishingWriterDirectory:writerDirectory}:{}),...(publicationDirectory?{workspaceFurnishingPublicationDirectory:publicationDirectory}:{})};
@@ -35,7 +36,7 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
   // create one when reopening or recovering an already occupied catalog.
   return {requireExisting:true};
  }
- if(mode!=='workspace-furnishing-036-initialize-v1')throw Error('FRESH_DATABASE_OCCUPIED');
+ if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-038-selected-import-v7'].includes(mode))throw Error('FRESH_DATABASE_OCCUPIED');
  const workspace=await verifyWorkspaceMaterialMigrations(normal),importPair=await verifyWorkspaceImportMigrations(imports);
  const migrations=[
   [NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,await verifyNormalOexMigration(normal)],
