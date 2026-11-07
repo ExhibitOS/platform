@@ -63,3 +63,20 @@ producer, capability and migration identities, and check the applied ledger
 before relying on that admission. Older payloads and their pinned identities remain
 separate. Actual import, Studio save, export, and Viewer consumption require their
 own execution evidence.
+
+### Ordinary furnishing admission
+
+The proposed local native furnishing path accepts only a live, authenticated
+Manager admission tied to the issued writer lease and the selected payload.
+`fresh-empty` is restricted to initialization; `clean-reopen` and
+`verified-restore` use the reopen path. The workspace transaction takes the
+exclusive maintenance fence and rejects any retained furnishing worker token
+before owner changes. It never clears unknown claims as part of ordinary
+startup. Manager owns the durable clean-completion and verified-restore proofs;
+new owner traffic or an available lock alone does not establish them.
+
+This source change does not qualify an existing package or enable a release.
+The updated exact source needs its own reviewed package and paired Manager pins,
+then normal start, stop, reopen and restore qualification. The previously
+excluded native EOF/runner exercise remains skipped; no owner-loss or physical
+worker-drain claim follows from the admission handshake or synthetic tests.

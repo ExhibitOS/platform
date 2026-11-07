@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Preparatory private handshake. Runtime admission remains separately disabled;
-// this does not infer previous-generation drain or authorize token recovery.
+// Private handshake bound to the Manager lifecycle. It does not by itself
+// prove prior-generation drain or authorize retained-token recovery.
 import {authenticateFurnishingLeaseFrame,encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {inspectFurnishingWriterFd} from './native-workspace-furnishing-fd.mjs';
 import {createHash} from 'node:crypto';
