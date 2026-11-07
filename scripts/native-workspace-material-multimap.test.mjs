@@ -39,3 +39,24 @@ test('040 packaging is opt-in and rejects selection without the 039 parent',asyn
   assert.equal(await readFile(join(output,'scripts/native-workspace-material-multimap-capability-v1.json'),'utf8'),WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY);
  }finally{await rm(tmp,{recursive:true,force:true});}
 });
+
+test('041 frame preparation requires its exact catalog and sealed capability',async()=>{
+ const catalog=await import('./native-oex-normal-catalog.mjs'),base=dir('migrations'),extra=dir('native-oex-normal'),preparation=dir('native-workspace-frame-preparation'),rows=[];
+ for(const directory of [base,extra,...Object.values(options),preparation])for(const name of (await readdir(directory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort())rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+ rows.sort((a,b)=>a.name.localeCompare(b.name));assert.equal(rows.length,41);const pool={query:async()=>({rows})},withPreparation={...options,workspaceFramePreparationDirectory:preparation};
+ assert.equal(await recognizeNormalOexCatalog(pool,base,extra,withPreparation),extra);await catalog.assertExactWorkspaceFramePreparationCatalog(pool);
+ await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,options),/NATIVE_OEX_CATALOG/);rows[40].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,withPreparation),/NATIVE_OEX_CATALOG/);
+ const tmp=await mkdtemp(join(tmpdir(),'exhibitos-frame-preparation-marker-')),path=join(tmp,'marker');try{assert.equal(await catalog.hasWorkspaceFramePreparationCapability(path),false);await writeFile(path,catalog.WORKSPACE_FRAME_PREPARATION_CAPABILITY);assert.equal(await catalog.hasWorkspaceFramePreparationCapability(path),true);await writeFile(path,catalog.WORKSPACE_FRAME_PREPARATION_CAPABILITY+' ');await assert.rejects(catalog.hasWorkspaceFramePreparationCapability(path),/NATIVE_OEX_CATALOG/);}finally{await rm(tmp,{recursive:true,force:true});}
+});
+
+test('041 packaging requires its parent and selects the exact SQL separately',async()=>{
+ const {copyNormalOexSelectedFile,nativePackageExcludedFiles,packageNativeRuntime}=await import('./package-native-runtime.mjs');
+ const tmp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-frame-preparation-package-'))),output=join(tmp,'output'),source=await realpath(fileURLToPath(new URL('../',import.meta.url))),tracked=new Map([['database',new Set()]]);
+ try{
+  assert.ok(nativePackageExcludedFiles(false,true).has('database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql'));
+  await assert.rejects(packageNativeRuntime('/synthetic-unused',{workspaceArtworkFramePreparationSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await assert.rejects(copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,true);
+  const bytes=await readFile(join(output,'database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql'));assert.equal(createHash('sha256').update(bytes).digest('hex'),'c5a030186557dc4774aa0d2a677be7f432c1010e2ee1c1a34345f69ac7e2723d');
+ }finally{await rm(tmp,{recursive:true,force:true});}
+});

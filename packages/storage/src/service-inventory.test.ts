@@ -127,3 +127,11 @@ it('retains registered and unused workspace furnishing GLB references in full ba
  expect(rowObjectReferences('workspace_furnishing_versions',{...version,object_key:'other/foreign'}).issues[0]?.code).toBe('INVALID_REFERENCE');
  expect(rowObjectReferences('workspace_furnishing_versions',{...version,descriptor:{...version.descriptor,id:'different'}}).issues[0]?.code).toBe('INVALID_INVENTORY');
 });
+
+it('protects both prepared frame references without misclassifying staged rows',()=>{
+ const tenant='10000000-0000-4000-8000-000000000001',workspace='10000000-0000-4000-8000-000000000002',id='10000000-0000-4000-8000-000000000003',source='a'.repeat(64),renderable='b'.repeat(64),prefix=`${tenant}/workspace-furnishing-intake/${workspace}/${id}`;
+ const record={tenant_id:tenant,workspace_id:workspace,intake_id:id,source_key:`${prefix}/${source}`,source_bytes:123,source_sha256:source,renderable_key:`${prefix}/${renderable}`,renderable_bytes:120,renderable_sha256:renderable,recipe:'omit-unused-invalid-tangent-r1',state:'registered'};
+ const registered=rowObjectReferences('workspace_frame_preparations',record);expect(registered.issues).toEqual([]);expect(registered.references).toHaveLength(2);expect(registered.references.every(ref=>ref.required)).toBe(true);
+ const staged=rowObjectReferences('workspace_frame_preparations',{...record,state:'staged'});expect(staged.issues).toEqual([]);expect(staged.references[1]?.required).toBe(false);
+ expect(rowObjectReferences('workspace_frame_preparations',{...record,source_key:'other/foreign'}).issues[0]?.code).toBe('INVALID_INVENTORY');
+});

@@ -20,7 +20,7 @@ const bytes=(v:unknown):number|undefined=>Number.isSafeInteger(Number(v))&&Numbe
 // Only explicitly typed storage fields are references. No arbitrary JSON string scanning.
 export function rowObjectReferences(table:string,row:Record<string,unknown>):{references:ObjectReference[];issues:InventoryIssue[]} {
  const references:ObjectReference[]=[],issues:InventoryIssue[]=[];
- const tenant=row.tenant_id,binding=`${table}:${String(tenant)}:${String(row.id??row.publication_id??'')}`;
+ const tenant=row.tenant_id,binding=`${table}:${String(tenant)}:${String(row.id??row.intake_id??row.publication_id??'')}`;
  const add=(key:unknown,required:boolean,size?:unknown,digest?:unknown,suffix='',aggregate?:ObjectReference['aggregate'])=>{
   if(!keyValid(key)||typeof tenant!=='string'||!key.startsWith(tenant+'/')){issues.push({code:'INVALID_REFERENCE',binding:binding+suffix});return;}
   const n=bytes(size);if(size!==undefined&&n===undefined){issues.push({code:'INVALID_EXPECTED_SIZE',key,binding:binding+suffix});return;}
@@ -55,6 +55,11 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   if(phase==='cancelled')break;if(row.received===null||row.received===undefined){if(!['uploading','cancelling'].includes(phase))issues.push({code:'INVALID_INVENTORY',binding});break;}
   if(!obj(row.received)||!obj(row.declaration)||!obj(row.declaration.model)||!bytes(row.received.bytes)||!hex(row.received.sha256)||row.declaration.model.bytes!==row.received.bytes||row.declaration.model.sha256!==row.received.sha256||row.received.key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.id}/${row.received.sha256}`){issues.push({code:'INVALID_INVENTORY',binding});break;}
   add(row.received.key,phase!=='cancelling',row.received.bytes,row.received.sha256,':model');break;
+ }
+ case 'workspace_frame_preparations':{
+  if(!['staged','registered'].includes(String(row.state))||row.recipe!=='omit-unused-invalid-tangent-r1'||!hex(row.source_sha256)||!hex(row.renderable_sha256)||!bytes(row.source_bytes)||!bytes(row.renderable_bytes)||typeof row.workspace_id!=='string'||typeof row.intake_id!=='string'||row.source_key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.intake_id}/${row.source_sha256}`||row.renderable_key!==`${tenant}/workspace-furnishing-intake/${row.workspace_id}/${row.intake_id}/${row.renderable_sha256}`){issues.push({code:'INVALID_INVENTORY',binding});break;}
+  add(row.source_key,true,row.source_bytes,row.source_sha256,':source');
+  add(row.renderable_key,row.state==='registered',row.renderable_bytes,row.renderable_sha256,':renderable');break;
  }
  case 'workspace_furnishing_versions':{
   if(!obj(row.descriptor)||!obj(row.descriptor.model)||row.descriptor.model.mime!=='model/gltf-binary'||!bytes(row.descriptor.model.bytes)||!hex(row.descriptor.model.sha256)||row.descriptor.id!==row.id||row.descriptor.version!==row.version){issues.push({code:'INVALID_INVENTORY',binding});break;}
@@ -107,7 +112,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  return {references,issues};
 }
 const quote=(s:string)=>'"'+s.replaceAll('"','""')+'"';
-const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','workspace_furnishing_intakes','workspace_furnishing_versions','freeze_requests','exhibition_freezes']);
+const referencedTables=new Set(['assets','asset_derivatives','artwork_thumbnail_bindings','publication_assets','publication_media','publication_cover_images','studio_audio','studio_cover_images','studio_floor_resources','studio_furnishing_resources','studio_surface_material_resources','studio_footstep_resources','import_jobs','oex_import_jobs','workspace_material_intakes','workspace_material_versions','workspace_material_import_stage','workspace_furnishing_intakes','workspace_furnishing_versions','workspace_frame_preparations','freeze_requests','exhibition_freezes']);
 // Caller owns a transaction + maintenance82002 lock, ensuring a stable DB/blob image.
 // Service backup takes EXCLUSIVE82002 only; never acquire auth82003 underneath it.
 export type MigrationCatalogEntry = {name:string;sha256:string};
@@ -163,8 +168,28 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
   if(options.tenantId&&(!table.scoped||!referencedTables.has(table.name)))continue;
   const cursor='inventory_'+randomUUID().replaceAll('-','');const rowHash=createHash('sha256');let rowCount=0;
   await c.query(`DECLARE ${quote(cursor)} NO SCROLL CURSOR FOR SELECT to_jsonb(t)::text AS raw FROM public.${quote(table.name)} t ${options.tenantId?'WHERE tenant_id=$1':''} ORDER BY to_jsonb(t)::text COLLATE "C"`,options.tenantId?[options.tenantId]:[]);
-  try{for(;;){const batch=await c.query(`FETCH 1000 FROM ${quote(cursor)}`);if(!batch.rowCount)break;for(const item of batch.rows){rowHash.update(item.raw+'\n');rowCount++;if(referencedTables.has(table.name)){const extracted=rowObjectReferences(table.name,JSON.parse(item.raw));report.references.push(...extracted.references);report.issues.push(...extracted.issues);}}}}finally{await c.query(`CLOSE ${quote(cursor)}`);}
+  try{for(;;){const batch=await c.query(`FETCH 1000 FROM ${quote(cursor)}`);if(!batch.rowCount)break;for(const item of batch.rows){rowHash.update(item.raw+'\n');rowCount++;if(referencedTables.has(table.name)){const value=JSON.parse(item.raw);const extracted=rowObjectReferences(table.name,value);report.references.push(...extracted.references);report.issues.push(...extracted.issues);if(table.name==='workspace_frame_preparations'&&value.state==='staged')report.issues.push({code:'FRAME_PREPARATION_UNSETTLED',binding:`${table.name}:${String(value.tenant_id)}:${String(value.intake_id)}`});}}}}finally{await c.query(`CLOSE ${quote(cursor)}`);}
   if(!options.tenantId)report.tables.push({name:table.name,rowCount,sha256:rowHash.digest('hex')});
+ }
+ // The two individually valid objects also need one complete registered
+ // intake/version binding. A missing stage must not turn preparation into a
+ // direct model during backup or restore.
+ if(tables.some(t=>t.name==='workspace_frame_preparations')){
+  const mismatches=await c.query(`SELECT p.intake_id FROM workspace_frame_preparations p
+   LEFT JOIN workspace_furnishing_intakes i ON i.workspace_id=p.workspace_id AND i.id=p.intake_id
+   LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=p.workspace_id AND v.id=p.furnishing_id AND v.version=p.furnishing_version
+   WHERE p.state='registered' ${options.tenantId?'AND p.tenant_id=$1':''} AND (
+    i.id IS NULL OR i.phase<>'registered' OR i.tenant_id<>p.tenant_id OR i.user_id<>p.user_id OR i.furnishing_id<>p.furnishing_id OR i.furnishing_version<>p.furnishing_version OR
+    i.declaration->>'preparationPolicy' IS DISTINCT FROM p.recipe OR i.received->>'key' IS DISTINCT FROM p.source_key OR
+    i.declaration->'model' IS DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.source_bytes,'sha256',p.source_sha256) OR
+    i.received->'bytes' IS DISTINCT FROM to_jsonb(p.source_bytes) OR i.received->>'sha256' IS DISTINCT FROM p.source_sha256 OR
+    v.id IS NULL OR v.tenant_id<>p.tenant_id OR v.user_id<>p.user_id OR v.object_key IS DISTINCT FROM p.renderable_key OR
+    v.descriptor->'model' IS DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.renderable_bytes,'sha256',p.renderable_sha256) OR
+    v.descriptor->'rights' IS DISTINCT FROM i.declaration->'rights' OR v.descriptor->'provenance' IS DISTINCT FROM i.declaration->'provenance' OR
+    v.descriptor->'kind' IS DISTINCT FROM i.declaration->'kind' OR v.descriptor->'name' IS DISTINCT FROM i.declaration->'name') LIMIT 1`,options.tenantId?[options.tenantId]:[]);
+  const missing=await c.query(`SELECT i.id FROM workspace_furnishing_intakes i LEFT JOIN workspace_frame_preparations p ON p.workspace_id=i.workspace_id AND p.intake_id=i.id
+   WHERE i.phase='registered' AND i.declaration ? 'preparationPolicy' AND p.intake_id IS NULL ${options.tenantId?'AND i.tenant_id=$1':''} LIMIT 1`,options.tenantId?[options.tenantId]:[]);
+  if(mismatches.rowCount||missing.rowCount)report.issues.push({code:'FRAME_PREPARATION_BINDING_INVALID'});
  }
  const listing=options.tenantId?await store.list(options.tenantId):store.listAll?await store.listAll():(()=>{throw Error('full store listing required');})();
  const actualKeys=new Set(listing);
