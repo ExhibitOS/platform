@@ -14,7 +14,6 @@ import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission} from './n
 import {encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {encodeFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
 import {assertFurnishingBeforeCommit,assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
-import {assertExactWorkspaceFramePreparationCatalog} from './native-oex-normal-catalog.mjs';
 const url=new URL(process.env.EXHIBITOS_TEST_DATABASE_URL??'invalid://missing');
 if(url.hostname!=='127.0.0.1'||!/^\/exhibitos_frame_no_upgrade_test_[a-z0-9]+$/.test(url.pathname))throw Error('DISPOSABLE_UPGRADE_DATABASE_REQUIRED');
 const pool=new Pool({connectionString:url.href,max:3,statement_timeout:15000}),root=realpathSync(await mkdtemp(join(tmpdir(),'frame-upgrade-'))),lock=join(root,'native-workspace-furnishing-writers.lock'),extra=[];
