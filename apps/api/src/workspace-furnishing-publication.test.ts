@@ -4,6 +4,13 @@ import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings} from '@exhi
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {Privacy} from './privacy.ts';
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+it('projects the portal opening and its furnishing to public identities',()=>{
+ const sha='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b',pose={position:[0,1.5,0],rotation:[0,0,0,1],scale:[1,1,1]},descriptor={id:id(2),version:1,kind:'portal-finish',name:'Portal',rights:{permissions:{display:true,export:true}},provenance:'Private',model:{mime:'model/gltf-binary',bytes:164044,sha256:sha}};
+ const candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform:pose}],surfaces:[{id:id(4),roomId:id(1),type:'wall',transform:pose}],openings:[{id:id(5),surfaceId:id(4),type:'door',dimensions:{width:2.4,height:2.6},offset:[0,-.2]}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:6,furnishings:[descriptor],placements:[],frameAttachments:[],openingAttachments:[{openingId:id(5),furnishingId:id(2),furnishingVersion:1,modelSha256:sha}]}}};
+ const ids=new Map([[id(1),id(11)],[id(2),id(12)],[id(4),id(14)],[id(5),id(15)]]),projected=projectWorkspaceFurnishings(candidate,key=>ids.get(key)!)!;
+ expect(projected.extension.openingAttachments).toEqual([{openingId:id(15),furnishingId:id(12),furnishingVersion:1,modelSha256:sha}]);expect(projected.bindings).toEqual([{publicId:id(12),descriptor}]);
+ expect(validateWorkspaceFurnishings({rooms:[{...candidate.rooms[0],id:id(11)}],surfaces:[{...candidate.surfaces[0],id:id(14),roomId:id(11)}],openings:[{...candidate.openings[0],id:id(15),surfaceId:id(14)}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:projected.extension}}).valid).toBe(true);
+});
 it('remaps public identity consistently without exposing private provenance',()=>{
  const descriptor={id:id(2),version:1,kind:'pedestal',name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Private workspace note',model:{mime:'model/gltf-binary',bytes:32,sha256:'a'.repeat(64)}},candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:1,furnishings:[descriptor],placements:[{id:id(3),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}}};
  const ids=new Map([[id(1),id(11)],[id(2),id(12)],[id(3),id(13)]]),projected=projectWorkspaceFurnishings(candidate,key=>ids.get(key)!)!;
