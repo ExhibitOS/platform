@@ -12,7 +12,7 @@ const used=new WeakSet<object>();
  * retains the actual root/Session and installs a single closed upload slot.
  * The selected server Session is resolved after Manager's token renewal;
  * no token or path crosses this wire. A second live Session is refused. */
-export async function acceptNativeOexSelection(input:{pool:Pool;channel:Channel;workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;ownerUid:number;verifyOwner:()=>Promise<void>;assertDatabase:(c:PoolClient)=>Promise<void>;install:(selection:SelectedNativeUpload)=>Promise<void>;signal:AbortSignal;archiveFormats?:readonly NativeOexFileFormat[];workspaceAuthority?:WorkspaceAuthority}){
+export async function acceptNativeOexSelection(input:{pool:Pool;channel:Channel;workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;ownerUid:number;verifyOwner:()=>Promise<void>;assertDatabase:(c:PoolClient)=>Promise<void>;install:(selection:SelectedNativeUpload)=>Promise<void>;signal:AbortSignal;archiveFormats?:readonly NativeOexFileFormat[];workspaceAuthority?:WorkspaceAuthority;requiredArchiveFormat?:'1.0.0-draft.12'}){
  const allowed=input.archiveFormats??['1.0.0-draft.9'];
  const {pool,channel,workspaceId,tenantId,principalId,runtimeGeneration,ownerUid,verifyOwner,assertDatabase,install,signal}=input;let abort:undefined|(()=>void);
  try{
@@ -25,6 +25,7 @@ export async function acceptNativeOexSelection(input:{pool:Pool;channel:Channel;
   if(!value||typeof value!=='object'||Array.isArray(value))throw Error('NATIVE_OEX_SELECTION');const v=value as Record<string,unknown>,explicitFormat=Object.hasOwn(v,'archiveFormat'),keys=['version','kind','correlationId','runtimeGeneration','workspaceId','tenantId','principalId','requestId','archiveBytes','archiveSha256',...(explicitFormat?['archiveFormat']:[])];
   if(Object.keys(v).length!==keys.length||keys.some(k=>!Object.hasOwn(v,k))||source!==JSON.stringify(Object.fromEntries(keys.map(k=>[k,v[k]])))||v.version!==1||v.kind!=='upload-selection'||typeof v.correlationId!=='string'||!uuid.test(v.correlationId)||v.runtimeGeneration!==runtimeGeneration||v.workspaceId!==workspaceId||v.tenantId!==tenantId||v.principalId!==principalId||typeof v.requestId!=='string'||!uuid.test(v.requestId)||!Number.isSafeInteger(v.archiveBytes)||Number(v.archiveBytes)<1||Number(v.archiveBytes)>512*1024*1024||typeof v.archiveSha256!=='string'||!hex.test(v.archiveSha256))throw Error('NATIVE_OEX_SELECTION');
   const workspaceSelected=v.archiveFormat==='1.0.0-draft.12';
+  if(input.requiredArchiveFormat!==undefined&&(!workspaceSelected||v.archiveFormat!==input.requiredArchiveFormat))throw Error('NATIVE_OEX_SELECTION');
   if(!allowed.every(isNativeOexFileFormat)||allowed.includes('1.0.0-draft.10')!==explicitFormat||explicitFormat&&(workspaceSelected?!input.workspaceAuthority:!isNativeOexFileFormat(v.archiveFormat)||!allowed.includes(v.archiveFormat)))throw Error('NATIVE_OEX_SELECTION');
   signal.throwIfAborted();await verifyOwner();signal.throwIfAborted();
   const session=await transaction(pool,async c=>{

@@ -147,6 +147,11 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
  return supplementalDirectory;
 }
 
+export async function assertExactWorkspacePublicationCatalog(client){
+ const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ if(!Array.isArray(rows)||rows.length!==38||rows[37]?.name!==WORKSPACE_FURNISHING_PUBLICATION_MIGRATION||rows[37]?.sha256!==WORKSPACE_FURNISHING_PUBLICATION_SHA256)throw Error('NATIVE_OEX_CATALOG');
+}
+
 /** Before ordinary native startup writes anything, reject unknown catalog rows.
  * Caller holds migration 82001 in the surrounding transaction. */
 export async function preflightNormalOexCatalog(client,migrationDirectory,supplementalDirectory,{allowWorkspaceMaterial=false,workspaceImportDirectory,workspaceWallImportDirectory,workspaceFurnishingDirectory,workspaceFurnishingWriterDirectory,workspaceFurnishingPublicationDirectory}={}){
