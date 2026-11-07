@@ -17,7 +17,7 @@ function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corrup
  const pub=Buffer.from(JSON.stringify(publication)),pubHash=digest(pub),assetPath=`data/${assetHash}.bin`,pubPath=`data/${pubHash}.json`;
  const index=Buffer.from(JSON.stringify({version:1,publication:{path:options.badPublicationPath?`data/${'a'.repeat(64)}.json`:pubPath,bytes:pub.length,sha256:pubHash,mime:'application/json'},assets:[{assetId,path:options.badAssetPath?`data/${'b'.repeat(64)}.bin`:assetPath,bytes:assetBytes.length,sha256:assetHash,mime:'image/png'}]}));
  vi.stubGlobal('document',{querySelector:()=>({content:digest(index)})});
- const requests:{path:string;cache:RequestCache|undefined}[]=[];const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{const path=String(input);requests.push({path,cache:init?.cache});const data=path==='/static-publication-index.json'?index:path==='/'+pubPath||path===`/data/${'a'.repeat(64)}.json`?pub:path==='/'+assetPath||path===`/data/${'b'.repeat(64)}.bin`?(options.corruptAsset?Buffer.from('x'.repeat(assetBytes.length)):assetBytes):undefined;return data?new Response(data):new Response(null,{status:404});});vi.stubGlobal('fetch',fetcher);return {requests,assetPath,pubPath,assetId,publicationId};
+ const requests:{path:string;cache:RequestCache|undefined}[]=[];const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{const path=String(input);requests.push({path,cache:init?.cache});const data=path==='/static-publication-index.json'?index:path==='/'+pubPath||path===`/data/${'a'.repeat(64)}.json`?pub:path==='/'+assetPath||path===`/data/${'b'.repeat(64)}.bin`?(options.corruptAsset?Buffer.from('x'.repeat(assetBytes.length)):assetBytes):undefined;return data?new Response(data):new Response(null,{status:404});});vi.stubGlobal('fetch',fetcher);return {requests,assetPath,pubPath,assetId,publicationId,indexDigest:digest(index)};
 }
 describe('static publication content-addressed reads',()=>{
  it('binds a selected furnishing model and notice to the version3 source and rejects changed notice bytes',async()=>{
@@ -35,7 +35,7 @@ describe('static publication content-addressed reads',()=>{
   await expect(loadStaticPublication()).rejects.toThrow('STATIC_ASSETS');
  });
  it('keeps the index fresh and uses browser HTTP caching only for verified hashed data',async()=>{
-  const s=setup(),publication=await loadStaticPublication();const response=await publication.local!.fetcher(`/api/v1/publications/${s.publicationId}/assets/${s.assetId}`);expect(await response.text()).toBe('synthetic-public-asset');
+  const s=setup(),publication=await loadStaticPublication();expect(publication.local?.verifiedIndexSha256).toBe(s.indexDigest);const response=await publication.local!.fetcher(`/api/v1/publications/${s.publicationId}/assets/${s.assetId}`);expect(await response.text()).toBe('synthetic-public-asset');
   expect(s.requests).toEqual([{path:'/static-publication-index.json',cache:'no-store'},{path:'/'+s.pubPath,cache:'default'},{path:'/'+s.assetPath,cache:'default'}]);
  });
  it('uses no-store for legacy mismatched paths and still rejects corrupted bytes',async()=>{

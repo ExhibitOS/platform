@@ -31,7 +31,8 @@ async function verifiedIndex(expected:string|undefined,base=""):Promise<StaticIn
 }
 export async function loadStaticPublication(previousIndex?: string):Promise<PublicPublication>{
  const archive=previousIndex&&/^[a-f0-9]{64}$/.test(previousIndex)?`/private-copy-bases/${previousIndex}`:"";
- const index=await verifiedIndex(previousIndex??indexMeta(),archive);
+ const expectedIndex=previousIndex??indexMeta();
+ const index=await verifiedIndex(expectedIndex,archive);
  if(previousIndex&&!retainsCopyInventory(index,await verifiedIndex(indexMeta())))throw Error("STATIC_PREVIOUS_ASSETS");
  if(![1,2,3].includes(index.version)||!Array.isArray(index.assets)||index.assets.length>20000||index.version===1&&(index.resources!==undefined||index.furnishingNotices!==undefined)||index.version===2&&(!Array.isArray(index.resources)||index.resources.length>141||index.furnishingNotices!==undefined)||index.version===3&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>141)))throw Error("STATIC_INDEX");
  if(!index.publication||! /^[a-f0-9]{64}$/.test(index.publication.sha256)||!Number.isSafeInteger(index.publication.bytes)||index.publication.bytes<1||index.publication.bytes>1048576||index.publication.mime!=='application/json')throw Error("STATIC_INDEX");
@@ -58,5 +59,5 @@ export async function loadStaticPublication(previousIndex?: string):Promise<Publ
  if(resource||notice||workspaceAsset)await check();
  return new Response(new Uint8Array(data),{headers:{"content-type":entry.mime,"content-length":String(data.length),"x-exhibitos-publication-revision":value.publication.revisionSha256}});};
  const check=async()=>{if(!validateExhibition(value.exhibition,{publicationTime:new Date().toISOString()}).valid||!publicWorkspaceFurnishingRights(workspace)||!publicWorkspaceMaterialRights(material))throw Error("STATIC_DISPLAY_RIGHTS");};await check();
- return {...value,local:{kind:"static",fetcher,check}};
+ return {...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,fetcher,check}};
 }

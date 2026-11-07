@@ -28,7 +28,7 @@ export interface PublicAsset {
 export interface PublicResource {sha256:string;bytes:number;mime:string;url:string}
 export interface PublicFurnishingNotice extends PublicResource {assetId:string}
 /** Only constructed by verified offline preparation; never accepted from HTTP JSON. */
-export interface LocalPublicationSource {kind?: "static"; dynamic?: boolean; fetcher: typeof fetch; floorFetcher?:typeof fetch; retainedMaterialBytes?:number; check(): Promise<void>}
+export interface LocalPublicationSource {kind?: "static"; verifiedIndexSha256?:string; dynamic?: boolean; fetcher: typeof fetch; floorFetcher?:typeof fetch; retainedMaterialBytes?:number; check(): Promise<void>}
 export interface PublicPublication {
   local?: LocalPublicationSource;
   publication: {
