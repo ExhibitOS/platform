@@ -250,7 +250,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${coverPath}/:imageId/approve`,{schema:{body:object({revision:{const:1}})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.approve(c,s,p.id,p.imageId,(req.body as {revision:number}).revision);}));
  app.get(`${coverPath}/:imageId/preview`,{schema:{querystring:object({expectedSha256:{...str,pattern:'^[a-f0-9]{64}$'}})}},call(false,async(c,s,req,reply)=>{const p=coverParams(req),result=await covers.preview(c,s,p.id,p.imageId,(req.query as {expectedSha256:string}).expectedSha256);reply.header('content-type','image/png').header('x-content-type-options','nosniff').header('content-disposition','inline').header('x-exhibitos-display-copy','true').header('x-exhibitos-watermark-mode','none').header('x-exhibitos-watermarked','false').header('x-exhibitos-cover-sha256',result.sourceSha256);return result.bytes;}));
  for(const action of ['revoke','restore'] as const)app.post(`${coverPath}/:imageId/${action}`,{schema:{body:object({})}},call(true,async(c,s,req)=>{const p=coverParams(req);return covers.availability(c,s,p.id,p.imageId,action==='restore');}));
- const publications=new Publications(pool,store,nativeOexWorkspace);
+ const furnishingOwner=nativeOexWorkspace?.workspaceFurnishingPublication&&workspaceFurnishing?.matchesBinding(nativeOexWorkspace,store)?nativeOexWorkspace:undefined;
+ const publications=new Publications(pool,store,nativeOexWorkspace,workspaceFurnishing,furnishingOwner);
  app.get(`${prefix}/studio/publications`,call(false,async(c,s)=>publications.catalog(c,s)));
  app.get(`${prefix}/studio/publications/:id/editing-draft`,call(false,async(c,s,req,reply)=>{const result=await publications.editingDraft(c,s,(req.params as {id:string}).id);reply.header('etag',result.etag);return result;}));
  const readPublic=async(id:string,assetId?:string,profile?:string)=>{

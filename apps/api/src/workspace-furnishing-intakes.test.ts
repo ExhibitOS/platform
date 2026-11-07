@@ -5,6 +5,7 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
+import {admittedPublicationWorkspaceFurnishings} from './workspace-furnishing-publication.ts';
 vi.mock('./workspace-furnishing-glb.ts',()=>({validateWorkspaceFurnishingGlb:vi.fn(async()=>{})}));
 vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',()=>({assertIssuedFurnishingWriterLease:vi.fn()}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -77,4 +78,34 @@ it('checks owner, current version display rights and source integrity for previe
 });
 it('rejects owner preview after the immutable version display grant expires',async()=>{
  const f=fixture(),declaration={...f.declaration,rights:{...rights,expiresAt:'2020-01-01T00:00:00Z'}},first=await f.service.create(f.client,f.session,declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);await f.service.work(f.pool);const descriptor=(await f.service.read(f.client,f.session,first.intakeId)).furnishing!;await expect(f.service.checkDisplay(f.client,f.session,descriptor.id,1)).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});expect(f.blobs.get).toHaveBeenCalledTimes(2);
+});
+
+it('reads only the exact owner-bound exportable publication model',async()=>{
+ const f=fixture(true),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);await f.service.work(f.pool);
+ const done=await f.service.read(f.client,f.session,first.intakeId),descriptor={...done.furnishing!,version:1 as const},binding={workspaceId:id(1),tenantId:id(2),userId:id(3),descriptor};
+ expect(await f.service.publicationModel(f.client,binding)).toMatchObject({bytes:f.bytes,sha256:descriptor.model.sha256});
+ await expect(f.service.publicationModel(f.client,{...binding,userId:id(9)})).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+ await expect(f.service.publicationModel(f.client,{...binding,descriptor:{...descriptor,name:'Changed'}})).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+ await expect(new WorkspaceFurnishingIntakes(f.blobs,f.owner).publicationModel(f.client,binding)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+ vi.mocked(f.blobs.get).mockResolvedValueOnce(Buffer.from('corrupt'));await expect(f.service.publicationModel(f.client,binding)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+});
+
+it('fences all publication grants at the same time after the last model read',async()=>{
+ const f=fixture(true),now=Date.parse('2030-01-01T00:00:00.000Z'),clock=vi.spyOn(Date,'now');
+ try{
+  clock.mockReturnValue(now);const source={...f.declaration,rights:{...rights,expiresAt:'2030-01-01T00:00:01Z'}};const {requestId:_requestId,...fields}=source;void _requestId;const first={...fields,kind:'pedestal' as const,model:{...fields.model,mime:'model/gltf-binary' as const},id:id(20),version:1 as const},second={...first,id:id(21),rights};
+  await expect(f.service.publicationFence(f.client,[first,second])).resolves.toBeUndefined();
+  clock.mockReturnValue(now+1000);await expect(f.service.publicationFence(f.client,[first,second])).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+ }finally{clock.mockRestore();}
+});
+
+it('rejects the entire publication when the first grant expires during the second model read',async()=>{
+ const f=fixture(true),now=Date.parse('2030-01-01T00:00:00Z'),clock=vi.spyOn(Date,'now');
+ try{
+  clock.mockReturnValue(now);const {requestId:_requestId,...fields}=f.declaration;void _requestId;const first={...fields,id:id(20),version:1 as const,rights:{...rights,expiresAt:'2030-01-01T00:00:01Z'}},second={...first,id:id(21),rights};
+  const published=[first,second].map((item,i)=>({...item,id:id(30+i),provenance:'Provided by the exhibition editor.'})),candidate={rooms:[{id:id(40),dimensions:{width:6,height:3,depth:8}}],extensions:{'org.exhibitos.studio/workspace-furnishings':{version:1,furnishings:published,placements:published.map((item,i)=>({id:id(50+i),roomId:id(40),furnishingId:item.id,furnishingVersion:1,position:[i,0,0],yaw:0,scale:1}))}}};
+  f.query.mockResolvedValueOnce({rows:[first,second].map((descriptor,i)=>({public_id:id(30+i),workspace_id:id(1),tenant_id:id(2),user_id:id(3),source_id:descriptor.id,source_version:1,source_descriptor:descriptor})),rowCount:2});
+  let reads=0;vi.spyOn(f.service,'publicationModel').mockImplementation(async()=>{if(++reads===2)clock.mockReturnValue(now+1000);return {bytes:f.bytes,mime:'model/gltf-binary',sha256:f.declaration.model.sha256};});
+  await expect(admittedPublicationWorkspaceFurnishings(f.client,id(2),id(60),candidate,f.service)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});expect(reads).toBe(2);
+ }finally{clock.mockRestore();}
 });

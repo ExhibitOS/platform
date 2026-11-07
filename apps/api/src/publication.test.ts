@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { fixtureURL, validateExhibition, type Exhibition } from "@exhibitos/spec";
 import { sha256 } from "@exhibitos/storage";
 import { CURATION_NAMESPACE,curationFor,validateViewerCuration,MATERIAL_NAMESPACE, PRESENTATION_NAMESPACE, validateStudioMaterials, validateStudioPresentation, EXPERIENCE_NAMESPACE, experienceFor, validateViewerExperience, ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-contract";
-import { projectPublication, approvedPublicationSource, authorizedArtworkAssets, admitOptionalThumbnails, Publications } from "./publication.ts";
+import { projectPublication, approvedPublicationSource, authorizedArtworkAssets, recheckPublicationTimeRights, admitOptionalThumbnails, Publications } from "./publication.ts";
 import type {Pool,PoolClient} from 'pg';
 import type {Session} from './auth.ts';
 import { ENTRANCE_NAMESPACE, entranceFor, validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -36,6 +36,10 @@ it('projects only an exact approved thumbnail and keeps its source authority dis
  const metadata={title:'Synthetic',description:'',dimensions:{width:1,height:1,unit:'m'},rights,provenance:{source:'synthetic',sourceUnits:'m',scaleApplied:true,notes:''}};
  const records=result.assets.map(({id,prepared})=>{if(!Buffer.isBuffer(prepared.bytes))throw Error('Expected projected Buffer');return {id,artwork_id:a.id,artwork_revision:1,source_asset_id:prepared.sourceAssetId,source_sha256:prepared.sourceSha256,object_key:'synthetic',sha256:sha256(prepared.bytes),bytes:prepared.bytes.length,mime:prepared.mime,asset_state:'approved',current_revision:1,approved_revision:1,source_artwork_id:a.id,source_approval:{asset:primary,importedArtwork:a},current_source_bytes:prepared.sourceAssetId===primary.id?primary.bytes:preview.bytes,current_source_mime:prepared.sourceAssetId===primary.id?primary.mime:preview.mime,approved_asset_id:primary.id,current_source_sha256:prepared.sourceSha256,current_metadata:metadata,current_rights:rights};});
  expect(authorizedArtworkAssets(result.snapshot,records,Date.now())).toHaveLength(2);
+ const checkedAt=Date.now(),expiring=records.map(record=>({...record,current_rights:{...rights,expiresAt:new Date(checkedAt+1000).toISOString()}}));
+ expect(recheckPublicationTimeRights(result.snapshot,expiring,[],[],[],checkedAt)).toHaveLength(2);
+ expect(()=>recheckPublicationTimeRights(result.snapshot,expiring,[],[],[],checkedAt+1000)).toThrow('PUBLICATION_UNAVAILABLE');
+
  const edited=records.map(r=>({...r,current_revision:2,approved_revision:null,approved_asset_id:null,current_metadata:{...metadata,title:'Later private title'}}));
  expect(authorizedArtworkAssets(result.snapshot,edited,Date.now())).toHaveLength(2);
  const newlyApproved=edited.map(r=>({...r,approved_revision:2,approved_asset_id:crypto.randomUUID()}));

@@ -1,10 +1,11 @@
+import {publicWorkspaceFurnishingRights} from '../apps/web/src/workspace-furnishing/public-rights.mjs';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
 import {revisionHash,validateExhibition} from '@exhibitos/spec';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {packageFurnishingNoticeManifest} from '@exhibitos/spec';
-import {furnishingsFor,validateFurnishings} from '@exhibitos/studio-contract';
+import {furnishingsFor,validateFurnishings,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i,hex=/^[a-f0-9]{64}$/;
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v),keys=(v,list)=>object(v)&&Object.keys(v).sort().join(',')===[...list].sort().join(',');
@@ -20,7 +21,7 @@ export function createPagesPublicationSource({origin:clientOrigin,publicationId,
   if(!response.ok||response.redirected||response.url&&new URL(response.url).origin!==origin.origin||!response.body)unavailable();
   const reader=response.body.getReader(),chunks=[];let length=0;try{for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>limit)unavailable();chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}return Buffer.concat(chunks);
  };
- const rights=value=>{if(!validateExhibition(value.exhibition,{publicationTime:now()}).valid)unavailable();};
+ const rights=value=>{if(!validateExhibition(value.exhibition,{publicationTime:now()}).valid||!publicWorkspaceFurnishingRights(value.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE],Date.parse(now())))unavailable();};
  const snapshot=async()=>{
   const bytes=await get('/static-publication-index.json',1048576);if(sha(bytes)!==indexSha256)unavailable();const index=JSON.parse(bytes.toString('utf8'));
   if(!(index.version===1&&keys(index,['version','publication','assets'])||index.version===2&&keys(index,['version','publication','assets','resources'])&&Array.isArray(index.resources)||index.version===3&&keys(index,['version','publication','assets','furnishingNotices',...(index.resources?['resources']:[])])&&Array.isArray(index.furnishingNotices)&&index.furnishingNotices.length>0&&index.furnishingNotices.length<=8&&(!index.resources||Array.isArray(index.resources)))||!Array.isArray(index.assets)||index.assets.length>20000||!keys(index.publication,['path','bytes','sha256','mime']))unavailable();
@@ -28,8 +29,8 @@ export function createPagesPublicationSource({origin:clientOrigin,publicationId,
   const data=await get('/'+p.path,p.bytes);if(data.length!==p.bytes||sha(data)!==p.sha256)unavailable();const value=JSON.parse(data.toString('utf8'));
   const coverKey=Object.hasOwn(value,'coverVariants')?['coverVariants']:[];
   if(!(index.version===1&&keys(value,['publication','exhibition','assets',...coverKey])||index.version===2&&keys(value,['publication','exhibition','assets','resources',...coverKey])&&Array.isArray(value.resources)||index.version===3&&keys(value,['publication','exhibition','assets','furnishingNotices',...(index.resources?['resources']:[]),...coverKey])&&Array.isArray(value.furnishingNotices)&&(!index.resources||Array.isArray(value.resources)))||!keys(value.publication,['id','revisionSha256','publishedAt','status'])||value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||!Number.isFinite(Date.parse(value.publication.publishedAt))||revisionHash(value.exhibition)!==revisionSha256||!Array.isArray(value.assets))unavailable();
-  const {checkPublicOexProfile}=await (contract==='reference-demo'?import('../apps/api/dist-public-export/oex-profile.js'):import('../apps/api/dist/oex-profile.js'));checkPublicOexProfile(value.exhibition);if(!validateFurnishings(value.exhibition).valid)unavailable();rights(value);
-  const still=spaceStillFor(value.exhibition),inventory=new Map();for(const asset of [...value.exhibition.artworks.flatMap(a=>a.assets),...value.exhibition.mediaAssets,...(still?[still]:[]),...(furnishingsFor(value.exhibition)?.assets??[])]){const previous=inventory.get(asset.id);if(previous&&JSON.stringify(previous)!==JSON.stringify(asset))unavailable();inventory.set(asset.id,asset);}
+  const {checkPublicOexProfile}=await (contract==='reference-demo'?import('../apps/api/dist-public-export/oex-profile.js'):import('../apps/api/dist/oex-profile.js'));const workspace=value.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE];checkPublicOexProfile(value.exhibition,!!workspace);if(!validateFurnishings(value.exhibition).valid||!validateWorkspaceFurnishings(value.exhibition).valid)unavailable();rights(value);
+  const still=spaceStillFor(value.exhibition),inventory=new Map();for(const asset of [...value.exhibition.artworks.flatMap(a=>a.assets),...value.exhibition.mediaAssets,...(still?[still]:[]),...(furnishingsFor(value.exhibition)?.assets??[]),...(workspace?.furnishings??[]).map(item=>({id:item.id,...item.model}))]){const previous=inventory.get(asset.id);if(previous&&JSON.stringify(previous)!==JSON.stringify(asset))unavailable();inventory.set(asset.id,asset);}
   const entries=new Map();for(const e of index.assets){if(!keys(e,['assetId','path','bytes','sha256','mime'])||!uuid.test(e.assetId)||entries.has(e.assetId)||!hex.test(e.sha256)||e.path!==`data/${e.sha256}.bin`||!Number.isSafeInteger(e.bytes)||e.bytes<1||e.bytes>25*1024*1024||!['image/png','model/gltf-binary','audio/wav'].includes(e.mime))unavailable();const original=inventory.get(e.assetId);if(!original||original.bytes!==e.bytes||original.sha256!==e.sha256||original.mime!==e.mime)unavailable();entries.set(e.assetId,e);}
   if(entries.size!==inventory.size||value.assets.length!==entries.size||new Set(value.assets.map(a=>a.assetId)).size!==entries.size||value.assets.some(a=>!keys(a,['assetId','url','mime'])||a.url!==`/api/v1/publications/${publicationId}/assets/${a.assetId}`||entries.get(a.assetId)?.mime!==a.mime))unavailable();
   if(coverKey.length&&!validateCoverVariantDescriptor(value))delete value.coverVariants;

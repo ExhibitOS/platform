@@ -1,3 +1,5 @@
+import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
+import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,type FurnishingAsset} from '@exhibitos/studio-contract';
 import {furnishingResourcePair} from './furnishings.ts';
@@ -171,6 +173,17 @@ export function authorizedArtworkAssets(snapshot:Exhibition,records:AssetRow[],n
  if(inventory.some(a=>!optionalPreviewIds.has(a.id.toLowerCase())&&!permitted.some(r=>r.id===a.id)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  return permitted;
 }
+/** Final common-clock check after all asynchronous workspace authority work. */
+export function recheckPublicationTimeRights(snapshot:Exhibition,records:AssetRow[],media:Array<{rights:unknown}>,covers:Array<{rights:unknown}>,workspace:ReadonlyArray<{rights:unknown}>,now:number){
+ if(workspace.some(item=>!allowedRights(item.rights,'display',now)||!allowedRights(item.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ const permitted=authorizedArtworkAssets(snapshot,records,now);
+ if(media.some(item=>!allowedRights(item.rights,'display',now))||covers.some(item=>!allowedRights(item.rights,'display',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ return permitted;
+}
+/** Finish all potentially slow source work before the final public gate. */
+export async function finalizePublicationOperation<T>(verify:()=>Promise<void>,recheck:()=>Promise<void>,gate:()=>Promise<T>,assertClaimed:()=>void){
+ await verify();await recheck();const result=await gate();assertClaimed();return result;
+}
 /** Required content gets the budget first; previews are admitted only into the remainder. */
 export function admitOptionalThumbnails(prepared:PreparedAsset[],requiredBytes:number,limit=67108864){
  let remaining=Math.max(0,limit-requiredBytes);
@@ -183,11 +196,11 @@ export function projectPublication(candidate: Exhibition, prepared: PreparedAsse
     if(prepared.some(p=>!Buffer.isBuffer(p.bytes)||p.thumbnail&&!Buffer.isBuffer(p.thumbnail.bytes)||p.variants?.bytes&&!Buffer.isBuffer(p.variants.bytes))||media.some(p=>!Buffer.isBuffer(p.bytes))||cover&&!Buffer.isBuffer(cover.bytes))throw new ApiError(422,'PUBLICATION_NOT_READY');
     return projectPublicationCore(candidate,prepared,at,media,cover,furnishings,publicationBytesHash);
 }
-function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at:string,media:PreparedMedia[],cover:PreparedCover|undefined,furnishings:PreparedFurnishing[],byteHash:(bytes:PublicationBytes)=>string){
+function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at:string,media:PreparedMedia[],cover:PreparedCover|undefined,furnishings:PreparedFurnishing[],byteHash:(bytes:PublicationBytes)=>string,workspaceAuthorized=false){
     // A workspace map must never be silently dropped from a public projection.
     // Until byte authority and public resource delivery are connected, fail closed.
     if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))throw new ApiError(422,'WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED');
-    if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))throw new ApiError(422,'WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED');
+    if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE)&&!workspaceAuthorized)throw new ApiError(422,'WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED');
     if(!validateViewingPlan(candidate).valid||!validateStudioMaterials(candidate).valid||!validateStudioFloors(candidate).valid||!validateStudioLightDetails(candidate).valid||!validateLightAttachments(candidate).valid||!validateArchitecturalFinishes(candidate).valid || !validateStudioPlaques(candidate).valid || !validateStudioBenches(candidate).valid||!validateStudioInstallation(candidate).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
     checkedPreparedFurnishings(candidate,furnishings);
     const furniture=furnishingsFor(candidate);
@@ -260,6 +273,8 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     if(still&&doc.extensions)doc.extensions[SPACE_STILL_NAMESPACE]={version:1,asset:{...structuredClone(still),path:`space-still/${map(still.id)}/image.png`}};
     const remap = (v: unknown, field=""): unknown => typeof v === "string" ? (PUBLIC_REFERENCE_FIELDS.has(field) ? ids.get(v.toLowerCase()) ?? v : v) : Array.isArray(v) ? v.map(x=>remap(x,field)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [field === 'surfaces' ? ids.get(k.toLowerCase()) ?? k : k, remap(x,k)])) : v;
     const snapshot = remap(doc) as Exhibition;
+    const workspace=workspaceAuthorized?projectWorkspaceFurnishings(candidate,map):undefined;
+    if(workspace)snapshot.extensions={...snapshot.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:workspace.extension as unknown as NonNullable<Exhibition['extensions']>[string]};
     if(materials)snapshot.extensions={...snapshot.extensions,[MATERIAL_NAMESPACE]:remapStudioMaterials(materials,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(floors)snapshot.extensions={...snapshot.extensions,[FLOOR_NAMESPACE]:remapStudioFloors(floors,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
     if(lightDetails)snapshot.extensions={...snapshot.extensions,[LIGHT_DETAILS_NAMESPACE]:remapStudioLightDetails(lightDetails,ids) as unknown as {[key:string]:import('@exhibitos/spec').JsonValue}};
@@ -275,7 +290,7 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     snapshot.createdAt = at;
     snapshot.revision = 1;
     if(!validateStudioMaterials(snapshot).valid||!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
-    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined };
+    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined,workspaceBindings:workspace?.bindings??[] };
 }
 /** Optional read-only approved Pages projection for the selected hosted profile.
  * This never supplies private roles or opening host authority. */
@@ -291,7 +306,9 @@ export class Publications {
     readonly cms: Cms;
     readonly pool: Pool;
     readonly blobs: BlobStore | undefined;
-    constructor(pool: Pool, blobs?: BlobStore, nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext) { this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); this.listingStudio = new Studio(nativeOexWorkspace); }
+    private readonly workspaceFurnishing:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes|undefined;
+    private readonly furnishingOwner:import('./native-oex-provenance.ts').NativeOexWorkspaceContext|undefined;
+    constructor(pool: Pool, blobs?: BlobStore, nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes,furnishingOwner?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext) { this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); this.listingStudio = new Studio(nativeOexWorkspace); this.workspaceFurnishing=workspaceFurnishing; this.furnishingOwner=furnishingOwner; }
     private summary(row: PublicationRow) { return { publicationId: row.id, publicUrl: `/p/${row.id}`, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: row.status }; }
     private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864) {
         if(!Number.isSafeInteger(budget)||budget<1||budget>536870912||budget>67108864&&!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
@@ -302,7 +319,8 @@ export class Publications {
         let totalBytes = 0;
         const at = new Date().toISOString();
         if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_MATERIAL_NAMESPACE))errors.push(issue('WORKSPACE_MATERIAL_PUBLICATION_UNSUPPORTED','/candidate/extensions/org.exhibitos.studio~1workspace-materials','Workspace material publication is not available.','Keep the private draft until material resource publication is supported.'));
-        if(candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))errors.push(issue('WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED','/candidate/extensions/org.exhibitos.studio~1workspace-furnishings','Workspace furnishing publication is not available.','Keep the private draft until furnishing resource publication is supported.'));
+        const hasWorkspaceFurnishings=!!candidate.extensions&&Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE);
+        if(hasWorkspaceFurnishings&&(!this.workspaceFurnishing||!this.furnishingOwner?.workspaceFurnishingPublication||!this.workspaceFurnishing.matchesBinding(this.furnishingOwner,this.blobs)))errors.push(issue('WORKSPACE_FURNISHING_PUBLICATION_UNSUPPORTED','/candidate/extensions/org.exhibitos.studio~1workspace-furnishings','Workspace furnishing publication is not available.','Use the owner-bound 038 furnishing publication runtime.'));
         for(const e of [...validateFurnishings(candidate).errors,...validateStudioFloors(candidate).errors,...validateStudioPresentation(candidate).errors,...validateStudioLightDetails(candidate).errors,...validateLightAttachments(candidate).errors,...validateArchitecturalFinishes(candidate).errors,...validateStudioPlaques(candidate).errors,...validateStudioBenches(candidate).errors,...validateStudioInstallation(candidate).errors,...validateViewerEntrance(candidate).errors,...validateArchitecture(candidate,true).errors,...validateSpatialProfile(candidate).errors,...validateViewerCuration(candidate).errors,...validateViewingPlan(candidate).errors])errors.push(issue(e.code,e.path,e.message,"Correct template licensing, architecture or curation controls before publishing."));
         for(const id of spatialAudioWithoutTranscript(candidate)) errors.push(issue("SPATIAL_AUDIO_TRANSCRIPT","/candidate/extensions/org.exhibitos.runtime~1spatial-scripting","Script audio lacks a readable original transcript: "+id,"Bind the approved audio to an authored voice or audio zone with its original transcript before publishing."));
         const valid = validateExhibition(candidate, { publicationTime: at });
@@ -314,6 +332,10 @@ export class Publications {
             errors.push(issue("PUBLICATION_LIMIT", "/candidate/artworks", "At most 64 artworks per bounded publication.", "Split the exhibition into smaller publication drafts."));
         if (errors.length)
             return { issues: errors, prepared, media, cover,furnishings,at };
+        if(hasWorkspaceFurnishings){try{
+            const resources=workspaceFurnishingOutputInventory(candidate);if(!workspaceFurnishingPublicationWithinBudget(resources.map(resource=>resource.bytes)))throw new ApiError(422,'PUBLICATION_LIMIT');let workspaceBytes=0;
+            for(const resource of resources){const model=await workspaceFurnishingOutputBytes(c,s,candidate,this.workspaceFurnishing,resource,'export');workspaceBytes+=model.bytes.length;totalBytes+=model.bytes.length;if(workspaceBytes>67108864||totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');}
+        }catch(error){errors.push(issue(error instanceof ApiError?error.code:'WORKSPACE_FURNISHING_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1workspace-furnishings','Workspace furnishing source, current rights or model bytes are unavailable.','Restore the registered source and display/export grants.'));}}
         try{
             // Furnishing pairs retain their existing in-memory bound. Do not
             // load an aggregate furnishing inventory of archive-sized buffers.
@@ -558,6 +580,8 @@ export class Publications {
             // explicitly withdrawn version. Its existing status is returned.
             return this.summary(existing);
         }
+        // Workspace publications require owned staging before any output writes.
+        if(row.metadata.candidate.extensions&&Object.hasOwn(row.metadata.candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE)&&!fileOperation)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
         // Legacy publication retains its bounded memory path. Staging is only
         // selected by an explicitly admitted context, with no silent fallback.
         if(fileOperation&&!(fileOperation instanceof PublicationFileOperation)&&!(fileOperation instanceof NativeLocalPublicationStage))throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
@@ -572,7 +596,7 @@ export class Publications {
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
-        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover } = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash);
+        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover,workspaceBindings } = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication);
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
@@ -584,6 +608,7 @@ export class Publications {
         ]);
         await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
         await c.query("INSERT INTO publication_states VALUES($1,'published',now())", [publicationId]);
+        if(workspaceBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceFurnishing||!this.workspaceFurnishing.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceFurnishing.authorize(c,s);for(const binding of workspaceBindings)await c.query('INSERT INTO publication_workspace_furnishings(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
         for (const { id: assetId, prepared: p } of assets) {
             const hash = byteHash(p.bytes), key = `${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`;
             await put(key,p.bytes);
@@ -600,10 +625,12 @@ export class Publications {
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
         if(fileOperation){
-        const final=await this.gate(c,{tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published'});
+        const final=await finalizePublicationOperation(
+          ()=>fileOperation.verify(c,s,this.blobs,'publish',id,match,requestId),
+          ()=>recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs),
+          ()=>this.gate(c,{tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published'}),
+          ()=>fileOperation.assertClaimed());
         if(final.assets.length!==assets.length+media.length+(cover?1:0))throw new ApiError(422,'PUBLICATION_NOT_READY');
-        await fileOperation.verify(c,s,this.blobs,'publish',id,match,requestId);
-        await recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs);
         fileOperation.assertClaimed();
         }
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
@@ -620,18 +647,20 @@ export class Publications {
         await this.event(c, s, id, "republished");
     } return this.summary({ ...row, status: "published" }); }
     /** No private draft metadata is consulted. Snapshot and private immutable asset bindings suffice. */
-    private async gate(c: PoolClient, row: PublicationRow): Promise<{assets:AssetRow[];furnishings:PreparedFurnishing[]}> {
+    private async gate(c: PoolClient, row: PublicationRow,workspaceAssetId?:string): Promise<{assets:AssetRow[];furnishings:PreparedFurnishing[];workspaceFurnishings:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>}> {
         if (!(await c.query("SELECT 1 FROM tenants t JOIN exhibitions e ON e.tenant_id=t.id WHERE t.id=$1 AND e.id=$2 AND t.deleted_at IS NULL AND e.deleted_at IS NULL", [row.tenant_id, row.exhibition_id])).rowCount)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         let furnishings:PreparedFurnishing[];
         try{furnishings=await admittedPublicationFurnishings(c,this.blobs,row.tenant_id,row.exhibition_id,row.snapshot);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+        let workspaceFurnishings:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>;
+        try{workspaceFurnishings=await admittedPublicationWorkspaceFurnishings(c,row.tenant_id,row.id,row.snapshot,this.workspaceFurnishing,workspaceAssetId);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
         // Read catalogue bytes before capturing the governing wall clock, so
         // this I/O cannot extend artwork/audio/cover grants past expiry.
         const now = Date.now();
         if (!validateFurnishings(row.snapshot).valid || !validateExhibition(row.snapshot, { publicationTime: new Date(now).toISOString() }).valid || !validateArchitecture(row.snapshot,true).valid || !validateStudioMaterials(row.snapshot).valid || !validateStudioPresentation(row.snapshot).valid || !validateStudioLightDetails(row.snapshot).valid || !validateLightAttachments(row.snapshot).valid || !validateArchitecturalFinishes(row.snapshot).valid || !validateStudioPlaques(row.snapshot).valid || !validateStudioBenches(row.snapshot).valid || !validateStudioInstallation(row.snapshot).valid || !validateStudioFloors(row.snapshot).valid || !validateSpatialProfile(row.snapshot).valid || !validateViewerCuration(row.snapshot).valid || !validateViewingPlan(row.snapshot).valid || !validateViewerExperience(row.snapshot).valid || row.snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid) || revisionHash(row.snapshot) !== row.revision_sha256)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
         const records = (await c.query("SELECT pa.*,a.revision AS current_revision,a.approved_revision,a.approved_asset_id,a.deleted_at AS artwork_deleted,a.metadata AS current_metadata,ar.deleted_at AS artist_deleted,t.deleted_at AS tenant_deleted,e.deleted_at AS exhibition_deleted,asset.deleted_at AS asset_deleted,asset.state AS asset_state,asset.sha256 AS current_source_sha256,asset.bytes AS current_source_bytes,asset.mime AS current_source_mime,asset.artwork_id AS source_artwork_id,ap.snapshot AS source_approval,r.deleted_at AS rights_deleted,r.metadata AS current_rights,b.artwork_id AS receipt_artwork_id,b.artwork_revision AS receipt_revision,b.source_asset_id AS receipt_source_id,b.source_sha256 AS receipt_source_sha256,b.thumbnail_asset_id AS receipt_thumbnail_id,b.sha256 AS receipt_sha256,b.bytes AS receipt_bytes FROM publication_assets pa JOIN artworks a ON (a.tenant_id,a.id)=(pa.tenant_id,pa.artwork_id) JOIN artists ar ON (ar.tenant_id,ar.id)=(a.tenant_id,a.artist_id) JOIN tenants t ON t.id=pa.tenant_id JOIN exhibitions e ON (e.tenant_id,e.id)=(pa.tenant_id,$2) JOIN assets asset ON (asset.tenant_id,asset.id)=(pa.tenant_id,pa.source_asset_id) JOIN rights r ON (r.tenant_id,r.id)=(asset.tenant_id,asset.rights_id) JOIN artwork_approvals ap ON (ap.tenant_id,ap.artwork_id,ap.revision)=(pa.tenant_id,pa.artwork_id,pa.artwork_revision) LEFT JOIN publication_thumbnail_bindings pb ON (pb.tenant_id,pb.publication_id,pb.asset_id)=(pa.tenant_id,pa.publication_id,pa.id) LEFT JOIN artwork_thumbnail_bindings b ON (b.tenant_id,b.id)=(pb.tenant_id,pb.binding_id) WHERE pa.publication_id=$1", [row.id, row.exhibition_id])).rows;
-        const permitted=authorizedArtworkAssets(row.snapshot,records,now);
+        let permitted=authorizedArtworkAssets(row.snapshot,records,now);
         const media=(await c.query("SELECT pm.*,a.state,a.revoked,a.sha256 AS current_sha256,a.bytes AS current_bytes,a.rights,ap.snapshot AS approval FROM publication_media pm JOIN studio_audio a ON (a.tenant_id,a.id)=(pm.tenant_id,pm.source_audio_id) JOIN audio_approvals ap ON (ap.tenant_id,ap.audio_id)=(a.tenant_id,a.id) WHERE pm.publication_id=$1 AND a.exhibition_id=$2",[row.id,row.exhibition_id])).rows;
         if(media.length!==row.snapshot.mediaAssets.length)throw new ApiError(404,"PUBLICATION_UNAVAILABLE");
         for(const r of media){
@@ -641,7 +670,16 @@ export class Publications {
         const still=spaceStillFor(row.snapshot),covers=(await c.query('SELECT p.*,a.state,a.revoked,a.sha256 AS current_sha256,a.bytes AS current_bytes,a.rights,ap.snapshot AS approval FROM publication_cover_images p JOIN studio_cover_images a ON (a.tenant_id,a.id)=(p.tenant_id,p.source_image_id) JOIN cover_image_approvals ap ON (ap.tenant_id,ap.image_id)=(a.tenant_id,a.id) WHERE p.publication_id=$1 AND a.exhibition_id=$2',[row.id,row.exhibition_id])).rows;
         if(covers.length!==(still?1:0))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
         for(const r of covers)if(!still||r.id!==still.id||r.state!=='approved'||r.revoked||r.current_sha256!==r.source_sha256||r.source_sha256!==r.sha256||Number(r.current_bytes)!==Number(r.bytes)||!allowedRights(r.rights,'display',now)||!equal(r.rights,still.rights)||!equal(r.approval,{id:r.source_image_id,path:`space-still/${r.source_image_id}/image.png`,mime:'image/png',bytes:Number(r.bytes),sha256:r.source_sha256,rights:r.rights})||still.sha256!==r.sha256||still.bytes!==Number(r.bytes)||still.mime!==r.mime)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-        return {assets:[...permitted,...media,...covers],furnishings};
+        if(workspaceFurnishings.length){
+            if(!this.workspaceFurnishing)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            try{await this.workspaceFurnishing.publicationFence(c,workspaceFurnishings.map(item=>item.sourceDescriptor));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+            // Every time-sensitive grant shares a final clock after the last
+            // asynchronous workspace/owner check, including legacy assets.
+            const finalNow=Date.now();
+            if(!validateExhibition(row.snapshot,{publicationTime:new Date(finalNow).toISOString()}).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+            permitted=recheckPublicationTimeRights(row.snapshot,records,media,covers,workspaceFurnishings.map(item=>item.sourceDescriptor),finalNow);
+        }
+        return {assets:[...permitted,...media,...covers],furnishings,workspaceFurnishings};
     }
     /** Reuse the current public gate inside the caller's policy-fenced transaction. */
     async discoveryMetadata(c: PoolClient, ids: string[]) {
@@ -705,8 +743,10 @@ export class Publications {
             const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1", [id])).rows[0] as PublicationRow | undefined;
             if (!row || row.status !== "published")
                 throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-            let {assets,furnishings} = await this.gate(c, row);
+            let {assets,furnishings,workspaceFurnishings} = await this.gate(c, row,assetId);
             if (assetId) {
+                const workspace=workspaceFurnishings.find(p=>p.publicId===assetId);
+                if(workspace){if(!workspace.bytes)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return {bytes:workspace.bytes,mime:workspace.mime,revisionSha256:row.revision_sha256};}
                 const furnishing=furnishings.find(p=>p.source.id===assetId);
                 if(furnishing){
                     if(!(await this.gate(c,row)).furnishings.some(p=>p.source.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
@@ -734,11 +774,11 @@ export class Publications {
                 try{coverVariants=await approvedCoverProjection(row.snapshot,row.revision_sha256,assets,this.blobs);}catch{/* An optional cover pair never replaces the primary. */}
                 // I/O can cross a rights expiry. A failed optional pair must not
                 // turn a changed or revoked required source into success.
-                ({assets,furnishings}=await this.gate(c,row));
+                ({assets,furnishings,workspaceFurnishings}=await this.gate(c,row));
                 if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
             }
             const resources=footstepResourcesFor(row.snapshot);
-            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}) };
+            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}) };
         });
     }
 }

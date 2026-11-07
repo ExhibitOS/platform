@@ -379,3 +379,15 @@ test('concrete thumbnail omission affects optional selection only; required wall
   assert.deepEqual(files.map(file=>file.path),expected.map(file=>file.artifactPath).sort((a,b)=>a.localeCompare(b)));
  });
 });
+
+test('workspace furnishing exports exact declared bytes and rejects denied rights, corruption and Pages oversize',async t=>{
+ const {fixture,options,directory}=await setup(t),room=fixture.raw.exhibition.rooms[0],id=randomUUID(),placementId=randomUUID(),model=await readFile(fixtureURL('fixtures/synthetic/sculpture.glb'));
+ const rights={holder:'Synthetic holder',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic credit',permissions:{display:true,download:true,export:true,commercial:true}},descriptor={id,version:1,kind:'pedestal',name:'Synthetic pedestal',rights,provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary',bytes:model.length,sha256:sha(model)}};
+ fixture.raw.exhibition.extensions={...fixture.raw.exhibition.extensions,'org.exhibitos.studio/workspace-furnishings':{version:1,furnishings:[descriptor],placements:[{id:placementId,roomId:room.id,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}};
+ fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);const assetPath=`workspace-furnishing/${id}/model.glb`;fixture.raw.assets.push({assetId:id,mime:'model/gltf-binary',url:`/api/v1/publications/${fixture.id}/assets/${id}`});fixture.decoded.manifest.assets.push({id,path:assetPath,mime:'model/gltf-binary'});fixture.decoded.files.set(assetPath,model);
+ const result=await exportStaticPublication(options),index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'))),entry=index.assets.find(item=>item.assetId===id);assert.equal(entry.sha256,sha(model));assert.deepEqual(await readFile(join(result.output,entry.path)),model);
+ const source=createPagesPublicationSource({origin:'https://synthetic.pages.dev',publicationId:fixture.id,revisionSha256:result.revisionSha256,indexSha256:result.indexSha256,fetch:async url=>{try{return new Response(await readFile(join(result.output,url.pathname)));}catch{return new Response(null,{status:404});}}});assert.deepEqual((await source.asset(fixture.id,id)).bytes,model);
+ descriptor.rights.permissions.export=false;fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);await assert.rejects(exportStaticPublication({...options,output:join(directory,'denied')}),/STATIC_WORKSPACE_FURNISHING_RIGHTS/);
+ descriptor.rights.permissions.export=true;descriptor.model.bytes=25*1024*1024+1;fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);await assert.rejects(exportStaticPublication({...options,output:join(directory,'oversize')}),/STATIC_FILE_TOO_LARGE/);
+ descriptor.model.bytes=model.length;fixture.raw.publication.revisionSha256=revisionHash(fixture.raw.exhibition);fixture.decoded.files.set(assetPath,Buffer.alloc(model.length));await assert.rejects(exportStaticPublication({...options,output:join(directory,'corrupt')}),/STATIC_ASSET_HASH/);
+});

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomUUID} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
@@ -61,6 +62,32 @@ export class WorkspaceFurnishingIntakes {
   return after;
  }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}if(bytes.length!==row.descriptor.model.bytes||sha256(bytes)!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:row.descriptor.model.mime,sha256:row.descriptor.model.sha256};}
+ /** Fence the complete publication after I/O so one model cannot expire
+  * while another model is being read. The caller holds the policy locks. */
+ async publicationFence(c:PoolClient,descriptors:readonly WorkspaceFurnishingDescriptor[]){
+  if(!this.writer)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  await this.writer.assertLive();await this.owner.assertDatabase(c);await this.writer.assertLive();
+  const now=Date.now();if(descriptors.some(item=>!allowedRights(item.rights,'display',now)||!allowedRights(item.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ }
+ /** Read a publication-bound source without manufacturing an authenticated
+  * session. Only the configured live workspace owner and the exact immutable
+  * registered descriptor can authorize these bytes. */
+ async publicationModel(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceFurnishingDescriptor}){
+  const {workspaceId,tenantId,userId,descriptor}=binding;
+  if(!this.writer||workspaceId!==this.owner.workspaceId||tenantId!==this.owner.tenantId||userId!==this.owner.principalId||!descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();
+  uuid(descriptor.id);if(descriptor.version!==1)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  const result=await c.query('SELECT descriptor,object_key FROM workspace_furnishing_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[workspaceId,tenantId,userId,descriptor.id,descriptor.version]);
+  const row=result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string}|undefined;
+  if(result.rowCount!==1||!row||!isDeepStrictEqual(row.descriptor,descriptor)||!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  const prefix=`${tenantId}/workspace-furnishing-intake/${workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];
+  if(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==descriptor.model.sha256)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+  if(bytes.length!==descriptor.model.bytes||sha256(bytes)!==descriptor.model.sha256||!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();
+  if(!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  return {bytes,mime:descriptor.model.mime,sha256:descriptor.model.sha256};
+ }
  async work(pool:Pool,hooks?:{afterClaim?:()=>void|Promise<void>;onSpawn?:(child:ChildProcess)=>void;writerFd?:number}){
   await this.writer?.assertLive();const fence=await pool.connect();let locked=false,broken=false;try{await fence.query('SELECT pg_advisory_lock_shared(82002)');locked=true;await this.writer?.assertLive();return await this.workLocked(fence,hooks);}catch(error){broken=true;throw error;}finally{if(locked)try{const result=await fence.query('SELECT pg_advisory_unlock_shared(82002) AS unlocked');if(result.rows[0]?.unlocked!==true)broken=true;}catch{broken=true;}fence.release(broken);}
  }

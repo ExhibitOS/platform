@@ -1,3 +1,4 @@
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "./cms-client";
 import { failureMessage } from "./cms-client";
@@ -35,6 +36,8 @@ export function PublicationPanel({
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const isCurrent = () => scopeRef.current === scope;
+  const candidate=record.draft.candidate;
+  const workspaceFurnishings=validateWorkspaceFurnishings(candidate).valid?candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined:undefined;
   const binding = record.remote,
     connected =
       !!session &&
@@ -79,6 +82,12 @@ export function PublicationPanel({
         먼저 현재 계정에 전시를 저장하세요. 공개 준비 검사는 공간·작품 승인·전시 권리·접근성을 확인해요.
         검사 통과만으로 인터넷에 공개되지는 않아요. 공개 작업은 별도 버튼으로 실행합니다.
       </p>
+      {workspaceFurnishings && (
+        <section aria-label="공개될 작업 공간 비품 정보">
+          <p>공개 전시와 정적 출력에는 배치된 비품의 이름, 권리자와 표시 크레딧이 포함됩니다. 출처에 적은 비공개 메모는 포함되지 않습니다.</p>
+          <ul>{workspaceFurnishings.furnishings.map(item=>{const rights=item.rights as {holder?:unknown;creditLine?:unknown}|null;return <li key={item.id}>{item.name} · 권리자: {typeof rights?.holder==='string'?rights.holder:'—'} · 크레딧: {typeof rights?.creditLine==='string'?rights.creditLine:'—'}</li>;})}</ul>
+        </section>
+      )}
       {!connected && (
         <p>
           현재 계정에 연결된 서버 draft가 필요합니다. 로컬 작업은 계속 사용할 수
@@ -152,6 +161,7 @@ export function PublicationPanel({
                   binding.id,
                   report.etag,
                   attempt.current.id,
+                  !!workspaceFurnishings,
                 );
                 if (!isCurrent()) return;
                 setRows((previous) => [
