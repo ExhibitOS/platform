@@ -167,3 +167,16 @@ it('creates and finalizes the exact white gallery box frame',async()=>{
  expect(await service.work(f.pool)).toBe(true);const done=await service.read(f.client,f.session,intake.intakeId);expect(done.phase).toBe('registered');expect(done.furnishing).toMatchObject({kind:'artwork-frame',model:declaration.model});
  expect(await service.create(f.client,f.session,structuredClone(declaration))).toEqual(done);
 });
+
+for(const [name,expectedSha,expectedBytes] of [
+ ['black-aluminum-frame','2fb941a9f6ed030638512e917e348a0a3000e29c1133fe3f9670268ff1c4169c',101720],
+ ['brushed-silver-frame','a0d0c0d3f02fea91b6a09273eec8d200248a16c8caf5139bd029b681af8eddcd',147592],
+ ['natural-oak-flat-frame','5af789b1aa8e6aa410b40cf16e27c9e2000f87438f1fa52cb08bc46c19c75778',177476],
+] as const)it(`creates and finalizes exact reviewed tangent-omission candidate ${name}`,async()=>{
+ const bytes=await readFile(new URL(`../test-fixtures/${name}-tangent-r1/model.glb`,import.meta.url)),f=fixture(false,bytes),declaration={...f.declaration,kind:'artwork-frame'};
+ expect(bytes.length).toBe(expectedBytes);expect(sha256(bytes)).toBe(expectedSha);
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true});
+ const intake=await service.create(f.client,f.session,declaration);await service.upload(f.client,f.session,intake.intakeId,bytes);await service.complete(f.client,f.session,intake.intakeId);
+ const actual=await vi.importActual<typeof import('./workspace-furnishing-glb.ts')>('./workspace-furnishing-glb.ts');vi.mocked(validateWorkspaceFurnishingGlb).mockImplementationOnce(actual.validateWorkspaceFurnishingGlb);
+ expect(await service.work(f.pool)).toBe(true);const done=await service.read(f.client,f.session,intake.intakeId);expect(done.phase).toBe('registered');expect(done.furnishing).toMatchObject({kind:'artwork-frame',model:declaration.model});
+});
