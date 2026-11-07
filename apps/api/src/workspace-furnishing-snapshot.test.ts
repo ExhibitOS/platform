@@ -10,3 +10,12 @@ it('requires owner-issued catalog equality and live display rights before persis
  const altered=structuredClone(candidate);altered.extensions['org.exhibitos.studio/workspace-furnishings'].furnishings[0]!.model.sha256='b'.repeat(64);await expect(assertWorkspaceFurnishingSnapshot(client,session,altered,service as never)).rejects.toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
  const denied=structuredClone(candidate);denied.extensions['org.exhibitos.studio/workspace-furnishings'].furnishings[0]!.rights.permissions.display=false;service.readVersion.mockResolvedValueOnce(denied.extensions['org.exhibitos.studio/workspace-furnishings'].furnishings[0]!);await expect(assertWorkspaceFurnishingSnapshot(client,session,denied,service as never)).rejects.toMatchObject({code:'DISPLAY_PERMISSION_REQUIRED'});
 });
+
+it('requires an explicit stool-capable owner for version 2 snapshots',async()=>{
+ const stool={...item,kind:'stool'},v2=structuredClone(candidate);v2.extensions['org.exhibitos.studio/workspace-furnishings']={version:2,furnishings:[stool],placements:[placement]};
+ const service={supportsStool:vi.fn(()=>false),readVersion:vi.fn(async()=>structuredClone(stool))};
+ await expect(assertWorkspaceFurnishingSnapshot(client,session,v2,service as never)).rejects.toMatchObject({code:'WORKSPACE_FURNISHING_UNAVAILABLE'});
+ expect(service.readVersion).not.toHaveBeenCalled();
+ service.supportsStool.mockReturnValue(true);
+ await expect(assertWorkspaceFurnishingSnapshot(client,session,v2,service as never)).resolves.toBeUndefined();
+});

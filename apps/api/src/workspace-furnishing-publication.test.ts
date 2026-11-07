@@ -31,3 +31,17 @@ it('retains registered furnishing source bytes during privacy erasure',async()=>
 it('applies one exact aggregate budget to preparation and public admission',()=>{
  const limit=32*1024*1024;expect(workspaceFurnishingPublicationWithinBudget([limit,limit])).toBe(true);expect(workspaceFurnishingPublicationWithinBudget([limit,limit,1])).toBe(false);expect(workspaceFurnishingPublicationWithinBudget([0])).toBe(false);
 });
+
+it('retains the v2 stool extension when public identities are projected',()=>{
+ const descriptor={id:id(2),version:1,kind:'stool',name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Private',model:{mime:'model/gltf-binary',bytes:32,sha256:'a'.repeat(64)}},candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:2,furnishings:[descriptor],placements:[{id:id(3),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}}};
+ const ids=new Map([[id(1),id(11)],[id(2),id(12)],[id(3),id(13)]]),projected=projectWorkspaceFurnishings(candidate,key=>ids.get(key)!)!;
+ expect(projected.extension.version).toBe(2);expect(projected.extension.furnishings[0]?.kind).toBe('stool');
+ expect(validateWorkspaceFurnishings({rooms:[{...candidate.rooms[0],id:id(11)}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:projected.extension}}).valid).toBe(true);
+});
+
+it('rejects v2 bench-only public reads without the stool capability before DB or model I/O',async()=>{
+ const descriptor={id:id(2),version:1,kind:'bench',name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary',bytes:3,sha256:'a'.repeat(64)}},candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:2,furnishings:[descriptor],placements:[{id:id(3),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}}};
+ const query=vi.fn(),publicationModel=vi.fn(),service={supportsStool:()=>false,publicationModel};
+ await expect(admittedPublicationWorkspaceFurnishings({query} as never,id(6),id(8),candidate,service as never)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+ expect(query).not.toHaveBeenCalled();expect(publicationModel).not.toHaveBeenCalled();
+});

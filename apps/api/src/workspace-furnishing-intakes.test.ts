@@ -109,3 +109,16 @@ it('rejects the entire publication when the first grant expires during the secon
   await expect(admittedPublicationWorkspaceFurnishings(f.client,id(2),id(60),candidate,f.service)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});expect(reads).toBe(2);
  }finally{clock.mockRestore();}
 });
+
+it('registers stool bytes only for an explicitly stool-capable owner',async()=>{
+ const f=fixture(),declaration={...f.declaration,kind:'stool'};
+ await expect(f.service.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true});
+ const intake=await service.create(f.client,f.session,declaration);
+ await service.upload(f.client,f.session,intake.intakeId,f.bytes);
+ await service.complete(f.client,f.session,intake.intakeId);
+ expect(await service.work(f.pool)).toBe(true);
+ const registered=await service.read(f.client,f.session,intake.intakeId);
+ expect(registered.furnishing).toMatchObject({kind:'stool',model:f.declaration.model});
+ expect(await service.model(f.client,f.session,registered.furnishing!.id,1,'display')).toMatchObject({bytes:f.bytes,sha256:f.declaration.model.sha256});
+});

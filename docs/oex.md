@@ -113,3 +113,18 @@ Node/npm installation, with Docker and Playwright available. Passing format or
 unit checks alone does not prove atomic restoration, current rights or UI behavior.
 
 PNG accepts one optional CRC-checked, one-byte sRGB intent before image data; other ancillary metadata remains unsupported. This preserves the original public synthetic package bytes while refusing malformed/duplicate/late color chunks and embedded text. The bounded color record follows the [W3C PNG specification](https://www.w3.org/TR/png-3/#11sRGB); `scripts/png-profile.test.mjs` runs the real isolated decoder on original and malformed inputs.
+
+### Workspace stool visual profile
+
+A separately selected native workspace capability can admit `stool` through the
+existing owner-scoped furnishing intake. The session advertises
+`workspaceFurnishingStoolProfile: workspace-furnishing-stool-v1` only when that
+capability is available. The saved `org.exhibitos.studio/workspace-furnishings`
+extension uses version 2; a version 1 extension still rejects `stool`. Poses are
+room-local visual placements and do not imply sitting, collision or support.
+
+Exports that contain this extension use OEX `1.0.0-draft.14`; older readers can
+reject that version. Existing v1 furnishings continue to use draft.13. The
+selected native material-import path remains draft.12; draft.14 import is not
+provided by this capability. Display and export still require the existing live
+workspace ownership and rights checks.

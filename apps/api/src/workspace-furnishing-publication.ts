@@ -15,7 +15,7 @@ export function projectWorkspaceFurnishings(candidate:{extensions?:Record<string
  if(!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(422,'DRAFT_INVALID');
  const bindings:Array<{publicId:string;descriptor:WorkspaceFurnishingDescriptor}>=source.furnishings.map(descriptor=>({publicId:map(descriptor.id),descriptor:structuredClone(descriptor)}));
  const furnishingIds=new Map(bindings.map(binding=>[binding.descriptor.id,binding.publicId]));
- const extension:WorkspaceFurnishings={version:1,furnishings:source.furnishings.map(descriptor=>({...structuredClone(descriptor),id:furnishingIds.get(descriptor.id)!,provenance:'Provided by the exhibition editor.'})),placements:source.placements.map(placement=>({...structuredClone(placement),id:map(placement.id),roomId:map(placement.roomId),furnishingId:furnishingIds.get(placement.furnishingId)!}))};
+ const extension:WorkspaceFurnishings={version:source.version,furnishings:source.furnishings.map(descriptor=>({...structuredClone(descriptor),id:furnishingIds.get(descriptor.id)!,provenance:'Provided by the exhibition editor.'})),placements:source.placements.map(placement=>({...structuredClone(placement),id:map(placement.id),roomId:map(placement.roomId),furnishingId:furnishingIds.get(placement.furnishingId)!}))};
  return {extension,bindings};
 }
 
@@ -25,6 +25,7 @@ export async function admittedPublicationWorkspaceFurnishings(c:import('pg').Poo
  if(!candidate.extensions||!Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))return [];
  const source=candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings;
  if(!service||!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ if(source.version===2&&!service.supportsStool())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  const rows=(await c.query('SELECT public_id,workspace_id,tenant_id,user_id,source_id,source_version,source_descriptor FROM publication_workspace_furnishings WHERE tenant_id=$1 AND publication_id=$2',[tenantId,publicationId])).rows as Array<{public_id:string;workspace_id:string;tenant_id:string;user_id:string;source_id:string;source_version:number;source_descriptor:WorkspaceFurnishingDescriptor}>;
  if(rows.length!==source.furnishings.length||new Set(rows.map(row=>row.public_id)).size!==rows.length)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(!workspaceFurnishingPublicationWithinBudget(source.furnishings.map(item=>item.model.bytes)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');

@@ -11,3 +11,16 @@ it('keeps workspace furnishing references and per-exhibition poses separate from
  const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE}=await import('./workspace-furnishing.ts');const furnishing={id:'10000000-0000-4000-8000-000000000002',version:1,kind:base.kind,name:base.name,rights:base.rights,provenance:base.provenance,model:base.model},roomId='10000000-0000-4000-8000-000000000003',placement={id:'10000000-0000-4000-8000-000000000004',roomId,furnishingId:furnishing.id,furnishingVersion:1,position:[1,0,0],yaw:0,scale:1},candidate={rooms:[{id:roomId,dimensions:{width:10,depth:10,height:4}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:1,furnishings:[furnishing],placements:[placement]}}};
  expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);const missing=structuredClone(candidate);missing.extensions[WORKSPACE_FURNISHING_NAMESPACE]!.placements[0]!.furnishingId='10000000-0000-4000-8000-000000000099';expect(validateWorkspaceFurnishings(missing).valid).toBe(false);const outside=structuredClone(candidate);outside.extensions[WORKSPACE_FURNISHING_NAMESPACE]!.placements[0]!.position=[6,0,0];expect(validateWorkspaceFurnishings(outside).valid).toBe(false);
 });
+
+it('requires explicit v2 for stool while retaining v1 rejection',async()=>{
+ const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE}=await import('./workspace-furnishing.ts');
+ const stool={...base,kind:'stool'};
+ expect(validWorkspaceFurnishingDeclaration(stool)).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration(stool,{allowStool:true})).toBe(true);
+ const {requestId:_,...descriptor}=stool;void _;
+ const roomId='10000000-0000-4000-8000-000000000003',id='10000000-0000-4000-8000-000000000002';
+ const extension={version:2,furnishings:[{...descriptor,id,version:1}],placements:[{id:'10000000-0000-4000-8000-000000000004',roomId,furnishingId:id,furnishingVersion:1,position:[1,0,0],yaw:0,scale:1}]};
+ const candidate={rooms:[{id:roomId,dimensions:{width:10,depth:10,height:4}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}};
+ expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);
+ for(const version of [1,3,'2']){extension.version=version as number;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);}
+});
