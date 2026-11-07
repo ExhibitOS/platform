@@ -67,3 +67,14 @@ it('requires the canonical content-addressed path for a workspace furnishing bef
  install(indexFor(`data/${sha}.bin`));const accepted=await loadStaticPublication();expect(await (await accepted.local!.fetcher(url)).arrayBuffer()).toEqual(new Uint8Array(model).buffer);
  const denied=install(indexFor(`data/${'b'.repeat(64)}.bin`));await expect(loadStaticPublication()).rejects.toThrow('STATIC_WORKSPACE_FURNISHING');expect(denied).toHaveBeenCalledTimes(2);
 });
+
+it('binds public workspace wall map to its exact content-addressed asset',async()=>{
+ const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),exhibition=original.exhibition,publicationId=randomUUID(),assetId=randomUUID(),wall=exhibition.surfaces.find(s=>s.type==='wall')!,map=Buffer.from('synthetic color map'),sha=digest(map),url=`/api/v1/publications/${publicationId}/assets/${assetId}`;
+ const material={id:assetId,version:1,kind:'wall',name:'Stone',rights:{holder:'Synthetic',ownership:'owner',licenseId:'CC0-1.0',creditLine:'Synthetic',permissions:{display:true,download:false,export:true,commercial:true}},provenance:'Provided by the exhibition editor.',maps:{color:{mime:'image/png',bytes:map.length,sha256:sha,width:2,height:2,colorSpace:'srgb'}}};
+ exhibition.extensions={...exhibition.extensions,'org.exhibitos.studio/workspace-materials':{version:1,materials:[material],bindings:[{surfaceId:wall.id,materialId:assetId,materialVersion:1,repeatMeters:[2,2],rotation:0}]}} as never;
+ const value={publication:{id:publicationId,status:'published',revisionSha256:digest(freezeCanonical(exhibition))},exhibition,assets:[{assetId,mime:'image/png',url}]},pub=Buffer.from(JSON.stringify(value)),pubHash=digest(pub),pubPath=`data/${pubHash}.json`;
+ const indexFor=(path:string)=>Buffer.from(JSON.stringify({version:1,publication:{path:pubPath,bytes:pub.length,sha256:pubHash,mime:'application/json'},assets:[{assetId,path,bytes:map.length,sha256:sha,mime:'image/png'}]}));
+ const install=(index:Buffer)=>{vi.stubGlobal('document',{querySelector:()=>({content:digest(index)})});vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const path=String(input),body=path==='/static-publication-index.json'?index:path==='/'+pubPath?pub:path===`/data/${sha}.bin`?map:undefined;return body?new Response(new Uint8Array(body)):new Response(null,{status:404});}));};
+ install(indexFor(`data/${sha}.bin`));const accepted=await loadStaticPublication();expect(await (await accepted.local!.fetcher(url)).arrayBuffer()).toEqual(new Uint8Array(map).buffer);
+ install(indexFor(`data/${'b'.repeat(64)}.bin`));await expect(loadStaticPublication()).rejects.toThrow('STATIC_WORKSPACE_MATERIAL');
+});

@@ -30,3 +30,9 @@ test('selected 038 has a separate authenticated mode and cannot impersonate exis
  assert.throws(()=>verifyFurnishingLeaseFrame(frame,lease,fields,secret),/FURNISHING_LEASE_INVALID/);
  assert.notEqual(JSON.parse(frame).mac,JSON.parse(encodeFurnishingLeaseFrame(lease,fields,secret)).mac);
 });
+
+test('039 selected lease uses the agreed separate HMAC tag',()=>{
+ const selected={...fields,mode:'workspace-furnishing-039-selected-import-v7'};
+ assert.equal(JSON.parse(encodeFurnishingLeaseFrame(lease,selected,secret)).mac,'88e2a5d1cdc86eaac30f63b83c4587aedfd9f397ad5b8cae7db0921a6bc5f75c');
+ assert.equal(JSON.parse(encodeFurnishingLeaseFrame(ack,selected,secret)).mac,'a212cd112ad2a15d4951cf4899f4142770bcdbbfdf3d34c107c0125f7bcb6856');
+});

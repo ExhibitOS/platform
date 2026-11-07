@@ -2,6 +2,7 @@
 import {validateExhibition,type Exhibition} from '@exhibitos/spec';
 import {SPACE_STILL_NAMESPACE} from '@exhibitos/spec/space-still';
 import {FOOTSTEP_RESOURCE_NAMESPACE} from '@exhibitos/spec/footstep-resources';
+import {workspaceMaterialOutputInventory} from './workspace-material-output.ts';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/spec/workspace-furnishing';
 import {WORKSPACE_FURNISHING_NAMESPACE as STUDIO_WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings,FURNISHING_NAMESPACE,validateFurnishings,VIEWING_PLAN_NAMESPACE,validateViewingPlan,ARTWORK_THUMBNAIL_NAMESPACE,validateArtworkThumbnail,FLOOR_NAMESPACE,validateStudioFloors,ARCHITECTURAL_FINISH_NAMESPACE,validateArchitecturalFinishes,PLAQUE_NAMESPACE,validateStudioPlaques,SPACE_LIGHTING_NAMESPACE,validateStudioLightDetails,LIGHT_DETAILS_NAMESPACE,validateLightAttachments,LIGHT_ATTACHMENT_NAMESPACE,validateStudioBenches,BENCH_NAMESPACE,DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy,INSTALLATION_NAMESPACE,validateStudioInstallation,ENTRANCE_NAMESPACE,validateViewerEntrance,SPATIAL_NAMESPACE,validateSpatialProfile,DAYLIGHT_NAMESPACE,TEMPLATE_NAMESPACE,validateViewerCuration,CURATION_NAMESPACE,validateArchitecture,MATERIAL_NAMESPACE,PRESENTATION_NAMESPACE,EXPERIENCE_NAMESPACE,LOD_NAMESPACE,ARTWORK_DETAILS_NAMESPACE,validateStudioMaterials,validateStudioPresentation,validateViewerExperience,validateViewerLod,validateArtworkDetails} from '@exhibitos/studio-contract';
@@ -13,7 +14,7 @@ const CMS='org.exhibitos.studio/cms';
 const LEGAL_NOTICES={'org.exhibitos/apache-license':'Apache-2.0','org.exhibitos/cc0-license':'CC0-1.0'} as const;
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 /** Public projections never opt into private CMS or workspace bindings. */
-export function checkPublicOexProfile(e:Exhibition,workspaceFurnishingOutput=false){if(workspaceFurnishingOutput&&(!validateWorkspaceFurnishings(e).valid||((e.extensions?.[STUDIO_WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined)?.furnishings??[]).some(item=>!validRights(item.rights))))throw new ApiError(422,'OEX_PROFILE_INVALID');return checkPortableOexProfile(e,false,undefined,false,workspaceFurnishingOutput);}
+export function checkPublicOexProfile(e:Exhibition,workspaceFurnishingOutput=false,workspaceMaterialOutput=false){if(workspaceFurnishingOutput&&(!validateWorkspaceFurnishings(e).valid||((e.extensions?.[STUDIO_WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined)?.furnishings??[]).some(item=>!validRights(item.rights))))throw new ApiError(422,'OEX_PROFILE_INVALID');if(workspaceMaterialOutput)workspaceMaterialOutputInventory(e);return checkPortableOexProfile(e,false,undefined,workspaceMaterialOutput,workspaceFurnishingOutput);}
 /** Known platform namespaces are validated, never executable. Unknown nested namespaces fail closed. */
 export function checkPortableOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false,workspaceFurnishingOutput=false){
  for(const[namespace,licenseId]of Object.entries(LEGAL_NOTICES))if(e.extensions&&Object.hasOwn(e.extensions,namespace)){

@@ -18,7 +18,7 @@ import type {ViewingRenderer,ViewingStyle} from './viewer/viewing-session';
 import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-orbit';
 import {SculptureOrbitControls} from './viewer/SculptureOrbitControls';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
-import {workspaceFloorPlan,createWorkspaceFloorRenderer} from './workspace-floor-renderer';
+import {workspaceFloorPlan,createWorkspaceFloorRenderer,createPublicWorkspaceFloorRenderer} from './workspace-floor-renderer';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
@@ -520,7 +520,7 @@ export function GeometryPreview({
       const materialCapacity=Math.max(0,availableAssetBytes-qualityFrameReserve);
       const builtinFloorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,materialCapacity);
       const workspacePlan=workspaceFloorPlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-builtinFloorPlan.residentBytes));
-      if(workspacePlan.targets.size&&(!session||publicSource)){renderer.dispose();renderer.forceContextLoss();throw Error('WORKSPACE_MATERIAL_SOURCE_UNAVAILABLE');}
+      if(workspacePlan.targets.size&&!session&&!publicSource){renderer.dispose();renderer.forceContextLoss();throw Error('WORKSPACE_MATERIAL_SOURCE_UNAVAILABLE');}
       const floorPlan={packs:[...builtinFloorPlan.packs,...workspacePlan.packs],blocked:[...builtinFloorPlan.blocked,...workspacePlan.blocked],residentBytes:builtinFloorPlan.residentBytes+workspacePlan.residentBytes,reserveBytes:Math.max(builtinFloorPlan.reserveBytes,builtinFloorPlan.residentBytes+workspacePlan.reserveBytes),maxSize:builtinFloorPlan.maxSize};
       // The surface source peak begins only after the floor source hold ends.
       // Reserve the retained floor even on fallback; never presume floor ready.
@@ -528,7 +528,7 @@ export function GeometryPreview({
       const materialReserve=serialMaterialPhaseBytes(floorPlan,surfacePlan,false,false);
       if(materialReserve>=materialCapacity){renderer.dispose();renderer.forceContextLoss();throw Error('MATERIAL_SOURCE_BUDGET');}
       const floorTextures=createFloorTextureRenderer(three,builtinFloorPlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
-      const workspaceTextures=session?createWorkspaceFloorRenderer(three,workspacePlan,abort.signal,()=>disposed||gpuLost,session):undefined;
+      const workspaceTextures=session?createWorkspaceFloorRenderer(three,workspacePlan,abort.signal,()=>disposed||gpuLost,session):workspacePlan.targets.size&&benchAuthority?createPublicWorkspaceFloorRenderer(three,workspacePlan,abort.signal,()=>disposed||gpuLost,benchAuthority):undefined;
       const surfaceTextures=createSurfaceTextureRenderer(three,surfacePlan,abort.signal,()=>disposed||gpuLost,publicSource?.floorFetcher);
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
@@ -829,6 +829,7 @@ export function GeometryPreview({
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
           ownerFurnishings?.enforce();
+          workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
@@ -1101,7 +1102,7 @@ export function GeometryPreview({
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
-      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?guardedXrFrame(()=>ownerFurnishings?.enforce(),()=>shadowPass.flush(),()=>shadowPass.afterRender(),callback):null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?guardedXrFrame(()=>{ownerFurnishings?.enforce();workspaceTextures?.enforce();},()=>shadowPass.flush(),()=>shadowPass.afterRender(),callback):null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       const resetCameraMapping=()=>{controls.touches.ONE=three.TOUCH.ROTATE;controls.mouseButtons.LEFT=three.MOUSE.ROTATE;};
       const editorOrbitAvailable=()=>{const bridge=editingRef.current,canvas=renderer.domElement;return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!canvas.ownerDocument.hidden&&canvas.ownerDocument.hasFocus()&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&!suspendedRef.current&&!xrActive.current&&!currentWalkMode.current.walking&&!seatedBenchRef.current&&viewingStyleRef.current==='free';};
