@@ -155,6 +155,12 @@ client dimensions. The image stays 0.6 × 0.8 metres, without declared depth or
 scaling; the supported result is visual alignment only. Float-frame cavity and
 physical support are not provided by this profile.
 
+The Spec draft.25 records also admit the exact black-float frame GLB
+(`d4bdc4201fe2e8866652350915799a346ba07cf73078fec9f7f6e275287e918a`,
+152,056 bytes), with a model image-plane offset of −0.037 metres. Existing
+image dimensions, unit-transform and no-depth requirements remain in force;
+the record does not establish physical canvas support or automatic resizing.
+
 The exact fixed-frame GLBs may include bounded embedded RGBA PNGs with authored
 color and ancillary metadata and glTF sampler defaults, including mipmap filter
 9987. The furnishing worker recognizes this narrow profile only after matching
