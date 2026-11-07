@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
+import {readFile} from 'node:fs/promises';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
@@ -10,8 +11,8 @@ vi.mock('./workspace-furnishing-glb.ts',()=>({validateWorkspaceFurnishingGlb:vi.
 vi.mock('../../../scripts/native-workspace-furnishing-admission.mjs',()=>({assertIssuedFurnishingWriterLease:vi.fn()}));
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const rights={holder:'ExhibitOS',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:true,download:true,export:true,commercial:true}};
-function fixture(withWriter=false){
- let row:Record<string,unknown>|undefined,version:Record<string,unknown>|undefined;const files=new Map<string,Buffer>(),bytes=Buffer.from('synthetic bounded GLB'),declaration={requestId:id(4),kind:'pedestal',name:'Synthetic',rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:bytes.length,sha256:sha256(bytes)}};
+function fixture(withWriter=false,bytes=Buffer.from('synthetic bounded GLB')){
+ let row:Record<string,unknown>|undefined,version:Record<string,unknown>|undefined;const files=new Map<string,Buffer>(),declaration={requestId:id(4),kind:'pedestal',name:'Synthetic',rights,provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:bytes.length,sha256:sha256(bytes)}};
  const blobs={put:vi.fn(async(key:string,data:Buffer)=>{files.set(key,Buffer.from(data));}),get:vi.fn(async(key:string)=>{const data=files.get(key);if(!data)throw Error('missing');return data;}),remove:vi.fn(async(key:string)=>{files.delete(key);})} as unknown as BlobStore;
  const query=vi.fn(async(sql:string,args:unknown[]=[])=>{
   if(sql.includes('pg_advisory_unlock_shared'))return {rows:[{unlocked:true}],rowCount:1};
@@ -26,7 +27,7 @@ function fixture(withWriter=false){
   if(sql.includes("SET phase='validating'")){row!.phase='validating';return {rows:[row],rowCount:1};}
   if(sql.includes("SET phase='failed'")){row!.phase='failed';row!.error=args[3];row!.retryable=args[4];return {rows:[row],rowCount:1};}
   if(sql.includes("SET phase='cancelling'")){row!.phase='cancelling';return {rows:[row],rowCount:1};}
-  if(sql.includes("SET phase='registered'")){row!.phase='registered';return {rows:[row],rowCount:1};}
+  if(sql.includes("SET phase='registered'")){row!.phase='registered';row!.worker_token=null;return {rows:[row],rowCount:1};}
   if(sql.startsWith('INSERT INTO workspace_furnishing_versions')){version={descriptor:args[5],object_key:args[6]};return {rows:[],rowCount:1};}
   if(sql.startsWith('SELECT descriptor,object_key FROM workspace_furnishing_versions'))return {rows:version?[version]:[],rowCount:version?1:0};
   return {rows:[],rowCount:1};
@@ -127,4 +128,19 @@ it('requires both stool and room-visual owner capabilities before accepting a ne
  const f=fixture(),declaration={...f.declaration,kind:'partition'},stoolOnly=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true}),roomOnly=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingRoomVisual:true});
  await expect(stoolOnly.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});await expect(roomOnly.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
  const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true}),intake=await service.create(f.client,f.session,declaration);await service.upload(f.client,f.session,intake.intakeId,f.bytes);await service.complete(f.client,f.session,intake.intakeId);expect(await service.work(f.pool)).toBe(true);expect((await service.read(f.client,f.session,intake.intakeId)).furnishing).toMatchObject({kind:'partition',model:f.declaration.model});
+});
+
+
+it('finalizes one exact frame intake through the real bounded GLB validator',async()=>{
+ const bytes=await readFile(new URL('../test-fixtures/thin-brass-frame/model.glb',import.meta.url)),f=fixture(false,bytes),declaration={...f.declaration,kind:'artwork-frame'};
+ expect(sha256(bytes)).toBe('4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4');
+ await expect(f.service.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true});
+ const intake=await service.create(f.client,f.session,declaration);expect(await service.create(f.client,f.session,structuredClone(declaration))).toEqual(intake);
+ await expect(service.create(f.client,f.session,{...declaration,kind:'unknown'})).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ await service.upload(f.client,f.session,intake.intakeId,bytes);await service.complete(f.client,f.session,intake.intakeId);
+ const actual=await vi.importActual<typeof import('./workspace-furnishing-glb.ts')>('./workspace-furnishing-glb.ts');vi.mocked(validateWorkspaceFurnishingGlb).mockImplementationOnce(actual.validateWorkspaceFurnishingGlb);
+ expect(await service.work(f.pool)).toBe(true);const done=await service.read(f.client,f.session,intake.intakeId);expect(done.phase).toBe('registered');expect(f.getRow()!.worker_token).toBeNull();expect(done.furnishing).toMatchObject({kind:'artwork-frame',model:declaration.model});
+ expect(await service.work(f.pool)).toBe(false);expect(await service.create(f.client,f.session,structuredClone(declaration))).toEqual(done);
+ expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_versions'))).toHaveLength(1);
 });
