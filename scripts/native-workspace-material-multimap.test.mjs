@@ -60,3 +60,8 @@ test('041 packaging requires its parent and selects the exact SQL separately',as
   const bytes=await readFile(join(output,'database/native-workspace-frame-preparation/041_workspace_frame_preparation.sql'));assert.equal(createHash('sha256').update(bytes).digest('hex'),'c5a030186557dc4774aa0d2a677be7f432c1010e2ee1c1a34345f69ac7e2723d');
  }finally{await rm(tmp,{recursive:true,force:true});}
 });
+
+test('portal marker is exact and requires the fixed models parent for packaging',async()=>{
+ const catalog=await import('./native-oex-normal-catalog.mjs'),{packageNativeRuntime}=await import('./package-native-runtime.mjs'),tmp=await mkdtemp(join(tmpdir(),'exhibitos-portal-marker-')),path=join(tmp,'marker');
+ try{assert.equal(await catalog.hasWorkspacePortalFinishCapability(path),false);await writeFile(path,catalog.WORKSPACE_PORTAL_FINISH_CAPABILITY);assert.equal(await catalog.hasWorkspacePortalFinishCapability(path),true);const marker=JSON.parse(catalog.WORKSPACE_PORTAL_FINISH_CAPABILITY);assert.equal(marker.parentCapabilitySHA256,createHash('sha256').update(catalog.WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY).digest('hex'));await writeFile(path,catalog.WORKSPACE_PORTAL_FINISH_CAPABILITY+' ');await assert.rejects(catalog.hasWorkspacePortalFinishCapability(path),/NATIVE_OEX_CATALOG/);await assert.rejects(packageNativeRuntime('/synthetic-unused',{workspacePortalFinishSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);}finally{await rm(tmp,{recursive:true,force:true});}
+});

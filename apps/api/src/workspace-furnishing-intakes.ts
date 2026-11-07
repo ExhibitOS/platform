@@ -14,7 +14,7 @@ import {FRAME_PREPARATION_POLICY,framePreparationPair} from './frame-preparation
 import {prepareFrameInWorker} from './frame-preparation-process.ts';
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 
-type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
+type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspacePortalFinish?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
 type Writer={writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
 type Receipt={bytes:number;sha256:string;key:string};
 type Row={id:string;request_id:string;request_sha256:string;declaration:WorkspaceFurnishingDeclaration;phase:string;received:Receipt|null;error:unknown;retryable:boolean;furnishing_id:string;furnishing_version:number;worker_token?:string|null;worker_generation?:string|null;worker_root_device?:string|null;worker_root_inode?:string|null;worker_lock_device?:string|null;worker_lock_inode?:string|null};
@@ -41,8 +41,10 @@ export class WorkspaceFurnishingIntakes {
  supportsArtworkFrame(){return this.owner.workspaceFurnishingArtworkFrame===true&&this.supportsRoomVisual();}
  supportsArtworkFrameModels(){return this.owner.workspaceFurnishingArtworkFrameModels===true&&this.supportsArtworkFrame();}
  supportsFramePreparation(){return this.owner.workspaceArtworkFramePreparation===true&&this.supportsArtworkFrameModels();}
+ supportsPortalFinish(){return this.owner.workspacePortalFinish===true&&this.supportsArtworkFrameModels();}
  private admittedDeclaration(value:unknown):value is WorkspaceFurnishingDeclaration{
-  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation()})&&validRights(value.rights)&&
+  return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish()})&&validRights(value.rights)&&
+   (value.kind!=='portal-finish'||value.model.bytes===164044&&value.model.sha256==='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b')&&
    (value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
  }
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
@@ -63,12 +65,13 @@ export class WorkspaceFurnishingIntakes {
   return {intakeId:row.id,requestId:row.request_id,phase:row.phase,declaration:fields,received:row.received?{bytes:row.received.bytes,sha256:row.received.sha256}:null,retryable:row.retryable,error:row.error,...(preparationPolicy?{preparationPolicy}:{}),...(preparation?{preparation}:{}),furnishing:row.phase==='registered'?{id:row.furnishing_id,version:row.furnishing_version,...fields,model:preparation?.renderableModel??fields.model}:null};
  }
  async create(c:PoolClient,s:Session,value:unknown){
-  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
+  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
   if(value.preparationPolicy){
    if(!verifiedPreparationPair(value.model))throw new ApiError(422,'FRAME_PREPARATION_SOURCE_UNSUPPORTED');
    const r=value.rights as {holder?:unknown;ownership?:unknown;licenseId?:unknown};
    if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,'FRAME_PREPARATION_RIGHTS_DENIED');
   }
+  if(value.kind==='portal-finish'&&(value.model.bytes!==164044||value.model.sha256!=='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b'))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
   if(!this.admittedDeclaration(value))throw new ApiError(400,'FURNISHING_DECLARATION');
   const declaration=structuredClone(value),requestHash=createHash('sha256').update(canonical(declaration)).digest('hex');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${this.owner.workspaceId}:${declaration.requestId}`]);
   const previous=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND request_id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,declaration.requestId]);

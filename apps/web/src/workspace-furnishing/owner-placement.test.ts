@@ -28,3 +28,8 @@ it('mounts a v2 stool at its room-local pose',async()=>{
  expect(f.room.children).toContain(f.object);expect(f.object.position.toArray()).toEqual([1,0,2]);expect(f.object.rotation.y).toBe(.5);expect(f.object.scale.x).toBe(1.5);
  mounted.dispose();expect(f.room.children).toHaveLength(0);
 });
+it('mounts the fixed portal at the authoritative wall-local door bottom',async()=>{
+ const f=setup(),sha='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b',pose={position:[2,1.5,-4],rotation:[0,0,0,1],scale:[1,1,1]},attachment={openingId:id(5),furnishingId:id(2),furnishingVersion:1 as const,modelSha256:sha};
+ const candidate={rooms:[{id:id(1),dimensions:{width:8,height:3,depth:8},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]}}],surfaces:[{id:id(4),roomId:id(1),type:'wall',transform:pose}],openings:[{id:id(5),surfaceId:id(4),type:'door',dimensions:{width:2.4,height:2.6},offset:[1,-.2]}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:6,furnishings:[{id:id(2),version:1,kind:'portal-finish',name:'Portal',rights:{permissions:{display:true}},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:164044,sha256:sha}}],placements:[],frameAttachments:[],openingAttachments:[attachment]}}};
+ const mounted=await mountOwnerWorkspacePlacement({...f.options,candidate,placementId:id(5),openingAttachment:attachment});expect(f.object.matrixAutoUpdate).toBe(false);expect(new three.Vector3().setFromMatrixPosition(f.object.matrix).toArray()).toEqual([3,0,-4]);mounted.dispose();
+});

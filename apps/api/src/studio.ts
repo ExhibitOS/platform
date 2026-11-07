@@ -1,5 +1,6 @@
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
+import {ordinaryPortalDelta} from './workspace-portal-delta.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
@@ -166,8 +167,9 @@ export class Studio {
     const frameDelta=!!input?.draft?.candidate&&ordinaryFrameDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE);
     const ext=input?.draft?.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {frameAttachments?:{furnishingId:string;furnishingVersion:1}[]}|undefined;
     const frameNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(ext?.frameAttachments)&&ext.frameAttachments.length>0;
-    if(frameDelta||frameNoop){
-      if(!this.workspaceFurnishing?.supportsArtworkFrame())throw new ApiError(403,'FORBIDDEN');
+    const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE),portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
+    if(frameDelta||frameNoop||portalDelta||portalNoop){
+      if((frameDelta||frameNoop)&&!this.workspaceFurnishing?.supportsArtworkFrame()||(portalDelta||portalNoop)&&!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
       await this.workspaceFurnishing.authorize(c,s);
       if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
       if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
@@ -179,7 +181,7 @@ export class Studio {
     checked(input,true);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
-    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
+    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
   async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
@@ -285,7 +287,7 @@ export class Studio {
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?boundedPlacementOnly(row.metadata,input.draft):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
