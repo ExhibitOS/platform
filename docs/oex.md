@@ -128,3 +128,17 @@ reject that version. Existing v1 furnishings continue to use draft.13. The
 selected native material-import path remains draft.12; draft.14 import is not
 provided by this capability. Display and export still require the existing live
 workspace ownership and rights checks.
+
+### Room-visual furnishing profile
+
+The separately selected room-visual capability builds on the stool capability
+and permits the additional `partition`, `info-stand`, `barrier` and
+`display-case` kinds. Saved visual placements use extension version 3 and OEX
+`1.0.0-draft.15`; existing v1 and v2 scenes retain their earlier formats. The
+same owner, model and rights checks apply. A partition is not a collision wall
+or artwork host, an information stand does not itself display text, a barrier
+is not a walking restriction, and a display case does not attach objects or
+provide interactive doors. Glass appearance and transparency depend on the
+Viewer and actual model; this profile does not promise optical behavior. The
+selected native material-import path remains draft.12; draft.15 import is not
+provided by this capability.
