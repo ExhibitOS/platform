@@ -316,20 +316,22 @@ export function checkImageDecode(bytes:ArrayBuffer,artwork:Artwork,inventory:Art
 export type LoadingStatus="queued"|"loading"|"loaded"|"error"|"cancelled";
 export interface LoadingEvent {key:string;status:LoadingStatus;error?:unknown}
 export interface SchedulerStats {active:number;queued:number;completed:number;failed:number;cancelled:number}
-interface Task<T> {key:string;priority:number;order:number;controller:AbortController;promise:Promise<T>;resolve:(v:T)=>void;reject:(e:unknown)=>void;status:LoadingStatus;settled:boolean}
+interface Task<T> {key:string;priority:number;priorityOverride?:number;order:number;controller:AbortController;promise:Promise<T>;resolve:(v:T)=>void;reject:(e:unknown)=>void;status:LoadingStatus;settled:boolean}
 const cancelled=()=>new DOMException("Asset loading cancelled","AbortError");
 export class AssetScheduler<T> {
  private readonly tasks=new Map<string,Task<T>>();private active=0;private order=0;private completed=0;private failed=0;private cancelled=0;private stopped=false;
  constructor(private readonly options:{concurrency:number;load:(key:string,signal:AbortSignal)=>Promise<T>;onState?:(event:LoadingEvent)=>void;onDiscard?:(value:T)=>void}){if(!Number.isInteger(options.concurrency)||options.concurrency<1||options.concurrency>8)throw Error("CONCURRENCY_INVALID");}
  request(key:string,priority=0):Promise<T>{if(this.stopped)return Promise.reject(cancelled());if(!Number.isFinite(priority))return Promise.reject(Error("PRIORITY_INVALID"));const existing=this.tasks.get(key);if(existing){if(existing.status==="queued")existing.priority=Math.min(existing.priority,priority);return existing.promise;}
  let resolve!:(v:T)=>void,reject!:(e:unknown)=>void;const promise=new Promise<T>((r,j)=>{resolve=r;reject=j;});const task:Task<T>={key,priority,order:this.order++,controller:new AbortController(),promise,resolve,reject,status:"queued",settled:false};this.tasks.set(key,task);this.emit(task,"queued");queueMicrotask(()=>this.drain());return promise;}
+ /** Override only a queued request; clearing it restores the ordinary priority. */
+ setPriorityOverride(key:string,priority?:number){if(priority!==undefined&&!Number.isFinite(priority))throw Error('PRIORITY_INVALID');const task=this.tasks.get(key);if(task?.status==='queued')task.priorityOverride=priority;}
  retry(key:string,priority=0){this.cancel(key);return this.request(key,priority);}
  cancel(key:string){const task=this.tasks.get(key);if(!task||task.settled)return;task.settled=true;task.controller.abort();task.reject(cancelled());this.cancelled++;this.emit(task,"cancelled");this.tasks.delete(key);queueMicrotask(()=>this.drain());}
  cancelAll(){for(const key of this.tasks.keys())this.cancel(key);}
  dispose(){this.stopped=true;this.cancelAll();}
  stats():SchedulerStats{return {active:this.active,queued:[...this.tasks.values()].filter(t=>t.status==="queued").length,completed:this.completed,failed:this.failed,cancelled:this.cancelled};}
  private emit(task:Task<T>,status:LoadingStatus,error?:unknown){task.status=status;this.options.onState?.({key:task.key,status,...(error===undefined?{}:{error})});}
- private drain(){if(this.stopped)return;while(this.active<this.options.concurrency){const task=[...this.tasks.values()].filter(t=>t.status==="queued").sort((a,b)=>a.priority-b.priority||a.order-b.order)[0];if(!task)return;this.active++;this.emit(task,"loading");void this.run(task);}}
+ private drain(){if(this.stopped)return;while(this.active<this.options.concurrency){const task=[...this.tasks.values()].filter(t=>t.status==="queued").sort((a,b)=>(a.priorityOverride??a.priority)-(b.priorityOverride??b.priority)||a.order-b.order)[0];if(!task)return;this.active++;this.emit(task,"loading");void this.run(task);}}
  private async run(task:Task<T>){try{const value=await this.options.load(task.key,task.controller.signal);if(task.settled||this.stopped){this.options.onDiscard?.(value);return;}task.settled=true;this.completed++;this.emit(task,"loaded");task.resolve(value);}catch(error){if(!task.settled){task.settled=true;this.failed++;this.emit(task,"error",error);task.reject(error);}}finally{this.active--;if(this.tasks.get(task.key)===task)this.tasks.delete(task.key);this.drain();}}
 }
 interface Cached<T> {value:T;bytes:number;pins:number;order:number}

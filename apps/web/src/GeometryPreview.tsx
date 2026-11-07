@@ -24,7 +24,6 @@ import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
 import {viewingPlanFor} from '@exhibitos/studio-contract';
-import {viewingRequestPriority} from './viewer/viewing-request-priority';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredByMaterialLoad,materialRetryWanted} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
@@ -2094,7 +2093,8 @@ export function GeometryPreview({
             // download/decode exactly when the viewer turns towards the work.
             const task=tasks.get(prior);
             if(task){task.manual=task.manual||manual;task.full=task.full||full;if(!prepareOnly)task.prepareOnly=false;}
-            if(viewingPins.has(art.revisionId)||art.revisionId===currentArtwork)void scheduler.request(prior,viewingRequestPriority(viewingPins.has(art.revisionId),art.revisionId===currentArtwork,prepareOnly,arts.indexOf(art)));
+            if(art.revisionId===currentArtwork)void scheduler.request(prior,-100);
+            if(viewingPins.has(art.revisionId))scheduler.setPriorityOverride(prior,-200);
             return;
           }
           const ready=prepared.get(inventory.id);
@@ -2125,8 +2125,9 @@ export function GeometryPreview({
           const task={ art, inventory, prepareOnly, downloadOnly,full,manual,imageBudget:imageTarget?.budget,detailPromotion };
           tasks.set(key,task);
           stages.begin(inventory.id,key);
-          void scheduler
-            .request(key, viewingRequestPriority(viewingPins.has(art.revisionId),art.revisionId===currentArtwork,prepareOnly,arts.indexOf(art)))
+          const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
+          if(viewingPins.has(art.revisionId))scheduler.setPriorityOverride(key,-200);
+          void scheduled
             .then(result => {
               const {object}=result;
               peak.release(key);
@@ -2438,7 +2439,7 @@ export function GeometryPreview({
             if(!art)throw Error('VIEWING_REFERENCE');
             viewingPreparing++;stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();
             viewingPins.set(art.revisionId,(viewingPins.get(art.revisionId)??0)+1);let released=false;
-            const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else viewingPins.delete(art.revisionId);};
+            const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else{viewingPins.delete(art.revisionId);const key=pending.get(art.revisionId);if(key)scheduler.setPriorityOverride(key);}};
             signal.addEventListener('abort',releasePin,{once:true});
             try{
               await new Promise<void>((resolve,reject)=>{
