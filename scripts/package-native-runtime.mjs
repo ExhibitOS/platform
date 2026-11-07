@@ -332,6 +332,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copy(join(source,'apps/web/src/workspace-material-resources.mjs'),join(platform,'apps/web/src/workspace-material-resources.mjs'));
   await copy(join(source,'apps/web/src/workspace-material-batch.mjs'),join(platform,'apps/web/src/workspace-material-batch.mjs'));
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
+  for(const name of ['pages-publication-source.mjs','local-static-publication-source.mjs','refresh-static-publication.mjs']) await copy(join(source,'scripts',name),join(platform,'scripts',name));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));
   await copy(join(source,'LICENSE'),join(platform,'LICENSE'));
   // Install exact production dependencies into the NEW payload; never prune the
