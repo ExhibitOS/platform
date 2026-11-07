@@ -156,3 +156,14 @@ it('admits and finalizes the exact walnut frame only with the additional model c
  const actual=await vi.importActual<typeof import('./workspace-furnishing-glb.ts')>('./workspace-furnishing-glb.ts');vi.mocked(validateWorkspaceFurnishingGlb).mockImplementationOnce(actual.validateWorkspaceFurnishingGlb);
  expect(await service.work(f.pool)).toBe(true);expect((await service.read(f.client,f.session,intake.intakeId)).furnishing).toMatchObject({kind:'artwork-frame',model:declaration.model});
 });
+
+it('creates and finalizes the exact white gallery box frame',async()=>{
+ const bytes=await readFile(new URL('../test-fixtures/white-gallery-box-frame/model.glb',import.meta.url)),f=fixture(false,bytes),declaration={...f.declaration,kind:'artwork-frame'};
+ expect(bytes.length).toBe(8728);expect(sha256(bytes)).toBe('8c20559389f667ed97879776ec6fd53bfff1cbd4c174177988cf24fe3732e00b');
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true});
+ const intake=await service.create(f.client,f.session,declaration);
+ await service.upload(f.client,f.session,intake.intakeId,bytes);await service.complete(f.client,f.session,intake.intakeId);
+ const actual=await vi.importActual<typeof import('./workspace-furnishing-glb.ts')>('./workspace-furnishing-glb.ts');vi.mocked(validateWorkspaceFurnishingGlb).mockImplementationOnce(actual.validateWorkspaceFurnishingGlb);
+ expect(await service.work(f.pool)).toBe(true);const done=await service.read(f.client,f.session,intake.intakeId);expect(done.phase).toBe('registered');expect(done.furnishing).toMatchObject({kind:'artwork-frame',model:declaration.model});
+ expect(await service.create(f.client,f.session,structuredClone(declaration))).toEqual(done);
+});
