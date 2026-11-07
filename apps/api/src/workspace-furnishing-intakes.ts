@@ -184,7 +184,7 @@ export class WorkspaceFurnishingIntakes {
    });
    let failed=false;const key=`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${row.declaration.model.sha256}`;
    for(const target of [stage?.renderable_key,key].filter((value):value is string=>typeof value==='string')){
-    await writer?.assertLive();try{await this.blobs.remove(target);}catch(e){if(!(e&&typeof e==='object'&&'code'in e&&e.code==='ENOENT'))failed=true;}
+    await writer?.assertLive();try{if(row.declaration.preparationPolicy){if(!this.blobs.removeDurable)throw Error('FURNISHING_VALIDATION_UNAVAILABLE');await this.blobs.removeDurable(target);}else await this.blobs.remove(target);}catch(e){if(row.declaration.preparationPolicy||!(e&&typeof e==='object'&&'code'in e&&e.code==='ENOENT'))failed=true;}
    }
    await transact(async()=>{
     await this.owner.assertDatabase(c);const current=await c.query("SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND id=$2 AND worker_token=$3 AND phase='cancelling' FOR UPDATE",[this.owner.workspaceId,row.id,token]);

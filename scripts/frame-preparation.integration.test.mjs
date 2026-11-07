@@ -55,8 +55,12 @@ try{
   const declaration={requestId:randomUUID(),kind:'artwork-frame',name:'cancel',rights,provenance:'Synthetic isolated cancellation',model:{mime:'model/gltf-binary',bytes:source.length,sha256:hash(source)},preparationPolicy:'omit-unused-invalid-tangent-r1'};
   const first=await call(c=>service.create(c,session,declaration));await call(c=>service.upload(c,session,first.intakeId,source));await call(c=>service.complete(c,session,first.intakeId));
   const faulty={get:(...args)=>blobs.get(...args),remove:(...args)=>blobs.remove(...args),put:(...args)=>blobs.put(...args),putDurable:async()=>{throw Error('injected write interruption');}};
-  await new WorkspaceFurnishingIntakes(faulty,owner).work(pool);await call(c=>service.cancel(c,session,first.intakeId));await service.work(pool);
+  await new WorkspaceFurnishingIntakes(faulty,owner).work(pool);const staged=(await pool.query('SELECT * FROM workspace_frame_preparations WHERE intake_id=$1',[first.intakeId])).rows[0];await call(c=>service.cancel(c,session,first.intakeId));
+  let failSync=true;const interruptedRemoval={get:(...args)=>blobs.get(...args),put:(...args)=>blobs.put(...args),remove:(...args)=>blobs.remove(...args),removeDurable:async key=>{if(failSync&&key===staged.source_key){failSync=false;await blobs.remove(key);throw Error('injected directory sync failure');}await blobs.removeDurable(key);}};
+  await new WorkspaceFurnishingIntakes(interruptedRemoval,owner).work(pool);assert.equal(failSync,false);await assert.rejects(blobs.get(staged.source_key),{code:'ENOENT'});assert.equal((await call(c=>service.read(c,session,first.intakeId))).phase,'cancelling');assert.equal((await pool.query('SELECT 1 FROM workspace_frame_preparations WHERE intake_id=$1',[first.intakeId])).rowCount,1);
+  await service.work(pool);
   assert.equal((await call(c=>service.read(c,session,first.intakeId))).phase,'cancelled');assert.equal((await pool.query('SELECT 1 FROM workspace_frame_preparations WHERE intake_id=$1',[first.intakeId])).rowCount,0);
+  const keys=await blobs.listAll();assert(!keys.includes(staged.source_key));assert(!keys.includes(staged.renderable_key));
   assert.deepEqual(await readFile(join(input,'black-aluminum-frame','visual.glb')),before);
  });
  await test('inventory binds both retained objects and refuses a corrupt source or binding',async()=>{

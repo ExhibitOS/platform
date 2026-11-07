@@ -28,6 +28,8 @@ export interface BlobStore {
   put(key: string, bytes: Uint8Array): Promise<void>;
   /** Optional durable filesystem write, including directory entries. */
   putDurable?(key: string, bytes: Uint8Array): Promise<void>;
+  /** Optional durable deletion, including a retry after a successful unlink. */
+  removeDurable?(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
   remove(key: string): Promise<void>;
 }
@@ -128,6 +130,18 @@ export class FileBlobStore implements BlobStore {
   }
   async remove(key: string) {
     await unlink(await this.path(key));
+  }
+  async removeDurable(key: string) {
+    // Ensure a missing parent can also be durably observed on a retry. The
+    // newly created empty directories are harmless and must be synced too.
+    const file=await this.path(key,true),stop=dirname(resolve(this.root));
+    try{await unlink(file);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    for(let dir=dirname(file);;dir=dirname(dir)){
+      const handle=await open(dir,constants.O_RDONLY|constants.O_NOFOLLOW);
+      try{if(!(await handle.stat()).isDirectory())throw new Error('unsafe object directory');await handle.sync();}finally{await handle.close();}
+      if(dir===stop)break;
+      if(dir===dirname(dir))throw new Error('unsafe object root');
+    }
   }
   async listAll() {
     const output:string[]=[],root=resolve(this.root);
