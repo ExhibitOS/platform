@@ -7,6 +7,13 @@ import {newDraft} from '../../web/src/drafts/example.ts';
 import {readFile} from 'node:fs/promises';
 import {fixtureURL,readOex} from '@exhibitos/spec';
 
+it('authorizes a direct PUT removing the last portal before any write',async()=>{
+ const draft=newDraft(),before=structuredClone(draft);before.candidate.extensions={'org.exhibitos.studio/workspace-furnishings':{version:6,furnishings:[{kind:'portal-finish'}],placements:[],frameAttachments:[],openingAttachments:[{openingId:'door'}]}} as never;
+ const service={supportsPortalFinish:vi.fn(()=>false),authorize:vi.fn(async()=>{throw new ApiError(403,'FORBIDDEN');})},studio=new Studio({} as never,false,undefined,service as never),session={tenantId:crypto.randomUUID(),userId:crypto.randomUUID(),role:'admin'} as Session,query=vi.fn(),c={query} as unknown as PoolClient;
+ vi.spyOn(studio,'access').mockResolvedValue({metadata:before,revision:1,nativeBounded:false} as never);const input={draft,requestId:crypto.randomUUID()},match=etag(1,before);
+ await expect(studio.put(c,session,draft.exhibitionId,input,match)).rejects.toMatchObject({code:'FORBIDDEN'});expect(service.authorize).not.toHaveBeenCalled();service.supportsPortalFinish.mockReturnValue(true);await expect(studio.put(c,session,draft.exhibitionId,input,match)).rejects.toMatchObject({code:'FORBIDDEN'});expect(service.authorize).toHaveBeenCalledOnce();expect(query).not.toHaveBeenCalled();
+});
+
 it('requires existing bounded provenance and matching draft identities without writing',async()=>{
  const draft=newDraft(),studio=new Studio(),session={tenantId:crypto.randomUUID(),userId:crypto.randomUUID(),role:'artist'} as Session;
  const query=vi.fn(),c={query} as unknown as PoolClient,input={draft,requestId:crypto.randomUUID()};

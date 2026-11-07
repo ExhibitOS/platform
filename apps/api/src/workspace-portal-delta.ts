@@ -2,6 +2,15 @@
 import {isDeepStrictEqual} from 'node:util';
 import type {Draft} from './studio.ts';
 
+/** Authorize all portal state changes, including a direct final removal. */
+export function portalStateChanged(before:Draft,after:Draft,namespace:string):boolean{
+ const state=(draft:Draft)=>{
+  const raw=draft.candidate.extensions?.[namespace] as unknown as {furnishings?:{kind?:string}[];openingAttachments?:unknown[]}|undefined;
+  return {descriptors:Array.isArray(raw?.furnishings)?raw.furnishings.filter(item=>item?.kind==='portal-finish'):[],attachments:raw?.openingAttachments??[]};
+ };
+ return !isDeepStrictEqual(state(before),state(after));
+}
+
 /** One opening visual attachment changes; all other draft data stays fixed.
  * This only bridges the currently used v5 shape and v6, not older profiles. */
 export function ordinaryPortalDelta(before:Draft,after:Draft,namespace:string):boolean{

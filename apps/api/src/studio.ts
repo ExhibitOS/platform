@@ -1,6 +1,6 @@
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
-import {ordinaryPortalDelta} from './workspace-portal-delta.ts';
+import {ordinaryPortalDelta,portalStateChanged} from './workspace-portal-delta.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
@@ -170,7 +170,7 @@ export class Studio {
     const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE),portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
     if(frameDelta||frameNoop||portalDelta||portalNoop){
       if((frameDelta||frameNoop)&&!this.workspaceFurnishing?.supportsArtworkFrame()||(portalDelta||portalNoop)&&!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
-      await this.workspaceFurnishing.authorize(c,s);
+      await this.workspaceFurnishing!.authorize(c,s);
       if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
       if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
       const fit=validateWorkspaceFurnishings(input.draft.candidate);if(!fit.valid)throw new ApiError(422,fit.errors[0]?.code??'DRAFT_INVALID');
@@ -293,6 +293,10 @@ export class Studio {
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
     )
       throw new ApiError(422, "DRAFT_ID_MISMATCH");
+    if(portalStateChanged(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)){
+      if(!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
+      await this.workspaceFurnishing.authorize(c,s);
+    }
     const payloadHash = hash({ method: "PUT", id, match, input });
     const replay = await this.receipt(c, s, input, payloadHash);
     if (replay) return replay;
