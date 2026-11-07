@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
+import type {Artwork} from '@exhibitos/spec';
+import {Cms} from './cms.ts';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
@@ -63,6 +65,12 @@ export class WorkspaceFurnishingIntakes {
   const before=await this.readVersion(c,s,id,version),model=await this.model(c,s,id,version,'display'),after=await this.readVersion(c,s,id,version);
   if(canonical(before)!==canonical(after)||model.sha256!==after.model.sha256||model.bytes.length!==after.model.bytes||model.mime!==after.model.mime||!allowedRights(after.rights,'display'))throw new ApiError(409,'ASSET_INTEGRITY');
   return after;
+ }
+ /** A draft's self-declared image metadata is not an artwork approval. */
+ async checkArtwork(c:PoolClient,s:Session,artwork:Artwork){
+  await this.checkOwner(c,s);
+  const approved=(await new Cms(this.blobs).studioArtwork(c,s,artwork.id)).artwork;
+  if(!isDeepStrictEqual(approved,artwork))throw new ApiError(409,'ARTWORK_SNAPSHOT_CHANGED');
  }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}if(bytes.length!==row.descriptor.model.bytes||sha256(bytes)!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:row.descriptor.model.mime,sha256:row.descriptor.model.sha256};}
  /** Fence the complete publication after I/O so one model cannot expire
