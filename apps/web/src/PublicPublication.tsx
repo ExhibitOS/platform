@@ -37,7 +37,7 @@ function PublicationRecordTime({value,source}:{value:unknown;source:'publication
  const description=source==='publication'?'전시 공개 기록의 시각이며, 웹 배포나 개장 시각과 다를 수 있어요.':source==='output'?'오프라인 출력의 생성 시각이며, 공개일을 뜻하지 않아요.':'전시 파일에 기록된 시각이며, 웹 배포나 개장 시각을 뜻하지 않아요.';
  return <><p>{name} {time.kind==='date'?'날짜':'시각'} {time.dateTime?<time dateTime={time.dateTime}>{time.text}</time>:time.text}</p><p className="cms-note">{description}</p></>;
 }
-export function PublicPublication({ id, initial, connectionStatus, privateEditorHref,recordTimeKind }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode; privateEditorHref?:string;recordTimeKind?:'output-generated' }) {
+export function PublicPublication({ id, initial, connectionStatus, privateEditorHref,privateEditorRestricted=false,recordTimeKind }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode; privateEditorHref?:string;privateEditorRestricted?:boolean;recordTimeKind?:'output-generated' }) {
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
@@ -281,7 +281,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {connectionStatus}
           {mode==='3d'&&<ViewingStyles state={viewingState} items={viewingItems} actions={viewingActions} available={viewingReady&&viewingPlan.stops.length>0}/>}
           {mode === "3d" && <button onClick={showTextArtworks}>텍스트로 관람</button>}
-          {privateEditorHref && <div className="publication-private-entry"><a className="publication-private-edit" href={privateEditorHref} onClick={()=>{if(mode!=="3d"||!stageReady||viewerUnavailable)discardPrivateView(value.publication.id,value.publication.revisionSha256,document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'');}}>직접 꾸며보기</a><p>이 브라우저에 개인 사본을 만들어요.</p></div>}
+          {privateEditorHref && <div className="publication-private-entry">{privateEditorRestricted?<p>직접 꾸며보기는 데스크톱에서 이용할 수 있어요. 이 기기에서는 전시를 관람해 주세요.</p>:<><a className="publication-private-edit" href={privateEditorHref} onClick={()=>{if(mode!=="3d"||!stageReady||viewerUnavailable)discardPrivateView(value.publication.id,value.publication.revisionSha256,document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'');}}>직접 꾸며보기</a><p>이 브라우저에 개인 사본을 만들어요.</p></>}</div>}
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section className="publication-settings-menu" aria-label="설정"><h2>설정</h2>
           <div ref={setControlsHost} inert={entryControlsBlocked(mode,stageReady,viewerUnavailable,entry.entryFailed)} aria-hidden={entryControlsBlocked(mode,stageReady,viewerUnavailable,entry.entryFailed)} />

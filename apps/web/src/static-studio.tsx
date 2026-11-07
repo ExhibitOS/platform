@@ -3,6 +3,7 @@ import { loadStaticPublication } from "./static-publication-source";
 import "./style.css";
 import {hasPreviousCopy, previousBases, type PreviousBase} from './private-editor/previous-bases';
 import {retainsCopyRights} from './private-editor/previous-copy-compatibility';
+import {allowsPrivateEditorEntry} from './private-editor/device-entry';
 import {takePrivateView} from './viewer/private-view';
 const root=createRoot(document.getElementById("root")!);
 let generation=0;
@@ -69,4 +70,8 @@ async function load(){
   </>);
  }catch{if(current===generation)root.render(<main className="cms-shell"><h1>샘플 편집을 열지 못했어요</h1><p role="alert">샘플 파일을 확인할 수 없어요. 연결을 확인한 뒤 다시 시도해 주세요. 기존 편집 저장본은 삭제하지 않아요.</p><button onClick={()=>void load()}>다시 시도</button> <a href="/">전시 관람으로 돌아가기</a></main>);}
 }
-void load();
+if (allowsPrivateEditorEntry(navigator)) {
+  void load();
+} else {
+  root.render(<main className="cms-shell"><h1>직접 꾸며보기</h1><p>직접 꾸며보기는 데스크톱에서 이용할 수 있어요. 이 기기에서는 전시를 관람해 주세요.</p><p>이 브라우저에 저장된 사본은 그대로 보관됩니다.</p><a href="/">전시 관람으로 돌아가기</a></main>);
+}
