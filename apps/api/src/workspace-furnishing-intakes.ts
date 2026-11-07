@@ -72,7 +72,8 @@ export class WorkspaceFurnishingIntakes {
  /** Read a publication-bound source without manufacturing an authenticated
   * session. Only the configured live workspace owner and the exact immutable
   * registered descriptor can authorize these bytes. */
- async publicationModel(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceFurnishingDescriptor}){
+ async publicationModel(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceFurnishingDescriptor},signal?:AbortSignal){
+  signal?.throwIfAborted();
   const {workspaceId,tenantId,userId,descriptor}=binding;
   if(!this.writer||workspaceId!==this.owner.workspaceId||tenantId!==this.owner.tenantId||userId!==this.owner.principalId||!descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();
@@ -82,7 +83,7 @@ export class WorkspaceFurnishingIntakes {
   if(result.rowCount!==1||!row||!isDeepStrictEqual(row.descriptor,descriptor)||!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   const prefix=`${tenantId}/workspace-furnishing-intake/${workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];
   if(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==descriptor.model.sha256)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-  let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+  signal?.throwIfAborted();let bytes:Buffer;try{if(signal&&!this.blobs.getBounded)throw Error('BOUNDED_READ_UNAVAILABLE');bytes=Buffer.from(await (this.blobs.getBounded?this.blobs.getBounded(row.object_key,descriptor.model.bytes,signal):this.blobs.get(row.object_key,signal)));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}signal?.throwIfAborted();
   if(bytes.length!==descriptor.model.bytes||sha256(bytes)!==descriptor.model.sha256||!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();
   if(!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');

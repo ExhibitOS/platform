@@ -1,5 +1,6 @@
 import { test, expect } from "vitest";
-import { mkdtemp, symlink, rm } from "node:fs/promises";
+import { mkdtemp, symlink, rm, truncate } from "node:fs/promises";
+import {join} from 'node:path';
 import { tmpdir } from "node:os";
 import { FileBlobStore, sha256 } from "./blobs.js";
 test("filesystem immutable writes converge under contention and reject conflicting bytes", async () => {
@@ -89,4 +90,11 @@ test("filesystem list rejects a symlinked configured root", async () => {
     await rm(holder, { recursive: true });
     await rm(target, { recursive: true });
   }
+});
+test('cancelled file reads stop without changing an immutable object', async () => {
+  const root=await mkdtemp(`${tmpdir()}/exhibitos-unit-abort-`);
+  try{const store=new FileBlobStore(root),bytes=Buffer.from('synthetic');await store.put('tenant/source/object',bytes);const controller=new AbortController();controller.abort();await expect(store.get('tenant/source/object',controller.signal)).rejects.toThrow();expect(Buffer.from(await store.get('tenant/source/object'))).toEqual(bytes);}finally{await rm(root,{recursive:true,force:true});}
+});
+test('bounded reads refuse a corrupted sparse object before allocating its actual size',async()=>{
+ const root=await mkdtemp(`${tmpdir()}/exhibitos-unit-bounded-`);try{const store=new FileBlobStore(root),key='tenant/source/object',bytes=Buffer.from('synthetic');await store.put(key,bytes);expect(Buffer.from(await store.getBounded(key,bytes.length))).toEqual(bytes);await truncate(join(root,key),128*1024*1024);await expect(store.getBounded(key,bytes.length)).rejects.toThrow('object size mismatch');const controller=new AbortController();controller.abort();await expect(store.getBounded(key,bytes.length,controller.signal)).rejects.toThrow();}finally{await rm(root,{recursive:true,force:true});}
 });

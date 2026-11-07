@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
+import {publicResourcesFor} from '../workspace-material-resources.mjs';
 import type {PublicPublication} from '../publication-client';
 
 /** The server may name only the exact resources selected by the verified snapshot. */
 export function validFootstepPublication(value:PublicPublication){
- let expected;try{expected=footstepResourcesFor(value.exhibition);}catch{return false;}
+ let expected;try{expected=publicResourcesFor(value.exhibition);}catch{return false;}
  if(!expected.length)return value.resources===undefined;
  if(!Array.isArray(value.resources)||value.resources.length!==expected.length)return false;
  const actual=new Map(value.resources.map(resource=>[resource.sha256,resource]));

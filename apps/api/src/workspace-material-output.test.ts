@@ -14,7 +14,7 @@ it('selects validated floor and wall color inventory and refuses unsupported con
  const wall=candidate();wall.surfaces[0]!.type='wall';wall.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.kind='wall';expect(workspaceMaterialOutputInventory(wall)).toEqual([entry]);
  const mismatch=candidate();mismatch.surfaces[0]!.type='wall';expect(()=>workspaceMaterialOutputInventory(mismatch)).toThrow('DRAFT_INVALID');
  const mixed=candidate(),wallId='33333333-3333-4333-8333-333333333333',wallSurface='44444444-4444-4444-8444-444444444444';mixed.surfaces.push({id:wallSurface,type:'wall'});mixed.extensions['org.exhibitos.studio/workspace-materials'].materials.push({...material(),id:wallId,kind:'wall'});mixed.extensions['org.exhibitos.studio/workspace-materials'].bindings.push({surfaceId:wallSurface,materialId:wallId,materialVersion:1,repeatMeters:[2,2],rotation:0});expect(workspaceMaterialOutputInventory(mixed).map(v=>v.materialId).sort()).toEqual([id,wallId]);
- const extra=candidate();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{roughness:{...material().maps.color,colorSpace:'linear'}});expect(()=>workspaceMaterialOutputInventory(extra)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
+ const extra=candidate();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{roughness:{...material().maps.color,colorSpace:'linear'},normal:{...material().maps.color,colorSpace:'linear',normalY:'up'}});expect(workspaceMaterialOutputInventory(extra).map(item=>item.role).sort()).toEqual(['color','normal','roughness']);Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{ao:{...material().maps.color,colorSpace:'linear'}});expect(()=>workspaceMaterialOutputInventory(extra)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
 });
 it('rechecks owner descriptor and chooses the purpose-specific byte authority',async()=>{
  const value=candidate(),entry=workspaceMaterialOutputInventory(value)[0]!,bytes=Buffer.from('synthetic');
@@ -38,4 +38,15 @@ it('permits wall imports only when the owned V7 catalog is active',async()=>{
  expect(()=>assertWorkspaceImportKind(candidate('wall'),false)).toThrow();
  expect(()=>assertWorkspaceImportKind(candidate('floor','wall'),false)).toThrow();
  expect(()=>assertWorkspaceImportKind(candidate('floor','wall'),true)).not.toThrow();
+ const multi={extensions:{'org.exhibitos.studio/workspace-materials':{materials:[{kind:'floor',maps:{color:{},normal:{}}}]}}};expect(()=>assertWorkspaceImportKind(multi,true)).toThrow('WORKSPACE_MATERIAL_IMPORT_UNSUPPORTED');expect(()=>assertWorkspaceImportKind(multi,true,true)).not.toThrow();
+});
+it('does not authorize multi-map output under the earlier owner capability',async()=>{
+ const value=candidate(),descriptor=value.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!;Object.assign(descriptor.maps,{normal:{...descriptor.maps.color,colorSpace:'linear',normalY:'up'}});
+ const entry=workspaceMaterialOutputInventory(value).find(item=>item.role==='normal')!,service={readVersion:vi.fn().mockResolvedValue(descriptor),exportMap:vi.fn(),supportsMultimap:()=>false} as unknown as WorkspaceMaterialIntakes;
+ await expect(workspaceMaterialOutputBytes({} as PoolClient,{} as Session,value,service,entry,'export')).rejects.toMatchObject({code:'WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED'});expect(service.exportMap).not.toHaveBeenCalled();
+});
+it('applies one aggregate public ceiling to every map role',async()=>{
+ const {workspaceMaterialPublicationWithinBudget}=await import('./workspace-material-output.ts'),base=workspaceMaterialOutputInventory(candidate())[0]!;
+ expect(workspaceMaterialPublicationWithinBudget(Array.from({length:8},()=>({...base,bytes:8*1024*1024})))).toBe(true);
+ expect(workspaceMaterialPublicationWithinBudget([...Array.from({length:8},()=>({...base,bytes:8*1024*1024})),{...base,bytes:1}])).toBe(false);
 });

@@ -103,3 +103,6 @@ it('notice HTTP route delegates only to the configured source and never falls ba
   try{const response=await app.inject({method:'GET',url:`/api/v1/publications/${publicationId}/furnishing-notices/${assetId}`});expect(response.statusCode).toBe(supported?200:404);expect(response.headers['cache-control']).toBe('no-store');if(supported){expect(response.body).toBe(bytes.toString());expect(response.headers['x-exhibitos-publication-revision']).toBe('a'.repeat(64));expect(response.headers['x-content-type-options']).toBe('nosniff');expect(furnishingNotice).toHaveBeenCalledWith(publicationId,assetId);}expect(pool.connect).not.toHaveBeenCalled();}finally{await app.close();}
  }
 });
+it('aborts a catalogue read before opening files',async()=>{
+ const {readFurnishingBytes}=await import('./furnishing-assets.ts'),asset=furnishingsFor(await fixture())!.assets[0]!,controller=new AbortController();controller.abort();await expect(readFurnishingBytes(asset,'model',controller.signal)).rejects.toMatchObject({code:'FURNISHING_INTEGRITY'});
+});

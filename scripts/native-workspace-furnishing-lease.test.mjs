@@ -36,3 +36,11 @@ test('039 selected lease uses the agreed separate HMAC tag',()=>{
  assert.equal(JSON.parse(encodeFurnishingLeaseFrame(lease,selected,secret)).mac,'88e2a5d1cdc86eaac30f63b83c4587aedfd9f397ad5b8cae7db0921a6bc5f75c');
  assert.equal(JSON.parse(encodeFurnishingLeaseFrame(ack,selected,secret)).mac,'a212cd112ad2a15d4951cf4899f4142770bcdbbfdf3d34c107c0125f7bcb6856');
 });
+
+test('040 selected lease is distinct from every existing mode',()=>{
+ const selected={...fields,mode:'workspace-furnishing-040-selected-import-v7'},frame=encodeFurnishingLeaseFrame(lease,selected,secret);
+ assert.deepEqual(verifyFurnishingLeaseFrame(frame,lease,selected,secret),selected);
+ for(const mode of ['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7']){
+  const other={...fields,mode};assert.notEqual(JSON.parse(frame).mac,JSON.parse(encodeFurnishingLeaseFrame(lease,other,secret)).mac);assert.throws(()=>verifyFurnishingLeaseFrame(frame,lease,other,secret),/FURNISHING_LEASE_INVALID/);
+ }
+});

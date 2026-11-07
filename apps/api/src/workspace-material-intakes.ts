@@ -12,7 +12,7 @@ import {validateWorkspaceMaterialPng,type WorkspaceMaterialMapDescriptor,type Wo
 
 type Validation={valid:boolean;errors:readonly {code:string;path:string;message:string}[]};
 type Declaration={requestId:string;kind:'floor'|'wall';name:string;rights:unknown;provenance:string;maps:Partial<Record<WorkspaceMaterialMapRole,WorkspaceMaterialMapDescriptor>>};
-type Owner={workspaceId:string;tenantId:string;principalId:string;assertDatabase:(client:PoolClient)=>Promise<void>};
+type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceMaterialMultimap?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
 type Writer={assertLive:()=>Promise<void>};
 type MapReceipt={bytes:number;sha256:string;key:string};
 type Row={id:string;request_id:string;request_sha256:string;declaration:Declaration;phase:string;received:Partial<Record<WorkspaceMaterialMapRole,MapReceipt>>;error:unknown;retryable:boolean;material_id:string;material_version:number};
@@ -26,6 +26,7 @@ export class WorkspaceMaterialIntakes {
  private readonly blobs:BlobStore;private readonly owner:Owner;private readonly validate:(value:unknown)=>Validation;private readonly publicWriter?:Writer;
  constructor(blobs:BlobStore,owner:Owner,validate:(value:unknown)=>Validation,publicWriter?:Writer){if(publicWriter)assertIssuedFurnishingWriterLease(publicWriter);this.blobs=blobs;this.owner=owner;this.validate=validate;this.publicWriter=publicWriter;}
  private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.owner.assertDatabase(c);}
+ supportsMultimap(){return this.owner.workspaceMaterialMultimap===true;}
  matchesBinding(owner:unknown,store:unknown){return this.owner===owner&&this.blobs===store;}
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  private async access(c:PoolClient,s:Session,id:string){
@@ -157,7 +158,7 @@ export class WorkspaceMaterialIntakes {
  private async assertMapSource(c:PoolClient,workspaceId:string,tenantId:string,userId:string,id:string,version:number,role:WorkspaceMaterialMapRole,key:string,map:WorkspaceMaterialMapDescriptor){
   const prefix=`${tenantId}/workspace-material-intake/${workspaceId}/`;
   if(key.startsWith(prefix)){const parts=key.slice(prefix.length).split('/');if(parts.length===3&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(parts[0]!)&&parts[1]===role&&parts[2]===map.sha256)return;throw new ApiError(409,'ASSET_INTEGRITY');}
-  if(role!=='color'||!key.startsWith(`${tenantId}/oex-import/`))throw new ApiError(409,'ASSET_INTEGRITY');
+  if(!key.startsWith(`${tenantId}/oex-import/`))throw new ApiError(409,'ASSET_INTEGRITY');
   const proof=await c.query(`SELECT 1 FROM workspace_material_import_provenance p
    JOIN workspace_material_import_stage t ON t.tenant_id=p.tenant_id AND t.user_id=p.user_id AND t.import_job_id=p.import_job_id AND t.attempt_id=p.attempt_id AND t.lease_id=p.lease_id AND t.source_material_id=p.source_material_id AND t.source_material_version=p.source_material_version
    JOIN oex_import_jobs j ON j.tenant_id=p.tenant_id AND j.id=p.import_job_id AND j.user_id=p.user_id
@@ -171,16 +172,22 @@ export class WorkspaceMaterialIntakes {
   await this.publicWriter.assertLive();await this.owner.assertDatabase(c);await this.publicWriter.assertLive();
   const now=Date.now();if(descriptors.some(m=>!allowedRights(m.rights,'display',now)||!allowedRights(m.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  }
- async publicationMap(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceMaterial}){
+ async publicationMapBinding(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceMaterial},role:WorkspaceMaterialMapRole='color',signal?:AbortSignal){
+  signal?.throwIfAborted();
   const {workspaceId,tenantId,userId,descriptor}=binding;
+  if(Object.keys(descriptor?.maps??{}).some(role=>role!=='color')&&!this.supportsMultimap())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   if(!this.publicWriter||workspaceId!==this.owner.workspaceId||tenantId!==this.owner.tenantId||userId!==this.owner.principalId||!descriptor)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.publicationFence(c,[descriptor]);uuid(descriptor.id);
   const r=await c.query('SELECT descriptor,object_keys FROM workspace_material_versions WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 AND version=$5 FOR SHARE',[workspaceId,tenantId,userId,descriptor.id,descriptor.version]);
   const row=r.rows[0] as {descriptor:WorkspaceMaterial;object_keys:Partial<Record<WorkspaceMaterialMapRole,string>>}|undefined;
-  if(r.rowCount!==1||!row||!isDeepStrictEqual(row.descriptor,descriptor)||Object.keys(descriptor.maps).length!==1||!descriptor.maps.color||!row.object_keys.color)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-  const key=row.object_keys.color,map=descriptor.maps.color;
-  try{await this.assertMapSource(c,workspaceId,tenantId,userId,descriptor.id,descriptor.version,'color',key,map);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
-  let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(key));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+  if(r.rowCount!==1||!row||!isDeepStrictEqual(row.descriptor,descriptor)||!['color','normal','roughness'].includes(role))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  const key=row.object_keys[role],map=descriptor.maps[role];if(!key||!map)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  try{await this.assertMapSource(c,workspaceId,tenantId,userId,descriptor.id,descriptor.version,role,key,map);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+  await this.publicationFence(c,[descriptor]);signal?.throwIfAborted();return {key,map};
+ }
+ async publicationMap(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceMaterial},role:WorkspaceMaterialMapRole='color',signal?:AbortSignal){
+  const {key,map}=await this.publicationMapBinding(c,binding,role,signal),{descriptor}=binding;
+  let bytes:Buffer;try{if(this.supportsMultimap()&&!this.blobs.getBounded)throw Error('BOUNDED_READ_UNAVAILABLE');bytes=Buffer.from(await (this.blobs.getBounded?this.blobs.getBounded(key,map.bytes,signal):this.blobs.get(key,signal)));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
   if(bytes.length!==map.bytes||sha256(bytes)!==map.sha256)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.publicationFence(c,[descriptor]);return {bytes,mime:map.mime,sha256:map.sha256};
  }
@@ -193,7 +200,7 @@ export class WorkspaceMaterialIntakes {
   const value=await this.version(c,s,id,version);if(!roles.includes(role as WorkspaceMaterialMapRole))throw new ApiError(400,'MATERIAL_MAP_ROLE');
   const denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(value.descriptor.rights,purpose))throw new ApiError(403,denied);const typed=role as WorkspaceMaterialMapRole,descriptor=value.descriptor.maps[typed],key=value.object_keys[typed];if(!descriptor||!key)throw new ApiError(404,'MATERIAL_MAP_NOT_FOUND');
   await this.assertMapSource(c,this.owner.workspaceId,s.tenantId,s.userId,id,version,typed,key,descriptor);
-  let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+  let bytes:Buffer;try{if(this.supportsMultimap()&&!this.blobs.getBounded)throw Error('BOUNDED_READ_UNAVAILABLE');bytes=Buffer.from(await (this.blobs.getBounded?this.blobs.getBounded(key,descriptor.bytes):this.blobs.get(key)));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
   if(bytes.length!==descriptor.bytes||sha256(bytes)!==descriptor.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(value.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:descriptor.mime,sha256:descriptor.sha256};
  }
  async preview(c:PoolClient,s:Session,id:string,version:number,role:string){return this.readMap(c,s,id,version,role,'display');}

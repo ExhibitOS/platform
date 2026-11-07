@@ -23,3 +23,8 @@ test('legacy publications do not accept undeclared extra resources',()=>{
  const value=publication();value.exhibition.extensions={};delete value.resources;expect(validFootstepPublication(value)).toBe(true);
  value.resources=[];expect(validFootstepPublication(value)).toBe(false);
 });
+test('material auxiliary maps use the same exact scoped resource inventory',()=>{
+ const value=publication(),normal={mime:'image/png',bytes:7,sha256:'c'.repeat(64)};value.exhibition.extensions!['org.exhibitos.studio/workspace-materials']={materials:[{id,version:1,maps:{color:{},normal}}]} as never;
+ value.resources!.push({...normal,url:`/api/v1/publications/${id}/resources/${normal.sha256}`});expect(validFootstepPublication(value)).toBe(true);
+ value.resources!.pop();expect(validFootstepPublication(value)).toBe(false);
+});

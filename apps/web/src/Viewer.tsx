@@ -280,6 +280,8 @@ export function Viewer({
       publicationId: publication.publication.id,
       revisionSha256: publication.publication.revisionSha256,
       assets: publication.assets,
+      resources: publication.resources,
+      materialMapBatch: publication.materialMapBatch,
       ...publication.local,
     }),
     [publication],

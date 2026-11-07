@@ -14,7 +14,12 @@ it('refuses a missing surface mapping, identity collision or unsupported maps',(
  expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface},()=>mappedSurface)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
  expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface},()=>materialId)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
  expect(()=>remapWorkspaceMaterialImport(source(),{[surface]:mappedSurface},()=>surface)).toThrow('OEX_WORKSPACE_ID_CONFLICT');
- const extra=source();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{roughness:{...extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps.color,colorSpace:'linear'}});expect(()=>remapWorkspaceMaterialImport(extra,{[surface]:mappedSurface},()=>mappedMaterial)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
+ const extra=source();Object.assign(extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps,{ao:{...extra.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps.color,colorSpace:'linear'}});expect(()=>remapWorkspaceMaterialImport(extra,{[surface]:mappedSurface},()=>mappedMaterial)).toThrow('WORKSPACE_MATERIAL_OUTPUT_UNSUPPORTED');
+});
+it('preserves auxiliary maps while remapping the material',()=>{
+ const value=source(),maps=value.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!.maps;
+ Object.assign(maps,{normal:{...maps.color,colorSpace:'linear',normalY:'up',sha256:'b'.repeat(64)},roughness:{...maps.color,colorSpace:'linear',sha256:'c'.repeat(64)}});
+ expect(remapWorkspaceMaterialImport(value,{[surface]:mappedSurface},()=>mappedMaterial).extension?.materials[0]?.maps).toEqual(maps);
 });
 it('assigns one destination material ID across versions and a fresh one on reimport',()=>{
  const value=source(),surface2='55555555-5555-4555-8555-555555555555',mapped2='66666666-6666-4666-8666-666666666666';value.surfaces.push({id:surface2,type:'floor'});
