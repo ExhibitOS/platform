@@ -517,6 +517,225 @@
           }
         }
       }
+    },
+    "/api/v1/tenants/{tenantId}/studio/exhibitions/{id}/native-artwork-replacement": {
+      "post": {
+        "operationId": "replaceNativeArtwork",
+        "summary": "Atomically replace one approved artwork in an owned native workspace",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exhibition ID. PUT must preserve exhibitionId and draft ID."
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured application origin; session cookie and CSRF token also required."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+            },
+            "description": "One exact strong ETag from the current GET. Checked transactionally; a stale value cannot overwrite current state."
+          }
+        ],
+        "security": [
+          {
+            "localSession": [],
+            "csrfToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Private no-store response. Idempotency replay returns the original historical response and ETag, not necessarily current state.",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"studio-r[1-9][0-9]*-[a-f0-9]{64}\"$"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_INPUT or IF_MATCH_INVALID; malformed UUID/body or weak/list/wildcard ETag.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN or ORIGIN_REJECTED; current role/tenant/owner checks, exact Host/Origin and mutation CSRF.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "REQUEST_CONFLICT, COARSE_JOB_NOT_READY, COARSE_STATE_INVALID, ARTWORK_REPLACEMENT_STALE, ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED, ASSET_INTEGRITY, APPROVAL_INVALID or other current state/integrity conflict; transaction rolls back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "INTERNAL_ERROR.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "BODY_TOO_LARGE; mutation body limit is 4096 bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "DRAFT_INVALID, ARTWORK_REPLACEMENT_INVALID, DISPLAY_POLICY_INVALID or other full-draft/policy validation failure; transaction rolls back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "REMOTE_CONFLICT; read current state and explicitly compare, fork or apply with a new intent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "IF_MATCH_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "STORAGE_UNAVAILABLE when the bounded store capability is absent or an unexpected storage read fails.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "requestId",
+                  "artworkId",
+                  "artworkRevision",
+                  "importJobId"
+                ],
+                "properties": {
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "artworkId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "artworkRevision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "importJobId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "Available only in a qualified native workspace; job must be approved, ready and worker-drained. Exact replay returns the historical receipt."
+      }
     }
   },
   "components": {

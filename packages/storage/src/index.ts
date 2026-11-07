@@ -5,6 +5,7 @@ export * from "./blobs.js";
 export * from "./policy.js";
 export * from "./migrations.js";
 import { migrateInTransaction } from "./migrations.js";
+import {rowObjectReferences} from "./service-inventory.js";
 import { membership, artworkAccess, AccessDenied } from "./policy.js";
 export async function transaction<T>(
   pool: Pool,
@@ -208,7 +209,7 @@ export class Storage {
         [actor.tenantId],
       );
       const jobsTable = await client.query("SELECT to_regclass('import_jobs') AS name");
-      if (jobsTable.rows[0].name) { const jobs = await client.query('SELECT object_key,approved_key AS target_key FROM import_jobs WHERE tenant_id=$1',[actor.tenantId]); refs.rows.push(...jobs.rows); }
+      if (jobsTable.rows[0].name) { const jobs = await client.query('SELECT * FROM import_jobs WHERE tenant_id=$1',[actor.tenantId]); for(const job of jobs.rows){const inventory=rowObjectReferences('import_jobs',job);if(inventory.issues.length)throw new Error('import inventory requires review');for(const item of inventory.references)refs.rows.push({object_key:item.key,target_key:item.key});} }
       const publicationTable=await client.query("SELECT to_regclass('publication_assets') AS name");if(publicationTable.rows[0].name){const publications=await client.query('SELECT object_key FROM publication_assets WHERE tenant_id=$1',[actor.tenantId]);for(const row of publications.rows)refs.rows.push({object_key:row.object_key,target_key:row.object_key});}
       const derivatives=await client.query('SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL',[actor.tenantId]);for(const row of derivatives.rows){if(typeof row.metadata.objectKey==='string')refs.rows.push({object_key:row.metadata.objectKey,target_key:row.metadata.objectKey});}
       const thumbnailTable=await client.query("SELECT to_regclass('artwork_thumbnail_bindings') AS name");if(thumbnailTable.rows[0].name){const thumbnails=await client.query('SELECT object_key FROM artwork_thumbnail_bindings WHERE tenant_id=$1',[actor.tenantId]);for(const row of thumbnails.rows)refs.rows.push({object_key:row.object_key,target_key:row.object_key});}

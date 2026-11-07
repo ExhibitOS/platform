@@ -28,6 +28,8 @@ import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
 import { Cms, type ArtworkMetadata } from './cms.ts';
 import { Imports, MAX_UPLOAD, type ImportInput } from './imports.ts';
 import {MAX_PREPARED_IMAGE_BYTES,PREPARED_IMAGE_SCHEMA} from './prepared-image.ts';
+import {IMAGE_COARSE_INTENT_SCHEMA} from './image-coarse-intent.ts';
+import {replaceApprovedArtwork,type ArtworkReplacementInput} from './artwork-replacement.ts';
 import { Freezes, type FreezeConfig } from './freeze.ts';
 import { Integrities } from './integrity.ts';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +79,10 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
   const params=req.params as {tenantId?:string};
   if(params.tenantId) uuid(params.tenantId);
   return auth.request(token(req),params.tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,mutate,(client,s)=>work(client,s,req,reply));
+ };
+ const nativeMutation=(work:(client:PoolClient,s:Session,req:FastifyRequest,reply:FastifyReply)=>Promise<unknown>)=>async(req:FastifyRequest,reply:FastifyReply)=>{
+  guarded(req,true);reply.header('cache-control','no-store');const tenantId=(req.params as {tenantId:string}).tenantId;uuid(tenantId);
+  return auth.requestForNativeWorkspaceMutation(token(req),tenantId,typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined,(client,s)=>work(client,s,req,reply));
  };
  app.get('/api/v1/auth/session',call(false,async(c,s)=>{let result:Record<string,unknown>={...s};if(nativeExportWorkspace&&store instanceof FileBlobStore&&s.tenantId===nativeExportWorkspace.tenantId&&s.userId===nativeExportWorkspace.principalId){try{await nativeExportWorkspace.assertDatabase(c);result={...result,nativeOexExportProfile:'bounded-file-v1',nativePublicationProfile:'bounded-local-v1'};}catch{/* Keep the existing session usable without advertising an unavailable route. */}}if(workspaceMaterial)try{await workspaceMaterial.authorize(c,s);result={...result,workspaceMaterialProfile:'workspace-material-intake-v1'};}catch{/* No material capability when its owner binding is unavailable. */}if(workspaceFurnishing)try{await workspaceFurnishing.authorize(c,s);result={...result,workspaceFurnishingProfile:'workspace-furnishing-intake-v1',...(workspaceFurnishing.supportsStool()?{workspaceFurnishingStoolProfile:'workspace-furnishing-stool-v1'}:{}),...(workspaceFurnishing.supportsRoomVisual()?{workspaceFurnishingRoomVisualProfile:'workspace-furnishing-room-visual-v1'}:{}),...(workspaceFurnishing.supportsArtworkFrame()?{workspaceArtworkFrameProfile:'workspace-artwork-frame-v1'}:{}),...(workspaceFurnishing.supportsArtworkFrameModels()?{workspaceArtworkFrameModelsProfile:'workspace-artwork-frame-models-v1'}:{}),...(workspaceFurnishing.supportsFramePreparation()?{workspaceArtworkFramePreparationProfile:'workspace-artwork-frame-preparation-v1'}:{}),...(workspaceFurnishing.supportsPortalFinish()?{workspacePortalFinishProfile:'workspace-portal-finish-v1'}:{})};}catch{/* No capability when its owner binding is unavailable. */}return result;}));
  app.post('/api/v1/auth/logout',call(true,async(client,s,_req,reply)=>{
@@ -391,15 +397,17 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const thumbnailReceipts=()=>{if(!store)throw new ApiError(503,'STORAGE_UNAVAILABLE');return new ArtworkThumbnailReceipts(store);};
  app.get(`${cp}/artworks/:id/thumbnail-selection`,{schema:{querystring:object({expectedRevision:{...str,pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req)=>thumbnailReceipts().current(c,s,cmsId(req),Number((req.query as {expectedRevision:string}).expectedRevision))));
  app.post(`${cp}/artworks/:id/thumbnail-selection`,call(true,async(c,s,req)=>thumbnailReceipts().select(c,s,cmsId(req),req.body)));
- const imports=store?new Imports(pool,store):undefined;
+ const imports=store?new Imports(pool,store,nativeOexWorkspace):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
+ const importMutation=nativeOexWorkspace&&!freshOexTest?nativeMutation:(work:Parameters<typeof nativeMutation>[0])=>call(true,work);
+ if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-artwork-replacement`,{bodyLimit:4096,schema:{body:object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id})}},nativeMutation(async(c,s,req,reply)=>{const result=await replaceApprovedArtwork(c,s,(req.params as {id:string}).id,req.body as ArtworkReplacementInput,requiredMatch(req.headers['if-match']),studio,cms,importer(),store);reply.header('etag',result.etag);return result;}));
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));
- app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA,modelDerivation:MODEL_DERIVATION_SCHEMA},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},call(true,async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
+ app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA,modelDerivation:MODEL_DERIVATION_SCHEMA,coarsePreparation:IMAGE_COARSE_INTENT_SCHEMA},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},importMutation(async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
  app.get(`${prefix}/imports/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().view(await importer().access(c,s,p.id));}));
- app.put(`${prefix}/imports/:id/bytes`,{bodyLimit:MAX_UPLOAD},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().upload(c,s,p.id,req.body);}));
- app.put(`${prefix}/imports/:id/derived-bytes`,{bodyLimit:MAX_PREPARED_IMAGE_BYTES},call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().uploadDerived(c,s,p.id,req.body);}));
- app.post(`${prefix}/imports/:id/complete`,call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().complete(c,s,p.id);}));
- for(const action of ['cancel','retry'] as const)app.post(`${prefix}/imports/:id/${action}`,call(true,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().action(c,s,p.id,action);}));
+ app.put(`${prefix}/imports/:id/bytes`,{bodyLimit:MAX_UPLOAD},importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().upload(c,s,p.id,req.body);}));
+ app.put(`${prefix}/imports/:id/derived-bytes`,{bodyLimit:MAX_PREPARED_IMAGE_BYTES},importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().uploadDerived(c,s,p.id,req.body);}));
+ app.post(`${prefix}/imports/:id/complete`,importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().complete(c,s,p.id);}));
+ for(const action of ['cancel','retry'] as const)app.post(`${prefix}/imports/:id/${action}`,importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().action(c,s,p.id,action);}));
 
  for(const kind of ['artworks','exhibitions'] as const) {
   app.get(`${prefix}/${kind}/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return auth.resource(c,s,kind,p.id);}));
