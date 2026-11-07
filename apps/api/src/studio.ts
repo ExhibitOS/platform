@@ -18,6 +18,8 @@ import { validateViewerCuration, validateArchitecture, validateStudioMaterials, 
 import {validateArtworkThumbnail} from '@exhibitos/studio-contract';
 import { createHash, randomUUID } from "node:crypto";
 import {isDeepStrictEqual} from "node:util";
+import {replaceArtworkReferences} from "./artwork-snapshot-replacement.ts";
+import type {Artwork} from "@exhibitos/spec";
 import {consumeNativeSelectedDraftGrant,hasNativeBoundedProvenance,type NativeOexWorkspaceContext,type NativeSelectedDraftGrant} from "./native-oex-provenance.ts";
 import { validateLifecycle, type Lifecycle } from "@exhibitos/spec";
 import type { PoolClient } from "pg";
@@ -275,19 +277,32 @@ export class Studio {
     await this.record(c, s, input, payloadHash, response);
     return response;
   }
-  async put(
+  async put(c:PoolClient,s:Session,id:string,input:StudioInput,match:string):Promise<StudioResponse>{
+    return this.putInternal(c,s,id,input,match);
+  }
+  /** Server-only narrow operation; authorization and verified approval remain caller obligations. */
+  async putArtworkReplacement(c:PoolClient,s:Session,id:string,prior:Artwork,next:Artwork,requestId:string,match:string):Promise<StudioResponse>{
+    if(!this.nativeOexWorkspace||this.nativeOexWorkspace.tenantId!==s.tenantId||this.nativeOexWorkspace.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
+    await this.nativeOexWorkspace.assertDatabase(c);
+    const row=await this.access(c,s,id);if(row.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
+    const draft=structuredClone(row.metadata) as Draft;
+    draft.candidate=replaceArtworkReferences(draft.candidate,prior,next) as Draft['candidate'];
+    return this.putInternal(c,s,id,{draft,requestId},match,{prior,next});
+  }
+  private async putInternal(
     c: PoolClient,
     s: Session,
     id: string,
     input: StudioInput,
     match: string,
+    replacement?:{prior:Artwork;next:Artwork},
   ): Promise<StudioResponse> {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()

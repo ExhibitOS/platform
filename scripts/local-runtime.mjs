@@ -328,7 +328,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       void selectedTask.catch(()=>{});
     }
     if(furnishingMode){void (furnishingSelected?selectedTask:Promise.resolve()).then(()=>ordinaryStop.wait()).then(()=>{if(!ownerStopped)void close(true).catch(()=>{process.exitCode=1;console.error('Native owner shutdown failed.');});}).catch(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();void close().catch(()=>{process.exitCode=1;});}});}
-    const importer = new Imports(pool, blobs); let failures = 0;
+    const importer = new Imports(pool, blobs, nativeOexWorkspace); let failures = 0;
     const tick = async () => { try { await importer.work(); failures = 0; } catch { console.error("Local import worker failed; pending jobs remain recoverable."); if (++failures >= 5) { terminalFailure=true;runtimeReady=false;stopping = true; process.exitCode = 1; setImmediate(() => { void close(); }); } } finally { if (!stopping) { timer = setTimeout(() => { running = tick(); }, 1000); timer.unref(); } } };
     if(!selectedPhase)running = tick();
     if((selectedOex||furnishingMode)&&ownerStopped)throw Error('NATIVE_OWNER_UNAVAILABLE');

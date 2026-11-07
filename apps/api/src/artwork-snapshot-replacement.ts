@@ -2,6 +2,7 @@
 import type {Artwork,Exhibition} from '@exhibitos/spec';
 import {isDeepStrictEqual} from 'node:util';
 import {ApiError} from './api-error.ts';
+import {ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
 
 /** Build the narrowly scoped draft change after the caller independently verifies
  * current owner, approval, original/derived bytes and new policy. This function
@@ -21,6 +22,11 @@ export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next
   placement.artworkRevisionId=next.revisionId;placement.assetId=next.primaryAssetId;replaced++;
  }}
  if(!replaced)throw new ApiError(409,'ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
+ // The existing entrance contract permits selecting this exact primary image.
+ // Preserve all authored entrance text and presentation, changing only its
+ // primary binding. The caller validates the complete draft before saving.
+ const entrance=copy.extensions?.[ENTRANCE_NAMESPACE] as {imageAssetId?:unknown}|undefined;
+ if(entrance&&typeof entrance.imageAssetId==='string'&&same(entrance.imageAssetId,prior.primaryAssetId))entrance.imageAssetId=next.primaryAssetId;
  // Refuse any unsupported cover, thumbnail, frame or other reference rather
  // than guessing how it should be rebound. Artwork identity itself is stable.
  const containsOld=(value:string)=>[...oldIds].some(id=>value.toLowerCase().includes(id));

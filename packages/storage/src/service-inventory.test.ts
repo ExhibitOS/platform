@@ -26,6 +26,13 @@ describe('service inventory typed references',()=>{
   expect(rowObjectReferences('import_jobs',{...source,state:'uploading'}).references.every(v=>!v.required)).toBe(true);
   expect(rowObjectReferences('import_jobs',{...source,derived:null}).issues).toContainEqual(expect.objectContaining({code:'INVALID_PREPARED_IMPORT'}));
  });
+ it('accepts legacy PNG and JPEG imports with nullable worker fields',()=>{
+  const source={...row,approved_key:row.target_key,expected_bytes:123,expected_hash:sha,state:'approved',png_drain_version:null,png_worker_tokens:null};
+  const png=rowObjectReferences('import_jobs',{...source,mime:'image/png',derived:null,derived_object_key:null});
+  expect(png.issues).toEqual([]);expect(png.references.map(v=>v.key)).toEqual([key,row.target_key]);
+  const jpeg=rowObjectReferences('import_jobs',{...source,mime:'image/jpeg',derived_object_key:tenant+'/quarantine/prepared',derived:{mime:'image/png',bytes:17,sha256:sha}});
+  expect(jpeg.issues).toEqual([]);expect(jpeg.references).toHaveLength(3);
+ });
  it('retains approved or revoked independent stills and immutable public copies without scanning arbitrary JSON',()=>{
   for(const state of ['validated','approved'])expect(rowObjectReferences('studio_cover_images',{...row,state,revoked:true}).references[0]).toMatchObject({key,required:true,expectedBytes:123,expectedSha256:sha});
   expect(rowObjectReferences('studio_cover_images',{...row,state:'uploading'}).references[0].required).toBe(false);
@@ -134,4 +141,10 @@ it('protects both prepared frame references without misclassifying staged rows',
  const registered=rowObjectReferences('workspace_frame_preparations',record);expect(registered.issues).toEqual([]);expect(registered.references).toHaveLength(2);expect(registered.references.every(ref=>ref.required)).toBe(true);
  const staged=rowObjectReferences('workspace_frame_preparations',{...record,state:'staged'});expect(staged.issues).toEqual([]);expect(staged.references[1]?.required).toBe(false);
  expect(rowObjectReferences('workspace_frame_preparations',{...record,source_key:'other/foreign'}).issues[0]?.code).toBe('INVALID_INVENTORY');
+});
+it('retains the job-scoped coarse key and refuses an undrained worker',()=>{
+ const source={...row,approved_key:row.target_key,expected_bytes:123,expected_hash:sha,mime:'image/jpeg',state:'approved',png_drain_version:1,png_worker_tokens:[],user_id:'user',derived_object_key:tenant+'/quarantine/prepared',derived:{mime:'image/png',bytes:12,sha256:sha,viewerCoarse:{intent:{version:1,profile:'viewer-png-box-512-v1',approvalId:'approval',artworkRevision:1},workspaceId:'workspace',principalId:'user',assetId:'asset',stageKey:`${tenant}/quarantine/import-${row.id}/coarse-${sha}`,sha256:sha,bytes:9}}};
+ const inventory=rowObjectReferences('import_jobs',source);expect(inventory.issues).toEqual([]);expect(inventory.references.find(x=>x.key===source.derived.viewerCoarse.stageKey)?.required).toBe(true);
+ const active=rowObjectReferences('import_jobs',{...source,png_worker_tokens:['live']});expect(active.issues).toContainEqual(expect.objectContaining({code:'IMAGE_COARSE_WORKER_DRAIN_UNCONFIRMED'}));
+ const wrong=rowObjectReferences('import_jobs',{...source,derived:{...source.derived,viewerCoarse:{...source.derived.viewerCoarse,stageKey:tenant+'/wrong'}}});expect(wrong.issues).toContainEqual(expect.objectContaining({code:'INVALID_IMAGE_COARSE_IMPORT'}));
 });

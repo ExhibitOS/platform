@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {validateArtwork,type Artwork} from '@exhibitos/spec';
+import {ARTWORK_THUMBNAIL_NAMESPACE,DISPLAY_POLICY_NAMESPACE,LOD_NAMESPACE,validateArtworkDetails,validateArtworkDisplayPolicy,validateArtworkThumbnail,validateViewerLod} from '@exhibitos/studio-contract';
+import {ApiError} from './api-error.ts';
+import {imageCoarsePolicy,type ImageCoarseIntent} from './image-coarse-intent.ts';
+import {qualifyDemoDisplay,qualifyDemoDisplayAsset} from './demo-display-policy.ts';
+
+/** Constructs a candidate only. The caller must bind all inputs to the live
+ * owner, drained job, current rights and immutable approval in one transaction. */
+export function artworkReplacementSnapshot(prior:Artwork,input:{tenantId:string;revisionId:string;at:string;primaryId:string;coarseId:string;intent:ImageCoarseIntent;originalSha256:string;primary:Buffer;coarse:Buffer}):Artwork{
+ const policy=imageCoarsePolicy(input.intent,input.originalSha256,priorBytesHash(input.primary),input.primary.length);
+ if(prior.artworkType!=='image'||prior.revision!==input.intent.artworkRevision||prior.revision>=2147483647||prior.extensions?.[ARTWORK_THUMBNAIL_NAMESPACE]!==undefined)throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+ const next=structuredClone(prior),revision=prior.revision+1;
+ next.revision=revision;next.revisionId=input.revisionId;next.createdAt=input.at;next.primaryAssetId=input.primaryId;
+ next.assets=[{id:input.primaryId,path:`assets/${input.primaryId}/image.png`,role:'image',mime:'image/png',bytes:policy.canonicalBytes,sha256:policy.canonicalAssetSha256},{id:input.coarseId,path:`assets/${input.coarseId}/image.png`,role:'image',mime:'image/png',bytes:policy.coarse.bytes,sha256:policy.coarse.sha256}];
+ next.extensions={...next.extensions,'org.exhibitos.studio/cms':{tenantId:input.tenantId,artworkId:prior.id,revision},[LOD_NAMESPACE]:{version:1,variants:[{assetId:input.primaryId,detail:'full',textureSize:2048},{assetId:input.coarseId,detail:'coarse',textureSize:512}]},[DISPLAY_POLICY_NAMESPACE]:{version:1,profile:'approved-open-access-demo-v1',approvalId:policy.approvalId,sourceAssetSha256:policy.canonicalAssetSha256,rightsEvidenceSha256:policy.rightsEvidenceSha256}};
+ next.provenance.events.push({id:input.revisionId,type:'edited',at:input.at,description:'Reviewed exact image assets and server-generated coarse image; original preparation recipe remains client-declared.'});
+ if(!validateArtwork(next).valid||!validateViewerLod(next).valid||!validateArtworkDetails(next).valid||!validateArtworkDisplayPolicy(next).valid||!validateArtworkThumbnail(next).valid)throw new ApiError(422,'ARTWORK_REPLACEMENT_INVALID');
+ qualifyDemoDisplay(next,input.primary);qualifyDemoDisplayAsset(next,input.coarseId,input.coarse);
+ return next;
+}
+import {sha256 as priorBytesHash} from '@exhibitos/storage';

@@ -162,7 +162,8 @@
                   "mime": {
                     "enum": [
                       "model/gltf-binary",
-                      "image/png"
+                      "image/png",
+                      "image/jpeg"
                     ]
                   },
                   "sha256": {
@@ -185,6 +186,133 @@
                   },
                   "modelDerivation": {
                     "$ref": "#/components/schemas/ModelDerivation"
+                  },
+                  "derived": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "mime",
+                      "bytes",
+                      "sha256",
+                      "recipe"
+                    ],
+                    "properties": {
+                      "mime": {
+                        "const": "image/png"
+                      },
+                      "bytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8388608
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "recipe": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "version",
+                          "role",
+                          "sampling",
+                          "colourMeaning",
+                          "recipeSha256",
+                          "settingsSha256",
+                          "sourcePixelsSha256",
+                          "outputPixelsSha256",
+                          "toolVersion"
+                        ],
+                        "properties": {
+                          "version": {
+                            "const": 1
+                          },
+                          "role": {
+                            "const": "baseColor"
+                          },
+                          "sampling": {
+                            "const": "nearest-centre"
+                          },
+                          "colourMeaning": {
+                            "enum": [
+                              "srgb",
+                              "srgb-assumed"
+                            ]
+                          },
+                          "recipeSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "settingsSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "sourcePixelsSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "outputPixelsSha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                          },
+                          "toolVersion": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "colourConversion": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "version",
+                              "algorithm",
+                              "sourceIccSha256"
+                            ],
+                            "properties": {
+                              "version": {
+                                "const": 1
+                              },
+                              "algorithm": {
+                                "const": "icc-to-srgb-jpeg-rgb8-v1"
+                              },
+                              "sourceIccSha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "description": "Client-declared JPEG preparation; required for JPEG."
+                  },
+                  "coarsePreparation": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "version",
+                      "profile",
+                      "approvalId",
+                      "artworkRevision"
+                    ],
+                    "properties": {
+                      "version": {
+                        "const": 1
+                      },
+                      "profile": {
+                        "const": "viewer-png-box-512-v1"
+                      },
+                      "approvalId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "artworkRevision": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647
+                      }
+                    },
+                    "description": "Native-owner-only exact reviewed image pair intent; never an asset ID or storage key."
                   }
                 },
                 "required": [
@@ -946,6 +1074,174 @@
           }
         }
       }
+    },
+    "/api/v1/tenants/{tenantId}/imports/{id}/derived-bytes": {
+      "put": {
+        "summary": "Upload the declared prepared PNG",
+        "operationId": "importDerivedUpload",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured origin; Host must also match exactly."
+          }
+        ],
+        "security": [
+          {
+            "LocalSession": [],
+            "Csrf": []
+          },
+          {
+            "NetworkSession": [],
+            "Csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success after transaction completion",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "received": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "received"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Structured denied/input/state/integrity/storage error; no private object keys or decoder details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "description": "Complete PNG matching the declared hash and byte length, up to 8 MiB."
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1145,6 +1441,156 @@
               }
             },
             "additionalProperties": false
+          },
+          "coarsePreparation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "profile",
+              "approvalId",
+              "artworkRevision",
+              "status",
+              "workerDrained"
+            ],
+            "properties": {
+              "profile": {
+                "const": "viewer-png-box-512-v1"
+              },
+              "approvalId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "artworkRevision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "ready",
+                  "failed"
+                ]
+              },
+              "workerDrained": {
+                "type": "boolean"
+              },
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "imagePreparation": {
+            "type": "object",
+            "description": "Client-declared recipe, not server-certified image conversion.",
+            "required": [
+              "provenance",
+              "originalSha256",
+              "derivedSha256",
+              "recipe"
+            ],
+            "properties": {
+              "provenance": {
+                "const": "client-declared"
+              },
+              "originalSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "derivedSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "recipe": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "role",
+                  "sampling",
+                  "colourMeaning",
+                  "recipeSha256",
+                  "settingsSha256",
+                  "sourcePixelsSha256",
+                  "outputPixelsSha256",
+                  "toolVersion"
+                ],
+                "properties": {
+                  "version": {
+                    "const": 1
+                  },
+                  "role": {
+                    "const": "baseColor"
+                  },
+                  "sampling": {
+                    "const": "nearest-centre"
+                  },
+                  "colourMeaning": {
+                    "enum": [
+                      "srgb",
+                      "srgb-assumed"
+                    ]
+                  },
+                  "recipeSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "settingsSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "sourcePixelsSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "outputPixelsSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "toolVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "colourConversion": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "version",
+                      "algorithm",
+                      "sourceIccSha256"
+                    ],
+                    "properties": {
+                      "version": {
+                        "const": 1
+                      },
+                      "algorithm": {
+                        "const": "icc-to-srgb-jpeg-rgb8-v1"
+                      },
+                      "sourceIccSha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "originalAssetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         },
         "required": [
