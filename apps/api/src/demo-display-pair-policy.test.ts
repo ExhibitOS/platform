@@ -31,3 +31,10 @@ test('missing or changed approved coarse metadata never inherits the primary neu
  const a=await fixture();a.assets[1]!.sha256='b'.repeat(64);expect(()=>qualifyDemoDisplay(a)).toThrow('DISPLAY_POLICY_INVALID');
  const missing=await fixture();missing.assets.pop();expect(()=>qualifyDemoDisplay(missing)).toThrow('DISPLAY_POLICY_INVALID');
 });
+test('reviewed Wheat ICC entry binds the new exact primary and coarse without changing historical approval',async()=>{
+ const wheat=await fixture('ce328328-97fa-56cf-8fc1-6bafd4573153'),entry=qualifyDemoDisplay(wheat)!;
+ expect(entry.canonicalAssetSha256).toBe('cde67c823c0fed9574d94d4a95facbcc7e3b7782af8424d55fb41c8a53c250b7');
+ expect(entry.coarse?.sha256).toBe('0b0ff85114f13554a7b122a9a50cf73130f056dffa0220f7463d7ffbecd7f304');
+ wheat.assets[1]!.sha256='a'.repeat(64);expect(()=>qualifyDemoDisplay(wheat)).toThrow('DISPLAY_POLICY_INVALID');
+ expect(approved.some(item=>item.approvalId==='9e57417c-72a7-557e-af97-2935ef654733'&&item.canonicalAssetSha256==='2d202bfa522a54dd6e0a73063ff2eabdb7f90aae246ba9322d6505019c5bda9f')).toBe(true);
+});
