@@ -10,7 +10,7 @@ import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 
-type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
+type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
 type Writer={writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>};
 type Receipt={bytes:number;sha256:string;key:string};
 type Row={id:string;request_id:string;request_sha256:string;declaration:WorkspaceFurnishingDeclaration;phase:string;received:Receipt|null;error:unknown;retryable:boolean;furnishing_id:string;furnishing_version:number;worker_token?:string|null;worker_generation?:string|null;worker_root_device?:string|null;worker_root_inode?:string|null;worker_lock_device?:string|null;worker_lock_inode?:string|null};
@@ -27,6 +27,7 @@ export class WorkspaceFurnishingIntakes {
  hasWriterLease(){return this.writer!==undefined;}
  supportsStool(){return this.owner.workspaceFurnishingStool===true;}
  supportsRoomVisual(){return this.owner.workspaceFurnishingRoomVisual===true&&this.supportsStool();}
+ supportsArtworkFrame(){return this.owner.workspaceFurnishingArtworkFrame===true&&this.supportsRoomVisual();}
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
  private async access(c:PoolClient,s:Session,id:string){uuid(id);await this.checkOwner(c,s);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,id]);if(result.rowCount!==1)throw new ApiError(403,'FORBIDDEN');return result.rows[0] as Row;}
  private receipt(row:Row):Receipt{
@@ -35,7 +36,7 @@ export class WorkspaceFurnishingIntakes {
  }
  private view(row:Row){const {requestId:_requestId,...fields}=row.declaration;void _requestId;return {intakeId:row.id,requestId:row.request_id,phase:row.phase,declaration:fields,received:row.received?{bytes:row.received.bytes,sha256:row.received.sha256}:null,retryable:row.retryable,error:row.error,furnishing:row.phase==='registered'?{id:row.furnishing_id,version:row.furnishing_version,...fields}:null};}
  async create(c:PoolClient,s:Session,value:unknown){
-  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual()})||!validRights(value.rights))throw new ApiError(400,'FURNISHING_DECLARATION');
+  await this.checkOwner(c,s);if(!validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame()})||!validRights(value.rights)||value.kind==='artwork-frame'&&(value.model.bytes!==7892||value.model.sha256!=='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'))throw new ApiError(400,'FURNISHING_DECLARATION');
   const declaration=structuredClone(value),requestHash=createHash('sha256').update(canonical(declaration)).digest('hex');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${this.owner.workspaceId}:${declaration.requestId}`]);
   const previous=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND request_id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,declaration.requestId]);
   if(previous.rowCount){const row=previous.rows[0] as Row;if(row.request_sha256!==requestHash)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');return this.view(row);}

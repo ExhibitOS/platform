@@ -1,4 +1,5 @@
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
+import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
@@ -9,7 +10,7 @@ import {validateStudioPlaques} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
-import {validateStudioInstallation} from '@exhibitos/studio-contract';
+import {validateStudioInstallation,validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import { validateViewerEntrance } from '@exhibitos/studio-contract';
 import {validateSpatialProfile} from '@exhibitos/studio-contract';
 import { validateViewerCuration, validateArchitecture, validateStudioMaterials, validateStudioPresentation, validateViewerLod, validateViewerExperience, validateArtworkDetails } from "@exhibitos/studio-contract";
@@ -162,6 +163,17 @@ export class Studio {
   /** The persisted, owner-bound provenance controls profile selection. */
   async validateNativeViewport(c:PoolClient,s:Session,id:string,input:StudioInput,match?:string) {
     const row=await this.access(c,s,id);
+    const frameDelta=!!input?.draft?.candidate&&ordinaryFrameDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE);
+    const ext=input?.draft?.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {frameAttachments?:{furnishingId:string;furnishingVersion:1}[]}|undefined;
+    const frameNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(ext?.frameAttachments)&&ext.frameAttachments.length>0;
+    if(frameDelta||frameNoop){
+      if(!this.workspaceFurnishing?.supportsArtworkFrame())throw new ApiError(403,'FORBIDDEN');
+      await this.workspaceFurnishing.authorize(c,s);
+      if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
+      if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
+      const fit=validateWorkspaceFurnishings(input.draft.candidate);if(!fit.valid)throw new ApiError(422,fit.errors[0]?.code??'DRAFT_INVALID');
+      if(!row.nativeBounded){checked(input);await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);return {valid:true as const};}
+    }
     if(!row.nativeBounded)throw new ApiError(403,'FORBIDDEN');
     if(typeof input.draft?.exhibitionId!=='string'||typeof input.draft?.id!=='string'||input.draft.exhibitionId.toLowerCase()!==id.toLowerCase()||input.draft.id.toLowerCase()!==row.metadata.id.toLowerCase())throw new ApiError(422,'DRAFT_ID_MISMATCH');
     checked(input,true);
