@@ -33,3 +33,15 @@ it('accepts exact room-visual kinds only under v3 while retaining prior kinds',a
   expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);extension.version=2;expect(validateWorkspaceFurnishings(candidate).valid).toBe(false);
  }
 });
+
+it('binds the fixed frame to one exact compatible image placement',async()=>{
+ const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE}=await import('./workspace-furnishing.ts');
+ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,sha='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4';
+ const item={id:id(2),version:1,kind:'artwork-frame',name:'Brass',rights:{},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:7892,sha256:sha}},art={id:id(8),revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width:.6,height:.8},transform:{scale:[1,1,1]}},placement={id:id(4),roomId:id(1),artworkRevisionId:id(5),assetId:id(6),transform:{scale:[1,1,1]}};
+ const candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform:{scale:[1,1,1]}}],artworks:[art],placements:[placement],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:4,furnishings:[item],placements:[],frameAttachments:[{placementId:id(4),artworkRevisionId:id(5),assetId:id(6),furnishingId:id(2),furnishingVersion:1,modelSha256:sha}]}}};
+ expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);
+ art.dimensions.height=.6;expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('FRAME_SIZE_UNSUPPORTED');art.dimensions.height=.8;
+ placement.assetId=id(9);expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('FRAME_TARGET_STALE');placement.assetId=id(6);
+ const p='10000000-0000-4000-8000-0000000000a4';placement.id=p;candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].frameAttachments[0]!.placementId=p;
+ const conflict={...candidate,extensions:{...candidate.extensions,'org.exhibitos.studio/installation':{placements:[{placementId:p.toUpperCase(),frame:{kind:'flat'}}]}}};expect(validateWorkspaceFurnishings(conflict).errors[0]?.code).toBe('FRAME_PROCEDURAL_CONFLICT');
+});
