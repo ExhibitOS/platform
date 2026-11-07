@@ -42,6 +42,8 @@ it('binds the fixed frame to one exact compatible image placement',async()=>{
  expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);
  art.dimensions.height=.6;expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('FRAME_SIZE_UNSUPPORTED');art.dimensions.height=.8;
  placement.assetId=id(9);expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('FRAME_TARGET_STALE');placement.assetId=id(6);
+ const floatSha='d4bdc4201fe2e8866652350915799a346ba07cf73078fec9f7f6e275287e918a';candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].version=5;item.model.sha256=floatSha;item.model.bytes=152056;candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].frameAttachments[0]!.modelSha256=floatSha;
+ expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);item.model.bytes++;expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('FRAME_ASSET_UNSUPPORTED');item.model.bytes--;candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].version=4;expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('FRAME_ASSET_UNSUPPORTED');candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].version=5;
  const p='10000000-0000-4000-8000-0000000000a4';placement.id=p;candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].frameAttachments[0]!.placementId=p;
  const conflict={...candidate,extensions:{...candidate.extensions,'org.exhibitos.studio/installation':{placements:[{placementId:p.toUpperCase(),frame:{kind:'flat'}}]}}};expect(validateWorkspaceFurnishings(conflict).errors[0]?.code).toBe('FRAME_PROCEDURAL_CONFLICT');
 });
