@@ -28,6 +28,8 @@ import {createViewingSession,type ViewingRenderer,type ViewingState,type Viewing
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {discardPrivateView} from './viewer/private-view-storage';
 import {publicationTime} from './publication-time';
+import {readRuntimeHistory} from './viewer/runtime-history';
+import {RuntimeHistoryDetails} from './viewer/RuntimeHistoryDetails';
 import {installPanelDismissal,panelEscapeFromControl} from './viewer/panel-resume';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -311,6 +313,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             <summary>파일 기록</summary>
             <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
             <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
+            <RuntimeHistoryDetails history={readRuntimeHistory(document)}/>
             <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
           </details>
           </details>
