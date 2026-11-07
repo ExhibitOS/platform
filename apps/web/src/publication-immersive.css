@@ -306,21 +306,38 @@ main.publication-shell .viewer-ordered-chrome button[aria-disabled="true"]{color
 .viewer-ordered-previous{left:max(.75rem,env(safe-area-inset-left,0px))}.viewer-ordered-next{right:max(.75rem,env(safe-area-inset-right,0px))}
 .viewer-ordered-caption{position:absolute;bottom:max(1rem,env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);box-sizing:border-box;display:flex;align-items:center;gap:.25rem;max-width:calc(100% - 2 * (60px + max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))));padding:.2rem .2rem .2rem .75rem;border-radius:6px;background:var(--publication-paper);color:var(--publication-ink)}
 .viewer-ordered-title{min-width:0;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;font-size:.9375rem;font-weight:600;line-height:1.35}
-.viewer-ordered-status{position:absolute;left:50%;bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + 4rem);transform:translateX(-50%);width:min(28rem,calc(100% - 8rem));box-sizing:border-box;padding:.5rem .75rem;background:var(--publication-paper);border-radius:6px;text-align:center;pointer-events:auto}
+.viewer-ordered-status{position:absolute;left:50%;bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + var(--ordered-caption-height,52px) + .75rem);transform:translateX(-50%);width:min(28rem,calc(100% - 8rem));box-sizing:border-box;padding:.5rem .75rem;background:var(--publication-paper);border-radius:6px;text-align:center;pointer-events:auto}
 .viewer-ordered-status p{margin:0;font-size:.875rem;line-height:1.4}main.publication-shell .viewer-ordered-status button{width:auto;padding:.5rem .75rem;border-radius:4px;margin:.35rem auto 0}
-.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map)[open],dialog[open],[aria-modal="true"]) .viewer-ordered-chrome{visibility:hidden}
+.publication-mode-3d:has(:is(.publication-menu,.viewer-audio-menu,.viewer-input-help,.viewer-visitor-map,.viewer-ordered-list-panel)[open],dialog[open],[aria-modal="true"]) .viewer-ordered-chrome{visibility:hidden}
 .publication-mode-3d:has(.viewer-sculpture-orbit) :is(.viewer-ordered-caption,.viewer-ordered-previous,.viewer-ordered-next){bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height, 8rem) + .5rem)}
-.publication-mode-3d:has(.viewer-sculpture-orbit) .viewer-ordered-status{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height, 8rem) + 4.5rem)}
+.publication-mode-3d:has(.viewer-sculpture-orbit) .viewer-ordered-status{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height, 8rem) + var(--ordered-caption-height,52px) + 1.25rem)}
 @media(prefers-reduced-transparency:reduce){main.publication-shell .viewer-ordered-chrome button{background:var(--publication-paper)}}
 
 
 /* The nonblocking introduction sits above the persistent navigation row. */
-.publication-mode-3d:has(.viewer-ordered-chrome) .viewer-input-brief{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + var(--ordered-status-height,0px) + 5rem);max-height:max(44px,calc(100svh - max(1rem,env(safe-area-inset-top,0px)) - max(1rem,env(safe-area-inset-bottom,0px)) - var(--ordered-orbit-height,0px) - var(--ordered-status-height,0px) - 6rem))}
+.publication-mode-3d:has(.viewer-ordered-chrome) .viewer-input-brief{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + var(--ordered-status-height,0px) + var(--ordered-caption-height,52px) + 1.5rem);max-height:max(44px,calc(100svh - max(1rem,env(safe-area-inset-top,0px)) - max(1rem,env(safe-area-inset-bottom,0px)) - var(--ordered-orbit-height,0px) - var(--ordered-status-height,0px) - var(--ordered-caption-height,52px) - 2.5rem))}
 .viewer-ordered-status{max-height:min(12rem,25svh);overflow:auto;overscroll-behavior:contain}
 @media(max-height:480px){
- .viewer-ordered-status{max-height:max(48px,18svh);padding:.125rem .25rem;bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + 4rem)}
- .publication-mode-3d:has(.viewer-ordered-chrome):has(.viewer-sculpture-orbit) .viewer-ordered-status{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + 4rem)}
+ .viewer-ordered-status{max-height:max(48px,18svh);padding:.125rem .25rem;bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + var(--ordered-caption-height,52px) + .75rem)}
+ .publication-mode-3d:has(.viewer-ordered-chrome):has(.viewer-sculpture-orbit) .viewer-ordered-status{bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + var(--ordered-orbit-height,0px) + var(--ordered-caption-height,52px) + .75rem)}
  .publication-mode-3d:has(.viewer-ordered-chrome):has(.viewer-sculpture-orbit) .viewer-input-help:not([open]){right:calc(var(--visitor-panel-right) + 3.5rem)}
  .publication-mode-3d:has(.viewer-ordered-chrome) .viewer-sculpture-orbit{max-height:20svh;overflow:auto;overscroll-behavior:contain}
- .publication-mode-3d:has(.viewer-ordered-chrome):has(.publication-live-stage) .viewer-input-brief{top:max(.5rem,env(safe-area-inset-top,0px));bottom:auto;width:min(30rem,calc(100% - 8rem));padding:.25rem .5rem;max-height:max(52px,calc(100svh - max(.5rem,env(safe-area-inset-top,0px)) - max(1rem,env(safe-area-inset-bottom,0px)) - var(--ordered-orbit-height,0px) - var(--ordered-status-height,0px) - 6rem))}
+ .publication-mode-3d:has(.viewer-ordered-chrome):has(.publication-live-stage) .viewer-input-brief{top:max(.5rem,env(safe-area-inset-top,0px));bottom:auto;width:min(30rem,calc(100% - 8rem));padding:.25rem .5rem;max-height:max(52px,calc(100svh - max(.5rem,env(safe-area-inset-top,0px)) - max(1rem,env(safe-area-inset-bottom,0px)) - var(--ordered-orbit-height,0px) - var(--ordered-status-height,0px) - var(--ordered-caption-height,52px) - 2.5rem))}
 }
+
+/* Compact ordered list reuses the visitor-panel dismissal and pause lifecycle. */
+.viewer-ordered-list-panel:not([open]){display:none}
+.viewer-ordered-list-panel[open]{position:fixed;z-index:20;left:50%;bottom:calc(max(1rem,env(safe-area-inset-bottom,0px)) + 4rem);transform:translateX(-50%);box-sizing:border-box;width:min(26rem,calc(100vw - 2rem - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));max-height:calc(100svh - 6rem - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));overflow:auto;overscroll-behavior:contain;background:var(--publication-paper);color:var(--publication-ink);border-radius:6px;box-shadow:0 5px 20px #182d3226;padding:.5rem .75rem}
+.viewer-ordered-list-panel>summary{display:none}
+.viewer-ordered-list-panel header{position:sticky;top:-.5rem;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:.5rem;background:var(--publication-paper)}
+.viewer-ordered-list-panel h2{margin:0;font-size:1.125rem}.viewer-ordered-list-panel header button{width:44px;min-width:44px;height:44px;padding:.5rem;border:0}
+.viewer-ordered-list-panel .viewer-viewing-styles-list{margin:.5rem 0}
+.publication-shell.publication-mode-3d:has(.viewer-ordered-list-panel[open])::after{content:"";position:fixed;inset:0;z-index:17;background:transparent}
+.publication-mode-3d:has(.viewer-ordered-list-panel[open]) :is(.viewer-input-brief,.viewer-first-hints){display:none}
+main.publication-shell .viewer-ordered-chrome .viewer-ordered-title{display:block;flex:1 1 auto;min-width:0;width:auto;height:auto;min-height:44px;max-width:100%;padding:.25rem .35rem;border:0;border-radius:4px;background:transparent;text-align:left}
+.viewer-ordered-title>span,.viewer-ordered-title>small{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;line-height:1.3}
+.viewer-ordered-title>small{font-size:.8em;font-weight:400;-webkit-line-clamp:1}
+.viewer-ordered-caption{padding:.2rem;max-width:calc(100% - 2 * (60px + max(env(safe-area-inset-left,0px),env(safe-area-inset-right,0px))))}
+.viewer-ordered-list-panel .viewer-viewing-styles-list button:focus-visible{outline:3px solid var(--publication-action);outline-offset:2px}
+
+@media(max-height:480px){.viewer-ordered-title>span{-webkit-line-clamp:1}}

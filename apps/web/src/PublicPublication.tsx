@@ -3,7 +3,7 @@ import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type CSSProperties, type ReactNode } from "react";
-import { entranceFor, entryPresentationFor, plaquesFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor } from "@exhibitos/studio-contract";
+import { entranceFor, entryPresentationFor, plaquesFor, artworkPlaqueCaptionFor, creationYearFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
@@ -24,8 +24,9 @@ import {entranceRuntime,entranceContent} from './entrance-runtime';
 import "./publication-novice.css";
 import "./publication-immersive.css";
 import {ViewingStyles} from './viewer/ViewingStyles';
-import {OrderedViewingChrome} from './viewer/OrderedViewingChrome';
-import {createViewingSession,type ViewingRenderer,type ViewingState,type ViewingStyle,type ViewingActions,type ViewingItem} from './viewer/viewing-session';
+import {OrderedViewingChrome,type OrderedViewingItem} from './viewer/OrderedViewingChrome';
+import {OrderedArtworkList} from './viewer/OrderedArtworkList';
+import {createViewingSession,type ViewingRenderer,type ViewingState,type ViewingStyle,type ViewingActions} from './viewer/viewing-session';
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {discardPrivateView} from './viewer/private-view-storage';
 import {publicationTime} from './publication-time';
@@ -83,9 +84,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   },[value,thumbnailCache,mode]);
   const [entranceLocale,setEntranceLocale]=useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuPanelId=useId(),menuFocusReturn=useRef(false),orderedListOpener=useRef<HTMLButtonElement|null>(null);
-  const openOrderedList=(opener:HTMLButtonElement)=>{orderedListOpener.current=opener;setMenuOpen(true);};
-  useEffect(()=>{if(!menuOpen||!orderedListOpener.current)return;const frame=requestAnimationFrame(()=>{const menu=publicationRoot.current?.querySelector<HTMLElement>('.publication-menu');const target=menu?.querySelector<HTMLElement>('.viewer-viewing-styles-list [aria-current="step"]')??menu?.querySelector<HTMLElement>('.viewer-viewing-styles h2');target?.focus();target?.scrollIntoView({block:'nearest'});});return()=>cancelAnimationFrame(frame);},[menuOpen]);
+  const menuPanelId=useId(),orderedListId=useId(),menuFocusReturn=useRef(false),orderedListOpener=useRef<HTMLButtonElement|null>(null),orderedPanel=useRef<HTMLDetailsElement>(null);
+  const [orderedListOpen,setOrderedListOpen]=useState(false);
+  const openOrderedList=(opener:HTMLButtonElement)=>{orderedListOpener.current=opener;setOrderedListOpen(true);};
+  useEffect(()=>{const frame=requestAnimationFrame(()=>{const panel=orderedPanel.current;if(orderedListOpen){const target=panel?.querySelector<HTMLElement>('.viewer-viewing-styles-list [aria-current="step"]')??panel?.querySelector<HTMLElement>('h2');target?.focus();target?.scrollIntoView({block:'nearest'});}else if(orderedListOpener.current){const opener=orderedListOpener.current;orderedListOpener.current=null;if(opener.isConnected&&!document.hidden&&!publicationRoot.current?.querySelector('details[data-visitor-panel][open],dialog[open],[aria-modal="true"]')&&opener.getClientRects().length&&getComputedStyle(opener).visibility!=='hidden')opener.focus({preventScroll:true});}});return()=>cancelAnimationFrame(frame);},[orderedListOpen]);
   const [controlsHost,setControlsHost]=useState<HTMLDivElement|null>(null);
   useLayoutEffect(()=>{
     if(mode!=='3d')return;
@@ -96,12 +98,12 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   // Reserve the actual heights of the sculpture controls and session notice.
   useEffect(()=>{
     const root=publicationRoot.current;if(mode!=='3d'||!root)return;
-    let orbit:HTMLElement|null=null,status:HTMLElement|null=null;
-    const measure=()=>{root.style.setProperty('--ordered-orbit-height',`${orbit?.getBoundingClientRect().height??0}px`);root.style.setProperty('--ordered-status-height',`${status?.getBoundingClientRect().height??0}px`);};
+    let orbit:HTMLElement|null=null,status:HTMLElement|null=null,caption:HTMLElement|null=null;
+    const measure=()=>{root.style.setProperty('--ordered-orbit-height',`${orbit?.getBoundingClientRect().height??0}px`);root.style.setProperty('--ordered-status-height',`${status?.getBoundingClientRect().height??0}px`);root.style.setProperty('--ordered-caption-height',`${caption?.getBoundingClientRect().height??52}px`);};
     const resize=new ResizeObserver(measure);
-    const findPanels=()=>{const nextOrbit=root.querySelector<HTMLElement>('.viewer-sculpture-orbit'),nextStatus=root.querySelector<HTMLElement>('.viewer-ordered-status');if(nextOrbit===orbit&&nextStatus===status)return;if(orbit)resize.unobserve(orbit);if(status)resize.unobserve(status);orbit=nextOrbit;status=nextStatus;if(orbit)resize.observe(orbit);if(status)resize.observe(status);measure();};
+    const findPanels=()=>{const nextOrbit=root.querySelector<HTMLElement>('.viewer-sculpture-orbit'),nextStatus=root.querySelector<HTMLElement>('.viewer-ordered-status'),nextCaption=root.querySelector<HTMLElement>('.viewer-ordered-caption');if(nextOrbit===orbit&&nextStatus===status&&nextCaption===caption)return;if(orbit)resize.unobserve(orbit);if(status)resize.unobserve(status);if(caption)resize.unobserve(caption);orbit=nextOrbit;status=nextStatus;caption=nextCaption;if(orbit)resize.observe(orbit);if(status)resize.observe(status);if(caption)resize.observe(caption);measure();};
     const changes=new MutationObserver(findPanels);changes.observe(root,{childList:true,subtree:true});findPanels();
-    return()=>{changes.disconnect();resize.disconnect();root.style.removeProperty('--ordered-orbit-height');root.style.removeProperty('--ordered-status-height');};
+    return()=>{changes.disconnect();resize.disconnect();root.style.removeProperty('--ordered-orbit-height');root.style.removeProperty('--ordered-status-height');root.style.removeProperty('--ordered-caption-height');};
   },[mode,value?.publication.id,value?.publication.revisionSha256]);
   const entryInput=useRef<'keyboard'|'pointer'|'touch'>('keyboard');
   const focusEntry=useCallback(()=>entryInput.current!=='touch',[]);
@@ -156,7 +158,6 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const [guideDismissal,setGuideDismissal]=useState<{publicationId:string;revision:string;dismissed:boolean;choiceShown?:boolean;choiceMade?:boolean;hintShown?:boolean}|null>(null);
   const [overview, setOverview] = useState<"opening" | "credits" | {roomId:string} | null>(null);
   useEffect(()=>{
-    if(!menuOpen&&orderedListOpener.current){const opener=orderedListOpener.current;orderedListOpener.current=null;menuFocusReturn.current=false;const frame=requestAnimationFrame(()=>{const root=publicationRoot.current;if(opener.isConnected&&!document.hidden&&!root?.querySelector('details[data-visitor-panel][open],dialog[open],[aria-modal="true"]')&&opener.getClientRects().length&&getComputedStyle(opener).visibility!=='hidden')opener.focus({preventScroll:true});});return()=>cancelAnimationFrame(frame);}
     if(!menuFocusReturn.current)return;
     menuFocusReturn.current=false;
     if(mode!=="3d"||!stageReady||viewerUnavailable||menuOpen||selectedId||overview)return;
@@ -168,7 +169,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     });
     return()=>cancelAnimationFrame(frame);
   },[menuOpen,mode,stageReady,viewerUnavailable,selectedId,overview,value?.publication.id,value?.publication.revisionSha256]);
-  const detailEntry = useRef<DetailEntryActions | null>(null);
+  const detailEntry = useRef<DetailEntryActions | null>(null),orderedDetailOpener=useRef<HTMLButtonElement|null>(null);
   const registerDetailEntry = useCallback((actions: DetailEntryActions | null) => { detailEntry.current = actions; }, []);
   const sharedDetailPreview=useCallback<SharedDetailPreview>(request=>{
     const mount=detailEntry.current?.mountPreview;
@@ -271,8 +272,15 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   };
   const viewingPlan=value?viewingPlanFor(value.exhibition):{version:1 as const,stops:[]};
   const viewingPlacements=value?(viewingPlan.stops.length?viewingPlan.stops.map(stop=>value.exhibition.placements.find(p=>p.id.toLowerCase()===stop.placementId.toLowerCase())!).filter(Boolean):value.exhibition.placements):[];
-  const viewingItems:ViewingItem[]=value?viewingPlacements.map(p=>({placementId:p.id,title:value.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase())?.metadata.title??'작품',roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간',thumbnail:thumbnails[p.artworkRevisionId.toLowerCase()]})):[];
   const plaqueLinks=value?plaquesFor(value.exhibition).filter(p=>p.visible):[];
+  const viewingItems:OrderedViewingItem[]=value?viewingPlacements.map(p=>{
+    const art=value.exhibition.artworks.find(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase());
+    const plaque=plaqueLinks.find(q=>q.source.kind==='artwork'&&q.source.placementId.toLowerCase()===p.id.toLowerCase());
+    const caption=plaque?artworkPlaqueCaptionFor(plaque,globalThis.navigator?.language||'ko'):undefined;
+    const created=art?.provenance.events.find(event=>event.type==='created');
+    const date=caption?.date??(art?creationYearFor(art):undefined)??created?.at.slice(0,4);
+    return {placementId:p.id,title:art?.metadata.title??'작품',artist:caption?.artist??art?.metadata.artist,date:date===undefined?undefined:String(date),plaqueId:plaque?.id,roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간',thumbnail:thumbnails[p.artworkRevisionId.toLowerCase()]};
+  }):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
   const publicEntryTransition=runtime&&(runtime.authored||runtime.settings.presentation!==undefined)?runtime.effects.transition:'none';
   return (
@@ -292,7 +300,13 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           </EntranceCover></div>
           {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={publicEntryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
-          {mode==='3d'&&stageReady&&viewingReady&&!viewerUnavailable&&!selectedId&&!overview&&<OrderedViewingChrome state={viewingState} items={viewingItems} actions={viewingActions} onList={openOrderedList} listId={menuPanelId}/>}
+          {mode==='3d'&&stageReady&&viewingReady&&!viewerUnavailable&&<OrderedViewingChrome state={viewingState} items={viewingItems} actions={viewingActions} onList={openOrderedList} listId={orderedListId} blocked={!!selectedId||!!overview} onDetailPrepare={prepareDetailEntry} onDetail={(item,pointer,opener)=>{orderedDetailOpener.current=opener;if(!pointer)detailEntry.current?.prepare();detailEntry.current?.commit(pointer);setSelectedId(item.placementId,item.plaqueId);}}/>}
+          {mode==='3d'&&<details ref={orderedPanel} name="exhibitos-visitor-panel" data-visitor-panel="" className="viewer-ordered-list-panel" open={orderedListOpen} onToggle={event=>{if(event.target===event.currentTarget)setOrderedListOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();event.currentTarget.open=false;setOrderedListOpen(false);}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
+            <summary aria-hidden="true" tabIndex={-1}>관람 순서</summary><section id={orderedListId} role="dialog" aria-labelledby={`${orderedListId}-title`}>
+              <header><h2 id={`${orderedListId}-title`} tabIndex={-1}>관람 순서</h2><button type="button" aria-label="목록 닫기" onClick={()=>{if(orderedPanel.current)orderedPanel.current.open=false;setOrderedListOpen(false);}}><ViewerIcon name="close"/></button></header>
+              <OrderedArtworkList state={viewingState} items={viewingItems} onSelect={id=>{if(orderedPanel.current)orderedPanel.current.open=false;setOrderedListOpen(false);viewingActions.select(id);}}/>
+            </section>
+          </details>}
           <details name={mode==='3d'?'exhibitos-visitor-panel':undefined} data-visitor-panel="" className="publication-menu" open={menuOpen} onToggle={event => {if(event.target===event.currentTarget)setMenuOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panelEscapeFromControl(event.target)){event.preventDefault();event.stopPropagation();menuFocusReturn.current=mode==='3d'&&stageReady&&event.currentTarget.open;event.currentTarget.open=false;setMenuOpen(false);event.currentTarget.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
           <summary aria-label={mode==='3d'?'메뉴':mode==='cover'?(menuOpen?'전시 정보 닫기':'전시 정보 열기'):undefined} title={mode==='3d'?'메뉴':mode==='cover'?(menuOpen?'전시 정보 닫기':'전시 정보 열기'):undefined} aria-expanded={menuOpen} aria-controls={menuPanelId}>{mode==='3d'?<ViewerIcon name={menuOpen?'close':'menu'}/>:mode==='cover'?<ViewerIcon name={menuOpen?'close':'info'}/>:"전시 정보"}</summary>
           <div className="publication-menu-panel" id={menuPanelId}>
@@ -346,7 +360,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             </Suspense>
           </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId} plaque={plaqueLinks.find(plaque => plaque.id === selection?.plaqueId)}
-            onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
+            onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();const opener=orderedDetailOpener.current;orderedDetailOpener.current=null;if(opener)requestAnimationFrame(()=>{if(opener.isConnected&&opener.getClientRects().length&&!document.hidden&&!publicationRoot.current?.querySelector('details[data-visitor-panel][open],dialog[open],[aria-modal="true"]'))opener.focus({preventScroll:true});});}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
           <div hidden={mode !== "text"} className="publication-text-content">
           <section aria-label="작품 목록형 대체 보기">
