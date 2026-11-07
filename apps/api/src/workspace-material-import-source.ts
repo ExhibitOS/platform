@@ -26,15 +26,15 @@ export function planWorkspaceMaterialImportSource(input:{tenantId:string;jobId:s
  const prefix=`${input.tenantId}/oex-import/${input.jobId}/${input.attemptId}/`;
  return declared.map(resource=>{
   const expected=byPath.get(resource.path),key=sourceKeys.get(resource.path),material=bindings.materials.find(item=>item.id.toLowerCase()===resource.materialId&&item.version===resource.materialVersion);
-  if(!expected||!isDeepStrictEqual(expected,resource)||!material||!material.maps.color||resource.role!=='color'||typeof key!=='string'||!key.startsWith(prefix))throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
+  if(!expected||!isDeepStrictEqual(expected,resource)||!material||!['color','normal','roughness'].includes(resource.role)||!material.maps[resource.role]||typeof key!=='string'||!key.startsWith(prefix))throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
   const suffix=key.slice(prefix.length);try{uuid(suffix);}catch{throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');}if(suffix!==suffix.toLowerCase())throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
-  return Object.freeze({sourceMaterialId:resource.materialId,sourceMaterialVersion:resource.materialVersion,role:'color' as const,sourcePath:resource.path,sha256:resource.sha256,bytes:resource.bytes,objectKey:key,descriptor:Object.freeze(structuredClone(material.maps.color))});
+  return Object.freeze({sourceMaterialId:resource.materialId,sourceMaterialVersion:resource.materialVersion,role:resource.role as 'color'|'normal'|'roughness',sourcePath:resource.path,sha256:resource.sha256,bytes:resource.bytes,objectKey:key,descriptor:Object.freeze(structuredClone(material.maps[resource.role]!))});
  });
 }
 
 /** Validate source content before writing it to the staged object key. The
  * owner still retains the claim, lease and child-process drain obligations. */
-export async function validateWorkspaceMaterialImportSourceBytes(source:{role:'color';descriptor:WorkspaceMaterialMapDescriptor},bytes:Buffer,hooks?:{onSpawn?:(child:ChildProcess)=>void}){
- if(!source||source.role!=='color')throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
+export async function validateWorkspaceMaterialImportSourceBytes(source:{role:'color'|'normal'|'roughness';descriptor:WorkspaceMaterialMapDescriptor},bytes:Buffer,hooks?:{onSpawn?:(child:ChildProcess)=>void}){
+ if(!source||!['color','normal','roughness'].includes(source.role))throw new ApiError(422,'OEX_WORKSPACE_SOURCE_INVALID');
  await validateWorkspaceMaterialPng(source.role,source.descriptor,bytes,hooks);
 }

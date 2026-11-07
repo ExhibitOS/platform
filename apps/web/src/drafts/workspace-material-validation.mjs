@@ -4,7 +4,7 @@ import {workspaceMaterialBindingsSchema} from './schema-standalone.mjs';
 import {validateRights} from './artwork-validation.mjs';
 
 export const WORKSPACE_MATERIAL_NAMESPACE='org.exhibitos.studio/workspace-materials';
-/** Validate the supported floor/wall color projection before deriving any resource
+/** Validate the supported floor/wall color, normal and roughness projection before deriving any resource
  * path from a snapshot. Rights authority remains with the source serving bytes. */
 export function workspaceFloorMaterials(document){
  const value=document?.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];
@@ -15,7 +15,7 @@ export function workspaceFloorMaterials(document){
  const materials=new Map(),used=new Set(),targets=new Set();
  for(const material of value.materials){
   const key=material.id.toLowerCase()+':'+material.version;
-  if(materials.has(key)||!['floor','wall'].includes(material.kind)||Object.keys(material.maps).join(',')!=='color'||material.maps.color.width*material.maps.color.height>4194304||!validateRights(material.rights).valid)throw Error('WORKSPACE_MATERIAL_UNSUPPORTED');
+  if(materials.has(key)||!['floor','wall'].includes(material.kind)||!material.maps.color||Object.keys(material.maps).some(role=>!['color','normal','roughness'].includes(role))||Object.values(material.maps).some(map=>map.width*map.height>4194304)||!validateRights(material.rights).valid)throw Error('WORKSPACE_MATERIAL_UNSUPPORTED');
   materials.set(key,material);
  }
  const result=[];

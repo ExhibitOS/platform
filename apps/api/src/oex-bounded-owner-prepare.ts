@@ -61,7 +61,7 @@ export async function prepareBoundedOexFromOwner(input:{pool:Pool;blobs:FileBlob
   const raw=await receivePackedOexMetadataV2(channel,await channel.receive(),bound.correlationId,claim.attemptId),ackExpected={attemptId:claim.attemptId,runtimeGeneration:claim.runtimeGeneration,reservationId:outputId,reservationGeneration:outputGeneration,controlSha256:control.controlSha256,archiveSha256:lease.archiveSha256,outputDevice:control.outputDevice,outputInode:control.outputInode,capacity};
   const ack=workspaceSelected?parsePackedWorkspaceOexAck(raw,{...ackExpected,archiveFormat:'1.0.0-draft.12',preflight:preflight!.evidence}):parsePackedOexAckV2(raw,{...ackExpected,archiveFormat:lease.archiveFormat as import('./oex-file-format.ts').NativeOexFileFormat|undefined,...(preflight?{preflight:preflight.evidence}:{})});
   diagnostic?.step('metadata-received');
-  if(workspaceSelected)assertWorkspaceImportKind(ack.exhibition,input.nativeOexWorkspace?.workspaceWallImport===true);
+  if(workspaceSelected)assertWorkspaceImportKind(ack.exhibition,input.nativeOexWorkspace?.workspaceWallImport===true,input.nativeOexWorkspace?.workspaceMaterialMultimap===true);
   // This one representative path must remain readable by the existing Studio
   // create/get/put validators. Full 256–512 MiB scene support is separate.
   diagnostic?.step('scene-validation-start');if(!validateExhibition(ack.exhibition,input.nativeOexWorkspace?{archiveProfile:'bounded-file-v1'}:undefined).valid)throw Error('OEX_TEST_SCENE_UNSUPPORTED');diagnostic?.step('scene-validation-passed');

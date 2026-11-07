@@ -22,7 +22,9 @@ function keyCheck(key: string) {
 export interface BlobStore {
   /** Required by full-service backups; absence fails closed rather than omitting unknown tenant prefixes. */
   listAll?(): Promise<string[]>;
-  get(key: string): Promise<Uint8Array>;
+  get(key: string, signal?: AbortSignal): Promise<Uint8Array>;
+  /** Optional exact-size bounded reader; never allocate based on untrusted file size. */
+  getBounded?(key: string, expectedBytes: number, signal?: AbortSignal): Promise<Uint8Array>;
   put(key: string, bytes: Uint8Array): Promise<void>;
   list(prefix: string): Promise<string[]>;
   remove(key: string): Promise<void>;
@@ -33,7 +35,8 @@ function checkBytes(bytes: Uint8Array) {
 }
 export class FileBlobStore implements BlobStore {
   constructor(readonly root: string) {}
-  private async path(key: string, create = false) {
+  private async path(key: string, create = false, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     keyCheck(key);
     const root = resolve(this.root);
     if (create) await mkdir(root, { recursive: true, mode: 0o700 });
@@ -44,30 +47,45 @@ export class FileBlobStore implements BlobStore {
       throw new Error("unsafe root");
     let current = root;
     for (const part of key.split("/").slice(0, -1)) {
+      signal?.throwIfAborted();
       current = resolve(current, part);
       if (create)
         await mkdir(current, { mode: 0o700 }).catch((e) => {
           if (e.code !== "EEXIST") throw e;
         });
       const info = await lstat(current);
+      signal?.throwIfAborted();
       if (!info.isDirectory() || info.isSymbolicLink())
         throw new Error("unsafe object directory");
     }
     return resolve(root, key);
   }
-  async get(key: string) {
+  async get(key: string, signal?: AbortSignal) {
     const file = await open(
-      await this.path(key),
+      await this.path(key, false, signal),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
+      signal?.throwIfAborted();
       const stat = await file.stat();
+      signal?.throwIfAborted();
       if (!stat.isFile()) throw new Error("nonregular object");
       if (stat.size > LIMIT) throw new Error("object size limit");
-      return await file.readFile();
+      return await file.readFile(signal ? {signal} : undefined);
     } finally {
       await file.close();
     }
+  }
+  async getBounded(key: string, expectedBytes: number, signal?: AbortSignal) {
+    if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > LIMIT) throw new Error("object size limit");
+    const file = await open(await this.path(key, false, signal), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      signal?.throwIfAborted();const stat = await file.stat();signal?.throwIfAborted();
+      if (!stat.isFile() || stat.size !== expectedBytes) throw new Error("object size mismatch");
+      const data=Buffer.alloc(expectedBytes+1),stream=file.createReadStream({start:0,end:expectedBytes,autoClose:false,...(signal?{signal}:{})});let length=0;
+      for await(const chunk of stream){const bytes=Buffer.from(chunk);if(length+bytes.length>data.length)throw new Error("object size mismatch");bytes.copy(data,length);length+=bytes.length;}
+      signal?.throwIfAborted();if(length!==expectedBytes)throw new Error("object size mismatch");return data.subarray(0,expectedBytes);
+    } finally { await file.close(); }
   }
   async put(key: string, bytes: Uint8Array) {
     checkBytes(bytes);

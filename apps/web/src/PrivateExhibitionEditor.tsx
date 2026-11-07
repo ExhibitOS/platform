@@ -87,7 +87,7 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
  const [walkAudioState,setWalkAudioState]=useState<AudioState|null>(null);
  const [cameraRequest,setCameraRequest]=useState<ComponentProps<typeof GeometryPreview>['cameraRequest']>();
  const budget=useMemo(()=>deviceBudget({viewportWidth:window.innerWidth}),[]);
- const source=useMemo<NonNullable<ComponentProps<typeof GeometryPreview>['publicSource']>>(()=>({publicationId:seed.source.publication.id,revisionSha256:seed.source.publication.revisionSha256,assets:seed.source.assets,fetcher:seed.source.local!.fetcher,check:seed.source.local!.check}),[seed]);
+ const source=useMemo<NonNullable<ComponentProps<typeof GeometryPreview>['publicSource']>>(()=>({publicationId:seed.source.publication.id,revisionSha256:seed.source.publication.revisionSha256,assets:seed.source.assets,resources:seed.source.resources,fetcher:seed.source.local!.fetcher,check:seed.source.local!.check}),[seed]);
  const appearance=useCallback((id:string)=>{const m=materialFor(stateRef.current!.present,id);return {baseColor:[0,2,4].map(i=>parseInt(m.color.slice(1+i,3+i),16)/255) as [number,number,number],roughness:m.roughness,metalness:m.metalness};},[]);
  useEffect(()=>{
   let live=true;

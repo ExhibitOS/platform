@@ -21,7 +21,7 @@ export function projectWorkspaceFurnishings(candidate:{extensions?:Record<string
 
 /** Resolve only immutable private rows for this publication. A public descriptor
  * is evidence of placement, never a workspace authority or an object key. */
-export async function admittedPublicationWorkspaceFurnishings(c:import('pg').PoolClient,tenantId:string,publicationId:string,candidate:{extensions?:Record<string,unknown>;rooms?:unknown},service?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes,retainPublicId?:string){
+export async function admittedPublicationWorkspaceFurnishings(c:import('pg').PoolClient,tenantId:string,publicationId:string,candidate:{extensions?:Record<string,unknown>;rooms?:unknown},service?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes,retainPublicId?:string,signal?:AbortSignal){
  if(!candidate.extensions||!Object.hasOwn(candidate.extensions,WORKSPACE_FURNISHING_NAMESPACE))return [];
  const source=candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings;
  if(!service||!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
@@ -29,10 +29,10 @@ export async function admittedPublicationWorkspaceFurnishings(c:import('pg').Poo
  if(rows.length!==source.furnishings.length||new Set(rows.map(row=>row.public_id)).size!==rows.length)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(!workspaceFurnishingPublicationWithinBudget(source.furnishings.map(item=>item.model.bytes)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  const result:Array<{publicId:string;bytes?:Buffer;mime:string;sha256:string;sourceDescriptor:WorkspaceFurnishingDescriptor}>=[];
- for(const published of source.furnishings){
+ for(const published of source.furnishings){signal?.throwIfAborted();
   const row=rows.find(item=>item.public_id===published.id),original=row?.source_descriptor;
   if(!row||!original||row.tenant_id!==tenantId||row.source_id!==original.id||row.source_version!==original.version||!isDeepStrictEqual({...original,id:row.public_id,provenance:'Provided by the exhibition editor.'},published))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-  const model=await service.publicationModel(c,{workspaceId:row.workspace_id,tenantId:row.tenant_id,userId:row.user_id,descriptor:original});
+  const model=await service.publicationModel(c,{workspaceId:row.workspace_id,tenantId:row.tenant_id,userId:row.user_id,descriptor:original},signal);signal?.throwIfAborted();
   if(model.bytes.length!==published.model.bytes||model.sha256!==published.model.sha256||model.mime!==published.model.mime)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   result.push({publicId:published.id,mime:model.mime,sha256:model.sha256,sourceDescriptor:original,...(published.id===retainPublicId?{bytes:model.bytes}:{})});
  }

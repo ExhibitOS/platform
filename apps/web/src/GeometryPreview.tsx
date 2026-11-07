@@ -19,6 +19,7 @@ import {createSculptureOrbit,type SculptureOrbitState} from './viewer/sculpture-
 import {SculptureOrbitControls} from './viewer/SculptureOrbitControls';
 import {floorTexturePlan,createFloorTextureRenderer,floorUvs} from './floor-texture-renderer';
 import {workspaceFloorPlan,createWorkspaceFloorRenderer,createPublicWorkspaceFloorRenderer} from './workspace-floor-renderer';
+import {MATERIAL_BATCH_STREAM_HOLD} from './workspace-material-batch.mjs';
 import type {MapTravelBridge} from './viewer/map-travel';
 import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
@@ -78,7 +79,7 @@ import {
 import { viewpointPose } from "./viewer/navigation-teleport";
 import type { ViewerInputMode } from "./ViewerInputGuide";
 import type { NavigationState } from "./viewer/navigation";
-import type { PublicAsset } from "./publication-client";
+import type { PublicAsset,PublicResource } from "./publication-client";
 import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
 
@@ -225,6 +226,8 @@ export function GeometryPreview({
     publicationId: string;
     revisionSha256: string;
     assets: PublicAsset[];
+    resources?: PublicResource[];
+    materialMapBatch?: {url:string};
     fetcher?: typeof fetch;
     floorFetcher?: typeof fetch;
     retainedMaterialBytes?:number;
@@ -519,9 +522,10 @@ export function GeometryPreview({
       const availableAssetBytes=Math.max(1,beforeBench-benchReserve-otherReserve);
       const materialCapacity=Math.max(0,availableAssetBytes-qualityFrameReserve);
       const builtinFloorPlan=floorTexturePlan(document,resources?.maxTextureSize??2048,materialCapacity);
-      const workspacePlan=workspaceFloorPlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-builtinFloorPlan.residentBytes));
+      const batchStreamHold=!session&&publicSource?.materialMapBatch?MATERIAL_BATCH_STREAM_HOLD:0;
+      const workspacePlan=workspaceFloorPlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-builtinFloorPlan.residentBytes-batchStreamHold));
       if(workspacePlan.targets.size&&!session&&!publicSource){renderer.dispose();renderer.forceContextLoss();throw Error('WORKSPACE_MATERIAL_SOURCE_UNAVAILABLE');}
-      const floorPlan={packs:[...builtinFloorPlan.packs,...workspacePlan.packs],blocked:[...builtinFloorPlan.blocked,...workspacePlan.blocked],residentBytes:builtinFloorPlan.residentBytes+workspacePlan.residentBytes,reserveBytes:Math.max(builtinFloorPlan.reserveBytes,builtinFloorPlan.residentBytes+workspacePlan.reserveBytes),maxSize:builtinFloorPlan.maxSize};
+      const floorPlan={packs:[...builtinFloorPlan.packs,...workspacePlan.packs],blocked:[...builtinFloorPlan.blocked,...workspacePlan.blocked],residentBytes:builtinFloorPlan.residentBytes+workspacePlan.residentBytes,reserveBytes:Math.max(builtinFloorPlan.reserveBytes,builtinFloorPlan.residentBytes+workspacePlan.reserveBytes+(workspacePlan.packs.length?batchStreamHold:0)),maxSize:builtinFloorPlan.maxSize};
       // The surface source peak begins only after the floor source hold ends.
       // Reserve the retained floor even on fallback; never presume floor ready.
       const surfacePlan=surfaceTexturePlan(document,resources?.maxTextureSize??2048,Math.max(0,materialCapacity-materialPhaseBytes(floorPlan,true)),workspacePlan.targets);

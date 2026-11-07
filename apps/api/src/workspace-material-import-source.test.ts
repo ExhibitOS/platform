@@ -44,3 +44,10 @@ it('uses the canonical source ID when a valid scene uses uppercase UUIDs',()=>{
  const [resource]=workspaceMaterialOutputInventory(input.scene);input.manifest.workspaceMaterialResources=[resource!];input.sourceKeys=new Map([[resource!.path,`${tenant}/oex-import/${job}/${attempt}/${object}`]]);
  expect(planWorkspaceMaterialImportSource(input)[0]!.sourceMaterialId).toBe(id.toLowerCase());
 });
+it('requires one exact attempt key and descriptor for every supported map role',async()=>{
+ const {bytes,...input}=fixture(),material=input.scene.extensions['org.exhibitos.studio/workspace-materials'].materials[0]!,color=material.maps.color;
+ Object.assign(material.maps,{normal:{...color,colorSpace:'linear',normalY:'up'},roughness:{...color,colorSpace:'linear'}});
+ const inventory=workspaceMaterialOutputInventory(input.scene);input.manifest.workspaceMaterialResources=structuredClone(inventory);input.sourceKeys=new Map(inventory.map((entry,i)=>[entry.path,`${tenant}/oex-import/${job}/${attempt}/70000000-0000-4000-8000-${String(i+1).padStart(12,'0')}`]));
+ const plan=planWorkspaceMaterialImportSource(input);expect(plan.map(row=>row.role).sort()).toEqual(['color','normal','roughness']);for(const entry of plan)await expect(validateWorkspaceMaterialImportSourceBytes(entry,bytes)).resolves.toBeUndefined();
+ input.sourceKeys.delete(inventory[1]!.path);expect(()=>planWorkspaceMaterialImportSource(input)).toThrow('OEX_WORKSPACE_SOURCE_INVALID');
+});

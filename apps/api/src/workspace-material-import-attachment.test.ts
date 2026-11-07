@@ -18,7 +18,7 @@ function fixture(){
 function client(input:ReturnType<typeof fixture>,options:{lease?:boolean;transaction?:boolean;stage?:boolean}={}){let probe='';return {query:vi.fn(async(sql:string,args?:unknown[])=>{
  if(sql.includes('set_config')){probe=String(args![0]);return {rows:[],rowCount:1};}if(sql.includes('transaction_isolation'))return {rows:[{isolation:options.transaction===false?'serializable':'read committed',probe}],rowCount:1};
  if(sql.startsWith('SELECT id FROM oex_import_jobs'))return {rows:options.lease===false?[]:[{id:input.jobId}],rowCount:options.lease===false?0:1};
- if(sql.startsWith('SELECT source_material_id')){const e=input.stage[0]!;return {rows:options.stage===false?[]:[{source_material_id:e.sourceMaterialId,source_material_version:e.sourceMaterialVersion,role:e.role,source_path:e.sourcePath,sha256:e.sha256,bytes:e.bytes,object_key:e.objectKey}],rowCount:options.stage===false?0:1};}
+ if(sql.startsWith('SELECT source_material_id')){const rows=options.stage===false?[]:input.stage.map(e=>({source_material_id:e.sourceMaterialId,source_material_version:e.sourceMaterialVersion,role:e.role,source_path:e.sourcePath,sha256:e.sha256,bytes:e.bytes,object_key:e.objectKey}));return {rows,rowCount:rows.length};}
  if(sql.startsWith('INSERT'))return {rows:[],rowCount:1};throw Error('unexpected query');
  })};}
 it('writes the exact remapped descriptor and owned source provenance after checking committed stage',async()=>{
@@ -35,4 +35,11 @@ it('accepts a wall binding and rejects a mismatched surface before database atta
  const input=fixture(),ext=input.scene.extensions['org.exhibitos.studio/workspace-materials']!;input.scene.surfaces[0]!.type='wall';ext.materials[0]!.kind='wall';
  const c=client(input);await attachWorkspaceMaterialImportVersions(c as unknown as PoolClient,session,input);expect(c.query).toHaveBeenCalledTimes(6);
  input.scene.surfaces[0]!.type='floor';const bad=client(input);await expect(attachWorkspaceMaterialImportVersions(bad as unknown as PoolClient,session,input)).rejects.toThrow('DRAFT_INVALID');expect(bad.query).not.toHaveBeenCalled();
+});
+it('attaches one version only after every role has matching committed attempt evidence',async()=>{
+ const input=fixture(),material=input.scene.extensions['org.exhibitos.studio/workspace-materials']!.materials[0]!,color=material.maps.color;
+ const normal={...color,colorSpace:'linear' as const,normalY:'up' as const,sha256:'b'.repeat(64)},roughness={...color,colorSpace:'linear' as const,sha256:'c'.repeat(64)};Object.assign(material.maps,{normal,roughness});
+ const source=input.stage[0]!;for(const [role,descriptor,n] of [['normal',normal,20],['roughness',roughness,21]] as const)input.stage.push({...source,role,descriptor,sha256:descriptor.sha256,sourcePath:`resources/workspace-materials/${source.sourceMaterialId}/1/${role}-${descriptor.sha256}.png`,objectKey:`${session.tenantId}/oex-import/${input.jobId}/${input.attemptId}/${id(n)}`});
+ const c=client(input);await attachWorkspaceMaterialImportVersions(c as unknown as PoolClient,session,input);const version=c.query.mock.calls.find(call=>call[0].includes('INSERT INTO workspace_material_versions'))!;expect(version[1]![6]).toEqual(Object.fromEntries(input.stage.map(row=>[row.role,row.objectKey])));expect(c.query.mock.calls.filter(call=>call[0].includes('INSERT INTO workspace_material_versions'))).toHaveLength(1);
+ const missing=structuredClone(input);missing.stage.pop();const bad=client(missing);await expect(attachWorkspaceMaterialImportVersions(bad as unknown as PoolClient,session,missing)).rejects.toThrow('OEX_WORKSPACE_ATTACHMENT_INVALID');expect(bad.query).not.toHaveBeenCalled();
 });

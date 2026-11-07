@@ -41,6 +41,7 @@ export interface PublicPublication {
   assets: PublicAsset[];
   coverVariants?: CoverVariantDescriptor;
   resources?: PublicResource[];
+  materialMapBatch?: {url:string};
   furnishingNotices?: PublicFurnishingNotice[];
 }
 export function publicationPath(session: Session, id: string) {
