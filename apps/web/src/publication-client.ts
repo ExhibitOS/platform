@@ -51,9 +51,9 @@ export async function publish(
   id: string,
   etag: string,
   requestId: string,
-  workspaceFurnishings = false,
+  workspaceOutput = false,
 ): Promise<Publication> {
-  if(workspaceFurnishings&&session.nativePublicationProfile!=='bounded-local-v1')throw new RequestError(409,'PUBLICATION_STAGE_UNAVAILABLE');
+  if(workspaceOutput&&session.nativePublicationProfile!=='bounded-local-v1')throw new RequestError(409,'PUBLICATION_STAGE_UNAVAILABLE');
   const response = await fetch(`${publicationPath(session, id)}/publications`, {
     method: "POST",
     credentials: "same-origin",
@@ -63,7 +63,7 @@ export async function publish(
       "content-type": "application/json",
       "x-csrf-token": session.csrfToken,
       "if-match": etag,
-      ...(workspaceFurnishings?{'x-exhibitos-publication-profile':'bounded-local-v1'}:{}),
+      ...(workspaceOutput?{'x-exhibitos-publication-profile':'bounded-local-v1'}:{}),
     },
     body: JSON.stringify({ requestId }),
   });

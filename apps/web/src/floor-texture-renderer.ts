@@ -61,7 +61,7 @@ export function createFloorTextureRenderer(three:typeof Three,plan:ReturnType<ty
  return createRegisteredMaterialTextureRenderer(three,{packs:plan.packs,blocked:plan.blocked,residentBytes:plan.residentBytes,sizeFor:()=>plan.maxSize},FLOOR_TEXTURE_FILES,floorTexturePack,signal,unavailable,floorFetcher);
 }
 
-export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch,allowed:(binding:B)=>boolean=()=>true){
+export function createRegisteredMaterialTextureRenderer<B extends TextureBinding>(three:typeof Three,plan:{packs:readonly MaterialTexturePack[];blocked:readonly string[];residentBytes:number;sizeFor:(file:MaterialTextureFile)=>number},registry:readonly MaterialTextureFile[],packFor:(binding:B)=>MaterialTexturePack|undefined,signal:AbortSignal,unavailable:()=>boolean,fetcher?:typeof fetch,allowed:(binding:B)=>boolean=()=>true,beforePublish?:()=>Promise<void>){
  type Target={material:Three.MeshStandardMaterial;binding:B;pack:MaterialTexturePack};
  const targets:Target[]=[],cache=new MemoryAssetCache<TextureValue>(Math.max(1,plan.residentBytes),value=>{value.texture.dispose();value.bitmap.close();});
  let readyMaps=new Map<MaterialTexturePack,Partial<Record<FloorMapRole,TextureValue>>>(),settled=false,reductionAttempted=false;
@@ -106,6 +106,8 @@ export function createRegisteredMaterialTextureRenderer<B extends TextureBinding
    const maps:Partial<Record<FloorMapRole,TextureValue>>={},loadedFiles:MaterialTextureFile[]=[];
    try{for(const [role,file]of Object.entries(pack.maps)){if(file){maps[role as FloorMapRole]=await load(file);loadedFiles.push(file);}}
     if(inactive())break;
+    if(beforePublish)await beforePublish();
+    if(inactive())throw Error('FLOOR_TEXTURE_CANCELLED');
     revoke(binding=>!allowed(binding));
     if(!targets.some(target=>target.pack===pack)){for(const file of loadedFiles){cache.release(key(file));cache.delete(key(file));}status[pack.id]='unavailable';continue;}
     for(const target of targets.filter(t=>t.pack===pack))publish(target,maps);
