@@ -40,6 +40,7 @@ function PublicationRecordTime({value,source}:{value:unknown;source:'publication
  return <><p>{name} {time.kind==='date'?'날짜':'시각'} {time.dateTime?<time dateTime={time.dateTime}>{time.text}</time>:time.text}</p><p className="cms-note">{description}</p></>;
 }
 export function PublicPublication({ id, initial, connectionStatus, privateEditorHref,privateEditorRestricted=false,recordTimeKind }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode; privateEditorHref?:string;privateEditorRestricted?:boolean;recordTimeKind?:'output-generated' }) {
+  const [fileHistoryOpen,setFileHistoryOpen]=useState(false);
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
@@ -309,11 +310,11 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             const multipleInRoom=plaqueLinks.some(other=>other!==plaque&&other.roomId.toLowerCase()===plaque.roomId.toLowerCase());
             return <li key={plaque.id}><button aria-label={`${roomName} ${kind}${plaqueLinks.length>1?` ${index+1}`:''}: ${content.title}`} onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{roomName}{(multipleInRoom||plaque.source.kind==='artwork')&&<span className="publication-plaque-detail">{content.title===roomName?kind:content.title}</span>}</button></li>;
           })}</ul></section>}
-          <details className="publication-record">
+          <details className="publication-record" onToggle={event=>setFileHistoryOpen(event.currentTarget.open)}>
             <summary>파일 기록</summary>
             <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
             <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
-            <RuntimeHistoryDetails history={readRuntimeHistory(document)}/>
+            <RuntimeHistoryDetails key={`${value.publication.id}/${value.publication.revisionSha256}`} history={readRuntimeHistory(document)} open={fileHistoryOpen} active={value.local?.kind==='static'&&value.local.verifiedIndexSha256?{indexSha256:value.local.verifiedIndexSha256,publicationId:value.publication.id,revisionSha256:value.publication.revisionSha256}:undefined}/>
             <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
           </details>
           </details>
