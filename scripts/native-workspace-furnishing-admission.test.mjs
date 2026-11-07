@@ -8,11 +8,11 @@ import {tmpdir} from 'node:os';
 import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission,assertIssuedFurnishingOrdinaryAdmission,furnishingOrdinaryStopControl,finalizeFurnishingOrdinaryStop} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame,verifyFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {encodeFurnishingOrdinaryAssertion,verifyFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
-import {prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 const id=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,secret=Buffer.from(Array.from({length:32},(_,i)=>i));
-async function fixture(){
+async function fixture(mode='workspace-furnishing-036-initialize-v1'){
  const root=realpathSync(await mkdtemp(join(tmpdir(),'furnishing-admit-'))),lock=join(root,'native-workspace-furnishing-writers.lock'),extra=[];let fd=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);while(fd<10){extra.push(fd);fd=openSync(lock,constants.O_RDWR);}const rootFd=openSync(root,constants.O_RDONLY|constants.O_DIRECTORY),r=fstatSync(rootFd,{bigint:true}),w=fstatSync(fd,{bigint:true});closeSync(rootFd);
- const scope={workspaceId:id(1),tenantId:id(2),principalId:id(3),runtimeGeneration:id(4),mode:'workspace-furnishing-036-initialize-v1'},fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(r.dev),rootInode:String(r.ino),lockDevice:String(w.dev),lockInode:String(w.ino)};
+ const scope={workspaceId:id(1),tenantId:id(2),principalId:id(3),runtimeGeneration:id(4),mode},fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(r.dev),rootInode:String(r.ino),lockDevice:String(w.dev),lockInode:String(w.ino)};
  let open=true;const sent=[],channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async value=>{sent.push(value);},close:async()=>{open=false;}},payload={digest:fields.payloadManifestSHA256,verify:async()=>{}},input={channel,secret,scope,payload,writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:join(root,'blobs'),configRoot:join(root,'config')};return {root,fd,extra,fields,sent,input,close:()=>{open=false;}};
 }
 async function cleanup(f){closeSync(f.fd);for(const fd of f.extra)closeSync(fd);await rm(f.root,{recursive:true,force:true});}
@@ -44,3 +44,15 @@ test('does not acknowledge if the named lock changes while payload verification 
 test('does not acknowledge a closed and reused writer descriptor',async()=>{const f=await fixture();try{let count=0;f.input.payload.verify=async()=>{if(++count===2){closeSync(f.fd);assert.equal(openSync('/dev/null','r'),f.fd);}};await assert.rejects(acceptFurnishingWriterLease(f.input),/FURNISHING_WRITER_FD_INVALID/);assert.equal(f.sent.length,0);assert.equal(f.input.channel.isOpen(),false);}finally{await cleanup(f);}});
 test('a guard permanently loses authority if its lock changes during a later verification',async()=>{const f=await fixture();try{const lock=join(f.root,'native-workspace-furnishing-writers.lock');let swap=false;f.input.payload.verify=async()=>{if(swap){renameSync(lock,lock+'.old');const other=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);closeSync(other);}};const guard=await acceptFurnishingWriterLease(f.input);swap=true;await assert.rejects(guard.assertLive(),/FURNISHING_WRITER_FD_INVALID/);unlinkSync(lock);renameSync(lock+'.old',lock);swap=false;await assert.rejects(guard.assertLive(),/FURNISHING_LEASE_INVALID/);}finally{await cleanup(f);}});
 test('rejects payload digest drift during verification and permanently invalidates an issued guard',async()=>{const f=await fixture();try{let count=0;f.input.payload.verify=async()=>{if(++count===2)f.input.payload.digest='b'.repeat(64);};await assert.rejects(acceptFurnishingWriterLease(f.input),/FURNISHING_LEASE_INVALID/);assert.equal(f.sent.length,0);}finally{await cleanup(f);}const g=await fixture();try{const guard=await acceptFurnishingWriterLease(g.input);g.input.payload.digest='b'.repeat(64);await assert.rejects(guard.assertLive(),/FURNISHING_LEASE_INVALID/);g.input.payload.digest=g.fields.payloadManifestSHA256;await assert.rejects(guard.assertLive(),/FURNISHING_LEASE_INVALID/);}finally{await cleanup(g);}});
+
+test('runtime admission requires a live issued ordinary assertion for each matching mode',async()=>{
+ const init='workspace-furnishing-036-initialize-v1',reopen='workspace-furnishing-036-reopen-v1';
+ for(const [mode,kind] of [[init,'fresh-empty'],[reopen,'clean-reopen'],[reopen,'verified-restore']]){
+  const f=await fixture(mode);try{
+   const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:kind,activeBindingSHA256:'b'.repeat(64)};
+   f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);const admission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});
+   await assertWorkspaceFurnishingRuntimeAdmission(mode,admission);await assert.rejects(assertWorkspaceFurnishingRuntimeAdmission(mode===init?reopen:init,admission),/FURNISHING_ADMISSION_INVALID/);
+   await assert.rejects(assertWorkspaceFurnishingRuntimeAdmission(mode,{...admission}),/FURNISHING_ADMISSION_INVALID/);f.close();await assert.rejects(assertWorkspaceFurnishingRuntimeAdmission(mode,admission),/FURNISHING_LEASE_INVALID/);
+  }finally{await cleanup(f);}
+ }
+});
