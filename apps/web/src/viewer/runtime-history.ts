@@ -9,7 +9,7 @@ export function readRuntimeHistory(doc:Document):RuntimeHistory {
  const commit=typeof __EXHIBITOS_VIEWER_SOURCE_COMMIT__==='string'?__EXHIBITOS_VIEWER_SOURCE_COMMIT__:null;
  const built=typeof __EXHIBITOS_VIEWER_BUILD_ID__==='string'?__EXHIBITOS_VIEWER_BUILD_ID__:null;
  const buildTags=doc.querySelectorAll('meta[name="exhibitos-viewer-build-id"]');
- const buildId=built&&/^[a-f0-9]{64}$/.test(built)&&buildTags.length===1&&buildTags[0].getAttribute('content')===built?built:null;
+ const buildId=built&&/^[a-f0-9]{64}$/.test(built)&&buildTags.length===1&&buildTags[0]?.getAttribute('content')===built?built:null;
  return {runtimeVersion:buildId&&version&&/^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/.test(version)?version:null,
   sourceCommit:buildId&&commit&&/^[a-f0-9]{40}$/.test(commit)?commit:null,buildId,
   outputGeneratedAt:null,
@@ -32,7 +32,7 @@ export async function resolveConfirmedDeployment(doc:Document,active:ActivePubli
  try{
   const history=readRuntimeHistory(doc);if(!history.buildId||!history.sourceCommit)return null;
   const current=doc.querySelectorAll('meta[name="exhibitos-static-index"]');if(current.length!==1)return null;
-  const currentIndex=current[0].getAttribute('content');if(!currentIndex||currentIndex!==active.indexSha256||!/^[a-f0-9]{64}$/.test(currentIndex)||!/^[a-f0-9]{64}$/.test(active.revisionSha256)||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(active.publicationId))return null;
+  const currentIndex=current[0]?.getAttribute('content');if(!currentIndex||currentIndex!==active.indexSha256||!/^[a-f0-9]{64}$/.test(currentIndex)||!/^[a-f0-9]{64}$/.test(active.revisionSha256)||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(active.publicationId))return null;
   const location=doc.location,base=new URL(doc.baseURI);if(!location||base.origin!==location.origin||base.origin!=='https://demo.exhibitos.org'||base.username||base.password)return null;
   const requestSignal=signal?AbortSignal.any([signal,AbortSignal.timeout(8000)]):AbortSignal.timeout(8000);
   const options:RequestInit={credentials:'omit',redirect:'error',cache:'no-store',signal:requestSignal};
@@ -44,10 +44,10 @@ export async function resolveConfirmedDeployment(doc:Document,active:ActivePubli
   const htmlBytes=await bounded(await fetcher(new URL('index.html',base),options),entry.bytes);if(htmlBytes.length!==entry.bytes||await digestHex(htmlBytes)!==entry.sha256)return null;
   const parsed=new DOMParser().parseFromString(new TextDecoder().decode(htmlBytes),'text/html');
   const builds=parsed.querySelectorAll('meta[name="exhibitos-viewer-build-id"]'),indexes=parsed.querySelectorAll('meta[name="exhibitos-static-index"]');
-  if(builds.length!==1||builds[0].getAttribute('content')!==history.buildId||indexes.length!==1||indexes[0].getAttribute('content')!==currentIndex)return null;
+  if(builds.length!==1||builds[0]?.getAttribute('content')!==history.buildId||indexes.length!==1||indexes[0]?.getAttribute('content')!==currentIndex)return null;
   const liveScripts=doc.querySelectorAll('script[type="module"][src]'),verifiedScripts=parsed.querySelectorAll('script[type="module"][src]');
   if(liveScripts.length!==1||verifiedScripts.length!==1)return null;
-  const src=liveScripts[0].getAttribute('src');if(!src||src!==verifiedScripts[0].getAttribute('src')||!/^\/?assets\/[A-Za-z0-9_.-]+\.js$/.test(src))return null;
+  const src=liveScripts[0]?.getAttribute('src');if(!src||src!==verifiedScripts[0]?.getAttribute('src')||!/^\/?assets\/[A-Za-z0-9_.-]+\.js$/.test(src))return null;
   const entryPath=src.replace(/^\//,''),modules=manifest.files.filter((item:{path?:unknown})=>item.path===entryPath);if(modules.length!==1)return null;
   const module=modules[0];if(!Number.isSafeInteger(module.bytes)||module.bytes<1||module.bytes>4*1024*1024||!/^[a-f0-9]{64}$/.test(module.sha256))return null;
   const moduleBytes=await bounded(await fetcher(new URL(src,base),options),module.bytes);if(moduleBytes.length!==module.bytes||await digestHex(moduleBytes)!==module.sha256)return null;
