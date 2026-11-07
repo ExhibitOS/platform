@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {artworkFrameModel} from '@exhibitos/studio-contract';
 import {prepareTextureDerivative} from './approved-lod-pair.ts';
 import {decodePngPixels as png,pngCrc as crc,PngPixelLimitError} from "./png-pixels.ts";
 import {verifyBasisPayload} from './basis-payload.ts';
@@ -24,7 +25,7 @@ function closed(value: unknown, required: string[], optional: string[] = []) {
   const object = value as Record<string, unknown>;
   return required.every(k => Object.hasOwn(object, k)) && Object.keys(object).every(k => required.includes(k) || optional.includes(k));
 }
-async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number) {
+async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buffer, binHeader: number, fixedFrame: boolean) {
   const ordinaryRoles=ordinaryPngRoleSet(doc), imageBytesLimit=8*1024*1024;
   if (binHeader + 8 > data.length || binHeader % 4 || data.readUInt32LE(binHeader + 4) !== 0x004e4942 || data.readUInt32LE(binHeader) % 4 || binHeader + 8 + data.readUInt32LE(binHeader) !== data.length || !Array.isArray(doc.buffers) || doc.buffers.length !== 1 || !closed(doc.buffers[0], ["byteLength"]) || !Number.isSafeInteger(doc.buffers[0].byteLength) || doc.buffers[0].byteLength < 1 || doc.buffers[0].byteLength > data.length - binHeader - 8 || data.length - binHeader - 8 - doc.buffers[0].byteLength > 3) fail();
   if (!Array.isArray(doc.images) || doc.images.length < 1 || doc.images.length > 16 || !Array.isArray(doc.textures) || doc.textures.length < 1 || doc.textures.length > 8 || !Array.isArray(doc.bufferViews) || doc.animations !== undefined || doc.skins !== undefined) fail();
@@ -57,15 +58,15 @@ async function embeddedPngProfile(doc: ReturnType<typeof JSON.parse>, data: Buff
   // The bounded ordinary role producer emits 16 KiB IDAT packets. An 8 MiB
   // image can exceed 256 chunks without increasing decoded pixels or bytes.
   // Keep legacy admission unchanged and retain all CRC/metadata/scanline checks.
-  for (const bytes of imageBytes) png(bytes, ordinary?4*1024*1024:texturePixels, 2048, ordinary?1024:256);
+  for (const bytes of imageBytes) png(bytes, ordinary?4*1024*1024:texturePixels, 2048, ordinary?1024:256, fixedFrame);
   for (const sampler of doc.samplers??[]) {
-    if(ordinary){
+    if(ordinary||fixedFrame){
       if(!closed(sampler,[],["magFilter","minFilter","wrapS","wrapT","name"]) || sampler.magFilter!==undefined && ![9728,9729].includes(sampler.magFilter) || sampler.minFilter!==undefined && ![9728,9729,9984,9985,9986,9987].includes(sampler.minFilter) || [sampler.wrapS,sampler.wrapT].some(v=>v!==undefined && ![33071,10497,33648].includes(v)))fail();
       continue;
     }
     if (!closed(sampler,["magFilter","minFilter","wrapS","wrapT"],["name"]) || ![9728,9729].includes(sampler.magFilter) || sampler.minFilter !== 9729 || ![33071,10497,33648].includes(sampler.wrapS) || ![33071,10497,33648].includes(sampler.wrapT)) fail();
   }
-  for (const t of doc.textures) if (!closed(t,ordinary?["source"]:["source","sampler"],ordinary?["sampler","name"]:["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !(ordinary && t.sampler===undefined) && (!integer(t.sampler) || t.sampler >= (doc.samplers?.length??0))) fail();
+  for (const t of doc.textures) if (!closed(t,(ordinary||fixedFrame)?["source"]:["source","sampler"],(ordinary||fixedFrame)?["sampler","name"]:["name","extensions"]) || !integer(t.source) || t.source >= doc.images.length || !((ordinary||fixedFrame) && t.sampler===undefined) && (!integer(t.sampler) || t.sampler >= (doc.samplers?.length??0))) fail();
   if (!Array.isArray(doc.materials) || doc.materials.length > 256) fail();
   const usedTextures = new Set<number>(), colourImages=new Set<number>(), linearImages=new Set<number>();
   for (const m of doc.materials) {
@@ -149,7 +150,7 @@ async function glb(data: Buffer) {
   if(document.images===undefined&&document.textures===undefined&&((document.extensionsUsed?.length??0)||(document.extensionsRequired?.length??0)))fail();
   scan(scanned);
   if (document.images !== undefined || document.textures !== undefined)
-    await embeddedPngProfile(document, data, 20 + jsonSize);
+    await embeddedPngProfile(document, data, 20 + jsonSize, process.argv[3]==='workspace-furnishing-glb'&&!!artworkFrameModel(createHash('sha256').update(data).digest('hex'),data.length));
   const report = await validateBytes(data, {
     maxIssues: 64,
     externalResourceFunction: () =>

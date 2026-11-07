@@ -154,3 +154,12 @@ offsets come from the exact SHA-256 and byte-count bound Spec record, not from
 client dimensions. The image stays 0.6 × 0.8 metres, without declared depth or
 scaling; the supported result is visual alignment only. Float-frame cavity and
 physical support are not provided by this profile.
+
+The exact fixed-frame GLBs may include bounded embedded RGBA PNGs with authored
+color and ancillary metadata and glTF sampler defaults, including mipmap filter
+9987. The furnishing worker recognizes this narrow profile only after matching
+both exact model digest and byte count. It still checks PNG chunk structure,
+order, CRC, image and decompression bounds, bounded ICC expansion and complete
+GLB validity; changed or unknown models retain the ordinary stricter profile.
+The original bytes and embedded metadata are retained in exports: this does not
+sanitize source metadata or grant separate rights to third-party content.
