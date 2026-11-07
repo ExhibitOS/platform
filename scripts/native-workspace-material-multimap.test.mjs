@@ -16,7 +16,7 @@ test('040 catalog requires its own exact bytes while 039 remains independently v
  rows.sort((a,b)=>a.name.localeCompare(b.name));assert.equal(rows.length,40);
  const pool={query:async()=>({rows})};
  assert.equal(await recognizeNormalOexCatalog(pool,base,extra,options),extra);await assertExactWorkspaceMaterialMultimapCatalog(pool);
- const {workspaceMaterialMultimapDirectory,...old}=options;await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,old),/NATIVE_OEX_CATALOG/);
+ const old={...options};delete old.workspaceMaterialMultimapDirectory;await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,old),/NATIVE_OEX_CATALOG/);
  rows[39].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,options),/NATIVE_OEX_CATALOG/);await assert.rejects(assertExactWorkspaceMaterialMultimapCatalog(pool),/NATIVE_OEX_CATALOG/);
  rows.pop();assert.equal(await recognizeNormalOexCatalog(pool,base,extra,old),extra);await assert.rejects(assertExactWorkspaceMaterialMultimapCatalog(pool),/NATIVE_OEX_CATALOG/);
 });

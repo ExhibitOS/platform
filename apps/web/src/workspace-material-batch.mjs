@@ -8,7 +8,7 @@ export async function openWorkspaceMaterialBatch(response,expected,revision){
  if(!response.ok||!response.body||response.headers.get('content-type')?.split(';')[0]!=='application/vnd.exhibitos.material-maps-v1'||response.headers.get('x-exhibitos-publication-revision')!==revision||!token||! /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(token)){await response.body?.cancel().catch(()=>{});fail();}
  if(!Array.isArray(expected)||!expected.length||expected.length>192||expected.some(x=>!Number.isSafeInteger(x.bytes)||x.bytes<1||x.bytes>8388608)||expected.reduce((n,x)=>n+x.bytes,0)>64*1024*1024){await response.body.cancel().catch(()=>{});fail();}
  const reader=response.body.getReader();let pending=new Uint8Array(0),closed=false,closing,busy=false,index=0;
- const close=cancel=>{if(closing)return closing;closed=true;closing=(async()=>{try{if(cancel)await reader.cancel();}catch{}finally{reader.releaseLock();}})();return closing;};
+ const close=cancel=>{if(closing)return closing;closed=true;closing=(async()=>{try{if(cancel)await reader.cancel();}catch{/* Cancellation may race an already-closed source. */}finally{reader.releaseLock();}})();return closing;};
  const read=async(size,keep=true)=>{
   const out=keep?new Uint8Array(size):undefined;let at=0;
   while(at<size){if(closed)fail();if(!pending.length){const next=await reader.read();if(closed||next.done)fail();if(!(next.value instanceof Uint8Array)||!next.value.length||next.value.length>MATERIAL_BATCH_STREAM_HOLD)fail();pending=next.value;}
