@@ -8,6 +8,7 @@ import {loadWorkspaceFurnishingModel,type WorkspaceModelSource} from './model-lo
 import {ownerWorkspaceModelSource} from './owner-source';
 import {OwnerPreviewBudget} from './owner-preview-budget';
 import {artworkFrameMatrix} from './frame-pose';
+import {artworkFrameModel} from '@exhibitos/studio-contract';
 
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
@@ -33,7 +34,8 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
   if(attachment){
    const doc=candidate as unknown as Exhibition,target=doc.placements.find(p=>p.id===attachment.placementId&&p.roomId===options.roomId),art=doc.artworks.find(a=>a.revisionId===attachment.artworkRevisionId);if(!target||!art)throw Error('WORKSPACE_PLACEMENT_INVALID');
-   loaded.object.matrix.copy(artworkFrameMatrix(three,target.transform,art.transform));loaded.object.matrixAutoUpdate=false;
+   const model=artworkFrameModel(descriptor.model.sha256,descriptor.model.bytes);if(!model)throw Error('WORKSPACE_PLACEMENT_INVALID');
+   loaded.object.matrix.copy(artworkFrameMatrix(three,target.transform,art.transform,model.imagePlaneZ));loaded.object.matrixAutoUpdate=false;
   }else if(pose){loaded.object.position.set(...pose.position);loaded.object.rotation.set(0,pose.yaw,0);loaded.object.scale.setScalar(pose.scale);}
   room.add(loaded.object);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   signal.addEventListener('abort',onAbort,{once:true});if(signal.aborted)onAbort();if(stopped)throw Error('WORKSPACE_MODEL_AUTHORITY');if(!options.sceneManagedAuthority){if(typeof document!=='undefined')document.addEventListener('visibilitychange',enforce);scheduleExpiry();}

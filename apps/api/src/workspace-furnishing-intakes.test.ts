@@ -144,3 +144,15 @@ it('finalizes one exact frame intake through the real bounded GLB validator',asy
  expect(await service.work(f.pool)).toBe(false);expect(await service.create(f.client,f.session,structuredClone(declaration))).toEqual(done);
  expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_versions'))).toHaveLength(1);
 });
+
+it('admits and finalizes the exact walnut frame only with the additional model capability',async()=>{
+ const bytes=await readFile(new URL('../test-fixtures/walnut-stepped-frame/model.glb',import.meta.url)),f=fixture(false,bytes),declaration={...f.declaration,kind:'artwork-frame'};
+ expect(sha256(bytes)).toBe('b3f0bf2e6dbe659b1484ea6425848ad96b88d0be4b61ca82f5a4694462a7e03e');
+ const legacy=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true});
+ await expect(legacy.create(f.client,f.session,declaration)).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ const service=new WorkspaceFurnishingIntakes(f.blobs,{...f.owner,workspaceFurnishingStool:true,workspaceFurnishingRoomVisual:true,workspaceFurnishingArtworkFrame:true,workspaceFurnishingArtworkFrameModels:true});
+ await expect(service.create(f.client,f.session,{...declaration,model:{...declaration.model,bytes:bytes.length+1}})).rejects.toMatchObject({code:'FURNISHING_DECLARATION'});
+ const intake=await service.create(f.client,f.session,declaration);await service.upload(f.client,f.session,intake.intakeId,bytes);await service.complete(f.client,f.session,intake.intakeId);
+ const actual=await vi.importActual<typeof import('./workspace-furnishing-glb.ts')>('./workspace-furnishing-glb.ts');vi.mocked(validateWorkspaceFurnishingGlb).mockImplementationOnce(actual.validateWorkspaceFurnishingGlb);
+ expect(await service.work(f.pool)).toBe(true);expect((await service.read(f.client,f.session,intake.intakeId)).furnishing).toMatchObject({kind:'artwork-frame',model:declaration.model});
+});
