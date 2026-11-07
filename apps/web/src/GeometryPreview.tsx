@@ -1,8 +1,12 @@
+import {guardedXrFrame} from './viewer/xr-frame-fence';
 import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
 import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
-import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import {publicWorkspaceModelSource} from './workspace-furnishing/public-source';
+import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
+import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
 import {inspectionCameraPose} from './scene-snapshot-camera';
@@ -474,7 +478,9 @@ export function GeometryPreview({
       if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const initialSnapshotPose=publicSource&&snapshotEnabled&&initialSnapshot?inspectionCameraPose(document,initialSnapshot.placementId,initialSnapshot.inspectionCamera):undefined;
       const hasWorkspaceFurnishings=!!document.extensions&&Object.hasOwn(document.extensions,WORKSPACE_FURNISHING_NAMESPACE);
-      if(hasWorkspaceFurnishings&&(!ownerWorkspaceFurnishings||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt||!session||publicSource||viewerBudget))throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
+      const ownerWorkspaceAvailable=!!ownerWorkspaceFurnishings&&!ownerWorkspaceFurnishings.signal.aborted&&Date.now()<ownerWorkspaceFurnishings.expiresAt&&!!session&&!publicSource&&!viewerBudget;
+      const publicWorkspaceAvailable=!!publicSource&&!!viewerBudget&&!session;
+      if(hasWorkspaceFurnishings&&!ownerWorkspaceAvailable&&!publicWorkspaceAvailable)throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -1095,7 +1101,7 @@ export function GeometryPreview({
       setPublicMessage(document.placements.length ? "공간을 볼 수 있어요. 가까운 작품부터 불러오고 있어요." : "전시 공간을 볼 수 있어요.");
       const xrArtworks=new Map<string,GeometryXrArtwork>();
       let xrSaved:{position:typeof camera.position;quaternion:typeof camera.quaternion;up:typeof camera.up;target:typeof controls.target}|null=null;
-      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?(time,frame)=>{shadowPass.flush();try{callback(time,frame);}finally{shadowPass.afterRender();}}:null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
+      const xrBridge:GeometryXrBridge={renderer,camera,scene,artworks:()=>[...xrArtworks.values()],frame:callback=>{renderer.setAnimationLoop(callback?guardedXrFrame(()=>ownerFurnishings?.enforce(),()=>shadowPass.flush(),()=>shadowPass.afterRender(),callback):null);},suspend:active=>{if(disposed)return;if(active&&!xrActive.current){cameraInvalidate.current?.();xrSaved={position:camera.position.clone(),quaternion:camera.quaternion.clone(),up:camera.up.clone(),target:controls.target.clone()};walkingActions.current?.stationary();walkingActions.current?.pause();cancelAnimationFrame(trace.frame);controls.enabled=false;}xrActive.current=active;setXrRunning(active);if(!active){if(xrSaved){camera.position.copy(xrSaved.position);camera.quaternion.copy(xrSaved.quaternion);camera.up.copy(xrSaved.up);controls.target.copy(xrSaved.target);xrSaved=null;}controls.enabled=!suspendedRef.current&&!currentWalkMode.current.walking&&!editingRef.current?.disabled&&!renderer.domElement.ownerDocument.hidden&&!renderer.domElement.closest('[hidden],[inert]');render();}}};
       if(publicSource&&viewerBudget)xrCallbacks.current.onXrReady?.(xrBridge);
       const resetCameraMapping=()=>{controls.touches.ONE=three.TOUCH.ROTATE;controls.mouseButtons.LEFT=three.MOUSE.ROTATE;};
       const editorOrbitAvailable=()=>{const bridge=editingRef.current,canvas=renderer.domElement;return !disposed&&!gpuLost&&!!bridge&&!bridge.disabled&&!canvas.ownerDocument.hidden&&canvas.ownerDocument.hasFocus()&&!canvas.closest('[hidden],[inert]')&&canvas.style.visibility!=='hidden'&&!suspendedRef.current&&!xrActive.current&&!currentWalkMode.current.walking&&!seatedBenchRef.current&&viewingStyleRef.current==='free';};
@@ -2581,6 +2587,20 @@ export function GeometryPreview({
         for (const art of arts.slice(0, viewerBudget.entranceAssets))
           request(art);
         update();
+        if(hasWorkspaceFurnishings){
+          await Promise.allSettled(catalogSettled);if(disposed||gpuLost)return;
+          if(!benchAuthority)throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
+          const changed=()=>{if(disposed||gpuLost||ownerFurnishingFrame)return;ownerFurnishingFrame=requestAnimationFrame(()=>{ownerFurnishingFrame=0;if(!disposed&&!gpuLost){if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());shadowPass.invalidate();render();}});};
+          const extension=document.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings,workspaceCache=new PublicWorkspaceCache(byteCache);
+          const publicCheck=async(signal:AbortSignal)=>{
+            signal.throwIfAborted();
+            if(publicSource.check){await publicSource.check();signal.throwIfAborted();return;}
+            const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,abort.signal,AbortSignal.timeout(10000)])});
+            if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();signal.throwIfAborted();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');
+          };
+          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},disposeSource:()=>workspaceCache.dispose()});
+          const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setPublicMessage('일부 비품을 불러오지 못했어요.');changed();}
+        }
         return;
       }
       // The local/native path uses the same bounded readout as public loading,

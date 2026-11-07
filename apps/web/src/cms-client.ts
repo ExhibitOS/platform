@@ -4,6 +4,7 @@ export interface Session {
   role: string;
   csrfToken: string;
   expiresAt: string;
+  nativePublicationProfile?: 'bounded-local-v1';
 }
 export interface Rights {
   holder: string;

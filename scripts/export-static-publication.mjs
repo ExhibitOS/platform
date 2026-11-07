@@ -6,10 +6,11 @@ import { resolve,dirname,join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { fixtureURL,readOex,revisionHash,validateArtworkFiles,validateExhibition,packageFurnishingNoticeManifest } from "@exhibitos/spec";
-import {FLOOR_TEXTURE_PACKS,FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTextureNotice,furnishingAsset,furnishingCatalogueEntry,furnishingsFor,validateFurnishings,artworkThumbnailFor,ARTWORK_THUMBNAIL_NAMESPACE} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,FLOOR_TEXTURE_PACKS,FLOOR_TEXTURE_FILES,requiredFloorTexturePacks,floorTextureFiles,floorTextureNotice,furnishingAsset,furnishingCatalogueEntry,furnishingsFor,validateFurnishings,artworkThumbnailFor,ARTWORK_THUMBNAIL_NAMESPACE} from '@exhibitos/studio-contract';
 import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {footstepResourcesFor,FOOTSTEP_SAMPLES,FOOTSTEP_NOTICES} from '@exhibitos/spec/footstep-resources';
 import {SURFACE_MATERIAL_PACKS,SURFACE_MATERIAL_FILES,packageSurfaceMaterialManifest} from '@exhibitos/spec/surface-material-resources';
+import {publicWorkspaceFurnishingRights} from '../apps/web/src/workspace-furnishing/public-rights.mjs';
 import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
 /** Inert public text only; actionable entry waits for verified index/document data. */
 export function staticCoverShell(title,artist="",introduction="",hasImage=false,unfold=true,ratio=4/3){
@@ -36,20 +37,22 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  const raw=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString("utf8"));
  if(raw.publication?.id!==publicationId||raw.publication?.status!=="published"||!Number.isFinite(Date.parse(raw.publication.publishedAt)))fail("STATIC_NOT_PUBLISHED",publicationId);
  if(revisionHash(raw.exhibition)!==raw.publication.revisionSha256)fail("STATIC_REVISION",publicationId);
- const still=spaceStillFor(raw.exhibition),rightsSources=[...raw.exhibition.artworks,...raw.exhibition.mediaAssets,...(still?[still]:[])];
+ const workspace=raw.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE];if(!validateWorkspaceFurnishings(raw.exhibition).valid||!publicWorkspaceFurnishingRights(workspace))fail('STATIC_WORKSPACE_FURNISHING_RIGHTS','publication.json');
+ const workspaceAssets=(workspace?.furnishings??[]).map(item=>({id:item.id,path:`workspace-furnishing/${item.id}/model.glb`,...item.model}));
+ const still=spaceStillFor(raw.exhibition),rightsSources=[...raw.exhibition.artworks,...raw.exhibition.mediaAssets,...(still?[still]:[]),...(workspace?.furnishings??[])];
  if(studioDemo&&(![SAMPLE_REVISION,WALKING_SAMPLE_REVISION].includes(raw.publication.revisionSha256)||rightsSources.some(a=>a.rights.licenseId!=="CC0-1.0")))fail("STATIC_DEMO_SAMPLE",publicationId);
  if(privateEditor&&rightsSources.some(a=>a.rights.licenseId!=="CC0-1.0"||!a.rights.permissions.display||!a.rights.permissions.export))fail("STATIC_PRIVATE_EDITOR_RIGHTS",publicationId);
  if(!validateFurnishings(raw.exhibition).valid)fail('STATIC_FURNISHING_INVALID','publication.json');
  const furnishingAssets=furnishingsFor(raw.exhibition)?.assets??[],furnishingNotices=packageFurnishingNoticeManifest(raw.exhibition),declaredNotices=raw.furnishingNotices;
  if(furnishingNotices.length){if(!Array.isArray(declaredNotices)||declaredNotices.length!==furnishingNotices.length||new Set(declaredNotices.map(x=>x.assetId)).size!==furnishingNotices.length||furnishingNotices.some(item=>!declaredNotices.some(x=>Object.keys(x).sort().join(',')==='assetId,bytes,mime,sha256,url'&&x.assetId===item.assetId&&x.sha256===item.sha256&&x.bytes===item.bytes&&x.mime===item.mime&&x.url===`/api/v1/publications/${publicationId}/furnishing-notices/${item.assetId}`)))fail('STATIC_FURNISHING_INVENTORY','publication.json');}else if(declaredNotices!==undefined)fail('STATIC_FURNISHING_INVENTORY','publication.json');
- const inventory=[...raw.exhibition.artworks.flatMap(a=>a.assets),...raw.exhibition.mediaAssets,...(still?[still]:[]),...furnishingAssets],byId=new Map();
+ const inventory=[...raw.exhibition.artworks.flatMap(a=>a.assets),...raw.exhibition.mediaAssets,...(still?[still]:[]),...furnishingAssets,...workspaceAssets],byId=new Map();
  for(const asset of inventory){if(!safeStaticPath(asset.path))fail("STATIC_ASSET_PATH",asset.path);const prior=byId.get(asset.id);if(prior&&JSON.stringify(prior)!==JSON.stringify(asset))fail("STATIC_ASSET_ALIAS",asset.path);byId.set(asset.id,asset);}
- checkOexProfile(raw.exhibition);if(!validateExhibition(raw.exhibition,{publicationTime:new Date().toISOString()}).valid)fail("STATIC_DISPLAY_RIGHTS","publication.json");
+ checkOexProfile(raw.exhibition,!!workspace);if(!validateExhibition(raw.exhibition,{publicationTime:new Date().toISOString()}).valid)fail("STATIC_DISPLAY_RIGHTS","publication.json");
  const stepResources=footstepResourcesFor(raw.exhibition),declared=raw.resources;
  if(stepResources.length){
   if(!Array.isArray(declared)||declared.length!==stepResources.length||new Set(declared.map(x=>x.sha256)).size!==stepResources.length||stepResources.some(item=>!declared.some(x=>Object.keys(x).sort().join(',')==='bytes,mime,sha256,url'&&x.sha256===item.sha256&&x.bytes===item.bytes&&x.mime===item.mime&&x.url===`/api/v1/publications/${publicationId}/resources/${item.sha256}`)))fail('STATIC_RESOURCE_INVENTORY','publication.json');
  }else if(declared!==undefined)fail('STATIC_RESOURCE_INVENTORY','publication.json');
- const requiredIds=new Set([...raw.exhibition.artworks.flatMap(a=>{const preview=artworkThumbnailFor(a)?.id;return a.assets.filter(x=>x.id!==preview).map(x=>x.id);}),...raw.exhibition.mediaAssets.map(a=>a.id),...(still?[still.id]:[]),...furnishingAssets.map(a=>a.id)]);
+ const requiredIds=new Set([...raw.exhibition.artworks.flatMap(a=>{const preview=artworkThumbnailFor(a)?.id;return a.assets.filter(x=>x.id!==preview).map(x=>x.id);}),...raw.exhibition.mediaAssets.map(a=>a.id),...(still?[still.id]:[]),...furnishingAssets.map(a=>a.id),...workspaceAssets.map(a=>a.id)]);
  if(!Array.isArray(raw.assets)||new Set(raw.assets.map(a=>a.assetId)).size!==raw.assets.length||raw.assets.some(a=>!byId.has(a.assetId))||[...requiredIds].some(id=>!raw.assets.some(a=>a.assetId===id)))fail("STATIC_INVENTORY","publication.json");
  let coverVariants=validateCoverVariantDescriptor(raw)?raw.coverVariants:undefined;
  const floorPacks=requiredFloorTexturePacks(raw.exhibition),selectedFloorFiles=new Map(floorPacks.flatMap(floorTextureFiles).map(file=>[file.path,file])),knownFloorFiles=new Map(FLOOR_TEXTURE_FILES.map(file=>[file.path,file]));
@@ -164,7 +167,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  if(!files.has("index.html"))fail("STATIC_RUNTIME_ENTRY","static.html");
  if((studioDemo||privateEditor)&&!files.has("studio.html"))fail("STATIC_RUNTIME_ENTRY","static-studio.html");
  // Recheck public status/revision immediately before publication; no draft/withdrawn snapshot is exported.
- const current=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString());const membership=assets=>JSON.stringify(assets.map(a=>[a.assetId,a.mime,a.url]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));if(current.publication?.status!=="published"||current.publication?.revisionSha256!==publication.publication.revisionSha256||!Array.isArray(current.assets)||membership(current.assets)!==membership(raw.assets)||JSON.stringify(current.resources??null)!==JSON.stringify(raw.resources??null)||JSON.stringify(current.furnishingNotices??null)!==JSON.stringify(raw.furnishingNotices??null)||coverVariants&&JSON.stringify(current.coverVariants??null)!==JSON.stringify(coverVariants))fail("STATIC_PUBLICATION_CHANGED",publicationId);
+ const current=JSON.parse((await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json")).toString());const membership=assets=>JSON.stringify(assets.map(a=>[a.assetId,a.mime,a.url]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));if(!publicWorkspaceFurnishingRights(raw.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE])||current.publication?.status!=="published"||current.publication?.revisionSha256!==publication.publication.revisionSha256||!Array.isArray(current.assets)||membership(current.assets)!==membership(raw.assets)||JSON.stringify(current.resources??null)!==JSON.stringify(raw.resources??null)||JSON.stringify(current.furnishingNotices??null)!==JSON.stringify(raw.furnishingNotices??null)||coverVariants&&JSON.stringify(current.coverVariants??null)!==JSON.stringify(coverVariants))fail("STATIC_PUBLICATION_CHANGED",publicationId);
  const manifest=Buffer.from(JSON.stringify({format:"exhibitos-static-publication-v1",publicationId,revisionSha256:publication.publication.revisionSha256,indexSha256:sha(index),files:[...files].map(([path,entry])=>({path,...entry})).sort((a,b)=>a.path.localeCompare(b.path))}));await put("static-export-manifest.json",manifest);
  try{await lstat(target);fail("STATIC_OUTPUT_EXISTS",target);}catch(e){if(e.code!=="ENOENT")throw e;}
  await rename(temporary,target);
