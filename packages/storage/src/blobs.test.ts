@@ -95,6 +95,9 @@ test('cancelled file reads stop without changing an immutable object', async () 
   const root=await mkdtemp(`${tmpdir()}/exhibitos-unit-abort-`);
   try{const store=new FileBlobStore(root),bytes=Buffer.from('synthetic');await store.put('tenant/source/object',bytes);const controller=new AbortController();controller.abort();await expect(store.get('tenant/source/object',controller.signal)).rejects.toThrow();expect(Buffer.from(await store.get('tenant/source/object'))).toEqual(bytes);}finally{await rm(root,{recursive:true,force:true});}
 });
+test('durable deletion is safe to retry after the file is already absent',async()=>{
+ const root=await mkdtemp(`${tmpdir()}/exhibitos-durable-delete-`);try{const store=new FileBlobStore(root),key='tenant/durable/object';await store.putDurable(key,Buffer.from('temporary'));await store.remove(key);await store.removeDurable(key);await store.removeDurable(key);expect(await store.listAll()).toEqual([]);}finally{await rm(root,{recursive:true,force:true});}
+});
 test('bounded reads refuse a corrupted sparse object before allocating its actual size',async()=>{
  const root=await mkdtemp(`${tmpdir()}/exhibitos-unit-bounded-`);try{const store=new FileBlobStore(root),key='tenant/source/object',bytes=Buffer.from('synthetic');await store.put(key,bytes);expect(Buffer.from(await store.getBounded(key,bytes.length))).toEqual(bytes);await truncate(join(root,key),128*1024*1024);await expect(store.getBounded(key,bytes.length)).rejects.toThrow('object size mismatch');const controller=new AbortController();controller.abort();await expect(store.getBounded(key,bytes.length,controller.signal)).rejects.toThrow();}finally{await rm(root,{recursive:true,force:true});}
 });

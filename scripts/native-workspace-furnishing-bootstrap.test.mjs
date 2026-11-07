@@ -13,3 +13,7 @@ test('occupied database with a partial ledger cannot be recovered as an initiali
 test('ordinary bootstrap refuses an unissued admission before database access',async()=>{
  for(const ordinaryAdmission of ['fresh-empty',{fields:{admissionKind:'fresh-empty'}}]){const c=client(false);await assert.rejects(prepareWorkspaceFurnishingCatalog(c,{...paths,mode:init,channel,ordinaryAdmission}),/FURNISHING_ADMISSION_INVALID/);assert.equal(c.calls.length,0);}
 });
+
+test('041 is not automatically applied by 039-to-040 upgrade or selected import',async()=>{
+ for(const mode of ['workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-selected-import-v7']){const c=client(true,'schema_migrations');await assert.rejects(prepareWorkspaceFurnishingCatalog(c,{...paths,mode,channel,materialMultimapDirectory:'/unused',framePreparationDirectory:'/unused'}),/FURNISHING_ADMISSION_INVALID/);assert.equal(c.calls.length,0);}
+});

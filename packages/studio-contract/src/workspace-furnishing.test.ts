@@ -45,3 +45,11 @@ it('binds the fixed frame to one exact compatible image placement',async()=>{
  const p='10000000-0000-4000-8000-0000000000a4';placement.id=p;candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE].frameAttachments[0]!.placementId=p;
  const conflict={...candidate,extensions:{...candidate.extensions,'org.exhibitos.studio/installation':{placements:[{placementId:p.toUpperCase(),frame:{kind:'flat'}}]}}};expect(validateWorkspaceFurnishings(conflict).errors[0]?.code).toBe('FRAME_PROCEDURAL_CONFLICT');
 });
+
+it('requires explicit capability for the exact frame preparation policy',()=>{
+ const request={...base,kind:'artwork-frame',preparationPolicy:'omit-unused-invalid-tangent-r1'};
+ expect(validWorkspaceFurnishingDeclaration(request,{allowArtworkFrame:true})).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration(request,{allowArtworkFrame:true,allowFramePreparation:true})).toBe(true);
+ expect(validWorkspaceFurnishingDeclaration({...request,preparationPolicy:'other'},{allowArtworkFrame:true,allowFramePreparation:true})).toBe(false);
+ expect(validWorkspaceFurnishingDeclaration({...request,kind:'pedestal'},{allowFramePreparation:true})).toBe(false);
+});

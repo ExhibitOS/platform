@@ -63,3 +63,10 @@ describe('Original privacy lifecycle boundaries',()=>{
  });
 
 });
+
+it('protects staged preparation objects without blocking unrelated privacy cleanup',async()=>{
+ const workspace='42345678-1234-4234-8234-123456789012',intake='52345678-1234-4234-8234-123456789012',source='a'.repeat(64),derived='b'.repeat(64),prefix=`${tenant}/workspace-furnishing-intake/${workspace}/${intake}`;
+ const row={tenant_id:tenant,workspace_id:workspace,intake_id:intake,source_key:`${prefix}/${source}`,source_bytes:123,source_sha256:source,renderable_key:`${prefix}/${derived}`,renderable_bytes:120,renderable_sha256:derived,recipe:'omit-unused-invalid-tangent-r1',state:'staged'};
+ const c={query:async(sql:string)=>sql.includes('FROM pg_class')?{rows:[{relname:'workspace_frame_preparations'}]}:{rows:[{row}]}};
+ const privacy=new Privacy({} as Pool);expect(await privacy.referenced(c as never,`${prefix}/${source}`)).toBe(true);expect(await privacy.referenced(c as never,`${prefix}/${derived}`)).toBe(true);expect(await privacy.referenced(c as never,`${user}/raw/unrelated`)).toBe(false);
+});

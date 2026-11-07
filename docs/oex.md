@@ -185,3 +185,9 @@ committed 040 uses the ordinary reopen mode. Platform cannot infer the prior
 runtime tuple from the opaque active-binding digest; it relies on the Manager's
 authenticated lifecycle assertion for that verification and independently
 checks the live target payload, database ledger and owner before commit.
+
+### Exact frame source preparation (catalog 041)
+
+The optional `workspace-artwork-frame-preparation-v1` profile accepts an explicit `preparationPolicy` of `omit-unused-invalid-tangent-r1` only for the three pinned ExhibitOS CC0 frame originals. The submitted model and upload receipt identify the untouched original; on successful registration the preparation receipt identifies both it and the separately stored, strictly validated renderable. The registered furnishing model and output use the renderable's digest. A direct request without the policy retains the existing behavior.
+
+Preparation is bounded and rejects unrecognized sources, unsupported rights, changed bytes or an unsafe result. A worker whose outcome is unknown is retryable only after its claim has drained. The source and derived object are retained in the workspace and verified together by the service-backup inventory; an unresolved stage refuses backup until resolved. Cancellation removes only owned staging after the worker has drained, not the user's selected file. A selected 041 runtime can initialize a fresh workspace or reopen its own exact, clean 041 catalog. It does not automatically upgrade an occupied 040 workspace; a separate reviewed Manager transition is required for that case.

@@ -160,7 +160,7 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   const definitions=(await c.query("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' UNION ALL SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' UNION ALL SELECT t.typname FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public'")).rows;
   if(definitions.length||(await options.store.listAll()).length)throw Error('RESTORE_TARGET_NOT_EMPTY');
   await options.restore(verified.files.find(f=>f.role==='database')!.plainPath);
-  for(const f of verified.files.filter(f=>f.role==='object')){const data=await readFile(f.plainPath);for(const key of [f.key!,...(f.aliases??[])])await options.store.put(key,data);}
+  for(const f of verified.files.filter(f=>f.role==='object')){const data=await readFile(f.plainPath);for(const key of [f.key!,...(f.aliases??[])]){if(options.store.putDurable)await options.store.putDurable(key,data);else await options.store.put(key,data);}}
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ');transaction=true;
   const inventory=await options.snapshot(c,retainedMigrations(verified.manifest.inventory));validateInventory(inventory);if(comparable(inventory)!==comparable(verified.manifest.inventory))throw Error('RESTORE_INVENTORY_MISMATCH');
   await c.query('COMMIT');transaction=false;
@@ -192,7 +192,7 @@ export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:Bl
  for(const [key,file]of expected){
   const bytes=present.has(key)?await options.store.get(key):await readFile(file.plainPath);
   if(bytes.length!==file.bytes||sha(bytes)!==file.sha256)throw Error('RESTORE_OBJECT_CONFLICT');
-  if(!present.has(key))await options.store.put(key,bytes);
+  if(options.store.putDurable)await options.store.putDurable(key,bytes);else if(!present.has(key))await options.store.put(key,bytes);
  }
  const manifestBytes=await secretRead(join(options.destination,'manifest.json'));
  await verifyRestoredInventory({pool:options.pool,snapshot:options.snapshot,manifestBytes,expectedManifestSha256:verified.authenticatedManifestSha256,snapshotSystemIdentifier:options.snapshotSystemIdentifier});

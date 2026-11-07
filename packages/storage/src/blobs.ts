@@ -26,6 +26,10 @@ export interface BlobStore {
   /** Optional exact-size bounded reader; never allocate based on untrusted file size. */
   getBounded?(key: string, expectedBytes: number, signal?: AbortSignal): Promise<Uint8Array>;
   put(key: string, bytes: Uint8Array): Promise<void>;
+  /** Optional durable filesystem write, including directory entries. */
+  putDurable?(key: string, bytes: Uint8Array): Promise<void>;
+  /** Optional durable deletion, including a retry after a successful unlink. */
+  removeDurable?(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
   remove(key: string): Promise<void>;
 }
@@ -108,8 +112,36 @@ export class FileBlobStore implements BlobStore {
       await unlink(temporary);
     }
   }
+  /** Sync the file via put and every created directory entry up through the
+   * blob root and its parent before a database transaction can reference it. */
+  async putDurable(key: string, bytes: Uint8Array) {
+    await this.put(key,bytes);
+    const root=resolve(this.root),file=await this.path(key),stop=dirname(root);
+    // A retry may find a previously linked file. Sync that inode as well as
+    // the temporary file used by put before committing a database reference.
+    const object=await open(file,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+    try{if(!(await object.stat()).isFile())throw new Error('nonregular object');await object.sync();}finally{await object.close();}
+    for(let dir=dirname(file);;dir=dirname(dir)){
+      const handle=await open(dir,constants.O_RDONLY|constants.O_NOFOLLOW);
+      try{if(!(await handle.stat()).isDirectory())throw new Error('unsafe object directory');await handle.sync();}finally{await handle.close();}
+      if(dir===stop)break;
+      if(dir===dirname(dir))throw new Error('unsafe object root');
+    }
+  }
   async remove(key: string) {
     await unlink(await this.path(key));
+  }
+  async removeDurable(key: string) {
+    // Ensure a missing parent can also be durably observed on a retry. The
+    // newly created empty directories are harmless and must be synced too.
+    const file=await this.path(key,true),stop=dirname(resolve(this.root));
+    try{await unlink(file);}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    for(let dir=dirname(file);;dir=dirname(dir)){
+      const handle=await open(dir,constants.O_RDONLY|constants.O_NOFOLLOW);
+      try{if(!(await handle.stat()).isDirectory())throw new Error('unsafe object directory');await handle.sync();}finally{await handle.close();}
+      if(dir===stop)break;
+      if(dir===dirname(dir))throw new Error('unsafe object root');
+    }
   }
   async listAll() {
     const output:string[]=[],root=resolve(this.root);
