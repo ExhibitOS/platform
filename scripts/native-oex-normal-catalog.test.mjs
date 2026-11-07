@@ -92,3 +92,16 @@ test('selected V6 and V7 modes require matching wall ledger while ordinary reope
  assert.doesNotThrow(()=>check('normal-oex-workspace-import-v7',true));
  assert.doesNotThrow(()=>check(undefined,true));
 });
+
+test('selected 038 capability has the reviewed exact private bytes',async()=>{
+ const {createHash}=await import('node:crypto');const {WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY:marker}=await import('./native-oex-normal-catalog.mjs');
+ assert.equal(Buffer.byteLength(marker),209);assert.equal(createHash('sha256').update(marker).digest('hex'),'2792fac7aba1e053a9a43849e2899ad27e447be9fc58114f316a8a4c9d23d0ce');
+});
+
+test('selected 038 rejects a shortened or drifted catalog before proof',async()=>{
+ const {assertExactWorkspacePublicationCatalog,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION:name,WORKSPACE_FURNISHING_PUBLICATION_SHA256:sha256}=await import('./native-oex-normal-catalog.mjs');
+ const rows=Array.from({length:37},(_,i)=>({name:String(i),sha256:'a'.repeat(64)}));rows.push({name,sha256});
+ const c={query:async()=>({rows})};await assertExactWorkspacePublicationCatalog(c);
+ rows.pop();await assert.rejects(assertExactWorkspacePublicationCatalog(c),/NATIVE_OEX_CATALOG/);
+ rows.push({name,sha256:'0'.repeat(64)});await assert.rejects(assertExactWorkspacePublicationCatalog(c),/NATIVE_OEX_CATALOG/);
+});

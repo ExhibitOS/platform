@@ -67,3 +67,25 @@ test('selected 038 fresh bootstrap records its exact ledger without changing the
   assert.equal(rows.length,38);assert.deepEqual(rows.at(-1),{name:'038_workspace_furnishing_publication.sql',sha256:'cbee8e1f2a7af5daa1aec498d014ad25934b116aa5d578966b23efef2e110a98'});assert.equal(rows[36].name,'037_workspace_furnishing_writer_generation.sql');
  }finally{await cleanup(f);}
 });
+
+test('selected 038 binds fresh-only admission and refuses an occupied catalog',async()=>{
+ const mode='workspace-furnishing-038-selected-import-v7',f=await fixture(mode);try{
+  const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'fresh-empty',activeBindingSHA256:'b'.repeat(64)};
+  f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);
+  const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});await assertWorkspaceFurnishingRuntimeAdmission(mode,ordinaryAdmission);
+  const calls=[],c={query:async sql=>{calls.push(sql);return sql.startsWith('SELECT EXISTS')?{rows:[{occupied:true}]}:{rows:[]};}};
+  await assert.rejects(prepareWorkspaceFurnishingCatalog(c,{mode,base:'unused',normal:'unused',imports:'unused',wall:'unused',furnishing:'unused',writerDirectory:'unused',publicationDirectory:'unused',writer,channel:f.input.channel,ordinaryAdmission}),/FRESH_DATABASE_OCCUPIED/);
+  assert.equal(calls.some(sql=>/^(INSERT|UPDATE|CREATE)/.test(sql)),false);
+ }finally{await cleanup(f);}
+});
+
+test('combined selected import initializes the exact 038 catalog',async()=>{
+ const {fileURLToPath}=await import('node:url'),root=fileURLToPath(new URL('../database/',import.meta.url)),f=await fixture('workspace-furnishing-038-selected-import-v7');
+ try{
+  const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'fresh-empty',activeBindingSHA256:'b'.repeat(64)};
+  f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret}),rows=[];
+  const c={query:async(sql,args=[])=>{if(sql.startsWith('SELECT EXISTS'))return {rows:[{occupied:false}],rowCount:1};if(sql.startsWith('SELECT sha256 FROM schema_migrations')){const found=rows.find(row=>row.name===args[0]);return {rows:found?[found]:[],rowCount:found?1:0};}if(sql.startsWith('INSERT INTO schema_migrations')){rows.push({name:args[0],sha256:args[1]});return {rows:[],rowCount:1};}if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows:[...rows].sort((a,b)=>a.name.localeCompare(b.name)),rowCount:rows.length};return {rows:[],rowCount:0};}};
+  await prepareWorkspaceFurnishingCatalog(c,{mode:f.fields.mode,base:join(root,'migrations'),normal:join(root,'native-oex-normal'),imports:join(root,'native-oex-workspace-import'),wall:join(root,'native-oex-workspace-import-wall'),furnishing:join(root,'native-workspace-furnishing'),writerDirectory:join(root,'native-workspace-furnishing-writer'),publicationDirectory:join(root,'native-workspace-furnishing-publication'),writer,channel:f.input.channel,ordinaryAdmission});
+  assert.equal(rows.length,38);assert.deepEqual(rows.at(-1),{name:'038_workspace_furnishing_publication.sql',sha256:'cbee8e1f2a7af5daa1aec498d014ad25934b116aa5d578966b23efef2e110a98'});assert.equal(rows[36].name,'037_workspace_furnishing_writer_generation.sql');
+ }finally{await cleanup(f);}
+});

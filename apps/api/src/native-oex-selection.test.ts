@@ -34,3 +34,9 @@ it.skipIf(!process.getuid?.())('028 requires an explicit known archive version b
   await expect(acceptNativeOexSelection({pool:f.pool,channel:f.channel,workspaceId:id(3),tenantId:id(4),principalId:id(5),runtimeGeneration:id(2),ownerUid:process.getuid!(),verifyOwner:f.verifyOwner,assertDatabase:f.assertDatabase,install:f.install,signal:new AbortController().signal,archiveFormats:['1.0.0-draft.9','1.0.0-draft.10']})).rejects.toThrow('NATIVE_OEX_SELECTION');expect(f.install).not.toHaveBeenCalled();
  }
 });
+
+it.skipIf(!process.getuid?.()).each([undefined,'1.0.0-draft.9','1.0.0-draft.10'] as const)('038 selected mode rejects %s before installing a slot',async archiveFormat=>{
+ const f=fixture();if(archiveFormat!==undefined)Object.assign(f.selection,{archiveFormat});
+ await expect(acceptNativeOexSelection({pool:f.pool,channel:f.channel,workspaceId:id(3),tenantId:id(4),principalId:id(5),runtimeGeneration:id(2),ownerUid:process.getuid!(),verifyOwner:f.verifyOwner,assertDatabase:f.assertDatabase,install:f.install,signal:new AbortController().signal,archiveFormats:['1.0.0-draft.9','1.0.0-draft.10'],requiredArchiveFormat:'1.0.0-draft.12'})).rejects.toThrow('NATIVE_OEX_SELECTION');
+ expect(f.install).not.toHaveBeenCalled();expect(f.channel.close).toHaveBeenCalledOnce();
+});

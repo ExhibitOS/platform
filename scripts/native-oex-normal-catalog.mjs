@@ -39,6 +39,7 @@ export const WORKSPACE_FURNISHING_WRITER_SHA256='a8e861458fcce8336a50b7c94a39855
 // Publication binding is separately selected; recognizing it never authorizes migration.
 export const WORKSPACE_FURNISHING_PUBLICATION_MIGRATION='038_workspace_furnishing_publication.sql';
 export const WORKSPACE_FURNISHING_PUBLICATION_SHA256='cbee8e1f2a7af5daa1aec498d014ad25934b116aa5d578966b23efef2e110a98';
+export const WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY='{"format":1,"kind":"exhibitos-native-furnishing-selected-oex-import","mode":"workspace-furnishing-038-selected-import-v7","catalog":38,"ownerChannelVersion":3,"archiveFormat":"1.0.0-draft.12","freshOnly":true}';
 export const WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY=JSON.stringify({format:1,catalog:38,migration:WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,migrationSHA256:WORKSPACE_FURNISHING_PUBLICATION_SHA256});
 export const WORKSPACE_FURNISHING_WRITER_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-furnishing-writer',parentCapabilityPath:'platform/scripts/native-workspace-furnishing-capability-v1.json',parentCapabilitySHA256:'0f969e6186699ea6107c83c28efad2d8e598b7d316e452b451472f1d5f8c1c0b',schemaPath:'platform/database/native-workspace-furnishing-writer/037_workspace_furnishing_writer_generation.sql',schemaSHA256:WORKSPACE_FURNISHING_WRITER_SHA256,ownerChannelVersion:3,writerLeaseVersion:1,freshOnly:true});
 export const WORKSPACE_WALL_IMPORT_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-workspace-wall-import',protocol:'normal-oex-workspace-import-v7',ownerChannelVersion:3,parentCapabilityPath:'platform/scripts/native-workspace-oex-import-capability-v6.json',parentCapabilitySHA256:'1d5177c8c4ddb9dec26ed7724178376ae4ca615e06e64573b132b7c7abfa25e8',wallSchemaPath:'platform/database/native-oex-workspace-import-wall/035_workspace_material_wall_import.sql',wallSchemaSHA256:WORKSPACE_WALL_IMPORT_SHA256,archiveFormat:'1.0.0-draft.12',oneShot:true});
@@ -144,6 +145,11 @@ export async function recognizeNormalOexCatalog(pool,migrationDirectory,suppleme
  for(let i=0;i<names.length;i++)if(sha(await regular(join(migrationDirectory,names[i])))!==rows[i]?.sha256)throw Error('NATIVE_OEX_CATALOG');
  const after=await directory(migrationDirectory),again=(await readdir(migrationDirectory)).filter(n=>/^\d+.*\.sql$/.test(n)).sort();if(!same(base,after)||JSON.stringify(again)!==JSON.stringify(names))throw Error('NATIVE_OEX_CATALOG');
  return supplementalDirectory;
+}
+
+export async function assertExactWorkspacePublicationCatalog(client){
+ const rows=(await client.query('SELECT name,sha256 FROM public.schema_migrations ORDER BY name')).rows;
+ if(!Array.isArray(rows)||rows.length!==38||rows[37]?.name!==WORKSPACE_FURNISHING_PUBLICATION_MIGRATION||rows[37]?.sha256!==WORKSPACE_FURNISHING_PUBLICATION_SHA256)throw Error('NATIVE_OEX_CATALOG');
 }
 
 /** Before ordinary native startup writes anything, reject unknown catalog rows.
