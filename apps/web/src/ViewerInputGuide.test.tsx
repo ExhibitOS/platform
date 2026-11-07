@@ -22,7 +22,7 @@ it.each(['pointer','trackpad','touch'] as const)('offers explicit shared help fo
 });
 it('does not claim walking keys in the actual ordered viewing mode',()=>{
  const html=renderToStaticMarkup(<ViewerInputGuide mode="pointer" viewingStyle="ordered" replayed={false} onDismiss={()=>{}}/>);
- expect(html).toContain('이전·다음 작품');expect(html).not.toContain('data-key="w"');expect(html).toContain('자유롭게 관람');
+ expect(html).toContain('화살표로 이전·다음 작품');expect(html).not.toContain('data-key="w"');expect(html).toContain('자유롭게 관람');
 });
 
 it("keeps explicit capture optional while retaining walking and safe-stop controls", () => {

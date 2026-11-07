@@ -9,7 +9,7 @@ export function ViewingStyles({state,items,actions,available,variant='menu'}:{
  const current=items.findIndex(item=>item.placementId.toLowerCase()===state.currentPlacementId?.toLowerCase());
  const pending=state.status==='preparing',choice=state.pendingStyle??state.style;
  return <section className="viewer-viewing-styles" aria-label="관람 방식">
-  <h2>관람 방식</h2>
+  <h2 tabIndex={-1}>관람 방식</h2>
   <div className="viewer-viewing-styles-options" role="group" aria-label="관람 방식 선택">
    <button type="button" aria-pressed={choice==='free'} onClick={()=>actions.setStyle('free')}>자유롭게 관람</button>
    <button type="button" aria-pressed={choice==='ordered'} disabled={!available} onClick={()=>actions.setStyle('ordered')}>순서대로 관람</button>
