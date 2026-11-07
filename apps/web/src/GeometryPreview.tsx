@@ -1,3 +1,8 @@
+import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
+import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
+import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
+import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
+import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
 import {inspectionCameraPose} from './scene-snapshot-camera';
@@ -44,7 +49,6 @@ import {installBenches} from './bench-renderer';
 import {benchesFor} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
-import {basisLoader} from './basis-loader.js';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
 import { embeddedPNGManager } from './embedded-glb.js';
 import type { PresenceVisitor } from "./viewer/realtime-motion";
@@ -101,6 +105,7 @@ export function GeometryPreview({
   session,
   publicSource,
   privateCatalogue = false,
+  ownerWorkspaceFurnishings,
   initialPrivateView,
   onPrivateViewReady,
   viewerBudget,
@@ -211,6 +216,7 @@ export function GeometryPreview({
   openingViewpoint?: {viewpointId:string;sequence:number};
   onReducedMotionChange?: (value: boolean) => void;
   session: Session | null;
+  ownerWorkspaceFurnishings?: {budget:DeviceBudget;signal:AbortSignal;expiresAt:number;invalidate:()=>void};
   publicSource?: {
     publicationId: string;
     revisionSha256: string;
@@ -387,7 +393,7 @@ export function GeometryPreview({
   const snapshotCallback=useRef(onSceneSnapshotReady);snapshotCallback.current=onSceneSnapshotReady;
   const snapshotEnabled=!!onSceneSnapshotReady;
   const snapshotFrameToken=useRef(cameraFrameToken);snapshotFrameToken.current=cameraFrameToken;
-  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
+  const qualityScope=useMemo(()=>({}),[referenceTone,sceneDocument,appearance,session,publicSource,privateCatalogue,ownerWorkspaceFurnishings,resourceBudget,restart,transparentSpace,editingEnabled,immersive,fillHost,snapshotEnabled]);
   const qualityRebuildReady=useRef(false);
   const qualityIntent=useRef({scope:qualityScope,budget:viewerBudget});
   qualityIntent.current={scope:qualityScope,budget:viewerBudget};
@@ -467,6 +473,8 @@ export function GeometryPreview({
         throw Error("PREVIEW_COMPLEXITY");
       if(!validateStudioFloors(document).valid||!validateArchitecture(document).valid)throw Error("PREVIEW_COMPLEXITY");
       const initialSnapshotPose=publicSource&&snapshotEnabled&&initialSnapshot?inspectionCameraPose(document,initialSnapshot.placementId,initialSnapshot.inspectionCamera):undefined;
+      const hasWorkspaceFurnishings=!!document.extensions&&Object.hasOwn(document.extensions,WORKSPACE_FURNISHING_NAMESPACE);
+      if(hasWorkspaceFurnishings&&(!ownerWorkspaceFurnishings||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt||!session||publicSource||viewerBudget))throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
       const three = await import("three");
       const { OrbitControls } =
         await import("three/addons/controls/OrbitControls.js");
@@ -807,12 +815,14 @@ export function GeometryPreview({
         callback(camera.position.toArray() as [number,number,number],mapPoseEuler.setFromQuaternion(camera.quaternion,'YXZ').y,2*Math.atan(Math.tan(camera.getEffectiveFOV()*Math.PI/360)*camera.aspect)*180/Math.PI,currentWalkMode.current.walking&&!currentWalkMode.current.paused);
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
+      let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
       const render = () => {
         if(sharedDetail){if(!disposed&&!gpuLost)sharedDetail.render();return;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
         if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
           const at = performance.now();
+          ownerFurnishings?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
@@ -837,8 +847,9 @@ export function GeometryPreview({
       const presenceDiagnostics=()=>{renderer.domElement.dataset.realtimeAvatars=JSON.stringify([...remoteAvatars].map(([visitorId,group])=>({visitorId,position:group.position.toArray(),yaw:group.rotation.y})));};
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
-      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);void catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;});}
-      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);void catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);});}
+      const catalogSettled:Promise<unknown>[]=[];
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
+      if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
@@ -991,6 +1002,7 @@ export function GeometryPreview({
       const lost = (event: Event) => {
         event.preventDefault();
         gpuLost = true;
+        if(hasWorkspaceFurnishings){ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);ownerWorkspaceFurnishings?.invalidate();}
         clearQualityFrame();
         mapThumbnailRefresh.current?.();
         sculptureOrbitRuntime.current?.actions.stop();
@@ -1097,6 +1109,7 @@ export function GeometryPreview({
       editingSync.current=()=>{const bridge=editingRef.current,changed=syncPreviewLightColors(scriptLights,bridge?.document??document,bridge?.preview,bridge?.previewLightId);if(changed)shadowPass.invalidate();if(bridge)editor?.sync();else {editor?.invalidate();if(changed)render();}};
       if(editingRef.current)editingSync.current();
       release = () => {
+        ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);
         snapshotCallback.current?.(null);
         if(mapPoseRefresh.current===publishMapPose)mapPoseRefresh.current=null;
         renderer.domElement.ownerDocument.removeEventListener('visibilitychange',mapPoseVisibility);
@@ -1485,54 +1498,26 @@ export function GeometryPreview({
         reserveDecode?: (bytes:ArrayBuffer)=>void,
         stage?: (value:string)=>void,
         imageBudget = viewerBudget,
+        onCleanDecodeFailure?:()=>void,
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
         const bytes=await readArtworkBytes(artwork,inventory,signal);
         stage?.('verified-download');
         reserveDecode?.(bytes!);
         stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
-        const resources: Array<{ dispose: () => void }> = [];
+        const resources: Array<{ dispose: () => void }> = [];let glbMayOwnAsync=false;
         try {
           let object: InstanceType<typeof three.Object3D>;
           let retainedModelBytes=0,decodeBackingReleased=false;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
-            let bitmap = await createImageBitmap(
-              new Blob([bytes!], { type: "image/png" }),
-              { imageOrientation: "flipY" },
-            );
-            resources.push({ dispose: () => bitmap.close() });
-            if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
-            const declared = lodVariantsFor(artwork).find(
-              (v) => v.assetId.toLowerCase() === inventory.id.toLowerCase(),
-            )?.textureSize;
-            if (
-              publicSource &&
-              declared !== undefined &&
-              Math.max(bitmap.width, bitmap.height) > declared
-            )
-              throw Error("DECODE_VARIANT_UNDERCLAIM");
-            if (
-              imageBudget &&
-              Math.max(bitmap.width, bitmap.height) >
-                imageBudget.maxTextureSize
-            ) {
-              const factor =
-                imageBudget.maxTextureSize /
-                Math.max(bitmap.width, bitmap.height);
-              const resized = await createImageBitmap(bitmap, {
-                // The initial bitmap is already oriented for GPU upload; do not flip it again.
-                imageOrientation: "none",
-                resizeWidth: Math.max(1, Math.round(bitmap.width * factor)),
-                resizeHeight: Math.max(1, Math.round(bitmap.height * factor)),
-              });
-              bitmap.close();
-              bitmap = resized;
-            }
-            if (disposed || signal.aborted) {
-              bitmap.close();
-              throw Error("DISPOSED");
-            }
+            const bitmap=await decodeArtworkBitmap(bytes!,imageBudget,signal,bitmap=>{
+              if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
+              const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
+              if(publicSource&&declared!==undefined&&Math.max(bitmap.width,bitmap.height)>declared)throw Error('DECODE_VARIANT_UNDERCLAIM');
+            });
+            resources.push({dispose:()=>bitmap.close()});
+            if(disposed||signal.aborted)throw Error('DISPOSED');
             const texture = new three.Texture(bitmap);
             texture.colorSpace = three.SRGBColorSpace;
             texture.needsUpdate = true;
@@ -1550,10 +1535,9 @@ export function GeometryPreview({
             object = new three.Mesh(geometry, material);
             decodeBackingReleased=true;
           } else {
-            const { GLTFLoader } =
-              await import("three/addons/loaders/GLTFLoader.js");
+            const {GLTFLoader,basis}=await prepareArtworkGlb(renderer,bytes!,signal,value=>{glbMayOwnAsync=value;});
             const manager = new three.LoadingManager();
-            const basis=await basisLoader(renderer,bytes!);if(basis)resources.push(basis);
+            if(basis)resources.push(basis);
             if(disposed||signal.aborted){basis?.dispose();throw new DOMException('Aborted','AbortError');}
             const protectedBytes = embeddedPNGManager(manager, bytes!,basis);
             resources.push(protectedBytes);
@@ -1562,7 +1546,7 @@ export function GeometryPreview({
             const backing=retainEncodedBuffer(byteCache,inventory.id,protectedBytes.bytes);
             resources.push(backing);retainedModelBytes=backing.retainedBytes;
             const cancelDecode=()=>protectedBytes.dispose();signal.addEventListener("abort",cancelDecode,{once:true});
-            let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
+            glbMayOwnAsync=true;let gltf;try{const loader=new GLTFLoader(manager);if(protectedBytes.ktx2Loader)loader.setKTX2Loader(protectedBytes.ktx2Loader as never);gltf=await loader.parseAsync(protectedBytes.bytes, "");}finally{signal.removeEventListener("abort",cancelDecode);}
             gltf.scene.traverse((node) => {
               if (node instanceof three.Mesh) {
                 resources.push(node.geometry);
@@ -1652,7 +1636,8 @@ export function GeometryPreview({
           decodedResources.set(object, resources);
           return object;
         } catch (error) {
-          for (const resource of resources) resource.dispose();
+          let clean=true;for (const resource of resources)try{resource.dispose();}catch{clean=false;}
+          if(clean&&!(error instanceof ArtworkBitmapCleanupError)&&(artwork.artworkType==='image'||!glbMayOwnAsync))onCleanDecodeFailure?.();
           throw error;
         }
       };
@@ -1677,17 +1662,26 @@ export function GeometryPreview({
             const pose=viewpointPose(document,request.viewpointId);
             snapshotCamera={viewpointId:view.id,roomId:view.roomId,position:pose.position,target:pose.target,fov:pose.fov};
           }
-          return captureScenePng({three,renderer,scene,near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
+          ownerFurnishings?.enforce();
+          return captureScenePng({three,renderer,scene,beforeDiagnostics:()=>ownerFurnishings?.enforce(),near:camera.near,far:camera.far,camera:snapshotCamera,target:group,occluders:model,placementId:placement.id,artworkRevisionId:art.revisionId,assetId,signal,withoutOverlays:draw=>{const overlays:{node:import('three').Object3D;visible:boolean}[]=[];model.traverse(node=>{if(node.userData.sceneSnapshotOverlay)overlays.push({node,visible:node.visible});});try{for(const item of overlays)item.node.visible=false;ownerFurnishings?.enforce();if(editor)editor.withoutOverlays(draw);else draw();}finally{for(const item of overlays)item.node.visible=item.visible;}},valid});
         }});
       }
       if(!publicSource&&editingEnabled&&placementInstaller.current){
         const preview=placementInstaller.current({scene,model,camera,renderer,rooms,surfaces,render,
           load:async(artwork,signal)=>{
+            const owner=ownerFurnishings;
+            if(hasWorkspaceFurnishings&&!owner)throw Error('WORKSPACE_SCENE_BUDGET');
+            const reserveGeometry=(object:InstanceType<typeof three.Object3D>)=>{if(!owner)return ()=>{};const cost=existingSceneCost(three,object,true);return owner.reservePreview(cost.draws+1,cost.triangles);};
             const shared=sources.get(artwork.revisionId);
-            if(shared){const object=await shared;signal.throwIfAborted();return {object,release:()=>{}};}
-            const object=await loadArtwork(artwork,undefined,signal);
-            const resources=decodedResources.get(object)??[];decodedResources.delete(object);
-            let released=false;return {object,release:()=>{if(released)return;released=true;for(const r of resources)r.dispose();}};
+            if(shared){const object=await shared;signal.throwIfAborted();const key=`owner-preview-art:${crypto.randomUUID()}`;if(owner)owner.ledger.reserve(key,1024*1024);let unreserve:()=>void;try{unreserve=reserveGeometry(object);}catch(error){owner?.ledger.release(key);throw error;}let done=false;return {object,release:()=>{if(!done){done=true;unreserve();owner?.ledger.release(key);}}};}
+            const inventory=artwork.assets.find(a=>a.id===artwork.primaryAssetId);if(!inventory)throw Error('WORKSPACE_SCENE_BUDGET');
+            const key=`owner-preview-art:${crypto.randomUUID()}`;let decodeReserve=0;const hold=owner?new OwnerArtworkHold(owner.ledger,key,inventory.bytes*4+1024*1024):undefined;
+            try{
+              const object=await loadArtwork(artwork,undefined,signal,owner?bytes=>{decodeReserve=assetDecodeReserve(artwork,inventory,ownerWorkspaceFurnishings!.budget,bytes)+1024*1024;hold!.reserveDecode(decodeReserve);}:undefined,undefined,ownerWorkspaceFurnishings?.budget,()=>hold?.markCleanFailure());
+              const resources=decodedResources.get(object)??[];decodedResources.delete(object);let unreserve:()=>void;
+              try{if(owner){const actual=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(actual)||actual<0)throw Error('WORKSPACE_SCENE_BUDGET');owner.ledger.reserve(key,Math.max(decodeReserve,actual+1024*1024));}unreserve=reserveGeometry(object);}catch(error){let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed)hold?.release();throw error;}
+              let released=false;return {object,release:()=>{if(released)return;released=true;let failed=false;for(const r of resources)try{r.dispose();}catch{failed=true;}if(!failed){unreserve();hold?.release();}}};
+            }catch(error){hold?.failure();throw error;}
           },
         });
         placementSync.current=preview.sync;placementRelease=preview.dispose;
@@ -2591,7 +2585,7 @@ export function GeometryPreview({
       }
       // The local/native path uses the same bounded readout as public loading,
       // without adopting the public scheduler or its revision-based counters.
-      const localStages=createPreparationStages(document.artworks);
+      const localStages=createPreparationStages(document.artworks),residentArtwork=new Set<InstanceType<typeof three.Object3D>>();let localResidentBytes=0;
       for (const placement of document.placements) {
         const artwork = document.artworks.find(
           (a) =>
@@ -2618,6 +2612,7 @@ export function GeometryPreview({
             for (const r of decodedResources.get(object) ?? []) r.dispose();
             return;
           }
+          if(!residentArtwork.has(object)){const bytes=object.userData.viewer?.decodedBytes;if(!Number.isSafeInteger(bytes)||bytes<0)throw Error('WORKSPACE_SCENE_BUDGET');localResidentBytes+=bytes;residentArtwork.add(object);}
           owned.push(...(decodedResources.get(object) ?? []));
           decodedResources.delete(object);
           const bounds = group.children[0];
@@ -2638,6 +2633,12 @@ export function GeometryPreview({
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${rendered}개 · bytes 사용 불가 ${unavailable}개 (점선은 실제 치수 metadata bounds).`,
           );
         }
+      }
+      if(hasWorkspaceFurnishings&&session&&ownerWorkspaceFurnishings&&!disposed&&!gpuLost){
+        await Promise.allSettled(catalogSettled);if(disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;
+        const changed=()=>{if(disposed||gpuLost||ownerFurnishingFrame)return;ownerFurnishingFrame=requestAnimationFrame(()=>{ownerFurnishingFrame=0;if(!disposed&&!gpuLost){if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());shadowPass.invalidate();render();}});};
+        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed});
+        const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');changed();}
       }
     };
     void build().catch((error) => {
@@ -2676,6 +2677,7 @@ export function GeometryPreview({
     session,
     publicSource,
     privateCatalogue,
+    ownerWorkspaceFurnishings,
     viewerBudget,
     resourceBudget,
     restart,

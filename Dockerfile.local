@@ -31,6 +31,7 @@ COPY --from=build /opt/exhibitos/scripts/native-workspace-furnishing-bootstrap.m
 COPY --from=build /opt/exhibitos/scripts/native-workspace-furnishing-lease.mjs ./scripts/native-workspace-furnishing-lease.mjs
 COPY --from=build /opt/exhibitos/scripts/native-workspace-furnishing-fd.mjs ./scripts/native-workspace-furnishing-fd.mjs
 COPY --from=build /opt/exhibitos/scripts/native-workspace-furnishing-admission.mjs ./scripts/native-workspace-furnishing-admission.mjs
+COPY --from=build /opt/exhibitos/scripts/native-workspace-furnishing-ordinary-assertion.mjs ./scripts/native-workspace-furnishing-ordinary-assertion.mjs
 COPY --from=build /opt/exhibitos/scripts/native-workspace-furnishing-recovery.mjs ./scripts/native-workspace-furnishing-recovery.mjs
 # Runtime security fixes preserve the pinned Node/build toolchain. The final
 # service starts Node directly and does not ship the base image's npm client.

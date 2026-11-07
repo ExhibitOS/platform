@@ -24,13 +24,12 @@ export function installNativePlacementPreview(placement:NativePlacement,context:
   }
   if(next?.artwork&&!abort){
    const active=next,artwork=next.artwork,controller=new AbortController();abort=controller;
-   // The physical bounds remain honest while the approved asset is decoded.
-   const box=new BoxGeometry(artwork.dimensions.width,artwork.dimensions.height,artwork.dimensions.depth??.01),edges=new EdgesGeometry(box),lineMaterial=new LineBasicMaterial({color:0x007f75,transparent:true,opacity:.8});
-   const outline=new LineSegments(edges,lineMaterial),assertion=new Group();assertion.position.fromArray(artwork.transform.position);assertion.quaternion.fromArray(artwork.transform.rotation);assertion.scale.fromArray(artwork.transform.scale);assertion.add(outline);ghost.add(assertion);
-   boundsRelease=()=>{box.dispose();edges.dispose();lineMaterial.dispose();};
    void context.load(artwork,controller.signal).then(asset=>{
     if(disposed||controller.signal.aborted||placement.snapshot()!==active){asset.release();return;}
     releaseAsset=asset.release;
+    const box=new BoxGeometry(artwork.dimensions.width,artwork.dimensions.height,artwork.dimensions.depth??.01),edges=new EdgesGeometry(box),lineMaterial=new LineBasicMaterial({color:0x007f75,transparent:true,opacity:.8});
+    const outline=new LineSegments(edges,lineMaterial),assertion=new Group();assertion.position.fromArray(artwork.transform.position);assertion.quaternion.fromArray(artwork.transform.rotation);assertion.scale.fromArray(artwork.transform.scale);assertion.add(outline);ghost.add(assertion);
+    boundsRelease=()=>{box.dispose();edges.dispose();lineMaterial.dispose();};
     const object=asset.object.clone(true);
     object.traverse(node=>{if(node instanceof Mesh){const clone=(m:Material)=>{const c=m.clone();c.transparent=true;c.opacity*=.55;c.depthWrite=false;materials.push(c);return c;};node.material=Array.isArray(node.material)?node.material.map(clone):clone(node.material);node.castShadow=false;node.receiveShadow=false;}});
     ghost.add(object);render();

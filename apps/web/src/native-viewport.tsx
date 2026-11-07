@@ -1,3 +1,4 @@
+import {NativeOwnerAuthorityGate,type NativeOwnerAuthority} from './native-owner-authority';
 import {NATIVE_SCENE_SNAPSHOT_CAPABILITY,NATIVE_SCENE_SNAPSHOT_INSPECTION_CAPABILITY,checkedSceneSnapshotRequest,checkedSavedScene,snapshotCandidateHash,sceneSnapshotBinding,snapshotEditSettled,type SceneSnapshotRequest,type SceneSnapshotReply} from './native-scene-snapshot';
 import type {SceneSnapshotCapture} from './scene-snapshot';
 import {NATIVE_ARCHITECTURAL_FINISH_CAPABILITY,checkedArchitecturalFinishRequest,nativeArchitecturalFinishCandidate,type ArchitecturalFinishRequest} from './native-architectural-finishes';
@@ -70,7 +71,9 @@ async function waitForAccept(signal:AbortSignal){
  });}signal.throwIfAborted();
 }
 let currentSession:Session|undefined;
-let receive:((frame:NativeViewportFrame,session:Session)=>void)|undefined;
+let ownerAuthority:NativeOwnerAuthority|undefined;
+const ownerAuthorityGate=new NativeOwnerAuthorityGate(()=>invalidatePendingAccept());
+let receive:((frame:NativeViewportFrame,session:Session,authority:typeof ownerAuthority)=>void)|undefined;
 let findCurrentSelection:{frame:NativeViewportFrame;action:(id:string)=>boolean}|null=null;
 let cameraApply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null=null;
 let nativeCameraMode:CameraInteractionMode='object';
@@ -133,7 +136,7 @@ const placementInstaller:PlacementPreviewInstaller=context=>{
  return {sync:preview.sync,dispose:()=>{placementRendererReady=false;preview.dispose();}};
 };
 window.addEventListener('pagehide',()=>placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.'));
-const invalidatePendingAccept=()=>{acceptGeneration++;authorityGeneration++;acceptPending=false;currentReadOnly=true;currentBoundedEditable=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();};
+const invalidatePendingAccept=()=>{ownerAuthorityGate.invalidate();ownerAuthority=undefined;acceptGeneration++;authorityGeneration++;acceptPending=false;currentReadOnly=true;currentBoundedEditable=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();};
 window.addEventListener('pagehide',invalidatePendingAccept);
 window.addEventListener('exhibitos-auth-changed',invalidatePendingAccept);
 window.addEventListener('pagehide',()=>entrancePreview.invalidate());
@@ -170,8 +173,10 @@ window.exhibitosViewport={
   if((frame.disabled||frame.presentation==='plan'||cameraUnavailable())&&nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}
   acceptPending=false;if(needsAuthority&&placement.active)placement.cancel('큰 전시는 보기 전용이어서 배치를 취소했어요.');
   cameraGate.advance();entrancePreview.invalidate();current=frame;if(pendingEditorCommit&&snapshotEditSettled(pendingEditorCommit,frame,false))pendingEditorCommit=undefined;currentBoundedEditable=needsAuthority&&!!editingCapability;currentReadOnly=needsAuthority&&!editingCapability;placement.rebind(frame);
-  if(currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt)receive?.(frame,currentSession);
-  else {currentSession=session;receive?.(frame,session);}
+  const sameSession=!!currentSession&&currentSession.tenantId===session.tenantId&&currentSession.userId===session.userId&&currentSession.csrfToken===session.csrfToken&&currentSession.expiresAt===session.expiresAt&&currentSession.role===session.role;
+  if(!sameSession)currentSession=session;
+  ownerAuthority=ownerAuthorityGate.accept(session);
+  receive?.(frame,currentSession!,ownerAuthority);
   for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();
   return {accepted:true,presentations:NATIVE_VIEWPORT_PRESENTATIONS,capabilities:needsAuthority?[...NATIVE_CATALOG_CAPABILITIES,NATIVE_CAMERA_INTERACTION_CAPABILITY]:NATIVE_CAPABILITIES,cameraInteractionMode:nativeCameraMode,boundedReadOnly:currentReadOnly,...(editingCapability?{editingCapability}:{})};
   }finally{if(generation===acceptGeneration){acceptPending=false;acceptSettled.dispatchEvent(new Event('settled'));viewportChanged?.();}}
@@ -314,7 +319,7 @@ window.exhibitosViewport={
  action:action=>{requireEditable();if(architecturalPending)throw Error('ARCHITECTURAL_FINISH_INTENT_ACTIVE');if(plaquePending)throw Error('PLAQUE_INSPECTOR_INTENT_ACTIVE');if(spaceSettingsPending)throw Error('SPACE_SETTINGS_INTENT_ACTIVE');if(lightDetailsPending)throw Error('LIGHT_DETAILS_INTENT_ACTIVE');if(benchPending)throw Error('BENCH_INSPECTOR_INTENT_ACTIVE');if(!current)throw Error('VIEWPORT_NOT_READY');if(lightPending)throw Error('LIGHT_INSPECTOR_INTENT_ACTIVE');if(placement.active)throw Error('PLACEMENT_INTENT_ACTIVE');return action?.type==='installation-command'?nativeInstallationAction(current,action):nativeGeometryAction(current,action);},
 };
 function Viewport(){
- const [state,setState]=useState<{frame:NativeViewportFrame;session:Session}>();
+ const [state,setState]=useState<{frame:NativeViewportFrame;session:Session;authority:typeof ownerAuthority}>();
  const cameraReady=useCallback((apply:((mode:CameraInteractionMode,forceReset?:boolean,frameToken?:string,resetReason?:'hidden'|'unavailable')=>boolean)|null)=>{cameraApply=apply;if(!apply){cameraGate.invalidate();cameraReset('unavailable');}},[]);
  const cameraWasReset=useCallback((reason:'hidden'|'unavailable')=>cameraReset(reason),[]);
  const [planPreview,setPlanPreview]=useState<NativePlanPreview|null>(null);
@@ -324,10 +329,10 @@ function Viewport(){
  // GeometryPreview owns an expensive renderer effect keyed by this function.
  // Camera/selection frames must not recreate the scene or overwrite the camera.
  const appearance=useMemo(()=>(id:string)=>{const m=document?materialFor(document,id):{color:'#ffffff',roughness:1,metalness:0};const hex=m.color.slice(1);return {baseColor:[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255) as [number,number,number],roughness:m.roughness,metalness:m.metalness};},[document]);
- useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session)=>setState({frame,session});if(current&&currentSession)setState({frame:current,session:currentSession});return()=>{acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;snapshotSource=null;pendingEditorCommit=undefined;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
+ useEffect(()=>{viewportChanged=()=>{if(cameraUnavailable()){cameraGate.invalidate();if(nativeCameraMode!=='object'){cameraApply?.('object',true);cameraReset('unavailable');}}setPlacementVersion(v=>v+1);};receive=(frame,session,authority)=>setState({frame,session,authority});if(current&&currentSession)setState({frame:current,session:currentSession,authority:ownerAuthority});return()=>{ownerAuthorityGate.invalidate();ownerAuthority=undefined;acceptGeneration++;authorityGeneration++;acceptPending=false;viewportChanged=undefined;cameraReset('unavailable');cameraApply=null;cameraGate.dispose();entrancePreview.invalidate();entranceScene=undefined;for(const abort of catalogRequests)abort.abort();catalogRequests.clear();seenCatalogRequests.clear();findCurrentSelection=null;snapshotSource=null;pendingEditorCommit=undefined;placement.cancel('3D 미리보기를 닫아 배치를 취소했어요.');receive=undefined;current=undefined;currentReadOnly=false;currentBoundedEditable=false;currentSession=undefined;};},[]);
  useEffect(()=>{if(planPreview&&state&&!nativePlanPreviewCurrent(planPreview,state.frame))setPlanPreview(null);},[state,planPreview]);
  if(!state)return <p role="status">네이티브 전시를 기다리고 있습니다.</p>;
- const {frame,session}=state;
+ const {frame,session,authority}=state;
  const intent=entrancePreview.view,previewing=entrancePreview.active;
  const plan=frame.presentation==='plan'&&!intent,boundedReadOnly=current!==frame||acceptPending||currentReadOnly;
  const editing:EditorBridge={document:frame.draft.candidate,selection:frame.selection,mode:frame.mode,view:frame.view,disabled:previewing||boundedReadOnly||frame.disabled||plan||placement.active||furnishingPending||lightPending||architecturalPending||plaquePending||benchPending||spaceSettingsPending||lightDetailsPending||viewingPlanPending,preview:null,
@@ -352,7 +357,7 @@ function Viewport(){
   },
  };
  return <><div className="native-viewport-surface" hidden={plan} inert={plan}>
-  <GeometryPreview onSceneSnapshotReady={source=>{snapshotSource=source;}} fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
+  <GeometryPreview ownerWorkspaceFurnishings={authority} onSceneSnapshotReady={source=>{snapshotSource=source;}} fillHost cameraFrameToken={`${frame.epoch}:${frame.sequence}`} onCameraInteractionReady={cameraReady} onCameraInteractionReset={cameraWasReset} resourceBudget={DEVICE_BUDGETS.desktop} document={frame.draft.candidate} selection={frame.selection} editing={editing} session={session} onSelectionFindReady={action=>{if(action)findCurrentSelection={frame,action};else if(findCurrentSelection?.frame===frame)findCurrentSelection=null;}} cameraRequest={{kind:frame.view,sequence:frame.cameraSequence}} spaceTransparency={frame.transparent}
    placementPreview={placementInstaller} placementPreviewVersion={placementVersion} appearance={appearance} onEntranceSceneReady={scene=>{entranceScene=scene??undefined;if(!scene)entrancePreview.invalidate();}} onRenderState={report=>{post(frame,'status',report);const placed=new Set(frame.draft.candidate.placements.map(p=>p.artworkRevisionId));setEntranceStage({ready:report.ready&&report.navigationReady&&(report.loaded>0||placed.size===0),error:report.navigationFailed||(report.loaded===0&&report.failed>0&&report.failed>=placed.size),message:report.message,phase:!report.ready?'space':report.loaded===0&&placed.size>0?'artwork':'navigation'});}}/>
  </div><div className="native-viewport-surface native-viewport-plan" hidden={!plan} inert={!plan}>
   <StudioFloorPlan document={shownPreview?.candidate??frame.draft.candidate} editor={planEditor}/>

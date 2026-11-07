@@ -16,10 +16,10 @@ export type SceneSnapshotCapture=(request:SceneSnapshotInput,signal:AbortSignal)
 function visible(object:Three.Object3D){for(let node:Three.Object3D|null=object;node;node=node.parent)if(!node.visible)return false;return true;}
 /** Only a temporary camera/target/encoding scratch is owned here. The admitted
  * scene, renderer, user camera, controls and selection remain with the host. */
-export async function captureScenePng(input:{three:typeof Three;renderer:Three.WebGLRenderer;scene:Three.Scene;near:number;far:number;camera:SceneSnapshotCamera;target:Three.Object3D;occluders:Three.Object3D;placementId:string;artworkRevisionId:string;assetId:string;signal:AbortSignal;withoutOverlays(draw:()=>void):void;valid():boolean}):Promise<SceneSnapshotImage>{
+export async function captureScenePng(input:{three:typeof Three;renderer:Three.WebGLRenderer;scene:Three.Scene;near:number;far:number;camera:SceneSnapshotCamera;target:Three.Object3D;occluders:Three.Object3D;placementId:string;artworkRevisionId:string;assetId:string;signal:AbortSignal;withoutOverlays(draw:()=>void):void;beforeDiagnostics?():void;valid():boolean}):Promise<SceneSnapshotImage>{
  const {three,renderer,scene,signal}=input;
  const check=()=>{signal.throwIfAborted();if(!input.valid()||renderer.getContext().isContextLost()||renderer.xr.isPresenting)throw Error('SCENE_SNAPSHOT_UNAVAILABLE');};
- check();
+ check();input.beforeDiagnostics?.();check();
  const camera=new three.PerspectiveCamera(input.camera.fov,640/360,input.near,input.far);camera.position.fromArray(input.camera.position);camera.lookAt(new three.Vector3(...input.camera.target));camera.updateMatrixWorld();scene.updateMatrixWorld(true);
  const bounds=new three.Box3().setFromObject(input.target,true);if(bounds.isEmpty()||!visible(input.target))throw Error('SCENE_SNAPSHOT_TARGET_NOT_READY');
  const frustum=new three.Frustum().setFromProjectionMatrix(new three.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
