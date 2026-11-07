@@ -3,13 +3,16 @@
 These are the exact public, approved display derivatives from the existing
 reference exhibition, not original photographs or private production material.
 The publication revision and static index hashes are pinned in `publication.json`.
-The index, publication metadata, and all 31 registered display asset entries are
+The index, publication metadata, and all 32 registered display asset entries are
 Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. The
 publication contains 15 works in five rooms. Four registered audio and notice
 resources are included. The input index is
-`2e7174ff9cd805a5e72bf084adda8a6e9169696a214d74052b052547e73fd6fd`;
-the publication is `a3a7434d-1915-4f21-a133-1604746534a5`, revision
-`2ecfb415f54f58a1619058a7931e37f105a3c1135f87e7e27157d5f9e411b6f2`.
+`b75e849f53b2b7a37c6b77c9e4d0318beaaed0fb991cdab4b944d43b11932e08`;
+the publication is `c9d2fce6-0e23-4ceb-98f3-1fcb6f00c8d6`, revision
+`e06e3c3ff5e843e3502241d2bffc0a2b3ce756747b3214258bdf7e415da5e680`.
+
+The entrance floor uses a user-provided CC0 stone color map with a 2 m repeat.
+The previous public snapshot is retained as a private-copy base.
 
 The painting-room floor uses the user-authored Quiet Oak Herringbone material,
 `quiet-oak-herringbone/1`, with its CC0 notice and a 0.9 m repeat. This is a
