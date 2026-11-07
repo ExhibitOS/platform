@@ -242,9 +242,9 @@ export async function main(argv=process.argv.slice(2),environment=process.env,pr
    const result=await backup.createServiceBackup({pool,store:blobs.store,destination,encryptionKey:key,snapshot,dump:adapter.dump,...(runtime?{runtime:{metadata:runtime.runtime,files:runtime.files}}:{}),configuration:await configurationFiles(environment,keyPath),deployment:await deploymentFiles(environment,keyPath,destination)});
    return {operation:'created',backupId:result.id};
   }
-  if(privateOptions.restoredSystemIdentifier!==undefined){await backup.reconcileRestoredServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,snapshotSystemIdentifier:privateOptions.restoredSystemIdentifier});return {operation:'restored-and-verified'};}
+  if(privateOptions.restoredSystemIdentifier!==undefined){const verified=await backup.reconcileRestoredServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,snapshotSystemIdentifier:privateOptions.restoredSystemIdentifier});return {operation:'restored-and-verified',backupId:verified.id,authenticatedManifestSha256:verified.authenticatedManifestSha256};}
   const existing=await pool.query("SELECT count(*)::integer AS count FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");if(existing.rows[0].count!==0||(await blobs.store.listAll()).length!==0)fail('BACKUP_DESTINATION_NOT_EMPTY');
-  await backup.restoreServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,restore:adapter.restore});return {operation:'restored-and-verified'};
+  const verified=await backup.restoreServiceBackup({pool,store:blobs.store,source,destination,encryptionKey:key,snapshot,restore:adapter.restore});return {operation:'restored-and-verified',backupId:verified.id,authenticatedManifestSha256:verified.authenticatedManifestSha256};
  }finally{process.removeListener('SIGINT',interrupted);process.removeListener('SIGTERM',interrupted);await pool.end();await blobs.dispose();key.fill(0);}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){

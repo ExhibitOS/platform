@@ -2,7 +2,7 @@
 // Requires an explicitly named, loopback-only disposable PostgreSQL database.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {constants,openSync,closeSync,fstatSync,realpathSync} from 'node:fs';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -10,6 +10,8 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Pool} from 'pg';
 import {openLocalWorkspace} from '../apps/api/dist/local-workspace.js';
+import {bindNativeOexWorkspace,hasNativeBoundedProvenance} from '../apps/api/dist/native-oex-provenance.js';
+import {publicationDiskOwner} from '../apps/api/dist/publication-attempt.js';
 import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {encodeFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
@@ -46,5 +48,20 @@ try{
   const after=JSON.parse(await snapshot()),old=JSON.parse(before);assert.deepEqual(after.owner,old.owner);assert.deepEqual(after.exhibition,old.exhibition);assert.deepEqual(after.frames,old.frames);
   const stable=await snapshot();await assert.rejects(openWith(await admission(mode,'catalog-upgrade-039-to-040'),mode,{upgrade:true}),/NATIVE_OEX_CATALOG/);assert.equal(await snapshot(),stable);
   const reopen='workspace-furnishing-036-reopen-v1',a=await admission(reopen,'clean-reopen');await openWith(a,reopen,{upgrade:true});assert.equal((await ledger()).length,40);
+  // A real PG row uses the service inventory's PostgreSQL JSON and timestamp
+  // rendering; a forged or changed archived pin must not enable the profile.
+  const c=await pool.connect();try{
+   await c.query('BEGIN');const owner=await publicationDiskOwner(c,root),sourceSystem=owner.databaseSystemId==='123'?'124':'123',sourceOid='456',job=randomUUID(),request=randomUUID(),attempt=randomUUID(),sourceHash='e'.repeat(64);
+   await c.query('INSERT INTO oex_import_jobs(tenant_id,id,user_id,request_id,payload_sha256,expected_bytes,state,result,staging_keys,archive_profile,oex_format) VALUES($1,$2,$3,$4,$5,1,\'complete\',$6,\'[]\',\'bounded-file-v1\',\'1.0.0-draft.9\')',[workspace.tenantId,job,workspace.principalId,request,sourceHash,{exhibitionId:exhibition}]);
+   await c.query('INSERT INTO native_oex_exhibition_provenance(tenant_id,workspace_id,principal_id,exhibition_id,import_job_id,attempt_id,source_database_system_id,source_database_oid,claim_sha256,payload_manifest_sha256,source_sha256,archive_profile) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,\'bounded-file-v1\')',[workspace.tenantId,workspace.workspaceId,workspace.principalId,exhibition,job,attempt,sourceSystem,sourceOid,'c'.repeat(64),'d'.repeat(64),sourceHash]);
+   await c.query("SET LOCAL TimeZone='UTC'");const raw=(await c.query('SELECT to_jsonb(t)::text AS raw FROM native_oex_exhibition_provenance t')).rows[0].raw,proof={sourceDatabaseSystemId:sourceSystem,sourceDatabaseOid:sourceOid,targetDatabaseSystemId:owner.databaseSystemId,targetDatabaseOid:owner.databaseOid,provenanceRowCount:1,provenanceTableSha256:createHash('sha256').update(raw+'\n').digest('hex'),assertLive:async()=>{}};
+   const binding={workspaceId:workspace.workspaceId,tenantId:workspace.tenantId,principalId:workspace.principalId,ownerUid:workspace.ownerUid,blobRoot:root,workspaceImport:true,workspaceWallImport:true,workspaceFurnishing:true,workspaceFurnishingWriter:true,workspaceFurnishingPublication:true,workspaceMaterialPublication:true,workspaceMaterialMultimap:true};
+   const session={tenantId:workspace.tenantId,userId:workspace.principalId};
+   const plain=await bindNativeOexWorkspace(c,binding);await assert.rejects(hasNativeBoundedProvenance(c,session,exhibition,plain),/NATIVE_OEX_PROVENANCE_INVALID/);
+   const restored=await bindNativeOexWorkspace(c,{...binding,restoredProvenance:proof});assert.equal(await hasNativeBoundedProvenance(c,session,exhibition,restored),true);
+   const wrong=await bindNativeOexWorkspace(c,{...binding,restoredProvenance:{...proof,provenanceTableSha256:'0'.repeat(64)}});await assert.rejects(hasNativeBoundedProvenance(c,session,exhibition,wrong),/NATIVE_OEX_PROVENANCE_INVALID/);
+   await assert.rejects(hasNativeBoundedProvenance(c,{...session,userId:randomUUID()},exhibition,restored),/FORBIDDEN/);
+   await c.query('ROLLBACK');
+  }finally{c.release();}
  });
 }finally{await pool.end();closeSync(fd);for(const n of extra)closeSync(n);await rm(root,{recursive:true,force:true});}

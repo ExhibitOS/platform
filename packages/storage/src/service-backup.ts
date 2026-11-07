@@ -110,7 +110,7 @@ export async function createServiceBackup(options:{pool:Pool;store:BlobStore;des
  }catch{await jsonExclusive(join(directory,'failed.json'),{id,status:'failed'}).catch(()=>{});throw Error('BACKUP_FAILED');}
  finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);await rm(scratch,{recursive:true,force:true});}
 }
-export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt}>{
+export async function verifyServiceBackup(options:{source:string;encryptionKey:Uint8Array;destination:string}):Promise<{manifest:BackupManifest;files:(BackupFile&{plainPath:string})[];receipt:BackupReceipt;authenticatedManifestSha256:string}>{
  const source=await privateDirectory(options.source,false),destination=await privateDirectory(options.destination,true);
  // The attempted boundary is diagnostic only; it does not prove authentication
  // or distinguish crypto errors from I/O, sync or close failures within a call.
@@ -123,9 +123,10 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
   phase='manifest-cipher-check';
   if((await hashBackupFile(join(source,'manifest.gcm'))).sha256!==receipt.manifestSha256)throw Error('BACKUP_MANIFEST_INTEGRITY');
   phase='manifest-decrypt';
-  await decryptBackupFile(join(source,'manifest.gcm'),join(destination,'manifest.json'),options.encryptionKey,receipt.id+':manifest');
+  const decryptedManifest=await decryptBackupFile(join(source,'manifest.gcm'),join(destination,'manifest.json'),options.encryptionKey,receipt.id+':manifest');
   phase='manifest-validate';
-  const manifest=JSON.parse((await secretRead(join(destination,'manifest.json'))).toString()) as BackupManifest;validateManifest(manifest);
+  const manifestBytes=await secretRead(join(destination,'manifest.json'));if(sha(manifestBytes)!==decryptedManifest.sha256)throw Error('BACKUP_MANIFEST_INTEGRITY');
+  const manifest=JSON.parse(manifestBytes.toString()) as BackupManifest;validateManifest(manifest);
   if(manifest.id!==receipt.id||manifest.inventory.objects.length!==receipt.objectCount)throw Error('BACKUP_RECEIPT_INVALID');
   phase='file-inventory';
   const fileDirectory=await privateDirectory(join(source,'files'),false),actual=await archiveNames(fileDirectory,manifest.files.length,'BACKUP_FILE_INVENTORY'),expected=manifest.files.map(f=>f.path.slice(6)).sort();if(inventoryCanonical(actual)!==inventoryCanonical(expected))throw Error('BACKUP_FILE_INVENTORY');
@@ -133,7 +134,7 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
   const files=[];for(const f of manifest.files){const plainPath=join(destination,f.path.slice(6)+'.plain');await decryptBackupFile(join(fileDirectory,f.path.slice(6)),plainPath,options.encryptionKey,manifest.id+':'+f.path,f);files.push({...f,plainPath});}
   phase='archive-final';
   if(await archiveInventory(source)!==finderMetadata)throw Error('BACKUP_ARCHIVE_INVENTORY');
-  return {manifest,files,receipt};
+  return {manifest,files,receipt,authenticatedManifestSha256:decryptedManifest.sha256};
  }catch(error){
   // Retain only fixed archive-boundary categories; never serialize an exception,
   // path, filename, message, stack, key, or authenticated content.
@@ -148,7 +149,7 @@ export async function verifyServiceBackup(options:{source:string;encryptionKey:U
  throw Error('BACKUP_VERIFY_FAILED');
 }
 /** Fresh isolated target only. A failed candidate is left for inspection, never activated. */
-export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;restore:(path:string)=>Promise<void>}):Promise<BackupReceipt&{inventory:ServiceInventory}>{
+export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;restore:(path:string)=>Promise<void>}):Promise<BackupReceipt&{inventory:ServiceInventory;authenticatedManifestSha256:string}>{
  if(!options.store.listAll)throw Error('RESTORE_CONFIG');
  const verified=await verifyServiceBackup(options);const c=await options.pool.connect();let locked=false,transaction=false;
  try{
@@ -166,7 +167,7 @@ export async function restoreServiceBackup(options:{pool:Pool;store:BlobStore;so
   // Reconstitute named configuration/runtime only after DB/object equality passes.
   // These are staged files in the new private candidate, never the running source.
   await stageVerifiedExtras(verified,options.destination);
-  const receipt={...verified.receipt,inventory};await jsonExclusive(join(resolve(options.destination),'restored.json'),verified.receipt);return receipt;
+  const receipt={...verified.receipt,inventory,authenticatedManifestSha256:verified.authenticatedManifestSha256};await jsonExclusive(join(resolve(options.destination),'restored.json'),verified.receipt);return receipt;
  }catch{await jsonExclusive(join(resolve(options.destination),'restore-failed.json'),{status:'failed'}).catch(()=>{});throw Error('RESTORE_FAILED');}
  finally{let broken=false;if(transaction)await c.query('ROLLBACK').catch(()=>{broken=true;});if(locked)await c.query('SELECT pg_advisory_unlock(82002)').catch(()=>{broken=true;});c.release(broken);}
 }
@@ -176,7 +177,7 @@ async function stageVerifiedExtras(verified:Awaited<ReturnType<typeof verifyServ
 /** Resume the SAME quiesced physical candidate after an uncertain restore.
  * Reauthenticate to a NEW quarantine, never replay pg_restore into nonempty DB.
  * Only absent authenticated blobs may be completed; conflicts/extra data refuse. */
-export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;snapshotSystemIdentifier:string}):Promise<BackupReceipt>{
+export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:BlobStore;source:string;encryptionKey:Uint8Array;destination:string;snapshot:Snapshot;snapshotSystemIdentifier:string}):Promise<BackupReceipt&{authenticatedManifestSha256:string}>{
  if(!options.store.listAll)throw Error('RESTORE_CONFIG');
  const verified=await verifyServiceBackup(options);
  const client=await options.pool.connect();
@@ -194,10 +195,10 @@ export async function reconcileRestoredServiceBackup(options:{pool:Pool;store:Bl
   if(!present.has(key))await options.store.put(key,bytes);
  }
  const manifestBytes=await secretRead(join(options.destination,'manifest.json'));
- await verifyRestoredInventory({pool:options.pool,snapshot:options.snapshot,manifestBytes,expectedManifestSha256:sha(manifestBytes),snapshotSystemIdentifier:options.snapshotSystemIdentifier});
+ await verifyRestoredInventory({pool:options.pool,snapshot:options.snapshot,manifestBytes,expectedManifestSha256:verified.authenticatedManifestSha256,snapshotSystemIdentifier:options.snapshotSystemIdentifier});
  await stageVerifiedExtras(verified,options.destination);
  await jsonExclusive(join(options.destination,'restored.json'),verified.receipt);
- return verified.receipt;
+ return {...verified.receipt,authenticatedManifestSha256:verified.authenticatedManifestSha256};
 }
 
 /** Trusted operator observation only. Pin raw manifest bytes from an authenticated
@@ -221,6 +222,8 @@ async function observeInventory(options:InventoryObservationOptions,candidateSys
  const manifest=JSON.parse(Buffer.from(options.manifestBytes).toString('utf8')) as BackupManifest;validateManifest(manifest);
  if(candidateSystemIdentifier===manifest.sourceIdentity.systemIdentifier)throw Error('CANDIDATE_ORIGINAL_DATABASE');
  const expected=comparable(manifest.inventory),c=await options.pool.connect();let locked=false,transaction=false;
+ let restoredIdentity:BackupManifest['sourceIdentity']|undefined,firstHopProvenance=false;
+ const provenance=manifest.inventory.tables.find(t=>t.name==='native_oex_exhibition_provenance');
  const observe=async()=>{
   // Fail busy instead of waiting; obtain the fence before either DB snapshot.
   locked=(await c.query('SELECT pg_try_advisory_lock(82002) AS locked')).rows[0]?.locked===true;
@@ -233,12 +236,20 @@ async function observeInventory(options:InventoryObservationOptions,candidateSys
    const current=await identity(c);
    if(candidateSystemIdentifier===undefined){
     if(inventoryCanonical(current)!==inventoryCanonical(manifest.sourceIdentity))throw Error('SOURCE_DATABASE_MISMATCH');
-   }else if(current.systemIdentifier!==candidateSystemIdentifier||current.database!==manifest.sourceIdentity.database)throw Error('CANDIDATE_DATABASE_MISMATCH');
+   }else {
+    if(current.systemIdentifier!==candidateSystemIdentifier||current.database!==manifest.sourceIdentity.database||restoredIdentity&&inventoryCanonical(current)!==inventoryCanonical(restoredIdentity))throw Error('CANDIDATE_DATABASE_MISMATCH');
+    restoredIdentity=current;
+   }
    const actual=await options.snapshot(c,retainedMigrations(manifest.inventory));validateInventory(actual);
    if(comparable(actual)!==expected)throw Error('SOURCE_INVENTORY_MISMATCH');
+   if(candidateSystemIdentifier!==undefined&&provenance){
+    const check=await c.query('SELECT count(*)::text AS total, count(*) FILTER (WHERE source_database_system_id=$1 AND source_database_oid=$2)::text AS source_count FROM public.native_oex_exhibition_provenance',[manifest.sourceIdentity.systemIdentifier,manifest.sourceIdentity.databaseOid]);
+    const row=check.rows[0];const eligible=typeof row?.total==='string'&&typeof row.source_count==='string'&&row.total===String(provenance.rowCount)&&row.source_count===row.total;
+    firstHopProvenance=pass===0?eligible:firstHopProvenance&&eligible;
+   }
    await c.query('ROLLBACK');transaction=false;
   }
-  return {operation:candidateSystemIdentifier===undefined?'source-inventory-matched':'restored-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
+  return {operation:candidateSystemIdentifier===undefined?'source-inventory-matched':'restored-inventory-matched',backupId:manifest.id,authenticatedManifestSha256:expectedManifestSha256,inventorySha256:sha(inventoryCanonical(manifest.inventory)),schemaSha256:sha(inventoryCanonical({schemaDigest:manifest.inventory.schemaDigest,schemaVersion:manifest.inventory.schemaVersion,migrations:manifest.inventory.migrations})),...(restoredIdentity&&provenance&&firstHopProvenance?{restoredProvenanceInventory:{sourceDatabaseSystemId:manifest.sourceIdentity.systemIdentifier,sourceDatabaseOid:manifest.sourceIdentity.databaseOid,targetDatabaseSystemId:restoredIdentity.systemIdentifier,targetDatabaseOid:restoredIdentity.databaseOid,provenanceRowCount:provenance.rowCount,provenanceTableSha256:provenance.sha256}}:{}),observedAt:new Date().toISOString(),currentInventoryVerified:true,configurationVerified:false,preflightVerified:false,updateExecuted:false};
  };
  let observation:Awaited<ReturnType<typeof observe>>,broken=false;
  try{observation=await observe();}finally{

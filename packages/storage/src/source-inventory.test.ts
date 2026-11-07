@@ -60,6 +60,20 @@ test('restored inventory binds new physical cluster and repeats complete logical
  expect(f.queries.filter(q=>q==='BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')).toHaveLength(2);
  await expect(verifySourceInventory(f.options)).rejects.toThrow('SOURCE_DATABASE_MISMATCH');
 });
+test('restored provenance observation pins authenticated table and both physical identities',async()=>{
+ const f=candidateFixture();f.inventory.tables.push({name:'native_oex_exhibition_provenance',rowCount:1,sha256:hash('historic row')});
+ const query=f.client.query;f.client.query=async sql=>sql.includes('AS source_count')?{rows:[{total:'1',source_count:'1'}]}:query(sql);
+ const manifest=JSON.parse(f.manifestBytes.toString());manifest.inventory=f.inventory;const manifestBytes=Buffer.from(JSON.stringify(manifest));
+ const v=await verifyRestoredInventory({...f.options,manifestBytes,expectedManifestSha256:hash(manifestBytes)});
+ expect(v.restoredProvenanceInventory).toEqual({sourceDatabaseSystemId:'123',sourceDatabaseOid:'456',targetDatabaseSystemId:'789',targetDatabaseOid:'999',provenanceRowCount:1,provenanceTableSha256:hash('historic row')});
+ f.client.query=async sql=>sql.includes('AS source_count')?{rows:[{total:'1',source_count:'0'}]}:query(sql);
+ expect((await verifyRestoredInventory({...f.options,manifestBytes,expectedManifestSha256:hash(manifestBytes)})).restoredProvenanceInventory).toBeUndefined();
+});
+test('restored candidate database oid must stay fixed across both observations',async()=>{
+ const f=candidateFixture(),query=f.client.query;let pass=0;
+ f.client.query=async sql=>sql.includes('pg_control_system')?{rows:[{system:'789',oid:++pass===1?'999':'998',database:'synthetic'}]}:query(sql);
+ await expect(verifyRestoredInventory(f.options)).rejects.toThrow('CANDIDATE_DATABASE_MISMATCH');
+});
 test('candidate original, invalid and foreign physical identities refuse before inventory',async()=>{
  const f=candidateFixture();await expect(verifyRestoredInventory({...f.options,snapshotSystemIdentifier:'123'})).rejects.toThrow('CANDIDATE_ORIGINAL_DATABASE');expect(f.queries).toEqual([]);
  for(const id of ['', '0','01','-1','18446744073709551616','123,other'])await expect(verifyRestoredInventory({...f.options,snapshotSystemIdentifier:id})).rejects.toThrow('CANDIDATE_DATABASE_ID_INVALID');
