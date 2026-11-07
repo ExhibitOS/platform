@@ -23,6 +23,7 @@ export function RuntimeHistoryDetails({history,open=false,active}:{history:Runti
  return <>
   <p>Viewer 버전 {history.runtimeVersion??'확인할 수 없음'}</p>
   <p>Viewer 소스 버전 {history.sourceCommit?<code>{history.sourceCommit}</code>:'확인할 수 없음'}</p>
+  <p>Viewer 빌드 식별자 {history.buildId?<code>{history.buildId}</code>:'확인할 수 없음'}</p>
   <HistoryTime label="출력 생성 시각" value={history.outputGeneratedAt}/>
   <HistoryTime label="확인된 배포 시각" value={deployment}/>
  </>;
