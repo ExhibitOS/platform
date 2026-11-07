@@ -28,6 +28,8 @@ import {createViewingSession,type ViewingRenderer,type ViewingState,type Viewing
 import {createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {discardPrivateView} from './viewer/private-view-storage';
 import {publicationTime} from './publication-time';
+import {readRuntimeHistory} from './viewer/runtime-history';
+import {RuntimeHistoryDetails,historyIsOpen} from './viewer/RuntimeHistoryDetails';
 import {installPanelDismissal,panelEscapeFromControl} from './viewer/panel-resume';
 const uuid =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -38,6 +40,7 @@ function PublicationRecordTime({value,source}:{value:unknown;source:'publication
  return <><p>{name} {time.kind==='date'?'날짜':'시각'} {time.dateTime?<time dateTime={time.dateTime}>{time.text}</time>:time.text}</p><p className="cms-note">{description}</p></>;
 }
 export function PublicPublication({ id, initial, connectionStatus, privateEditorHref,privateEditorRestricted=false,recordTimeKind }: { id: string; initial?: PublicResponse; connectionStatus?:ReactNode; privateEditorHref?:string;privateEditorRestricted?:boolean;recordTimeKind?:'output-generated' }) {
+  const [fileHistoryOpen,setFileHistoryOpen]=useState(false),[exhibitionInfoOpen,setExhibitionInfoOpen]=useState(false);
   const [value, setValue] = useState<PublicResponse | null>(null),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
@@ -298,7 +301,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             </>}
           </section>
           </details></section>
-          <details className="publication-info-menu"><summary>전시 정보</summary>
+          <details className="publication-info-menu" onToggle={event=>{if(event.target===event.currentTarget)setExhibitionInfoOpen(event.currentTarget.open);}}><summary>전시 정보</summary>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("opening"); }}>전시 소개</button>
           <button onPointerDown={prepareDetailEntry} onClick={event => { detailEntry.current?.commit(event.detail > 0); setOverview("credits"); }}>전시 크레딧</button>
           {plaqueLinks.length>0&&<section className="publication-plaque-links" aria-label="공간 명판"><ul>{plaqueLinks.map((plaque,index)=>{
@@ -307,10 +310,11 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             const multipleInRoom=plaqueLinks.some(other=>other!==plaque&&other.roomId.toLowerCase()===plaque.roomId.toLowerCase());
             return <li key={plaque.id}><button aria-label={`${roomName} ${kind}${plaqueLinks.length>1?` ${index+1}`:''}: ${content.title}`} onPointerDown={prepareDetailEntry} onClick={event=>{detailEntry.current?.commit(event.detail>0);requestPlaque(plaque.id);}}>{roomName}{(multipleInRoom||plaque.source.kind==='artwork')&&<span className="publication-plaque-detail">{content.title===roomName?kind:content.title}</span>}</button></li>;
           })}</ul></section>}
-          <details className="publication-record">
+          <details className="publication-record" onToggle={event=>setFileHistoryOpen(event.currentTarget.open)}>
             <summary>파일 기록</summary>
             <PublicationRecordTime value={value.publication.publishedAt} source={recordTimeKind==='output-generated'?'output':value.local?'file':'publication'}/>
             <p>전시 버전 <code>{value.publication.revisionSha256}</code></p>
+            <RuntimeHistoryDetails key={`${value.publication.id}/${value.publication.revisionSha256}`} history={readRuntimeHistory(document)} open={historyIsOpen(menuOpen,exhibitionInfoOpen,fileHistoryOpen)} active={value.local?.kind==='static'&&value.local.verifiedIndexSha256?{indexSha256:value.local.verifiedIndexSha256,publicationId:value.publication.id,revisionSha256:value.publication.revisionSha256}:undefined}/>
             <button disabled={loading} onClick={() => void load()}>전시 파일 다시 확인</button>
           </details>
           </details>
