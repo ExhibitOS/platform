@@ -9,7 +9,7 @@ import {Imports} from './imports.ts';
 import {storedImageCoarse} from './image-coarse-intent.ts';
 import {allowedRights} from './rights.ts';
 import {artworkReplacementSnapshot} from './artwork-replacement-snapshot.ts';
-import {Studio,etag,type StudioResponse} from './studio.ts';
+import {Studio,etag,insertStudioReceipt,type StudioResponse} from './studio.ts';
 
 export interface ArtworkReplacementInput {requestId:string;artworkId:string;artworkRevision:number;importJobId:string}
 /** Must run inside the authenticated native request's single DB transaction.
@@ -37,7 +37,7 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
  const binding=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND asset_id=$2 AND deleted_at IS NULL AND metadata->>'kind'='viewer-image-coarse' AND metadata->>'sourceJobId'=$3",[s.tenantId,job.asset_id,input.importJobId])).rows;
  if(binding.length!==1||!isDeepStrictEqual(binding[0].metadata,{version:1,kind:'viewer-image-coarse',sourceJobId:job.id,primaryAssetId:job.asset_id,primarySha256:derived.sha256,coarseAssetId:coarse.assetId,objectKey:coarse.stageKey,sha256:coarse.sha256,bytes:coarse.bytes,width:512,height:408,profile:'viewer-png-box-512-v1',provenance:'server-generated'}))throw new ApiError(409,'COARSE_STATE_INVALID');
  if(!blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
- const read=async(key:string,size:number,expected:string)=>{const b=Buffer.from(await blobs.getBounded!(key,size));if(b.length!==size||sha256(b)!==expected)throw new ApiError(409,'ASSET_INTEGRITY');return b;};
+ const read=async(key:string,size:number,expected:string)=>{let b:Buffer;try{b=Buffer.from(await blobs.getBounded!(key,size));}catch(error){if(error instanceof Error&&(error.message==='object size mismatch'||'code' in error&&error.code==='ENOENT'))throw new ApiError(409,'ASSET_INTEGRITY');throw new ApiError(503,'STORAGE_UNAVAILABLE');}if(b.length!==size||sha256(b)!==expected)throw new ApiError(409,'ASSET_INTEGRITY');return b;};
  await read(original.object_key,Number(original.bytes),original.sha256);const full=await read(primary.object_key,Number(primary.bytes),primary.sha256),reduced=await read(low.object_key,Number(low.bytes),low.sha256);
  const now=(await c.query('SELECT clock_timestamp() AS at')).rows[0].at as Date,revision=artwork.revision+1;
  const next=artworkReplacementSnapshot(prior,{tenantId:s.tenantId,revisionId:randomUUID(),at:now.toISOString(),primaryId:job.asset_id,coarseId:coarse.assetId,intent:coarse.intent,originalSha256:job.expected_hash,primary:full,coarse:reduced});
@@ -46,6 +46,6 @@ export async function replaceApprovedArtwork(c:PoolClient,s:Session,exhibitionId
  await c.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,$3,$4,$5)',[s.tenantId,input.artworkId,revision,job.asset_id,{metadata:artwork.metadata,asset:{id:job.asset_id,sha256:primary.sha256,bytes:Number(primary.bytes),mime:primary.mime,rightsRevision:primary.rights_revision},importedArtwork:next}]);
  const verified=await cms.studioArtwork(c,s,input.artworkId);if(!isDeepStrictEqual(verified.artwork,next))throw new ApiError(409,'APPROVAL_INVALID');
  const response=await studio.putArtworkReplacement(c,s,exhibitionId,prior,next,randomUUID(),match);
- await c.query('INSERT INTO studio_requests(tenant_id,user_id,request_id,payload_sha256,exhibition_id,response) VALUES($1,$2,$3,$4,$5,$6)',[s.tenantId,s.userId,input.requestId,requestHash,exhibitionId,response]);
+ await insertStudioReceipt(c,[s.tenantId,s.userId,input.requestId,requestHash,exhibitionId,response]);
  return response;
 }

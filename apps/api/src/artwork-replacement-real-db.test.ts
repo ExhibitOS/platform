@@ -3,15 +3,16 @@ import {expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {readFile,mkdir} from 'node:fs/promises';
 import {Pool,type PoolClient} from 'pg';
-import {migrate,transaction,FileBlobStore,Storage,sha256} from '@exhibitos/storage';
+import {migrate,transaction,FileBlobStore,Storage,sha256,type BlobStore} from '@exhibitos/storage';
 import type {Artwork,Lifecycle} from '@exhibitos/spec';
-import type {Session} from './auth.ts';
+import {Auth,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {Imports} from './imports.ts';
 import {Cms} from './cms.ts';
 import {Studio,etag} from './studio.ts';
 import {replaceApprovedArtwork} from './artwork-replacement.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
+import {newDraft} from '../../web/src/drafts/example.ts';
 
 it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env.EXHIBITOS_WHEAT_SAVED||!process.env.EXHIBITOS_WHEAT_FULL||!process.env.EXHIBITOS_WHEAT_ORIGINAL||!process.env.EXHIBITOS_WHEAT_PROPOSAL)('isolated PostgreSQL worker expiry, protected staging, retry, atomic rollback and replay',async()=>{
  const pool=new Pool({connectionString:process.env.WHEAT_TEST_PG}),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),artistId=randomUUID(),rightsId=randomUUID(),root=process.env.WHEAT_TEST_ROOT!;
@@ -53,8 +54,28 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   // The material registry is stubbed; draft validation and every replacement
   // database write, byte read, worker, and receipt are real in this test.
   const studio=new Studio(owner,true,materialService);bindAccess(studio);
+  const persisted=(await pool.query('SELECT object_key,approved_key,derived FROM import_jobs WHERE id=$1',[id])).rows[0];
+  for(const missing of [persisted.object_key,persisted.approved_key,persisted.derived.viewerCoarse.stageKey]){const failing=Object.create(blobs) as BlobStore;failing.getBounded=async(key,size)=>{if(key===missing)throw Object.assign(new Error('not found'),{code:'ENOENT'});return blobs.getBounded(key,size);};await expect(transaction(pool,c=>replaceApprovedArtwork(c,session,draft.exhibitionId,request,match,studio,cms,imports,failing))).rejects.toThrow('ASSET_INTEGRITY');}
+  const unavailable=Object.create(blobs) as BlobStore;unavailable.getBounded=async()=>{throw Object.assign(new Error('storage offline'),{code:'EIO'});};await expect(transaction(pool,c=>replaceApprovedArtwork(c,session,draft.exhibitionId,request,match,studio,cms,imports,unavailable))).rejects.toThrow('STORAGE_UNAVAILABLE');
   await expect(transaction(pool,async c=>{await replaceApprovedArtwork(c,session,draft.exhibitionId,request,match,studio,cms,imports,blobs);throw Error('forced late rollback');})).rejects.toThrow('forced late rollback');
   expect((await pool.query('SELECT revision,approved_revision FROM artworks WHERE tenant_id=$1 AND id=$2',[tenantId,prior.id])).rows[0]).toMatchObject({revision:1,approved_revision:1});expect((await pool.query('SELECT revision FROM exhibitions WHERE tenant_id=$1 AND id=$2',[tenantId,draft.exhibitionId])).rows[0].revision).toBe(1);
-  const response=await transaction(pool,c=>replaceApprovedArtwork(c,session,draft.exhibitionId,request,match,studio,cms,imports,blobs));expect(response.revision).toBe(2);expect(await transaction(pool,c=>replaceApprovedArtwork(c,session,draft.exhibitionId,request,match,studio,cms,imports,blobs))).toEqual(response);expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
+  // An ordinary Studio create can claim the same user/request key on another
+  // exhibition after this operation's initial receipt lookup.
+  const colliding={...request,requestId:randomUUID()},other=newDraft();let releaseCreate!:()=>void,created!:()=>void;const gate=new Promise<void>(r=>{releaseCreate=r;}),createdSignal=new Promise<void>(r=>{created=r;});
+  const creating=transaction(pool,async c=>{await studio.create(c,session,{draft:other,requestId:colliding.requestId});created();await gate;});await createdSignal;
+  const conflict=transaction(pool,c=>replaceApprovedArtwork(c,session,draft.exhibitionId,colliding,match,studio,cms,imports,blobs));
+  let waiting=false;try{for(let i=0;i<100;i++){const r=await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE 'INSERT INTO studio_requests%' LIMIT 1");if(r.rowCount){waiting=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}expect(waiting).toBe(true);}finally{releaseCreate();}
+  await creating;await expect(conflict).rejects.toThrow('REQUEST_CONFLICT');expect((await pool.query('SELECT revision FROM artworks WHERE tenant_id=$1 AND id=$2',[tenantId,prior.id])).rows[0].revision).toBe(1);
+  // Native requests must see a newly committed receipt after waiting for the
+  // auth lock even when the database default is REPEATABLE READ.
+  const token='a'.repeat(43),csrf='test-csrf';await pool.query('INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval \'1 hour\')',[randomUUID(),sha256(Buffer.from(token)),sha256(Buffer.from(csrf)),csrf,tenantId,userId]);
+  await pool.query("ALTER DATABASE postgres SET default_transaction_isolation TO 'repeatable read'");const repeatablePool=new Pool({connectionString:process.env.WHEAT_TEST_PG});
+  try{expect((await repeatablePool.query('SHOW default_transaction_isolation')).rows[0].default_transaction_isolation).toBe('repeatable read');const auth=new Auth(repeatablePool);let releaseFirst!:()=>void,entered!:()=>void;const firstGate=new Promise<void>(r=>{releaseFirst=r;}),enteredSignal=new Promise<void>(r=>{entered=r;});
+   const first=auth.requestForNativeWorkspaceMutation(token,tenantId,csrf,async(c,s)=>{const result=await replaceApprovedArtwork(c,s,draft.exhibitionId,request,match,studio,cms,imports,blobs);entered();await firstGate;return result;});await enteredSignal;
+   const second=auth.requestForNativeWorkspaceMutation(token,tenantId,csrf,(c,s)=>replaceApprovedArtwork(c,s,draft.exhibitionId,request,match,studio,cms,imports,blobs));let blocked=false;
+   try{for(let i=0;i<100;i++){const r=await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE 'SELECT pg_advisory_xact_lock(82003)%' LIMIT 1");if(r.rowCount){blocked=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}expect(blocked).toBe(true);}finally{releaseFirst();}
+   const [response,replay]=await Promise.all([first,second]);expect(response.revision).toBe(2);expect(replay).toEqual(response);
+  }finally{await repeatablePool.end();}
+  expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
  }finally{await pool.end();}
 },120000);

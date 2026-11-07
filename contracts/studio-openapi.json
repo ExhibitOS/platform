@@ -618,7 +618,7 @@
             }
           },
           "409": {
-            "description": "EXHIBITION_EXISTS, REQUEST_CONFLICT, DRAFT_CORRUPT or REVISION_LIMIT.",
+            "description": "REQUEST_CONFLICT, COARSE_JOB_NOT_READY, COARSE_STATE_INVALID, ARTWORK_REPLACEMENT_STALE, ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED, ASSET_INTEGRITY, APPROVAL_INVALID or other current state/integrity conflict; transaction rolls back.",
             "content": {
               "application/json": {
                 "schema": {
@@ -638,7 +638,7 @@
             }
           },
           "413": {
-            "description": "BODY_TOO_LARGE; mutation body limit is 1048576 bytes.",
+            "description": "BODY_TOO_LARGE; mutation body limit is 4096 bytes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -658,7 +658,7 @@
             }
           },
           "422": {
-            "description": "DRAFT_INVALID or DRAFT_ID_MISMATCH; full public schema and semantic checks.",
+            "description": "DRAFT_INVALID, ARTWORK_REPLACEMENT_INVALID, DISPLAY_POLICY_INVALID or other full-draft/policy validation failure; transaction rolls back.",
             "content": {
               "application/json": {
                 "schema": {
@@ -679,6 +679,16 @@
           },
           "428": {
             "description": "IF_MATCH_REQUIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "STORAGE_UNAVAILABLE when the bounded store capability is absent or an unexpected storage read fails.",
             "content": {
               "application/json": {
                 "schema": {

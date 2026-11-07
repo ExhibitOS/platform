@@ -29,7 +29,7 @@ export async function localStaticPublicationSource({sourceDir,sourceManifestSha2
  if(entries.get('static-publication-index.json')?.sha256!==indexSha256)fail();
  const pending=new Set(entries.keys());
  const directories=new Set([...entries.keys()].flatMap(path=>{const parts=path.split('/');return parts.slice(0,-1).map((_,i)=>parts.slice(0,i+1).join('/'));}));
- let visited=0;async function walk(dir,prefix='',depth=0){if(cancelled())throw Error('REFRESH_CANCELLED');if(depth>32)fail();for(const item of await readdir(dir,{withFileTypes:true})){if(++visited>40000)fail();const path=prefix+item.name;if(item.isDirectory()){if(!directories.has(path))fail();await walk(join(dir,item.name),path+'/',depth+1);}else if(item.isFile()&&path==='static-export-manifest.json'){}else if(item.isFile()&&pending.delete(path)){}else fail();}}
+ let visited=0;async function walk(dir,prefix='',depth=0){if(cancelled())throw Error('REFRESH_CANCELLED');if(depth>32)fail();for(const item of await readdir(dir,{withFileTypes:true})){if(++visited>40000)fail();const path=prefix+item.name;if(item.isDirectory()){if(!directories.has(path))fail();await walk(join(dir,item.name),path+'/',depth+1);}else if(item.isFile()&&path==='static-export-manifest.json'){/* Checked separately above. */}else if(item.isFile()&&pending.delete(path)){/* Known manifest entry. */}else fail();}}
  await walk(root);if(pending.size)fail();
  for(const [path,entry] of entries){const bytes=await readRegular(root,path,entry.bytes,cancelled);if(bytes.length!==entry.bytes||digest(bytes)!==entry.sha256)fail();}
  const origin='https://local-static-publication.invalid';

@@ -34,6 +34,13 @@ export interface StudioInput {
   draft: Draft;
   requestId: string;
 }
+/** A concurrent different operation can claim the same receipt key after the
+ * preceding lookup. PostgreSQL has aborted the transaction on this error; the
+ * outer transaction rolls back all writes before returning the conflict. */
+export async function insertStudioReceipt(c:PoolClient,values:unknown[]){
+ try{await c.query('INSERT INTO studio_requests(tenant_id,user_id,request_id,payload_sha256,exhibition_id,response) VALUES($1,$2,$3,$4,$5,$6)',values);}
+ catch(error){if(error&&typeof error==='object'&&'code' in error&&error.code==='23505'&&'constraint' in error&&error.constraint==='studio_requests_pkey')throw new ApiError(409,'REQUEST_CONFLICT');throw error;}
+}
 function sorted(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(sorted).join(",") + "]";
   if (value !== null && typeof value === "object")
@@ -216,8 +223,8 @@ export class Studio {
     payloadHash: string,
     response: StudioResponse,
   ) {
-    await c.query(
-      "INSERT INTO studio_requests(tenant_id,user_id,request_id,payload_sha256,exhibition_id,response) VALUES($1,$2,$3,$4,$5,$6)",
+    await insertStudioReceipt(
+      c,
       [
         s.tenantId,
         s.userId,
