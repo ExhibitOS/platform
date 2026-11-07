@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission,assertIssuedFurnishingOrdinaryAdmission,furnishingOrdinaryStopControl,finalizeFurnishingOrdinaryStop} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame,verifyFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {encodeFurnishingOrdinaryAssertion,verifyFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
-import {assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {assertFurnishingBeforeCommit,assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 const id=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,secret=Buffer.from(Array.from({length:32},(_,i)=>i));
 async function fixture(mode='workspace-furnishing-036-initialize-v1'){
  const root=realpathSync(await mkdtemp(join(tmpdir(),'furnishing-admit-'))),lock=join(root,'native-workspace-furnishing-writers.lock'),extra=[];let fd=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);while(fd<10){extra.push(fd);fd=openSync(lock,constants.O_RDWR);}const rootFd=openSync(root,constants.O_RDONLY|constants.O_DIRECTORY),r=fstatSync(rootFd,{bigint:true}),w=fstatSync(fd,{bigint:true});closeSync(rootFd);
@@ -98,5 +98,40 @@ test('combined selected import initializes the exact 039 catalog',async()=>{
   const c={query:async(sql,args=[])=>{if(sql.startsWith('SELECT EXISTS'))return {rows:[{occupied:false}],rowCount:1};if(sql.startsWith('SELECT sha256 FROM schema_migrations')){const found=rows.find(row=>row.name===args[0]);return {rows:found?[found]:[],rowCount:found?1:0};}if(sql.startsWith('INSERT INTO schema_migrations')){rows.push({name:args[0],sha256:args[1]});return {rows:[],rowCount:1};}if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows:[...rows].sort((a,b)=>a.name.localeCompare(b.name)),rowCount:rows.length};return {rows:[],rowCount:0};}};
   await prepareWorkspaceFurnishingCatalog(c,{mode:f.fields.mode,base:join(root,'migrations'),normal:join(root,'native-oex-normal'),imports:join(root,'native-oex-workspace-import'),wall:join(root,'native-oex-workspace-import-wall'),furnishing:join(root,'native-workspace-furnishing'),writerDirectory:join(root,'native-workspace-furnishing-writer'),publicationDirectory:join(root,'native-workspace-furnishing-publication'),materialPublicationDirectory:join(root,'native-workspace-material-publication'),writer,channel:f.input.channel,ordinaryAdmission});
   assert.equal(rows.length,39);assert.deepEqual(rows.at(-1),{name:'039_workspace_material_publication.sql',sha256:'6e2984911b585f0ceba0c64273d3535a505272c310a2f2f550f29f2a8ff90b32'});assert.equal(rows[36].name,'037_workspace_furnishing_writer_generation.sql');
+ }finally{await cleanup(f);}
+});
+
+test('upgrade admission accepts only its matching authenticated mode and kind',async()=>{
+ const upgrade='workspace-furnishing-039-to-040-upgrade-v1';
+ for(const [mode,kind,accept] of [[upgrade,'catalog-upgrade-039-to-040',true],[upgrade,'clean-reopen',false],['workspace-furnishing-036-reopen-v1','catalog-upgrade-039-to-040',false]]){
+  const f=await fixture(mode);try{const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:kind,activeBindingSHA256:'b'.repeat(64)};f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);
+   if(accept){const a=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});await assertWorkspaceFurnishingRuntimeAdmission(mode,a);}else await assert.rejects(acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret}),/FURNISHING_ADMISSION_INVALID/);
+  }finally{await cleanup(f);}
+ }
+});
+
+test('occupied exact 039 upgrade verifies owner and ledger, and applies only verified 040',async()=>{
+ const {fileURLToPath}=await import('node:url'),{readFile,readdir}=await import('node:fs/promises'),{createHash}=await import('node:crypto'),root=fileURLToPath(new URL('../database/',import.meta.url)),base=join(root,'migrations');
+ const dirs=['native-oex-normal','native-oex-workspace-import','native-oex-workspace-import-wall','native-workspace-furnishing','native-workspace-furnishing-writer','native-workspace-furnishing-publication','native-workspace-material-publication'];
+ const files=(await readdir(base)).filter(x=>/^\d+.*\.sql$/.test(x)).sort().map(x=>join(base,x));for(const dir of dirs)for(const name of (await readdir(join(root,dir))).filter(x=>/^\d+.*\.sql$/.test(x)).sort())files.push(join(root,dir,name));
+ const original=await Promise.all(files.map(async path=>({name:path.split('/').at(-1),sha256:createHash('sha256').update(await readFile(path)).digest('hex')})));original.sort((a,b)=>a.name.localeCompare(b.name));assert.equal(original.length,39);
+ for(const scenario of ['success','already40','partial','drift','wrong-owner','sql-failure']){
+  const mode='workspace-furnishing-039-to-040-upgrade-v1',f=await fixture(mode);try{
+   const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'catalog-upgrade-039-to-040',activeBindingSHA256:'b'.repeat(64)};f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret}),rows=structuredClone(original),calls=[];
+   if(scenario==='already40')rows.push({name:'040_workspace_material_multimap.sql',sha256:'db01d1910ba01a0a2e223829b92f9fbc0e4ce0240c21d3a8ae6b70963a84ef21'});if(scenario==='partial')rows.pop();if(scenario==='drift')rows[0].sha256='0'.repeat(64);
+   const c={query:async(sql,args=[])=>{calls.push(sql);if(sql.startsWith('SELECT EXISTS'))return {rows:[{occupied:true}]};if(sql.startsWith('SELECT to_regclass'))return {rows:[{name:'schema_migrations'}]};if(sql.startsWith('SELECT name,sha256 FROM public.schema_migrations'))return {rows:structuredClone(rows)};if(sql.startsWith('SELECT 1 FROM local_workspaces'))return {rows:scenario==='wrong-owner'?[]:[{ok:1}],rowCount:scenario==='wrong-owner'?0:1};if(sql.startsWith('INSERT INTO schema_migrations')){rows.push({name:args[0],sha256:args[1]});return {rows:[],rowCount:1};}if(sql.includes('workspace_material_import_stage_map_role_check')){if(scenario==='sql-failure')throw Error('TEST_SQL_FAILURE');return {rows:[]};}return {rows:[]};}};
+   const args={mode,base,normal:join(root,'native-oex-normal'),imports:join(root,'native-oex-workspace-import'),wall:join(root,'native-oex-workspace-import-wall'),furnishing:join(root,'native-workspace-furnishing'),writerDirectory:join(root,'native-workspace-furnishing-writer'),publicationDirectory:join(root,'native-workspace-furnishing-publication'),materialPublicationDirectory:join(root,'native-workspace-material-publication'),materialMultimapDirectory:join(root,'native-workspace-material-multimap'),ownerUid:501,writer,channel:f.input.channel,ordinaryAdmission};
+   if(scenario==='success'){assert.deepEqual(await prepareWorkspaceFurnishingCatalog(c,args),{requireExisting:true});assert.equal(rows.length,40);assert.equal(rows[39].sha256,'db01d1910ba01a0a2e223829b92f9fbc0e4ce0240c21d3a8ae6b70963a84ef21');assert.equal(calls.filter(x=>x.startsWith('INSERT INTO schema_migrations')).length,1);}else{await assert.rejects(prepareWorkspaceFurnishingCatalog(c,args));assert.equal(calls.some(x=>x.startsWith('INSERT INTO schema_migrations')),false);}
+  }finally{await cleanup(f);}
+ }
+});
+
+
+test('final commit fence detects payload drift while target ledger is checked',async()=>{
+ const mode='workspace-furnishing-039-to-040-upgrade-v1',f=await fixture(mode);try{
+  const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'catalog-upgrade-039-to-040',activeBindingSHA256:'b'.repeat(64)};f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});
+  const rows=Array.from({length:40},(_,i)=>({name:'n'+i,sha256:'a'.repeat(64)}));rows[39]={name:'040_workspace_material_multimap.sql',sha256:'db01d1910ba01a0a2e223829b92f9fbc0e4ce0240c21d3a8ae6b70963a84ef21'};
+  const client={query:async()=>{f.input.payload.digest='c'.repeat(64);return {rows};}};
+  await assert.rejects(assertFurnishingBeforeCommit(client,{mode,ordinaryAdmission,writer,channel:f.input.channel,isStopped:()=>false}),/FURNISHING_LEASE_INVALID/);
  }finally{await cleanup(f);}
 });

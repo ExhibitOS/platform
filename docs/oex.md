@@ -163,3 +163,25 @@ order, CRC, image and decompression bounds, bounded ICC expansion and complete
 GLB validity; changed or unknown models retain the ordinary stricter profile.
 The original bytes and embedded metadata are retained in exports: this does not
 sanitize source metadata or grant separate rights to third-party content.
+
+### Occupied catalog 039 to 040 trial
+
+A Manager-authorized, checkpointed native trial may request the private
+`workspace-furnishing-039-to-040-upgrade-v1` writer mode and the matching
+`catalog-upgrade-039-to-040` admission assertion. Manager verifies the exact
+source and target runtime pair, prior clean completion, physical owner and
+sealed checkpoint before issuing that mode. Platform authenticates the writer
+lease and its target payload, requires the matching assertion, verifies the
+existing 39-row ledger and approved 040 SQL bytes, and checks the existing
+workspace owner. Under the existing exclusive writer and transaction locks it
+applies only 040, records it and verifies the exact 40-row ledger. A failure
+before commit rolls back; no empty, partial, unknown or already-040 catalog is
+accepted by this mode. Normal reopen does not perform this transition.
+
+Manager retains the trial fence and owns interrupted-trial recovery: a retry
+uses a new generation only after the old process is safely drained and the
+sealed 039 before-image and previous clean completion are restored. A clean
+committed 040 uses the ordinary reopen mode. Platform cannot infer the prior
+runtime tuple from the opaque active-binding digest; it relies on the Manager's
+authenticated lifecycle assertion for that verification and independently
+checks the live target payload, database ledger and owner before commit.

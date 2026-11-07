@@ -4,7 +4,7 @@
 import {createHmac,timingSafeEqual} from 'node:crypto';
 
 const kinds=['furnishing-ordinary-admission','furnishing-ordinary-admission-ack','furnishing-ordinary-stop','furnishing-ordinary-drained'];
-const admissions=['fresh-empty','clean-reopen','verified-restore'];
+const admissions=['fresh-empty','clean-reopen','verified-restore','catalog-upgrade-039-to-040'];
 const keys=['runtimeGeneration','leaseTranscriptSHA256','admissionKind','activeBindingSHA256'];
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const hash=/^[a-f0-9]{64}$/;
