@@ -1,4 +1,5 @@
-import {WORKSPACE_MATERIAL_NAMESPACE,validateWorkspaceMaterialBindings,type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
+import type {WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
+import {WORKSPACE_MATERIAL_NAMESPACE,workspaceFloorMaterials} from './drafts/workspace-material-validation.mjs';
 import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "./cms-client";
@@ -40,7 +41,8 @@ export function PublicationPanel({
   const candidate=record.draft.candidate;
   const workspaceFurnishings=validateWorkspaceFurnishings(candidate).valid?candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined:undefined;
   const materialValue=candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];
-  const workspaceMaterials=materialValue&&validateWorkspaceMaterialBindings(materialValue,candidate.surfaces).valid?materialValue as unknown as WorkspaceMaterialBindings:undefined;
+  let workspaceMaterials:WorkspaceMaterialBindings|undefined;
+  if(materialValue)try{workspaceFloorMaterials(candidate);workspaceMaterials=materialValue as unknown as WorkspaceMaterialBindings;}catch{/* Invalid workspace data cannot be published. */}
   const hasWorkspaceOutput=!!workspaceFurnishings||!!workspaceMaterials;
   const binding = record.remote,
     connected =
