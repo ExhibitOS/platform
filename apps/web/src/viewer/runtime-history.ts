@@ -36,12 +36,12 @@ export async function resolveConfirmedDeployment(doc:Document,active:ActivePubli
   const location=doc.location,base=new URL(doc.baseURI);if(!location||base.origin!==location.origin||base.origin!=='https://demo.exhibitos.org'||base.username||base.password)return null;
   const requestSignal=signal?AbortSignal.any([signal,AbortSignal.timeout(8000)]):AbortSignal.timeout(8000);
   const options:RequestInit={credentials:'omit',redirect:'error',cache:'no-store',signal:requestSignal};
-  const manifestBytes=await bounded(await fetcher(new URL('static-export-manifest.json',base),options),4*1024*1024);
+  const manifestBytes=await bounded(await fetcher(new URL('/static-export-manifest.json',base),options),4*1024*1024);
   const manifest=JSON.parse(new TextDecoder().decode(manifestBytes));
   if(manifest.format!=='exhibitos-static-publication-v1'||manifest.indexSha256!==currentIndex||manifest.publicationId!==active.publicationId||manifest.revisionSha256!==active.revisionSha256||!Array.isArray(manifest.files))return null;
   const entries=manifest.files.filter((entry:{path?:unknown})=>entry.path==='index.html');if(entries.length!==1)return null;
   const entry=entries[0];if(!Number.isSafeInteger(entry.bytes)||entry.bytes<1||entry.bytes>2*1024*1024||!/^[a-f0-9]{64}$/.test(entry.sha256))return null;
-  const htmlBytes=await bounded(await fetcher(new URL('index.html',base),options),entry.bytes);if(htmlBytes.length!==entry.bytes||await digestHex(htmlBytes)!==entry.sha256)return null;
+  const htmlBytes=await bounded(await fetcher(new URL('/',base),options),entry.bytes);if(htmlBytes.length!==entry.bytes||await digestHex(htmlBytes)!==entry.sha256)return null;
   const parsed=new DOMParser().parseFromString(new TextDecoder().decode(htmlBytes),'text/html');
   const builds=parsed.querySelectorAll('meta[name="exhibitos-viewer-build-id"]'),indexes=parsed.querySelectorAll('meta[name="exhibitos-static-index"]');
   if(builds.length!==1||builds[0]?.getAttribute('content')!==history.buildId||indexes.length!==1||indexes[0]?.getAttribute('content')!==currentIndex)return null;
