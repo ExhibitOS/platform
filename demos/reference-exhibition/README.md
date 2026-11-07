@@ -7,12 +7,12 @@ The index, publication metadata, and all 32 registered display asset entries are
 Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. The
 publication contains 15 works in five rooms. Four registered audio and notice
 resources are included. The input index is
-`b75e849f53b2b7a37c6b77c9e4d0318beaaed0fb991cdab4b944d43b11932e08`;
-the publication is `c9d2fce6-0e23-4ceb-98f3-1fcb6f00c8d6`, revision
-`e06e3c3ff5e843e3502241d2bffc0a2b3ce756747b3214258bdf7e415da5e680`.
+`896f66289538e47f9bc182a0458089b5308c4535babbd998e84cdeaa7b34a1c9`;
+the publication is `625618bf-8b63-448c-abd6-08f1bb7dd68e`, revision
+`34024d16fdce3c1fe44a550217352df6545f6821d26fcaf0893350c70a5311f2`.
 
 The entrance floor uses a user-provided CC0 stone color map with a 2 m repeat.
-The previous public snapshot is retained as a private-copy base.
+The previous public snapshot is retained as a private-copy base. The current content is the saved Manager r3 publication; source originals remain separate from these approved display bytes. The r3 snapshot also retains the approved workspace materials, furnishings and four-stop viewing plan; this source update does not add the later isolated Wheat preparation.
 
 The painting-room floor uses the user-authored Quiet Oak Herringbone material,
 `quiet-oak-herringbone/1`, with its CC0 notice and a 0.9 m repeat. This is a
