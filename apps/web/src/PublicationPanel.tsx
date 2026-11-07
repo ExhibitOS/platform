@@ -1,3 +1,4 @@
+import {WORKSPACE_MATERIAL_NAMESPACE,validateWorkspaceMaterialBindings,type WorkspaceMaterialBindings} from '@exhibitos/spec/workspace-material';
 import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "./cms-client";
@@ -38,6 +39,9 @@ export function PublicationPanel({
   const isCurrent = () => scopeRef.current === scope;
   const candidate=record.draft.candidate;
   const workspaceFurnishings=validateWorkspaceFurnishings(candidate).valid?candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined:undefined;
+  const materialValue=candidate.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];
+  const workspaceMaterials=materialValue&&validateWorkspaceMaterialBindings(materialValue,candidate.surfaces).valid?materialValue as unknown as WorkspaceMaterialBindings:undefined;
+  const hasWorkspaceOutput=!!workspaceFurnishings||!!workspaceMaterials;
   const binding = record.remote,
     connected =
       !!session &&
@@ -86,6 +90,12 @@ export function PublicationPanel({
         <section aria-label="공개될 작업 공간 비품 정보">
           <p>공개 전시와 정적 출력에는 배치된 비품의 이름, 권리자와 표시 크레딧이 포함됩니다. 출처에 적은 비공개 메모는 포함되지 않습니다.</p>
           <ul>{workspaceFurnishings.furnishings.map(item=>{const rights=item.rights as {holder?:unknown;creditLine?:unknown}|null;return <li key={item.id}>{item.name} · 권리자: {typeof rights?.holder==='string'?rights.holder:'—'} · 크레딧: {typeof rights?.creditLine==='string'?rights.creditLine:'—'}</li>;})}</ul>
+        </section>
+      )}
+      {workspaceMaterials && (
+        <section aria-label="공개될 작업 공간 재질 정보">
+          <p>공개 전시와 정적 출력에는 사용된 재질의 이름, 권리자와 표시 크레딧이 포함됩니다. 출처에 적은 비공개 메모는 포함되지 않습니다.</p>
+          <ul>{workspaceMaterials.materials.map(item=><li key={item.id}>{item.name} · 권리자: {item.rights.holder} · 크레딧: {item.rights.creditLine || '—'}</li>)}</ul>
         </section>
       )}
       {!connected && (
@@ -161,7 +171,7 @@ export function PublicationPanel({
                   binding.id,
                   report.etag,
                   attempt.current.id,
-                  !!workspaceFurnishings,
+                  hasWorkspaceOutput,
                 );
                 if (!isCurrent()) return;
                 setRows((previous) => [

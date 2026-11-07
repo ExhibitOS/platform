@@ -34,7 +34,7 @@ export async function acceptFurnishingOrdinaryAdmission({writer,channel,secret})
  const key=Buffer.from(secret);
  try{
   await writer.assertLive();const frame=await channel.receive(5000);await writer.assertLive();const fields=authenticateFurnishingOrdinaryAssertion(frame,'furnishing-ordinary-admission',key);
-  if(fields.runtimeGeneration!==writer.identity.runtimeGeneration||fields.leaseTranscriptSHA256!==writer.leaseTranscriptSHA256||(fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1','workspace-furnishing-038-selected-import-v7'].includes(writer.identity.mode)))throw Error('FURNISHING_ADMISSION_INVALID');
+  if(fields.runtimeGeneration!==writer.identity.runtimeGeneration||fields.leaseTranscriptSHA256!==writer.leaseTranscriptSHA256||(fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7'].includes(writer.identity.mode)))throw Error('FURNISHING_ADMISSION_INVALID');
   await channel.send(encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission-ack',fields,key));await writer.assertLive();const admission=Object.freeze({fields:Object.freeze(fields),writer});ordinaryIssued.add(admission);return admission;
  }catch(error){void channel.close().catch(()=>{});throw error;}finally{key.fill(0);}
 }

@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import type {Session} from './cms-client';
-import {createWorkspaceFloorRenderer,workspaceFloorFetcher,workspaceFloorPlan} from './workspace-floor-renderer';
+import {createWorkspaceFloorRenderer,createPublicWorkspaceFloorRenderer,workspaceFloorFetcher,workspaceFloorPlan} from './workspace-floor-renderer';
 
 const surface='11111111-1111-4111-8111-111111111111',id='22222222-2222-4222-8222-222222222222',tenant='33333333-3333-4333-8333-333333333333';
 const scene=()=>({surfaces:[{id:surface,type:'floor'}],extensions:{'org.exhibitos.studio/workspace-materials':{version:1,materials:[{id,version:1,kind:'floor',name:'Synthetic',rights:{holder:'Example',ownership:'owner',licenseId:'CC0-1.0',creditLine:'',permissions:{display:true,download:false,export:true,commercial:true}},provenance:'Synthetic',maps:{color:{mime:'image/png',bytes:100,sha256:'a'.repeat(64),width:256,height:256,colorSpace:'srgb'}}}],bindings:[{surfaceId:surface,materialId:id,materialVersion:1,repeatMeters:[2,2],rotation:0}]}}}) as unknown as Exhibition;
@@ -84,4 +84,19 @@ it('loads a registered wall color texture through the same private owner checks'
  const bytes=new Uint8Array([1,2,3]),doc=scene(),value=doc.extensions!['org.exhibitos.studio/workspace-materials'] as unknown as {materials:Array<{kind:string;maps:{color:{bytes:number;sha256:string}}}>};(doc.surfaces[0] as {type:string}).type='wall';value.materials[0]!.kind='wall';value.materials[0]!.maps.color.bytes=bytes.length;value.materials[0]!.maps.color.sha256=createHash('sha256').update(bytes).digest('hex');
  vi.stubGlobal('fetch',ownerFetch(doc,bytes));vi.stubGlobal('createImageBitmap',async()=>({width:256,height:256,close:vi.fn()}));const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{tenantId:tenant} as Session);
  try{renderer.add(material,plan.targets.get(surface)!);expect(await renderer.start(()=>{})).toEqual({[id+':1']:'ready'});expect(material.map?.colorSpace).toBe(three.SRGBColorSpace);}finally{renderer.dispose();material.dispose();}
+});
+
+it('public material uses the declared asset and removes its texture at expiry',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(new Date('2089-12-31T23:59:59Z'));const doc=scene(),value=doc.extensions!['org.exhibitos.studio/workspace-materials'] as unknown as {materials:Array<{rights:{expiresAt?:string};maps:{color:{bytes:number;sha256:string}}}>},bytes=new Uint8Array([1,2,3]);
+ value.materials[0]!.rights.expiresAt='2090-01-01T00:00:00Z';value.materials[0]!.maps.color.bytes=bytes.length;value.materials[0]!.maps.color.sha256=createHash('sha256').update(bytes).digest('hex');
+ const revision='b'.repeat(64),publication='44444444-4444-4444-8444-444444444444',url=`/api/v1/publications/${publication}/assets/${id}`,fetcher=vi.fn(async()=>new Response(bytes,{headers:{'content-type':'image/png','x-exhibitos-publication-revision':revision}})),check=vi.fn(async()=>{}),closed=vi.fn();
+ vi.stubGlobal('createImageBitmap',async()=>({width:256,height:256,close:closed}));const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url}],fetcher,check});
+ try{renderer.add(material,plan.targets.get(surface)!);await renderer.start(()=>{});expect(material.map).not.toBeNull();expect(fetcher).toHaveBeenCalledWith(url,expect.objectContaining({credentials:'omit'}));vi.setSystemTime(new Date('2090-01-01T00:00:00Z'));renderer.enforce();expect(material.map).toBeNull();expect(closed).toHaveBeenCalledOnce();}finally{renderer.dispose();material.dispose();}
+});
+
+it('does not show a decoded public map when the publication is withdrawn during decode',async()=>{
+ const doc=scene(),value=doc.extensions!['org.exhibitos.studio/workspace-materials'] as unknown as {materials:Array<{maps:{color:{bytes:number;sha256:string}}}>},bytes=new Uint8Array([1,2,3]);value.materials[0]!.maps.color.bytes=bytes.length;value.materials[0]!.maps.color.sha256=createHash('sha256').update(bytes).digest('hex');
+ const revision='b'.repeat(64),publication='44444444-4444-4444-8444-444444444444',url=`/api/v1/publications/${publication}/assets/${id}`;let withdrawn=false;const changed=vi.fn(),closed=vi.fn(),check=vi.fn(async()=>{if(withdrawn)throw Error('withdrawn');}),fetcher=vi.fn(async()=>new Response(bytes,{headers:{'content-type':'image/png','x-exhibitos-publication-revision':revision}}));
+ vi.stubGlobal('createImageBitmap',async()=>{withdrawn=true;return {width:256,height:256,close:closed};});const plan=workspaceFloorPlan(doc,512,32*1024*1024),material=new three.MeshStandardMaterial(),renderer=createPublicWorkspaceFloorRenderer(three,plan,new AbortController().signal,()=>false,{publicationId:publication,revisionSha256:revision,assets:[{assetId:id,mime:'image/png',url}],fetcher,check});
+ try{renderer.add(material,plan.targets.get(surface)!);await expect(renderer.start(changed)).rejects.toThrow('withdrawn');expect(material.map).toBeNull();expect(changed).not.toHaveBeenCalled();expect(closed).toHaveBeenCalledOnce();}finally{renderer.dispose();material.dispose();}
 });
