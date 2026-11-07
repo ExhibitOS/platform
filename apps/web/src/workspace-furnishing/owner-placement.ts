@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings,type WorkspaceFrameAttachment} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings,type WorkspaceFrameAttachment,type WorkspaceOpeningAttachment} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {DeviceBudget} from '../viewer/loading';
 import {AssetPeakBudget} from '../viewer/loading';
@@ -12,11 +12,11 @@ import {artworkFrameModel} from '@exhibitos/studio-contract';
 
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
-export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean}){
+export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean}){
  const {candidate,three,room,signal}=options;
  if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
- const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined,placement=extension?.placements.find(p=>p.id===options.placementId&&p.roomId===options.roomId),attachment=options.frameAttachment,descriptor=extension?.furnishings.find(f=>f.id===(attachment?.furnishingId??placement?.furnishingId)&&f.version===(attachment?.furnishingVersion??placement?.furnishingVersion));
- if((!placement&&!attachment)||!descriptor||attachment&&!extension?.frameAttachments?.some(a=>a.placementId===attachment.placementId&&a.furnishingId===attachment.furnishingId))throw Error('WORKSPACE_PLACEMENT_INVALID');
+ const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined,placement=extension?.placements.find(p=>p.id===options.placementId&&p.roomId===options.roomId),attachment=options.frameAttachment,openingAttachment=options.openingAttachment,descriptor=extension?.furnishings.find(f=>f.id===(openingAttachment?.furnishingId??attachment?.furnishingId??placement?.furnishingId)&&f.version===(openingAttachment?.furnishingVersion??attachment?.furnishingVersion??placement?.furnishingVersion));
+ if((!placement&&!attachment&&!openingAttachment)||!descriptor||attachment&&!extension?.frameAttachments?.some(a=>a.placementId===attachment.placementId&&a.furnishingId===attachment.furnishingId)||openingAttachment&&!extension?.openingAttachments?.some(a=>a.openingId===openingAttachment.openingId&&a.furnishingId===openingAttachment.furnishingId))throw Error('WORKSPACE_PLACEMENT_INVALID');
  const rights=descriptor.rights as {permissions?:{display?:unknown};expiresAt?:unknown}|null,expires=rights?.expiresAt===undefined?Infinity:typeof rights.expiresAt==='string'?Date.parse(rights.expiresAt):NaN;
  if(rights?.permissions?.display!==true||Number.isNaN(expires)||Date.now()>=expires)throw Error('WORKSPACE_MODEL_AUTHORITY');
  const controller=new AbortController(),abort=()=>controller.abort(signal.reason);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
@@ -32,7 +32,11 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
  try{
   controller.signal.throwIfAborted();release=options.scope.reserve(loaded.draws,loaded.triangles);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
-  if(attachment){
+  if(openingAttachment){
+   const doc=candidate as unknown as Exhibition,opening=doc.openings.find(o=>o.id.toLowerCase()===openingAttachment.openingId.toLowerCase()),wall=doc.surfaces.find(s=>s.id.toLowerCase()===opening?.surfaceId.toLowerCase()&&s.roomId.toLowerCase()===options.roomId.toLowerCase());if(!opening||!wall)throw Error('WORKSPACE_PLACEMENT_INVALID');
+   const p=wall.transform.position,q=wall.transform.rotation,wallMatrix=new three.Matrix4().compose(new three.Vector3(...p),new three.Quaternion(...q),new three.Vector3(1,1,1));
+   loaded.object.matrix.copy(wallMatrix.multiply(new three.Matrix4().makeTranslation(opening.offset[0],opening.offset[1]-1.3,0)));loaded.object.matrixAutoUpdate=false;
+  }else if(attachment){
    const doc=candidate as unknown as Exhibition,target=doc.placements.find(p=>p.id===attachment.placementId&&p.roomId===options.roomId),art=doc.artworks.find(a=>a.revisionId===attachment.artworkRevisionId);if(!target||!art)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const model=artworkFrameModel(descriptor.model.sha256,descriptor.model.bytes);if(!model)throw Error('WORKSPACE_PLACEMENT_INVALID');
    loaded.object.matrix.copy(artworkFrameMatrix(three,target.transform,art.transform,model.imagePlaneZ));loaded.object.matrixAutoUpdate=false;

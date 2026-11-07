@@ -55,3 +55,10 @@ it('requires explicit capability for the exact frame preparation policy',()=>{
  expect(validWorkspaceFurnishingDeclaration({...request,preparationPolicy:'other'},{allowArtworkFrame:true,allowFramePreparation:true})).toBe(false);
  expect(validWorkspaceFurnishingDeclaration({...request,kind:'pedestal'},{allowFramePreparation:true})).toBe(false);
 });
+
+it('binds the fixed portal only to a compatible existing door',async()=>{
+ const {validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE}=await import('./workspace-furnishing.ts');
+ const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,sha='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b',pose={position:[0,1.5,0],rotation:[0,0,0,1],scale:[1,1,1]};
+ const candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform:structuredClone(pose)}],surfaces:[{id:id(3),roomId:id(1),type:'wall',transform:structuredClone(pose)}],openings:[{id:id(4),surfaceId:id(3),type:'door',dimensions:{width:2.4,height:2.6},offset:[0,-.2]}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:6,furnishings:[{id:id(2),version:1,kind:'portal-finish',name:'Portal',rights:{},provenance:'Synthetic',model:{mime:'model/gltf-binary',bytes:164044,sha256:sha}}],placements:[],frameAttachments:[],openingAttachments:[{openingId:id(4),furnishingId:id(2),furnishingVersion:1,modelSha256:sha}]}}};
+ expect(validateWorkspaceFurnishings(candidate).valid).toBe(true);candidate.openings[0]!.dimensions.width=2.3;expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('PORTAL_SIZE_UNSUPPORTED');candidate.openings[0]!.dimensions.width=2.4;candidate.openings[0]!.offset[1]=0;expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('PORTAL_TRANSFORM_UNSUPPORTED');candidate.openings[0]!.offset[1]=-.2;candidate.openings=[];expect(validateWorkspaceFurnishings(candidate).errors[0]?.code).toBe('PORTAL_TARGET_STALE');
+});
