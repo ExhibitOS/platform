@@ -24,7 +24,7 @@ import {retainMapMinimum} from './viewer/map-minimum';
 import {assertArtworkViewpoint,authoredArtworkViewpoint} from './viewer/artwork-viewpoint';
 import {viewingPlanFor} from '@exhibitos/studio-contract';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
-import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases} from './material-texture-plan';
+import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredByMaterialLoad,materialRetryWanted} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
@@ -1774,7 +1774,8 @@ export function GeometryPreview({
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
-        const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>(),materialBudgetDeferred=new Set<string>();
+        const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>(),materialBudgetDeferred=new Map<string,{full:boolean;prepareOnly:boolean;detailPromotion:boolean;manual:boolean}>();
+        let materialRetryEpoch=0;
         let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
         let sequence=0, automatic=true, manualFull=false;
@@ -1792,7 +1793,19 @@ export function GeometryPreview({
         growAssetLimits=()=>{
           const increased=assetBudgetBytes>byteCache.stats().maxBytes;
           byteCache.raiseLimit(assetBudgetBytes);peak.raiseLimit(transitionBudgetBytes);
-          if(increased)for(const id of materialBudgetDeferred){retryAfter.delete(id);failed.delete(id);materialBudgetDeferred.delete(id);}
+          if((increased||floorSettled&&surfaceSettled)&&materialBudgetDeferred.size){
+            const deferred=[...materialBudgetDeferred];materialBudgetDeferred.clear();const epoch=materialRetryEpoch;
+            for(const [id] of deferred)if(retryAfter.get(id)===Infinity)retryAfter.delete(id);
+            queueMicrotask(()=>{
+              if(disposed||gpuLost||publicDisplayStopped||epoch!==materialRetryEpoch)return;
+              for(const [id,intent] of deferred){
+                if(pending.has(id)||failed.has(id)||minimumBlocked.has(id))continue;
+                const wanted=materialRetryWanted({mapPinned:mapPins.has(id),viewingPinned:viewingPins.has(id),manual:intent.manual,visible:observedVisible.get(id)===true,eligible:observedEligible.get(id)===true,current:id===currentArtwork});
+                const art=wanted?arts.find(value=>value.revisionId===id):undefined;
+                if(art)request(art,intent.full,intent.prepareOnly,intent.detailPromotion,intent.manual);
+              }
+            });
+          }
         };
         growAssetLimits();
         const evictOffroomArtwork=(id:string)=>{
@@ -1845,7 +1858,7 @@ export function GeometryPreview({
           {
             art: Document["artworks"][number];
             inventory: Document["artworks"][number]["assets"][number];
-            prepareOnly:boolean; downloadOnly:boolean;
+            prepareOnly:boolean; downloadOnly:boolean;full?:boolean;manual?:boolean;
             imageBudget?:DeviceBudget;detailPromotion?:boolean;
             thumbnailWork?:(signal:AbortSignal)=>Promise<void>;
           }
@@ -1954,7 +1967,7 @@ export function GeometryPreview({
           for (const { revisionId } of arts) {
             const key = pending.get(revisionId);
             const visibleMinimum = observedVisible.get(revisionId) && !active.has(revisionId);
-            const waiting = key !== undefined && !tasks.get(key)?.prepareOnly;
+            const waiting = key !== undefined && !tasks.get(key)?.prepareOnly || materialBudgetDeferred.has(revisionId);
             const failedMinimum = failed.has(revisionId) && (!key || minimumBlocked.has(revisionId));
             if (!visibleMinimum || (!waiting && !failedMinimum)) {
               visibleWaitStarted.delete(revisionId);
@@ -2016,7 +2029,7 @@ export function GeometryPreview({
             transitionPeakBytes: peak.total(),
             selectedDetailBudgetBytes:selectedLimits?.resident,selectedDetailTransitionBytes:selectedLimits?.transition,
             automaticDetail:automatic,
-            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...minimumRooms],minimumBudgetBlocked:[...minimumBlocked],minimumBudgetBytes:assetBudgetBytes,transitionBudgetBytes,
+            retainedMinimumAssets:[...minimumObjects.values()].map(v=>v.assetId),minimumRoomIds:[...minimumRooms],minimumBudgetBlocked:[...minimumBlocked],materialBudgetDeferred:[...materialBudgetDeferred.keys()],minimumBudgetBytes:assetBudgetBytes,transitionBudgetBytes,
             currentArtwork, preparedAssetIds:[...prepared.keys()], preparationStages:stages.snapshot(),
             allocationEstimateOnly:true,
             cache: byteCache.stats(),
@@ -2036,14 +2049,16 @@ export function GeometryPreview({
           });
           setPublicMessage(minimumBlocked.size>0?"표시할 메모리가 부족해 일부 작품을 아직 준비하지 못했어요. 작품 목록에서도 감상할 수 있어요.":failed.size > 0
             ? "일부 작품을 불러오지 못했어요. 다시 시도하거나 작품 목록을 이용해 주세요."
-            : "");
+            : materialBudgetDeferred.size>0 ? "작품을 준비하고 있어요." : "");
           setMessage(
             `공간 ${document.rooms.length} · 표면 ${document.surfaces.length} · 실제 개구부 ${document.openings.length} · 승인된 작품 derivative ${loaded}개 · bytes 사용 불가 ${failed.size}개 · 입구 ${arts.slice(0, viewerBudget.entranceAssets).filter((a) => active.has(a.revisionId)).length}/${Math.min(arts.length, viewerBudget.entranceAssets)} · 갤러리 대기 ${arts.length - requested.size}개 (점선은 실제 치수 metadata bounds).`,
           );
           settleDetail?.();for(const check of [...viewingWaiters])check();
         };
-        const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false):void => {
-          if(art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
+        const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
+          if(publicDisplayStopped||art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
+          // A new request supersedes only its own material-wait marker.
+          if(materialBudgetDeferred.delete(art.revisionId)&&retryAfter.get(art.revisionId)===Infinity)retryAfter.delete(art.revisionId);
           requested.add(art.revisionId);
           let imageTarget:ReturnType<typeof selectedImageDetail>;
           let imageBudget:DeviceBudget;
@@ -2072,10 +2087,9 @@ export function GeometryPreview({
           if(prior&&desired.get(art.revisionId)===inventory.id){
             // Promote the same preparation; aborting here restarts verified
             // download/decode exactly when the viewer turns towards the work.
-            if(art.revisionId===currentArtwork){
-              const task=tasks.get(prior);if(task)task.prepareOnly=false;
-              void scheduler.request(prior,-100);
-            }
+            const task=tasks.get(prior);
+            if(task){task.manual=task.manual||manual;task.full=task.full||full;if(!prepareOnly)task.prepareOnly=false;}
+            if(art.revisionId===currentArtwork)void scheduler.request(prior,-100);
             return;
           }
           const ready=prepared.get(inventory.id);
@@ -2094,16 +2108,16 @@ export function GeometryPreview({
               downloadOnly=peak.total()-byteCache.stats().bytes-reclaimable+ceiling>preflightLimit;
               if(downloadOnly&&(cached||known!==undefined)){
                 if(art.revisionId===demandContext().owner){reclaimForCurrent();stage(inventory.id,'deferred-budget');}
-                if(!active.has(art.revisionId))request(art,false,prepareOnly);return;
+                if(!active.has(art.revisionId))request(art,false,prepareOnly,false,manual);return;
               }
-            }catch{if(!active.has(art.revisionId))request(art,false,prepareOnly);return;}
+            }catch{if(!active.has(art.revisionId))request(art,false,prepareOnly,false,manual);return;}
           }
           if(prior)scheduler.cancel(prior);
           cancelPublicThumbnail();
           desired.set(art.revisionId, inventory.id);
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
-          const task={ art, inventory, prepareOnly, downloadOnly,imageBudget:imageTarget?.budget,detailPromotion };
+          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,imageBudget:imageTarget?.budget,detailPromotion };
           tasks.set(key,task);
           stages.begin(inventory.id,key);
           void scheduler
@@ -2177,8 +2191,13 @@ export function GeometryPreview({
               if(!current){if(error?.name==='AbortError')tasks.delete(key);if(!disposed)update();return;}
               if (!disposed) {
                 if(error?.name === 'AbortError'){stage(inventory.id,'cancelled-settled',undefined,key);tasks.delete(key);update();return;}
+                if(deferredByMaterialLoad(error?.message,floorSettled,surfaceSettled)){
+                  // The material decode hold will be released after its serial phase.
+                  // Retry under the settled limits before reporting a real failure.
+                  materialBudgetDeferred.set(art.revisionId,{full:task.full,prepareOnly:task.prepareOnly,detailPromotion:task.detailPromotion,manual:task.manual});retryAfter.set(art.revisionId,Infinity);
+                  failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
+                }
                 retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity);
-                if(error?.message==='MODEL_RESIDENT_BUDGET'&&(!floorSettled||!surfaceSettled))materialBudgetDeferred.add(art.revisionId);
                 if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===demandContext().owner)reclaimForCurrent();}
                 // A visible missing minimum must not wait for detail attention:
                 // its placeholder may be too small/off-center to win that slot.
@@ -2189,7 +2208,7 @@ export function GeometryPreview({
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget);
                     if (fallback.id !== inventory.id) {
-                      request(art, true);
+                      request(art, true,false,false,manual);
                       return;
                     }
                   } catch {
@@ -2243,6 +2262,7 @@ export function GeometryPreview({
           }
           if (kind === 'full'||kind==='coarse'){automatic=false;manualFull=kind==='full';}
           if (kind === "cancel") {
+            materialRetryEpoch++;for(const id of materialBudgetDeferred.keys())if(retryAfter.get(id)===Infinity)retryAfter.delete(id);materialBudgetDeferred.clear();
             automatic=false;
             scheduler.cancelAll();
             update();
@@ -2259,7 +2279,7 @@ export function GeometryPreview({
           for (const art of selected) {
             if (kind === "retry") visibleWaitStarted.delete(art.revisionId);
             retryAfter.delete(art.revisionId);
-            request(art, kind === "full" || (kind === "next" && !automatic && manualFull));
+            request(art, kind === "full" || (kind === "next" && !automatic && manualFull),false,false,true);
           }
         };
         const automaticDemand=()=>{
@@ -2343,7 +2363,7 @@ export function GeometryPreview({
           const sorted=[...observations].sort((a,b)=>Number(b.art.revisionId===currentArtwork)-Number(a.art.revisionId===currentArtwork));
           // Current/connected-room minima get the serial slot before speculative or attended detail.
           for(const {art,visible,minimumEligible}of sorted)if((visible||minimumEligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
-          const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)})));
+          const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)||materialBudgetDeferred.has(v.art.revisionId)})));
           for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
             if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!focused&&distance>12){
               const since=awaySince.get(art.revisionId)??now;awaySince.set(art.revisionId,since);

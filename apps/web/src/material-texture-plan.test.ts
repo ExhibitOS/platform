@@ -43,3 +43,23 @@ test('failure releases its hold and cancellation skips later work on every invoc
  await loadMaterialPhases(async()=>events.push('new-floor'),async()=>events.push('new-surface'),p=>events.push(p+'-released'),()=>cancelled);
  expect(events).toEqual(['new-floor','floor-released','new-surface','surface-released']);
 });
+test('only admission blocked while material loads is deferred for a retry',async()=>{
+ const {deferredByMaterialLoad}=await import('./material-texture-plan');
+ for(const code of ['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET']){
+  expect(deferredByMaterialLoad(code,false,false)).toBe(true);
+  expect(deferredByMaterialLoad(code,true,false)).toBe(true);
+  expect(deferredByMaterialLoad(code,true,true)).toBe(false);
+ }
+ expect(deferredByMaterialLoad('FORMAT_REJECTED',false,false)).toBe(false);
+ expect(deferredByMaterialLoad('RIGHTS_DENIED',false,false)).toBe(false);
+});
+test('retry keeps pinned and manual work without reloading an abandoned observation',async()=>{
+ const {materialRetryWanted}=await import('./material-texture-plan');
+ const base={mapPinned:false,viewingPinned:false,manual:false,visible:false,eligible:false,current:false};
+ expect(materialRetryWanted(base)).toBe(false);
+ expect(materialRetryWanted({...base,mapPinned:true})).toBe(true);
+ expect(materialRetryWanted({...base,viewingPinned:true})).toBe(true);
+ expect(materialRetryWanted({...base,manual:true})).toBe(true);
+ expect(materialRetryWanted({...base,eligible:true})).toBe(true);
+ expect(materialRetryWanted({...base,manual:false})).toBe(false);
+});

@@ -52,3 +52,14 @@ export function materialMapPlan(files:readonly MaterialMapCost[],maxTextureSize:
  }
  return {sizes:[],reserveBytes:0,residentBytes:0,blocked:true};
 }
+
+/** A material loading hold is temporary; retry admission after it settles.
+ * Other errors and budget failures after settlement remain real failures. */
+export function deferredByMaterialLoad(code:unknown,floorSettled:boolean,surfaceSettled:boolean){
+ return !floorSettled||!surfaceSettled ? code==='ASSET_TRANSITION_PEAK'||code==='MODEL_RESIDENT_BUDGET' : false;
+}
+
+/** Pinned and manually requested work remains needed even without wall observation. */
+export function materialRetryWanted(input:{mapPinned:boolean;viewingPinned:boolean;manual:boolean;visible:boolean;eligible:boolean;current:boolean}){
+ return input.mapPinned||input.viewingPinned||input.manual||input.visible||input.eligible||input.current;
+}
