@@ -11,7 +11,7 @@ export function pngCrc(data: Buffer) {
   return (value ^ 0xffffffff) >>> 0;
 }
 export class PngPixelLimitError extends Error { constructor(){super("PNG pixel limit exceeded");} }
-export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dimensionLimit = 8192, chunkLimit = 256) {
+export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dimensionLimit = 8192, chunkLimit = 256, allowFixedFrameMetadata = false) {
   if (
     data.length < 33 ||
     !data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -26,6 +26,7 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
     closedIdat = false,
     seenSrgb = false,pixelLimitExceeded=false,srgbIntent:number|undefined;
   const compressed: Buffer[] = [];
+  const frameChunks=new Set<string>();
   let chunkCount = 0;
   while (offset < data.length) {
     if (++chunkCount > chunkLimit || offset + 12 > data.length) fail();
@@ -60,6 +61,19 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
       if (seenSrgb || seenIdat || size !== 1 || body[0]! > 3) fail();
       seenSrgb = true;
       srgbIntent=body[0]!;
+    } else if (allowFixedFrameMetadata && ["cICP","iCCP","gAMA","cHRM","eXIf","oFFs","pHYs"].includes(kind)) {
+      // Only selected fixed, hash-bound original frame GLBs use this profile.
+      // Still bound the chunks, validate CRC/order/uniqueness and ICC expansion.
+      if (seenIdat || frameChunks.has(kind) || size > 4096) fail();
+      frameChunks.add(kind);
+      const fixed:Record<string,number>={cICP:4,gAMA:4,cHRM:32,oFFs:9,pHYs:9};
+      if (fixed[kind] !== undefined && size !== fixed[kind]) fail();
+      if (kind === "eXIf" && (size < 8 || size > 1024)) fail();
+      if (kind === "iCCP") {
+        const zero=body.indexOf(0);if(zero<1||zero>79||zero+2>=body.length||body[zero+1]!==0)fail();
+        const decoded=inflateSync(body.subarray(zero+2),{maxOutputLength:1024*1024,info:true}) as unknown as {buffer:Buffer;engine:{bytesWritten:number}};
+        if(decoded.buffer.length<128||decoded.engine.bytesWritten!==body.length-zero-2)fail();
+      }
     } else if (kind === "IDAT") {
       if (closedIdat) fail();
       seenIdat = true;

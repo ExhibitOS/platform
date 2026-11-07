@@ -142,3 +142,24 @@ provide interactive doors. Glass appearance and transparency depend on the
 Viewer and actual model; this profile does not promise optical behavior. The
 selected native material-import path remains draft.12; draft.15 import is not
 provided by this capability.
+
+### Fixed artwork frame models
+
+When the owner runtime advertises `workspaceArtworkFrameModelsProfile:
+workspace-artwork-frame-models-v1` in addition to the existing artwork-frame
+capability, workspace furnishings v5 can bind the fixed frame models in the
+versioned Spec records. OEX draft.17 preserves the model inventory and
+attachment; draft.16/v4 remains thin-brass only. Model geometry and image-plane
+offsets come from the exact SHA-256 and byte-count bound Spec record, not from
+client dimensions. The image stays 0.6 × 0.8 metres, without declared depth or
+scaling; the supported result is visual alignment only. Float-frame cavity and
+physical support are not provided by this profile.
+
+The exact fixed-frame GLBs may include bounded embedded RGBA PNGs with authored
+color and ancillary metadata and glTF sampler defaults, including mipmap filter
+9987. The furnishing worker recognizes this narrow profile only after matching
+both exact model digest and byte count. It still checks PNG chunk structure,
+order, CRC, image and decompression bounds, bounded ICC expansion and complete
+GLB validity; changed or unknown models retain the ordinary stricter profile.
+The original bytes and embedded metadata are retained in exports: this does not
+sanitize source metadata or grant separate rights to third-party content.
