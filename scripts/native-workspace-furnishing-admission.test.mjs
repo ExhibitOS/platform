@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission,assertIssuedFurnishingOrdinaryAdmission,furnishingOrdinaryStopControl,finalizeFurnishingOrdinaryStop} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame,verifyFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {encodeFurnishingOrdinaryAssertion,verifyFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
-import {assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {assertFurnishingBeforeCommit,assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 const id=n=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`,secret=Buffer.from(Array.from({length:32},(_,i)=>i));
 async function fixture(mode='workspace-furnishing-036-initialize-v1'){
  const root=realpathSync(await mkdtemp(join(tmpdir(),'furnishing-admit-'))),lock=join(root,'native-workspace-furnishing-writers.lock'),extra=[];let fd=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);while(fd<10){extra.push(fd);fd=openSync(lock,constants.O_RDWR);}const rootFd=openSync(root,constants.O_RDONLY|constants.O_DIRECTORY),r=fstatSync(rootFd,{bigint:true}),w=fstatSync(fd,{bigint:true});closeSync(rootFd);
@@ -124,4 +124,14 @@ test('occupied exact 039 upgrade verifies owner and ledger, and applies only ver
    if(scenario==='success'){assert.deepEqual(await prepareWorkspaceFurnishingCatalog(c,args),{requireExisting:true});assert.equal(rows.length,40);assert.equal(rows[39].sha256,'db01d1910ba01a0a2e223829b92f9fbc0e4ce0240c21d3a8ae6b70963a84ef21');assert.equal(calls.filter(x=>x.startsWith('INSERT INTO schema_migrations')).length,1);}else{await assert.rejects(prepareWorkspaceFurnishingCatalog(c,args));assert.equal(calls.some(x=>x.startsWith('INSERT INTO schema_migrations')),false);}
   }finally{await cleanup(f);}
  }
+});
+
+
+test('final commit fence detects payload drift while target ledger is checked',async()=>{
+ const mode='workspace-furnishing-039-to-040-upgrade-v1',f=await fixture(mode);try{
+  const writer=await acceptFurnishingWriterLease(f.input),fields={runtimeGeneration:f.fields.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'catalog-upgrade-039-to-040',activeBindingSHA256:'b'.repeat(64)};f.input.channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',fields,secret);const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel:f.input.channel,secret});
+  const rows=Array.from({length:40},(_,i)=>({name:'n'+i,sha256:'a'.repeat(64)}));rows[39]={name:'040_workspace_material_multimap.sql',sha256:'db01d1910ba01a0a2e223829b92f9fbc0e4ce0240c21d3a8ae6b70963a84ef21'};
+  const client={query:async()=>{f.input.payload.digest='c'.repeat(64);return {rows};}};
+  await assert.rejects(assertFurnishingBeforeCommit(client,{mode,ordinaryAdmission,writer,channel:f.input.channel,isStopped:()=>false}),/FURNISHING_LEASE_INVALID/);
+ }finally{await cleanup(f);}
 });

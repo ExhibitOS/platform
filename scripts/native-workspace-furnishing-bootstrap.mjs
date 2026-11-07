@@ -19,6 +19,15 @@ export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission){
  await admission.writer.assertLive();
 }
 
+/** Recheck the ledger before the last asynchronous writer/payload fence. */
+export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,writer,channel,isStopped}){
+ assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);
+ if(ordinaryAdmission.writer!==writer||writer.identity.mode!==mode)throw Error('FURNISHING_ADMISSION_INVALID');
+ if(mode==='workspace-furnishing-039-to-040-upgrade-v1')await assertExactWorkspaceMaterialMultimapCatalog(c);
+ await writer.assertLive();
+ if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
+}
+
 export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,ownerUid,writer,channel,ordinaryAdmission}){
  const selected=['workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7'];
  const upgrade=mode==='workspace-furnishing-039-to-040-upgrade-v1';

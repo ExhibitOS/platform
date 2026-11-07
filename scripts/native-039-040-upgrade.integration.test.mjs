@@ -10,10 +10,10 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Pool} from 'pg';
 import {openLocalWorkspace} from '../apps/api/dist/local-workspace.js';
-import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission,assertIssuedFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
+import {acceptFurnishingWriterLease,acceptFurnishingOrdinaryAdmission} from './native-workspace-furnishing-admission.mjs';
 import {encodeFurnishingLeaseFrame} from './native-workspace-furnishing-lease.mjs';
 import {encodeFurnishingOrdinaryAssertion} from './native-workspace-furnishing-ordinary-assertion.mjs';
-import {assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
+import {assertFurnishingBeforeCommit,assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 import {assertExactWorkspaceMaterialMultimapCatalog} from './native-oex-normal-catalog.mjs';
 const url=new URL(process.env.EXHIBITOS_TEST_DATABASE_URL??'invalid://missing');
 if(url.hostname!=='127.0.0.1'||!/^\/exhibitos_upgrade_test_[a-z0-9]+$/.test(url.pathname))throw Error('DISPOSABLE_UPGRADE_DATABASE_REQUIRED');
@@ -28,9 +28,9 @@ async function admission(mode,kind){
  const signed={runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:kind,activeBindingSHA256:'b'.repeat(64)};channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',signed,secret);
  const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});await assertWorkspaceFurnishingRuntimeAdmission(mode,ordinaryAdmission);return {writer,channel,ordinaryAdmission};
 }
-async function openWith(a,mode,{upgrade=false,ownerUid=workspace.ownerUid,interrupt=false}={}){
- const current={...workspace,ownerUid,sessionToken:token(),csrfToken:token()};
- return openLocalWorkspace(pool,current,'native',c=>prepareWorkspaceFurnishingCatalog(c,{...paths,...(upgrade?{materialMultimapDirectory:join(db,'native-workspace-material-multimap')}:{}),mode,ownerUid, ...a}),{isolation:'read committed',...(upgrade?{requireExisting:true}:{}),furnishingExclusive:true,beforeCommit:async c=>{assertIssuedFurnishingOrdinaryAdmission(a.ordinaryAdmission);await a.writer.assertLive();if(upgrade)await assertExactWorkspaceMaterialMultimapCatalog(c);if(interrupt)throw Error('TEST_BEFORE_COMMIT');}});
+async function openWith(a,mode,{upgrade=false,bootstrapUid=workspace.ownerUid,interrupt=false}={}){
+ const current={...workspace,sessionToken:token(),csrfToken:token()};
+ return openLocalWorkspace(pool,current,'native',c=>prepareWorkspaceFurnishingCatalog(c,{...paths,...(upgrade?{materialMultimapDirectory:join(db,'native-workspace-material-multimap')}:{}),mode,ownerUid:bootstrapUid, ...a}),{isolation:'read committed',...(upgrade?{requireExisting:true}:{}),furnishingExclusive:true,beforeCommit:async c=>{await assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission:a.ordinaryAdmission,writer:a.writer,channel:a.channel,isStopped:()=>false});if(interrupt)throw Error('TEST_BEFORE_COMMIT');}});
 }
 const ledger=async()=>(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
 const snapshot=async()=>JSON.stringify({owner:(await pool.query('SELECT id,tenant_id,user_id,mac_uid FROM local_workspaces ORDER BY id')).rows,exhibition:(await pool.query('SELECT tenant_id,id,metadata FROM exhibitions ORDER BY id')).rows,frames:(await pool.query('SELECT workspace_id,id,version,descriptor,object_key FROM workspace_furnishing_versions ORDER BY id')).rows,sessions:(await pool.query('SELECT id,revoked FROM auth_sessions ORDER BY id')).rows});
@@ -39,7 +39,7 @@ try{
   const init=await admission('workspace-furnishing-039-selected-import-v7','fresh-empty');await openWith(init,'workspace-furnishing-039-selected-import-v7');assert.equal((await ledger()).length,39);
   const exhibition=randomUUID(),furnishing=randomUUID();await pool.query('INSERT INTO exhibitions(tenant_id,id,metadata) VALUES($1,$2,$3)',[workspace.tenantId,exhibition,{title:'synthetic preserved exhibition',attachment:furnishing}]);await pool.query('INSERT INTO workspace_furnishing_versions(workspace_id,tenant_id,user_id,id,version,descriptor,object_key) VALUES($1,$2,$3,$4,1,$5,$6)',[workspace.workspaceId,workspace.tenantId,workspace.principalId,furnishing,{id:furnishing,sha256:'a'.repeat(64)},'synthetic/model.glb']);
   const before=await snapshot(),mode='workspace-furnishing-039-to-040-upgrade-v1';
-  await assert.rejects(openWith(await admission(mode,'catalog-upgrade-039-to-040'),mode,{upgrade:true,ownerUid:workspace.ownerUid+1}),/LOCAL_WORKSPACE_OWNER_UNAVAILABLE/);assert.equal((await ledger()).length,39);assert.equal(await snapshot(),before);
+  await assert.rejects(openWith(await admission(mode,'catalog-upgrade-039-to-040'),mode,{upgrade:true,bootstrapUid:workspace.ownerUid+1}),/LOCAL_WORKSPACE_OWNER_UNAVAILABLE/);assert.equal((await ledger()).length,39);assert.equal(await snapshot(),before);
   await assert.rejects(openWith(await admission(mode,'catalog-upgrade-039-to-040'),mode,{upgrade:true,interrupt:true}),/TEST_BEFORE_COMMIT/);assert.equal((await ledger()).length,39);assert.equal(await snapshot(),before);
   const row=(await ledger())[0];await pool.query('UPDATE schema_migrations SET sha256=$2 WHERE name=$1',[row.name,'0'.repeat(64)]);await assert.rejects(openWith(await admission(mode,'catalog-upgrade-039-to-040'),mode,{upgrade:true}),/NATIVE_OEX_CATALOG/);await pool.query('UPDATE schema_migrations SET sha256=$2 WHERE name=$1',[row.name,row.sha256]);assert.equal(await snapshot(),before);
   await openWith(await admission(mode,'catalog-upgrade-039-to-040'),mode,{upgrade:true});assert.equal((await ledger()).length,40);await assertExactWorkspaceMaterialMultimapCatalog(pool);
