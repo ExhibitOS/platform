@@ -449,3 +449,7 @@ references must still match the complete original inventory. A newer tool does
 not apply later migrations during exact restoration. New backup creation continues
 to validate the current packaged catalog, and explicit migrated-target verification
 continues to check its separately approved target.
+
+### 선택형 040 카탈로그 백업
+
+선택형 로컬 작업공간의 서비스 백업은 040 `workspace_material_multimap`까지 적용된 경우에도 40개 migration 이름과 SHA-256, 제공된 SQL 파일을 함께 확인합니다. 인증된 백업의 migration 목록이 현재 DB와 다르거나 파일이 변경되면 생성·복원 검사를 거부합니다. 이 확인은 기존 작업공간에 migration을 적용하거나 새 런타임을 시작할 권한을 부여하지 않습니다. 설정 전용 profile 사본과 전시 DB·blob을 포함하는 서비스 백업은 별도입니다.
