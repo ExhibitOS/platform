@@ -118,3 +118,21 @@ test('043 selection pins parent, catalog and packaging without enabling defaults
   rows[42].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,selected),/NATIVE_OEX_CATALOG/);await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
  }finally{await rm(tmp,{recursive:true,force:true});}
 });
+
+test('044 requires the exact selected parent, migration and backup catalog',async()=>{
+ const catalog=await import('./native-oex-normal-catalog.mjs'),{copyNormalOexSelectedFile,nativePackageExcludedFiles,packageNativeRuntime}=await import('./package-native-runtime.mjs'),{inventorySnapshotOptionsForDatabase}=await import('./service-backup.mjs');
+ const base=dir('migrations'),extra=dir('native-oex-normal'),preparation=dir('native-workspace-frame-preparation'),original=dir('native-hayes-original'),disposition=dir('native-hayes-disposition'),release=dir('native-hayes-release'),rows=[];
+ for(const directory of [base,extra,...Object.values(options),preparation,original,disposition,release])for(const name of (await readdir(directory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort())rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+ rows.sort((a,b)=>a.name.localeCompare(b.name));assert.equal(rows.length,44);const pool={query:async()=>({rows})},selected={...options,workspaceFramePreparationDirectory:preparation,hayesOriginalDirectory:original,hayesDispositionDirectory:disposition,hayesReleaseDirectory:release};
+ assert.equal(await recognizeNormalOexCatalog(pool,base,extra,selected),extra);await catalog.assertExactHayesReleaseCatalog(pool);assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,rows),{migrationCatalog:rows});
+ await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,{...selected,hayesReleaseDirectory:undefined}),/NATIVE_OEX_CATALOG/);assert.equal(JSON.parse(catalog.HAYES_RELEASE_CAPABILITY).parentCapabilitySHA256,createHash('sha256').update(catalog.HAYES_DISPOSITION_CAPABILITY).digest('hex'));
+ const tmp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-hayes-044-'))),path=join(tmp,'marker'),output=join(tmp,'output'),source=await realpath(fileURLToPath(new URL('../',import.meta.url))),tracked=new Map([['database',new Set()]]);
+ try{
+  assert.equal(await catalog.hasHayesReleaseCapability(path),false);await writeFile(path,catalog.HAYES_RELEASE_CAPABILITY);assert.equal(await catalog.hasHayesReleaseCapability(path),true);await writeFile(path,catalog.HAYES_RELEASE_CAPABILITY+' ');await assert.rejects(catalog.hasHayesReleaseCapability(path),/NATIVE_OEX_CATALOG/);
+  assert.ok(nativePackageExcludedFiles(false,true).has('database/native-hayes-release/044_hayes_native_release.sql'));await assert.rejects(packageNativeRuntime('/synthetic-unused',{hayesReleaseSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await assert.rejects(copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,true,true,true,true);
+  assert.equal(createHash('sha256').update(await readFile(join(output,'database/native-hayes-release/044_hayes_native_release.sql'))).digest('hex'),catalog.HAYES_RELEASE_SHA256);
+  rows[43].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,selected),/NATIVE_OEX_CATALOG/);await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
+ }finally{await rm(tmp,{recursive:true,force:true});}
+});
