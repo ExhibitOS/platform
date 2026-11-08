@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { DiagnosticAssetStage, DiagnosticSnapshot } from "./diagnostic-source";
+import type { DiagnosticAssetStage, DiagnosticHayesTransitionFrame, DiagnosticSnapshot } from "./diagnostic-source";
 
 const maximumReportBytes = 128 * 1024;
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -29,18 +29,45 @@ function finiteTuple(value: unknown, length: number): number[] | null {
   return tuple.every(item => typeof item === "number" && Number.isFinite(item)) ? tuple : null;
 }
 
-function projectMainMeshSubmission(value: DiagnosticAssetStage["mainMeshSubmission"]) {
-  if (!value) return null;
-  const drawCalls = byteCount(value.drawCalls);
+type MeshPose = Pick<DiagnosticHayesTransitionFrame, "cameraPosition" | "cameraQuaternion" | "verticalFov">;
+
+function projectMeshPose(value: MeshPose) {
   const cameraPosition = finiteTuple(value.cameraPosition, 3);
   const cameraQuaternion = finiteTuple(value.cameraQuaternion, 4);
   const verticalFov = number(value.verticalFov);
-  if (drawCalls === null || !cameraPosition || !cameraQuaternion || verticalFov === null ||
-    verticalFov <= 0 || verticalFov >= 180) return null;
-  const min = finiteTuple(value.worldBounds?.min, 3);
-  const max = finiteTuple(value.worldBounds?.max, 3);
-  const worldBounds = min && max && min.every((axis, index) => axis <= (max[index] ?? -Infinity)) ? { min, max } : null;
-  return { drawCalls, cameraPosition, cameraQuaternion, verticalFov, worldBounds };
+  if (!cameraPosition || !cameraQuaternion || verticalFov === null || verticalFov <= 0 || verticalFov >= 180) return null;
+  return { cameraPosition, cameraQuaternion, verticalFov };
+}
+
+function projectMeshBounds(value: DiagnosticHayesTransitionFrame["worldBounds"]) {
+  const min = finiteTuple(value?.min, 3);
+  const max = finiteTuple(value?.max, 3);
+  return min && max && min.every((axis, index) => axis <= (max[index] ?? -Infinity)) ? { min, max } : null;
+}
+
+function projectMainMeshSubmission(value: DiagnosticAssetStage["mainMeshSubmission"]) {
+  if (!value) return null;
+  const drawCalls = byteCount(value.drawCalls);
+  const pose = projectMeshPose(value);
+  return drawCalls === null || !pose ? null : { drawCalls, ...pose, worldBounds: projectMeshBounds(value.worldBounds) };
+}
+
+const hayesAssetId = "5062b496-cfaa-44ee-9e07-8c3e154d1024";
+
+function projectHayesTransitionFrame(frame: DiagnosticHayesTransitionFrame | undefined) {
+  if (!frame) return null;
+  const atMs = number(frame.atMs);
+  const pose = projectMeshPose(frame);
+  if (atMs === null || atMs < 0 || !pose) return null;
+  if (frame.assetId === null && frame.attachmentGeneration === null && frame.drawCalls === null && frame.worldBounds === null) {
+    return { atMs, attachmentGeneration: null, assetId: null, drawCalls: null, ...pose, worldBounds: null };
+  }
+  const attachmentGeneration = byteCount(frame.attachmentGeneration);
+  const drawCalls = byteCount(frame.drawCalls);
+  const worldBounds = projectMeshBounds(frame.worldBounds);
+  if (frame.assetId !== hayesAssetId || attachmentGeneration === null || drawCalls === null ||
+    (frame.worldBounds !== null && !worldBounds)) return null;
+  return { atMs, attachmentGeneration, assetId: hayesAssetId, drawCalls, ...pose, worldBounds };
 }
 
 function projectStage(event: DiagnosticSnapshot["events"][number]) {
@@ -67,8 +94,12 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
     snapshot.selected.artworkRevisionId === detail.artworkRevisionId);
   const displayed = selected && (!detail || (snapshot.displayed.artworkRevisionId === detail.artworkRevisionId &&
     (snapshot.displayed.tier === "detail-approved" || snapshot.displayed.tier === "acquired-original")));
+  const firstFrame = projectHayesTransitionFrame(snapshot.hayesTransitionFrames?.first);
+  const latestFrame = projectHayesTransitionFrame(snapshot.hayesTransitionFrames?.latest);
   return {
     version: 1,
+    ...(firstFrame && latestFrame && firstFrame.atMs <= latestFrame.atMs
+      ? { hayesTransitionFrames: { first: firstFrame, latest: latestFrame } } : {}),
     capturedAt: token(snapshot.capturedAt, isoTime),
     lifecycle: snapshot.lifecycle,
     identity: {

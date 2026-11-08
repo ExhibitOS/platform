@@ -1,6 +1,6 @@
 import {expect,it} from 'vitest';
 import {createDiagnosticReport} from './diagnostic-report';
-import type {DiagnosticSnapshot} from './diagnostic-source';
+import type {DiagnosticHayesTransitionFrame,DiagnosticSnapshot} from './diagnostic-source';
 
 const publicationId='11111111-1111-4111-8111-111111111111', artworkRevisionId='22222222-2222-4222-8222-222222222222';
 const first='33333333-3333-4333-8333-333333333333', second='44444444-4444-4444-8444-444444444444',revisionSha256='a'.repeat(64);
@@ -79,4 +79,33 @@ it('projects only bounded main-scene mesh submission fields on retained render r
   undefined,
  ]);
  expect(json).not.toContain('/secret');
+});
+
+it('distinguishes no transition-frame target from zero Hayes callbacks and rejects invalid pairs', () => {
+ const firstFrame = {
+  atMs: 12.5, attachmentGeneration: null, assetId: null, drawCalls: null,
+  cameraPosition: [4.2, 1.65, -7] as [number, number, number],
+  cameraQuaternion: [0, 0, 0, 1] as [number, number, number, number],
+  verticalFov: 48, worldBounds: null,
+ };
+ const latestFrame = {
+  ...firstFrame, atMs: 48.5, attachmentGeneration: 1,
+  assetId: '5062b496-cfaa-44ee-9e07-8c3e154d1024', drawCalls: 0,
+  worldBounds: {min: [5, 1, -5] as [number, number, number], max: [6, 2, -4] as [number, number, number]},
+ };
+ const project = (first: DiagnosticHayesTransitionFrame,
+  latest: DiagnosticHayesTransitionFrame) =>
+  createDiagnosticReport({...snapshot, hayesTransitionFrames:{first,latest}}, {publicationId, revisionSha256});
+ const withDebugPath = {...latestFrame, debugPath:'/secret'};
+ const json = project(firstFrame, withDebugPath);
+ expect(JSON.parse(json).snapshot.hayesTransitionFrames).toEqual({first:firstFrame,latest:latestFrame});
+ expect(json).not.toContain('/secret');
+ for (const invalid of [
+  {...latestFrame, assetId:first},
+  {...latestFrame, attachmentGeneration:null},
+  {...latestFrame, atMs:11},
+  {...latestFrame, verticalFov:Infinity},
+  {...latestFrame, worldBounds:{...latestFrame.worldBounds, max:[1, 2, 3] as [number, number, number]}},
+  {...firstFrame, drawCalls:0},
+ ]) expect(JSON.parse(project(firstFrame, invalid)).snapshot).not.toHaveProperty('hayesTransitionFrames');
 });
