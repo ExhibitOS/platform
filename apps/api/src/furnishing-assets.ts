@@ -21,7 +21,7 @@ export async function readFurnishingBytes(asset:Pick<FurnishingAsset,'id'|'catal
 /** Read only a caller-pinned packaged path. A missing optional asset is not corruption. */
 export function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal):Promise<Buffer>;
 export function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal:AbortSignal|undefined,optional:true):Promise<Buffer|undefined>;
-export async function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal,optional=false){
+export async function readInstalledFurnishing(relative:string,expectedBytes:number,expectedHash:string,signal?:AbortSignal,optional=false):Promise<Buffer|undefined>{
  if(!/^assets\/furnishings\/user-authored-20261027\/[a-z-]+\/(model\.glb|LICENSE-NOTICE\.txt)$/.test(relative))throw new ApiError(404,'FURNISHING_UNAVAILABLE');
  let directory=fileURLToPath(new URL('../../../',import.meta.url));
  try{
