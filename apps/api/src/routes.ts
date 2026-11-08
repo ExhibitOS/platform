@@ -44,6 +44,7 @@ import {registerNativeBoundedOexExport} from './native-bounded-oex-export.ts';
 import {registerNativeDetailHttp} from './native-detail-http.ts';
 import {isIssuedNativeDetailContext} from './native-detail-context.ts';
 import {isIssuedNativeHayesCaller} from './native-hayes-caller.ts';
+import {isHayesReleaseContext} from './hayes-original-attempt.ts';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Auth, ApiError, config, uuid, roles, subjectInput, passwordInput, type AuthConfig, type Session, type Role } from './auth.ts';
@@ -419,6 +420,10 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  const imports=store?new Imports(pool,store,nativeOexWorkspace):undefined;
  const importer=()=>{if(!imports)throw new ApiError(503,'STORAGE_UNAVAILABLE');return imports;};
  if(nativeHayesCaller&&nativeOexWorkspace)app.post(`${prefix}/imports/native-hayes-original`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},displayReferenceSha256:{...str,pattern:'^[0-9a-f]{64}$'},idempotencyKey:id})}},async(req,reply)=>{guarded(req,true);reply.header('cache-control','no-store');const tenantId=(req.params as {tenantId:string}).tenantId;uuid(tenantId);if(tenantId!==nativeOexWorkspace.tenantId)throw new ApiError(403,'FORBIDDEN');if(runtimeAvailable&&!runtimeAvailable())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');return nativeHayesCaller.create({token:token(req),csrf:typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined},req.body as {artworkId:string;artworkRevision:number;displayReferenceSha256:string;idempotencyKey:string},Date.now()+30000);});
+ if(nativeHayesCaller&&nativeOexWorkspace&&isHayesReleaseContext(nativeOexWorkspace))app.post(`${prefix}/imports/native-hayes-original/:id/execute`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647}})}},async(req,reply)=>{
+  guarded(req,true);reply.header('cache-control','no-store');const p=req.params as {tenantId:string;id:string};uuid(p.tenantId);uuid(p.id);if(p.tenantId!==nativeOexWorkspace.tenantId)throw new ApiError(403,'FORBIDDEN');if(runtimeAvailable&&!runtimeAvailable())throw new ApiError(503,'NATIVE_OWNER_UNAVAILABLE');
+  const body=req.body as {artworkId:string;artworkRevision:number};return nativeHayesCaller.execute({token:token(req),csrf:typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined},{jobId:p.id,artworkId:body.artworkId,artworkRevision:body.artworkRevision},Date.now()+180000);
+ });
  const importMutation=nativeOexWorkspace&&!freshOexTest?nativeMutation:(work:Parameters<typeof nativeMutation>[0])=>call(true,work);
  if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-artwork-replacement`,{bodyLimit:4096,schema:{body:object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id})}},nativeMutation(async(c,s,req,reply)=>{const result=await replaceApprovedArtwork(c,s,(req.params as {id:string}).id,req.body as ArtworkReplacementInput,requiredMatch(req.headers['if-match']),studio,cms,importer(),store);reply.header('etag',result.etag);return result;}));
  if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-original-static-approval`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id})}},nativeMutation(async(c,s,req)=>approveOriginalStaticSource(c,s,(req.params as {id:string}).id,req.body as OriginalStaticApprovalInput,studio,cms,importer(),store)));

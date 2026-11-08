@@ -129,6 +129,7 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
    ready=false;expect((await app.inject({method:'POST',url,headers,payload:routeRequest})).statusCode).toBe(503);ready=true;
    const response=await app.inject({method:'POST',url,headers,payload:routeRequest});expect(response.statusCode).toBe(200);expect(response.json().state).toBe('uploading');expect((await app.inject({method:'POST',url,headers,payload:routeRequest})).json()).toEqual(response.json());
    expect((await app.inject({method:'POST',url:`${url}/${response.json().id}/start`,headers,payload:{artworkId:provisional,artworkRevision:1}})).statusCode).toBe(404);
+   expect((await app.inject({method:'POST',url:`${url}/${response.json().id}/execute`,headers,payload:{artworkId:provisional,artworkRevision:1}})).statusCode).toBe(404);
   }finally{await app.close();await routeCaller.close();}
 
   expect(isIssuedNativeHayesCaller(caller,bound,store)).toBe(true);expect(isIssuedNativeHayesCaller({...caller},bound,store)).toBe(false);expect(()=>createNativeHayesCaller({owner:bound,auth:new Auth(pool),blobs:store,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:new AbortController().signal,assertLive:async()=>{}})).toThrow();

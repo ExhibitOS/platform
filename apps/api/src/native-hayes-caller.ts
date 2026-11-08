@@ -36,7 +36,8 @@ export function resolveHayesReady(admission:unknown,owner:NativeOexWorkspaceCont
 export function isIssuedNativeHayesCaller(value:unknown,owner:NativeOexWorkspaceContext|undefined,blobs:BlobStore|undefined):boolean{const issued=value&&typeof value==='object'?issuedCallers.get(value):undefined;return !!issued&&issued.owner===owner&&issued.blobs===blobs;}
 /** Internal native bootstrap only: `channel`, pin and assertLive come from the
  * same authenticated Manager session, never a request. This cannot authorize
- * output approval, drain, cleanup or publication. */
+ * output work except through the selected 044 one-shot path. A receipt or
+ * completion record is not a public artwork publication. */
 export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;auth:Auth;blobs:BlobStore;channel:Channel;runtimeGeneration:string;nativeOwnerId:string;runtimeManifestSha256:string;signal:AbortSignal;assertLive:()=>Promise<void>;onClaimCommitted?:(binding:HayesOperationBinding,monotonicNs:string)=>void;onProbePhase?:(phase:string,monotonicNs:string,code?:string)=>void}){
  const {owner,auth,blobs,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal,assertLive}=input;
  if(!isHayesOriginalContext(owner)||!(auth instanceof Auth)||!blobs.getBounded||!channel||typeof channel.send!=='function'||typeof channel.receive!=='function'||typeof channel.close!=='function'||typeof channel.isOpen!=='function'||!uuid.test(runtimeGeneration)||!uuid.test(nativeOwnerId)||!hex.test(runtimeManifestSha256)||!signal||typeof assertLive!=='function'||claimedChannels.has(channel)||!channel.isOpen())throw new ApiError(403,'FORBIDDEN');
@@ -130,6 +131,17 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
      close:async()=>{valid=false;await close();},
     });
    }catch(cause){report('start-failed',category(cause));if(authorized)try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;}finally{source?.fill(0);busy=false;}
+  },
+  async execute(credentials:Credentials,selection:{jobId:string;artworkId:string;artworkRevision:number},deadlineMs:number):Promise<{jobId:string;receiptId:string;receiptSha256:string;completionFrameSha256:string}>{
+   // Only a sealed selected 044 owner may drive this one-shot continuation.
+   // The channel remains held after the ACK so Manager can independently read
+   // the committed row before its ordinary stop procedure.
+   if(!isHayesReleaseContext(owner))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+   const exchange=await caller.start(credentials,selection,deadlineMs);
+   if(!('stageOutput' in exchange)||typeof exchange.stageOutput!=='function'||!('commit' in exchange)||typeof exchange.commit!=='function'||!('receiveRelease' in exchange)||typeof exchange.receiveRelease!=='function'){await exchange.close();throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');}
+   const selected=exchange as typeof exchange&{stageOutput:()=>Promise<unknown>;commit:()=>Promise<{receiptId:string;receiptSha256:string}>;receiveRelease:()=>Promise<{completionFrameSha256:string}>};
+   await selected.stageOutput();const receipt=await selected.commit(),release=await selected.receiveRelease();
+   return {jobId:selection.jobId,receiptId:receipt.receiptId,receiptSha256:receipt.receiptSha256,completionFrameSha256:release.completionFrameSha256};
   },
   close,
  });
