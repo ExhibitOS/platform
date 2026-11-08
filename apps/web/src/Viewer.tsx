@@ -282,6 +282,7 @@ export function Viewer({
       assets: publication.assets,
       resources: publication.resources,
       materialMapBatch: publication.materialMapBatch,
+      detailPublication: publication,
       ...publication.local,
     }),
     [publication],

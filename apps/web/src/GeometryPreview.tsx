@@ -28,6 +28,11 @@ import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture
 import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredByMaterialLoad,materialRetryWanted} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
+import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
+import {assertDetailMountCurrent} from './viewer/detail-attempt';
+import {completeDetailCommands,restoreDetailCanvas} from './viewer/detail-command-completion';
+import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
+import {isVerifiedStaticDetailAccess} from './static-publication-source';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
@@ -79,7 +84,7 @@ import {
 import { viewpointPose } from "./viewer/navigation-teleport";
 import type { ViewerInputMode } from "./ViewerInputGuide";
 import type { NavigationState } from "./viewer/navigation";
-import type { PublicAsset,PublicResource } from "./publication-client";
+import type { PublicAsset,PublicResource,PublicPublication } from "./publication-client";
 import type { Session } from "./cms-client";
 import type { Draft } from "./drafts/store";
 
@@ -228,6 +233,8 @@ export function GeometryPreview({
     assets: PublicAsset[];
     resources?: PublicResource[];
     materialMapBatch?: {url:string};
+    /** Exact loader-owned object; copied source fields cannot attest capability provenance. */
+    detailPublication?:PublicPublication;
     fetcher?: typeof fetch;
     floorFetcher?: typeof fetch;
     retainedMaterialBytes?:number;
@@ -353,6 +360,8 @@ export function GeometryPreview({
   const [restart, setRestart] = useState(0);
   const [shadowMessage,setShadowMessage]=useState('');
   const [publicMessage, setPublicMessage] = useState("전시를 준비하고 있어요.");
+  const [detailRestoreStatus,setDetailRestoreStatus]=useState<'restoring'|'failed'|null>(null);
+  const detailRestoreMessage=detailRestoreStatus==='restoring'?'작품 화면을 정리하고 있어요. 잠시 기다리거나 작품 목록을 이용해 주세요.':detailRestoreStatus==='failed'?'3D 화면을 안전하게 정리하지 못했어요. 작품 목록을 이용하거나 3D를 다시 시작해 주세요.':'';
   const [sceneIssue, setSceneIssue] = useState("");
   const [artworkNotice, setArtworkNotice] = useState<"loading" | "unavailable">();
   const [noticePageVisible, setNoticePageVisible] = useState(true);
@@ -375,7 +384,7 @@ export function GeometryPreview({
   useEffect(()=>{if(immersive&&ready&&(assetReport.loaded>0||document.placements.length===0)&&!suspendNavigation&&!enteredWalking.current&&walkingActions.current){enteredWalking.current=true;walkingActions.current.start(focusEntry);}},[immersive,ready,assetReport.loaded,document.placements.length,suspendNavigation,walkPreparation,focusEntry]);
   useEffect(()=>{if(cameraRequest&&ready&&action.current&&consumedCameraRequest.current!==cameraRequest.sequence){consumedCameraRequest.current=cameraRequest.sequence;action.current(cameraRequest.kind);}},[cameraRequest?.sequence,cameraRequest?.kind,ready]);
   const nativeReport=useRef(onRenderState);nativeReport.current=onRenderState;
-  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?publicMessage:message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
+  useEffect(()=>{nativeReport.current?.({ready,error:buildFailed,message:publicSource?(detailRestoreMessage||publicMessage):message,...assetReport,navigationReady:!immersive&&!entranceWalking||(walkPreparation==='ready'&&(walkingMode||qualityRebuildReady.current)),navigationFailed:(immersive||entranceWalking)&&walkPreparation==='failed'});},[ready,buildFailed,message,publicMessage,detailRestoreMessage,publicSource,assetReport,immersive,entranceWalking,walkPreparation,walkingMode]);
   useEffect(()=>{if(openingViewpoint&&ready&&!xrRunning&&!suspendNavigation&&!walkLoading&&openingConsumed.current!==openingViewpoint.sequence&&walkingActions.current?.teleport){openingConsumed.current=openingViewpoint.sequence;walkingActions.current.teleport(openingViewpoint.viewpointId);}},[openingViewpoint,ready,suspendNavigation,walkLoading]);
   useEffect(()=>{if(guideRequest && ready && !suspendNavigation && !walkLoading && guideAction.current && consumedGuide.current!==guideRequest.sequence){consumedGuide.current=guideRequest.sequence;guideAction.current(guideRequest.routeId,guideRequest.index);}},[guideRequest,ready,suspendNavigation,walkLoading]);
   useEffect(() => {
@@ -431,7 +440,8 @@ export function GeometryPreview({
     let nearPlacement: string | undefined;
     let sharedDetail:ReturnType<typeof borrowedDetailPreview>|undefined;
     let sharedDetailUnavailable:((reason:'rights'|'graphics')=>void)|undefined;
-    let cancelSharedDetail=()=>{};
+    let cancelSharedDetail=()=>{},guardOriginalDetail=()=>{},canvasReturnEpoch=0,detailMountEpoch=0,deferredCanvasRestore=false;
+    let canvasRestorePromise:Promise<void>=Promise.resolve();
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);
     xrActive.current=false;setXrRunning(false);
@@ -445,7 +455,7 @@ export function GeometryPreview({
     setAssetReport({loaded:0,failed:0});
     setMessage("공간 미리보기를 준비합니다.");
     setMaterialIssueCount(0);
-    setPublicMessage("전시를 준비하고 있어요.");
+    setDetailRestoreStatus(null);setPublicMessage("전시를 준비하고 있어요.");
     setSceneIssue("");
     setArtworkNotice(undefined);
     const build = async () => {
@@ -826,8 +836,9 @@ export function GeometryPreview({
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
-      const render = () => {
-        if(sharedDetail){if(!disposed&&!gpuLost)sharedDetail.render();return;}
+      const render = (restore=false) => {
+        if(deferredCanvasRestore&&restore!==true)return false;
+        if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
         const canvas=renderer.domElement, stamp=`${authoredFov}/${camera.fov}/${camera.aspect}/${canvas.width}/${canvas.height}`;
         if(stamp!==projectionStamp){projectionStamp=stamp;canvas.dataset.cameraProjection=JSON.stringify({width:canvas.clientWidth,height:canvas.clientHeight,aspect:camera.aspect,authoredVerticalFov:authoredFov,verticalFov:camera.fov,horizontalFov:2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect)*180/Math.PI,bufferWidth:canvas.width,bufferHeight:canvas.height,pixelBudget:framePixelBudget});}
         if (!disposed && !gpuLost && !xrActive.current) {
@@ -850,7 +861,9 @@ export function GeometryPreview({
               ms: performance.now() - at,
               triangles: renderer.info.render.triangles,
             });
+          return true;
         }
+        return false;
       };
       const remoteAvatars=new Map<string,InstanceType<typeof three.Group>>();
       let avatarResources:{body:InstanceType<typeof three.CapsuleGeometry>;head:InstanceType<typeof three.SphereGeometry>;nose:InstanceType<typeof three.BoxGeometry>;material:InstanceType<typeof three.MeshBasicMaterial>}|undefined;
@@ -992,7 +1005,8 @@ export function GeometryPreview({
         controls.update();
         render();
       };
-      const resize = () => {
+      const resize = (restore=false) => {
+        if(deferredCanvasRestore&&restore!==true)return;
         if(sharedDetail){sharedDetail.render();return;}
         if (!host.current) return;
         const width = Math.max(host.current.clientWidth, 1),
@@ -1005,14 +1019,14 @@ export function GeometryPreview({
         renderer.setSize(width, height);
         camera.aspect = width / height;
         applyProjection();
-        render();
+        render(restore);
       };
       resizeAction.current = resize;
       renderer.domElement.setAttribute("aria-label", "전시 공간 3D 미리보기");
       renderer.domElement.setAttribute("role", "img");
       const lost = (event: Event) => {
         event.preventDefault();
-        gpuLost = true;
+        gpuLost = true;setDetailRestoreStatus(null);
         if(hasWorkspaceFurnishings){ownerFurnishings?.dispose();cancelAnimationFrame(ownerFurnishingFrame);ownerWorkspaceFurnishings?.invalidate();}
         clearQualityFrame();
         mapThumbnailRefresh.current?.();
@@ -1048,9 +1062,9 @@ export function GeometryPreview({
         cancelAnimationFrame(resumeFrame);
         resumeFrame = requestAnimationFrame(() => { resumeFrame = 0; if (!disposed) intent?.(); });
       };
-      const observer = new ResizeObserver(resize);
+      const observer = new ResizeObserver(()=>resize());
       observer.observe(host.current);
-      controls.addEventListener("change", render);
+      controls.addEventListener("change", ()=>{render();});
       guideAction.current=(routeId,index)=>{
         if(suspendedRef.current||xrActive.current||seatedBenchRef.current)return;
         const waypoint=document.navigation.find(r=>r.id===routeId)?.waypoints[index];
@@ -1417,7 +1431,7 @@ export function GeometryPreview({
       };
       let publicDisplayStopped = false;
       const stopPublicDisplay=()=>{
-        publicDisplayStopped = true;
+        publicDisplayStopped = true;setDetailRestoreStatus(null);
         sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;setSculptureOrbitState(undefined);
         sharedDetailUnavailable?.('rights');sharedDetail?.dispose();renderer.domElement.style.visibility='hidden';
         mapThumbnailRefresh.current?.();
@@ -1787,6 +1801,7 @@ export function GeometryPreview({
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
+        const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
         const requestLimits=(task?:{detailPromotion?:boolean;imageBudget?:DeviceBudget})=>{
           const target=task?.detailPromotion?task.imageBudget:undefined;
           return {
@@ -2474,15 +2489,22 @@ export function GeometryPreview({
         };
         viewingCallback.current?.(viewingBridge);
         const mountSharedDetail:SharedDetailPreview=async input=>{
+          const mountEpoch=++detailMountEpoch;
           const signal=AbortSignal.any([abort.signal,input.signal]);
-          signal.throwIfAborted();
-          if(disposed||gpuLost||xrActive.current||sharedDetail||!suspendedRef.current)throw Error('DETAIL_MAIN_VIEWER_UNAVAILABLE');
+          const assertMount=()=>assertDetailMountCurrent(signal,mountEpoch,detailMountEpoch,!disposed&&!gpuLost&&!publicDisplayStopped&&!xrActive.current&&!sharedDetail&&suspendedRef.current);
+          assertMount();
           const placement=document.placements.find(p=>p.id.toLowerCase()===input.placementId.toLowerCase());
           const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
-          cancelDetail?.();
-          try{await checkPublicAvailability(signal);}catch(error){if(!signal.aborted&&!disposed){stopPublicDisplay();input.unavailable('rights');}throw error;}
-          signal.throwIfAborted();
+          const detailOwner=publicSource.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
+          const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId):undefined;
+          const imageProfile=selectedProfile?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
+          // A reopened qualified original waits for the previous owned work and
+          // reservation to retire; an uncertain drain never admits a successor.
+          if(imageProfile&&detailOwner&&detailAccess&&isVerifiedStaticDetailAccess(detailOwner,detailAccess))await originalDetailSlot.whenAvailable(signal);
+          await canvasRestorePromise;assertMount();cancelDetail?.();
+          try{await checkPublicAvailability(signal);}catch(error){if(mountEpoch===detailMountEpoch&&!signal.aborted&&!disposed){stopPublicDisplay();input.unavailable('rights');}throw error;}
+          assertMount();
           if(!objects.has(art.revisionId))await new Promise<void>((resolve,reject)=>{
             const deadline=performance.now()+10000;let settled=false;
             const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;if(error)reject(error);else resolve();};
@@ -2494,9 +2516,10 @@ export function GeometryPreview({
             };
             settleDetail=check;cancelDetail=cancel;signal.addEventListener('abort',cancel,{once:true});request(art,false);check();
           });
-          signal.throwIfAborted();
+          assertMount();
           let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
+          const returnEpoch=++canvasReturnEpoch;
           const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
           // Spend no extra residency on the borrowed view until unpinned bytes
@@ -2515,9 +2538,14 @@ export function GeometryPreview({
           sharedDetailUnavailable=input.unavailable;
           let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
-          const visible=()=>{if(globalThis.document.visibilityState==='visible')void check();};
+          let originalAttempt:ReturnType<typeof startDetailImageAttempt>|undefined,originalDrawGeneration=0,originalAttached=false,originalDisplayed=false,originalBlocked=false,originalSettled=false,originalDrawSuppressed=false;
+          let redrawSettledBaseline=()=>{};
+          const previousCanvasVisibility=renderer.domElement.style.visibility;
+          let guardOriginalDraw=()=>true,resumeLegacy=()=>{},restoreHold:{key:string;bytes:number}|undefined;
+          const retireOriginal=()=>{if(originalAttempt)void originalAttempt.close().then(()=>{originalSettled=true;if(originalDrawSuppressed){originalDrawSuppressed=false;redrawSettledBaseline();}},()=>{if(alive&&!signal.aborted&&!disposed)input.unavailable('recovery');});};
+          const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
-            if(!alive)return;alive=false;clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            if(!alive)return;alive=false;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
             const pendingDetail=pending.get(art.revisionId);
@@ -2530,40 +2558,87 @@ export function GeometryPreview({
             // after a selected-only allocation is returned. Retain warm bytes
             // when they fit; never discard a displayed object to trim the cache.
             if(input.flatImage)for(const asset of arts.flatMap(work=>work.assets)){if(resident()<=assetBudgetBytes)break;byteCache.delete(asset.id);}
-            if(!disposed&&!gpuLost){
-              resize();update();
-              // Dialog teardown may run before the borrowed canvas is returned.
-              // Keep a restored opener's focus; otherwise return it to the stage.
-              if(!suspendedRef.current&&renderer.domElement.isConnected&&globalThis.document.activeElement===globalThis.document.body)renderer.domElement.focus({preventScroll:true});
-            }
+            if(originalDrain&&deferredCanvasRestore){
+              // Keep the returned canvas hidden and its drawing buffer unchanged
+              // until original-owned work, texture deletion and fence settle.
+              deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('restoring');
+              canvasRestorePromise=originalDrain.then(async()=>{
+                if(disposed||gpuLost||publicDisplayStopped||sharedDetail)throw Error('DETAIL_RESTORE_UNAVAILABLE');
+                try{
+                  const context=renderer.getContext();
+                  if(!imageProfile||typeof WebGL2RenderingContext==='undefined'||!(context instanceof WebGL2RenderingContext))throw Error('DETAIL_FENCE_UNAVAILABLE');
+                  const hold=restoreHold;if(!hold)throw Error('DETAIL_RESTORE_BUDGET');
+                  const restoreFits=()=>!!host.current&&host.current.clientWidth>0&&host.current.clientHeight>0&&host.current.clientWidth<=imageProfile.maxRestoreWidth&&host.current.clientHeight<=imageProfile.maxRestoreHeight&&globalThis.devicePixelRatio===imageProfile.devicePixelRatio;
+                  let drawnWidth=0,drawnHeight=0;
+                  await restoreDetailCanvas({peak,key:hold.key,heldBytes:hold.bytes,requiredBytes:imageProfile.restoreReservationBytes,limit:imageProfile.transitionCapBytes,draw:()=>{if(!restoreFits()||!host.current)return false;drawnWidth=host.current.clientWidth;drawnHeight=host.current.clientHeight;resize(true);update();return render(true);},complete:()=>completeDetailCommands(context),current:()=>Number.isSafeInteger(peak.total())&&peak.total()<=imageProfile.transitionCapBytes&&restoreFits()&&host.current?.clientWidth===drawnWidth&&host.current?.clientHeight===drawnHeight&&returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!context.isContextLost()&&renderer.domElement.style.visibility==='hidden',reveal:()=>{deferredCanvasRestore=false;renderer.domElement.style.visibility=previousCanvasVisibility;}});restoreHold=undefined;
+                  if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus(null);
+                }catch(error){deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';throw error;}
+              });
+              void canvasRestorePromise.catch(()=>{if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('failed');});
+            }else if(!disposed&&!gpuLost){resize();update();}
+            // A restored opener keeps focus; never focus a temporarily hidden canvas.
+            if(!deferredCanvasRestore&&!disposed&&!gpuLost&&!suspendedRef.current&&renderer.domElement.isConnected&&globalThis.document.activeElement===globalThis.document.body)renderer.domElement.focus({preventScroll:true});
           };
           const check=async()=>{
             if(!alive||checking)return;checking=true;
-            try{await checkPublicAvailability(signal);}catch{
-              if(alive&&!signal.aborted&&!disposed)stopPublicDisplay();
+            try{
+              try{await checkPublicAvailability(signal);}catch{if(alive&&!signal.aborted&&!disposed)stopPublicDisplay();return;}
+              if(originalAttempt&&originalDisplayed)try{await originalAttempt.recheck();}catch{retireOriginal();}
             }finally{checking=false;}
           };
           try{
-            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
+            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
+            redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
             if(input.flatImage){
-              // The existing scheduler owns verification, decode and peak admission.
-              // Keep the borrowed old texture until the replacement has drawn successfully.
-              promoteImage=()=>{
-                const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
-                try{scope.replaceImage(next);}catch{return;}
-                const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
-                if(retired&&previous)destroy(previous);
+              // A registered model is required before any original byte read.
+              // The current registry is empty, preserving the existing detail path.
+              const owner=detailOwner,access=detailAccess,profile=imageProfile;
+              const context=renderer.getContext();let legacyStarted=false;
+              const viewport=()=>({width:input.host.clientWidth,height:input.host.clientHeight,canvasWidth:renderer.domElement.width,canvasHeight:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
+              const startLegacy=()=>{
+                if(legacyStarted||!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;legacyStarted=true;
+                // Existing independently admitted detail remains the preflight fallback.
+                promoteImage=()=>{
+                  const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
+                  try{scope.replaceImage(next);}catch{return;}
+                  const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
+                  if(retired&&previous)destroy(previous);
+                };
+                settleDetail=promoteImage;
+                retryPromotion=createFlatDetailRetry({
+                  valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope,
+                  pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
+                  ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===(selectedImageDetail(art,viewerBudget)?.inventory??selectAssetVariant(art,0,viewerBudget)).id,
+                  request:()=>request(art,true,false,true),
+                });
+                retryFlatDetail=retryPromotion;retryPromotion();
               };
-              settleDetail=promoteImage;
-              retryPromotion=createFlatDetailRetry({
-                valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&sharedDetail===scope,
-                pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
-                ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===(selectedImageDetail(art,viewerBudget)?.inventory??selectAssetVariant(art,0,viewerBudget)).id,
-                request:()=>request(art,true,false,true),
-              });
-              retryFlatDetail=retryPromotion;retryPromotion();
+              if(profile&&sameDetailImageViewport(profile.detailViewport,viewport())&&owner&&access&&isVerifiedStaticDetailAccess(owner,access)&&typeof WebGL2RenderingContext!=='undefined'&&context instanceof WebGL2RenderingContext){
+                const admittedViewport=viewport();let legacyPending=false;
+                const scopeCurrent=()=>renderer.getContext()===context&&alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope&&isVerifiedStaticDetailAccess(owner,access);
+                const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&globalThis.document.visibilityState==='visible';
+                const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startLegacy();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
+                resumeLegacy=()=>{if(legacyPending)activateLegacy();};
+                const hints=(globalThis.navigator as Navigator&{userAgentData?:{platform:string;getHighEntropyValues(hints:string[]):Promise<{fullVersionList?:Array<{brand:string;version:string}>}>}}).userAgentData;
+                void matchesDetailRuntime(profile.runtime,context,hints,signal).then(matches=>{
+                  if(!stillCurrent()){activateLegacy();return;}if(!matches){activateLegacy();return;}
+                  const generation=++originalDetailGeneration,attemptId=`viewer-detail-${generation}-${crypto.randomUUID()}`;
+                  const current=()=>generation===originalDetailGeneration&&stillCurrent();
+                  try{
+                    originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
+                      handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
+                      isTrusted:()=>isVerifiedStaticDetailAccess(owner,access),
+                      draw:next=>{if(!current())throw Error('DETAIL_STALE');originalAttached=true;scope.replaceImage(next);},
+                      hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
+                      completeCommands:()=>completeDetailCommands(context),
+                    });
+                    guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
+                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
+                  }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal)startLegacy();}
+                }).catch(()=>{activateLegacy();});
+              }else startLegacy();
             }
             update();return scope;
           }catch(error){restore();throw error;}
@@ -2738,8 +2813,9 @@ export function GeometryPreview({
     clearQualityFrame,
   ]);
   const ControlsFrame = immersive || compactControls ? "details" : "div";
-  const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : ready ? artworkNotice : undefined;
+  const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : detailRestoreMessage ? "detail-restore" : ready ? artworkNotice : undefined;
   const noticeMessage = noticeState === "scene" ? sceneIssue
+    : noticeState === "detail-restore" ? detailRestoreMessage
     : noticeState === "unavailable" ? "작품을 불러오지 못했어요."
     : noticeState === "loading" ? "작품 불러오는 중…" : "";
   return (
@@ -2770,9 +2846,10 @@ export function GeometryPreview({
       {immersive && publicSource ? (
         <div className="viewer-artwork-notice" data-state={noticeState}>
           <p role="status">{noticeMessage}</p>
+          {noticeState==='detail-restore'&&detailRestoreStatus==='failed'&&<button onClick={()=>setRestart(n=>n+1)}>3D 다시 시작</button>}
         </div>
       ) : (
-        <figcaption hidden={publicSource && !publicMessage} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? publicMessage : message}</figcaption>
+        <figcaption hidden={publicSource && !detailRestoreMessage && !publicMessage} role="status" data-testid={publicSource ? undefined : "geometry-render-state"}>{publicSource ? (detailRestoreMessage||publicMessage) : message}</figcaption>
       )}
       {((content:ReactNode)=>immersive&&controlsHost?createPortal(content,controlsHost):content)(<ControlsFrame className="geometry-controls">
       {(immersive || compactControls) && <summary>공간 조작</summary>}

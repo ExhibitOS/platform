@@ -5,7 +5,7 @@ import { embeddedPNGManager } from './embedded-glb.js';
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {ViewerIcon} from './viewer/ViewerIcon';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Artwork } from "@exhibitos/spec";
 import type { PublicPublication } from "./publication-client";
 import { checkImageDecode, deviceBudget, fetchVerifiedAsset, selectAssetVariant } from "./viewer/loading";
@@ -15,6 +15,7 @@ import {FlatImageGesture,flatImageView,imageFit,zoomImage,type ImageViewport} fr
 import {flatImagePreview} from './viewer/flat-image-preview';
 import { DetailGesture, detailView, INITIAL_DETAIL_VIEW } from "./viewer/detail-gesture";
 import type {SharedDetailPreview,SharedDetailSession} from './viewer/borrowed-detail-preview';
+import type {DetailTier} from '@exhibitos/studio-contract';
 
 export interface DetailAnchor { id: string; position: [number, number, number]; text: string }
 export function ArtworkDetailPreview({ publication, artwork, anchors, placementId, sharedPreview, referenceTone = DEFAULT_REFERENCE_TONE }: {
@@ -26,6 +27,10 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
   const [view, setView] = useState(INITIAL_DETAIL_VIEW), [error, setError] = useState("");
   const flat=artwork.artworkType==='image';
   const [maxZoom,setMaxZoom]=useState(1);
+  const tierSession=useMemo(()=>({}),[sharedPreview,placementId,publication.publication.id,publication.publication.revisionSha256,artwork.revisionId,anchors,flat]);
+  const currentTierSession=useRef(tierSession);currentTierSession.current=tierSession;
+  const [reportedTier,setReportedTier]=useState<{session:object;tier:DetailTier}|null>(null);
+  const renderedTier=sharedPreview&&placementId&&reportedTier?.session===tierSession?reportedTier.tier:null;
   const viewport=useRef<ImageViewport>({width:1,height:1,imageWidth:1,imageHeight:1,pixelRatio:1});
   const acceptViewport=(next:ImageViewport)=>{
     const old=viewport.current;if(Object.keys(next).every(key=>next[key as keyof ImageViewport]===old[key as keyof ImageViewport]))return;
@@ -35,18 +40,22 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
   const { yaw, pitch, zoom } = view;
   const controls = useRef(view);
   const sharedSession=useRef<SharedDetailSession|null>(null);
+  const failShared=useRef<(()=>void)|null>(null);
   const hint = useId();
-  const changeView = (next: typeof view) => { next=flat?flatImageView(next,viewport.current):detailView(next); controls.current = next;sharedSession.current?.update(next); setView(next); };
+  const changeView = (next: typeof view) => { next=flat?flatImageView(next,viewport.current):detailView(next); controls.current = next;try{sharedSession.current?.update(next);}catch{failShared.current?.();} setView(next); };
   useEffect(()=>{
     if(!sharedPreview||!placementId||!host.current)return;
-    const abort=new AbortController();let session:SharedDetailSession|undefined,unavailableReported=false;
-    setError('');
-    const unavailable=(reason:'rights'|'graphics')=>{unavailableReported=true;if(!abort.signal.aborted)setError(reason==='graphics'?'3D 연결이 끊겨 상세 표시를 중단했어요. 전시로 돌아가 3D를 다시 시작하거나 아래 설명을 읽어 주세요.':'공개 상태를 확인할 수 없어 상세 표시를 중단했습니다. 설명은 아래에서 읽을 수 있어요.');};
-    void sharedPreview({placementId,host:host.current,signal:abort.signal,view:controls.current,anchors,unavailable,flatImage:flat,imageViewport:flat?acceptViewport:undefined}).then(value=>{
-      if(abort.signal.aborted){value.dispose();return;}session=value;sharedSession.current=value;value.update(controls.current);
-    }).catch(()=>{if(!abort.signal.aborted&&!unavailableReported)setError('현재 준비된 작품 표시를 사용할 수 없어요. 전시로 돌아가 작품이 준비된 뒤 다시 열거나 아래 설명을 읽어 주세요.');});
-    return()=>{abort.abort();session?.dispose();if(sharedSession.current===session)sharedSession.current=null;};
-  },[sharedPreview,placementId,anchors,flat]);
+    const target=host.current,abort=new AbortController();let session:SharedDetailSession|undefined,terminal=false,lastDrawGeneration=0;
+    setError('');setReportedTier(null);
+    const stop=()=>{if(terminal)return false;terminal=true;const owned=session;session=undefined;if(sharedSession.current===owned)sharedSession.current=null;abort.abort();try{owned?.dispose();}catch{/* UI teardown is not a drain receipt; ownership remains with the adapter. */}return true;};
+    const fail=()=>{if(stop()){setReportedTier(null);setError('현재 준비된 작품 표시를 사용할 수 없어요. 전시로 돌아가 작품이 준비된 뒤 다시 열거나 아래 설명을 읽어 주세요.');}};
+    failShared.current=fail;
+    const unavailable=(reason:'rights'|'graphics'|'restoring'|'recovery')=>{if(stop()){setReportedTier(null);setError(reason==='graphics'?'3D 연결이 끊겨 상세 표시를 중단했어요. 전시로 돌아가 3D를 다시 시작하거나 아래 설명을 읽어 주세요.':reason==='restoring'?'작품 화면을 정리하고 있어요. 아래 설명을 읽거나 전시로 돌아갈 수 있어요.':reason==='recovery'?'3D 화면을 안전하게 정리하지 못했어요. 작품 목록을 이용하거나 3D를 다시 시작해 주세요.':'공개 상태를 확인할 수 없어 상세 표시를 중단했습니다. 설명은 아래에서 읽을 수 있어요.');}};
+    void Promise.resolve().then(()=>{abort.signal.throwIfAborted();return sharedPreview({placementId,host:target,signal:abort.signal,view:controls.current,anchors,unavailable,flatImage:flat,imageViewport:flat?next=>{if(!terminal&&currentTierSession.current===tierSession)acceptViewport(next);}:undefined,renderedTier:(tier,drawGeneration)=>{if(terminal||!Number.isSafeInteger(drawGeneration)||drawGeneration<=lastDrawGeneration)return;if(tier!==null&&tier!=='acquired-original'&&tier!=='approved-full'&&tier!=='lightweight')return;lastDrawGeneration=drawGeneration;setReportedTier(tier===null?null:{session:tierSession,tier});}});}).then(value=>{
+      if(terminal){value.dispose();return;}session=value;sharedSession.current=value;value.update(controls.current);
+    }).catch(fail);
+    return()=>{if(failShared.current===fail)failShared.current=null;stop();};
+  },[sharedPreview,placementId,anchors,flat,tierSession]);
   useEffect(() => {
     const target = host.current;
     if (!target) return;
@@ -257,10 +266,11 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       <p>{flat?'두 번 누르거나 확대·축소 버튼을 사용하세요. 두 손가락 확대, 휠·트랙패드와 방향키도 사용할 수 있습니다. 이미지 비율은 유지되며 확대 한도는 준비된 이미지 해상도에 따릅니다. 화면 크기는 작품의 실제 크기와 다릅니다.':'두 손가락으로 확대할 수 있습니다. 키보드는 방향키·+/−, Home으로 초기화하며 슬라이더도 방향키로 조작할 수 있습니다. 작품의 미터 단위 좌표를 유지하는 디지털 미리보기이며 화면의 물리적 크기와는 다릅니다.'}</p>
     </details>;
   return <section aria-label={flat?'작품 정면 이미지 확대':'작품 확대 및 회전'}>
-    <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={0} role="group" aria-label={flat?'작품 이미지 확대 및 이동 조작':'작품 회전 및 확대 조작'} aria-describedby={hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
-    <p id={hint} className="detail-gesture-hint">{flat?'확대한 뒤 드래그해 살펴보세요.':'드래그해 회전하며 살펴보세요.'}</p>
+    <div className="watermark-display-stage"><div ref={host} className="detail-preview" data-testid="detail-preview" tabIndex={error?-1:0} aria-disabled={!!error||undefined} role="group" aria-label={flat?'작품 이미지 확대 및 이동 조작':'작품 회전 및 확대 조작'} aria-describedby={error?undefined:hint} /><WatermarkOverlay candidate={publication.exhibition}/></div>
+    {renderedTier&&<p className="detail-rendered-tier" role="status">{renderedTier==='acquired-original'?'현재 표시: 원본 파일':renderedTier==='approved-full'?'현재 표시: 승인된 고화질':flat?'현재 표시: 경량 이미지':'현재 표시: 경량 모델'}</p>}
+    {!error&&<p id={hint} className="detail-gesture-hint">{flat?'확대한 뒤 드래그해 살펴보세요.':'드래그해 회전하며 살펴보세요.'}</p>}
     {error && <p role="status">{error}</p>}
-    {flat?<div className="detail-image-controls" aria-label="이미지 확대">
+    {!error&&(flat?<div className="detail-image-controls" aria-label="이미지 확대">
       <button disabled={zoom<=1} onClick={()=>changeView({...controls.current,zoom:zoom/1.25})} aria-label="작품 이미지 축소" title="축소" className="detail-control-icon" style={actionSize}><ViewerIcon name="minus"/></button>
       <output aria-live="off">{Math.round(zoom*100)}%</output>
       <button disabled={zoom>=maxZoom} onClick={()=>changeView({...controls.current,zoom:zoom*1.25})} aria-label="작품 이미지 확대" title="확대" className="detail-control-icon" style={actionSize}><ViewerIcon name="plus"/></button>
@@ -271,7 +281,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       <label>작품 상하 회전 {Math.round(pitch)}° <input aria-label="작품 상하 회전" type="range" min="-90" max="90" step="5" value={pitch} onChange={e => changeView({ ...controls.current, pitch: Number(e.target.value) })} /></label>
       <label>작품 확대 {zoom.toFixed(1)}× <input aria-label="작품 확대" type="range" min=".5" max="3" step=".1" value={zoom} onChange={e => changeView({ ...controls.current, zoom: Number(e.target.value) })} /></label>
       <div className="detail-sculpture-actions"><button onClick={() => changeView({ ...INITIAL_DETAIL_VIEW })} aria-label="상세 시점 초기화" title="상세 시점 초기화" className="detail-control-icon" style={actionSize}><ViewerIcon name="fit"/></button>{helpControl}</div>
-    </>}
+    </>)}
 
   </section>;
 }

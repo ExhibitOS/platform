@@ -5,21 +5,22 @@ import {AssetPeakBudget} from './loading';
 import {borrowedDetailPreview,createFlatDetailRetry} from './borrowed-detail-preview';
 
 afterEach(()=>vi.unstubAllGlobals());
-function fixture(renderFails=false){
- let disconnected=0,released=0,geometryDisposed=0,materialDisposed=0,textureDisposed=0;
+function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,keepHiddenOnDispose?:()=>boolean,deferRestore?:()=>boolean){
+ let shouldFail=renderFails;
+ let disconnected=0,released=0,geometryDisposed=0,materialDisposed=0,textureDisposed=0,renders=0,resizes=0;
  vi.stubGlobal('ResizeObserver',class {observe(){}disconnect(){disconnected++;}});
  const attributes=new Map([['aria-label','전시 공간 3D 미리보기']]);
- const canvas={parentNode:null as unknown,nextSibling:null,width:1920,height:1080,tabIndex:0,style:{cssText:'width:1280px;height:720px'},dataset:{} as Record<string,string>,getAttribute:(name:string)=>attributes.get(name)??null,setAttribute:(name:string,value:string)=>{attributes.set(name,value);},removeAttribute:(name:string)=>{attributes.delete(name);}};
+ const canvas={parentNode:null as unknown,nextSibling:null,width:1920,height:1080,tabIndex:0,style:{cssText:'width:1280px;height:720px',visibility:''},dataset:{} as Record<string,string>,getAttribute:(name:string)=>attributes.get(name)??null,setAttribute:(name:string,value:string)=>{attributes.set(name,value);},removeAttribute:(name:string)=>{attributes.delete(name);}};
  const parent={appendChild(value:typeof canvas){value.parentNode=this;},insertBefore(value:typeof canvas){value.parentNode=this;}};parent.appendChild(canvas);
  const target={isConnected:true,clientWidth:640,clientHeight:360,appendChild(value:typeof canvas){value.parentNode=this;}};
  let width=1280,height=720,ratio=1.5,lastScene:three.Scene|undefined;
- const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){lastScene=scene;if(renderFails)throw Error('GPU_UNAVAILABLE');}};
- const texture=new three.Texture(),geometry=new three.BoxGeometry(2,3,1),material=new three.MeshStandardMaterial({map:texture});
+ const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){resizes++;width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){renders++;lastScene=scene;if(shouldFail)throw Error('GPU_UNAVAILABLE');}};
+ const texture=new three.Texture({width:4,height:3}),geometry=new three.BoxGeometry(2,3,1),material=new three.MeshStandardMaterial({map:texture});
  geometry.addEventListener('dispose',()=>geometryDisposed++);material.addEventListener('dispose',()=>materialDisposed++);texture.addEventListener('dispose',()=>textureDisposed++);
  const object=new three.Mesh(geometry,material);object.position.set(1,2,3);object.updateMatrixWorld(true);
  const before=object.matrixWorld.toArray(),abort=new AbortController();
- const create=()=>borrowedDetailPreview({three,renderer:renderer as unknown as three.WebGLRenderer,object,request:{placementId:'placement',host:target as unknown as HTMLElement,signal:abort.signal,view:{yaw:0,pitch:0,zoom:1},anchors:[{id:'note',position:[0,0,0],text:'annotation'}],unavailable(){}},environment:()=>({map:null,intensity:.45}),onRelease(){released++;}});
- return {canvas,parent,target,object,geometry,material,before,abort,create,read:()=>({width,height,ratio,lastScene,disconnected,released,geometryDisposed,materialDisposed,textureDisposed})};
+ const create=()=>borrowedDetailPreview({three,renderer:renderer as unknown as three.WebGLRenderer,object,request:{placementId:'placement',host:target as unknown as HTMLElement,signal:abort.signal,view:{yaw:0,pitch:0,zoom:1},beforeRender,flatImage,keepHiddenOnDispose,deferRestore,anchors:[{id:'note',position:[0,0,0],text:'annotation'}],unavailable(){}},environment:()=>({map:null,intensity:.45}),onRelease(){released++;}});
+ return {canvas,parent,target,object,geometry,material,before,abort,create,setRenderFails:(value:boolean)=>{shouldFail=value;},read:()=>({width,height,ratio,lastScene,disconnected,released,geometryDisposed,materialDisposed,textureDisposed,renders,resizes})};
 }
 
 test('borrows one canvas and mesh resources; abort restores dimensions and releases only annotations once',()=>{
@@ -60,4 +61,24 @@ test('deferred flat detail retries once when budget frees, without duplicate or 
  for(let i=0;i<5;i++)f.tick();expect(f.read().attempts).toBe(2);
  f.complete();f.tick();expect(f.read()).toMatchObject({attempts:2,pending:false,ready:true});
  for(const stop of ['close','abort','replace'] as const){const ended=deferred();ended.tick();if(stop==='close')ended.close();else if(stop==='abort')ended.abort.abort();else ended.replace();ended.free();ended.time(500);ended.tick();expect(ended.read().attempts,stop).toBe(1);}
+});
+
+test('suppresses every direct borrowed draw after the owner guard becomes invalid',()=>{
+ let allowed=true;const f=fixture(false,()=>allowed),session=f.create(),before=f.read().renders;allowed=false;session.update({yaw:20,pitch:0,zoom:1});session.render();expect(f.read().renders).toBe(before);session.dispose();expect(f.read().released).toBe(1);
+});
+
+test('a failed baseline redraw can block later direct renders instead of redrawing the rolled-back image',()=>{
+ let blocked=false;const f=fixture(false,()=>!blocked,true),session=f.create();session.replaceImage(f.object);f.setRenderFails(true);try{session.replaceImage(f.object);}catch{blocked=true;}f.setRenderFails(false);const count=f.read().renders;session.update({yaw:0,pitch:0,zoom:1});session.render();expect(f.read().renders).toBe(count);session.dispose();expect(f.read().released).toBe(1);
+});
+
+test('retains hidden canvas presentation during blocked scope return without freeing gallery resources',()=>{
+ const f=fixture(false,undefined,true,()=>true),scope=f.create();scope.dispose();expect(f.canvas.parentNode).toBe(f.parent);expect(f.canvas.style.visibility).toBe('hidden');expect(f.read()).toMatchObject({released:1,geometryDisposed:0,materialDisposed:0,textureDisposed:0});
+});
+
+test('returns a hidden canvas without resizing its buffer while an original attempt drains',()=>{
+ const f=fixture(false,undefined,true,()=>true,()=>true),scope=f.create(),before=f.read();scope.dispose();expect(f.canvas.parentNode).toBe(f.parent);expect(f.canvas.style.visibility).toBe('hidden');expect(f.read().resizes).toBe(before.resizes);expect(f.read()).toMatchObject({released:1,geometryDisposed:0,materialDisposed:0,textureDisposed:0});
+});
+
+test('does not reset the drawing buffer for unchanged detail draws or interaction',()=>{
+ const f=fixture(false,undefined,true),scope=f.create(),count=f.read().resizes;scope.render();scope.update({yaw:0,pitch:0,zoom:1.5});scope.replaceImage(f.object);expect(f.read().resizes).toBe(count);scope.dispose();
 });

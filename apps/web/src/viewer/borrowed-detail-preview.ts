@@ -4,13 +4,23 @@ import {metricCameraFit} from './metric-model';
 import {flatImagePreview} from './flat-image-preview';
 import type {ImageViewport} from './flat-image-view';
 import type {DetailView} from './detail-gesture';
+import type {DetailTier} from '@exhibitos/studio-contract';
 
 export interface SharedDetailSession {update(view:DetailView):void;dispose():void}
 export interface SharedDetailRequest {
  placementId:string;host:HTMLElement;signal:AbortSignal;view:DetailView;
  anchors:readonly {id:string;position:[number,number,number];text:string}[];
  flatImage?:boolean;imageViewport?(viewport:ImageViewport):void;
- unavailable(reason:'rights'|'graphics'):void;
+ /** Return false to suppress this draw before any renderer command is issued. */
+ beforeRender?():boolean;
+ /** Keep the shared canvas hidden until its owner has drawn a safe gallery frame. */
+ keepHiddenOnDispose?():boolean;
+ /** When an owned original is draining, the canvas owner will resize later. */
+ deferRestore?():boolean;
+ /** The renderer owner reports only committed draws, or null when removed.
+  * Draw generations are positive, strictly increasing within this session. */
+ renderedTier?(tier:DetailTier|null,drawGeneration:number):void;
+ unavailable(reason:'rights'|'graphics'|'restoring'|'recovery'):void;
 }
 export type SharedDetailPreview=(request:SharedDetailRequest)=>Promise<SharedDetailSession>;
 
@@ -22,7 +32,7 @@ export function borrowedDetailPreview(input:{
  three:typeof Three;renderer:Three.WebGLRenderer;object:Three.Object3D;
  request:SharedDetailRequest;environment:()=>{map:Three.Texture|null;intensity:number};
  onRelease():void;
-}):SharedDetailSession&{render():void;replaceImage(object:Three.Object3D):void}{
+}):SharedDetailSession&{render():boolean;replaceImage(object:Three.Object3D):void}{
  const {three,renderer,request}=input,canvas=renderer.domElement;
  request.signal.throwIfAborted();
  const parent=canvas.parentNode,next=canvas.nextSibling;
@@ -45,26 +55,29 @@ export function borrowedDetailPreview(input:{
  const camera=new three.PerspectiveCamera(45,1,.01,100);
  let view=request.view,disposed=false;
  const render=()=>{
-  if(disposed)return;
+  if(disposed||request.beforeRender?.()===false)return false;
   const width=Math.max(1,request.host.clientWidth),height=Math.max(1,request.host.clientHeight);
-  renderer.setPixelRatio(Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height))));renderer.setSize(width,height,false);
-  if(flat){const state=flat.render(renderer,width,height,view);request.imageViewport?.(state.viewport);canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});return;}
+  const ratio=Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height)));
+  if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
+  const current=renderer.getSize(new three.Vector2());
+  if(current.x!==width||current.y!==height||canvas.width!==Math.floor(width*ratio)||canvas.height!==Math.floor(height*ratio))renderer.setSize(width,height,false);
+  if(flat){const state=flat.render(renderer,width,height,view);request.imageViewport?.(state.viewport);canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});return true;}
   camera.aspect=width/height;
   const fit=metricCameraFit(extent,camera.aspect,view.zoom);camera.near=fit.near;camera.far=fit.far;camera.updateProjectionMatrix();
   camera.position.copy(centre).add(new three.Vector3(0,0,fit.distance));camera.lookAt(centre);
   pivot.rotation.set(view.pitch*Math.PI/180,view.yaw*Math.PI/180,0,'YXZ');
   const environment=input.environment();scene.environment=environment.map;scene.environmentIntensity=environment.intensity;
   renderer.render(scene,camera);
-  canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,rotationX:pivot.rotation.x,rotationY:pivot.rotation.y,zoom:view.zoom,cameraPosition:camera.position.toArray(),clipping:[camera.near,camera.far],artifactBounds:{min:box.min.toArray(),max:box.max.toArray()},anchors:request.anchors.map(a=>a.position)});
+  canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,rotationX:pivot.rotation.x,rotationY:pivot.rotation.y,zoom:view.zoom,cameraPosition:camera.position.toArray(),clipping:[camera.near,camera.far],artifactBounds:{min:box.min.toArray(),max:box.max.toArray()},anchors:request.anchors.map(a=>a.position)});return true;
  };
  const observer=new ResizeObserver(render);
  const dispose=()=>{
   if(disposed)return;disposed=true;observer.disconnect();request.signal.removeEventListener('abort',dispose);
   flat?.dispose();scene.clear();markerGeometry?.dispose();markerMaterial?.dispose();
-  delete canvas.dataset.detailState;canvas.style.cssText=saved.style;canvas.tabIndex=saved.tabIndex;
+  delete canvas.dataset.detailState;let keepHidden:boolean;try{keepHidden=request.keepHiddenOnDispose?.()===true;}catch{keepHidden=true;}canvas.style.cssText=saved.style;if(keepHidden)canvas.style.visibility='hidden';canvas.tabIndex=saved.tabIndex;
   if(saved.label===null)canvas.removeAttribute('aria-label');else canvas.setAttribute('aria-label',saved.label);
   if(next?.parentNode===parent)parent.insertBefore(canvas,next);else parent.appendChild(canvas);
-  renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);
+  let deferred:boolean;try{deferred=request.deferRestore?.()===true;}catch{deferred=true;}if(!deferred){renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);}
   input.onRelease();
  };
  try{
