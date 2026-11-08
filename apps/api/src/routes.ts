@@ -230,7 +230,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(freezes&&!freshOexTest){if(deferredStartup)deferredStartup.push(async()=>{await freezes.recover();});app.addHook('onReady',async()=>{await pool.query('SELECT 1 FROM exhibition_freezes LIMIT 0');if(!deferredStartup)await freezes.recover();});}
  const oex=store?new Oex(pool,store,nativeOexWorkspace,workspaceMaterial,workspaceFurnishing):null;
  if(nativeExportWorkspace&&store instanceof FileBlobStore&&oex)registerNativeBoundedOexExport(app,{auth,config:input,context:nativeExportWorkspace,blobRoot:store.root,oex,guard:(req,mutate)=>guarded(req,mutate),token});
- if(nativeDetailContext&&store instanceof FileBlobStore)registerNativeDetailHttp(app,{auth,context:nativeDetailContext,guard:(req,mutate)=>guarded(req,mutate),token});
+ if(nativeDetailContext&&store instanceof FileBlobStore)registerNativeDetailHttp(app,{auth,context:nativeDetailContext,guard:(req,mutate)=>guarded(req,mutate),token,...(nativeOexWorkspace?{original:{studio,cms:new Cms(store),imports:new Imports(pool,store,nativeOexWorkspace),blobs:store}}:{})});
  const requireOex=()=>{if(!oex)throw new ApiError(503,'STORAGE_UNAVAILABLE');return oex;};
  const op=`${prefix}/oex/imports`,jobId=(req:FastifyRequest)=>(req.params as {id:string}).id;
  app.post(`${sp}/:id/oex/export`,{schema:{body:object({})}},call(true,async(c,s,req,reply)=>{const bytes=await requireOex().export(c,s,jobId(req),requiredMatch(req.headers['if-match']));return reply.header('content-type','application/vnd.exhibitos.oex+zip').header('content-disposition','attachment; filename="exhibition.oex"').send(bytes);}));
