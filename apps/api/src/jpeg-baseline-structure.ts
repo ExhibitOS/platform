@@ -21,6 +21,6 @@ export function inspectBaselineJpegStructure(data:Buffer){
   else if(marker===0xe2&&end-start>=12&&data.subarray(start,start+12).equals(Buffer.from('ICC_PROFILE\0','binary'))){if(end-start<=14)fail();const sequence=data[start+12]!,count=data[start+13]!;iccBytes+=end-start-14;if(iccBytes>131072||!count||!sequence||sequence>count||iccCount&&iccCount!==count||icc.has(sequence))fail();iccCount=count;icc.set(sequence,data.subarray(start+14,end));}
   else if(!(marker>=0xe0&&marker<=0xef||marker===0xfe))fail();
  }
- if(!eoi||!scan||!width||!height||icc.size!==iccCount)fail();const profile=Buffer.concat(Array.from({length:iccCount},(_,i)=>icc.get(i+1)??fail()));if(profile.length&&(profile.length<128||profile.readUInt32BE(0)!==profile.length||profile.toString('ascii',36,40)!=='acsp'))fail();
+ if(!eoi||!scan||!width||!height||icc.size!==iccCount)fail();const profile=Buffer.concat(Array.from({length:iccCount},(_,i)=>icc.get(i+1)??fail()));if(profile.length&&(profile.length<128||profile.readUInt32BE(0)!==profile.length||profile.readUInt32BE(36)!==0x61637370))fail();
  return {codec:'jpeg' as const,width,height,bitDepth:8,channels:3,frameCount:1,interlaced:false,iccBytes:profile.length,iccSha256:profile.length?createHash('sha256').update(profile).digest('hex'):undefined};
 }
