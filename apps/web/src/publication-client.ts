@@ -1,6 +1,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import type { Session } from "./cms-client";
 import type {CoverVariantDescriptor} from './cover-variant-descriptor.mjs';
+import type {DetailCandidate} from '@exhibitos/studio-contract';
 import { request, RequestError } from "./cms-client";
 export interface ReadyIssue {
   code: string;
@@ -28,7 +29,9 @@ export interface PublicAsset {
 export interface PublicResource {sha256:string;bytes:number;mime:string;url:string}
 export interface PublicFurnishingNotice extends PublicResource {assetId:string}
 /** Only constructed by verified offline preparation; never accepted from HTTP JSON. */
-export interface LocalPublicationSource {kind?: "static"; verifiedIndexSha256?:string; dynamic?: boolean; fetcher: typeof fetch; floorFetcher?:typeof fetch; retainedMaterialBytes?:number; check(): Promise<void>}
+type DeepReadonly<T> = T extends (...args:never[])=>unknown ? T : T extends object ? {readonly [K in keyof T]:DeepReadonly<T[K]>} : T;
+export interface DetailAccess {readonly revisionSha256:string; candidatesFor(artworkRevisionId:string):Promise<readonly DeepReadonly<DetailCandidate>[]>; recheck(candidateId:string,signal:AbortSignal):Promise<void>; fetch(candidateId:string,signal:AbortSignal):Promise<Uint8Array>}
+export interface LocalPublicationSource {kind?: "static"; verifiedIndexSha256?:string; dynamic?: boolean; fetcher: typeof fetch; floorFetcher?:typeof fetch; retainedMaterialBytes?:number; detailAccess?:DetailAccess; check(): Promise<void>}
 export interface PublicPublication {
   local?: LocalPublicationSource;
   publication: {
