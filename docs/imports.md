@@ -2,7 +2,7 @@
 
 ## Bounded model preparation worker
 
-`prepareCompactModelInWorker(originalBytes, {bytes, sha256}, hooks)` is the shared producer seam for `embedded-model-compact-20k-512-v1`. The identity comes from a durable authenticated import job, never an asset-specific source allowlist. This source unit does not by itself expose a Manager intake or confer publication approval. Required preparation intent and durable job integration are separate from the existing optional `model-texture-pair` behavior below.
+`prepareCompactModelInWorker(originalBytes, {bytes, sha256}, hooks)` is the shared producer seam for `embedded-model-compact-20k-512-v1`. The identity comes from a durable authenticated import job, never an asset-specific source allowlist. The ordinary import hook below uses this seam; it does not confer publication approval. Required preparation intent and durable job integration remain separate from the existing optional `model-texture-pair` behavior below.
 
 The bounded subset is a static, self-contained GLB with one identity node, one indexed triangle primitive and material, Float32 position/normal/UV streams, and embedded RGB base colour plus optional distinct normal and grayscale/RGB occlusion images. It accepts bounded baseline eight-bit JPEG or PNG through the isolated product decoder. No external resources, extensions, animation, transforms, ICC profiles, alpha, inferred units or physical rescaling are accepted by this recipe. The source is limited to 32 MiB, 131,072 vertices, 200,000 triangles and three images of at most 4,096 × 4,096 pixels, with 16 MiB aggregate compressed image bytes. A source outside this subset remains unsupported; this does not change the ordinary decoder's admission.
 
@@ -12,6 +12,36 @@ The worker pins the packaged meshoptimizer 1.1.1 and sharp 0.35.4/vips 8.18.6/mo
 
 The promise settles only after both child `close` events. Optional `writerFd` must be a live caller-owned native writer descriptor; it is inherited by preparation and validation. `AbortSignal` kills the current owned child and still awaits close. A private parent pipe terminates an orphan preparation worker. `MODEL_PREPARATION_*` failures never return a usable result; callers must retain the original and must not present required failed preparation as ready for review. A successful worker result remains distinct from explicit artwork approval, save/reopen, export and actual Viewer use.
 
+
+## Required compact preparation on ordinary imports
+
+Catalog 045 adds a distinct `model_preparation` record to the existing import job. It preserves the optional 022 texture-pair semantics and existing image preparation. An authenticated session advertises `modelPreparationProfile: "embedded-model-compact-20k-512-v1"` only when the column/constraint and bounded blob reader are available. Native execution also requires the existing authenticated, issued writer lease, matching workspace/principal, and live physical owner. The native entry passes that issued guard into `Imports`; neither HTTP fields nor a raw environment descriptor establish authority.
+
+Add this closed optional field to the ordinary `POST /api/v1/tenants/:tenantId/imports` body:
+
+```json
+{
+  "modelPreparation": {
+    "version": 1,
+    "profileId": "embedded-model-compact-20k-512-v1",
+    "operationID": "same-as-idempotencyKey",
+    "generation": "durably-saved-transfer-generation",
+    "artworkRevision": 1
+  }
+}
+```
+
+`operationID` and `generation` use the existing 1–128 character `[A-Za-z0-9][A-Za-z0-9._-]*` token grammar. The operation equals the existing idempotency key. `artworkRevision` is the current mutable draft revision, including a newly created artwork at revision 1; no previous approval is required. This field is exclusive with `modelDerivation`, `coarsePreparation` and client-declared `derived`. It uses the existing GLB MIME, declared original hash/size, rights and scale fields. The recipe preserves source coordinates; declared scale/physical dimensions still come from the author. A provisional imported-demo replacement is a separate operation and is not admitted by this hook.
+
+The existing `PUT .../:jobId/bytes`, `POST .../:jobId/complete`, `GET .../:jobId`, retry and cancellation endpoints remain unchanged. Persist the intent/idempotency key before the first POST and the job ID before upload. Identical replay returns the same job; changed replay conflicts. Completion queues automatic shared preparation, validates the generated display using the ordinary decoder, rechecks owner/rights/revision and atomically records the original, display and lineage. Required preparation failure preserves the uploaded original and commits no display asset. The worker never falls back to approving an unsupported original. Compatible supported originals retain exact bytes and use one asset ID for both original and display.
+
+Every required-profile response contains flattened intent fields plus `required: true`, `status` (`pending`, `processing`, `ready`, `failed`, `cancelled`), `workerDrained` and `original: {mime, sha256, bytes}`. Before ready it omits top-level `assetId`, `original.assetId`, `display` and `serverReceipt`. Ready adds committed `original.assetId`, `display: {assetId, mime, sha256, bytes, reusedOriginal}` and the typed `serverReceipt`; display ID equals the top-level asset ID. Equal original/display IDs are allowed only for exact reused bytes/hash. Generated displays have distinct IDs and private original custody. Even an internally committed `approved` import row remains `processing` without usable output identity until all actual worker tokens have drained. That import state is separate from the existing explicit CMS artwork approval.
+
+`ModelPreparationServerReceipt` in `model-preparation-intent.ts` is the authoritative typed wire: version/profile/recipe digest, job/artwork/current revision, operation/generation, rights digest, original/display bindings, typed producer metrics and a canonical SHA-256. The server reconstructs and verifies it against the authoritative job plus committed assets/rights/lineage on ready reads and explicit approval. Clients decode semantic fields and retain the digest for correlation; they must not claim independent digest verification by reserializing floating-point JSON. No private paths or physical writer identifiers appear in this receipt.
+
+`INVALID_MODEL_PREPARATION`, `MODEL_PREPARATION_CONTEXT_CHANGED`, `MODEL_PREPARATION_RECEIPT_INVALID`, safe `MODEL_PREPARATION_*` worker errors and `WORKER_DRAIN_UNCONFIRMED` distinguish malformed intent, changed authority/content, invalid evidence, unsupported generation and an unresolved worker. Existing `errorCode` and `retryAt` remain authoritative. Retry uses the same retained input/job only after the existing backoff and actual drain checks. Current rights and revision are rechecked before explicit CMS approval, which remains a separate user action.
+
+Normal native close already awaits the running import and both child processes before returning its owner lease; queued/failed input and committed receipts survive reopen. An unclean process loss with an unresolved invocation token stays closed/uncertain. There is no timeout-based drain claim, PID-only recovery, automatic lease takeover or generic historical migration. A supported native app-closed proof is required before any future narrow recovery can clear such a token. This source operation does not itself qualify a Manager package, live profile transition, save/export, public display or visual equivalence.
 
 ## Original lineage for an already registered frame
 

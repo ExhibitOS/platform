@@ -1,3 +1,4 @@
+import {assertRequiredModelApproval} from './model-preparation-approval.ts';
 import {loadModelPairApproval,applyModelPairApproval} from './approved-model-pair.ts';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
@@ -383,6 +384,7 @@ export class Cms {
     );
     const asset = result.rows[0];
     if (!asset) throw new ApiError(409, "ASSET_NOT_APPROVED");
+    await assertRequiredModelApproval(c,s,id,b.assetId);
     if(a.metadata.displayReference&&(asset.mime!=='model/gltf-binary'||asset.sha256!==a.metadata.displayReference.assetSha256||Number(asset.scale_meters)!==1))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
     if(asset.mime==='model/gltf-binary'&&a.metadata.dimensions.depth===undefined)throw new ApiError(422,'MODEL_DEPTH_REQUIRED');
     if (!allowedRights(a.metadata.rights, "display"))
