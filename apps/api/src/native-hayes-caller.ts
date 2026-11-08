@@ -36,7 +36,8 @@ export function resolveHayesReady(admission:unknown,owner:NativeOexWorkspaceCont
 export function isIssuedNativeHayesCaller(value:unknown,owner:NativeOexWorkspaceContext|undefined,blobs:BlobStore|undefined):boolean{const issued=value&&typeof value==='object'?issuedCallers.get(value):undefined;return !!issued&&issued.owner===owner&&issued.blobs===blobs;}
 /** Internal native bootstrap only: `channel`, pin and assertLive come from the
  * same authenticated Manager session, never a request. This cannot authorize
- * output approval, drain, cleanup or publication. */
+ * output work except through the selected 044 one-shot path. A receipt or
+ * completion record is not a public artwork publication. */
 export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;auth:Auth;blobs:BlobStore;channel:Channel;runtimeGeneration:string;nativeOwnerId:string;runtimeManifestSha256:string;signal:AbortSignal;assertLive:()=>Promise<void>;onClaimCommitted?:(binding:HayesOperationBinding,monotonicNs:string)=>void;onProbePhase?:(phase:string,monotonicNs:string,code?:string)=>void}){
  const {owner,auth,blobs,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal,assertLive}=input;
  if(!isHayesOriginalContext(owner)||!(auth instanceof Auth)||!blobs.getBounded||!channel||typeof channel.send!=='function'||typeof channel.receive!=='function'||typeof channel.close!=='function'||typeof channel.isOpen!=='function'||!uuid.test(runtimeGeneration)||!uuid.test(nativeOwnerId)||!hex.test(runtimeManifestSha256)||!signal||typeof assertLive!=='function'||claimedChannels.has(channel)||!channel.isOpen())throw new ApiError(403,'FORBIDDEN');
