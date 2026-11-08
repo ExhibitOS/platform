@@ -50,8 +50,11 @@ export async function createHayesOriginalQuarantine(c:PoolClient,s:Session,owner
 /** Must execute inside the authenticated operation transaction. The manager
  * callback proves its live session, not worker completion or stage disposal.
  * The Manager must not start the worker until this transaction has committed. */
-export async function openHayesOriginalAttempt(c:PoolClient,s:Session,owner:NativeOexWorkspaceContext,blobs:BlobStore,input:unknown,assertManagerLive:(binding:HayesOperationBinding)=>Promise<void>):Promise<HayesOperationBinding>{
+export async function openHayesOriginalAttempt(c:PoolClient,s:Session,owner:NativeOexWorkspaceContext,blobs:BlobStore,input:unknown,assertManagerLive:(binding:HayesOperationBinding)=>Promise<void>,operationDeadlineMs?:number):Promise<HayesOperationBinding>{
  const b=parseHayesOperationBinding(input);
+ // Only the internal native caller supplies its already fenced absolute
+ // deadline. Other existing callers retain the 30-second selected lease.
+ if(operationDeadlineMs!==undefined&&(!Number.isSafeInteger(operationDeadlineMs)||operationDeadlineMs<=Date.now()||operationDeadlineMs>Date.now()+300000))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
  if(!issued.has(owner)||owner.tenantId!==s.tenantId||owner.principalId!==s.userId||owner.workspaceId!==b.workspaceId||b.tenantId!==s.tenantId||b.principalId!==s.userId||typeof assertManagerLive!=='function'||!blobs.getBounded)throw new ApiError(403,'FORBIDDEN');
  await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
  await owner.assertDatabase(c);await catalog(c);await assertManagerLive(b);
@@ -63,7 +66,7 @@ export async function openHayesOriginalAttempt(c:PoolClient,s:Session,owner:Nati
  const source=Buffer.from(await blobs.getBounded(row.object_key,b.sourceBytes));try{if(source.length!==b.sourceBytes||sha256(source)!==b.sourceSha256)throw new ApiError(409,'HAYES_SOURCE_CHANGED');}finally{source.fill(0);}
  await owner.assertDatabase(c);await catalog(c);await assertManagerLive(b);
  await c.query('INSERT INTO hayes_original_attempts(tenant_id,id,workspace_id,principal_id,job_id,lease_id,runtime_generation,correlation_id,artwork_id,artwork_revision,source_sha256,source_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[b.tenantId,b.attemptId,b.workspaceId,b.principalId,b.jobId,b.leaseId,b.runtimeGeneration,b.correlationId,b.artworkId,b.artworkRevision,b.sourceSha256,b.sourceBytes]);
- const claimed=await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',hayes_attempt_id=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='queued' AND hayes_attempt_id IS NULL AND attempts<5 RETURNING id",[b.tenantId,b.jobId,b.leaseId,b.attemptId]);
+ const claimed=await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=CASE WHEN $5::timestamptz IS NULL THEN clock_timestamp()+interval '30 seconds' ELSE LEAST($5::timestamptz,clock_timestamp()+interval '5 minutes') END,hayes_attempt_id=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='queued' AND hayes_attempt_id IS NULL AND attempts<5 RETURNING id",[b.tenantId,b.jobId,b.leaseId,b.attemptId,operationDeadlineMs===undefined?null:new Date(operationDeadlineMs)]);
  if(claimed.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');await assertManagerLive(b);if(!allowedRights(row.rights,'display')||!allowedRights(row.rights,'export'))throw new ApiError(409,'HAYES_SOURCE_CHANGED');const live=await c.query("SELECT 1 FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND hayes_attempt_id=$4 AND lease_until>clock_timestamp()",[b.tenantId,b.jobId,b.leaseId,b.attemptId]);if(live.rowCount!==1||!allowedRights(row.rights,'display')||!allowedRights(row.rights,'export'))throw new ApiError(409,'HAYES_SOURCE_CHANGED');return b;
 }
 
