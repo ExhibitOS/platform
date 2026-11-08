@@ -142,9 +142,17 @@ export class Auth {
  async asset(client:PoolClient,s:Session,id:string,permission: false|'export'|'download'=false) {
   const role=await membership(client,{tenantId:s.tenantId,userId:s.userId});
   if (!['admin','artist'].includes(role)) throw new AccessDenied();
-  const result=await client.query('SELECT a.id,a.artwork_id,a.sha256,a.bytes,a.mime,a.state,a.object_key,r.metadata AS rights FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.id=$2 AND a.deleted_at IS NULL AND r.deleted_at IS NULL',[s.tenantId,id]);
+  const result=await client.query(`SELECT a.id,a.artwork_id,a.sha256,a.bytes,a.mime,a.state,a.object_key,r.metadata AS rights,
+    EXISTS (
+      SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
+      AND j.derived->>'kind'='product-image-pair'
+      AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
+    ) AS product_image_output
+    FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
+    WHERE a.tenant_id=$1 AND a.id=$2 AND a.deleted_at IS NULL AND r.deleted_at IS NULL`,[s.tenantId,id]);
   const row=result.rows[0]; if (!row) throw new AccessDenied();
   const artwork=await artworkAccess(client,{tenantId:s.tenantId,userId:s.userId},row.artwork_id);
+  if(row.product_image_output&&(artwork.approved_asset_id!==id||artwork.approved_revision!==artwork.revision))throw new AccessDenied();
   if (permission) {
    if (!allowedRights(row.rights,permission)||(artwork.cms_managed||artwork.metadata?.rights!==undefined)&&!allowedRights(artwork.metadata?.rights,permission)) throw new ApiError(403,'RIGHTS_DENIED');
    return {authorized:true,assetId:id,scope:'authorization-only',packageProduced:false};

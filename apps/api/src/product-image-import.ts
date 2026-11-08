@@ -10,6 +10,7 @@ import {PRODUCT_IMAGE_LIMITS} from './product-image-preparation.ts';
 import {prepareProductImageInWorker} from './product-image-preparation-process.ts';
 import {canonicalImageHash,productImageIntent,storedProductImage,productImageReceipt,type ProductImageState,type ProductImageReceipt} from './product-image-intent.ts';
 export async function createProductImageImport(imports:Imports,c:PoolClient,s:Session,input:ImportInput){
+ if(!imports.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
  const request=productImageIntent(input.coarsePreparation);await imports.requiredModelReady(c,s);const owner=await imports.coarseOwner(c,s.tenantId,s.userId);
  if(input.mime!=='image/jpeg'||input.derived!==undefined||input.modelDerivation!==undefined||input.modelPreparation!==undefined||input.scaleMeters!==1||!Number.isSafeInteger(input.bytes)||input.bytes<4||input.bytes>PRODUCT_IMAGE_LIMITS.sourceBytes||!/^[a-f0-9]{64}$/.test(input.sha256)||typeof input.idempotencyKey!=='string'||input.idempotencyKey.length<1||input.idempotencyKey.length>128||!validRights(input.rights))throw new ApiError(400,'IMAGE_PREPARATION_INPUT_INVALID');
  await artworkAccess(c,s,input.artworkId,true);await c.query('SELECT id FROM artworks WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,input.artworkId]);
@@ -52,8 +53,17 @@ export async function workProductImageImport(imports:Imports,row:Record<string,u
   const body={version:1 as const,jobId:String(row.id),artworkId:String(row.artwork_id),artworkRevision:state.request.artworkRevision,workspaceId:state.workspaceId,principalId:state.principalId,rightsSHA256:canonicalImageHash(row.rights),original:{assetId:originalId,sha256:String(row.expected_hash),bytes:Number(row.expected_bytes),mime:'image/jpeg' as const},full:{...result.receipt.full,assetId:fullId,mime:'image/png' as const},...(coarseId?{coarse:{...result.receipt.coarse!,assetId:coarseId,mime:'image/png' as const}}:{}),producer:result.receipt};
   const receipt:ProductImageReceipt={...body,sha256:canonicalImageHash(body)},derived={...state,result:receipt};
   productImageReceipt({...live,state:'approved',derived,asset_id:fullId,original_asset_id:originalId,approved_key:approvedKey});
-  const put=async(key:string,b:Buffer)=>{await imports.blobs.put(key,b);if(sha256(Buffer.from(await imports.boundedBlob(key,b.length)))!==sha256(b))throw new ApiError(409,'ASSET_INTEGRITY');};
-  await put(String(row.derived_object_key),result.full);if(result.coarse)await put(coarseKey,result.coarse);await put(approvedKey,result.full);await hooks?.afterCopy?.();if(writer)await writer.assertLive();
+  const putDurable=imports.blobs.putDurable?.bind(imports.blobs);
+  if(!putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
+  const put=async(key:string,bytes:Buffer)=>{
+   await putDurable(key,bytes);
+   if(sha256(Buffer.from(await imports.boundedBlob(key,bytes.length)))!==sha256(bytes))throw new ApiError(409,'ASSET_INTEGRITY');
+  };
+  await put(String(row.derived_object_key),result.full);if(result.coarse)await put(coarseKey,result.coarse);await put(approvedKey,result.full);await hooks?.afterCopy?.();
+  await imports.requiredModelReady(c,{tenantId:String(row.tenant_id),userId:String(row.user_id)});
+  await imports.coarseOwner(c,String(row.tenant_id),String(row.user_id),state.workspaceId);
+  if(writer)await writer.assertLive();
+  if(!allowedRights(live.rights,'display')||!allowedRights(live.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
   await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[row.tenant_id,rightsId,row.rights]);
   for(const [binding,key,assetState] of [[receipt.original,row.object_key,'quarantine'],[receipt.full,approvedKey,'approved'],...(receipt.coarse?[[receipt.coarse,coarseKey,'approved']]:[])] as const){const b=binding as ProductImageReceipt['original']|ProductImageReceipt['full'];await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,1,$9)",[row.tenant_id,b.assetId,row.artwork_id,rightsId,key,b.sha256,b.bytes,b.mime,assetState]);}
   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[row.tenant_id,randomUUID(),originalId,{version:1,kind:'product-image-preparation',serverReceipt:receipt,provenance:'server-generated'}]);

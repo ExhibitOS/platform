@@ -383,7 +383,12 @@ export class Cms {
     if (!validMetadata(a.metadata)) throw new ApiError(400, "INVALID_METADATA");
     uuid(b.assetId);
     const result = await c.query(
-      "SELECT a.*,r.metadata AS rights,r.revision AS rights_revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL",
+      `SELECT a.*,r.metadata AS rights,r.revision AS rights_revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
+          AND j.derived->>'kind'='product-image-pair'
+          AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
+        )`,
       [s.tenantId, id, b.assetId],
     );
     const asset = result.rows[0];

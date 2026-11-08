@@ -121,7 +121,11 @@ export class Imports {
  async upload(c:PoolClient,s:Session,id:string,bytes:Buffer){
   const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
-  await this.blobs.put(row.object_key,bytes);return {received:bytes.length};
+  if(storedProductImage(row)){
+   if(!this.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
+   await this.blobs.putDurable(row.object_key,bytes);
+  }else await this.blobs.put(row.object_key,bytes);
+  return {received:bytes.length};
  }
  async complete(c:PoolClient,s:Session,id:string){
   const row=await this.access(c,s,id);if(['queued','processing','approved'].includes(row.state))return this.view(row);
