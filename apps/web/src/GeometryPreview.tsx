@@ -846,7 +846,32 @@ export function GeometryPreview({
       const hayesPlacementId='8f7168cf-10c6-4b8a-bb62-9fc53d245eea';
       const hayesTransitionRoom=diagnosticsEnabled()&&placements.has(hayesPlacementId)
         ?document.rooms.find(room=>room.id==='a4f822c4-2631-42ed-b08b-534773a9350a'):undefined;
-      const hayesAttachments=new WeakMap<InstanceType<typeof three.Object3D>,number>();
+      type HayesAttachment={
+        generation:number;
+        drawCalls:number;
+        meshes:Array<{mesh:InstanceType<typeof three.Mesh>;before:InstanceType<typeof three.Mesh>['onAfterRender'];count:InstanceType<typeof three.Mesh>['onAfterRender']}>;
+        localBounds:InstanceType<typeof three.Box3>;
+      };
+      const hayesAttachments=new WeakMap<InstanceType<typeof three.Object3D>,HayesAttachment>();
+      const rememberHayesAttachment=(clone:InstanceType<typeof three.Object3D>,generation:number)=>{
+        const attachment:HayesAttachment={generation,drawCalls:0,meshes:[],localBounds:new three.Box3()};
+        // Cache the mesh list and bounds in placement coordinates. The exact
+        // static fixture does not animate the model's internal transforms.
+        clone.updateWorldMatrix(true,true);
+        const inverse=clone.matrixWorld.clone().invert();
+        clone.traverse(node=>{
+          if(!(node instanceof three.Mesh))return;
+          if(!node.geometry.boundingBox)node.geometry.computeBoundingBox();
+          const meshBounds=node.geometry.boundingBox;
+          if(meshBounds)attachment.localBounds.union(meshBounds.clone().applyMatrix4(inverse.clone().multiply(node.matrixWorld)));
+          const before=node.onAfterRender;
+          attachment.meshes.push({mesh:node,before,count:function(...args){
+            if(args[1]===scene&&args[2]===camera)attachment.drawCalls++;
+            before.apply(this,args);
+          }});
+        });
+        hayesAttachments.set(clone,attachment);
+      };
       let hayesTransitionFrames:{first:DiagnosticHayesTransitionFrame;latest:DiagnosticHayesTransitionFrame}|undefined;
       const containsRoom=(room:Document['rooms'][number],point:InstanceType<typeof three.Vector3>,margin=0)=>{
         const local=rooms.get(room.id.toLowerCase())!.worldToLocal(point.clone()),d=room.dimensions;
@@ -858,9 +883,11 @@ export function GeometryPreview({
           return;
         }
         const clone=placements.get(hayesPlacementId)?.children.find(child=>hayesAttachments.has(child));
-        const attachmentGeneration=clone?hayesAttachments.get(clone)??null:null;
-        let drawCalls=0;
-        const restoreCallbacks:Array<()=>void>=[];
+        const attachment=clone?hayesAttachments.get(clone):undefined;
+        if(attachment){
+          attachment.drawCalls=0;
+          for(const {mesh,count} of attachment.meshes)mesh.onAfterRender=count;
+        }
         const pose={
           atMs:performance.now(),
           cameraPosition:camera.position.toArray(),
@@ -868,24 +895,16 @@ export function GeometryPreview({
           verticalFov:camera.fov,
         };
         try{
-          clone?.traverse(node=>{
-            if(!(node instanceof three.Mesh))return;
-            const original=node.onAfterRender;
-            node.onAfterRender=function(...args){
-              if(args[1]===scene&&args[2]===camera)drawCalls++;
-              original.apply(this,args);
-            };
-            restoreCallbacks.push(()=>{node.onAfterRender=original;});
-          });
           renderer.render(scene,camera);
-          const bounds=clone?new three.Box3().setFromObject(clone):undefined;
+          const bounds=clone&&attachment&&!attachment.localBounds.isEmpty()
+            ?attachment.localBounds.clone().applyMatrix4(clone.matrixWorld):undefined;
           const frame:DiagnosticHayesTransitionFrame={
-            ...pose,attachmentGeneration,assetId:clone?hayesAssetId:null,drawCalls:clone?drawCalls:null,
+            ...pose,attachmentGeneration:attachment?.generation??null,assetId:attachment?hayesAssetId:null,drawCalls:attachment?.drawCalls??null,
             worldBounds:bounds&&!bounds.isEmpty()?{min:bounds.min.toArray(),max:bounds.max.toArray()}:null,
           };
           hayesTransitionFrames={first:hayesTransitionFrames?.first??frame,latest:frame};
         }finally{
-          for(const restore of restoreCallbacks)restore();
+          if(attachment)for(const {mesh,before} of attachment.meshes)mesh.onAfterRender=before;
         }
       };
       const render = (restore=false) => {
@@ -2307,7 +2326,7 @@ export function GeometryPreview({
                   const clone=object.clone(true);
                   group.add(clone);
                   observedClones?.push(clone);
-                  if(observeHayes&&p.id===hayesPlacementId)hayesAttachments.set(clone,generation);
+                  if(observeHayes&&p.id===hayesPlacementId)rememberHayesAttachment(clone,generation);
                 }
               }
               if (old && old !== object){
