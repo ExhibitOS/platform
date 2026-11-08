@@ -11,8 +11,9 @@ export type HayesOperationBinding=Readonly<Record<Id,string>&{version:1;artworkR
 export function parseHayesOperationBinding(value:unknown):HayesOperationBinding{
  try{
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype)throw new Error();
-  const own=Reflect.ownKeys(value);if(own.length!==KEYS.length||own.some(k=>typeof k!=='string'||!KEYS.includes(k as typeof KEYS[number])))throw new Error();
-  const descriptors=Object.getOwnPropertyDescriptors(value),snapshot:Record<string,unknown>={};
+  const descriptors=Object.getOwnPropertyDescriptors(value),own=Reflect.ownKeys(descriptors);
+  if(own.length!==KEYS.length||own.some(k=>typeof k!=='string'||!KEYS.includes(k as typeof KEYS[number])))throw new Error();
+  const snapshot:Record<string,unknown>={};
   for(const key of KEYS){const d=descriptors[key];if(!d||!d.enumerable||!Object.hasOwn(d,'value'))throw new Error();snapshot[key]=d.value;}
   if(snapshot.version!==1||IDS.some(k=>typeof snapshot[k]!=='string'||!UUID.test(snapshot[k] as string))||!Number.isSafeInteger(snapshot.artworkRevision)||Number(snapshot.artworkRevision)<1||snapshot.sourceSha256!==SOURCE_SHA||snapshot.sourceBytes!==8383096)throw new Error();
   return Object.freeze(snapshot) as HayesOperationBinding;
