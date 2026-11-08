@@ -174,3 +174,41 @@ full vertices, 2048-pixel source textures, and a smaller coarse model with at mo
 component bounds, retained vertex attributes/material roles and the exact
 role-aware partition-box texture recipe. These checks do not establish physical
 units, visual equivalence or successful rendering on a particular device.
+
+
+### Unknown-unit originals and provisional display references
+
+When the same live `modelPreparationProfile` is available, the session also
+advertises `modelOriginalInspectionProfile: bounded-compact-source-inspection-v1`.
+`POST /api/v1/tenants/:tenantId/imports/model-inspection` accepts the chosen
+original as `application/octet-stream`, up to 32 MiB, through the same authenticated
+owner/execution and CSRF/native mutation boundary as ordinary import. It creates
+no job or stored asset. Its closed query accepts no fields. The response is
+`{version:1, profileId, original:{mime,sha256,bytes}, rawBounds:{min,max}, triangles,
+vertices, sourceUnits:"unknown", qualification:"structure-only"}`. The existing
+bounded producer parser measures untransformed source coordinates. This is not
+image-decoding, preparation, physical-unit, orientation or support-contact proof.
+Unsupported structure returns `MODEL_PREPARATION_PROFILE_UNSUPPORTED` (422).
+
+An ordinary client uses that exact input identity and measured bounds, plus the
+author's chosen provisional reference height, to populate the existing CMS
+`displayReference`. Keep `sourceUnits: "unknown"`, `scaleApplied: false` and import
+`scaleMeters: 1`; do not infer a unit from an institution's physical dimensions.
+The height is a display choice, not a calibration. No caller guesses an output
+hash. The ordinary required-preparation request is unchanged. The server adds
+`sourceDisplayReference` to its immutable stored request; external callers cannot
+supply that field. Required preparation verifies the original hash and actual
+Float32 source/output bounds before returning a receipt with its optional
+`displayReference` bound to the generated display hash. All other receipt,
+rights, failure and actual-worker-drain conditions still apply.
+
+Explicit ordinary CMS approval with the source draft revision and prepared
+asset creates the next revision atomically when the display hash changes. Only
+the reference hash is rebound; the source revision, coordinates, authored display
+height/pose, source-units claim and other metadata remain intact. Approval returns
+the resulting revision; clients must use it for later save/export. A lost response
+can replay the original revision/asset pair and receives that exact approved
+revision. Compatible unchanged originals retain their existing revision. Current
+rights, receipt and source/approved snapshots are revalidated on replay and reopen.
+Known-unit required intake and approved-full compact variant preparation are
+separate unchanged paths.

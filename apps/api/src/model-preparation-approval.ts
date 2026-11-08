@@ -15,5 +15,17 @@ export async function assertRequiredModelApproval(c:PoolClient,s:Session,artwork
  if(!jobs.length)return;if(jobs.length!==1)throw new ApiError(409,'MODEL_PREPARATION_RECEIPT_INVALID');const row=jobs[0];
  if(storedModelPreparation(row)?.sourceFull)throw new ApiError(409,'COMPACT_VARIANT_EXPLICIT_APPROVAL_REQUIRED');
  if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(row.state!=='approved'||!modelPreparationDrained(row))throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
- await assertModelPreparationContext(c,row);modelPreparationReceipt(row);
+ await assertModelPreparationContext(c,row);return modelPreparationReceipt(row);
+}
+
+/** A lost explicit-approval response may replay only its exact source revision
+ * and product display. Context validation proves the sole next revision. */
+export async function requiredModelApprovalReplay(c:PoolClient,s:Session,artworkId:string,sourceRevision:number,assetId:string,currentRevision:number){
+ if(currentRevision!==sourceRevision+1||!await modelPreparationSupported(c))return false;
+ const jobs=(await c.query("SELECT * FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2 AND asset_id=$3 AND model_preparation IS NOT NULL FOR SHARE",[s.tenantId,artworkId,assetId])).rows;
+ if(jobs.length!==1)return false;const row=jobs[0],intent=storedModelPreparation(row);
+ if(!intent?.sourceDisplayReference||intent.sourceFull||intent.artworkRevision!==sourceRevision)return false;
+ if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
+ if(row.state!=='approved'||!modelPreparationDrained(row))throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
+ await assertModelPreparationContext(c,row);return true;
 }

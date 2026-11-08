@@ -1,7 +1,8 @@
+import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
 import {assertCompactVariantContext,applyCompactVariantApproval} from './compact-model-variant.ts';
 import {compactVariantReceipt,modelPreparationDrained,storedModelPreparation} from './model-preparation-intent.ts';
 import {qualifyApprovedCompactGeometryPair} from './approved-lod-pair.ts';
-import {assertRequiredModelApproval} from './model-preparation-approval.ts';
+import {assertRequiredModelApproval,requiredModelApprovalReplay} from './model-preparation-approval.ts';
 import {loadModelPairApproval,applyModelPairApproval} from './approved-model-pair.ts';
 import {qualifyDemoDisplay} from './demo-display-policy.ts';
 import {DISPLAY_POLICY_NAMESPACE,validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
@@ -29,7 +30,7 @@ export interface ArtworkMetadata {
     scaleApplied: boolean;
     notes: string;
   };
-  displayReference?: {version:1;status:'provisional-uncalibrated';assetSha256:string;rawBounds:{min:[number,number,number];max:[number,number,number]};referenceHeightMeters:number;pose:{position:[number,number,number];rotation:[number,number,number,number];scale:[number,number,number]}};
+  displayReference?: ProvisionalDisplayReference;
 }
 const canonical = (v: unknown): unknown =>
   Array.isArray(v)
@@ -60,13 +61,7 @@ const exact = (v: unknown, keys: string[]) =>
 function text(v: unknown, max: number, min = 0) {
   return typeof v === "string" && v.length >= min && v.length <= max;
 }
-function validDisplayReference(value:ArtworkMetadata['displayReference']):boolean {
- if(!exact(value,['version','status','assetSha256','rawBounds','referenceHeightMeters','pose'])||!value||value.version!==1||value.status!=='provisional-uncalibrated'||!/^([a-f0-9]{64})$/.test(value.assetSha256)||!exact(value.rawBounds,['min','max'])||!exact(value.pose,['position','rotation','scale']))return false;
- const {min,max}=value.rawBounds,{position,rotation,scale}=value.pose;
- if(![min,max,position,rotation,scale].every(Array.isArray)||min.length!==3||max.length!==3||position.length!==3||rotation.length!==4||scale.length!==3||![...min,...max,...position,...rotation,...scale,value.referenceHeightMeters].every(Number.isFinite)||min.some(v=>Math.abs(v)>1000000)||max.some(v=>Math.abs(v)>1000000)||value.referenceHeightMeters<=0||value.referenceHeightMeters>10000)return false;
- const extent=max.map((n,i)=>n-min[i]!);if(extent.some(n=>n<=0||n>10000))return false;const expected=value.referenceHeightMeters/extent[1]!,tolerance=Math.max(1e-12,Math.abs(expected)*1e-9);
- return position.every(v=>v===0)&&rotation.every((v,i)=>v===(i===3?1:0))&&scale.every(v=>v>=1e-6&&v<=100&&Math.abs(v-expected)<=tolerance);
-}
+
 export function validMetadata(v: unknown): v is ArtworkMetadata {
   if (!v || typeof v!=="object" || Array.isArray(v) || !["title", "description", "dimensions", "rights", "provenance"].every(k=>Object.hasOwn(v,k)) || Object.keys(v).some(k=>!["title", "description", "dimensions", "rights", "provenance", "medium", "creationYear", "displayReference"].includes(k)))
     return false;
@@ -377,8 +372,13 @@ export class Cms {
     b: { revision: number; assetId: string },
   ) {
     if(!exact(b,['revision','assetId']))throw new ApiError(400,'INVALID_INPUT');
-    const a = await this.ownArtwork(c, s, id);
-    if (a.revision !== b.revision) throw new ApiError(409, "REVISION_CONFLICT");
+    uuid(b.assetId);
+    let a = await this.ownArtwork(c, s, id);
+    let revision=b.revision;
+    if (a.revision !== revision) {
+      if(await requiredModelApprovalReplay(c,s,id,revision,b.assetId,a.revision))return this.detail(c,s,id);
+      throw new ApiError(409, "REVISION_CONFLICT");
+    }
     if (!validMetadata(a.metadata)) throw new ApiError(400, "INVALID_METADATA");
     uuid(b.assetId);
     const result = await c.query(
@@ -387,23 +387,34 @@ export class Cms {
     );
     const asset = result.rows[0];
     if (!asset) throw new ApiError(409, "ASSET_NOT_APPROVED");
-    await assertRequiredModelApproval(c,s,id,b.assetId);
+    const requiredPreparation=await assertRequiredModelApproval(c,s,id,b.assetId);
+    if(requiredPreparation?.displayReference&&a.revision===requiredPreparation.artworkRevision&&json(a.metadata.displayReference)!==json(requiredPreparation.displayReference)){
+      // This product-bound reference update changes no rights. General revise
+      // deliberately advances rights revisions, so use only its artwork/snapshot
+      // writes while retaining the existing artwork lock and transaction.
+      const metadata={...a.metadata,displayReference:requiredPreparation.displayReference};
+      if(!validMetadata(metadata))throw new ApiError(400,'INVALID_METADATA');
+      const advanced=await c.query('UPDATE artworks SET metadata=$4,cms_managed=true,revision=revision+1,approved_revision=NULL,approved_asset_id=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND revision=$3 RETURNING *',[s.tenantId,id,revision,metadata]);
+      if(!advanced.rowCount)throw new ApiError(409,'REVISION_CONFLICT');
+      a=advanced.rows[0];revision=a.revision;
+      await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,$3,$4)',[s.tenantId,id,revision,metadata]);
+    }
     if(a.metadata.displayReference&&(asset.mime!=='model/gltf-binary'||asset.sha256!==a.metadata.displayReference.assetSha256||Number(asset.scale_meters)!==1))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
     if(asset.mime==='model/gltf-binary'&&a.metadata.dimensions.depth===undefined)throw new ApiError(422,'MODEL_DEPTH_REQUIRED');
     if (!allowedRights(a.metadata.rights, "display"))
       throw new ApiError(403, "RIGHTS_DENIED");
-    const lineage=(await c.query('SELECT revision,snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision<=$3 ORDER BY revision DESC LIMIT 1',[s.tenantId,id,b.revision])).rows[0] as ImportedApproval|undefined;
+    const lineage=(await c.query('SELECT revision,snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision<=$3 ORDER BY revision DESC LIMIT 1',[s.tenantId,id,revision])).rows[0] as ImportedApproval|undefined;
     let importedArtwork:Artwork|undefined;
     if(lineage&&Object.hasOwn(lineage.snapshot,'importedArtwork')){
       const previous=lineage.snapshot.metadata,primary=lineage.snapshot.asset as {id?:string;sha256?:string;bytes?:number;mime?:string}|null;
-      if(!Number.isSafeInteger(lineage.revision)||lineage.revision<1||lineage.revision>b.revision||!validMetadata(previous)||!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==Number(asset.bytes)||primary.mime!==asset.mime||json(importedTextInvariant(previous))!==json(importedTextInvariant(a.metadata)))throw new ApiError(409,'APPROVAL_INVALID');
+      if(!Number.isSafeInteger(lineage.revision)||lineage.revision<1||lineage.revision>revision||!validMetadata(previous)||!primary||primary.id!==asset.id||primary.sha256!==asset.sha256||primary.bytes!==Number(asset.bytes)||primary.mime!==asset.mime||json(importedTextInvariant(previous))!==json(importedTextInvariant(a.metadata)))throw new ApiError(409,'APPROVAL_INVALID');
       const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,a.artist_id])).rows[0];
       importedArtwork=await this.importedApproval(c,s,id,lineage,typeof artist?.metadata?.name==='string'?artist.metadata.name:'Unnamed artist');
-      if(lineage.revision<b.revision){
-        importedArtwork.revisionId=revisionIdentity(s,id,b.revision);importedArtwork.revision=b.revision;importedArtwork.createdAt=new Date(a.updated_at).toISOString();
+      if(lineage.revision<revision){
+        importedArtwork.revisionId=revisionIdentity(s,id,revision);importedArtwork.revision=revision;importedArtwork.createdAt=new Date(a.updated_at).toISOString();
         importedArtwork.metadata={...importedArtwork.metadata,title:a.metadata.title,description:a.metadata.description};
         if(a.metadata.medium===undefined)delete importedArtwork.metadata.medium;else importedArtwork.metadata.medium=a.metadata.medium;
-        importedArtwork.extensions={...importedArtwork.extensions,'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:b.revision}};
+        importedArtwork.extensions={...importedArtwork.extensions,'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:revision}};
         importedArtwork.provenance.events.push({id:importedArtwork.revisionId,type:'edited',at:importedArtwork.createdAt,description:'CMS reviewed text revision; approved source assets, dimensions and rights retained.'});
       }
       if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid||!validateArtworkDisplayPolicy(importedArtwork).valid||!validateArtworkThumbnail(importedArtwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
@@ -424,6 +435,7 @@ export class Cms {
     const modelPair=!importedArtwork&&asset.mime==='model/gltf-binary'?await loadModelPairApproval(c,s,id,{...asset,bytes:Number(asset.bytes)},bytes,a.metadata.rights,this.blobs):undefined;
     const snapshot = {
       metadata: a.metadata,
+      ...(requiredPreparation?.displayReference?{requiredModelPreparation:requiredPreparation}:{}),
       asset: {
         id: asset.id,
         sha256: asset.sha256,
@@ -437,18 +449,18 @@ export class Cms {
     };
     const prior = await c.query(
       "SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=$3",
-      [s.tenantId, id, b.revision],
+      [s.tenantId, id, revision],
     );
     if (prior.rowCount && json(prior.rows[0].snapshot) !== json(snapshot))
       throw new ApiError(409, "APPROVAL_CONFLICT");
     if (!prior.rowCount)
       await c.query(
         "INSERT INTO artwork_approvals VALUES($1,$2,$3,$4,$5,now())",
-        [s.tenantId, id, b.revision, b.assetId, snapshot],
+        [s.tenantId, id, revision, b.assetId, snapshot],
       );
     await c.query(
       "UPDATE artworks SET approved_revision=$3,approved_asset_id=$4 WHERE tenant_id=$1 AND id=$2",
-      [s.tenantId, id, b.revision, b.assetId],
+      [s.tenantId, id, revision, b.assetId],
     );
     return this.detail(c, s, id);
   }
