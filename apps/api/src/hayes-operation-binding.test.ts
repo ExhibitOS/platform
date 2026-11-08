@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import {describe,expect,it} from 'vitest';
+import {parseHayesOperationBinding} from './hayes-operation-binding.ts';
+const id='10000000-0000-4000-8000-000000000001';
+const valid=()=>({version:1,tenantId:id,workspaceId:id,principalId:id,jobId:id,leaseId:id,attemptId:id,runtimeGeneration:id,artworkId:id,correlationId:id,artworkRevision:1,sourceSha256:'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6',sourceBytes:8383096});
+describe('Hayes operation binding data',()=>{
+ it('copies and freezes the complete exact source binding',()=>{const source=valid(),binding=parseHayesOperationBinding(source);source.jobId='changed';expect(binding.jobId).toBe(id);expect(Object.isFrozen(binding)).toBe(true);});
+ it.each([{tenantId:'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'},{leaseId:'missing'},{attemptId:'00000000-0000-0000-0000-000000000000'},{runtimeGeneration:'1'},{artworkRevision:0},{artworkRevision:1.5},{sourceBytes:8383095},{sourceSha256:'0'.repeat(64)},{unknown:true}])('rejects changed or unrecognized binding %j',change=>{expect(()=>parseHayesOperationBinding({...valid(),...change})).toThrow('HAYES_BINDING_INVALID');});
+ it('rejects missing fields',()=>{const x:Partial<ReturnType<typeof valid>>=valid();delete x.correlationId;expect(()=>parseHayesOperationBinding(x)).toThrow('HAYES_BINDING_INVALID');});
+});
