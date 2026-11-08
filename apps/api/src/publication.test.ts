@@ -39,6 +39,7 @@ it('projects only an exact approved thumbnail and keeps its source authority dis
  const checkedAt=Date.now(),expiring=records.map(record=>({...record,current_rights:{...rights,expiresAt:new Date(checkedAt+1000).toISOString()}}));
  expect(recheckPublicationTimeRights(result.snapshot,expiring,[],[],[],checkedAt)).toHaveLength(2);
  expect(()=>recheckPublicationTimeRights(result.snapshot,expiring,[],[],[],checkedAt+1000)).toThrow('PUBLICATION_UNAVAILABLE');
+ const previewExpiring=records.map(record=>record.id===selected!.id?{...record,current_rights:{...rights,expiresAt:new Date(checkedAt+1000).toISOString()}}:record),before=recheckPublicationTimeRights(result.snapshot,previewExpiring,[],[],[],checkedAt),after=recheckPublicationTimeRights(result.snapshot,previewExpiring,[],[],[],checkedAt+1000);expect(before).toHaveLength(2);expect(after).toHaveLength(1);expect(()=>recheckPublicationTimeRights(result.snapshot,previewExpiring,[],[],[],checkedAt+1000,before)).toThrow('PUBLICATION_UNAVAILABLE');expect(()=>recheckPublicationTimeRights(result.snapshot,previewExpiring,[],[],[],checkedAt+1000,after)).not.toThrow();
 
  const edited=records.map(r=>({...r,current_revision:2,approved_revision:null,approved_asset_id:null,current_metadata:{...metadata,title:'Later private title'}}));
  expect(authorizedArtworkAssets(result.snapshot,edited,Date.now())).toHaveLength(2);

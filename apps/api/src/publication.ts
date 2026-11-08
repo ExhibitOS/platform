@@ -180,9 +180,10 @@ export function authorizedArtworkAssets(snapshot:Exhibition,records:AssetRow[],n
  return permitted;
 }
 /** Final common-clock check after all asynchronous workspace authority work. */
-export function recheckPublicationTimeRights(snapshot:Exhibition,records:AssetRow[],media:Array<{rights:unknown}>,covers:Array<{rights:unknown}>,workspace:ReadonlyArray<{rights:unknown}>,now:number){
+export function recheckPublicationTimeRights(snapshot:Exhibition,records:AssetRow[],media:Array<{rights:unknown}>,covers:Array<{rights:unknown}>,workspace:ReadonlyArray<{rights:unknown}>,now:number,expected?:ReadonlyArray<{id:string}>){
  if(workspace.some(item=>!allowedRights(item.rights,'display',now)||!allowedRights(item.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  const permitted=authorizedArtworkAssets(snapshot,records,now);
+ if(expected&&(permitted.length!==expected.length||permitted.some((asset,index)=>asset.id!==expected[index]?.id)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(media.some(item=>!allowedRights(item.rights,'display',now))||covers.some(item=>!allowedRights(item.rights,'display',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  return permitted;
 }
@@ -705,8 +706,8 @@ export class Publications {
             if(workspaceFurnishings.length&&!this.workspaceFurnishing)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
             try{if(workspaceFurnishings.length)await this.workspaceFurnishing!.publicationFence(c,workspaceFurnishings.map(item=>item.sourceDescriptor));if(workspaceMaterials.length){if(!this.workspaceMaterial)throw Error();await this.workspaceMaterial.publicationFence(c,workspaceMaterials.map(item=>item.sourceDescriptor));}}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
         }
-        const currentTime=()=>{const finalNow=Date.now();if(!validateExhibition(row.snapshot,{publicationTime:new Date(finalNow).toISOString()}).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return recheckPublicationTimeRights(row.snapshot,records,media,covers,[...workspaceFurnishings.map(item=>item.sourceDescriptor),...workspaceMaterials.map(item=>item.sourceDescriptor)],finalNow);};
-        permitted=currentTime();signal?.throwIfAborted();return {assets:[...permitted,...media,...covers],furnishings,workspaceFurnishings,workspaceMaterials,assertTime:()=>{currentTime();}};
+        const currentTime=(expected?:ReadonlyArray<{id:string}>)=>{const finalNow=Date.now();if(!validateExhibition(row.snapshot,{publicationTime:new Date(finalNow).toISOString()}).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return recheckPublicationTimeRights(row.snapshot,records,media,covers,[...workspaceFurnishings.map(item=>item.sourceDescriptor),...workspaceMaterials.map(item=>item.sourceDescriptor)],finalNow,expected);};
+        permitted=currentTime();signal?.throwIfAborted();return {assets:[...permitted,...media,...covers],furnishings,workspaceFurnishings,workspaceMaterials,assertTime:()=>{currentTime(permitted);}};
     }
     /** Reuse the current public gate inside the caller's policy-fenced transaction. */
     async discoveryMetadata(c: PoolClient, ids: string[]) {
@@ -802,24 +803,26 @@ export class Publications {
         });
     }
     private async assertDetailProjection(projection:Awaited<ReturnType<Publications['publicProjection']>>){
-        const descriptors:Array<{assetId:string;url:string;mime:string}>=[],ids=new Set(projection.assets.map(asset=>asset.assetId.toLowerCase()));let total=0;
-        for(const artwork of projection.exhibition.artworks){const relation=artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');const verified=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!verified)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');for(const candidate of verified.candidates){if(ids.has(candidate.assetId)||candidate.bytes>25*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');ids.add(candidate.assetId);total+=candidate.bytes;if(descriptors.length>=16||!Number.isSafeInteger(total)||total>100*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');descriptors.push({assetId:candidate.assetId,url:`/api/v1/publications/${projection.publication.id}/detail-assets/${candidate.assetId}`,mime:candidate.mime});}}
+        const descriptors:Array<{assetId:string;url:string;mime:string}>=[],ids=new Set(projection.assets.map(asset=>asset.assetId.toLowerCase())),candidateIds=new Set<string>();let total=0;
+        for(const artwork of projection.exhibition.artworks){const relation=artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');const verified=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!verified)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');for(const candidate of verified.candidates){if(ids.has(candidate.assetId)||candidateIds.has(candidate.candidateId)||candidate.bytes>25*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');ids.add(candidate.assetId);candidateIds.add(candidate.candidateId);total+=candidate.bytes;if(descriptors.length>=16||!Number.isSafeInteger(total)||total>100*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');descriptors.push({assetId:candidate.assetId,url:`/api/v1/publications/${projection.publication.id}/detail-assets/${candidate.assetId}`,mime:candidate.mime});}}
         // The actual static publication omits materialMapBatch and may omit an
         // optional cover; including both here is a conservative serialized cap.
         if(descriptors.length&&Buffer.byteLength(JSON.stringify({...projection,detailAssets:descriptors}),'utf8')>1048576)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
     }
-    private async publicProjection(c:PoolClient,row:PublicationRow,initial:Omit<Awaited<ReturnType<Publications['gate']>>,'assertTime'>) {
+    private async publicProjection(c:PoolClient,row:PublicationRow,initial:Awaited<ReturnType<Publications['gate']>>,captureFence?:(fence:()=>void)=>void) {
         let {assets,furnishings,workspaceFurnishings,workspaceMaterials}=initial;
+            let projectionFence=initial.assertTime;
             let coverVariants:Awaited<ReturnType<typeof approvedCoverProjection>>;
             const coverAssetId=entranceFor(row.snapshot).imageAssetId?.toLowerCase();
             if(this.blobs&&coverAssetId&&row.snapshot.artworks.some(a=>a.artworkType==='image'&&a.primaryAssetId.toLowerCase()===coverAssetId)){
                 try{coverVariants=await approvedCoverProjection(row.snapshot,row.revision_sha256,assets,this.blobs);}catch{/* An optional cover pair never replaces the primary. */}
                 // I/O can cross a rights expiry. A failed optional pair must not
                 // turn a changed or revoked required source into success.
-                ({assets,furnishings,workspaceFurnishings,workspaceMaterials}=await this.gate(c,row));
+                const refreshed=await this.gate(c,row);({assets,furnishings,workspaceFurnishings,workspaceMaterials}=refreshed);projectionFence=refreshed.assertTime;
                 if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
             }
             const resources=publicResourcesFor(row.snapshot);
+            captureFence?.(projectionFence);
             return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
     }
     async anonymous(id: string, assetId?: string) {
@@ -861,7 +864,7 @@ export class Publications {
                 if(!(await this.gate(c,row)).assets.some(current=>current.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
                 return { bytes, mime: asset.mime, revisionSha256: row.revision_sha256 };
             }
-            const projection=await this.publicProjection(c,row,{assets,furnishings,workspaceFurnishings,workspaceMaterials});await this.assertDetailProjection(projection);initial.assertTime();return projection;
+            let projectionFence=initial.assertTime;const projection=await this.publicProjection(c,row,initial,fence=>{projectionFence=fence;});await this.assertDetailProjection(projection);projectionFence();return projection;
         });
     }
 }
