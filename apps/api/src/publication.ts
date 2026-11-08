@@ -657,7 +657,7 @@ export class Publications {
         await stage?.close();detail?.assertCurrent(s);
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
-        const publishedRow={tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
+        const publishedRow={tenant_id:s.tenantId,created_by:s.userId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
         if(detail&&detailPrepared){
          await detail.persist(c,s,detailPrepared,digest);
          const projection=await this.publicProjection(c,publishedRow,await this.gate(c,publishedRow));await this.assertDetailProjection(projection);
