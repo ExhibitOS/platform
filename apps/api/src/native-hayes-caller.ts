@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {FileBlobStore,type BlobStore} from '@exhibitos/storage';
 import {sha256} from '@exhibitos/storage';
 import {ApiError,Auth} from './auth.ts';
@@ -14,6 +14,7 @@ import {hayesReservationFrame} from './hayes-output-reservation-frame.ts';
 import {reserveHayesOutput} from './hayes-output-reservation.ts';
 import {storeHayesOutput} from './hayes-output-storage.ts';
 import {commitHayesDisposition} from './hayes-disposition-transaction.ts';
+import {decodeHayesDispositionChallenge,encodeHayesDispositionNotice} from './hayes-disposition-notice-frame.ts';
 
 type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
 type Credentials={token:string|undefined;csrf:string|undefined};
@@ -72,6 +73,8 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
     // previous operation has completed unambiguously.
     if(!(blobs instanceof FileBlobStore))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
     let phase:'new'|'running'|'copied'|'committing'|'committed'|'failed'='new',valid=true;
+    let challengeExpected:{binding:HayesOperationBinding;nativeOwnerId:string;runtimeManifestSha256:string;readyFrameSha256:string;dbStageId:string}|undefined;
+    let selectedIds:Readonly<{receiptId:string;originalAssetId:string;displayAssetId:string;derivativeId:string;rightsId:string}>|undefined;
     const admission=Object.freeze({}),invalidate=async(cause:unknown):Promise<never>=>{valid=false;phase='failed';try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;};
     return Object.freeze({
      receiveOutput:async():Promise<{bytes:Buffer;sha256:string}>=>{throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');},
@@ -94,13 +97,21 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
        try{await Promise.race([sharedChannel.send(frame),new Promise<never>((_,reject)=>{onAbort=()=>reject(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));fenceSignal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(onAbort,Math.max(0,deadlineMs-Date.now()));})]);}finally{if(timer)clearTimeout(timer);fenceSignal.removeEventListener('abort',onAbort);}await live();
        const expectedOutput=scope.attestation.output as {bytes:number;sha256:string};const received=await exchange.receiveOutput(expectedOutput);output=received.bytes;
        await storeHayesOutput({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,bytes:output});
-       await live();state.scope=Object.freeze({...state.scope,phase:'copied'});phase='copied';return reserved;
+       await live();state.scope=Object.freeze({...state.scope,phase:'copied'});challengeExpected={binding,nativeOwnerId,runtimeManifestSha256,readyFrameSha256:createHash('sha256').update(raw).digest('hex'),dbStageId};phase='copied';return reserved;
       }catch(cause){return await invalidate(cause);}finally{output?.fill(0);}
      },
      async commit(){
-      if(phase!=='copied')return await invalidate(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));phase='committing';
-      try{const result=await commitHayesDisposition({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,receiptId:randomUUID(),originalAssetId:randomUUID(),displayAssetId:randomUUID(),derivativeId:randomUUID(),rightsId:randomUUID()});await live();phase='committed';return result;}
-      catch(cause){return await invalidate(cause);}
+      if(phase!=='copied'||!challengeExpected)return await invalidate(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));phase='committing';
+      try{
+       const rawChallenge=await waitHayesReadyFrame(sharedChannel,fenceSignal,deadlineMs);await live();
+       const challenge=decodeHayesDispositionChallenge(rawChallenge,challengeExpected);
+       selectedIds=Object.freeze({receiptId:randomUUID(),originalAssetId:randomUUID(),displayAssetId:randomUUID(),derivativeId:randomUUID(),rightsId:randomUUID()});
+       const result=await commitHayesDisposition({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,...selectedIds});
+       await live();const frame=encodeHayesDispositionNotice(challenge,result);
+       let timer:ReturnType<typeof setTimeout>|undefined,onAbort:()=>void=()=>{};
+       try{await Promise.race([sharedChannel.send(frame),new Promise<never>((_,reject)=>{onAbort=()=>reject(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));fenceSignal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(onAbort,Math.max(0,deadlineMs-Date.now()));})]);}finally{if(timer)clearTimeout(timer);fenceSignal.removeEventListener('abort',onAbort);}
+       await live();phase='committed';return result;
+      }catch(cause){return await invalidate(cause);}
      },
      close:async()=>{valid=false;await close();},
     });

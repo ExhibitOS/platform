@@ -4,7 +4,7 @@
 import {readFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {beforeEach,expect,it,vi} from 'vitest';
 import {FileBlobStore} from '@exhibitos/storage';
 const mocks=vi.hoisted(()=>({binding:undefined as any,events:[] as string[],admission:undefined as unknown,owner:undefined as any,blobs:undefined as any,mode:'ok',release:undefined as undefined|(()=>void)}));
@@ -14,7 +14,7 @@ vi.mock('./hayes-original-attempt.ts',()=>({isHayesOriginalContext:()=>true,isHa
 vi.mock('./hayes-owner-exchange.ts',()=>({prepareHayesOwnerExchange:async(input:any)=>{mocks.binding=input.binding;return {close:async()=>{},receiveOutput:async()=>{mocks.events.push('transfer');return {bytes:Buffer.from('synthetic'),sha256:'unused'};}};}}));
 vi.mock('./hayes-output-reservation.ts',()=>({reserveHayesOutput:async(input:any)=>{mocks.events.push('reserve-start');mocks.admission=input.admission;const {resolveHayesReady}=await import('./hayes-ready-authority.ts');expect(resolveHayesReady(input.admission,input.owner,input.blobs).phase).toBe('ready');if(mocks.mode==='hold')await new Promise<void>(r=>{mocks.release=r;});if(mocks.mode==='fail')throw Error('reservation commit failed');mocks.events.push('reserve-committed');return {stageId:resolveHayesReady(input.admission,input.owner,input.blobs).dbStageId,sha256:'x',bytes:1};}}));
 vi.mock('./hayes-output-storage.ts',()=>({storeHayesOutput:async(input:any)=>{const {resolveHayesReady}=await import('./hayes-ready-authority.ts');expect(resolveHayesReady(input.admission,input.owner,input.blobs).phase).toBe('reserved');mocks.events.push('store');}}));
-vi.mock('./hayes-disposition-transaction.ts',()=>({commitHayesDisposition:async(input:any)=>{const {resolveHayesReady}=await import('./hayes-ready-authority.ts');expect(resolveHayesReady(input.admission,input.owner,input.blobs).phase).toBe('copied');mocks.events.push('commit');return {receiptId:input.receiptId,receiptSha256:'synthetic'};}}));
+vi.mock('./hayes-disposition-transaction.ts',()=>({commitHayesDisposition:async(input:any)=>{const {resolveHayesReady}=await import('./hayes-ready-authority.ts');expect(resolveHayesReady(input.admission,input.owner,input.blobs).phase).toBe('copied');mocks.events.push('commit');return {receiptId:input.receiptId,receiptSha256:'f'.repeat(64)};}}));
 import {Auth} from './auth.ts';
 import {createNativeHayesCaller,resolveHayesReady} from './native-hayes-caller.ts';
 const manifest='a'.repeat(64),ownerId=randomUUID();
@@ -23,7 +23,7 @@ async function fixture(change?:(ready:any)=>void){
  const root=await mkdtemp(join(tmpdir(),'hayes-ready-issuer-')),blobs=new FileBlobStore(root),owner={tenantId:randomUUID(),workspaceId:randomUUID(),principalId:randomUUID()};mocks.owner=owner;mocks.blobs=blobs;
  vi.spyOn(blobs,'getBounded').mockResolvedValue(Buffer.alloc(8383096));let open=true;
  const template=JSON.parse(await readFile(new URL('./test-fixtures/hayes-ready-rust.synthetic.json',import.meta.url),'utf8'));
- const channel={isOpen:()=>open,close:async()=>{open=false;mocks.events.push('close');},receive:async()=>{const ready={...template,binding:mocks.binding,nativeOwnerId:ownerId,runtimeManifestSha256:manifest,database:{systemIdentifier:'123',databaseOid:'456'}};change?.(ready);return Buffer.from(JSON.stringify(ready));},send:async(raw:Uint8Array)=>{const msg=JSON.parse(Buffer.from(raw).toString());expect(msg.kind).toBe('hayes-output-reservation-ready');mocks.events.push('reservation-sent');}};
+ let readyHash='',stageId='',receives=0;const channel={isOpen:()=>open,close:async()=>{open=false;mocks.events.push('close');},receive:async()=>{if(receives++===0){const ready={...template,binding:mocks.binding,nativeOwnerId:ownerId,runtimeManifestSha256:manifest,database:{systemIdentifier:'123',databaseOid:'456'}};change?.(ready);const raw=Buffer.from(JSON.stringify(ready));readyHash=createHash('sha256').update(raw).digest('hex');return raw;}return Buffer.from(JSON.stringify({version:1,kind:'hayes-disposition-challenge',binding:mocks.binding,nativeOwnerId:ownerId,runtimeManifestSha256:manifest,readyFrameSha256:readyHash,dbStageId:stageId,challenge:randomUUID()}));},send:async(raw:Uint8Array)=>{const msg=JSON.parse(Buffer.from(raw).toString());if(msg.kind==='hayes-output-reservation-ready'){stageId=msg.dbStageId;mocks.events.push('reservation-sent');}else{expect(msg.kind).toBe('hayes-disposition-committed');expect(msg.readyFrameSha256).toBe(readyHash);expect(msg.dbStageId).toBe(stageId);mocks.events.push('notice-sent');}}};
  const abort=new AbortController();const caller=createNativeHayesCaller({owner:owner as any,auth:new Auth({} as any),blobs,channel,runtimeGeneration:randomUUID(),nativeOwnerId:ownerId,runtimeManifestSha256:manifest,signal:abort.signal,assertLive:async()=>{}});
  const exchange=await caller.start({token:'token',csrf:'csrf'},{jobId:randomUUID(),artworkId:randomUUID(),artworkRevision:1},Date.now()+60000);
  if(!('stageOutput' in exchange))throw Error('selected scope missing');
@@ -34,7 +34,7 @@ it('issues no forgeable capability and orders reservation, transfer, store and c
  expect(()=>resolveHayesReady({},f.owner as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');await f.exchange.stageOutput();
  expect(mocks.events).toEqual(['reserve-start','reserve-committed','reservation-sent','transfer','store']);
  expect(()=>resolveHayesReady({...mocks.admission as object},f.owner as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');expect(()=>resolveHayesReady(mocks.admission,{...f.owner} as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');expect(()=>resolveHayesReady(mocks.admission,f.owner as any,new FileBlobStore(tmpdir()))).toThrow('HAYES_READY_NOT_ADMITTED');
- await f.exchange.commit();expect(mocks.events.at(-1)).toBe('commit');await expect(f.exchange.commit()).rejects.toThrow();expect(()=>resolveHayesReady(mocks.admission,f.owner as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');
+ await f.exchange.commit();expect(mocks.events.slice(-2)).toEqual(['commit','notice-sent']);await expect(f.exchange.commit()).rejects.toThrow();expect(()=>resolveHayesReady(mocks.admission,f.owner as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');
  }finally{await f.cleanup();}});
 it('rejects a ready frame bound to a different physical DB before reservation',async()=>{const f=await fixture(v=>{v.database.databaseOid='457';});try{await expect(f.exchange.stageOutput()).rejects.toThrow('HAYES_READY_FRAME_INVALID');expect(mocks.events).toEqual(['close']);}finally{await f.cleanup();}});
 it('does not send reservation when commit fails',async()=>{mocks.mode='fail';const f=await fixture();try{await expect(f.exchange.stageOutput()).rejects.toThrow('reservation commit failed');expect(mocks.events).toEqual(['reserve-start','close']);expect(()=>resolveHayesReady(mocks.admission,f.owner as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');}finally{await f.cleanup();}});
