@@ -83,6 +83,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
    }
   }
   if(detailIds.size!==detailEntries.length||new Set(detailEntries.map(e=>e.assetId)).size!==detailEntries.length||new Set(descriptors.map(e=>e.assetId)).size!==descriptors.length||detailEntries.reduce((total,e)=>total+e.bytes,0)>100*1024*1024)throw Error('STATIC_DETAIL');
+  const paths=new Map<string,{bytes:number;mime:string}>();for(const entry of [...index.assets,...resources,...notices,...detailEntries]){const prior=paths.get(entry.path);if(prior&&(prior.bytes!==entry.bytes||prior.mime!==entry.mime))throw Error('STATIC_DETAIL');paths.set(entry.path,{bytes:entry.bytes,mime:entry.mime});}
  }else if(index.detailAssets!==undefined||descriptors!==undefined||value.exhibition.artworks?.some(a=>a.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE]!==undefined))throw Error('STATIC_DETAIL');
  const fetcher:typeof fetch=async(input,init)=>{const url=typeof input==="string"?input:input instanceof URL?input.toString():input.url;
  const detailPath=url.startsWith(`/api/v1/publications/${publicationId}/detail-assets/`),detail=detailPath?descriptors?.find(r=>r.url===url):undefined;
