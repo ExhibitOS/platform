@@ -2,7 +2,7 @@
 import {createHash} from 'node:crypto';
 import {expect,it} from 'vitest';
 import {freezeCanonical} from './freeze.js';
-import {validateParsedDetailQuality,verifyParsedDetailReportDigests,type DetailCandidate,type DetailQualityRelation} from './artwork-detail-quality.js';
+import {validateParsedDetailQuality,verifiedParsedDetailQuality,type DetailCandidate,type DetailQualityRelation} from './artwork-detail-quality.js';
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const hex=(v:string)=>v.repeat(64);
 const digest=(v:unknown)=>createHash('sha256').update(freezeCanonical(v)).digest('hex');
@@ -12,9 +12,13 @@ function imageCandidate(n:number,tier:DetailCandidate['tier']):DetailCandidate{
 }
 const fixture=():DetailQualityRelation=>({version:1,candidates:[imageCandidate(1,'acquired-original'),imageCandidate(2,'approved-full'),imageCandidate(3,'lightweight')]});
 it('validates ordered parsed identity and verifies canonical feature digests without claiming source authority',async()=>{
- const relation=fixture();expect(validateParsedDetailQuality(relation,'image').valid).toBe(true);expect(await verifyParsedDetailReportDigests(relation,'image')).toBe(true);
+ const relation=fixture();expect(validateParsedDetailQuality(relation,'image').valid).toBe(true);const verified=await verifiedParsedDetailQuality(relation,'image');expect(verified).toEqual(relation);expect(Object.isFrozen(verified?.candidates[0]?.featureReport.media)).toBe(true);
  const report=relation.candidates[0]!.featureReport;if(report.media.kind!=='image')throw Error('fixture');report.media.width++;
- expect(validateParsedDetailQuality(relation,'image').valid).toBe(true);expect(await verifyParsedDetailReportDigests(relation,'image')).toBe(false);
+ expect(validateParsedDetailQuality(relation,'image').valid).toBe(true);expect(await verifiedParsedDetailQuality(relation,'image')).toBeUndefined();
+});
+it('returns the verified immutable snapshot even if the original changes while hashing',async()=>{
+ const input=fixture(),pending=verifiedParsedDetailQuality(input,'image'),media=input.candidates[0]!.featureReport.media;if(media.kind!=='image')throw Error('fixture');media.width=513;
+ const verified=await pending;if(!verified)throw Error('expected valid snapshot');const snapshot=verified.candidates[0]!.featureReport.media;if(snapshot.kind!=='image')throw Error('fixture');expect(snapshot.width).toBe(512);expect(Object.isFrozen(verified.candidates)).toBe(true);expect(Object.isFrozen(snapshot)).toBe(true);
 });
 it('rejects duplicate identities, tiers, unknown fields and contradictory byte identity',()=>{
  const inputs:unknown[]=[];const duplicate=fixture();duplicate.candidates[1]!.candidateId=duplicate.candidates[0]!.candidateId;inputs.push(duplicate);

@@ -42,10 +42,12 @@ export function validateParsedDetailQuality(value:unknown,artworkKind:'image'|'s
  }
  return {valid:true,errors:[]};
 }
-/** Recheck only report canonical digests. Successful digest verification is
- * not source-byte validation, an inspector attestation, or a rights grant. */
-export async function verifyParsedDetailReportDigests(value:unknown,artworkKind:'image'|'sculpture'):Promise<boolean>{
- if(!validateParsedDetailQuality(value,artworkKind).valid)return false;
- for(const c of (value as DetailQualityRelation).candidates){const bytes=new TextEncoder().encode(freezeCanonical(c.featureReport));const result=await crypto.subtle.digest('SHA-256',bytes);const hash=[...new Uint8Array(result)].map(x=>x.toString(16).padStart(2,'0')).join('');if(hash!==c.featureReportSha256)return false;}
- return true;
+/** Verify an isolated snapshot, then freeze it. A matching digest is not
+ * source-byte validation, an inspector attestation, or a rights grant. */
+export async function verifiedParsedDetailQuality(value:unknown,artworkKind:'image'|'sculpture'):Promise<Readonly<DetailQualityRelation>|undefined>{
+ let snapshot:unknown;try{snapshot=structuredClone(value);}catch{return undefined;}
+ if(!validateParsedDetailQuality(snapshot,artworkKind).valid)return undefined;
+ for(const c of (snapshot as DetailQualityRelation).candidates){const bytes=new TextEncoder().encode(freezeCanonical(c.featureReport));const result=await crypto.subtle.digest('SHA-256',bytes);const hash=[...new Uint8Array(result)].map(x=>x.toString(16).padStart(2,'0')).join('');if(hash!==c.featureReportSha256)return undefined;}
+ const freeze=(item:unknown):void=>{if(item&&typeof item==='object'){for(const child of Object.values(item))freeze(child);Object.freeze(item);}};freeze(snapshot);
+ return snapshot as Readonly<DetailQualityRelation>;
 }

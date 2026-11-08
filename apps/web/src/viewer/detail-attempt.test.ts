@@ -47,3 +47,12 @@ it('refuses a commit receipt when staging synchronously cancels or invalidates i
  for(const mode of ['cancel','stale'] as const){let current=true;const slot=createDetailAttemptSlot<number>(),scope=slot.start({attemptId:mode,generation:1,isCurrent:()=>current,run:async()=>({ownership:'owned' as const,value:1}),disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}});
   expect(await scope.tryCommit(()=>{if(mode==='cancel')void scope.drain();else current=false;return true;})).toBe(false);await scope.drain();}
 });
+it('requires drainage after a failed stage instead of reusing a potentially partial candidate',async()=>{
+ const slot=createDetailAttemptSlot<number>(),scope=slot.start({attemptId:'partial',generation:1,isCurrent:()=>true,run:async()=>({ownership:'owned' as const,value:1}),disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}}),retry=vi.fn(()=>true);
+ expect(await scope.tryCommit(()=>false)).toBe(false);expect(await scope.tryCommit(retry)).toBe(false);expect(retry).not.toHaveBeenCalled();await scope.drain();
+});
+it('requires the exact attempt to remain publishable after staging microtasks and on every resume',async()=>{
+ let current=true;const slot=createDetailAttemptSlot<number>(),scope=slot.start({attemptId:'microtask',generation:1,isCurrent:()=>current,run:async()=>({ownership:'owned' as const,value:1}),disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}});
+ expect(await scope.tryCommit(()=>{queueMicrotask(()=>void scope.drain());return true;})).toBe(true);expect(scope.canPublish()).toBe(false);await scope.drain();
+ const next=slot.start({attemptId:'next',generation:2,isCurrent:()=>current,run:async()=>({ownership:'owned' as const,value:2}),disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}});expect(await next.tryCommit(()=>true)).toBe(true);expect(next.canPublish()).toBe(true);current=false;expect(next.canPublish()).toBe(false);await next.drain();
+});
