@@ -34,6 +34,7 @@ const hayesWheat:QualifiedDetailImage=Object.freeze({...measuredWheat,
 // Exact r7 Manager publication of the same qualified original; admission still
 // requires the measured runtime, viewport, cover retirement and live authority.
 const hayesR7Wheat:QualifiedDetailImage=Object.freeze({...hayesWheat,
+ maxSceneBytes:201326592,
  staticIndexSha256:'c998f166a7e543c6d71157648a146c34686a59a4d71a42bf2625a7ac76d26f44',
  publicationSha256:'cd8fd26f8d73024d009394ba468eedad0c08988f30e9f5c0f44d4782c673f935',
  candidateId:'68257123-c1fb-426b-93c8-b96e94dc50e5',

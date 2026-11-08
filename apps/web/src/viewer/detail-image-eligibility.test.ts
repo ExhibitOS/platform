@@ -30,6 +30,6 @@ it('admits only the exact r7 Wheat original and its measured envelope',()=>{
  const p=qualifiedDetailImageProfile(revision,artwork)!;
  const attestation:DetailProjectionBinding={indexSha256:p.staticIndexSha256,publicationSha256:p.publicationSha256,candidate:{artworkRevisionId:artwork,sha256:p.sha256,bytes:p.bytes,mime:p.mime,width:p.width,height:p.height}};
  expect(matchesMeasuredWheatImage(p,attestation,gallery)).toBe(true);
- for(const change of [{staticIndexSha256:a},{publicationSha256:b},{revisionSha256:a},{artworkRevisionId:'other'},{candidateId:'other'},{sourceBindingSha256:a},{maxSceneBytes:167772161},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
+ for(const change of [{staticIndexSha256:a},{publicationSha256:b},{revisionSha256:a},{artworkRevisionId:'other'},{candidateId:'other'},{sourceBindingSha256:a},{maxSceneBytes:201326593},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
  expect(qualifiedDetailImageProfile(revision,'other')).toBeUndefined();expect(qualifiedDetailImageProfile(a,artwork)).toBeUndefined();
 });
