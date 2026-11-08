@@ -3,7 +3,7 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {createHash,randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
-import {freezeCanonical,applyBenchCommand,applyFurnishingCommand,furnishingsFor,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
+import {freezeCanonical,applyBenchCommand,applyFurnishingCommand,furnishingsFor,furnishingCatalogueEntry,ARTWORK_DETAIL_QUALITY_NAMESPACE} from '@exhibitos/studio-contract';
 import {fixtureURL,readOex} from '@exhibitos/spec';
 vi.mock('./drafts/example',()=>({newDraft:()=>({})}));
 vi.mock('./drafts/exhibition-validation.mjs',()=>({validateExhibition:()=>({valid:true})}));
@@ -20,6 +20,44 @@ function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corrup
  const requests:{path:string;cache:RequestCache|undefined}[]=[];const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{const path=String(input);requests.push({path,cache:init?.cache});const data=path==='/static-publication-index.json'?index:path==='/'+pubPath||path===`/data/${'a'.repeat(64)}.json`?pub:path==='/'+assetPath||path===`/data/${'b'.repeat(64)}.bin`?(options.corruptAsset?Buffer.from('x'.repeat(assetBytes.length)):assetBytes):undefined;return data?new Response(data):new Response(null,{status:404});});vi.stubGlobal('fetch',fetcher);return {requests,assetPath,pubPath,assetId,publicationId,indexDigest:digest(index)};
 }
 describe('static publication content-addressed reads',()=>{
+ it('validates the active v4 publication before allowing a previous copy to reopen',async()=>{
+  const exhibition={id:'synthetic',artworks:[],mediaAssets:[]},publicationId='synthetic-publication',revision=digest(freezeCanonical(exhibition));
+  const oldValue={publication:{id:publicationId,status:'published',revisionSha256:revision},exhibition,assets:[]},activeValue={...oldValue,detailAssets:[]};
+  const make=(value:unknown,version:number)=>{const pub=Buffer.from(JSON.stringify(value)),sha=digest(pub),path=`data/${sha}.json`,index=Buffer.from(JSON.stringify({version,publication:{path,bytes:pub.length,sha256:sha,mime:'application/json'},assets:[],...(version===4?{detailAssets:[]}:{})}));return {pub,path,index};};
+  let old=make(oldValue,1),active=make(activeValue,4);
+  let oldHash=digest(old.index);vi.stubGlobal('document',{querySelector:()=>({content:digest(active.index)})});
+  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const path=String(input),body=path===`/private-copy-bases/${oldHash}/static-publication-index.json`?old.index:path===`/private-copy-bases/${oldHash}/${old.path}`?old.pub:path==='/static-publication-index.json'?active.index:path==='/'+active.path?active.pub:undefined;return body?new Response(new Uint8Array(body)):new Response(null,{status:404});}));
+  expect((await loadStaticPublication(oldHash)).publication.revisionSha256).toBe(revision);
+  active=make({...activeValue,publication:{...activeValue.publication,status:'unpublished'}},4);
+  await expect(loadStaticPublication(oldHash)).rejects.toThrow('STATIC_PUBLICATION');
+  active=make(activeValue,4);old=make(activeValue,4);oldHash=digest(old.index);
+  await expect(loadStaticPublication(oldHash)).rejects.toThrow('STATIC_PREVIOUS_ASSETS');
+ });
+ it('checks v4 detail bindings independently and keeps the gallery if the optional file is missing',async()=>{
+  const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),exhibition=structuredClone(original.exhibition),work=exhibition.artworks.find(a=>a.artworkType==='image')!,publicationId=randomUUID(),assetId=randomUUID(),bytes=Buffer.from('synthetic detail'),sha=digest(bytes);
+  work.rights.permissions.download=true;work.rights.permissions.export=true;
+  const featureReport={version:1,inspector:'synthetic-only',assetSha256:sha,assetBytes:bytes.length,media:{kind:'image',codec:'png',width:1,height:1,bitDepth:8,channels:4,frameCount:1,interlaced:false,orientation:1,colourProfile:'srgb'},cost:{model:'synthetic-only',residentBytes:4,peakAdditionalBytes:8}};
+  const candidate={candidateId:randomUUID(),assetId,tier:'acquired-original',sha256:sha,bytes:bytes.length,mime:'image/png',sourceBindingSha256:'a'.repeat(64),featureReportSha256:digest(freezeCanonical(featureReport)),featureReport};
+  work.extensions={...work.extensions,[ARTWORK_DETAIL_QUALITY_NAMESPACE]:{version:1,candidates:[candidate]}} as never;
+  const descriptor={assetId,mime:'image/png',url:`/api/v1/publications/${publicationId}/detail-assets/${assetId}`};
+  const value={publication:{id:publicationId,status:'published',revisionSha256:digest(freezeCanonical(exhibition))},exhibition,assets:original.manifest.assets.map(a=>({assetId:a.id,mime:a.mime,url:`/api/v1/publications/${publicationId}/assets/${a.id}`})),detailAssets:[descriptor]};
+  const pub=Buffer.from(JSON.stringify(value)),pubHash=digest(pub),pubPath=`data/${pubHash}.json`,assets=original.manifest.assets.map(a=>({assetId:a.id,path:`data/${a.sha256}.bin`,bytes:a.bytes,sha256:a.sha256,mime:a.mime})),detailEntry={assetId,path:`data/${sha}.bin`,bytes:bytes.length,sha256:sha,mime:'image/png'};
+  const indexFor=(entry:unknown)=>Buffer.from(JSON.stringify({version:4,publication:{path:pubPath,bytes:pub.length,sha256:pubHash,mime:'application/json'},assets,detailAssets:[entry]}));
+  let index=indexFor(detailEntry),available=true;
+  vi.stubGlobal('document',{querySelector:()=>({content:digest(index)})});vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const path=String(input),body=path==='/static-publication-index.json'?index:path==='/'+pubPath?pub:path===`/data/${sha}.bin`&&available?bytes:undefined;return body?new Response(new Uint8Array(body)):new Response(null,{status:404});}));
+  const result=await loadStaticPublication();expect(await (await result.local!.fetcher(descriptor.url)).text()).toBe('synthetic detail');
+  const ordinaryUrl=result.assets[0]!.url,revision=value.publication.revisionSha256;result.assets[0]!.url=descriptor.url;result.publication.revisionSha256='f'.repeat(64);
+  const isolated=await result.local!.fetcher(descriptor.url);expect(await isolated.text()).toBe('synthetic detail');expect(isolated.headers.get('x-exhibitos-publication-revision')).toBe(revision);result.assets[0]!.url=ordinaryUrl;result.publication.revisionSha256=revision;
+  result.exhibition.artworks.find(a=>a.id===work.id)!.rights.permissions.download=false;expect(await (await result.local!.fetcher(descriptor.url)).text()).toBe('synthetic detail');result.exhibition.artworks.find(a=>a.id===work.id)!.rights.permissions.download=true;
+  available=false;await expect(result.local!.fetcher(descriptor.url)).rejects.toThrow('STATIC_RESPONSE');expect(result.exhibition.id).toBe(exhibition.id);
+  index=indexFor({...detailEntry,bytes:bytes.length+1});await expect(loadStaticPublication()).rejects.toThrow('STATIC_DETAIL');
+  const aliasedAssets=structuredClone(assets);Object.assign(aliasedAssets[0]!,{path:detailEntry.path,sha256:sha,bytes:bytes.length+1});index=Buffer.from(JSON.stringify({version:4,publication:{path:pubPath,bytes:pub.length,sha256:pubHash,mime:'application/json'},assets:aliasedAssets,detailAssets:[detailEntry]}));await expect(loadStaticPublication()).rejects.toThrow('STATIC_DETAIL');
+  index=Buffer.from(JSON.stringify({version:4,publication:{path:pubPath,bytes:pub.length,sha256:pubHash,mime:'application/json'},assets,detailAssets:Array(17).fill(detailEntry)}));await expect(loadStaticPublication()).rejects.toThrow('STATIC_INDEX');
+  const legacyValue={publication:value.publication,exhibition,assets:value.assets},legacyPub=Buffer.from(JSON.stringify(legacyValue)),legacyHash=digest(legacyPub),legacyPath=`data/${legacyHash}.json`;
+  const legacyIndex=Buffer.from(JSON.stringify({version:1,publication:{path:legacyPath,bytes:legacyPub.length,sha256:legacyHash,mime:'application/json'},assets}));
+  vi.stubGlobal('document',{querySelector:()=>({content:digest(legacyIndex)})});vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const body=String(input)==='/static-publication-index.json'?legacyIndex:legacyPub;return new Response(new Uint8Array(body));}));
+  await expect(loadStaticPublication()).rejects.toThrow('STATIC_DETAIL');
+ });
  it('rejects duplicate keys in the hash-pinned index and publication before exposure',async()=>{
   const duplicateIndex=Buffer.from('{"version":1,"\\u0076ersion":1}');
   vi.stubGlobal('document',{querySelector:()=>({content:digest(duplicateIndex)})});

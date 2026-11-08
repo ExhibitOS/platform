@@ -8,6 +8,7 @@ import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
 import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
+import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
 
 const source = fileURLToPath(new URL('../', import.meta.url));
 const fail = code => { throw Error(code); };
@@ -333,13 +334,19 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copy(join(source,'apps/web/src/workspace-material-resources.mjs'),join(platform,'apps/web/src/workspace-material-resources.mjs'));
   await copy(join(source,'apps/web/src/workspace-material-batch.mjs'),join(platform,'apps/web/src/workspace-material-batch.mjs'));
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
+  await copy(join(source,'scripts/native-detail-plan.mjs'),join(platform,'scripts/native-detail-plan.mjs'));
   for(const name of ['pages-publication-source.mjs','local-static-publication-source.mjs','refresh-static-publication.mjs']) await copy(join(source,'scripts',name),join(platform,'scripts',name));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));
+  await copy(join(source,'scripts/native-detail-capability.mjs'),join(platform,'scripts/native-detail-capability.mjs'));
+  await copy(join(source,'scripts/native-detail-pipe.mjs'),join(platform,'scripts/native-detail-pipe.mjs'));
+  await copy(join(source,'scripts/native-detail-control.mjs'),join(platform,'scripts/native-detail-control.mjs'));
+  await copy(join(source,'scripts/native-detail-export-runner.mjs'),join(platform,'scripts/native-detail-export-runner.mjs'));
   await copy(join(source,'LICENSE'),join(platform,'LICENSE'));
   // Install exact production dependencies into the NEW payload; never prune the
   // developer checkout. No npm/tsc/vite/Homebrew executable is shipped or needed.
   await command(nodeBinary,[npmCLI,'ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],{cwd:platform});
   const files = await inventory(root);
+  assertNativeJpegPayloadInventory(files);
   const sourceCommit = await command('/usr/bin/git',['rev-parse','HEAD'],{cwd:source,capture:true});
   const sourceModified = Boolean(await command('/usr/bin/git',['status','--porcelain','--untracked-files=normal'],{cwd:source,capture:true}));
   const manifest = {

@@ -112,6 +112,15 @@ for(const contract of ['native','reference-demo'])test(`${contract}: source-boun
  const rejected=await exportStaticPublication({...options,output:join(directory,'unproven-cover')}),rejectedIndex=JSON.parse(await readFile(join(rejected.output,'static-publication-index.json'))),rejectedSnapshot=JSON.parse(await readFile(join(rejected.output,rejectedIndex.publication.path)));assert.equal(rejectedSnapshot.coverVariants,undefined);assert.equal(rejectedSnapshot.exhibition.extensions['org.exhibitos.viewer/entrance'].imageAssetId,primary.id);
 });
 test("draft or withdrawn snapshot cannot be exported",async t=>{const {fixture,options}=await setup(t);fixture.raw.publication.status="unpublished";await assert.rejects(exportStaticPublication(options),/STATIC_NOT_PUBLISHED/);await assert.rejects(lstat(options.output),{code:"ENOENT"});});
+test('ordinary export refuses declared detail rather than dropping it',async t=>{const {fixture,options}=await setup(t);fixture.raw.detailAssets=[];await assert.rejects(exportStaticPublication(options),/STATIC_DETAIL_UNSUPPORTED/);await assert.rejects(lstat(options.output),{code:'ENOENT'});});
+test('cancelled native export never requests a publication or creates output',async t=>{const {fixture,options}=await setup(t),controller=new AbortController();controller.abort();await assert.rejects(exportStaticPublication({...options,signal:controller.signal}));assert.equal(fixture.reads,0);await assert.rejects(lstat(options.output),{code:'ENOENT'});});
+test('mid-asset cancellation drains export and removes its staging tree',async t=>{
+ const {fixture,options,directory}=await setup(t),controller=new AbortController();let entered;const started=new Promise(resolve=>{entered=resolve;}),fetcher=async(input,init)=>{
+  if(!new URL(input).pathname.includes('/assets/'))return fixture.fetcher(input,init);
+  const source=await fixture.fetcher(input,init),body=new ReadableStream({start(stream){init.signal.addEventListener('abort',()=>stream.error(Error('cancelled')),{once:true});entered();}});return new Response(body,{headers:source.headers});
+ };
+ const pending=exportStaticPublication({...options,fetcher,signal:controller.signal});await started;controller.abort();await assert.rejects(pending);assert.deepEqual(await readdir(directory),['runtime']);
+});
 test("withdrawal during asset export leaves no published directory or staging debris",async t=>{const {fixture,options,directory}=await setup(t),fetcher=options.fetcher;options.fetcher=async(...args)=>{if(fixture.reads===1&&new URL(args[0]).pathname.endsWith(fixture.id))fixture.raw.publication.status="unpublished";return fetcher(...args);};await assert.rejects(exportStaticPublication(options),/STATIC_PUBLICATION_CHANGED/);assert.deepEqual(await readdir(directory),["runtime"]);});
 test('an unavailable optional thumbnail does not block static export or alter the immutable snapshot',async t=>{
  const {fixture,options}=await setup(t),art=fixture.raw.exhibition.artworks[0],id=randomUUID(),png=fixture.decoded.files.get(fixture.decoded.manifest.assets.find(a=>a.mime==='image/png').path);

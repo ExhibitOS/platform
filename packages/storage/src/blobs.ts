@@ -83,13 +83,16 @@ export class FileBlobStore implements BlobStore {
   async getBounded(key: string, expectedBytes: number, signal?: AbortSignal) {
     if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > LIMIT) throw new Error("object size limit");
     const file = await open(await this.path(key, false, signal), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    let data:Buffer|undefined;
     try {
       signal?.throwIfAborted();const stat = await file.stat();signal?.throwIfAborted();
       if (!stat.isFile() || stat.size !== expectedBytes) throw new Error("object size mismatch");
-      const data=Buffer.alloc(expectedBytes+1),stream=file.createReadStream({start:0,end:expectedBytes,autoClose:false,...(signal?{signal}:{})});let length=0;
-      for await(const chunk of stream){const bytes=Buffer.from(chunk);if(length+bytes.length>data.length)throw new Error("object size mismatch");bytes.copy(data,length);length+=bytes.length;}
+      data=Buffer.alloc(expectedBytes+1);const stream=file.createReadStream({start:0,end:expectedBytes,autoClose:false,...(signal?{signal}:{})});let length=0;
+      for await(const chunk of stream){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);try{if(length+bytes.length>data.length)throw new Error("object size mismatch");bytes.copy(data,length);length+=bytes.length;}finally{bytes.fill(0);}}
       signal?.throwIfAborted();if(length!==expectedBytes)throw new Error("object size mismatch");return data.subarray(0,expectedBytes);
-    } finally { await file.close(); }
+    // A close failure must override any earlier result to retain ownership.
+    // eslint-disable-next-line no-unsafe-finally
+    } catch(error){data?.fill(0);throw error;} finally {try{await file.close();}catch(error){data?.fill(0);throw Object.assign(new Error('BLOB_CLEANUP_UNCERTAIN',{cause:error}),{code:'BLOB_CLEANUP_UNCERTAIN'});}}
   }
   async put(key: string, bytes: Uint8Array) {
     checkBytes(bytes);

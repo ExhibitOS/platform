@@ -111,8 +111,10 @@ export function retainsCopyRights(previous: Exhibition, current: Exhibition) {
 type CopyFile = {path:string; sha256:string; bytes:number; mime:string};
 type CopyIndex = {version:number; assets:CopyFile[]; resources?:CopyFile[]; furnishingNotices?:CopyFile[]};
 
-export function retainsCopyInventory(previous: CopyIndex, current: CopyIndex) {
-  if (previous.version !== current.version) return false;
+export function retainsCopyInventory(previous: CopyIndex, current: CopyIndex, validatedV4 = false) {
+  // Cross-version use is opt-in only after both documents were independently
+  // validated. Script callers cannot infer validity from a parsed index alone.
+  if (previous.version !== current.version && !(validatedV4 && current.version === 4 && [1,2,3].includes(previous.version))) return false;
   const rows = (entries: CopyFile[] = []) => entries.map(e => JSON.stringify([e.path,e.sha256,e.bytes,e.mime]));
   // Old UUIDs remain in their own snapshot. Bytes must still exist at the
   // same content-addressed path and in the same resource category.

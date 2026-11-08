@@ -14,6 +14,8 @@ import {cachedDisplayDerivative} from './display-derivative-cache.ts';
 import {withReadinessStage,stageReadinessBytes,PublicationStageError,type PublicationStagedBytes,type ReadinessStage} from './publication-byte-stage.ts';
 import {PublicationFileOperation} from './publication-file-operation.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
+import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from './native-original-publication.ts';
+import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
@@ -178,9 +180,10 @@ export function authorizedArtworkAssets(snapshot:Exhibition,records:AssetRow[],n
  return permitted;
 }
 /** Final common-clock check after all asynchronous workspace authority work. */
-export function recheckPublicationTimeRights(snapshot:Exhibition,records:AssetRow[],media:Array<{rights:unknown}>,covers:Array<{rights:unknown}>,workspace:ReadonlyArray<{rights:unknown}>,now:number){
+export function recheckPublicationTimeRights(snapshot:Exhibition,records:AssetRow[],media:Array<{rights:unknown}>,covers:Array<{rights:unknown}>,workspace:ReadonlyArray<{rights:unknown}>,now:number,expected?:ReadonlyArray<{id:string}>){
  if(workspace.some(item=>!allowedRights(item.rights,'display',now)||!allowedRights(item.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  const permitted=authorizedArtworkAssets(snapshot,records,now);
+ if(expected&&(permitted.length!==expected.length||permitted.some((asset,index)=>asset.id!==expected[index]?.id)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(media.some(item=>!allowedRights(item.rights,'display',now))||covers.some(item=>!allowedRights(item.rights,'display',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  return permitted;
 }
@@ -296,7 +299,8 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     snapshot.createdAt = at;
     snapshot.revision = 1;
     if(!validateStudioMaterials(snapshot).valid||!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
-    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined,workspaceBindings:workspace?.bindings??[],workspaceMaterialBindings:workspaceMaterials?.bindings??[] };
+    const artworkIdentities=prepared.filter(p=>p.artwork.artworkType==='image').map(p=>({artworkId:p.artwork.id,artworkRevisionId:p.artwork.revisionId,artworkRevision:p.artwork.revision,publicArtworkId:map(p.artwork.id),publicArtworkRevisionId:map(p.artwork.revisionId)}));
+    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined,workspaceBindings:workspace?.bindings??[],workspaceMaterialBindings:workspaceMaterials?.bindings??[],artworkIdentities };
 }
 /** Optional read-only approved Pages projection for the selected hosted profile.
  * This never supplies private roles or opening host authority. */
@@ -569,10 +573,13 @@ export class Publications {
         if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
         return this.summary(await this.owned(c,s,receipt.publication_id));
     }
-    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage) {
+    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage,detail?:NativeOriginalPublication) {
+        let finalTimeFence:(()=>void)|undefined,finalDetailFence:(()=>void)|undefined;
         try{
         uuid(requestId);
-        const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify({ id, requestId, match })));
+        if(detail&&(!isIssuedNativeOriginalPublication(detail)||!(fileOperation instanceof NativeLocalPublicationStage)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+        if(detail)await detail.assertLive(c,s);
+        const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify(detail?{id,requestId,match,detailProfile:'native-original-v1'}:{id,requestId,match})));
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
         if (receipt) {
             if (receipt.payload_sha256 !== payloadHash)
@@ -586,6 +593,7 @@ export class Publications {
         // a concurrent publication after waiting for the lock, before writing.
         const existing=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3 ORDER BY p.published_at DESC,p.id DESC LIMIT 1',[s.tenantId,id,row.revision])).rows[0];
         if(existing){
+            if(detail)await detail.verifyExisting(c,s,id,existing.id,existing.revision_sha256,existing.snapshot);
             await c.query('INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)',[s.tenantId,s.userId,requestId,payloadHash,existing.id]);
             // A lost response or a second publish click must not republish an
             // explicitly withdrawn version. Its existing status is returned.
@@ -607,7 +615,8 @@ export class Publications {
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
-        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover,workspaceBindings,workspaceMaterialBindings } = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
+        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), projected = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
+        let {snapshot}=projected;const {assets,media,cover,workspaceBindings,workspaceMaterialBindings,artworkIdentities}=projected,reservedIds=[...assets.map(a=>a.id),...media.map(a=>a.id),...(cover?[cover.id]:[]),...workspaceBindings.map(a=>a.publicId),...workspaceMaterialBindings.map(a=>a.publicId),...(furnishingsFor(snapshot)?.assets??[]).map(a=>a.id)],detailPrepared=detail?await detail.prepare(c,s,id,publicationId,snapshot,artworkIdentities,reservedIds):undefined;if(detailPrepared)snapshot=detailPrepared.snapshot;
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
@@ -636,18 +645,26 @@ export class Publications {
         await stage?.close();
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
+        const publishedRow={tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
+        if(detail&&detailPrepared){
+         await detail.persist(c,s,detailPrepared,digest);
+         const projection=await this.publicProjection(c,publishedRow,await this.gate(c,publishedRow));await this.assertDetailProjection(projection);
+         await detail.recheck(c,s,detailPrepared,digest);
+        }
+        let final:Awaited<ReturnType<Publications['gate']>>|undefined;
         if(fileOperation){
-        const final=await finalizePublicationOperation(
+        final=await finalizePublicationOperation(
           ()=>fileOperation.verify(c,s,this.blobs,'publish',id,match,requestId),
           ()=>recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs),
-          ()=>this.gate(c,{tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published'}),
+          ()=>this.gate(c,publishedRow),
           ()=>fileOperation.assertClaimed());
         if(final.assets.length!==assets.length+media.length+(cover?1:0))throw new ApiError(422,'PUBLICATION_NOT_READY');
         fileOperation.assertClaimed();
         }
+        if(detail&&detailPrepared){fileOperation!.assertClaimed();if(!final)throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');finalTimeFence=final.assertTime;finalDetailFence=()=>detail.assertCurrent(s);}
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
         }finally{await stage?.close();}
-        }finally{await fileOperation?.close();}
+        }finally{await fileOperation?.close();if(finalTimeFence){finalTimeFence();finalDetailFence!();}}
     }
     private async event(c: PoolClient, s: Session, id: string, action: string) { await c.query("INSERT INTO publication_events(id,publication_id,actor_user_id,action) VALUES($1,$2,$3,$4)", [randomUUID(), id, s.userId, action]); await c.query("INSERT INTO audit_events(tenant_id,id,metadata) VALUES($1,$2,$3)", [s.tenantId, randomUUID(), { action: `studio.${action}`, actor: s.userId, target: id }]); }
     async unpublish(c: PoolClient, s: Session, id: string) { const row = await this.owned(c, s, id); if (row.status !== "unpublished") {
@@ -659,7 +676,7 @@ export class Publications {
         await this.event(c, s, id, "republished");
     } return this.summary({ ...row, status: "published" }); }
     /** No private draft metadata is consulted. Snapshot and private immutable asset bindings suffice. */
-    private async gate(c: PoolClient, row: PublicationRow,workspaceAssetId?:string,workspaceResourceHash?:string,retainAllWorkspaceMaps=false,signal?:AbortSignal,workspaceBindingsOnly=false): Promise<{assets:AssetRow[];furnishings:PreparedFurnishing[];workspaceFurnishings:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>;workspaceMaterials:Awaited<ReturnType<typeof admittedPublicationWorkspaceMaterials>>}> {
+    private async gate(c: PoolClient, row: PublicationRow,workspaceAssetId?:string,workspaceResourceHash?:string,retainAllWorkspaceMaps=false,signal?:AbortSignal,workspaceBindingsOnly=false): Promise<{assets:AssetRow[];furnishings:PreparedFurnishing[];workspaceFurnishings:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>;workspaceMaterials:Awaited<ReturnType<typeof admittedPublicationWorkspaceMaterials>>;assertTime:()=>void}> {
         signal?.throwIfAborted();
         if (!(await c.query("SELECT 1 FROM tenants t JOIN exhibitions e ON e.tenant_id=t.id WHERE t.id=$1 AND e.id=$2 AND t.deleted_at IS NULL AND e.deleted_at IS NULL", [row.tenant_id, row.exhibition_id])).rowCount)
             throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
@@ -688,13 +705,9 @@ export class Publications {
         if(workspaceFurnishings.length||workspaceMaterials.length){
             if(workspaceFurnishings.length&&!this.workspaceFurnishing)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
             try{if(workspaceFurnishings.length)await this.workspaceFurnishing!.publicationFence(c,workspaceFurnishings.map(item=>item.sourceDescriptor));if(workspaceMaterials.length){if(!this.workspaceMaterial)throw Error();await this.workspaceMaterial.publicationFence(c,workspaceMaterials.map(item=>item.sourceDescriptor));}}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
-            // Every time-sensitive grant shares a final clock after the last
-            // asynchronous workspace/owner check, including legacy assets.
-            const finalNow=Date.now();
-            if(!validateExhibition(row.snapshot,{publicationTime:new Date(finalNow).toISOString()}).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
-            permitted=recheckPublicationTimeRights(row.snapshot,records,media,covers,[...workspaceFurnishings.map(item=>item.sourceDescriptor),...workspaceMaterials.map(item=>item.sourceDescriptor)],finalNow);
         }
-        signal?.throwIfAborted();return {assets:[...permitted,...media,...covers],furnishings,workspaceFurnishings,workspaceMaterials};
+        const currentTime=(expected?:ReadonlyArray<{id:string}>)=>{const finalNow=Date.now();if(!validateExhibition(row.snapshot,{publicationTime:new Date(finalNow).toISOString()}).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return recheckPublicationTimeRights(row.snapshot,records,media,covers,[...workspaceFurnishings.map(item=>item.sourceDescriptor),...workspaceMaterials.map(item=>item.sourceDescriptor)],finalNow,expected);};
+        permitted=currentTime();signal?.throwIfAborted();return {assets:[...permitted,...media,...covers],furnishings,workspaceFurnishings,workspaceMaterials,assertTime:()=>{currentTime(permitted);}};
     }
     /** Reuse the current public gate inside the caller's policy-fenced transaction. */
     async discoveryMetadata(c: PoolClient, ids: string[]) {
@@ -789,6 +802,29 @@ export class Publications {
             if(JSON.stringify(actual)!==JSON.stringify(records))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');signal?.throwIfAborted();const now=Date.now();if(!validateExhibition(row.snapshot,{publicationTime:new Date(now).toISOString()}).valid||workspaceMaterials.some(item=>!allowedRights(item.sourceDescriptor.rights,'display',now)||!allowedRights(item.sourceDescriptor.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');start?.();return {revisionSha256:row.revision_sha256};
         });
     }
+    private async assertDetailProjection(projection:Awaited<ReturnType<Publications['publicProjection']>>){
+        const descriptors:Array<{assetId:string;url:string;mime:string}>=[],ids=new Set(projection.assets.map(asset=>asset.assetId.toLowerCase())),candidateIds=new Set<string>();let total=0;
+        for(const artwork of projection.exhibition.artworks){const relation=artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');const verified=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!verified)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');for(const candidate of verified.candidates){if(ids.has(candidate.assetId)||candidateIds.has(candidate.candidateId)||candidate.bytes>25*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');ids.add(candidate.assetId);candidateIds.add(candidate.candidateId);total+=candidate.bytes;if(descriptors.length>=16||!Number.isSafeInteger(total)||total>100*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');descriptors.push({assetId:candidate.assetId,url:`/api/v1/publications/${projection.publication.id}/detail-assets/${candidate.assetId}`,mime:candidate.mime});}}
+        // The actual static publication omits materialMapBatch and may omit an
+        // optional cover; including both here is a conservative serialized cap.
+        if(descriptors.length&&Buffer.byteLength(JSON.stringify({...projection,detailAssets:descriptors}),'utf8')>1048576)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+    }
+    private async publicProjection(c:PoolClient,row:PublicationRow,initial:Awaited<ReturnType<Publications['gate']>>,captureFence?:(fence:()=>void)=>void) {
+        let {assets,furnishings,workspaceFurnishings,workspaceMaterials}=initial;
+            let projectionFence=initial.assertTime;
+            let coverVariants:Awaited<ReturnType<typeof approvedCoverProjection>>;
+            const coverAssetId=entranceFor(row.snapshot).imageAssetId?.toLowerCase();
+            if(this.blobs&&coverAssetId&&row.snapshot.artworks.some(a=>a.artworkType==='image'&&a.primaryAssetId.toLowerCase()===coverAssetId)){
+                try{coverVariants=await approvedCoverProjection(row.snapshot,row.revision_sha256,assets,this.blobs);}catch{/* An optional cover pair never replaces the primary. */}
+                // I/O can cross a rights expiry. A failed optional pair must not
+                // turn a changed or revoked required source into success.
+                const refreshed=await this.gate(c,row);({assets,furnishings,workspaceFurnishings,workspaceMaterials}=refreshed);projectionFence=refreshed.assertTime;
+                if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
+            }
+            const resources=publicResourcesFor(row.snapshot);
+            captureFence?.(projectionFence);
+            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
+    }
     async anonymous(id: string, assetId?: string) {
         uuid(id);
         if (assetId)
@@ -800,7 +836,7 @@ export class Publications {
             const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1", [id])).rows[0] as PublicationRow | undefined;
             if (!row || row.status !== "published")
                 throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-            let {assets,furnishings,workspaceFurnishings,workspaceMaterials} = await this.gate(c, row,assetId);
+            const initial=await this.gate(c,row,assetId);const {assets,furnishings,workspaceFurnishings,workspaceMaterials} = initial;
             if (assetId) {
                 const material=workspaceMaterials.find(p=>p.publicId===assetId);
                 if(material){if(!material.bytes)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return {bytes:material.bytes,mime:material.mime,revisionSha256:row.revision_sha256};}
@@ -828,17 +864,7 @@ export class Publications {
                 if(!(await this.gate(c,row)).assets.some(current=>current.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
                 return { bytes, mime: asset.mime, revisionSha256: row.revision_sha256 };
             }
-            let coverVariants:Awaited<ReturnType<typeof approvedCoverProjection>>;
-            const coverAssetId=entranceFor(row.snapshot).imageAssetId?.toLowerCase();
-            if(this.blobs&&coverAssetId&&row.snapshot.artworks.some(a=>a.artworkType==='image'&&a.primaryAssetId.toLowerCase()===coverAssetId)){
-                try{coverVariants=await approvedCoverProjection(row.snapshot,row.revision_sha256,assets,this.blobs);}catch{/* An optional cover pair never replaces the primary. */}
-                // I/O can cross a rights expiry. A failed optional pair must not
-                // turn a changed or revoked required source into success.
-                ({assets,furnishings,workspaceFurnishings,workspaceMaterials}=await this.gate(c,row));
-                if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
-            }
-            const resources=publicResourcesFor(row.snapshot);
-            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
+            let projectionFence=initial.assertTime;const projection=await this.publicProjection(c,row,initial,fence=>{projectionFence=fence;});await this.assertDetailProjection(projection);projectionFence();return projection;
         });
     }
 }
