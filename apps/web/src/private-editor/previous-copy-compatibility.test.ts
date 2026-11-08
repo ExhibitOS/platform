@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
+import {readFileSync} from 'node:fs';
 import type { ExhibitionV1 } from '@exhibitos/spec';
 import { LOD_NAMESPACE } from '@exhibitos/studio-contract';
 import { newDraft } from '../drafts/example';
@@ -11,6 +12,20 @@ const first = file('1'.repeat(64));
 const added = file('2'.repeat(64));
 
 describe('previous private copy compatibility', () => {
+  it('retains the exact current-live Hayes when its qualified compact asset is added',()=>{
+    const root=new URL('../../../../demos/reference-exhibition/',import.meta.url);
+    const read=(path:string)=>JSON.parse(readFileSync(new URL(path,root),'utf8'));
+    const oldIndex=read('private-copy-bases/8f58935dd614adbfa231b083552c1af188fc8ce10984fdddf97d7b9f716718a2/static-publication-index.json');
+    const newIndex=read('source/qualified-wheat-v4-index.json');
+    const previous=read(`private-copy-bases/8f58935dd614adbfa231b083552c1af188fc8ce10984fdddf97d7b9f716718a2/${oldIndex.publication.path}`).exhibition as ExhibitionV1;
+    const active=read(`source/${newIndex.publication.path}`).exhibition as ExhibitionV1;
+    expect(retainsCopyRights(previous,active)).toBe(true);
+    const altered=structuredClone(active),hayes=altered.artworks.find(a=>a.assets.some(x=>x.sha256==='42c4d5adc2b51690c5dec78f742494c7424e7f364b35c45da6e5f557ed88a1d6'))!;
+    hayes.assets.find(a=>a.sha256.startsWith('42c4'))!.sha256='0'.repeat(64);
+    expect(retainsCopyRights(previous,altered)).toBe(false);
+    const alteredRights=structuredClone(active);alteredRights.artworks.find(a=>a.assets.some(x=>x.sha256.startsWith('694a')))!.rights.permissions.export=false;
+    expect(retainsCopyRights(previous,alteredRights)).toBe(false);
+  });
   it('retains only old files at exact paths in each inventory category', () => {
     const before={version:2,assets:[first],resources:[added]};
     expect(retainsCopyInventory(before,{...before,assets:[first,added]})).toBe(true);
