@@ -208,9 +208,17 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
    LEFT JOIN workspace_furnishing_versions v ON v.workspace_id=p.workspace_id AND v.id=p.furnishing_id AND v.version=p.furnishing_version
    WHERE p.state='registered' ${options.tenantId?'AND p.tenant_id=$1':''} AND (
     i.id IS NULL OR i.phase<>'registered' OR i.tenant_id<>p.tenant_id OR i.user_id<>p.user_id OR i.furnishing_id<>p.furnishing_id OR i.furnishing_version<>p.furnishing_version OR
-    i.declaration->>'preparationPolicy' IS DISTINCT FROM p.recipe OR i.received->>'key' IS DISTINCT FROM p.source_key OR
-    i.declaration->'model' IS DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.source_bytes,'sha256',p.source_sha256) OR
-    i.received->'bytes' IS DISTINCT FROM to_jsonb(p.source_bytes) OR i.received->>'sha256' IS DISTINCT FROM p.source_sha256 OR
+    i.declaration->>'requestId' IS DISTINCT FROM i.request_id::text OR (
+     (i.declaration->>'preparationPolicy' IS NOT DISTINCT FROM p.recipe AND i.received->>'key' IS NOT DISTINCT FROM p.source_key AND
+      i.declaration->'model' IS NOT DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.source_bytes,'sha256',p.source_sha256) AND
+      i.received->'bytes' IS NOT DISTINCT FROM to_jsonb(p.source_bytes) AND i.received->>'sha256' IS NOT DISTINCT FROM p.source_sha256)
+     OR
+     (NOT (i.declaration ? 'preparationPolicy') AND i.declaration->>'kind'='artwork-frame' AND
+      i.received->>'key' IS NOT DISTINCT FROM p.renderable_key AND
+      i.declaration->'model' IS NOT DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.renderable_bytes,'sha256',p.renderable_sha256) AND
+      i.received->'bytes' IS NOT DISTINCT FROM to_jsonb(p.renderable_bytes) AND i.received->>'sha256' IS NOT DISTINCT FROM p.renderable_sha256 AND
+      i.declaration->'rights'->>'holder'='ExhibitOS' AND i.declaration->'rights'->>'ownership'='owner' AND i.declaration->'rights'->>'licenseId'='CC0-1.0')
+    ) IS NOT TRUE OR
     v.id IS NULL OR v.tenant_id<>p.tenant_id OR v.user_id<>p.user_id OR v.object_key IS DISTINCT FROM p.renderable_key OR
     v.descriptor->'model' IS DISTINCT FROM jsonb_build_object('mime','model/gltf-binary','bytes',p.renderable_bytes,'sha256',p.renderable_sha256) OR
     v.descriptor->'rights' IS DISTINCT FROM i.declaration->'rights' OR v.descriptor->'provenance' IS DISTINCT FROM i.declaration->'provenance' OR
