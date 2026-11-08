@@ -1815,20 +1815,28 @@ export function GeometryPreview({
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
-        const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
         let diagnosticPeak=0,diagnosticPeakTexture=0,diagnosticPeakMesh=0;
+        let diagnosticOriginal:{artworkRevisionId:string;sha256:string}|null=null;
+        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{diagnosticPeak=Math.max(diagnosticPeak,total);}:undefined);
         const unregisterDiagnostic=registerDiagnosticSource(()=>{
           const history=readRuntimeHistory(renderer.domElement.ownerDocument),records=stages.snapshot();
           const recent=new Map(records.map(row=>[row.assetId,row]));
           const all=arts.flatMap(art=>art.assets.map(asset=>({art,asset})));
-          all.sort((a,b)=>Number(recent.has(b.asset.id.toLowerCase()))-Number(recent.has(a.asset.id.toLowerCase())));
+          const selectedId=detailPinnedArtwork??currentArtwork??null,selectedArt=arts.find(art=>art.revisionId===selectedId);
+          all.sort((a,b)=>Number(b.art.revisionId===selectedId)-Number(a.art.revisionId===selectedId)||Number(recent.has(b.asset.id.toLowerCase()))-Number(recent.has(a.asset.id.toLowerCase())));
           const memory=(navigator as Navigator&{deviceMemory?:number}).deviceMemory;
           const values=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
           const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
-          return {version:1,capturedAt:new Date().toISOString(),identity:{publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256??null,buildId:history.buildId,sourceCommit:history.sourceCommit},
-            device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles}},
+          const displayedId=detailPinnedArtwork?(detailPinned?.userData.viewerAssetId as string|undefined):selectedId?active.get(selectedId):undefined;
+          const displayedAsset=selectedArt?.assets.find(asset=>asset.id===displayedId);
+          const selectedLimits=selectedArt&&detailPinnedArtwork?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(selectedArt,viewerBudget)?.budget}):undefined;
+          const detailOmitted=!!detailPinned||!!detailImageCandidate||detailRetired;
+          return {version:1,capturedAt:new Date().toISOString(),lifecycle:gpuLost?'context-lost':disposed||publicDisplayStopped?'stopped':'live',identity:{publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256??null,buildId:history.buildId,sourceCommit:history.sourceCommit},
+            selected:{artworkRevisionId:selectedId,reason:detailPinnedArtwork?'detail':currentArtwork?'attended':null},
+            displayed:diagnosticOriginal?{artworkRevisionId:diagnosticOriginal.artworkRevisionId,assetId:null,sha256:diagnosticOriginal.sha256,tier:'acquired-original'}:{artworkRevisionId:displayedAsset?selectedId:null,assetId:displayedAsset?.id??null,sha256:displayedAsset?.sha256??null,tier:displayedAsset?(detailPinnedArtwork?'detail-approved':'scene'):null},
+            device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles,effectiveResidentBytes:assetBudgetBytes,effectiveTransitionBytes:transitionBudgetBytes,selectedDetailResidentBytes:selectedLimits?.resident??null,selectedDetailTransitionBytes:selectedLimits?.transition??null}},
             navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
-            memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
+            memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:detailOmitted?null:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:detailOmitted?null:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
             assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot()};
         });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
@@ -1901,7 +1909,6 @@ export function GeometryPreview({
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           peak.reserve(key,bytes,limit);
-          if(diagnosticsEnabled())diagnosticPeak=Math.max(diagnosticPeak,peak.total());
         };
         const tasks = new Map<
           string,
@@ -2610,6 +2617,7 @@ export function GeometryPreview({
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
             if(!alive)return;alive=false;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            diagnosticOriginal=null;
             retryOriginalDetail=undefined;
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
@@ -2698,11 +2706,11 @@ export function GeometryPreview({
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
                       draw:next=>{if(!current())throw Error('DETAIL_STALE');originalAttached=true;scope.replaceImage(next);},
-                      hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
+                      hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;diagnosticOriginal=null;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
                       completeCommands:()=>completeDetailCommands(context),
                     });
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
-                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
+                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,

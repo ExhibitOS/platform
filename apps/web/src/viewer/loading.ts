@@ -204,7 +204,7 @@ export function displayedDetailReclamation(items:ReadonlyArray<{id:string;artwor
 }
 export class AssetPeakBudget {
  private reservations=new Map<string,number>();
- constructor(private maxBytes:number,private resident:()=>number){}
+ constructor(private maxBytes:number,private resident:()=>number,private observed?:(total:number)=>void){}
  /** Release a completed external load hold without clearing live reservations. */
  raiseLimit(bytes:number){if(!Number.isSafeInteger(bytes)||bytes<this.maxBytes)throw Error('ASSET_BUDGET_INVALID');this.maxBytes=bytes;}
  reserve(key:string,bytes:number,limitBytes=this.maxBytes){
@@ -212,6 +212,7 @@ export class AssetPeakBudget {
   // reservation and resident allocation in this same ledger.
   if(!Number.isSafeInteger(limitBytes)||limitBytes<1||!Number.isSafeInteger(bytes)||bytes<0||this.total(key)+bytes>limitBytes)throw Error('ASSET_TRANSITION_PEAK');
   this.reservations.set(key,bytes);
+  this.observed?.(this.total());
  }
  release(key:string){this.reservations.delete(key);}
  reservationBytes(key:string){return this.reservations.get(key);}

@@ -4,10 +4,11 @@ import {createDiagnosticEvents,diagnosticsEnabled,readDiagnosticSnapshot,registe
 afterEach(()=>vi.unstubAllGlobals());
 it('is disabled outside explicit staging and fences source teardown',()=>{
  vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',false);
- const one=()=>({version:1} as DiagnosticSnapshot),two=()=>({version:1} as DiagnosticSnapshot);
- expect(diagnosticsEnabled()).toBe(false);registerDiagnosticSource(one);expect(readDiagnosticSnapshot()).toBeNull();
+ const identity={publicationId:'p',revisionSha256:'r'};
+ const one=()=>({version:1,identity} as DiagnosticSnapshot),two=()=>({version:1,identity} as DiagnosticSnapshot);
+ expect(diagnosticsEnabled()).toBe(false);registerDiagnosticSource(one);expect(readDiagnosticSnapshot(identity)).toBeNull();
  vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
- const release=registerDiagnosticSource(one);registerDiagnosticSource(two);release();expect(readDiagnosticSnapshot()).toEqual({version:1});
+ const release=registerDiagnosticSource(one),releaseTwo=registerDiagnosticSource(two);release();expect(readDiagnosticSnapshot(identity)).toEqual({version:1,identity});expect(readDiagnosticSnapshot({...identity,revisionSha256:'other'})).toBeNull();releaseTwo();expect(readDiagnosticSnapshot(identity)).toBeNull();
 });
 it('retains only 64 bounded safe event tokens',()=>{
  vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);const buffer=createDiagnosticEvents();
