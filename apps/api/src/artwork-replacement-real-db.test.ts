@@ -98,6 +98,17 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   await pool.query("UPDATE asset_derivatives SET metadata=jsonb_set(metadata,'{source,sha256}',to_jsonb($2::text)) WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,'f'.repeat(64)]);
   await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,AbortSignal.timeout(10000)))).rejects.toThrow('ORIGINAL_SOURCE_UNAVAILABLE');
   await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,grants[0].metadata]);
+  // The real shared policy lock must wait for a writer, then see its commit
+  // even when the pool defaults to REPEATABLE READ.
+  const sourcePool=new Pool({connectionString:process.env.WHEAT_TEST_PG,max:2});
+  try{
+   const a=await sourcePool.connect(),b=await sourcePool.connect();try{for(const client of [a,b])await client.query('SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');}finally{a.release();b.release();}
+   const auth=new Auth(sourcePool);let entered!:()=>void,release!:()=>void;const enteredSignal=new Promise<void>(r=>{entered=r;}),gate=new Promise<void>(r=>{release=r;});
+   const writer=auth.requestForNativeWorkspaceMutation(token,tenantId,csrf,async c=>{await c.query("UPDATE asset_derivatives SET metadata=jsonb_set(metadata,'{source,sha256}',to_jsonb($2::text)) WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,'f'.repeat(64)]);entered();await gate;});await enteredSignal;
+   const reader=auth.requestForNativeDetailRead(token,tenantId,csrf,async(c,s)=>{expect((await c.query('SHOW transaction_isolation')).rows[0].transaction_isolation).toBe('read committed');return readApprovedOriginalStaticSource(c,s,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,AbortSignal.timeout(15000));});void reader.catch(()=>{});
+   let blocked=false;try{for(let i=0;i<100;i++){const r=await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE 'SELECT pg_advisory_xact_lock_shared(82003)%' LIMIT 1");if(r.rowCount){blocked=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}expect(blocked).toBe(true);}finally{release();}
+   await writer;await expect(reader).rejects.toThrow('ORIGINAL_SOURCE_UNAVAILABLE');
+  }finally{await sourcePool.end();await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,grants[0].metadata]);}
   await expect(transaction(pool,c=>approveOriginalStaticSource(c,{...session,userId:randomUUID()},draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).rejects.toThrow();
   expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
  }finally{await pool.end();}
