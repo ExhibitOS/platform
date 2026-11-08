@@ -18,17 +18,17 @@ export function nativeDetailControl(startup,signal,fetcher=fetch){
  const headers={origin,cookie:`exhibitos_local_session=${startup.sessionToken}`,'x-csrf-token':startup.csrfToken,'content-type':'application/json'};
  const body={version:1,jobId,revisionSha256};
  async function readBody(response,limit,requestSignal){
-  if(!response.body)unavailable();const reader=response.body.getReader(),chunks=[];let size=0,cancelled;
+  if(!response.body)unavailable();const reader=response.body.getReader(),buffer=Buffer.allocUnsafe(limit);let size=0,count=0,cancelled;
   const cancel=()=>{cancelled??=reader.cancel();cancelled.catch(()=>{});};requestSignal.addEventListener('abort',cancel,{once:true});if(requestSignal.aborted)cancel();
-  try{requestSignal.throwIfAborted();for(;;){const part=await reader.read();requestSignal.throwIfAborted();if(part.done)break;size+=part.value.byteLength;if(size>limit)unavailable();chunks.push(part.value);}}
+  try{requestSignal.throwIfAborted();for(;;){const part=await reader.read();requestSignal.throwIfAborted();if(part.done)break;if(!part.value.byteLength||++count>65536||size+part.value.byteLength>limit)unavailable();buffer.set(part.value,size);size+=part.value.byteLength;}}
   catch(error){cancel();await cancelled;throw error;}finally{requestSignal.removeEventListener('abort',cancel);try{if(cancelled)await cancelled;}finally{reader.releaseLock();}}
-  return Buffer.concat(chunks,size);
+  return buffer.subarray(0,size);
  }
  async function json(response,requestSignal){
   if(!response.body)unavailable();if(response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'){await response.body.cancel();unavailable();}const data=await readBody(response,1048576,requestSignal);let value;try{value=parseStaticJson(data,1048576);}catch{unavailable();}requestSignal.throwIfAborted();return value;
  }
  const busy=(response,value)=>response.status===409&&exact(value,['code','message','fieldErrors','requestId'])&&value.code==='NATIVE_DETAIL_BUSY'&&value.message===value.code&&Array.isArray(value.fieldErrors)&&value.fieldErrors.length===0&&typeof value.requestId==='string';
- async function send(suffix,payload,requestSignal){requestSignal.throwIfAborted();return fetcher(base+suffix,{method:payload?'POST':'GET',headers,...(payload?{body:JSON.stringify(payload)}:{}),signal:requestSignal,redirect:'error',cache:'no-store'});}
+ async function send(suffix,payload,requestSignal){requestSignal.throwIfAborted();return fetcher(base+suffix,{method:payload?'POST':'GET',headers:suffix==='/bytes'?{...headers,'accept-encoding':'identity'}:headers,...(payload?{body:JSON.stringify(payload)}:{}),signal:requestSignal,redirect:'error',cache:'no-store'});}
  async function request(suffix,payload,requestSignal=signal){
   const response=await send(suffix,payload,requestSignal),value=await json(response,requestSignal);
   if(!response.ok){if(busy(response,value))return {busy:true};unavailable();}return {value};
