@@ -2121,6 +2121,10 @@ export function GeometryPreview({
           settleDetail?.();for(const check of [...viewingWaiters])check();
         };
         const modelFallbackLimits=new Map<string,number>();
+        const preferModelCoarse=(id:string,explicitFull:boolean)=>{
+          const refusedLimit=modelFallbackLimits.get(id);
+          return !explicitFull&&refusedLimit!==undefined&&assetBudgetBytes<=refusedLimit;
+        };
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
           if(publicDisplayStopped||art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
           // A new request supersedes only its own material-wait marker.
@@ -2132,8 +2136,7 @@ export function GeometryPreview({
           try {
             imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
             imageBudget=imageTarget?.budget??viewerBudget;
-            const fallbackLimit=modelFallbackLimits.get(art.revisionId);
-            const preferCoarse=!detailPromotion&&fallbackLimit!==undefined&&assetBudgetBytes<=fallbackLimit;
+            const preferCoarse=!detailPromotion&&preferModelCoarse(art.revisionId,manual&&full);
             inventory = imageTarget?.inventory??selectAssetVariant(
               art,
               full ? 0 : Infinity,
@@ -2285,7 +2288,7 @@ export function GeometryPreview({
                 // its placeholder may be too small/off-center to win that slot.
                 const visibleMissingMinimum=!active.has(art.revisionId)&&observedVisible.get(art.revisionId)&&observedEligible.get(art.revisionId);
                 if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&(art.revisionId===demandContext().owner||visibleMissingMinimum))reduceSurfaceForCurrent(art.revisionId);
-                if(error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!active.has(art.revisionId)){
+                if(error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!(task.manual&&task.full)&&!active.has(art.revisionId)){
                   // Retain the authored coarse model choice until the effective
                   // resident budget increases. A repeat at the same limit cannot fit.
                   try{
@@ -2301,7 +2304,7 @@ export function GeometryPreview({
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
-                    const fallback = selectAssetVariant(art, 0, viewerBudget);
+                    const fallback = selectAssetVariant(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
                     if (fallback.id !== inventory.id) {
                       request(art, true,false,false,manual);
                       return;
