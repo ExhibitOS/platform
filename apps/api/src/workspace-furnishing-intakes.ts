@@ -12,6 +12,7 @@ import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
 import {FRAME_PREPARATION_POLICY,framePreparationPair} from './frame-preparation.ts';
 import {prepareFrameInWorker} from './frame-preparation-process.ts';
+import {WorkspaceFrameLineage} from './workspace-frame-lineage.ts';
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 
 type Owner={workspaceId:string;tenantId:string;principalId:string;workspaceFurnishingStool?:true;workspaceFurnishingRoomVisual?:true;workspaceFurnishingArtworkFrame?:true;workspaceFurnishingArtworkFrameModels?:true;workspaceArtworkFramePreparation?:true;workspacePortalFinish?:true;assertDatabase:(client:PoolClient)=>Promise<void>};
@@ -41,6 +42,7 @@ export class WorkspaceFurnishingIntakes {
  supportsArtworkFrame(){return this.owner.workspaceFurnishingArtworkFrame===true&&this.supportsRoomVisual();}
  supportsArtworkFrameModels(){return this.owner.workspaceFurnishingArtworkFrameModels===true&&this.supportsArtworkFrame();}
  supportsFramePreparation(){return this.owner.workspaceArtworkFramePreparation===true&&this.supportsArtworkFrameModels();}
+ frameLineage(){return this.supportsFramePreparation()&&this.writer?new WorkspaceFrameLineage(this.blobs,this.owner,this.writer):undefined;}
  supportsPortalFinish(){return this.owner.workspacePortalFinish===true&&this.supportsArtworkFrameModels();}
  private admittedDeclaration(value:unknown):value is WorkspaceFurnishingDeclaration{
   return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish()})&&validRights(value.rights)&&
