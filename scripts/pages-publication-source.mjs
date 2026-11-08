@@ -9,6 +9,7 @@ import {spaceStillFor} from '@exhibitos/spec/space-still';
 import {packageFurnishingNoticeManifest} from '@exhibitos/spec';
 import {furnishingsFor,validateFurnishings,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {validateCoverVariantDescriptor} from '../apps/web/src/cover-variant-descriptor.mjs';
+import {parseStaticJson} from '../apps/web/src/static-json.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex'),uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i,hex=/^[a-f0-9]{64}$/;
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v),keys=(v,list)=>object(v)&&Object.keys(v).sort().join(',')===[...list].sort().join(',');
 const unavailable=()=>{throw Error('PAGES_PUBLICATION_UNAVAILABLE');};
@@ -25,10 +26,10 @@ export function createPagesPublicationSource({origin:clientOrigin,publicationId,
  };
  const rights=value=>{if(!validateExhibition(value.exhibition,{publicationTime:now()}).valid||!publicWorkspaceFurnishingRights(value.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE],Date.parse(now()))||!publicWorkspaceMaterialRights(value.exhibition.extensions?.[WORKSPACE_MATERIAL_NAMESPACE],Date.parse(now())))unavailable();};
  const snapshot=async()=>{
-  const bytes=await get('/static-publication-index.json',1048576);if(sha(bytes)!==indexSha256)unavailable();const index=JSON.parse(bytes.toString('utf8'));
+  const bytes=await get('/static-publication-index.json',1048576);if(sha(bytes)!==indexSha256)unavailable();const index=parseStaticJson(bytes);
   if(!(index.version===1&&keys(index,['version','publication','assets'])||index.version===2&&keys(index,['version','publication','assets','resources'])&&Array.isArray(index.resources)||index.version===3&&keys(index,['version','publication','assets','furnishingNotices',...(index.resources?['resources']:[])])&&Array.isArray(index.furnishingNotices)&&index.furnishingNotices.length>0&&index.furnishingNotices.length<=8&&(!index.resources||Array.isArray(index.resources)))||!Array.isArray(index.assets)||index.assets.length>20000||!keys(index.publication,['path','bytes','sha256','mime']))unavailable();
   const p=index.publication;if(!hex.test(p.sha256)||p.path!==`data/${p.sha256}.json`||!Number.isSafeInteger(p.bytes)||p.bytes<1||p.bytes>1048576||p.mime!=='application/json')unavailable();
-  const data=await get('/'+p.path,p.bytes);if(data.length!==p.bytes||sha(data)!==p.sha256)unavailable();const value=JSON.parse(data.toString('utf8'));
+  const data=await get('/'+p.path,p.bytes);if(data.length!==p.bytes||sha(data)!==p.sha256)unavailable();const value=parseStaticJson(data);
   const coverKey=Object.hasOwn(value,'coverVariants')?['coverVariants']:[];
   if(!(index.version===1&&keys(value,['publication','exhibition','assets',...coverKey])||index.version===2&&keys(value,['publication','exhibition','assets','resources',...coverKey])&&Array.isArray(value.resources)||index.version===3&&keys(value,['publication','exhibition','assets','furnishingNotices',...(index.resources?['resources']:[]),...coverKey])&&Array.isArray(value.furnishingNotices)&&(!index.resources||Array.isArray(value.resources)))||!keys(value.publication,['id','revisionSha256','publishedAt','status'])||value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||!Number.isFinite(Date.parse(value.publication.publishedAt))||revisionHash(value.exhibition)!==revisionSha256||!Array.isArray(value.assets))unavailable();
   const {checkPublicOexProfile}=await (contract==='reference-demo'?import('../apps/api/dist-public-export/oex-profile.js'):import('../apps/api/dist/oex-profile.js'));const workspace=value.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE],material=value.exhibition.extensions?.[WORKSPACE_MATERIAL_NAMESPACE];checkPublicOexProfile(value.exhibition,!!workspace,!!material);const materialResources=material?packageWorkspaceMaterialManifest(value.exhibition):[];if(!validateFurnishings(value.exhibition).valid||!validateWorkspaceFurnishings(value.exhibition).valid)unavailable();rights(value);
