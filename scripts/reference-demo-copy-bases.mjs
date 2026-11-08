@@ -6,7 +6,7 @@ import { revisionHash, validateExhibition } from '@exhibitos/spec';
 import { spaceStillFor } from '@exhibitos/spec/space-still';
 import { retainsCopyInventory, retainsCopyRights,retainedWheatCopyFiles } from '../apps/web/src/private-editor/previous-copy-compatibility.ts';
 import { parseStaticJson } from '../apps/web/src/static-json.mjs';
-import { PREVIOUS_WHEAT_V4_INDEX } from '../apps/web/src/private-editor/previous-wheat-v4.mjs';
+import { isPreviousWheatV4Index } from '../apps/web/src/private-editor/previous-wheat-v4.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const hex = /^[a-f0-9]{64}$/;
@@ -50,7 +50,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
   const current = parseStaticJson(currentBytes);
   // Only the exact independently verified active Wheat v4 is admitted here.
-  // Below, the single pinned former Wheat v4 is the only permitted v4 archive.
+  // Below, only pinned former Wheat v4 snapshots are permitted.
   if (current.version === 4) {
     const { verifiedQualifiedWheat } = await import('./qualified-wheat-reference.mjs');
     try { await verifiedQualifiedWheat({ root: output }); } catch { fail(); }
@@ -75,7 +75,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     const bytes = await boundedFile(archiveRoot, indexPath, 1048576);
     if (hash(bytes) !== base.indexSha256) fail();
     const index = parseStaticJson(bytes);
-    if (index.version === 4 && base.indexSha256 !== PREVIOUS_WHEAT_V4_INDEX) fail();
+    if (index.version === 4 && !isPreviousWheatV4Index(base.indexSha256)) fail();
     const { data, projection } = await readProjection(archiveRoot, prefix, index.publication);
     if (projection.publication.id !== base.publicationId || projection.publication.status !== 'published' ||
         projection.publication.revisionSha256 !== base.revisionSha256 || revisionHash(projection.exhibition) !== base.revisionSha256 ||

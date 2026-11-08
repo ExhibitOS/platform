@@ -1,1 +1,1 @@
-export const PREVIOUS_WHEAT_V4_INDEX: string;
+export function isPreviousWheatV4Index(indexSha256: string): boolean;
