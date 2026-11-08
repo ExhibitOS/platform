@@ -6,6 +6,7 @@ import { revisionHash, validateExhibition } from '@exhibitos/spec';
 import { spaceStillFor } from '@exhibitos/spec/space-still';
 import { retainsCopyInventory, retainsCopyRights,retainedWheatCopyFiles } from '../apps/web/src/private-editor/previous-copy-compatibility.ts';
 import { parseStaticJson } from '../apps/web/src/static-json.mjs';
+import { PREVIOUS_WHEAT_V4_INDEX } from '../apps/web/src/private-editor/previous-wheat-v4.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const hex = /^[a-f0-9]{64}$/;
@@ -49,7 +50,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
   const current = parseStaticJson(currentBytes);
   // Only the exact independently verified active Wheat v4 is admitted here.
-  // Archived v4 copy bases remain unsupported below.
+  // Below, the single pinned former Wheat v4 is the only permitted v4 archive.
   if (current.version === 4) {
     const { verifiedQualifiedWheat } = await import('./qualified-wheat-reference.mjs');
     try { await verifiedQualifiedWheat({ root: output }); } catch { fail(); }
@@ -74,12 +75,25 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     const bytes = await boundedFile(archiveRoot, indexPath, 1048576);
     if (hash(bytes) !== base.indexSha256) fail();
     const index = parseStaticJson(bytes);
-    if (index.version === 4) fail();
+    if (index.version === 4 && base.indexSha256 !== PREVIOUS_WHEAT_V4_INDEX) fail();
     const { data, projection } = await readProjection(archiveRoot, prefix, index.publication);
     if (projection.publication.id !== base.publicationId || projection.publication.status !== 'published' ||
         projection.publication.revisionSha256 !== base.revisionSha256 || revisionHash(projection.exhibition) !== base.revisionSha256 ||
         !retainsCopyRights(projection.exhibition,active.exhibition)) fail();
     requireRights(projection.exhibition);
+    if (index.version === 4) {
+      // Admit only the exact previously public Wheat v4, and retain its
+      // original through the independently verified active v4 inventory.
+      if (current.version !== 4 || !Array.isArray(index.detailAssets) || index.detailAssets.length !== 1 || !Array.isArray(current.detailAssets)) fail();
+      const { buildNativeDetailPlan } = await import('./native-detail-plan.mjs');
+      const plan = await buildNativeDetailPlan(base.publicationId, projection.exhibition, projection.assets, projection.detailAssets);
+      const entry = index.detailAssets[0], item = plan.entries[0];
+      if (plan.entries.length !== 1 || !entry || entry.assetId !== item.assetId || entry.path !== `data/${item.sha256}.bin` || entry.sha256 !== item.sha256 || entry.bytes !== item.bytes || entry.mime !== item.mime || !current.detailAssets.some(e => e.path === entry.path && e.sha256 === entry.sha256 && e.bytes === entry.bytes && e.mime === entry.mime)) fail();
+      const original = await boundedFile(output, entry.path, entry.bytes);
+      if (original.length !== entry.bytes || hash(original) !== entry.sha256) fail();
+      const works = projection.exhibition.artworks.filter(a => a.extensions?.['org.exhibitos.viewer/artwork-detail-quality']);
+      if (works.length !== 1 || !works[0].rights.permissions.download) fail();
+    }
     const supplemental=[];
     for(const file of retainedWheatCopyFiles(projection.exhibition,active.exhibition)){
       const same=entry=>entry.path===file.path&&entry.sha256===file.sha256&&entry.bytes===file.bytes&&entry.mime===file.mime;
