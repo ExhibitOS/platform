@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+/* eslint-disable @typescript-eslint/no-explicit-any -- Boundary doubles intentionally accept partial, dynamically inspected protocol objects. */
 // The Manager and DB are simulated here: this exercises private caller
 // sequencing, not native sender authentication or custody release.
 import {readFile,mkdtemp,rm} from 'node:fs/promises';
