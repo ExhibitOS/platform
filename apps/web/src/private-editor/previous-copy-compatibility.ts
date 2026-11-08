@@ -62,12 +62,34 @@ function additiveImageIdentity(work:Artwork, hasCoarse:boolean) {
   }catch{return undefined;}
 }
 
+/** Only the published Hayes full model and its separately qualified compact
+ * successor may bridge the current v4 copy. No generic model lineage is inferred. */
+function hayesIdentity(work:Artwork,hasCoarse:boolean) {
+ const fullHash='694a9cf81dfbf12fd0841ae45240c5ae0f1d7cb129d0ee122be7cff86c4625bc';
+ const coarseHash='42c4d5adc2b51690c5dec78f742494c7424e7f364b35c45da6e5f557ed88a1d6';
+ if(work.artworkType!=='sculpture'||work.assets.length!==(hasCoarse?2:1)||work.rights.licenseId!=='CC0-1.0'||!work.rights.permissions.display||!work.rights.permissions.export)return undefined;
+ const full=work.assets.find(a=>a.id.toLowerCase()===work.primaryAssetId.toLowerCase());
+ if(!full||full.sha256!==fullHash||full.bytes!==16036864||full.mime!=='model/gltf-binary'||full.role!=='model')return undefined;
+ const low=work.assets.find(a=>a.id.toLowerCase()!==work.primaryAssetId.toLowerCase());
+ if(hasCoarse&&(!low||low.sha256!==coarseHash||low.bytes!==1874704||low.mime!=='model/gltf-binary'||low.role!=='model'))return undefined;
+ try{
+  const variants=lodVariantsFor(work),lod=work.extensions?.['org.exhibitos.viewer/lod'] as {profile?:string}|undefined;
+  if(variants.length!==(hasCoarse?2:1)||!variants.some(v=>v.detail==='full'&&v.assetId.toLowerCase()===full.id.toLowerCase()&&v.triangles===100000&&(!hasCoarse||v.textureSize===2048)))return undefined;
+  if(hasCoarse&&(lod?.profile!=='exhibitos-budget-geometry-pair-v1'||!variants.some(v=>v.detail==='coarse'&&v.assetId.toLowerCase()===low!.id.toLowerCase()&&v.triangles===20000&&v.textureSize===512)))return undefined;
+ }catch{return undefined;}
+ const extensions:Record<string,unknown>={...work.extensions};delete extensions['org.exhibitos.viewer/lod'];
+ const {authorship,events,scaleConversion}=work.provenance;
+ const source=events.map(event=>event.type==='exhibited'?{type:event.type,description:event.description,tool:event.tool,sourceAssetIds:event.sourceAssetIds}:event);
+ return canonical([work.rights,work.metadata,work.dimensions,work.transform,work.units,work.coordinates,extensions,authorship,scaleConversion,source]);
+}
+
 function copyRights(exhibition: Exhibition, hasCoarse:boolean) {
   const still = spaceStillFor(exhibition);
   const artworks = exhibition.artworks.map(work => ({
     exact:canonical([work.rights,work.assets.map(asset=>canonical(artworkFile(asset))).sort()]),
     additive:additiveImageIdentity(work,hasCoarse),
     wheat:wheatIdentity(work,hasCoarse?'current':'old'),
+    hayes:hayesIdentity(work,hasCoarse),
   }));
   const media = exhibition.mediaAssets.map(asset => canonical([file(asset),asset.rights])).sort();
   return { artworks, media, still: canonical(still ? [file(still),still.rights] : null) };
@@ -80,7 +102,7 @@ function retainsArtworks(previous:ArtworkIdentity[],current:ArtworkIdentity[]) {
   const matches=new Map<number,ArtworkIdentity>();
   function match(old:ArtworkIdentity,seen:Set<number>):boolean {
     return current.some((work,index)=>{
-      if(seen.has(index)||work.exact!==old.exact&&(!old.additive||work.additive!==old.additive)&&(!old.wheat||work.wheat!==old.wheat))return false;
+      if(seen.has(index)||work.exact!==old.exact&&(!old.additive||work.additive!==old.additive)&&(!old.wheat||work.wheat!==old.wheat)&&(!old.hayes||work.hayes!==old.hayes))return false;
       seen.add(index);
       const prior=matches.get(index);
       if(prior&&!match(prior,seen))return false;
