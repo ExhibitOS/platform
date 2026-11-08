@@ -109,6 +109,8 @@ test('043 selection pins parent, catalog and packaging without enabling defaults
   assert.equal(await catalog.hasHayesDispositionCapability(path),false);await writeFile(path,catalog.HAYES_DISPOSITION_CAPABILITY);assert.equal(await catalog.hasHayesDispositionCapability(path),true);await writeFile(path,catalog.HAYES_DISPOSITION_CAPABILITY+' ');await assert.rejects(catalog.hasHayesDispositionCapability(path),/NATIVE_OEX_CATALOG/);
   assert.ok(nativePackageExcludedFiles(false,true).has('database/native-hayes-disposition/043_hayes_output_stage.sql'));
   await assert.rejects(packageNativeRuntime('/synthetic-unused',{hayesDispositionSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await assert.rejects(packageNativeRuntime('/synthetic-unused',{hayesDispositionProbeSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await assert.rejects(packageNativeRuntime('/synthetic-unused',{hayesDispositionProbeSelected:true,hayesSessionProbeSelected:true,hayesDispositionSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
   await assert.rejects(copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);
   await copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,true,true,true);
   assert.equal(createHash('sha256').update(await readFile(join(output,'database/native-hayes-disposition/043_hayes_output_stage.sql'))).digest('hex'),catalog.HAYES_DISPOSITION_SHA256);
