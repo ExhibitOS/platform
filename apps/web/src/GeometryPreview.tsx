@@ -2246,13 +2246,20 @@ export function GeometryPreview({
                 update();return;
               }
               const old = objects.get(art.revisionId);
+              // The staging fixture retains this exact Hayes display asset.
+              const observeHayes = collectDiagnostics &&
+                inventory.id === '5062b496-cfaa-44ee-9e07-8c3e154d1024' &&
+                inventory.sha256 === '21cbaf0714242cb7bba61680cf6da773073edf034407fb2e5e3ede4ad917212b';
+              const observedClones: Array<InstanceType<typeof three.Object3D>> | undefined = observeHayes ? [] : undefined;
               for (const p of ordered.filter(
                 (p) => p.artworkRevisionId === art.revisionId,
               )) {
                 const group = placements.get(p.id.toLowerCase());
                 if (group) {
                   group.clear();
-                  group.add(object.clone(true));
+                  const clone=object.clone(true);
+                  group.add(clone);
+                  observedClones?.push(clone);
                 }
               }
               if (old && old !== object){
@@ -2273,12 +2280,41 @@ export function GeometryPreview({
               failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);residentMinimumWait.delete(art.revisionId);retryAfter.delete(art.revisionId);
               shadowPass.invalidate();
               if(collectDiagnostics){
+                let drawCalls=0;
+                const restoreCallbacks: Array<()=>void> = [];
+                const bounds = observedClones ? new three.Box3() : undefined;
                 try{
+                  if(bounds&&observedClones)for(const clone of observedClones){
+                    bounds.union(new three.Box3().setFromObject(clone));
+                    clone.traverse(node=>{
+                      if(!(node instanceof three.Mesh))return;
+                      const original=node.onAfterRender;
+                      node.onAfterRender=function(...args){
+                        if(args[1]===scene&&args[2]===camera)drawCalls++;
+                        original.apply(this,args);
+                      };
+                      restoreCallbacks.push(()=>{node.onAfterRender=original;});
+                    });
+                  }
+                  const pose=bounds?{
+                    cameraPosition:camera.position.toArray(),
+                    cameraQuaternion:camera.quaternion.toArray(),
+                    verticalFov:camera.fov,
+                  }:undefined;
                   const returned=render();
-                  stage(inventory.id,returned?'display-attached-render-returned':'display-attached-render-skipped',undefined,key,{renderOutcome:returned?'returned':'skipped'});
+                  const mainMeshSubmission=returned&&bounds&&pose?{
+                    drawCalls,...pose,
+                    worldBounds:bounds.isEmpty()?null:{min:bounds.min.toArray(),max:bounds.max.toArray()},
+                  }:undefined;
+                  stage(inventory.id,returned?'display-attached-render-returned':'display-attached-render-skipped',undefined,key,{
+                    renderOutcome:returned?'returned':'skipped',
+                    ...(mainMeshSubmission?{mainMeshSubmission}:{}),
+                  });
                 }catch(error){
                   stage(inventory.id,'display-attached-render-threw',undefined,key,{renderOutcome:'threw'});
                   throw error;
+                }finally{
+                  for(const restore of restoreCallbacks)restore();
                 }
               }else{
                 render();

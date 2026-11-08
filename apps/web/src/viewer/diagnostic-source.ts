@@ -4,6 +4,13 @@ export type DiagnosticEvent={atMs:number;assetId:string;artworkRevisionId:string
 export type DiagnosticAssetStage=DiagnosticEvent&{
  residentUsedBytes?:number;residentCandidateBytes?:number;residentLimitBytes?:number;
  renderOutcome?:'returned'|'skipped'|'threw';
+ mainMeshSubmission?:{
+  drawCalls:number;
+  cameraPosition:[number,number,number];
+  cameraQuaternion:[number,number,number,number];
+  verticalFov:number;
+  worldBounds:{min:[number,number,number];max:[number,number,number]}|null;
+ };
 };
 export type DiagnosticSnapshot={
  version:1;capturedAt:string;
