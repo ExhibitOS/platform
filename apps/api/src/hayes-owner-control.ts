@@ -3,7 +3,7 @@ import {parseHayesOperationBinding,type HayesOperationBinding} from './hayes-ope
 
 // This codec owns no authentication, DB claim, worker or drain authority. The
 // caller supplies pins from its already authenticated, live Manager session.
-type Channel={send(frame:Uint8Array):Promise<void>;receive():Promise<Uint8Array>;close():Promise<void>};
+type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const sha=/^[a-f0-9]{64}$/;
 const invalid=()=>new Error('HAYES_CONTROL_INVALID');
@@ -34,11 +34,14 @@ export function createHayesOwnerControl(input:{binding:unknown;nativeOwnerId:str
   try{await closed;}catch{throw new Error('HAYES_CONTROL_CLOSE_UNCERTAIN',{cause});}throw cause;
  }
  const send=async(value:unknown)=>{const bytes=Buffer.from(JSON.stringify(value));if(bytes.length>8192)throw invalid();try{await bounded(()=>channel.send(Buffer.from(bytes)));}finally{bytes.fill(0);}};
- const receive=async(keys:readonly string[])=>parse(await bounded(()=>channel.receive()),keys);
+ const receive=async(keys:readonly string[])=>parse(await bounded(()=>channel.receive(Math.max(1,deadlineMs-Date.now()))),keys);
  const same=(x:unknown)=>JSON.stringify(x)===JSON.stringify(binding);
  return Object.freeze({
   async open():Promise<void>{
    if(state!=='open'||busy)return await fail(invalid());busy=true;try{
+    // Manager rechecks the sealed host at OPEN and before the revalidation
+    // challenge. These two control waits use the trusted operation budget;
+    // framing still applies its five-second partial-frame deadline.
     await send({version:1,kind:'hayes-operation-open',binding});const reply=await receive(OPEN_KEYS);
     if(reply.version!==1||reply.kind!=='hayes-operation-open-accepted'||!same(reply.binding)||reply.nativeOwnerId!==nativeOwnerId||reply.runtimeManifestSha256!==runtimeManifestSha256)throw invalid();check();state='source';
    }catch(cause){return await fail(cause);}finally{busy=false;}

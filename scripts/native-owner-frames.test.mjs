@@ -71,3 +71,8 @@ test('rejects expired queued, partial and idle frames before delayed timer callb
  const b=fixture(),pending=b.channel.receive(0),bytes=frame('partial');b.socket.emit('data',bytes.subarray(0,5));now+=5000;b.socket.emit('data',bytes.subarray(5));await assert.rejects(pending);await b.channel.close();
  const c=fixture(),idle=c.channel.receive(100);now+=100;c.socket.emit('data',frame('late'));await assert.rejects(idle);await c.channel.close();
 });
+test('long initial idle does not extend the five-second partial-frame deadline',async t=>{
+ let now=1000;t.mock.method(Date,'now',()=>now);
+ const a=fixture(),delayed=a.channel.receive(12000);now+=6000;a.socket.emit('data',frame('accepted'));assert.equal((await delayed).toString(),'accepted');await a.channel.close();
+ const b=fixture(),stalled=b.channel.receive(12000),packet=frame('partial');b.socket.emit('data',packet.subarray(0,5));now+=5000;b.socket.emit('data',packet.subarray(5));await assert.rejects(stalled);await b.channel.close();
+});
