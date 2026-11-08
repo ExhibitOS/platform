@@ -45,9 +45,8 @@ const probe={
    await auth.requestForHayesNativeMutation(credentials.token,tenant,credentials.csrf,{signal,deadlineMs:Date.now()+30000},async(c,s)=>{await assertLive();const result=await imports.complete(c,s,created.id);await assertLive();return result;});
    held=await caller.start(credentials,{jobId:created.id,artworkId:artwork.id,artworkRevision:artwork.revision},Date.now()+180000);
    log({kind:'hayes-probe-revalidated',jobId:created.id,artworkId:artwork.id,artworkRevision:artwork.revision,monotonicNs:process.hrtime.bigint().toString()});
-   if(typeof held.stageOutput!=='function'||typeof held.commit!=='function')throw Error('HAYES_DISPOSITION_PROBE_UNAVAILABLE');
+   if(typeof held.stageOutput!=='function')throw Error('HAYES_DISPOSITION_PROBE_UNAVAILABLE');
    const staged=await held.stageOutput();log({kind:'hayes-probe-output-staged',jobId:created.id,stageId:staged.stageId,sha256:staged.sha256,bytes:staged.bytes,monotonicNs:process.hrtime.bigint().toString()});
-   const receipt=await held.commit();log({kind:'hayes-probe-disposition-committed',jobId:created.id,receiptId:receipt.receiptId,receiptSha256:receipt.receiptSha256,monotonicNs:process.hrtime.bigint().toString()});
   }finally{original.fill(0);}
   }finally{if(!sourceConsumed)closeUnusedSource();}
  }
