@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {nativeDetailPipe} from './native-detail-pipe.mjs';
 import {nativeDetailControl} from './native-detail-control.mjs';
-import {exportStaticPublication} from './export-static-publication.mjs';
+import {isAbsolute} from 'node:path';
+import {exportNativeDetailStage} from './export-static-publication.mjs';
 
 /** Candidate-free protocol plumbing only; it is not a source-byte producer. */
-export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportStaticPublication,overallSignal=AbortSignal.timeout(120000)}){
+export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportNativeDetailStage,overallSignal=AbortSignal.timeout(120000)}){
+ if(output!=='.'||typeof runtimeRoot!=='string'||!isAbsolute(runtimeRoot))throw Error('NATIVE_DETAIL_STAGE');
  const pipe=nativeDetailPipe(input,{origin,publicationId}),outputAbort=new AbortController(),signal=AbortSignal.any([pipe.signal,outputAbort.signal,overallSignal]);let startup,control,finished=false;
  // A Writable may emit error after its write callback, including after abort.
  // Keep this sink for the stream lifetime; it never captures credentials.
