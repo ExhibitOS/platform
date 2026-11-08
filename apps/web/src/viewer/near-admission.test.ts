@@ -135,8 +135,8 @@ test('resident trial admits the physical Hayes demand after observed scene reser
   expect(selectedDeviceBudget('auto',touch)).toEqual(original);
   vi.stubGlobal('__EXHIBITOS_IPHONE12_TRANSITION_TRIAL__',true);
   const trial=selectedDeviceBudget('auto',touch);
-  expect(trial).toEqual({...original,maxCacheBytes:160*mib,maxTransitionBytes:160*mib});
-  expect(trial.maxCacheBytes-reservations-tracked-candidate).toBe(37396830);
+  expect(trial).toEqual({...original,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
+  expect(trial.maxCacheBytes-reservations-tracked-candidate).toBe(70951262);
   expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);
   expect(selectedDeviceBudget('auto',{...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
   expect(selectedDeviceBudget('auto',{coarsePointer:false,finePointer:true}).maxCacheBytes).toBe(192*mib);
