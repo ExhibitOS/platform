@@ -1,3 +1,4 @@
+import {importedArtworkMetadata,approvedDimensionsMatch} from './imported-artwork-metadata.ts';
 import {FURNISHING_NAMESPACE,validateFurnishings,furnishingsFor,remapFurnishings,furnishingCatalogueEntry} from '@exhibitos/studio-contract';
 import {furnishingResourcePair} from './furnishings.ts';
 import {VIEWING_PLAN_NAMESPACE,remapViewingPlan,type ViewingPlan} from '@exhibitos/studio-contract';
@@ -53,12 +54,7 @@ const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof
 const equal=(a:unknown,b:unknown)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b));
 const workspaceOutputRights=(e:Exhibition)=>[...((e.extensions?.[WORKSPACE_MATERIAL_NAMESPACE] as unknown as WorkspaceMaterialBindings|undefined)?.materials??[]).map(m=>m.rights),...((e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined)?.furnishings??[]).map(f=>f.rights)];
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
-/** Match both the qualified reference and its authored pose to the immutable CMS metadata. */
-export function approvedDimensionsMatch(a:Exhibition['artworks'][number],m:ArtworkMetadata){
- const r=m.displayReference;
- if(!r)return a.schemaVersion==='1.0.0-draft.1'&&a.dimensions.width===m.dimensions.width&&a.dimensions.height===m.dimensions.height&&a.dimensions.depth===m.dimensions.depth;
- return a.schemaVersion==='1.0.0-draft.2'&&equal(a.dimensions,{width:r.rawBounds.max[0]-r.rawBounds.min[0],height:r.rawBounds.max[1]-r.rawBounds.min[1],depth:r.rawBounds.max[2]-r.rawBounds.min[2]})&&equal(a.transform,r.pose)&&equal(a.extensions['org.exhibitos.studio/display-reference'],{version:1,status:r.status,assetSha256:r.assetSha256,rawBounds:r.rawBounds,referenceHeightMeters:r.referenceHeightMeters,catalogueDimensions:m.dimensions,axisMapping:'unverified'});
-}
+export {approvedDimensionsMatch} from './imported-artwork-metadata.ts';
 /** Remove only server-private CMS bindings; the portable artwork remains unchanged. */
 export function portableOexSnapshot(candidate:Exhibition){const result=structuredClone(candidate);for(const a of result.artworks)if(a.extensions){delete a.extensions[CMS];if(!Object.keys(a.extensions).length)delete a.extensions;}return result;}
 export type NativeOexExportProgress={phase:'preparing'|'verifying'}|{phase:'packing';completedItems:number;totalItems:number};
@@ -124,8 +120,12 @@ function legacyJob(row:Job){return row.archive_profile==null&&row.oex_format==nu
 function requireLegacyJob(row:Job){if(!legacyJob(row))throw new ApiError(409,'OEX_PROFILE_UNSUPPORTED');}
 /** Keep workspace byte-inventory admission at the native OEX boundary. */
 export function checkOexProfile(e:Exhibition,privateBindings=false,archiveProfile?:'bounded-file-v1',workspaceOutput=false,workspaceFurnishingOutput=false){if(workspaceOutput)workspaceMaterialOutputInventory(e);if(workspaceFurnishingOutput)workspaceFurnishingOutputInventory(e);return checkPortableOexProfile(e,privateBindings,archiveProfile,workspaceOutput,workspaceFurnishingOutput);}
-/** Native OEX11 import is not qualified; reject before preparing or staging any assets. */
-export function requireSupportedOexImport(e:Exhibition){if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');}
+/** Qualify every current CMS projection before preparing or staging any assets.
+ * The caller's existing Spec/profile validation remains required. */
+export function requireSupportedOexImport(e:Exhibition){
+ if(!['1.0.0-draft.1','1.0.0-draft.2'].includes(e.schemaVersion))throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');
+ for(const a of e.artworks){const metadata=importedArtworkMetadata(a);if(!validMetadata(metadata)||!approvedDimensionsMatch(a,metadata))throw new ApiError(422,'OEX_CMS_METADATA_INVALID');}
+}
 /** Verify the complete selected catalogue pair before staging any import blob.
  * Compiled catalogue hashes qualify the exact GLBs; package paths grant no new
  * source, host or licence authority. No partial pair is returned. */
@@ -516,14 +516,12 @@ export class Oex {
   * No blob IO, owned transaction, aggregate buffers or publication is created. */
  async attachPrepared(c:PoolClient,s:Session,job:OexImportAttachmentJob,prepared:PreparedOexImportAttachment,selectedGrant?:(draft:Draft)=>Promise<import('./native-oex-provenance.ts').NativeSelectedDraftGrant>){
   this.role(s);const {id,leaseId:lease,payloadSha256}=job,at=new Date().toISOString(),e=structuredClone(prepared.exhibition),keys=new Map(prepared.keys),mediaDurations=new Map(prepared.mediaDurations);
-  // The importer has not yet been qualified to reconstruct CMS unknown-unit
-  // metadata. Refuse the new version instead of relabelling its bounds as metres.
-  if(e.schemaVersion==='1.0.0-draft.2')throw new ApiError(422,'OEX_IMPORT_VERSION_UNSUPPORTED');
+  requireSupportedOexImport(e);
   const {idMap,assetAliases,floorResources,materialResources,footstepResources}=structuredClone({idMap:prepared.idMap,assetAliases:prepared.assetAliases,floorResources:prepared.floorResources,materialResources:prepared.materialResources,footstepResources:prepared.footstepResources});
   const sourceStill=spaceStillFor(e),grants:unknown[]=[...e.artworks.map(a=>a.rights),...e.mediaAssets.map(m=>m.rights),...(sourceStill?[sourceStill.rights]:[])];
   if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
     for(const a of e.artworks){
-     const m:ArtworkMetadata={title:a.metadata.title,description:a.metadata.description??'',...(a.metadata.medium===undefined?{}:{medium:a.metadata.medium}),...(creationYearFor(a)===undefined?{}:{creationYear:creationYearFor(a)}),dimensions:{width:a.dimensions.width,height:a.dimensions.height,...(a.dimensions.depth===undefined?{}:{depth:a.dimensions.depth}),unit:'m'},rights:structuredClone(a.rights),provenance:{source:a.provenance.authorship,sourceUnits:'m',scaleApplied:true,notes:'Imported from an integrity-checked OEX package; source provenance remains in the exhibition snapshot.'}};
+     const m=importedArtworkMetadata(a);
      if(!validMetadata(m))throw new ApiError(422,'OEX_CMS_METADATA_INVALID');
      const artist=randomUUID();await c.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,artist,s.userId,{name:a.metadata.artist??'Imported artist',bio:''}]);await c.query('INSERT INTO artist_revisions(tenant_id,artist_id,revision,snapshot) VALUES($1,$2,1,$3)',[s.tenantId,artist,{name:a.metadata.artist??'Imported artist',bio:'',userId:s.userId}]);
      // New local resource revision starts at 1; source immutable revision/provenance remains package evidence.
@@ -537,7 +535,8 @@ export class Oex {
     }
     e.revision=1; // New local revision identity, scene settings and authored prose preserved.
     // Paths stay package-relative and bytes/hash exact; private storage keys never enter the draft.
-    const draft:Draft={schemaVersion:'1.0.0-draft.1',kind:'exhibition-draft',id:randomUUID(),exhibitionId:e.id,editVersion:1,createdAt:at,updatedAt:at,candidate:e};
+    const draftBase={kind:'exhibition-draft' as const,id:randomUUID(),exhibitionId:e.id,editVersion:1,createdAt:at,updatedAt:at};
+    const draft:Draft=e.schemaVersion==='1.0.0-draft.2'?{...draftBase,schemaVersion:'1.0.0-draft.2',candidate:e}:{...draftBase,schemaVersion:'1.0.0-draft.1',candidate:e};
     const mediaSources=new Map(e.mediaAssets.map(m=>[m.id,{key:keys.get(m.path)!,duration:mediaDurations.get(m.id)}]));
     for(const m of e.mediaAssets)m.path=`media/${m.id}/audio.wav`;
     const still=spaceStillFor(e),stillKey=still?keys.get(still.path):undefined;

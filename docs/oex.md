@@ -203,3 +203,22 @@ Preparation is bounded and rejects unrecognized sources, unsupported rights, cha
 The selected `workspace-portal-finish-v1` profile permits the exact double-width portal GLB (SHA-256 `385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b`, 164,044 bytes) to be attached to an existing 2.4 × 2.6 metre door. The workspace furnishings v6 attachment follows that door and OEX draft.18 preserves the binding. Registration and use remain subject to workspace ownership and live display and export rights.
 
 The finish is visual: the existing opening, collision and navigation remain authoritative. Room and wall transforms must be level and unit scale, the opening bottom must be at floor level, and an explicitly supplied wall finish must have the supported 0.2 metre depth. Invalid host edits require detaching the finish first. This profile does not establish physical fit or alter the door geometry.
+
+
+### Current provisional-display import
+
+Current OES `1.0.0-draft.2` artworks are admitted through the existing OEX
+validation and attachment path. Before staging, every artwork must project to
+valid CMS metadata. An unknown-unit artwork retains its raw coordinate dimensions,
+`provisional-uncalibrated` reference, authored pose and asset hash; the reference's
+catalogue dimensions populate CMS display metadata, with `sourceUnits: unknown`
+and `scaleApplied: false`. They never become a claim that raw coordinates are
+metres. The matching draft lifecycle version is preserved at attachment.
+
+Normal import still creates new local resource IDs and revision 1 under the
+current owner. The immutable imported artwork snapshot retains the portable
+source provenance, rights, reference and LOD associations. CMS reopen and OEX
+export compare the same reference-aware metadata contract. Existing profile,
+rights, asset hash/decode, staging, worker drain and native owner checks remain
+required. This does not add historical-format support or restore source native
+processing-job authority from a portable package.
