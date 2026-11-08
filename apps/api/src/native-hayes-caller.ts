@@ -131,6 +131,17 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
     });
    }catch(cause){report('start-failed',category(cause));if(authorized)try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;}finally{source?.fill(0);busy=false;}
   },
+  async execute(credentials:Credentials,selection:{jobId:string;artworkId:string;artworkRevision:number},deadlineMs:number):Promise<{jobId:string;receiptId:string;receiptSha256:string;completionFrameSha256:string}>{
+   // Only a sealed selected 044 owner may drive this one-shot continuation.
+   // The channel remains held after the ACK so Manager can independently read
+   // the committed row before its ordinary stop procedure.
+   if(!isHayesReleaseContext(owner))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+   const exchange=await caller.start(credentials,selection,deadlineMs);
+   if(!('stageOutput' in exchange)||typeof exchange.stageOutput!=='function'||!('commit' in exchange)||typeof exchange.commit!=='function'||!('receiveRelease' in exchange)||typeof exchange.receiveRelease!=='function'){await exchange.close();throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');}
+   const selected=exchange as typeof exchange&{stageOutput:()=>Promise<unknown>;commit:()=>Promise<{receiptId:string;receiptSha256:string}>;receiveRelease:()=>Promise<{completionFrameSha256:string}>};
+   await selected.stageOutput();const receipt=await selected.commit(),release=await selected.receiveRelease();
+   return {jobId:selection.jobId,receiptId:receipt.receiptId,receiptSha256:receipt.receiptSha256,completionFrameSha256:release.completionFrameSha256};
+  },
   close,
  });
  issuedCallers.set(caller,{owner,blobs});return caller;
