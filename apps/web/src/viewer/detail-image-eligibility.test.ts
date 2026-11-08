@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import type {QualifiedDetailImage} from './detail-image-attempt';
+import {qualifiedDetailImageProfile,type QualifiedDetailImage} from './detail-image-attempt';
 import {matchesMeasuredWheatImage,type DetailProjectionBinding} from './detail-image-eligibility';
 const sha='b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',a='a'.repeat(64),b='b'.repeat(64);
 const binding:DetailProjectionBinding={indexSha256:a,publicationSha256:b,candidate:{artworkRevisionId:'art',sha256:sha,bytes:8291194,mime:'image/jpeg',width:4000,height:3184}};
@@ -16,4 +16,12 @@ it('accepts only the measured source, projection, budgets, viewport and graphics
  expect(matchesMeasuredWheatImage({...profile,detailViewport:{...profile.detailViewport,width:691}},binding,gallery)).toBe(false);
  expect(matchesMeasuredWheatImage({...profile,runtime:{...profile.runtime,samples:1}},binding,gallery)).toBe(false);
  expect(matchesMeasuredWheatImage({...profile,runtime:{...profile.runtime,browserVersion:'156.0.0.0'}},binding,gallery)).toBe(false);
+});
+it('admits the larger scene only for the exact Hayes publication and original binding',()=>{
+ const p=qualifiedDetailImageProfile('66595ef205a030ba360791fe75b970e9a4a536e5d4e1cf37505c49bc96f91648','0316fa47-149c-43b8-942b-95280fd0052e')!;
+ const attestation:DetailProjectionBinding={indexSha256:p.staticIndexSha256,publicationSha256:p.publicationSha256,candidate:{artworkRevisionId:p.artworkRevisionId,sha256:p.sha256,bytes:p.bytes,mime:p.mime,width:p.width,height:p.height}};
+ expect(matchesMeasuredWheatImage(p,attestation,gallery)).toBe(true);
+ for(const change of [{staticIndexSha256:a},{publicationSha256:b},{revisionSha256:a},{candidateId:'other'},{maxSceneBytes:167772161},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
+ expect(qualifiedDetailImageProfile(p.revisionSha256,'other')).toBeUndefined();
+ expect(qualifiedDetailImageProfile('f'.repeat(64),p.artworkRevisionId)).toBeUndefined();
 });
