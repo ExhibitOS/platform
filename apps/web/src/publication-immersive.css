@@ -283,6 +283,7 @@ main.publication-shell .publication-plaque-detail{display:block;margin-top:.15re
 .immersive-viewer[data-input-mode=touch] .geometry-immersive:has(.viewer-walking-joystick) .viewer-artwork-notice {
   bottom: calc(112px + .75rem + max(1rem, env(safe-area-inset-bottom)));
 }
+.viewer-artwork-notice[data-state="detail-restore"] { pointer-events: auto; }
 .viewer-artwork-notice[data-state] {
   padding: .5rem .75rem;
   border-radius: .5rem;

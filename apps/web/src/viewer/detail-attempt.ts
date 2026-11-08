@@ -51,15 +51,27 @@ function createDetailAttempt<T>(options:DetailAttemptOptions<T>){
 /** A detail surface uses one slot across close/reopen. A new attempt cannot
  * begin until the previous attempt has actually drained successfully. */
 export function createDetailAttemptSlot<T>(){
- let active=false,lastGeneration=0;const identities=new Set<string>();
- return {start(options:DetailAttemptOptions<T>){
+ let active=false,failed=false,lastGeneration=0;const identities=new Set<string>(),waiters=new Set<(ok:boolean)=>void>();
+ const notify=(ok:boolean)=>{for(const waiter of [...waiters])waiter(ok);};
+ const assertAvailable=(attemptId:string,generation:number)=>{
   if(active)throw Error('DETAIL_ATTEMPT_ACTIVE');
-  if(!/^[\x21-\x7e]{1,128}$/.test(options.attemptId)||!Number.isSafeInteger(options.generation)||options.generation<1||options.generation<lastGeneration||identities.has(options.attemptId)||identities.size>=4096)throw Error('DETAIL_ATTEMPT_INVALID');
+  if(!/^[\x21-\x7e]{1,128}$/.test(attemptId)||!Number.isSafeInteger(generation)||generation<1||generation<lastGeneration||identities.has(attemptId)||identities.size>=4096)throw Error('DETAIL_ATTEMPT_INVALID');
+ };
+ return {assertAvailable,whenAvailable(signal:AbortSignal):Promise<void>{
+  if(signal.aborted)return Promise.reject(signal.reason);if(!active)return Promise.resolve();if(failed)return Promise.reject(Error('DETAIL_DRAIN_UNCONFIRMED'));
+  return new Promise<void>((resolve,reject)=>{const finish=(ok:boolean)=>{waiters.delete(finish);signal.removeEventListener('abort',cancel);if(ok)resolve();else reject(Error('DETAIL_DRAIN_UNCONFIRMED'));};const cancel=()=>{waiters.delete(finish);signal.removeEventListener('abort',cancel);reject(signal.reason);};waiters.add(finish);signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();});
+ },start(options:DetailAttemptOptions<T>){
+  assertAvailable(options.attemptId,options.generation);
   active=true;lastGeneration=options.generation;identities.add(options.attemptId);const attempt=createDetailAttempt(options);let retirement:Promise<DetailDrainReceipt>|undefined;
   return {tryCommit:attempt.tryCommit,canPublish:attempt.canPublish,drain(){
    if(!retirement){let resolve!:(value:DetailDrainReceipt)=>void,reject!:(error:unknown)=>void;retirement=new Promise<DetailDrainReceipt>((ok,fail)=>{resolve=ok;reject=fail;});
-    try{void attempt.drain().then(receipt=>{active=false;resolve(receipt);},reject);}catch(error){reject(error);}}
+    try{void attempt.drain().then(receipt=>{active=false;notify(true);resolve(receipt);},error=>{failed=true;notify(false);reject(error);});}catch(error){failed=true;notify(false);reject(error);}}
    return retirement;
   }};
  }};
+}
+
+/** Before mutating a shared scene after any await, reject a superseded mount. */
+export function assertDetailMountCurrent(signal:AbortSignal,epoch:number,currentEpoch:number,available:boolean){
+ signal.throwIfAborted();if(epoch!==currentEpoch||!available)throw Error('DETAIL_MOUNT_STALE');
 }

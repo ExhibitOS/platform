@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {createDetailAttemptSlot,type DetailAttemptOptions,type DetailAttemptValue} from './detail-attempt.js';
+import {assertDetailMountCurrent,createDetailAttemptSlot,type DetailAttemptOptions,type DetailAttemptValue} from './detail-attempt.js';
 const createDetailAttempt=<T>(options:DetailAttemptOptions<T>)=>createDetailAttemptSlot<T>().start(options);
 function deferred<T>(){let resolve!:(value:T)=>void,reject!:(error:unknown)=>void;const promise=new Promise<T>((done,fail)=>{resolve=done;reject=fail;});return {promise,resolve,reject};}
 it('waits for late owned work and asynchronous cleanup before releasing its reservation',async()=>{
@@ -55,4 +55,11 @@ it('requires the exact attempt to remain publishable after staging microtasks an
  let current=true;const slot=createDetailAttemptSlot<number>(),scope=slot.start({attemptId:'microtask',generation:1,isCurrent:()=>current,run:async()=>({ownership:'owned' as const,value:1}),disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}});
  expect(await scope.tryCommit(()=>{queueMicrotask(()=>void scope.drain());return true;})).toBe(true);expect(scope.canPublish()).toBe(false);await scope.drain();
  const next=slot.start({attemptId:'next',generation:2,isCurrent:()=>current,run:async()=>({ownership:'owned' as const,value:2}),disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}});expect(await next.tryCommit(()=>true)).toBe(true);expect(next.canPublish()).toBe(true);current=false;expect(next.canPublish()).toBe(false);await next.drain();
+});
+it('allows a reopened owner to wait for positive drain, cancel waiting, and fail closed on uncertain drain',async()=>{
+ const slot=createDetailAttemptSlot<number>(),work=deferred<DetailAttemptValue<number>>(),abort=new AbortController(),opts={attemptId:'old',generation:1,isCurrent:()=>true,run:()=>work.promise,disposeOwned:async()=>{},releaseBorrow:async()=>{},drainChildren:async()=>{},releaseReservation:async()=>{}};const first=slot.start(opts);await Promise.resolve();const waiting=slot.whenAvailable(abort.signal);let settled=false;void waiting.then(()=>{settled=true;});const drain=first.drain();await Promise.resolve();expect(settled).toBe(false);const other=new AbortController(),cancelled=slot.whenAvailable(other.signal);other.abort();await expect(cancelled).rejects.toBeDefined();work.resolve({ownership:'owned',value:1});await drain;await waiting;expect(settled).toBe(true);
+ const bad=slot.start({...opts,attemptId:'bad',generation:2,run:async()=>({ownership:'owned' as const,value:1}),drainChildren:async()=>{throw Error('unsettled')}});const held=slot.whenAvailable(new AbortController().signal);await expect(bad.drain()).rejects.toThrow('DETAIL_DRAIN_UNCONFIRMED');await expect(held).rejects.toThrow('DETAIL_DRAIN_UNCONFIRMED');await expect(slot.whenAvailable(new AbortController().signal)).rejects.toThrow('DETAIL_DRAIN_UNCONFIRMED');
+});
+it('prevents an older or aborted mount from mutating a scene after overlapping waits',async()=>{
+ const gate=deferred<void>(),a=new AbortController(),b=new AbortController();let epoch=1;const mutations:number[]=[];const mount=async(id:number,signal:AbortSignal)=>{await gate.promise;assertDetailMountCurrent(signal,id,epoch,true);mutations.push(id);};const first=mount(1,a.signal);epoch=2;const second=mount(2,b.signal);gate.resolve();await expect(first).rejects.toThrow('DETAIL_MOUNT_STALE');await second;expect(mutations).toEqual([2]);const c=new AbortController();c.abort();expect(()=>assertDetailMountCurrent(c.signal,2,2,true)).toThrow();
 });

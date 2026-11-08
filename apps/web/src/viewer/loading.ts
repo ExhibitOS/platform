@@ -199,6 +199,7 @@ export class AssetPeakBudget {
   this.reservations.set(key,bytes);
  }
  release(key:string){this.reservations.delete(key);}
+ reservationBytes(key:string){return this.reservations.get(key);}
  reservedBytes(){return [...this.reservations.values()].reduce((sum,value)=>sum+value,0);}
  total(except?:string){return this.resident()+[...this.reservations].reduce((n,[key,bytes])=>n+(key===except?0:bytes),0);}
 }
