@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {readFile,lstat,writeFile} from 'node:fs/promises';
-import {resolve,dirname,join} from 'node:path';
+import {readFile,lstat,writeFile,mkdtemp,rename,rm,open,unlink} from 'node:fs/promises';
+import {resolve,dirname,join,basename} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
@@ -27,7 +27,7 @@ export function localPublicationFetch(sourceRoot){
  };
 }
 
-export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-static'),output=join(root,'dist-demo'),privateEditor=false,coverCompanion='native'}={}){
+async function exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverCompanion}){
  const {createPagesPublicationSource}=await import('./pages-publication-source.mjs');
  const {exportStaticPublication}=await import('./export-static-publication.mjs');
  const pinned=JSON.parse(await readFile(join(root,'demos/reference-exhibition/publication.json'),'utf8'));
@@ -48,6 +48,10 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
  // Wrangler control file is created only by this trusted deployment wrapper;
  // the normal exported artifact remains suitable for Manager's strict importer.
  const demoRoot=join(root,'demos/reference-exhibition');
+ if(coverCompanion==='reference-demo'){
+  const {assembleQualifiedWheat}=await import('./qualified-wheat-reference.mjs');
+  await assembleQualifiedWheat({output:result.output,sourceRoot:join(demoRoot,'source'),runtimeRoot,privateEditor});
+ }
  const bases=await readApprovedCopyBases(join(demoRoot,'previous-copy-bases.json'));
  if(bases.length&&!privateEditor)throw Error('DEMO_COPY_BASE');
  await writeCopyBases(result.output,demoRoot,bases);
@@ -55,7 +59,26 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
  const manifest=JSON.parse(manifestBytes);
  const index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'),'utf8'));
  const headers=staticCacheHeaders(index,manifest.files);if(headers)await writeFile(join(result.output,'_headers'),headers,{flag:'wx',mode:0o600});
- return {...result,manifestSha256:createHash('sha256').update(manifestBytes).digest('hex'),files:manifest.files.length+1,bytes:manifest.files.reduce((sum,file)=>sum+file.bytes,manifestBytes.length),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:createHash('sha256').update(headers).digest('hex')};
+ return {...result,publicationId:index.version===4?JSON.parse(await readFile(join(result.output,index.publication.path),'utf8')).publication.id:result.publicationId,revisionSha256:index.version===4?JSON.parse(await readFile(join(result.output,index.publication.path),'utf8')).publication.revisionSha256:result.revisionSha256,indexSha256:createHash('sha256').update(await readFile(join(result.output,'static-publication-index.json'))).digest('hex'),manifestSha256:createHash('sha256').update(manifestBytes).digest('hex'),files:manifest.files.length+1,bytes:manifest.files.reduce((sum,file)=>sum+file.bytes,manifestBytes.length),cachePolicy:STATIC_CACHE_POLICY_VERSION,cachePolicySha256:createHash('sha256').update(headers).digest('hex')};
+}
+
+
+/** Build and inspect in an owned sibling directory before publishing output. */
+export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-static'),output=join(root,'dist-demo'),privateEditor=false,coverCompanion='native'}={}){
+ if(coverCompanion!=='reference-demo')return exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverCompanion});
+ const target=resolve(output),lockPath=join(dirname(target),`.${basename(target)}.reference-build.lock`);
+ // Cooperating reference-demo writers must hold this exclusive sibling lock.
+ const lock=await open(lockPath,'wx',0o600);let stage;
+ try{
+  try{await lstat(target);throw Error('DEMO_OUTPUT_EXISTS');}catch(e){if(e.code!=='ENOENT')throw e;}
+  stage=await mkdtemp(join(dirname(target),'.reference-demo-'));const candidate=join(stage,'output');
+  const result=await exportReferenceDemoStage({runtimeRoot,output:candidate,privateEditor,coverCompanion});
+  const {inspectDemo}=await import('./deploy-reference-demo.mjs');
+  await inspectDemo({output:candidate,pin:result.indexSha256,commit:'local-build',approvedBases:await readApprovedCopyBases(join(root,'demos/reference-exhibition/previous-copy-bases.json')),runtimeRoot});
+  try{await lstat(target);throw Error('DEMO_OUTPUT_EXISTS');}catch(e){if(e.code!=='ENOENT')throw e;}
+  await rename(candidate,target);return {...result,output:target};
+ }finally{if(stage)await rm(stage,{recursive:true,force:true});await lock.close();await unlink(lockPath);}
+
 }
 
 async function run(args,options={}){
