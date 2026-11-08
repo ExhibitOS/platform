@@ -27,6 +27,8 @@ export interface NativeOexWorkspaceContext {
  readonly workspaceFurnishingArtworkFrame?:true;
  readonly workspaceFurnishingArtworkFrameModels?:true;
  readonly workspaceArtworkFramePreparation?:true;
+ /** Only supplied by the authenticated native 042 catalog binding. */
+ readonly hayesOriginal?:true;
  readonly workspacePortalFinish?:true;
  assertImportCatalog?(client:PoolClient):Promise<void>;
  assertOwner?(owner:import('./publication-disk-budget.ts').DiskOwner):void;

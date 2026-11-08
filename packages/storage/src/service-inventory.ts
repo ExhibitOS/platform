@@ -38,7 +38,9 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  case 'publication_assets':case 'publication_media':case 'publication_cover_images':case 'studio_floor_resources':case 'studio_furnishing_resources':case 'studio_surface_material_resources':case 'studio_footstep_resources':case 'artwork_thumbnail_bindings':add(row.object_key,true,row.bytes,row.sha256);break;
  case 'studio_audio':case 'studio_cover_images':add(row.object_key,row.state!=='uploading',row.bytes,row.sha256);break;
  case 'import_jobs':{
-  const required=row.state==='queued'||row.state==='processing'||row.state==='approved';
+  const hayes=row.hayes_attempt_id!==undefined&&row.hayes_attempt_id!==null;
+  if(hayes)issues.push({code:'HAYES_WORKER_DRAIN_UNCONFIRMED',binding});
+  const required=hayes||row.state==='queued'||row.state==='processing'||row.state==='approved';
   add(row.object_key,required,row.expected_bytes,row.expected_hash,':source');
   const prepared=row.derived;
   if(obj(prepared)&&Object.hasOwn(prepared,'viewerCoarse')){
