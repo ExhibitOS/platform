@@ -17,18 +17,33 @@ export function nativeDetailControl(startup,signal,fetcher=fetch){
  const base=`${origin}/api/v1/tenants/${tenantId}/studio/publications/${publicationId}/native-detail-export`;
  const headers={origin,cookie:`exhibitos_local_session=${startup.sessionToken}`,'x-csrf-token':startup.csrfToken,'content-type':'application/json'};
  const body={version:1,jobId,revisionSha256};
- async function request(suffix,payload,requestSignal=signal){
-  requestSignal.throwIfAborted();const response=await fetcher(base+suffix,{method:payload?'POST':'GET',headers,...(payload?{body:JSON.stringify(payload)}:{}),signal:requestSignal,redirect:'error',cache:'no-store'});
-  if(!response.body)unavailable();if(response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'){await response.body.cancel();unavailable();}const reader=response.body.getReader(),chunks=[];let size=0,cancelled;
+ async function readBody(response,limit,requestSignal){
+  if(!response.body)unavailable();const reader=response.body.getReader(),chunks=[];let size=0,cancelled;
   const cancel=()=>{cancelled??=reader.cancel();cancelled.catch(()=>{});};requestSignal.addEventListener('abort',cancel,{once:true});if(requestSignal.aborted)cancel();
-  try{requestSignal.throwIfAborted();for(;;){const part=await reader.read();requestSignal.throwIfAborted();if(part.done)break;size+=part.value.byteLength;if(size>1048576)unavailable();chunks.push(part.value);}}
+  try{requestSignal.throwIfAborted();for(;;){const part=await reader.read();requestSignal.throwIfAborted();if(part.done)break;size+=part.value.byteLength;if(size>limit)unavailable();chunks.push(part.value);}}
   catch(error){cancel();await cancelled;throw error;}finally{requestSignal.removeEventListener('abort',cancel);try{if(cancelled)await cancelled;}finally{reader.releaseLock();}}
-  let value;try{value=parseStaticJson(Buffer.concat(chunks),1048576);}catch{unavailable();}
-  requestSignal.throwIfAborted();if(!response.ok){if(response.status===409&&exact(value,['code','message','fieldErrors','requestId'])&&value.code==='NATIVE_DETAIL_BUSY'&&value.message===value.code&&Array.isArray(value.fieldErrors)&&value.fieldErrors.length===0&&typeof value.requestId==='string')return {busy:true};unavailable();}return {value};
+  return Buffer.concat(chunks,size);
+ }
+ async function json(response,requestSignal){
+  if(!response.body)unavailable();if(response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'){await response.body.cancel();unavailable();}const data=await readBody(response,1048576,requestSignal);let value;try{value=parseStaticJson(data,1048576);}catch{unavailable();}requestSignal.throwIfAborted();return value;
+ }
+ const busy=(response,value)=>response.status===409&&exact(value,['code','message','fieldErrors','requestId'])&&value.code==='NATIVE_DETAIL_BUSY'&&value.message===value.code&&Array.isArray(value.fieldErrors)&&value.fieldErrors.length===0&&typeof value.requestId==='string';
+ async function send(suffix,payload,requestSignal){requestSignal.throwIfAborted();return fetcher(base+suffix,{method:payload?'POST':'GET',headers,...(payload?{body:JSON.stringify(payload)}:{}),signal:requestSignal,redirect:'error',cache:'no-store'});}
+ async function request(suffix,payload,requestSignal=signal){
+  const response=await send(suffix,payload,requestSignal),value=await json(response,requestSignal);
+  if(!response.ok){if(busy(response,value))return {busy:true};unavailable();}return {value};
  }
  async function retry(suffix,payload,phaseSignal=signal){for(;;){const result=await request(suffix,payload,phaseSignal);if(!result.busy)return result.value;await delay(25,undefined,{signal:phaseSignal});}}
  return {
   async prepare(){const v=await retry('/prepare',body);if(!exact(v,['version','publicationId','revisionSha256','detailAssets'])||v.version!==1||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||!Array.isArray(v.detailAssets)||v.detailAssets.length!==0)unavailable();},
+  async readCandidate(entry){
+   let e;try{e=structuredClone(entry);}catch{unavailable();}if(!exact(e,['assetId','sourceBindingSha256','sha256','bytes','mime','featureReportSha256'])||typeof e.assetId!=='string'||!uuid.test(e.assetId)||![e.sourceBindingSha256,e.sha256,e.featureReportSha256].every(x=>typeof x==='string'&&sha.test(x))||!Number.isSafeInteger(e.bytes)||e.bytes<1||e.bytes>25*1024*1024||!['image/png','image/jpeg','model/gltf-binary'].includes(e.mime))unavailable();
+   for(;;){const response=await send('/bytes',{...body,assetId:e.assetId,sourceBindingSha256:e.sourceBindingSha256},signal);
+    if(response.status!==200){const value=await json(response,signal);if(busy(response,value)){await delay(25,undefined,{signal});continue;}unavailable();}
+    const h=response.headers,encoding=h.get('content-encoding');if(!response.body||h.get('content-type')!==e.mime||h.get('content-length')!==String(e.bytes)||h.get('x-exhibitos-sha256')!==e.sha256||h.get('x-exhibitos-publication-revision')!==revisionSha256||h.has('content-range')||encoding!==null&&encoding!=='identity'||h.get('cache-control')!=='no-store'||h.get('x-content-type-options')!=='nosniff'){await response.body?.cancel();unavailable();}
+    const bytes=await readBody(response,e.bytes,signal);signal.throwIfAborted();if(bytes.length!==e.bytes||createHash('sha256').update(bytes).digest('hex')!==e.sha256)unavailable();return bytes;
+   }
+  },
   async finalCheck(){const finalSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]),v=await retry('/final-check',{...body,detailCount:0,detailSetSha256:emptyDigest},finalSignal);if(!exact(v,['version','publicationId','revisionSha256','valid'])||v.version!==1||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||v.valid!==true)unavailable();},
   async close(cleanupSignal){const result=await request('/close',body,cleanupSignal),v=result.value;if(result.busy||!exact(v,['version','jobId','state'])||v.version!==1||v.jobId!==jobId||v.state!=='closing')unavailable();},
   async settled(observationSignal=signal){for(;;){const result=await request(`/operations/${jobId}`,undefined,observationSignal),v=result.value;if(result.busy||!exact(v,['version','jobId','publicationId','revisionSha256','runtimeGeneration','state'])||v.version!==1||v.jobId!==jobId||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||v.runtimeGeneration!==runtimeGeneration)unavailable();if(v.state==='settled-success')return;if(v.state!=='pending')unavailable();await delay(25,undefined,{signal:observationSignal});}},

@@ -32,3 +32,14 @@ test('waits for an aborted response reader to actually cancel',async()=>{
  const stream=new ReadableStream({pull(){started();},cancel(){return cancellation;}}),control=nativeDetailControl(startup,controller.signal,async()=>new Response(stream,{headers:{'content-type':'application/json'}}));
  const pending=control.prepare().catch(()=>{done=true;});await entered;controller.abort();await new Promise(resolve=>setTimeout(resolve,20));assert.equal(done,false);release();await pending;assert.equal(done,true);
 });
+test('accepts only exact scoped bytes and rejects identity or body mismatch',async()=>{
+ const data=Buffer.from('hello'),digest=await import('node:crypto').then(({createHash})=>createHash('sha256').update(data).digest('hex')),entry={assetId:'00000000-0000-4000-8000-000000000007',sourceBindingSha256:'b'.repeat(64),sha256:digest,bytes:data.length,mime:'image/jpeg',featureReportSha256:'c'.repeat(64)};
+ const headers={'content-type':entry.mime,'content-length':String(entry.bytes),'x-exhibitos-sha256':digest,'x-exhibitos-publication-revision':startup.revisionSha256,'cache-control':'no-store','x-content-type-options':'nosniff'};
+ const factory=(h=headers,body=data)=>async(url,options)=>{assert(url.endsWith('/bytes'));const request=JSON.parse(options.body);assert.equal(request.assetId,entry.assetId);assert.equal(request.sourceBindingSha256,entry.sourceBindingSha256);return new Response(body,{headers:h});};
+ assert.deepEqual(await nativeDetailControl(startup,AbortSignal.timeout(1000),factory()).readCandidate(entry),data);
+ for(const [h,body] of [[{...headers,'content-length':'05'},data],[{...headers,'content-range':'bytes 0-4/5'},data],[{...headers,'content-encoding':'gzip'},data],[{...headers,'x-exhibitos-sha256':'d'.repeat(64)},data],[{...headers,'content-type':'image/png'},data],[headers,Buffer.from('shorter')],[headers,Buffer.from('hey')],[headers,Buffer.from('world')]])await assert.rejects(nativeDetailControl(startup,AbortSignal.timeout(1000),factory(h,body)).readCandidate(entry),/NATIVE_DETAIL_CONTROL/);
+});
+test('invalid detail headers await actual body cancellation',async()=>{
+ const digest='a'.repeat(64),entry={assetId:'00000000-0000-4000-8000-000000000007',sourceBindingSha256:'b'.repeat(64),sha256:digest,bytes:1,mime:'image/jpeg',featureReportSha256:'c'.repeat(64)};let release,called,settled=false;const gate=new Promise(resolve=>{release=resolve;}),entered=new Promise(resolve=>{called=resolve;}),stream=new ReadableStream({cancel(){called();return gate;}});
+ const pending=nativeDetailControl(startup,AbortSignal.timeout(1000),async()=>new Response(stream,{headers:{'content-type':'image/png'}})).readCandidate(entry).catch(()=>{settled=true;});await entered;await new Promise(resolve=>setImmediate(resolve));assert.equal(settled,false);release();await pending;assert.equal(settled,true);
+});
