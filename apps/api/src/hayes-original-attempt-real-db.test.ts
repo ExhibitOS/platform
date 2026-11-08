@@ -54,6 +54,41 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   await transaction(pool,c=>revalidateHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{}));
   await expect(transaction(pool,c=>revalidateHayesOriginalAttempt(c,s,bound,blobs,{...b,runtimeGeneration:randomUUID()},async()=>{}))).rejects.toThrow('HAYES_SOURCE_CHANGED');
   let delayedRecheck=false;await expect(transaction(pool,c=>{const wrapped=new Proxy(c,{get(target,key){if(key==='query')return async (...args:unknown[])=>{if(typeof args[0]==='string'&&args[0].startsWith('SELECT 1 FROM import_jobs WHERE tenant_id=')){delayedRecheck=true;await new Promise(resolve=>setTimeout(resolve,1200));}return Reflect.apply(target.query,target,args);};return Reflect.get(target,key,target);}});return revalidateHayesOriginalAttempt(wrapped,s,bound,blobs,b,async()=>{});})).rejects.toThrow('HAYES_SOURCE_CHANGED');expect(delayedRecheck).toBe(true);
+  // The selected stage catalog is inert until a separate runtime capability
+  // admits it. Test the DB reservation on this isolated database only.
+  await pool.query(await readFile(new URL('../../../database/native-hayes-disposition/043_hayes_output_stage.sql',import.meta.url),'utf8'));
+  const stageId=randomUUID(),outputHash='b'.repeat(64),stageKey=`${tenantId}/hayes-output/${b.attemptId}/${outputHash}`;
+  await pool.query('ALTER TABLE import_jobs DISABLE TRIGGER hayes_original_job_guard');await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()+interval '1 second' WHERE id=$1",[jobId]);await pool.query('ALTER TABLE import_jobs ENABLE TRIGGER hayes_original_job_guard');
+  const blocker=await pool.connect(),waiter=await pool.connect();try{
+   await blocker.query('BEGIN');await blocker.query('SELECT id FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,jobId]);
+   const waiterPid=(await waiter.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+   const waiting=waiter.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,stageKey]);
+   const rejected=expect(waiting).rejects.toThrow('Hayes output stage owner invalid');
+   let locked=false;for(let i=0;i<50&&!locked;i++){locked=(await pool.query("SELECT wait_event_type='Lock' AS waiting FROM pg_stat_activity WHERE pid=$1",[waiterPid])).rows[0]?.waiting===true;if(!locked)await new Promise(resolve=>setTimeout(resolve,10));}expect(locked).toBe(true);
+   await new Promise(resolve=>setTimeout(resolve,1200));await blocker.query('COMMIT');await rejected;
+  }finally{await blocker.query('ROLLBACK').catch(()=>{});blocker.release();waiter.release();}
+  await pool.query('ALTER TABLE import_jobs DISABLE TRIGGER hayes_original_job_guard');await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()+interval '30 seconds' WHERE id=$1",[jobId]);await pool.query('ALTER TABLE import_jobs ENABLE TRIGGER hayes_original_job_guard');
+  await expect(pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,`${tenantId}/wrong/key`])).rejects.toThrow();
+  await pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,stageId,b.attemptId,jobId,outputHash,123,stageKey]);
+  // Synthetic DB-only receipt: structural referential checks are not an
+  // attestation, blob validation, native drain, or actual asset registration.
+  const originalId=randomUUID(),displayId=randomUUID(),derivativeId=randomUUID(),rightsId=randomUUID(),receiptId=randomUUID();
+  const makeReceipt=async(c:PoolClient,receiptHash=createHash('sha256').update('synthetic').digest('hex'))=>{
+   const current=(await c.query('SELECT rights,object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,jobId])).rows[0];
+   await c.query("UPDATE artworks SET metadata=jsonb_set(metadata,'{displayReference,assetSha256}',to_jsonb($2::text)) WHERE tenant_id=$1 AND id=$3",[tenantId,outputHash,artworkId]);
+   await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[tenantId,rightsId,current.rights]);
+   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'model/gltf-binary',1,'quarantine')",[tenantId,originalId,artworkId,rightsId,current.object_key,b.sourceSha256,b.sourceBytes]);
+   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,123,'model/gltf-binary',1,'approved')",[tenantId,displayId,artworkId,rightsId,stageKey,outputHash]);
+   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,derivativeId,originalId,{version:1,kind:'hayes-original-display-v1',originalAssetId:originalId,displayAssetId:displayId,attemptId:b.attemptId,sourceSha256:b.sourceSha256,sourceBytes:b.sourceBytes,outputSha256:outputHash,outputBytes:123,recipe:{kind:'native-hayes-generate-validate-v1',workerManifestSha256:'c'.repeat(64)},receiptSha256:receiptHash}]);
+   await c.query('INSERT INTO hayes_original_dispositions(tenant_id,id,attempt_id,job_id,stage_id,native_owner_id,database_system_identifier,database_oid,runtime_manifest_sha256,worker_manifest_sha256,native_evidence_sha256,attestation,receipt_canonical,receipt_sha256,original_asset_id,display_asset_id,derivative_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9,$10,$11,$12,$13,$14,$15)',[tenantId,receiptId,b.attemptId,jobId,stageId,randomUUID(),'1','1','c'.repeat(64),{},Buffer.from('synthetic'),receiptHash,originalId,displayId,derivativeId]);
+  };
+  await expect(transaction(pool,c=>makeReceipt(c,'0'.repeat(64)))).rejects.toThrow('check constraint');
+  await expect(transaction(pool,async c=>{await makeReceipt(c);await c.query('SET CONSTRAINTS ALL IMMEDIATE');})).rejects.toThrow('Hayes disposition incomplete');
+  await expect(transaction(pool,async c=>{await makeReceipt(c);await c.query("UPDATE import_jobs SET state='approved',progress=100,asset_id=$3,approved_key=$4,hayes_disposition_id=$5 WHERE tenant_id=$1 AND id=$2",[tenantId,jobId,displayId,stageKey,receiptId]);await c.query('SET CONSTRAINTS ALL IMMEDIATE');throw Error('synthetic receipt rollback');})).rejects.toThrow('synthetic receipt rollback');
+  expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_dispositions')).rows[0].n).toBe(0);
+  await expect(pool.query('DELETE FROM hayes_output_stages WHERE id=$1',[stageId])).rejects.toThrow('verified disposition');
+  await expect(pool.query('UPDATE hayes_output_stages SET output_bytes=124 WHERE id=$1',[stageId])).rejects.toThrow('verified disposition');
+  await expect(pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,stageKey])).rejects.toThrow();
   await expect(pool.query("UPDATE import_jobs SET lease_id=NULL WHERE id=$1",[jobId])).rejects.toThrow('Hayes owner unresolved');
   await expect(pool.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,state,hayes_attempt_id) VALUES($1,$2,$3,$4,'forged','hash','model/gltf-binary',$5,$6,$7,$8,$9,1,'queued',$10)",[tenantId,randomUUID(),userId,artworkId,b.sourceSha256,b.sourceBytes,rights,`${tenantId}/quarantine/fake`,`${tenantId}/approved/fake`,b.attemptId])).rejects.toThrow('claimed after upload');
   await expect(pool.query('DELETE FROM hayes_original_attempts WHERE id=$1',[b.attemptId])).rejects.toThrow('verified disposition');

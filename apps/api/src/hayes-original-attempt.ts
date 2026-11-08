@@ -24,6 +24,16 @@ export async function bindHayesOriginalContext(c:PoolClient,owner:NativeOexWorks
  issued.add(owner);return owner;
 }
 export function isHayesOriginalContext(owner:NativeOexWorkspaceContext|undefined):boolean{return !!owner&&issued.has(owner);}
+// This additional brand is bound only during the selected private runtime bootstrap,
+// after the sealed payload and the complete catalog have been independently checked.
+const dispositionIssued=new WeakSet<NativeOexWorkspaceContext>();
+export async function bindHayesDispositionContext(c:PoolClient,owner:NativeOexWorkspaceContext):Promise<void>{
+ if(!isHayesOriginalContext(owner))throw new ApiError(403,'FORBIDDEN');
+ await owner.assertDatabase(c);await catalog(c);const rows=await c.query('SELECT sha256 FROM schema_migrations WHERE name=$1',['043_hayes_output_stage.sql']);
+ if(rows.rowCount!==1||rows.rows[0].sha256!=='d526e19e77161534c21fbe0f3a09d23651b52d6375889bcd680cc6770fed9e39')throw new ApiError(409,'HAYES_CATALOG_INVALID');
+ await owner.assertDatabase(c);dispositionIssued.add(owner);
+}
+export function isHayesDispositionContext(owner:NativeOexWorkspaceContext|undefined):boolean{return !!owner&&dispositionIssued.has(owner);}
 export async function assertHayesOriginalContext(c:PoolClient,s:Session,owner:NativeOexWorkspaceContext|undefined):Promise<void>{
  if(!owner||!issued.has(owner)||owner.tenantId!==s.tenantId||owner.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
  await owner.assertDatabase(c);await catalog(c);

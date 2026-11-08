@@ -28,9 +28,9 @@ async function admission(mode,kind){
  const signed={runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:kind,activeBindingSHA256:'b'.repeat(64)};channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',signed,secret);
  const ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});await assertWorkspaceFurnishingRuntimeAdmission(mode,ordinaryAdmission);return {writer,channel,ordinaryAdmission};
 }
-async function openWith(a,mode,{upgrade=false,bootstrapUid=workspace.ownerUid,interrupt=false,preparation=false,hayesStopped=false}={}){
+async function openWith(a,mode,{upgrade=false,bootstrapUid=workspace.ownerUid,interrupt=false,preparation=false,disposition=false,hayesStopped=false}={}){
  const current={...workspace,sessionToken:token(),csrfToken:token()};
- return openLocalWorkspace(pool,current,'native',c=>prepareWorkspaceFurnishingCatalog(c,{...paths,...((upgrade||preparation)?{materialMultimapDirectory:join(db,'native-workspace-material-multimap')}:{}),...(preparation?{framePreparationDirectory:join(db,'native-workspace-frame-preparation'),hayesOriginalDirectory:join(db,'native-hayes-original')}:{}),mode,ownerUid:bootstrapUid, ...a}),{isolation:'read committed',...(upgrade?{requireExisting:true}:{}),furnishingExclusive:true,beforeCommit:async c=>{await assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission:a.ordinaryAdmission,writer:a.writer,channel:a.channel,isStopped:()=>hayesStopped,framePreparation:preparation,hayesOriginal:preparation});if(interrupt)throw Error('TEST_BEFORE_COMMIT');}});
+ return openLocalWorkspace(pool,current,'native',c=>prepareWorkspaceFurnishingCatalog(c,{...paths,...((upgrade||preparation)?{materialMultimapDirectory:join(db,'native-workspace-material-multimap')}:{}),...(preparation?{framePreparationDirectory:join(db,'native-workspace-frame-preparation'),hayesOriginalDirectory:join(db,'native-hayes-original')}:{}),...(disposition?{hayesDispositionDirectory:join(db,'native-hayes-disposition')}:{}),mode,ownerUid:bootstrapUid, ...a}),{isolation:'read committed',...(upgrade?{requireExisting:true}:{}),furnishingExclusive:true,beforeCommit:async c=>{await assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission:a.ordinaryAdmission,writer:a.writer,channel:a.channel,isStopped:()=>hayesStopped,framePreparation:preparation,hayesOriginal:preparation,hayesDisposition:disposition});if(interrupt)throw Error('TEST_BEFORE_COMMIT');}});
 }
 const ledger=async()=>(await pool.query('SELECT name,sha256 FROM schema_migrations ORDER BY name')).rows;
 try{
@@ -39,6 +39,7 @@ try{
   const init='workspace-furnishing-036-initialize-v1';await openWith(await admission(init,'fresh-empty'),init,{preparation:true});assert.equal((await ledger()).length,42);await assertExactHayesOriginalCatalog(pool);
   const reopen='workspace-furnishing-036-reopen-v1';await openWith(await admission(reopen,'clean-reopen'),reopen,{preparation:true});const stable=JSON.stringify(await ledger());
   await assert.rejects(openWith(await admission(reopen,'clean-reopen'),reopen,{upgrade:true}),/NATIVE_OEX_CATALOG/);assert.equal(JSON.stringify(await ledger()),stable);
+  await assert.rejects(openWith(await admission(reopen,'clean-reopen'),reopen,{preparation:true,disposition:true}),/NATIVE_OEX_CATALOG/);assert.equal(JSON.stringify(await ledger()),stable);
   const last=(await ledger())[41];await pool.query('UPDATE schema_migrations SET sha256=$2 WHERE name=$1',[last.name,'0'.repeat(64)]);await assert.rejects(openWith(await admission(reopen,'clean-reopen'),reopen,{preparation:true}),/NATIVE_OEX_CATALOG/);await pool.query('UPDATE schema_migrations SET sha256=$2 WHERE name=$1',[last.name,last.sha256]);assert.equal(JSON.stringify(await ledger()),stable);
  });
 }finally{await pool.end();closeSync(fd);for(const n of extra)closeSync(n);await rm(root,{recursive:true,force:true});}
