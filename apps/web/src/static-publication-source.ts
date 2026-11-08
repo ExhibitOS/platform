@@ -41,6 +41,14 @@ async function readDetail(path:string,limit:number,signal:AbortSignal,cacheEligi
 }
 type StaticIndex={version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[];detailAssets?:FileEntry[]};
 type DetailDescriptor={assetId:string;url:string;mime:string};
+// Registration remains private to this module and occurs only after the full
+// static publication has been verified. A wrapper or another publication may
+// not borrow a capability's reader-retirement disposition.
+const verifiedDetailOwners=new WeakMap<object,PublicPublication>();
+export function isVerifiedStaticDetailAccess(publication:unknown,access:unknown):access is DetailAccess{
+ if(!access||typeof access!=='object')return false;
+ try{const owner=verifiedDetailOwners.get(access);return !!owner&&owner===publication&&owner.local?.kind==='static'&&owner.local.detailAccess===access;}catch{return false;}
+}
 const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
 async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal):Promise<StaticIndex>{
  if(!expected||! /^[a-f0-9]{64}$/.test(expected))throw Error("STATIC_INDEX");
@@ -114,6 +122,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   }
   if(!retainsCopyInventory(index,{...activeIndex,assets:[...activeIndex.assets,...supplemental]},activeIndex.version===4))throw Error('STATIC_PREVIOUS_ASSETS');
  }
- return {publication:{...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,fetcher,check,...(detailAccess?{detailAccess}:{})}},index};
+ const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,fetcher,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess)verifiedDetailOwners.set(detailAccess,publication);
+ return {publication,index};
 }
 export async function loadStaticPublication(previousIndex?:string):Promise<PublicPublication>{return (await loadVerifiedStaticPublication(previousIndex)).publication;}
