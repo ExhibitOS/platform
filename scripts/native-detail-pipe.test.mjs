@@ -29,3 +29,6 @@ test('rejects any extra data and a mismatched ACK after startup',async()=>{
   input.destroy();
  }
 });
+test('does not return unconsumed credentials after the pipe has failed',()=>{
+ const value=fixture(),input=new PassThrough(),pipe=nativeDetailPipe(input,{origin:value.origin,publicationId:value.publicationId});input.write(frame(JSON.stringify(value)));input.write(Buffer.from([1]));assert.equal(pipe.signal.aborted,true);assert.throws(()=>pipe.takeStartup(),/NATIVE_DETAIL_PIPE/);const late=Buffer.from('secret');input.emit('data',late);assert(late.every(byte=>byte===0));
+});

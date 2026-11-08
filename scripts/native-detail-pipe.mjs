@@ -12,7 +12,7 @@ const startupKeys=['version','jobId','runtimeGeneration','workspaceId','tenantId
 export function nativeDetailPipe(input,expected){
  const controller=new AbortController(),buffer=Buffer.alloc(4100);let phase='startup',used=0,done=false,ack,failAck,startupJob;
  let resolveStart,rejectStart,startup=new Promise((resolve,reject)=>{resolveStart=resolve;rejectStart=reject;});startup.catch(()=>{});
- const fail=()=>{if(done)return;done=true;clearTimeout(timer);buffer.fill(0);used=0;controller.abort();rejectStart?.(Error('NATIVE_DETAIL_PIPE'));resolveStart=undefined;rejectStart=undefined;failAck?.(Error('NATIVE_DETAIL_PIPE'));failAck=undefined;ack=undefined;input.destroy();};
+ const fail=()=>{if(done)return;done=true;clearTimeout(timer);buffer.fill(0);used=0;controller.abort();rejectStart?.(Error('NATIVE_DETAIL_PIPE'));resolveStart=undefined;rejectStart=undefined;startup=undefined;failAck?.(Error('NATIVE_DETAIL_PIPE'));failAck=undefined;ack=undefined;input.destroy();};
  let timer=setTimeout(fail,5000);timer.unref?.();
  function received(chunk){
   if(done){if(Buffer.isBuffer(chunk))chunk.fill(0);return;}
@@ -33,7 +33,7 @@ export function nativeDetailPipe(input,expected){
   clearTimeout(timer);phase='ready';ack.resolve();ack=undefined;failAck=undefined;
  }
  input.on('data',received);input.once('end',fail);input.once('error',fail);input.once('close',fail);input.resume();
- return {takeStartup(){if(!startup)throw Error('NATIVE_DETAIL_PIPE');const result=startup;startup=undefined;return result;},signal:controller.signal,
+ return {takeStartup(){if(done||!startup)throw Error('NATIVE_DETAIL_PIPE');const result=startup;startup=undefined;return result;},signal:controller.signal,
   expectAck(jobId,manifestSha256){if(done||phase!=='idle'||jobId!==startupJob||!sha.test(manifestSha256))throw Error('NATIVE_DETAIL_PIPE');phase='ack';timer=setTimeout(fail,30000);timer.unref?.();const pending=new Promise((resolve,reject)=>{ack={jobId,manifestSha256,resolve};failAck=reject;});pending.catch(()=>{});return pending;},
   finish(){if(done||phase!=='ready')throw Error('NATIVE_DETAIL_PIPE');done=true;clearTimeout(timer);buffer.fill(0);input.off('data',received);input.off('end',fail);input.off('error',fail);input.off('close',fail);input.destroy();},
  };
