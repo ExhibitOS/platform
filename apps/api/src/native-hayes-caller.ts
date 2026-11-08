@@ -8,7 +8,7 @@ import {parseHayesOperationBinding} from './hayes-operation-binding.ts';
 import {prepareHayesOwnerExchange} from './hayes-owner-exchange.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
-type Channel={send(frame:Uint8Array):Promise<void>;receive():Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
+type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
 type Credentials={token:string|undefined;csrf:string|undefined};
 type Intake={artworkId:string;artworkRevision:number;displayReferenceSha256:string;idempotencyKey:string};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -26,7 +26,7 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
  let used=false,busy=false,closing:Promise<void>|undefined;const localAbort=new AbortController(),fenceSignal=AbortSignal.any([signal,localAbort.signal]);
  const live=async()=>{fenceSignal.throwIfAborted();if(!channel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');await assertLive();fenceSignal.throwIfAborted();if(!channel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');};
  const close=()=>closing??=(async()=>{localAbort.abort();let timer:ReturnType<typeof setTimeout>|undefined;try{await Promise.race([Promise.resolve().then(()=>channel.close()),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('HAYES_OWNER_CLOSE_UNCERTAIN')),3000);})]);}finally{if(timer)clearTimeout(timer);}})();
- const sharedChannel:Channel={send:frame=>channel.send(frame),receive:()=>channel.receive(),isOpen:()=>channel.isOpen(),close};
+ const sharedChannel:Channel={send:frame=>channel.send(frame),receive:waitMs=>channel.receive(waitMs),isOpen:()=>channel.isOpen(),close};
  const caller=Object.freeze({
   async create(credentials:Credentials,intake:Intake,deadlineMs:number){
    if(used||busy)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');busy=true;
