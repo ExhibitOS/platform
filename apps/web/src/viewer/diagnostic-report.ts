@@ -9,6 +9,7 @@ const safePath = /^\/?data\/[a-f0-9]{64}\.(?:bin|json)$/i;
 const stageName = /^[a-z][a-z0-9-]{0,79}$/;
 const errorName = /^[A-Z][A-Z0-9_]{0,79}$/;
 const mimeType = /^(?:model|image|audio|video|application)\/[a-z0-9.+-]{1,64}$/i;
+const isoTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 function token(value: string | null, pattern: RegExp): string | null {
   return typeof value === "string" && pattern.test(value) ? value : null;
@@ -23,6 +24,8 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
   const budget = device.budget;
   return {
     version: 1,
+    capturedAt: token(snapshot.capturedAt, isoTime),
+    lifecycle: snapshot.lifecycle,
     identity: {
       publicationId: token(identity.publicationId, uuid),
       revisionSha256: token(identity.revisionSha256, sha256),
@@ -42,6 +45,10 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
         maxTransitionBytes: number(budget.maxTransitionBytes),
         maxTextureSize: number(budget.maxTextureSize),
         maxTriangles: number(budget.maxTriangles),
+        effectiveResidentBytes: number(budget.effectiveResidentBytes),
+        effectiveTransitionBytes: number(budget.effectiveTransitionBytes),
+        selectedDetailResidentBytes: number(budget.selectedDetailResidentBytes),
+        selectedDetailTransitionBytes: number(budget.selectedDetailTransitionBytes),
       } : null,
     },
     navigation: navigation ? {
@@ -61,6 +68,17 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
       renderTargetEstimateBytes: null,
       peakRenderTargetEstimateBytes: null,
       gpuPhysicalBytes: null,
+    },
+    selected: {
+      artworkRevisionId: token(snapshot.selected.artworkRevisionId, uuid),
+      reason: snapshot.selected.reason === "detail" || snapshot.selected.reason === "attended"
+        ? snapshot.selected.reason : null,
+    },
+    displayed: {
+      artworkRevisionId: token(snapshot.displayed.artworkRevisionId, uuid),
+      assetId: token(snapshot.displayed.assetId, uuid),
+      sha256: token(snapshot.displayed.sha256, sha256),
+      tier: token(snapshot.displayed.tier, /^(?:scene|detail-approved|acquired-original)$/),
     },
     assets: snapshot.assets.slice(0, 32).flatMap(asset => {
       const assetId = token(asset.assetId, uuid);
@@ -92,22 +110,33 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
   };
 }
 
-export function createDiagnosticReport(snapshot: DiagnosticSnapshot | null): string {
+export function createDiagnosticReport(
+  snapshot: DiagnosticSnapshot | null,
+  expected: { publicationId: string; revisionSha256: string },
+): string {
+  const matchingSnapshot = snapshot?.identity.publicationId === expected.publicationId &&
+    snapshot.identity.revisionSha256 === expected.revisionSha256 ? snapshot : null;
   const report = {
     format: "exhibitos-viewer-diagnostic-v1",
     capturedAt: new Date().toISOString(),
     staging: true,
+    requestedIdentity: {
+      publicationId: token(expected.publicationId, uuid),
+      revisionSha256: token(expected.revisionSha256, sha256),
+    },
     metrics: {
       allocationBytes: "estimated",
       textureAndMeshPeak: "highest sampled estimate of tracked loaded and prepared assets",
+      textureAndMeshCurrent: "estimate of tracked loaded and prepared assets, unavailable if active detail allocations are omitted",
       transitionPeak: "tracked allocation estimate high-water mark",
       physicalGpuMemoryBytes: null,
       browserProcessMemoryBytes: null,
       browserPlatform: null,
       browserVersion: null,
     },
-    snapshotStatus: snapshot ? "available" : "unavailable",
-    snapshot: snapshot ? projectSnapshot(snapshot) : null,
+    snapshotStatus: matchingSnapshot?.lifecycle === "live" ? "live"
+      : matchingSnapshot ? "last-observed" : "unavailable",
+    snapshot: matchingSnapshot ? projectSnapshot(matchingSnapshot) : null,
   };
   const json = JSON.stringify(report, null, 2);
   if (new TextEncoder().encode(json).byteLength > maximumReportBytes) {

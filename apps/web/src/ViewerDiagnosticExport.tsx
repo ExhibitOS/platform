@@ -5,11 +5,13 @@ import { diagnosticsEnabled, readDiagnosticSnapshot } from "./viewer/diagnostic-
 
 const downloadName = "exhibitos-viewer-diagnostic.json";
 
-export function ViewerDiagnosticExport() {
-  return diagnosticsEnabled() ? <DiagnosticDownload /> : null;
+type PublicationIdentity = { publicationId: string; revisionSha256: string };
+
+export function ViewerDiagnosticExport(identity: PublicationIdentity) {
+  return diagnosticsEnabled() ? <DiagnosticDownload {...identity} /> : null;
 }
 
-function DiagnosticDownload() {
+function DiagnosticDownload(identity: PublicationIdentity) {
   const [status, setStatus] = useState("");
   const pending = useRef<{ url: string; timer: number } | null>(null);
 
@@ -24,7 +26,7 @@ function DiagnosticDownload() {
 
   function download() {
     try {
-      const report = createDiagnosticReport(readDiagnosticSnapshot());
+      const report = createDiagnosticReport(readDiagnosticSnapshot(identity), identity);
       clearDownload();
       const url = URL.createObjectURL(new Blob([report], { type: "application/json" }));
       pending.current = { url, timer: window.setTimeout(clearDownload, 30_000) };

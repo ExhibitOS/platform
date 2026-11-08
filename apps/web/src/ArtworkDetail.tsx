@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { artworkPlaqueCaptionFor, creationYearFor, type StudioPlaque, experienceFor, curationFor, formatArtworkRecordedDimensions } from "@exhibitos/studio-contract";
 import type { PublicPublication } from "./publication-client";
 import { ArtworkDetailPreview } from "./ArtworkDetailPreview";
@@ -12,11 +12,12 @@ import type {SharedDetailPreview} from './viewer/borrowed-detail-preview';
 // UUID references are case-insensitive in the accepted public document.
 const sameId = (a: string, b: string | undefined) => b !== undefined && a.toLowerCase() === b.toLowerCase();
 
-export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null,sharedPreview, plaque, locale = globalThis.window?.navigator.language || "ko" }: {
+export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, onVoiceStop, renderPreview = true, voicePlayback = null,sharedPreview, plaque, diagnosticAction, locale = globalThis.window?.navigator.language || "ko" }: {
   publication: PublicPublication; placementId: string; onClose(): void;
   renderPreview?: boolean; voicePlayback?: VoicePlayback | null;
   sharedPreview?:SharedDetailPreview;
   plaque?: StudioPlaque;
+  diagnosticAction?: ReactNode;
   locale?: string;
   onVoicePlay(assetId: string): Promise<void>; onVoiceStop(): void;
 }) {
@@ -63,6 +64,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
       <div className="artwork-detail-content">
         <h2 id="artwork-detail-title">{artwork.metadata.title}</h2>
         <p className="artwork-detail-artist">{caption?.artist ?? artwork.metadata.artist}</p>
+        {diagnosticAction}
         <dl className="artwork-detail-facts">
           {creationDate&&<><dt>{caption ? "제작 시기" : "제작 연도"}</dt><dd data-testid="artwork-creation-year">{creationDate}</dd></>}
           {artwork.metadata.medium&&<><dt>재료·기법</dt><dd>{artwork.metadata.medium}</dd></>}
