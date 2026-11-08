@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
-import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,realpath,rm} from 'node:fs/promises';
 import {createServer} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -16,7 +16,7 @@ function deferred(){let release!:()=>void;const promise=new Promise<void>(resolv
 async function unusedPort(){const server=createServer();await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address||typeof address==='string')throw Error('port');const port=address.port;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));return port;}
 
 it.skipIf(!process.env.NATIVE_DETAIL_TEST_PG)('issued native context mounts the guarded route and keeps a disconnected socket charged',async()=>{
- const pool=new Pool({connectionString:process.env.NATIVE_DETAIL_TEST_PG,max:5}),root=await mkdtemp(join(tmpdir(),'exhibitos-detail-owner-')),blobRoot=join(root,'blobs'),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),sessionId=randomUUID(),publicationId=randomUUID(),jobId=randomUUID(),token=randomBytes(32).toString('base64url'),csrf='detail-csrf',sha=(v:string)=>createHash('sha256').update(v).digest('hex'),entered=deferred(),release=deferred(),channelEntered=deferred(),channelRelease=deferred();
+ const pool=new Pool({connectionString:process.env.NATIVE_DETAIL_TEST_PG,max:5}),root=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-detail-owner-'))),blobRoot=join(root,'blobs'),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),sessionId=randomUUID(),publicationId=randomUUID(),jobId=randomUUID(),token=randomBytes(32).toString('base64url'),csrf='detail-csrf',sha=(v:string)=>createHash('sha256').update(v).digest('hex'),entered=deferred(),release=deferred(),channelEntered=deferred(),channelRelease=deferred();
  let app:ReturnType<typeof buildApp>|undefined,live=true,gate:{entered:ReturnType<typeof deferred>;release:ReturnType<typeof deferred>}|undefined={entered,release};
  try{
   await mkdir(blobRoot,{mode:0o700});await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
