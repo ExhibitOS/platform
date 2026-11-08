@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {isDeepStrictEqual} from 'node:util';
 import type {WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {readInstalledFurnishing} from './furnishing-assets.ts';
 
@@ -19,4 +20,10 @@ export async function readInstalledFrame(signal?:AbortSignal) {
  const {model} = installedFrameDescriptor();
  const bytes = await readInstalledFurnishing(path,model.bytes,model.sha256,signal,true);
  return bytes === undefined ? undefined : {bytes,mime:model.mime,sha256:model.sha256};
+}
+
+export function matchesInstalledFrame(value:WorkspaceFurnishingDescriptor,publicId?:string):boolean {
+ const expected=installedFrameDescriptor();
+ if(publicId!==undefined)expected.id=publicId;
+ return isDeepStrictEqual(value,expected);
 }

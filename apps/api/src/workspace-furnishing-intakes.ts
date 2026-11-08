@@ -158,6 +158,9 @@ export class WorkspaceFurnishingIntakes {
  /** Read a publication-bound source without manufacturing an authenticated
   * session. Only the configured live workspace owner and the exact immutable
   * registered descriptor can authorize these bytes. */
+ async installedPublicationModel(c:PoolClient,tenantId:string,userId:string,signal?:AbortSignal){
+  return this.publicationModel(c,{workspaceId:this.owner.workspaceId,tenantId,userId,descriptor:installedFrameDescriptor()},signal);
+ }
  async publicationModel(c:PoolClient,binding:{workspaceId:string;tenantId:string;userId:string;descriptor:WorkspaceFurnishingDescriptor},signal?:AbortSignal){
   signal?.throwIfAborted();
   const {workspaceId,tenantId,userId,descriptor}=binding;
