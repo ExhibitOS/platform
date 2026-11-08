@@ -140,7 +140,7 @@ export function createDiagnosticReport(
     requestedDetail: expected.detail ? {
       placementId: token(expected.detail.placementId, uuid),
       artworkRevisionId: token(expected.detail.artworkRevisionId, uuid),
-      attachment: projected?.displayed.assetId ? "observed" : "not-observed",
+      attachment: projected?.displayed.assetId || (projected?.displayed.tier === "acquired-original" && projected.displayed.sha256) ? "observed" : "not-observed",
     } : null,
     metrics: {
       allocationBytes: "estimated",

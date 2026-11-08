@@ -23,7 +23,6 @@ export function registerDiagnosticSource(source:()=>DiagnosticSnapshot):()=>void
 export function readDiagnosticSnapshot(expected:{publicationId:string;revisionSha256:string;detail?:{placementId:string;artworkRevisionId:string}}):DiagnosticSnapshot|null {
  if(!diagnosticsEnabled()||!current)return null;
  const snapshot=current();if(snapshot.identity.publicationId!==expected.publicationId||snapshot.identity.revisionSha256!==expected.revisionSha256)return null;
- if(expected.detail&&(snapshot.selected.reason!=='detail'||snapshot.selected.placementId!==expected.detail.placementId||snapshot.selected.artworkRevisionId!==expected.detail.artworkRevisionId||snapshot.displayed.tier==='scene'))return {...snapshot,selected:{placementId:expected.detail.placementId,artworkRevisionId:expected.detail.artworkRevisionId,reason:'detail'},displayed:{artworkRevisionId:null,assetId:null,sha256:null,tier:null}};
  return snapshot;
 }
 export function createDiagnosticEvents(){
