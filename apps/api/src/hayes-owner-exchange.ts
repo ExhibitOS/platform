@@ -15,6 +15,6 @@ export async function prepareHayesOwnerExchange(input:{binding:unknown;nativeOwn
   const control=createHayesOwnerControl({binding,nativeOwnerId:input.nativeOwnerId,runtimeManifestSha256:input.runtimeManifestSha256,channel,signal:input.signal,deadlineMs:input.deadlineMs,revalidateCommitted:input.revalidateCommitted});
   const transfer=createHayesOwnerTransfer({attemptId:binding.attemptId,correlationId:binding.correlationId,channel,signal:input.signal,deadlineMs:input.deadlineMs});
   await control.open();await transfer.sendSource(input.source);await control.revalidate();
-  return Object.freeze({receiveOutput:()=>transfer.receiveOutput(),close:()=>channel.close()});
+  return Object.freeze({receiveOutput:(expected?:{bytes:number;sha256:string})=>transfer.receiveOutput(expected),close:()=>channel.close()});
  }catch(cause){try{await channel.close();}catch{throw new Error('HAYES_EXCHANGE_CLOSE_UNCERTAIN',{cause});}throw cause;}
 }

@@ -68,12 +68,12 @@ export function createHayesOwnerTransfer(input:{attemptId:string;correlationId:s
     await send(h('hayes-transfer-end','source',SOURCE_BYTES,SOURCE_SHA));exact(await receive(headerKeys),h('hayes-transfer-accepted','source',SOURCE_BYTES,SOURCE_SHA));check();state='output';
    }catch(cause){source?.fill(0);return await invalidate(cause);}finally{source?.fill(0);busy=false;}
   },
-  async receiveOutput():Promise<{bytes:Buffer;sha256:string}>{
+  async receiveOutput(expected?:{bytes:number;sha256:string}):Promise<{bytes:Buffer;sha256:string}>{
    if(state!=='output'||busy)return await invalidate(error());busy=true;let output:Buffer|undefined;
    try{
     const start=await receive(headerKeys),size=start.bytes,hash=start.sha256;
     if(start.version!==1||start.kind!=='hayes-transfer-start'||start.attemptId!==attemptId||start.correlationId!==correlationId||start.direction!=='output'||!Number.isSafeInteger(size)||Number(size)<1||Number(size)>MAX_OUTPUT||typeof hash!=='string'||!sha.test(hash))throw error();
-    const n=Number(size);output=Buffer.alloc(n);let offset=0;
+    const n=Number(size);if(expected&&(expected.bytes!==n||expected.sha256!==hash))throw error();output=Buffer.alloc(n);let offset=0;
     const next=async()=>send({version:1,kind:'hayes-transfer-next',attemptId,correlationId,direction:'output',offset});
     while(offset<n){await next();const v=await receive(dataKeys);if(v.version!==1||v.kind!=='hayes-transfer-data'||v.attemptId!==attemptId||v.correlationId!==correlationId||v.direction!=='output'||v.offset!==offset||typeof v.data!=='string')throw error();const part=Buffer.from(v.data,'base64');try{if(part.length!==Math.min(CHUNK,n-offset)||part.toString('base64')!==v.data)throw error();part.copy(output,offset);offset+=part.length;}finally{part.fill(0);}}
     await next();exact(await receive(headerKeys),h('hayes-transfer-end','output',n,hash));if(digest(output)!==hash)throw error();

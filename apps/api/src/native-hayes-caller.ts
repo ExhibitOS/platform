@@ -92,7 +92,7 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
        state.scope=Object.freeze({...scope,phase:'reserved'});const frame=hayesReservationFrame(raw,expected,dbStageId);
        let timer:ReturnType<typeof setTimeout>|undefined,onAbort:()=>void=()=>{};
        try{await Promise.race([sharedChannel.send(frame),new Promise<never>((_,reject)=>{onAbort=()=>reject(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));fenceSignal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(onAbort,Math.max(0,deadlineMs-Date.now()));})]);}finally{if(timer)clearTimeout(timer);fenceSignal.removeEventListener('abort',onAbort);}await live();
-       const received=await exchange.receiveOutput();output=received.bytes;
+       const expectedOutput=scope.attestation.output as {bytes:number;sha256:string};const received=await exchange.receiveOutput(expectedOutput);output=received.bytes;
        await storeHayesOutput({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,bytes:output});
        await live();state.scope=Object.freeze({...state.scope,phase:'copied'});phase='copied';return reserved;
       }catch(cause){return await invalidate(cause);}finally{output?.fill(0);}
