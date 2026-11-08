@@ -56,17 +56,15 @@ export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard
     bound=await authenticated(request,async(_c,s)=>({...identity(s,p.publicationId),revisionSha256:body.revisionSha256 as string,jobId:body.jobId as string}));
     if(disconnected.signal.aborted){registry.close(bound);invalid();}
     await registry.run(bound,phase,async signal=>{
-     const owner=bound!,plan=await authenticated(request,async(c,s)=>{if(s.id!==owner.sessionId||!context.live())invalid();signal.throwIfAborted();const plan=await publication(c,s,p.publicationId,owner.revisionSha256,signal);await live(c,s);signal.throwIfAborted();return plan;});
-     if(phase==='final'&&(body.detailCount!==plan.tuples.length||body.detailSetSha256!==plan.detailSetSha256))invalid();
-     const response=phase==='prepare'?{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,detailAssets:plan.descriptors}:{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,valid:true};
-     const stopResponse=()=>{if(hijacked&&!reply.raw.destroyed)reply.raw.destroy();};signal.addEventListener('abort',stopResponse,{once:true});
-     try{
-      signal.throwIfAborted();reply.hijack();hijacked=true;
-      const settled=finished(reply.raw);settled.catch(()=>{});
-      try{if(signal.aborted)stopResponse();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});reply.raw.end(JSON.stringify(response));await settled;}
-      catch(error){reply.raw.destroy();await settled.catch(()=>{});throw error;}
-     }
-     finally{signal.removeEventListener('abort',stopResponse);}
+     const owner=bound!;await authenticated(request,async(c,s)=>{if(s.id!==owner.sessionId||!context.live())invalid();signal.throwIfAborted();const plan=await publication(c,s,p.publicationId,owner.revisionSha256,signal);await live(c,s);signal.throwIfAborted();
+      if(phase==='final'&&(body.detailCount!==plan.tuples.length||body.detailSetSha256!==plan.detailSetSha256))invalid();
+      const response=phase==='prepare'?{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,detailAssets:plan.descriptors}:{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,valid:true};
+      const stopResponse=()=>{if(hijacked&&!reply.raw.destroyed)reply.raw.destroy();};signal.addEventListener('abort',stopResponse,{once:true});
+      try{signal.throwIfAborted();reply.hijack();hijacked=true;const settled=finished(reply.raw);settled.catch(()=>{});
+       try{if(signal.aborted)stopResponse();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});reply.raw.end(JSON.stringify(response));await settled;await live(c,s);signal.throwIfAborted();}
+       catch(error){reply.raw.destroy();await settled.catch(()=>{});throw error;}
+      }finally{signal.removeEventListener('abort',stopResponse);}
+     });
     },async()=>{});
     return reply;
    }catch(error){if(hijacked){reply.raw.destroy();return reply;}return normalize(error);}finally{request.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);}
@@ -79,7 +77,7 @@ export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard
    const abort=()=>{disconnected.abort();if(bound)try{registry.close(bound);}catch{/* Unobservable cleanup remains unconfirmed. */}};const closed=()=>{if(!reply.raw.writableFinished)abort();};request.raw.once('aborted',abort);reply.raw.once('close',closed);if(request.raw.aborted||reply.raw.destroyed)abort();
    try{bound=await authenticated(request,async(_c,s)=>({...identity(s,p.publicationId),revisionSha256:body.revisionSha256 as string,jobId:body.jobId as string}));if(disconnected.signal.aborted){registry.close(bound);invalid();}
     await registry.run(bound,'bytes',async signal=>{const owner=bound!;await authenticated(request,async(c,s)=>{if(s.id!==owner.sessionId||!context.live())invalid();signal.throwIfAborted();const plan=await publication(c,s,p.publicationId,owner.revisionSha256,signal,{assetId:body.assetId as string,sourceBindingSha256:body.sourceBindingSha256 as string}),bytes=plan.bytes,tuple=plan.tuples.find(item=>item.assetId===body.assetId);if(!bytes||!tuple)return invalid();
-     try{await live(c,s);signal.throwIfAborted();const stop=()=>{if(hijacked&&!reply.raw.destroyed)reply.raw.destroy();};signal.addEventListener('abort',stop,{once:true});try{reply.hijack();hijacked=true;const settled=finished(reply.raw);settled.catch(()=>{});try{if(signal.aborted)stop();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':tuple.mime,'content-length':String(bytes.length),'x-exhibitos-sha256':tuple.sha256,'x-exhibitos-publication-revision':owner.revisionSha256,'cache-control':'no-store','x-content-type-options':'nosniff'});reply.raw.end(bytes);await settled;}catch(error){reply.raw.destroy();await settled.catch(()=>{});throw error;}}finally{signal.removeEventListener('abort',stop);}}finally{bytes.fill(0);}
+     try{await live(c,s);signal.throwIfAborted();const stop=()=>{if(hijacked&&!reply.raw.destroyed)reply.raw.destroy();};signal.addEventListener('abort',stop,{once:true});try{reply.hijack();hijacked=true;const settled=finished(reply.raw);settled.catch(()=>{});try{if(signal.aborted)stop();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':tuple.mime,'content-length':String(bytes.length),'x-exhibitos-sha256':tuple.sha256,'x-exhibitos-publication-revision':owner.revisionSha256,'cache-control':'no-store','x-content-type-options':'nosniff'});reply.raw.end(bytes);await settled;await live(c,s);signal.throwIfAborted();}catch(error){reply.raw.destroy();await settled.catch(()=>{});throw error;}}finally{signal.removeEventListener('abort',stop);}}finally{bytes.fill(0);}
     });},async()=>{});return reply;
    }catch(error){if(hijacked){reply.raw.destroy();return reply;}return normalize(error);}finally{request.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);}
   });

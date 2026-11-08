@@ -18,6 +18,7 @@ function same(a:NativeDetailScope,b:NativeDetailScope){return fields.every(k=>a[
 export class NativeDetailOperations {
  private readonly entries=new Map<string,Entry>();
  private shuttingDown=false;
+ private activeCount=0;private poisoned=false;
  private entry(scope:NativeDetailScope,create:boolean):Entry {
   if(!valid(scope)||this.shuttingDown)throw Error('NATIVE_DETAIL_UNAVAILABLE');
   let entry=this.entries.get(scope.jobId);
@@ -41,25 +42,25 @@ export class NativeDetailOperations {
  /** work and its cleanup both remain charged until cleanup actually settles. */
  async run<T>(scope:NativeDetailScope,phase:'prepare'|'bytes'|'final',work:(signal:AbortSignal)=>Promise<T>,cleanup:()=>Promise<void>):Promise<T>{
   const entry=this.entry(scope,phase==='prepare');
-  if(entry.closing||entry.failed)throw Error('NATIVE_DETAIL_UNAVAILABLE');
-  if(entry.active.size!==0)throw Error('NATIVE_DETAIL_BUSY');
+  if(entry.closing||entry.failed||this.poisoned)throw Error('NATIVE_DETAIL_UNAVAILABLE');
+  if(entry.active.size!==0||this.activeCount!==0)throw Error('NATIVE_DETAIL_BUSY');
   if(phase==='prepare'?entry.prepared:!entry.prepared)throw Error('NATIVE_DETAIL_UNAVAILABLE');
   if(phase==='final')entry.closing=true;
-  const controller=new AbortController();entry.controllers.add(controller);
+  const controller=new AbortController();entry.controllers.add(controller);this.activeCount++;
   // Install the promise in active before any caller-controlled callback can
   // reenter the registry or start runtime shutdown.
   const task=Promise.resolve().then(async()=>{
    let result:T|undefined,failure:unknown,failed=false;
    try{controller.signal.throwIfAborted();result=await work(controller.signal);controller.signal.throwIfAborted();}
-   catch(error){failed=true;failure=error;entry.closing=true;entry.failed=true;if(error instanceof NativeDetailDrainUncertain)entry.uncertain=true;for(const other of entry.controllers)other.abort();}
-   try{await cleanup();}catch(error){entry.closing=true;entry.uncertain=true;entry.failed=true;failed=true;failure=error;}finally{entry.controllers.delete(controller);}
+   catch(error){failed=true;failure=error;entry.closing=true;entry.failed=true;if(error instanceof NativeDetailDrainUncertain){entry.uncertain=true;this.poisoned=true;}for(const other of entry.controllers)other.abort();}
+   try{await cleanup();}catch(error){entry.closing=true;entry.uncertain=true;this.poisoned=true;entry.failed=true;failed=true;failure=error;}finally{entry.controllers.delete(controller);}
    if(!failed&&controller.signal.aborted){failed=true;failure=controller.signal.reason;entry.failed=true;}
    if(failed)throw failure;
    if(phase==='prepare')entry.prepared=true;if(phase==='final')entry.finalized=true;
    return result as T;
   });
   entry.active.add(task);
-  try{const result=await task;if(entry.failed)throw Error('NATIVE_DETAIL_UNAVAILABLE');return result;}finally{entry.active.delete(task);}
+  try{const result=await task;if(entry.failed)throw Error('NATIVE_DETAIL_UNAVAILABLE');return result;}finally{entry.active.delete(task);this.activeCount--;}
  }
  /** Runtime close refuses new work, requests cancellation and awaits real
   * settlement; caller must preserve ownership if any scope cannot settle. */

@@ -50,3 +50,7 @@ it('returns busy while a previous response cleanup is still settling, then allow
  const registry=new NativeDetailOperations(),s=scope(),cleanup=deferred(),entered=deferred();const pending=registry.run(s,'prepare',async()=>42,async()=>{entered.release();await cleanup.promise;});await entered.promise;
  await expect(registry.run(s,'final',done,done)).rejects.toThrow('NATIVE_DETAIL_BUSY');cleanup.release();expect(await pending).toBe(42);await registry.run(s,'final',done,done);expect(registry.status(s)).toBe('settled-success');
 });
+it('bounds work across jobs and blocks the runtime after uncertain cleanup',async()=>{
+ const registry=new NativeDetailOperations(),first=scope(),second=scope(),entered=deferred(),release=deferred();const running=registry.run(first,'prepare',async()=>{entered.release();await release.promise;},done);await entered.promise;await expect(registry.run(second,'prepare',done,done)).rejects.toThrow('NATIVE_DETAIL_BUSY');release.release();await running;await registry.run(second,'prepare',done,done);
+ await expect(registry.run(first,'bytes',async()=>{throw new NativeDetailDrainUncertain();},done)).rejects.toThrow('JPEG_INSPECTION_DRAIN_UNCERTAIN');await expect(registry.run(second,'bytes',done,done)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');expect(await registry.closeRuntime()).toBe(false);
+});
