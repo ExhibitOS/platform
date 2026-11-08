@@ -15,6 +15,7 @@ import {withReadinessStage,stageReadinessBytes,PublicationStageError,type Public
 import {PublicationFileOperation} from './publication-file-operation.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
 import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from './native-original-publication.ts';
+import {ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality} from '@exhibitos/studio-contract';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
@@ -646,8 +647,7 @@ export class Publications {
         const publishedRow={tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
         if(detail&&detailPrepared){
          await detail.persist(c,s,detailPrepared,digest);
-         const projection=await this.publicProjection(c,publishedRow,await this.gate(c,publishedRow)),detailAssets=detailPrepared.items.map(({candidate})=>({assetId:candidate.assetId,url:`/api/v1/publications/${publicationId}/detail-assets/${candidate.assetId}`,mime:candidate.mime}));
-         if(Buffer.byteLength(JSON.stringify({...projection,detailAssets}),'utf8')>1048576)throw new ApiError(422,'PUBLICATION_NOT_READY');
+         const projection=await this.publicProjection(c,publishedRow,await this.gate(c,publishedRow));await this.assertDetailProjection(projection);
          await detail.recheck(c,s,detailPrepared,digest);
         }
         let final:Awaited<ReturnType<Publications['gate']>>|undefined;
@@ -801,6 +801,13 @@ export class Publications {
             if(JSON.stringify(actual)!==JSON.stringify(records))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');signal?.throwIfAborted();const now=Date.now();if(!validateExhibition(row.snapshot,{publicationTime:new Date(now).toISOString()}).valid||workspaceMaterials.some(item=>!allowedRights(item.sourceDescriptor.rights,'display',now)||!allowedRights(item.sourceDescriptor.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');start?.();return {revisionSha256:row.revision_sha256};
         });
     }
+    private async assertDetailProjection(projection:Awaited<ReturnType<Publications['publicProjection']>>){
+        const descriptors:Array<{assetId:string;url:string;mime:string}>=[],ids=new Set(projection.assets.map(asset=>asset.assetId.toLowerCase()));let total=0;
+        for(const artwork of projection.exhibition.artworks){const relation=artwork.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')throw new ApiError(404,'PUBLICATION_UNAVAILABLE');const verified=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!verified)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');for(const candidate of verified.candidates){if(ids.has(candidate.assetId)||candidate.bytes>25*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');ids.add(candidate.assetId);total+=candidate.bytes;if(descriptors.length>=16||!Number.isSafeInteger(total)||total>100*1024*1024)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');descriptors.push({assetId:candidate.assetId,url:`/api/v1/publications/${projection.publication.id}/detail-assets/${candidate.assetId}`,mime:candidate.mime});}}
+        // The actual static publication omits materialMapBatch and may omit an
+        // optional cover; including both here is a conservative serialized cap.
+        if(descriptors.length&&Buffer.byteLength(JSON.stringify({...projection,detailAssets:descriptors}),'utf8')>1048576)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+    }
     private async publicProjection(c:PoolClient,row:PublicationRow,initial:Omit<Awaited<ReturnType<Publications['gate']>>,'assertTime'>) {
         let {assets,furnishings,workspaceFurnishings,workspaceMaterials}=initial;
             let coverVariants:Awaited<ReturnType<typeof approvedCoverProjection>>;
@@ -826,7 +833,7 @@ export class Publications {
             const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1", [id])).rows[0] as PublicationRow | undefined;
             if (!row || row.status !== "published")
                 throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-            let {assets,furnishings,workspaceFurnishings,workspaceMaterials} = await this.gate(c, row,assetId);
+            const initial=await this.gate(c,row,assetId);let {assets,furnishings,workspaceFurnishings,workspaceMaterials} = initial;
             if (assetId) {
                 const material=workspaceMaterials.find(p=>p.publicId===assetId);
                 if(material){if(!material.bytes)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return {bytes:material.bytes,mime:material.mime,revisionSha256:row.revision_sha256};}
@@ -854,7 +861,7 @@ export class Publications {
                 if(!(await this.gate(c,row)).assets.some(current=>current.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
                 return { bytes, mime: asset.mime, revisionSha256: row.revision_sha256 };
             }
-            return this.publicProjection(c,row,{assets,furnishings,workspaceFurnishings,workspaceMaterials});
+            const projection=await this.publicProjection(c,row,{assets,furnishings,workspaceFurnishings,workspaceMaterials});await this.assertDetailProjection(projection);initial.assertTime();return projection;
         });
     }
 }
