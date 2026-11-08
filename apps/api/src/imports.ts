@@ -13,6 +13,7 @@ import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {imageCoarseIntent,imageCoarsePolicy,storedImageCoarse,type ImageCoarseIntent} from './image-coarse-intent.ts';
 import {prepareIntentImageCoarse} from './artwork-coarse-preparation.ts';
 import {decode} from './validation-client.ts';
+import {assertHayesOriginalContext} from './hayes-original-attempt.ts';
 export {decode} from './validation-client.ts';
 export class Imports {
  readonly pool:Pool; readonly blobs:BlobStore; readonly nativeWorkspace:NativeOexWorkspaceContext|undefined;
@@ -22,7 +23,7 @@ export class Imports {
  async access(c:PoolClient,s:Session,id:string) {
   const result=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,id]);
   const row=result.rows[0];if(!row)throw new ApiError(403,'FORBIDDEN');
-  await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}return row;
+  await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}return row;
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
   const artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
