@@ -16,7 +16,7 @@ export function previousBases(raw: string | undefined, current: PrivateSeed): Pr
   if (!raw) return [];
   try {
     const rows: unknown = JSON.parse(raw);
-    if (!Array.isArray(rows) || rows.length > 16) return [];
+    if (!Array.isArray(rows) || rows.length > 17) return [];
     const result: PreviousBase[] = [];
     for (const item of rows) {
       if (!item || typeof item !== 'object' || Object.keys(item).sort().join(',') !== 'indexSha256,publicationId,revisionSha256' ||

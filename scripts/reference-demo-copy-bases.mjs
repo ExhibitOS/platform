@@ -45,12 +45,12 @@ async function boundedFile(root, path, limit) {
 }
 
 export async function verifiedCopyBases({ output, archiveRoot, bases }) {
-  if (!Array.isArray(bases) || bases.length > 16) fail();
+  if (!Array.isArray(bases) || bases.length > 17) fail();
   if (!bases.length) return [];
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
   const current = parseStaticJson(currentBytes);
   // Only the exact independently verified active Wheat v4 is admitted here.
-  // Below, only the two exact formerly public Wheat v4 archives are allowed.
+  // Below, only the exact formerly public Wheat v4 archives are allowed.
   if (current.version === 4) {
     const { verifiedQualifiedWheat } = await import('./qualified-wheat-reference.mjs');
     try { await verifiedQualifiedWheat({ root: output }); } catch { fail(); }
