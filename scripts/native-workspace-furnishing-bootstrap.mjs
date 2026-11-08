@@ -65,7 +65,7 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
    await writer.assertLive();if(!channel.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
    await c.query(sql);await c.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',[WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256]);
    await assertExactWorkspaceMaterialMultimapCatalog(c);
-   if(!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen()||!hayesChannel.isOpen())throw Error('NATIVE_OEX_CATALOG');
+   if(!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');
   }else if(upgrade44){
    // One explicit owner-issued transition, in the same workspace transaction.
    // Any later writer/channel/identity failure rolls back every migration.
