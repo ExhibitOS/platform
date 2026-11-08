@@ -94,10 +94,12 @@ export class Imports {
  async action(c:PoolClient,s:Session,id:string,action:'cancel'|'retry'){
   const row=await this.access(c,s,id);
   if(action==='cancel'){
+   if(row.hayes_attempt_id!=null){await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing'",[s.tenantId,id]);return this.view((await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);}
    if(row.state==='approved')throw new ApiError(409,'JOB_STATE');
    if((this.model(row)||row.png_drain_version===1)&&row.lease_id!=null)await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
    else await c.query("UPDATE import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }else{
+   if(row.hayes_attempt_id!=null)throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
    const model=this.model(row),value=row.model_derivation as {result?:Record<string,unknown>}|null;
    const optionalRetry=!!model&&row.state==='approved'&&row.asset_id!=null&&value?.result?.status==='failed'&&row.lease_id==null;
    if(!optionalRetry&&row.state!=='failed'||row.attempts>=5||new Date(row.available_at).getTime()>Date.now())throw new ApiError(409,'JOB_STATE');
@@ -111,8 +113,12 @@ export class Imports {
   const lease=randomUUID();
   const row=await transaction(this.pool,async c=>{
    await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-   await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)");
-   const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0) ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
+   // The current ordinary catalog has no 042 column; discover this one
+   // optional catalog before issuing SQL that references it.
+   const feature=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='hayes_attempt_id' AND NOT attisdropped) AS selected");
+   const hayesFilter=feature.rows[0]?.selected===true?" AND hayes_attempt_id IS NULL AND NOT (state='queued' AND mime='model/gltf-binary' AND expected_hash='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6' AND expected_bytes=8383096)":'';
+   await c.query("UPDATE import_jobs SET state='failed',error_code='RETRY_EXHAUSTED',lease_id=NULL,lease_until=NULL WHERE state='processing' AND lease_until<clock_timestamp() AND attempts>=5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter);
+   const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+" ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
    if(!found.rowCount)return null;const r=found.rows[0];
    await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
   });if(!row)return false;
