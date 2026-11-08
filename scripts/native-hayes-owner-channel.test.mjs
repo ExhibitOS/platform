@@ -9,6 +9,8 @@ test('selected envelope accepts only distinct closed same-generation pins and pr
  const value=unpackNativeOwnerInput({workspace,ownerChannel,hayesOwnerChannel});assert.deepEqual(value,{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:ownerChannel.mode},hayesOwnerChannel:{runtimeGeneration:id,secret:hayesSecret,nativeOwnerId:ownerId,runtimeManifestSha256:manifest}});
  for(const changed of [{secret},{runtimeGeneration:ownerId},{nativeOwnerId:'bad'},{runtimeManifestSha256:'bad'},{extra:true}])assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel,hayesOwnerChannel:{...hayesOwnerChannel,...changed}}));
  assert.throws(()=>unpackNativeOwnerInput({workspace,hayesOwnerChannel}));assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{...ownerChannel,mode:'normal-oex-027-v3'},hayesOwnerChannel}));
+ const upgraded={...ownerChannel,mode:'workspace-furnishing-040-to-044-upgrade-v1'};assert.equal(unpackNativeOwnerInput({workspace,ownerChannel:upgraded,hayesOwnerChannel}).ownerChannel.mode,upgraded.mode);
+ assert.throws(()=>unpackNativeOwnerInput({workspace,ownerChannel:{...ownerChannel,mode:'workspace-furnishing-039-to-040-upgrade-v1'},hayesOwnerChannel}));
  assert.deepEqual(unpackNativeOwnerInput({workspace,ownerChannel}),{workspace,ownerChannel:{runtimeGeneration:id,secret,mode:ownerChannel.mode}});
 });
 async function handshake(change={},duplicate=false){
