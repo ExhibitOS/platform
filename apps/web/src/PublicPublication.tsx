@@ -396,7 +396,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
                     </p>
                     <p>{description?.text ?? a?.metadata.description}</p>
                     <p>
-                      {formatArtworkRecordedDimensions(a)}{a?.schemaVersion==='1.0.0-draft.2'?' · 기관 보고 크기, 모델 축 대응 미확인; 표시 크기는 임시 기준':''}
+                      {formatArtworkRecordedDimensions(a)}{a?.schemaVersion==='1.0.0-draft.2'?' · 등록된 크기, 모델 축 대응 미확인; 표시 크기는 임시 기준':''}
                     </p>
                   </li>
                 );
