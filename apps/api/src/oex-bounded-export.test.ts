@@ -176,7 +176,7 @@ describe('internal bounded OEX producer',()=>{
   const art={...base,schemaVersion:'1.0.0-draft.2' as const,units:'unknown' as const,dimensions:{width:2,height:4,depth:6},transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[.1,.1,.1]},extensions:{...base.extensions,'org.exhibitos.studio/display-reference':ref}};
   const candidate={...legacy,schemaVersion:'1.0.0-draft.2' as const,artworks:legacy.artworks.map(a=>a.id===base.id?art:a)} as import('@exhibitos/spec').ExhibitionV2;
   expect(()=>checkOexProfile(candidate,true)).not.toThrow();expect(()=>checkOexProfile(candidate,true,'bounded-file-v1')).not.toThrow();
-  expect(()=>requireSupportedOexImport(candidate)).toThrow('OEX_IMPORT_VERSION_UNSUPPORTED');expect(()=>requireSupportedOexImport(legacy)).not.toThrow();
+  expect(()=>requireSupportedOexImport(candidate)).not.toThrow();expect(()=>requireSupportedOexImport(legacy)).not.toThrow();
   const unknown=structuredClone(candidate);unknown.artworks[0]!.extensions={...unknown.artworks[0]!.extensions,'unknown.example/extension':{}};expect(()=>checkOexProfile(unknown,true)).toThrow('OEX_EXTENSION_UNSUPPORTED');
   const legacyWithReference=structuredClone(legacy);legacyWithReference.artworks[0]!.extensions={...legacyWithReference.artworks[0]!.extensions,'org.exhibitos.studio/display-reference':ref};expect(()=>checkOexProfile(legacyWithReference,true)).toThrow('OEX_EXTENSION_UNSUPPORTED');
   const files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!]));
