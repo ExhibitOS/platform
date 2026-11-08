@@ -10,7 +10,7 @@ import type {DetailRuntimeProfile} from './detail-runtime-profile';
  * The producer/Viewer qualification boundary must establish this before calling;
  * image dimensions, a hash, or a hardware hint alone do not establish it. */
 export interface QualifiedDetailImage {
- candidateId:string;sha256:string;bytes:number;mime:'image/png'|'image/jpeg';width:number;height:number;
+ staticIndexSha256:string;publicationSha256:string;candidateId:string;sha256:string;bytes:number;mime:'image/png'|'image/jpeg';width:number;height:number;
  reservationBytes:number;restoreReservationBytes:number;transitionCapBytes:number;maxSceneBytes:number;maxRestoreWidth:number;maxRestoreHeight:number;devicePixelRatio:number;detailViewport:DetailImageViewport;runtime:DetailRuntimeProfile;revisionSha256:string;artworkRevisionId:string;sourceBindingSha256:string;featureReportSha256:string;inspector:string;model:string;
 }
 export type DetailImageSlot=ReturnType<typeof createDetailAttemptSlot<DetailImageResource>>;
