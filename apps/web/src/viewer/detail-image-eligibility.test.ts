@@ -25,3 +25,11 @@ it('admits the larger scene only for the exact Hayes publication and original bi
  expect(qualifiedDetailImageProfile(p.revisionSha256,'other')).toBeUndefined();
  expect(qualifiedDetailImageProfile('f'.repeat(64),p.artworkRevisionId)).toBeUndefined();
 });
+it('admits only the exact r7 Wheat original and its measured envelope',()=>{
+ const revision='ab2e073f1b74b1989f362d35578b53c5854b8d5654c058ae81cfa0fc6ed3fd88',artwork='260c29fe-17aa-4c97-bdb5-076b46b3094b';
+ const p=qualifiedDetailImageProfile(revision,artwork)!;
+ const attestation:DetailProjectionBinding={indexSha256:p.staticIndexSha256,publicationSha256:p.publicationSha256,candidate:{artworkRevisionId:artwork,sha256:p.sha256,bytes:p.bytes,mime:p.mime,width:p.width,height:p.height}};
+ expect(matchesMeasuredWheatImage(p,attestation,gallery)).toBe(true);
+ for(const change of [{staticIndexSha256:a},{publicationSha256:b},{revisionSha256:a},{artworkRevisionId:'other'},{candidateId:'other'},{sourceBindingSha256:a},{maxSceneBytes:201326593},{transitionCapBytes:603979777}])expect(matchesMeasuredWheatImage({...p,...change},attestation,gallery)).toBe(false);
+ expect(qualifiedDetailImageProfile(revision,'other')).toBeUndefined();expect(qualifiedDetailImageProfile(a,artwork)).toBeUndefined();
+});
