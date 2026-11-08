@@ -32,6 +32,7 @@ export function parseProbeArm(raw,hayes){
 }
 let held;
 const probe={
+ onProbePhase:(phase,monotonicNs,code)=>log({kind:'hayes-probe-phase',phase,monotonicNs,...(code?{code}:{})}),
  onClaimCommitted:(binding,monotonicNs)=>log({kind:'hayes-probe-claim-committed',attemptId:binding.attemptId,jobId:binding.jobId,correlationId:binding.correlationId,monotonicNs}),
  async run({caller,channel,pool,blobs,owner,workspace,hayes,signal,assertLive}){
   let sourceConsumed=false;try{
