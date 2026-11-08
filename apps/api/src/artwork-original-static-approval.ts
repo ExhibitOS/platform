@@ -12,9 +12,8 @@ import {originalStaticGrant} from './original-static-grant.ts';
 
 export interface OriginalStaticApprovalInput {artworkId:string;artworkRevision:number;importJobId:string}
 
-/** A new private record for an existing current revision; never rewrites an
- * approval, changes an artwork, exposes quarantine or qualifies a decoder. */
-export async function approveOriginalStaticSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore){
+/** Common owner/custody revalidation. The returned bytes stay private. */
+async function checkedSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore){
  if(!input||Object.keys(input).sort().join(',')!=='artworkId,artworkRevision,importJobId'||!Number.isSafeInteger(input.artworkRevision)||input.artworkRevision<1)throw new ApiError(400,'INVALID_INPUT');
  for(const id of [exhibitionId,input.artworkId,input.importJobId])uuid(id);
  const owner=await imports.coarseOwner(c,s.tenantId,s.userId),exhibition=await studio.access(c,s,exhibitionId);
@@ -39,9 +38,26 @@ export async function approveOriginalStaticSource(c:PoolClient,s:Session,exhibit
  if(bytes.length!==Number(original.bytes)||sha256(bytes)!==original.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
  const grant=originalStaticGrant(grantInput);
  if(!grant)throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');
+ return {grant,bytes,job,approved};
+}
+/** A new private record for an existing current revision; never rewrites an
+ * approval, changes an artwork, exposes quarantine or qualifies a decoder. */
+export async function approveOriginalStaticSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore){
+ const {grant,job,approved}=await checkedSource(c,s,exhibitionId,input,studio,cms,imports,blobs);
  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`original-static:${s.tenantId}:${input.artworkId}:${input.artworkRevision}:${job.id}`]);
  const prior=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND asset_id=$2 AND deleted_at IS NULL AND metadata->>'kind'='exact-original-static-grant' AND metadata->>'artworkRevisionId'=$3",[s.tenantId,job.original_asset_id,approved.artwork.revisionId])).rows;
  if(prior.length>1||prior.length===1&&!isDeepStrictEqual(prior[0].metadata,grant))throw new ApiError(409,'ORIGINAL_STATIC_APPROVAL_CONFLICT');
  if(!prior.length)await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[s.tenantId,randomUUID(),job.original_asset_id,grant]);
  return {approved:true,artworkId:input.artworkId,artworkRevision:input.artworkRevision};
+}
+
+/** Private, owner-fenced source for a future detail producer. Caller must use
+ * the native authenticated READ COMMITTED policy-lock transaction and retain
+ * it through use. This does not qualify a decoder or permit public delivery. */
+export async function readApprovedOriginalStaticSource(c:PoolClient,s:Session,exhibitionId:string,input:OriginalStaticApprovalInput,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal:AbortSignal){
+ signal.throwIfAborted();const {grant,bytes,job,approved}=await checkedSource(c,s,exhibitionId,input,studio,cms,imports,blobs);signal.throwIfAborted();
+ await c.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1,0))',[`original-static:${s.tenantId}:${input.artworkId}:${input.artworkRevision}:${job.id}`]);signal.throwIfAborted();
+ const rows=(await c.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND asset_id=$2 AND deleted_at IS NULL AND metadata->>'kind'='exact-original-static-grant' AND metadata->>'artworkRevisionId'=$3 FOR SHARE",[s.tenantId,job.original_asset_id,approved.artwork.revisionId])).rows;
+ if(rows.length!==1||!isDeepStrictEqual(rows[0].metadata,grant))throw new ApiError(409,'ORIGINAL_SOURCE_UNAVAILABLE');signal.throwIfAborted();
+ return {grant,bytes};
 }

@@ -11,7 +11,7 @@ import {Imports} from './imports.ts';
 import {Cms} from './cms.ts';
 import {Studio,etag} from './studio.ts';
 import {replaceApprovedArtwork} from './artwork-replacement.ts';
-import {approveOriginalStaticSource} from './artwork-original-static-approval.ts';
+import {approveOriginalStaticSource,readApprovedOriginalStaticSource} from './artwork-original-static-approval.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
 
@@ -79,6 +79,7 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   }finally{await repeatablePool.end();}
   expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
   const sourceApproval={artworkId:prior.id,artworkRevision:2,importJobId:id};
+  await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,AbortSignal.timeout(10000)))).rejects.toThrow('ORIGINAL_SOURCE_UNAVAILABLE');
   for(const failure of [Object.assign(new Error('missing'),{code:'ENOENT'}),new Error('object size mismatch'),new Error('storage offline')]){
    const failing=Object.create(blobs) as BlobStore;failing.getBounded=async()=>{throw failure;};
    await expect(transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,failing))).rejects.toThrow(failure.message==='storage offline'?'STORAGE_UNAVAILABLE':'ASSET_INTEGRITY');
@@ -88,9 +89,15 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   await expect(transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,corrupted))).rejects.toThrow('ASSET_INTEGRITY');
   expect((await pool.query("SELECT count(*) AS n FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId])).rows[0].n).toBe('0');
   expect(await transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).toEqual({approved:true,artworkId:prior.id,artworkRevision:2});
+  const privateSource=await transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,AbortSignal.timeout(10000)));expect(privateSource.bytes.equals(original)).toBe(true);expect(privateSource.grant.source.sha256).toBe(sha256(original));
+  await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,corrupted,AbortSignal.timeout(10000)))).rejects.toThrow('ASSET_INTEGRITY');
   expect(await transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).toEqual({approved:true,artworkId:prior.id,artworkRevision:2});
   const grants=(await pool.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId])).rows;
   expect(grants).toHaveLength(1);expect(grants[0].metadata).toMatchObject({workspaceId,tenantId,principalId:userId,artworkId:prior.id,artworkRevision:2,jobId:id,source:{sha256:sha256(original),bytes:original.length,mime:'image/jpeg'}});
+  const cancelledRead=new AbortController();cancelledRead.abort();await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,cancelledRead.signal))).rejects.toThrow();
+  await pool.query("UPDATE asset_derivatives SET metadata=jsonb_set(metadata,'{source,sha256}',to_jsonb($2::text)) WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,'f'.repeat(64)]);
+  await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,AbortSignal.timeout(10000)))).rejects.toThrow('ORIGINAL_SOURCE_UNAVAILABLE');
+  await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,grants[0].metadata]);
   await expect(transaction(pool,c=>approveOriginalStaticSource(c,{...session,userId:randomUUID()},draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).rejects.toThrow();
   expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
  }finally{await pool.end();}
