@@ -34,10 +34,10 @@ async function readDetail(path:string,limit:number,signal:AbortSignal,cacheEligi
  if(!response.ok||!response.body){if(response.body)await awaitCleanup(()=>response.body!.cancel());throw Error('STATIC_RESPONSE');}
  let bytes:Uint8Array,reader:ReadableStreamDefaultReader<Uint8Array>;try{bytes=new Uint8Array(limit);reader=response.body.getReader();}catch(error){await awaitCleanup(()=>response.body!.cancel());throw error;}let length=0,chunks=0,cancellation:Promise<void>|undefined;
  const cancel=()=>{if(!cancellation){cancellation=Promise.resolve().then(()=>reader.cancel());void cancellation.catch(()=>{});}return cancellation;};
- const abort=()=>{void cancel();};signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
- try{for(;;){const next=await reader.read();signal.throwIfAborted();if(next.done)break;if(++chunks>65536||next.value.length===0||next.value.length>limit-length)throw Error('STATIC_SIZE');bytes.set(next.value,length);length+=next.value.length;}signal.throwIfAborted();return bytes.slice(0,length);}
- catch(error){await awaitCleanup(cancel);throw error;}
- finally{signal.removeEventListener('abort',abort);try{if(cancellation)await awaitCleanup(()=>cancellation!);}finally{try{reader.releaseLock();}catch(error){throw new StaticCleanupUncertain(error);}}}
+ const abort=()=>{void cancel();};let listening=false,registrationUncertain=false;
+ try{try{signal.addEventListener('abort',abort,{once:true});listening=true;}catch(error){registrationUncertain=true;throw error;}if(signal.aborted)abort();for(;;){const next=await reader.read();signal.throwIfAborted();if(next.done)break;if(++chunks>65536||next.value.length===0||next.value.length>limit-length)throw Error('STATIC_SIZE');bytes.set(next.value,length);length+=next.value.length;}signal.throwIfAborted();return bytes.slice(0,length);}
+ catch(error){await awaitCleanup(cancel);if(registrationUncertain)throw new StaticCleanupUncertain(error);throw error;}
+ finally{let removalFailed=false,removalError:unknown;try{if(listening)signal.removeEventListener('abort',abort);}catch(error){removalFailed=true;removalError=error;}try{if(cancellation)await awaitCleanup(()=>cancellation!);}finally{try{reader.releaseLock();}catch(error){throw new StaticCleanupUncertain(error);}}if(removalFailed)throw new StaticCleanupUncertain(removalError);}
 }
 type StaticIndex={version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[];detailAssets?:FileEntry[]};
 type DetailDescriptor={assetId:string;url:string;mime:string};
