@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { revisionHash, validateExhibition } from '@exhibitos/spec';
 import { spaceStillFor } from '@exhibitos/spec/space-still';
-import { retainsCopyInventory, retainsCopyRights } from '../apps/web/src/private-editor/previous-copy-compatibility.ts';
+import { retainsCopyInventory, retainsCopyRights,retainedWheatCopyFiles } from '../apps/web/src/private-editor/previous-copy-compatibility.ts';
 import { parseStaticJson } from '../apps/web/src/static-json.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -57,7 +57,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   };
   const { projection: active } = await readProjection(output, '', current.publication);
   requireRights(active.exhibition);
-  const result = [], seen = new Set();
+  const result = [], seen = new Set(), retained = new Map();
   for (const base of bases) {
     if (!base || Object.keys(base).sort().join(',') !== 'indexSha256,publicationId,revisionSha256' ||
         typeof base.publicationId !== 'string' || !uuid.test(base.publicationId) || typeof base.revisionSha256 !== 'string' || !hex.test(base.revisionSha256) ||
@@ -68,15 +68,24 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     const bytes = await boundedFile(archiveRoot, indexPath, 1048576);
     if (hash(bytes) !== base.indexSha256) fail();
     const index = parseStaticJson(bytes);
-    if (!retainsCopyInventory(index,current)) fail();
     const { data, projection } = await readProjection(archiveRoot, prefix, index.publication);
     if (projection.publication.id !== base.publicationId || projection.publication.status !== 'published' ||
         projection.publication.revisionSha256 !== base.revisionSha256 || revisionHash(projection.exhibition) !== base.revisionSha256 ||
         !retainsCopyRights(projection.exhibition,active.exhibition)) fail();
     requireRights(projection.exhibition);
+    const supplemental=[];
+    for(const file of retainedWheatCopyFiles(projection.exhibition,active.exhibition)){
+      const same=entry=>entry.path===file.path&&entry.sha256===file.sha256&&entry.bytes===file.bytes&&entry.mime===file.mime;
+      if(!index.assets.some(same)||current.assets.some(same))continue;
+      let held;
+      try{held=await boundedFile(output,file.path,file.bytes);}catch(error){if(error.code!=='ENOENT')throw error;held=await boundedFile(archiveRoot,'source/'+file.path,file.bytes);}
+      if(held.length!==file.bytes||hash(held)!==file.sha256)fail();
+      retained.set(file.path,held);supplemental.push(file);
+    }
+    if (!retainsCopyInventory(index,{...current,assets:[...current.assets,...supplemental]})) fail();
     result.push([indexPath, bytes], [prefix + index.publication.path, data]);
   }
-  return result;
+  return [...result,...retained];
 }
 
 function tag(bases) {
@@ -91,7 +100,8 @@ export async function writeCopyBases(output, archiveRoot, bases) {
   if (html.includes(metaName) || html.split('</head>').length !== 2) fail();
   for (const [path, bytes] of files) {
     await mkdir(dirname(join(output, path)), { recursive: true });
-    await writeFile(join(output, path), bytes, { flag: 'wx' });
+    try{await writeFile(join(output, path), bytes, { flag: 'wx' });}
+    catch(error){if(error.code!=='EEXIST'||!path.startsWith('data/')||!(await boundedFile(output,path,bytes.length)).equals(bytes))throw error;}
   }
   const updated = Buffer.from(html.replace('</head>', tag(bases) + '</head>'));
   await writeFile(studioPath, updated);
@@ -100,16 +110,17 @@ export async function writeCopyBases(output, archiveRoot, bases) {
   const entry = (path, bytes) => ({ path, bytes: bytes.length, sha256: hash(bytes) });
   if (!manifest.files.some(row => row.path === 'studio.html')) fail();
   manifest.files = manifest.files.map(row => row.path === 'studio.html' ? entry('studio.html', updated) : row);
-  manifest.files.push(...files.map(([path, bytes]) => entry(path, bytes)));
+  for(const [path,bytes] of files){const present=manifest.files.find(row=>row.path===path);if(present){if(present.bytes!==bytes.length||present.sha256!==hash(bytes))fail();}else manifest.files.push(entry(path,bytes));}
   manifest.files.sort((a, b) => a.path.localeCompare(b.path));
   await writeFile(manifestPath, JSON.stringify(manifest));
 }
 
 export async function inspectCopyBases(output, bases, expected) {
   const files = await verifiedCopyBases({ output, archiveRoot: output, bases });
-  const paths = new Set(files.map(([path]) => path));
+  const paths = new Set(files.map(([path]) => path).filter(path=>path.startsWith('private-copy-bases/')));
   const listed = [...expected.keys()].filter(path => path.startsWith('private-copy-bases/'));
   if (listed.length !== paths.size || listed.some(path => !paths.has(path))) fail();
+  for(const [path,bytes] of files)if(path.startsWith('data/')){const entry=expected.get(path);if(!entry||entry.bytes!==bytes.length||entry.sha256!==hash(bytes))fail();}
   if (!expected.has('studio.html')) {
     if (paths.size) fail();
     return;
