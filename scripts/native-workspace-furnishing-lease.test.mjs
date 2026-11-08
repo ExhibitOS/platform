@@ -44,3 +44,8 @@ test('040 selected lease is distinct from every existing mode',()=>{
   const other={...fields,mode};assert.notEqual(JSON.parse(frame).mac,JSON.parse(encodeFurnishingLeaseFrame(lease,other,secret)).mac);assert.throws(()=>verifyFurnishingLeaseFrame(frame,lease,other,secret),/FURNISHING_LEASE_INVALID/);
  }
 });
+
+test('explicit 040 to 044 upgrade uses distinct mode byte 7',()=>{
+ const selected={...fields,mode:'workspace-furnishing-040-to-044-upgrade-v1'},frame=encodeFurnishingLeaseFrame(lease,selected,secret),old={...fields,mode:'workspace-furnishing-039-to-040-upgrade-v1'};
+ assert.equal(JSON.parse(frame).mac,'cc8c234c73a7f91af49cae357cde27b613ef80d5cb885eb03e368a67a5787209');assert.deepEqual(verifyFurnishingLeaseFrame(frame,lease,selected,secret),selected);assert.notEqual(JSON.parse(frame).mac,JSON.parse(encodeFurnishingLeaseFrame(lease,old,secret)).mac);assert.throws(()=>verifyFurnishingLeaseFrame(frame,lease,old,secret),/FURNISHING_LEASE_INVALID/);
+});
