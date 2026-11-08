@@ -25,6 +25,8 @@ it('rejects duplicate identities, tiers, unknown fields and contradictory byte i
  const media=fixture();media.candidates[1]!.mime='image/jpeg';if(media.candidates[1]!.featureReport.media.kind==='image')media.candidates[1]!.featureReport.media.codec='jpeg';inputs.push(media);
  inputs.push({...fixture(),privateKey:'not allowed'});const extra=fixture();Object.assign(extra.candidates[0]!.featureReport.cost,{untrusted:true});inputs.push(extra);
  const invalid=fixture();invalid.candidates[0]!.featureReport.cost.peakAdditionalBytes=Number.MAX_SAFE_INTEGER+1;inputs.push(invalid);
+ for(const field of ['codec','colourProfile'] as const){const bad=fixture(),report=bad.candidates[0]!.featureReport;if(report.media.kind!=='image')throw Error('fixture');Object.assign(report.media,{[field]:[field==='codec'?'png':'srgb']});bad.candidates[0]!.featureReportSha256=digest(report);inputs.push(bad);}
+ const invalidMime=fixture();Object.assign(invalidMime.candidates[0]!,{mime:['image/png']});inputs.push(invalidMime);
  for(const value of inputs)expect(validateParsedDetailQuality(value,'image').valid).toBe(false);
  expect(validateParsedDetailQuality(fixture(),'sculpture').valid).toBe(false);
 });
@@ -33,5 +35,6 @@ it('permits a bounded zero-texture GLB and rejects duplicate embedded image indi
  const relation={version:1,candidates:[candidate]};expect(validateParsedDetailQuality(relation,'sculpture').valid).toBe(true);
  const bad=structuredClone(relation),model=bad.candidates[0]!.featureReport.media;if(model.kind!=='glb')throw Error('fixture');
  model.textures=[{imageIndex:0,codec:'png',width:32,height:32,encodedBytes:10,mipLevels:1,usesMipmaps:false,textureReferences:1},{imageIndex:0,codec:'png',width:32,height:32,encodedBytes:10,mipLevels:1,usesMipmaps:false,textureReferences:1}];expect(validateParsedDetailQuality(bad,'sculpture').valid).toBe(false);
+ model.textures.pop();Object.assign(model.textures[0]!,{codec:['png']});expect(validateParsedDetailQuality(bad,'sculpture').valid).toBe(false);
  const external=structuredClone(relation);Object.assign(external.candidates[0]!.featureReport.media,{externalReferences:true});expect(validateParsedDetailQuality(external,'sculpture').valid).toBe(false);
 });

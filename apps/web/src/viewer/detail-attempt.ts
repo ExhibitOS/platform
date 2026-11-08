@@ -20,25 +20,26 @@ export interface DetailAttemptOptions<T>{
  * and retains reservation accounting if drain rejects or never settles. */
 function createDetailAttempt<T>(options:DetailAttemptOptions<T>){
  const controller=new AbortController();let closing=false,committed=false,drainPromise:Promise<DetailDrainReceipt>|undefined;
- const work=Promise.resolve().then(()=>{controller.signal.throwIfAborted();return options.run(controller.signal);}).then(value=>({ok:true as const,value}),error=>({ok:false as const,error}));
+ const work=Promise.resolve().then(()=>{controller.signal.throwIfAborted();if(!options.isCurrent(options.generation))throw Error('DETAIL_GENERATION_STALE');return options.run(controller.signal);}).then(value=>({ok:true as const,value}),error=>({ok:false as const,error}));
  return {
-  /** Commit is synchronous so cancellation cannot interleave with its final
-   * generation check. The attempt retains its scope until drained. */
+  /** The callback may stage a render but must not publish it. A caller may
+   * expose it only after a true receipt and a further current-generation
+   * check. Reentrant cancellation invalidates this receipt. */
   async tryCommit(commit:(value:T)=>boolean):Promise<boolean>{
    const result=await work;if(closing||controller.signal.aborted||committed||!options.isCurrent(options.generation))return false;
    if(!result.ok)throw result.error;
    if(result.value.ownership!=='owned'&&result.value.ownership!=='borrowed')throw Error('DETAIL_OWNERSHIP_INVALID');
-   if(!commit(result.value.value))return false;committed=true;return true;
+   const staged=commit(result.value.value)===true;
+   if(!staged||closing||controller.signal.aborted||!options.isCurrent(options.generation))return false;committed=true;return true;
   },
   /** Aborts immediately but acknowledges only after the underlying work and
    * all adapter-supplied cleanup have really settled. Repeated calls share the
    * same promise; failed/uncertain cleanup never releases the reservation. */
   drain():Promise<DetailDrainReceipt>{
    if(drainPromise)return drainPromise;closing=true;controller.abort();
-   drainPromise=(async()=>{const result=await work;let failed=false;
-    try{await options.drainChildren();}catch{failed=true;}
-    try{if(result.ok){if(result.value.ownership==='owned')await options.disposeOwned(result.value.value);else if(result.value.ownership==='borrowed')await options.releaseBorrow(result.value.value);else throw Error('DETAIL_OWNERSHIP_INVALID');}}catch{failed=true;}
-    if(failed)throw Error('DETAIL_DRAIN_UNCONFIRMED');
+   drainPromise=(async()=>{const result=await work;
+    try{await options.drainChildren();}catch{throw Error('DETAIL_DRAIN_UNCONFIRMED');}
+    try{if(result.ok){if(result.value.ownership==='owned')await options.disposeOwned(result.value.value);else if(result.value.ownership==='borrowed')await options.releaseBorrow(result.value.value);else throw Error('DETAIL_OWNERSHIP_INVALID');}}catch{throw Error('DETAIL_DRAIN_UNCONFIRMED');}
     await options.releaseReservation();return {attemptId:options.attemptId,generation:options.generation,drained:true};
    })();return drainPromise;
   },
@@ -53,6 +54,10 @@ export function createDetailAttemptSlot<T>(){
   if(active)throw Error('DETAIL_ATTEMPT_ACTIVE');
   if(!/^[\x21-\x7e]{1,128}$/.test(options.attemptId)||!Number.isSafeInteger(options.generation)||options.generation<1||options.generation<lastGeneration||identities.has(options.attemptId)||identities.size>=4096)throw Error('DETAIL_ATTEMPT_INVALID');
   active=true;lastGeneration=options.generation;identities.add(options.attemptId);const attempt=createDetailAttempt(options);let retirement:Promise<DetailDrainReceipt>|undefined;
-  return {tryCommit:attempt.tryCommit,drain(){if(!retirement)retirement=attempt.drain().then(receipt=>{active=false;return receipt;});return retirement;}};
+  return {tryCommit:attempt.tryCommit,drain(){
+   if(!retirement){let resolve!:(value:DetailDrainReceipt)=>void,reject!:(error:unknown)=>void;retirement=new Promise<DetailDrainReceipt>((ok,fail)=>{resolve=ok;reject=fail;});
+    try{void attempt.drain().then(receipt=>{active=false;resolve(receipt);},reject);}catch(error){reject(error);}}
+   return retirement;
+  }};
  }};
 }
