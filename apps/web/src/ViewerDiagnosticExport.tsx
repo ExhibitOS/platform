@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createDiagnosticReport } from "./viewer/diagnostic-report";
+import { createDiagnosticReport, type DiagnosticReportContext } from "./viewer/diagnostic-report";
 import { diagnosticsEnabled, readDiagnosticSnapshot } from "./viewer/diagnostic-source";
 
 const downloadName = "exhibitos-viewer-diagnostic.json";
 
-type PublicationIdentity = { publicationId: string; revisionSha256: string };
-
-export function ViewerDiagnosticExport(identity: PublicationIdentity) {
+export function ViewerDiagnosticExport(identity: DiagnosticReportContext) {
   return diagnosticsEnabled() ? <DiagnosticDownload {...identity} /> : null;
 }
 
-function DiagnosticDownload(identity: PublicationIdentity) {
+function DiagnosticDownload(identity: DiagnosticReportContext) {
   const [status, setStatus] = useState("");
   const pending = useRef<{ url: string; timer: number } | null>(null);
 

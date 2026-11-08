@@ -364,7 +364,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             </Suspense>
           </ViewerBoundary></div>}
           {selectedId && <ArtworkDetail key={selectedId} publication={value} placementId={selectedId} plaque={plaqueLinks.find(plaque => plaque.id === selection?.plaqueId)}
-            diagnosticAction={<ViewerDiagnosticExport publicationId={value.publication.id} revisionSha256={value.publication.revisionSha256} />}
+            showDiagnosticExport
             onClose={() => {setSelectedId(null);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();const opener=orderedDetailOpener.current;orderedDetailOpener.current=null;if(opener)requestAnimationFrame(()=>{if(opener.isConnected&&opener.getClientRects().length&&!document.hidden&&!publicationRoot.current?.querySelector('details[data-visitor-panel][open],dialog[open],[aria-modal="true"]'))opener.focus({preventScroll:true});});}} onVoicePlay={playVoice} onVoiceStop={stopVoice} renderPreview={mode === "3d" && !viewerUnavailable} voicePlayback={voicePlayback} sharedPreview={mode==='3d'?sharedDetailPreview:undefined} />}
           {overview && <ExhibitionOverview publication={value} mode={overview} textMode={mode === "text"} onClose={() => {setOverview(null);if(mode!=="3d")setMenuOpen(false);if(mode === "3d" && stageReady && !viewerUnavailable)detailEntry.current?.resumeViewing?.();}} />}
           <div hidden={mode !== "text"} className="publication-text-content">

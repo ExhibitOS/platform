@@ -19,9 +19,19 @@ function number(value: number | null): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function projectSnapshot(snapshot: DiagnosticSnapshot) {
+export type DiagnosticReportContext = {
+  publicationId: string;
+  revisionSha256: string;
+  detail?: { placementId: string; artworkRevisionId: string };
+};
+
+function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportContext["detail"]) {
   const { identity, device, navigation, memory } = snapshot;
   const budget = device.budget;
+  const selected = !detail || (snapshot.selected.reason === "detail" &&
+    snapshot.selected.artworkRevisionId === detail.artworkRevisionId);
+  const displayed = selected && (!detail || (snapshot.displayed.artworkRevisionId === detail.artworkRevisionId &&
+    (snapshot.displayed.tier === "detail-approved" || snapshot.displayed.tier === "acquired-original")));
   return {
     version: 1,
     capturedAt: token(snapshot.capturedAt, isoTime),
@@ -47,8 +57,10 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
         maxTriangles: number(budget.maxTriangles),
         effectiveResidentBytes: number(budget.effectiveResidentBytes),
         effectiveTransitionBytes: number(budget.effectiveTransitionBytes),
-        selectedDetailResidentBytes: number(budget.selectedDetailResidentBytes),
-        selectedDetailTransitionBytes: number(budget.selectedDetailTransitionBytes),
+        selectedDetailResidentBytes: selected ? number(budget.selectedDetailResidentBytes) : null,
+        selectedDetailTransitionBytes: selected ? number(budget.selectedDetailTransitionBytes) : null,
+        originalDetailSceneBytes: selected ? number(budget.originalDetailSceneBytes) : null,
+        originalDetailTransitionBytes: selected ? number(budget.originalDetailTransitionBytes) : null,
       } : null,
     },
     navigation: navigation ? {
@@ -70,15 +82,14 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
       gpuPhysicalBytes: null,
     },
     selected: {
-      artworkRevisionId: token(snapshot.selected.artworkRevisionId, uuid),
-      reason: snapshot.selected.reason === "detail" || snapshot.selected.reason === "attended"
-        ? snapshot.selected.reason : null,
+      artworkRevisionId: token(detail?.artworkRevisionId ?? snapshot.selected.artworkRevisionId, uuid),
+      reason: detail ? "detail" : token(snapshot.selected.reason, /^(?:detail|attended)$/),
     },
     displayed: {
-      artworkRevisionId: token(snapshot.displayed.artworkRevisionId, uuid),
-      assetId: token(snapshot.displayed.assetId, uuid),
-      sha256: token(snapshot.displayed.sha256, sha256),
-      tier: token(snapshot.displayed.tier, /^(?:scene|detail-approved|acquired-original)$/),
+      artworkRevisionId: displayed ? token(snapshot.displayed.artworkRevisionId, uuid) : null,
+      assetId: displayed ? token(snapshot.displayed.assetId, uuid) : null,
+      sha256: displayed ? token(snapshot.displayed.sha256, sha256) : null,
+      tier: displayed ? token(snapshot.displayed.tier, /^(?:scene|detail-approved|acquired-original)$/) : null,
     },
     assets: snapshot.assets.slice(0, 32).flatMap(asset => {
       const assetId = token(asset.assetId, uuid);
@@ -112,10 +123,11 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
 
 export function createDiagnosticReport(
   snapshot: DiagnosticSnapshot | null,
-  expected: { publicationId: string; revisionSha256: string },
+  expected: DiagnosticReportContext,
 ): string {
   const matchingSnapshot = snapshot?.identity.publicationId === expected.publicationId &&
     snapshot.identity.revisionSha256 === expected.revisionSha256 ? snapshot : null;
+  const projected = matchingSnapshot ? projectSnapshot(matchingSnapshot, expected.detail) : null;
   const report = {
     format: "exhibitos-viewer-diagnostic-v1",
     capturedAt: new Date().toISOString(),
@@ -124,11 +136,18 @@ export function createDiagnosticReport(
       publicationId: token(expected.publicationId, uuid),
       revisionSha256: token(expected.revisionSha256, sha256),
     },
+    requestedDetail: expected.detail ? {
+      placementId: token(expected.detail.placementId, uuid),
+      artworkRevisionId: token(expected.detail.artworkRevisionId, uuid),
+      attachment: projected?.displayed.assetId ? "observed" : "not-observed",
+    } : null,
     metrics: {
       allocationBytes: "estimated",
       textureAndMeshPeak: "highest sampled estimate of tracked loaded and prepared assets",
       textureAndMeshCurrent: "estimate of tracked loaded and prepared assets, unavailable if active detail allocations are omitted",
       transitionPeak: "tracked allocation estimate high-water mark",
+      selectedDetailBudget: "approved fallback promotion limits",
+      originalDetailBudget: "acquired original attempt limits when active",
       physicalGpuMemoryBytes: null,
       browserProcessMemoryBytes: null,
       browserPlatform: null,
@@ -136,7 +155,7 @@ export function createDiagnosticReport(
     },
     snapshotStatus: matchingSnapshot?.lifecycle === "live" ? "live"
       : matchingSnapshot ? "last-observed" : "unavailable",
-    snapshot: matchingSnapshot ? projectSnapshot(matchingSnapshot) : null,
+    snapshot: projected,
   };
   const json = JSON.stringify(report, null, 2);
   if (new TextEncoder().encode(json).byteLength > maximumReportBytes) {
