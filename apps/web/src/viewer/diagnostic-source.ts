@@ -12,6 +12,16 @@ export type DiagnosticAssetStage=DiagnosticEvent&{
   worldBounds:{min:[number,number,number];max:[number,number,number]}|null;
  }|null;
 };
+export type DiagnosticHayesTransitionFrame={
+ atMs:number;
+ attachmentGeneration:number|null;
+ assetId:string|null;
+ drawCalls:number|null;
+ cameraPosition:[number,number,number];
+ cameraQuaternion:[number,number,number,number];
+ verticalFov:number;
+ worldBounds:{min:[number,number,number];max:[number,number,number]}|null;
+};
 export type DiagnosticSnapshot={
  version:1;capturedAt:string;
  lifecycle:'live'|'stopped'|'context-lost';
@@ -24,6 +34,7 @@ export type DiagnosticSnapshot={
  assets:Array<{assetId:string;artworkRevisionId:string|null;sha256:string|null;bytes:number|null;mime:string|null;path:string|null;active:boolean}>;
  events:DiagnosticEvent[];
  lastAssetStages?:DiagnosticAssetStage[];
+ hayesTransitionFrames?:{first:DiagnosticHayesTransitionFrame;latest:DiagnosticHayesTransitionFrame};
 };
 export const diagnosticsEnabled=()=>typeof __EXHIBITOS_STAGING_DIAGNOSTICS__!=='undefined'&&__EXHIBITOS_STAGING_DIAGNOSTICS__===true;
 let current:(()=>DiagnosticSnapshot)|null=null;

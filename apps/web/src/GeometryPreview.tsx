@@ -9,7 +9,7 @@ import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
-import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource} from './viewer/diagnostic-source';
+import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource,type DiagnosticHayesTransitionFrame} from './viewer/diagnostic-source';
 import {readRuntimeHistory} from './viewer/runtime-history';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -842,6 +842,52 @@ export function GeometryPreview({
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
+      const hayesAssetId='5062b496-cfaa-44ee-9e07-8c3e154d1024';
+      const hayesPlacementId='8f7168cf-10c6-4b8a-bb62-9fc53d245eea';
+      const hayesTransitionRoom=diagnosticsEnabled()&&placements.has(hayesPlacementId)
+        ?document.rooms.find(room=>room.id==='a4f822c4-2631-42ed-b08b-534773a9350a'):undefined;
+      const hayesAttachments=new WeakMap<InstanceType<typeof three.Object3D>,number>();
+      let hayesTransitionFrames:{first:DiagnosticHayesTransitionFrame;latest:DiagnosticHayesTransitionFrame}|undefined;
+      const containsRoom=(room:Document['rooms'][number],point:InstanceType<typeof three.Vector3>,margin=0)=>{
+        const local=rooms.get(room.id.toLowerCase())!.worldToLocal(point.clone()),d=room.dimensions;
+        return Math.abs(local.x)<=d.width/2+margin&&Math.abs(local.z)<=d.depth/2+margin&&local.y>=-margin&&local.y<=d.height+margin;
+      };
+      const renderMain=()=>{
+        if(!hayesTransitionRoom||!containsRoom(hayesTransitionRoom,camera.position)){
+          renderer.render(scene,camera);
+          return;
+        }
+        const clone=placements.get(hayesPlacementId)?.children.find(child=>hayesAttachments.has(child));
+        const attachmentGeneration=clone?hayesAttachments.get(clone)??null:null;
+        let drawCalls=0;
+        const restoreCallbacks:Array<()=>void>=[];
+        const pose={
+          atMs:performance.now(),
+          cameraPosition:camera.position.toArray(),
+          cameraQuaternion:camera.quaternion.toArray(),
+          verticalFov:camera.fov,
+        };
+        try{
+          clone?.traverse(node=>{
+            if(!(node instanceof three.Mesh))return;
+            const original=node.onAfterRender;
+            node.onAfterRender=function(...args){
+              if(args[1]===scene&&args[2]===camera)drawCalls++;
+              original.apply(this,args);
+            };
+            restoreCallbacks.push(()=>{node.onAfterRender=original;});
+          });
+          renderer.render(scene,camera);
+          const bounds=clone?new three.Box3().setFromObject(clone):undefined;
+          const frame:DiagnosticHayesTransitionFrame={
+            ...pose,attachmentGeneration,assetId:clone?hayesAssetId:null,drawCalls:clone?drawCalls:null,
+            worldBounds:bounds&&!bounds.isEmpty()?{min:bounds.min.toArray(),max:bounds.max.toArray()}:null,
+          };
+          hayesTransitionFrames={first:hayesTransitionFrames?.first??frame,latest:frame};
+        }finally{
+          for(const restore of restoreCallbacks)restore();
+        }
+      };
       const render = (restore=false) => {
         if(deferredCanvasRestore&&restore!==true)return false;
         if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
@@ -853,7 +899,7 @@ export function GeometryPreview({
           workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
-          try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
+          try { renderMain(); } finally { shadowPass.afterRender(); }
           // Only the current camera snapshot rides an existing rendered frame.
           // Loading, thumbnail and quality accounting retain their 200ms cadence.
           publishMapPose();
@@ -1841,7 +1887,7 @@ export function GeometryPreview({
             device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles,effectiveResidentBytes:assetBudgetBytes,effectiveTransitionBytes:transitionBudgetBytes,selectedDetailResidentBytes:selectedLimits?.resident??null,selectedDetailTransitionBytes:selectedLimits?.transition??null,originalDetailTransitionBytes:diagnosticOriginalLimits?.transition??null,originalDetailSceneBytes:diagnosticOriginalLimits?.scene??null}},
             navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
             memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:detailOmitted?null:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:detailOmitted?null:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
-            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot(),lastAssetStages:diagnosticEvents.lastAssetStages()};
+            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot(),lastAssetStages:diagnosticEvents.lastAssetStages(),...(hayesTransitionFrames?{hayesTransitionFrames}:{})};
         });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
         const requestLimits=(task?:{detailPromotion?:boolean;imageBudget?:DeviceBudget})=>{
@@ -2184,7 +2230,8 @@ export function GeometryPreview({
           if(prior)scheduler.cancel(prior);
           cancelPublicThumbnail();
           desired.set(art.revisionId, inventory.id);
-          const key=`${inventory.id}/${sequence++}`;
+          const generation=sequence++;
+          const key=`${inventory.id}/${generation}`;
           pending.set(art.revisionId,key);
           const task={ art, inventory, prepareOnly, downloadOnly,full,manual,imageBudget:imageTarget?.budget,detailPromotion };
           tasks.set(key,task);
@@ -2248,7 +2295,7 @@ export function GeometryPreview({
               const old = objects.get(art.revisionId);
               // The staging fixture retains this exact Hayes display asset.
               const observeHayes = collectDiagnostics &&
-                inventory.id === '5062b496-cfaa-44ee-9e07-8c3e154d1024' &&
+                inventory.id === hayesAssetId &&
                 inventory.sha256 === '21cbaf0714242cb7bba61680cf6da773073edf034407fb2e5e3ede4ad917212b';
               const observedClones: Array<InstanceType<typeof three.Object3D>> | undefined = observeHayes ? [] : undefined;
               for (const p of ordered.filter(
@@ -2260,6 +2307,7 @@ export function GeometryPreview({
                   const clone=object.clone(true);
                   group.add(clone);
                   observedClones?.push(clone);
+                  if(observeHayes&&p.id===hayesPlacementId)hayesAttachments.set(clone,generation);
                 }
               }
               if (old && old !== object){
@@ -2441,11 +2489,7 @@ export function GeometryPreview({
             const ray=new three.Raycaster(from,direction.normalize(),.05,Math.max(.05,length-.15));
             return !ray.intersectObjects(wallMeshes,true).some(hit=>hit.object instanceof three.Mesh);
           };
-          const contains=(room:Document['rooms'][number],point:InstanceType<typeof three.Vector3>,margin=0)=>{
-            const local=rooms.get(room.id.toLowerCase())!.worldToLocal(point.clone()),d=room.dimensions;
-            return Math.abs(local.x)<=d.width/2+margin&&Math.abs(local.z)<=d.depth/2+margin&&local.y>=-margin&&local.y<=d.height+margin;
-          };
-          const cameraRoom=document.rooms.find(room=>contains(room,camera.position));
+          const cameraRoom=document.rooms.find(room=>containsRoom(room,camera.position));
           if(cameraRoom?.id!==minimumRoomId){minimumRoomId=cameraRoom?.id;minimumRooms=minimumRoomInterest(document,minimumRoomId);}
           const doors=document.openings.filter(v=>v.type==='door').flatMap(door=>{
             const surface=document.surfaces.find(v=>v.id.toLowerCase()===door.surfaceId.toLowerCase()),group=surfaces.get(door.surfaceId.toLowerCase());
@@ -2467,7 +2511,7 @@ export function GeometryPreview({
               const sameRoom=cameraRoom?.id.toLowerCase()===p.roomId.toLowerCase();
               minimumEligible=minimumEligible||minimumRooms.has(p.roomId.toLowerCase());
               const unobstructed=clearPath(camera.position,center);
-              const viaDoor=room&&doors.some(door=>(sameRoom||contains(room,door.point,.4))&&door.point.distanceTo(center)<=6&&clearPath(door.point,center));
+              const viaDoor=room&&doors.some(door=>(sameRoom||containsRoom(room,door.point,.4))&&door.point.distanceTo(center)<=6&&clearPath(door.point,center));
               const plausible=!!((sameRoom&&unobstructed)||viaDoor);
               eligible=eligible||plausible;
               const screen=detailScreenBounds({corners:points.map(v=>{const clip=v.clone().project(camera);return {x:clip.x,y:clip.y,z:clip.z,depth:v.clone().applyMatrix4(camera.matrixWorldInverse).z};}),near:camera.near,intersectsFrustum:frustum.intersectsBox(box),width:renderer.domElement.width,height:renderer.domElement.height});
