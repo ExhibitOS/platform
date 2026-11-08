@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomUUID} from 'node:crypto';
-import type {BlobStore} from '@exhibitos/storage';
+import {FileBlobStore,type BlobStore} from '@exhibitos/storage';
 import {sha256} from '@exhibitos/storage';
 import {ApiError,Auth} from './auth.ts';
-import {createHayesOriginalQuarantine,isHayesOriginalContext,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
+import {createHayesOriginalQuarantine,isHayesOriginalContext,isHayesDispositionContext,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
 import {parseHayesOperationBinding,type HayesOperationBinding} from './hayes-operation-binding.ts';
 import {prepareHayesOwnerExchange} from './hayes-owner-exchange.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import type {HayesReadyScope} from './hayes-ready-authority.ts';
+import {decodeHayesReadyFrame} from './hayes-ready-frame.ts';
+import {waitHayesReadyFrame} from './hayes-ready-wait.ts';
+import {hayesReservationFrame} from './hayes-output-reservation-frame.ts';
+import {reserveHayesOutput} from './hayes-output-reservation.ts';
+import {storeHayesOutput} from './hayes-output-storage.ts';
+import {commitHayesDisposition} from './hayes-disposition-transaction.ts';
 
 type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
 type Credentials={token:string|undefined;csrf:string|undefined};
@@ -15,6 +22,14 @@ const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const hex=/^[a-f0-9]{64}$/;
 const claimedChannels=new WeakSet<object>();
 const issuedCallers=new WeakMap<object,{owner:NativeOexWorkspaceContext;blobs:BlobStore}>();
+// Identities are minted only inside the selected authenticated caller below;
+// raw frames, request data, or exported constructors cannot register one.
+const readyIdentities=new WeakMap<object,{owner:NativeOexWorkspaceContext;blobs:BlobStore;scope:HayesReadyScope;valid:()=>boolean}>();
+export function resolveHayesReady(admission:unknown,owner:NativeOexWorkspaceContext,blobs:BlobStore):HayesReadyScope{
+ const state=admission&&typeof admission==='object'?readyIdentities.get(admission):undefined;
+ if(!state||state.owner!==owner||state.blobs!==blobs||!state.valid()||state.scope.signal.aborted||Date.now()>=state.scope.deadlineMs)throw Error('HAYES_READY_NOT_ADMITTED');
+ return state.scope;
+}
 export function isIssuedNativeHayesCaller(value:unknown,owner:NativeOexWorkspaceContext|undefined,blobs:BlobStore|undefined):boolean{const issued=value&&typeof value==='object'?issuedCallers.get(value):undefined;return !!issued&&issued.owner===owner&&issued.blobs===blobs;}
 /** Internal native bootstrap only: `channel`, pin and assertLive come from the
  * same authenticated Manager session, never a request. This cannot authorize
@@ -50,7 +65,45 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
      await revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live);
     });
     report('source-recheck-committed');if(!source)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
-    report('exchange-start');return await prepareHayesOwnerExchange({binding,nativeOwnerId,runtimeManifestSha256,channel:sharedChannel,source,signal:fenceSignal,deadlineMs,revalidateCommitted:()=>auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live))});
+    report('exchange-start');const exchange=await prepareHayesOwnerExchange({binding,nativeOwnerId,runtimeManifestSha256,channel:sharedChannel,source,signal:fenceSignal,deadlineMs,revalidateCommitted:()=>auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live))});
+    if(!isHayesDispositionContext(owner))return exchange;
+    // The selected path owns the channel exclusively. The opaque identity is
+    // never returned to a caller, and each phase is replaced only after the
+    // previous operation has completed unambiguously.
+    if(!(blobs instanceof FileBlobStore))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+    let phase:'new'|'running'|'copied'|'committing'|'committed'|'failed'='new',valid=true;
+    const admission=Object.freeze({}),invalidate=async(cause:unknown):Promise<never>=>{valid=false;phase='failed';try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;};
+    return Object.freeze({
+     receiveOutput:async():Promise<{bytes:Buffer;sha256:string}>=>{throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');},
+     async stageOutput(){
+      if(phase!=='new')return await invalidate(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));phase='running';let output:Buffer|undefined;
+      try{
+       await live();const database=await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>{
+        await revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live);
+        const rows=(await c.query("SELECT (pg_control_system()).system_identifier::text AS system_identifier,oid::text AS database_oid FROM pg_database WHERE datname=current_database()")).rows;
+        if(rows.length!==1)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');return {systemIdentifier:String(rows[0].system_identifier),databaseOid:String(rows[0].database_oid)};
+       });
+       const expected={binding,nativeOwnerId,runtimeManifestSha256,database},raw=Buffer.from(await waitHayesReadyFrame(sharedChannel,fenceSignal,deadlineMs));
+       await live();const ready=decodeHayesReadyFrame(raw,expected),dbStageId=randomUUID();
+       const scope:HayesReadyScope=Object.freeze({binding,signal:fenceSignal,deadlineMs,phase:'ready',nativeOwnerId,runtimeManifestSha256,workerManifestSha256:String(ready.workerManifestSha256),nativeEvidenceSha256:String(ready.nativeEvidenceSha256),attestation:ready.attestation as Readonly<Record<string,unknown>>,database:Object.freeze(database),dbStageId,assertLive:live});
+       const state={owner,blobs,scope,valid:()=>valid&&channel.isOpen()&&!fenceSignal.aborted};readyIdentities.set(admission,state);
+       const reserved=await reserveHayesOutput({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf});
+       await live();if(resolveHayesReady(admission,owner,blobs)!==scope)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+       state.scope=Object.freeze({...scope,phase:'reserved'});const frame=hayesReservationFrame(raw,expected,dbStageId);
+       let timer:ReturnType<typeof setTimeout>|undefined,onAbort:()=>void=()=>{};
+       try{await Promise.race([sharedChannel.send(frame),new Promise<never>((_,reject)=>{onAbort=()=>reject(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));fenceSignal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(onAbort,Math.max(0,deadlineMs-Date.now()));})]);}finally{if(timer)clearTimeout(timer);fenceSignal.removeEventListener('abort',onAbort);}await live();
+       const received=await exchange.receiveOutput();output=received.bytes;
+       await storeHayesOutput({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,bytes:output});
+       await live();state.scope=Object.freeze({...state.scope,phase:'copied'});phase='copied';return reserved;
+      }catch(cause){return await invalidate(cause);}finally{output?.fill(0);}
+     },
+     async commit(){
+      if(phase!=='copied')return await invalidate(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));phase='committing';
+      try{const result=await commitHayesDisposition({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,receiptId:randomUUID(),originalAssetId:randomUUID(),displayAssetId:randomUUID(),derivativeId:randomUUID(),rightsId:randomUUID()});await live();phase='committed';return result;}
+      catch(cause){return await invalidate(cause);}
+     },
+     close:async()=>{valid=false;await close();},
+    });
    }catch(cause){report('start-failed',category(cause));if(authorized)try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;}finally{source?.fill(0);busy=false;}
   },
   close,
