@@ -49,19 +49,19 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
 
 /** Reconstruct exact HTML from the trusted runtime templates and verified
  * exhibition; callers compare complete bytes rather than searching for tags. */
-export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,bases=[]}){
+export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor}){
  const template=(await readFile(join(runtimeRoot,'static.html'))).toString('utf8');
  if(template.split('STATIC_INDEX_SHA256').length!==2||template.split('<!--STATIC_COVER_SHELL-->').length!==2||template.split('</head>').length!==2||!/<title>[^<]*<\/title>/.test(template))fail();
  const {renderEntranceShell}=await import('../apps/web/dist-reference-demo-cover/entrance-shell.js');
  const shell=renderEntranceShell(exhibition),title=String(exhibition.title).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let index=template.replace('STATIC_INDEX_SHA256',WHEAT_REFERENCE.indexSha256).replace('<!--STATIC_COVER_SHELL-->',()=>shell).replace(/<title>[^<]*<\/title>/,()=>`<title>${title}</title>`);
- if(privateEditor)index=index.replace('</head>','<meta name="exhibitos-private-editor" content="enabled"></head>');
+ const decorationMode='<meta name="exhibitos-demo-decoration" content="session-v1">';
+ if(privateEditor)index=index.replace('</head>','<meta name="exhibitos-private-editor" content="enabled">'+decorationMode+'</head>');
  let studio;
  if(privateEditor){
   studio=(await readFile(join(runtimeRoot,'static-studio.html'))).toString('utf8');
   if(studio.split('STATIC_INDEX_SHA256').length!==2||studio.split('</head>').length!==2)fail();
-  studio=studio.replace('STATIC_INDEX_SHA256',WHEAT_REFERENCE.indexSha256);
-  if(bases.length)studio=studio.replace('</head>',`<meta name="exhibitos-private-copy-bases" content='${JSON.stringify(bases)}'></head>`);
+  studio=studio.replace('STATIC_INDEX_SHA256',WHEAT_REFERENCE.indexSha256).replace('</head>',decorationMode+'</head>');
  }
  return {index:Buffer.from(index),studio:studio===undefined?undefined:Buffer.from(studio)};
 }
@@ -74,9 +74,9 @@ export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,priv
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();
- const {index:indexHtml}=await expectedWheatHtml({runtimeRoot,exhibition:source.publication.exhibition,privateEditor});
- const studioPath=join(output,'studio.html');let studio;
- if(privateEditor){const original=await readFile(studioPath,'utf8');if(original.split(oldHash).length!==2)fail();studio=Buffer.from(original.replace(oldHash,WHEAT_REFERENCE.indexSha256));}
+ const {index:indexHtml,studio}=await expectedWheatHtml({runtimeRoot,exhibition:source.publication.exhibition,privateEditor});
+ const studioPath=join(output,'studio.html');
+ if(privateEditor&&(await readFile(studioPath,'utf8')).split(oldHash).length!==2)fail();
  // Only the fresh exporter-owned staging directory is changed.
  for(const file of await readdir(join(output,'data'))){if(!/^[a-f0-9]{64}\.(?:bin|json)$/.test(file))fail();await unlink(join(output,'data',file));}
  for(const [path,data] of source.data)await writeFile(join(output,path),data,{flag:'wx'});
