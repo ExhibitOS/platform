@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
 import {runInNewContext} from 'node:vm';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {fileURLToPath} from 'node:url';
 import {expect,it} from 'vitest';
 import sharp from 'sharp';
 import {inspectJpegInOwnedWorker} from './jpeg-inspection-client.ts';
@@ -20,3 +23,10 @@ it('does not start a second worker and rejects shared mutable input',async()=>{
  const shared=Buffer.from(new SharedArrayBuffer(bytes.length));bytes.copy(shared);await expect(inspectJpegInOwnedWorker(shared,AbortSignal.timeout(10000))).rejects.toThrow('JPEG_INSPECTION_UNAVAILABLE');
  const crossRealm=Buffer.from(runInNewContext(`new SharedArrayBuffer(${bytes.length})`) as ArrayBuffer);bytes.copy(crossRealm);await expect(inspectJpegInOwnedWorker(crossRealm,AbortSignal.timeout(10000))).rejects.toThrow('JPEG_INSPECTION_UNAVAILABLE');
 });
+it('owned worker exits after parent death even after stdin EOF',async()=>{
+ const bytes=await sharp({create:{width:4,height:3,channels:3,background:'#456789'}}).jpeg().toBuffer(),worker=fileURLToPath(new URL('./jpeg-inspection-worker.ts',import.meta.url));
+ const script=`import {spawn} from 'node:child_process';const c=spawn(process.execPath,[process.argv[1]],{detached:true,stdio:['pipe','ignore','ignore','pipe']});c.stdin.on('error',()=>{});c.stdio[3].on('error',()=>{});c.once('spawn',()=>{c.kill('SIGSTOP');c.stdin.end(Buffer.from(process.argv[2],'base64'));c.stdin.once('finish',()=>console.log(c.pid));});setInterval(()=>{},1000);`;
+ const parent=spawn(process.execPath,['--input-type=module','-e',script,worker,bytes.toString('base64')],{stdio:['ignore','pipe','pipe']});let workerPid=0;
+ try{let output='';for await(const chunk of parent.stdout!){output+=chunk.toString();if(output.includes('\n'))break;}workerPid=Number(output.trim());expect(workerPid).toBeGreaterThan(0);console.log('jpeg-parent-loss-group',workerPid);const closed=once(parent,'close');parent.kill('SIGKILL');await closed;process.kill(workerPid,'SIGCONT');const until=Date.now()+3000;let alive=true;while(alive&&Date.now()<until){try{process.kill(-workerPid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')alive=false;else throw error;}if(alive)await new Promise(resolve=>setTimeout(resolve,20));}expect(alive).toBe(false);workerPid=0;
+ }finally{if(parent.exitCode===null&&parent.signalCode===null)parent.kill('SIGKILL');if(workerPid)try{process.kill(-workerPid,'SIGKILL');}catch{/* The owned child may already be gone. */}}
+},10000);

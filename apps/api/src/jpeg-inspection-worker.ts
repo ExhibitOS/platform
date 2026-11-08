@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Experimental, unregistered decoder worker. No publication or device admission.
 import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
+import {Socket} from 'node:net';
 import {inspectBaselineJpegStructure} from './jpeg-baseline-structure.ts';
 
 const hash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
 const deadline=setTimeout(()=>process.exit(70),10000);
 // Parent holds this private pipe open until termination; EOF means owner loss.
-const owner=createReadStream('',{fd:3,autoClose:true});owner.once('end',()=>process.exit(70));owner.once('error',()=>process.exit(70));owner.resume();
+const owner=new Socket({fd:3,readable:true,writable:false});owner.once('end',()=>process.exit(70));owner.once('error',()=>process.exit(70));owner.resume();
 try{
  const chunks:Buffer[]=[];let length=0;for await(const chunk of process.stdin){const part=Buffer.from(chunk);length+=part.length;if(length>25*1024*1024)throw Error('LIMIT');chunks.push(part);}
  const bytes=Buffer.concat(chunks),structure=inspectBaselineJpegStructure(bytes),sharp=(await import('sharp')).default;
