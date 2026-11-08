@@ -15,7 +15,7 @@ function selectedImageCapacity(budget:DeviceBudget,memory:number|undefined):Devi
  // scene/cache budgets, or grants new capacity to unknown/constrained devices.
  return {...budget,...(memory!==undefined&&Number.isFinite(memory)&&memory>4?{selectedImage:{maxCacheBytes:Math.max(budget.maxCacheBytes,96*1024*1024),maxTransitionBytes:Math.max(budget.maxTransitionBytes??budget.maxCacheBytes,128*1024*1024)}}:{})};
 }
-export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number;coarsePointer?:boolean}):DeviceBudget {
+export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number;coarsePointer?:boolean;finePointer?:boolean}):DeviceBudget {
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
  // Limits bound tracked allocations. They do not reserve memory up front.
@@ -24,11 +24,15 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  // Browsers without a memory hint can still need overlap for a visible
  // minimum. Bound touch auto headroom without changing texture admission.
  if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024};
+ // An explicit fine-pointer Auto session without a memory hint uses the same
+ // bounded allocation allowance as the existing detailed desktop setting.
+ // Triangle and texture limits stay at the ordinary desktop profile.
+ if(memory===undefined&&input.coarsePointer===false&&input.finePointer===true)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
  return selectedImageCapacity(budget,memory);
 }
-/** Explicit existing high-quality choice only. Auto and known constrained devices
- * retain their previous triangle/resident limits. Explicit desktop uses the
+/** Explicit high-quality choice permits more triangles than Auto. Known
+ * constrained devices retain their existing limits. Explicit desktop uses the
  * development starting budget (192 MiB steady / 256 MiB transition); actual
  * allocations and coexistence still have to pass, not a hardware promise. */
 export const DESKTOP_NEAR_BUDGET:Readonly<DeviceBudget>=Object.freeze({...DEVICE_BUDGETS.desktop,maxTriangles:250000,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});

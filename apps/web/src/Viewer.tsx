@@ -156,6 +156,8 @@ export function Viewer({
   const [inputMode,setInputMode]=useState<ViewerInputMode>("auto");
   const [coarsePointer]=useMediaPreference("(pointer: coarse)");
   const entryCoarsePointer=useRef(coarsePointer);
+  const [finePointer]=useMediaPreference("(pointer: fine)");
+  const entryFinePointer=useRef(finePointer);
   const [analyticsConsent, setAnalyticsConsent] = useState(false);
   const analyticsConsentRef = useRef(false);
   useEffect(() => {
@@ -274,6 +276,7 @@ export function Viewer({
         deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory,
         pixelRatio:devicePixelRatio,
         coarsePointer:entryCoarsePointer.current,
+        finePointer:entryFinePointer.current,
       }),
     [profile],
   );
