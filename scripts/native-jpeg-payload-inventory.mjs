@@ -13,7 +13,7 @@ export function assertNativeJpegPayloadInventory(files){
  // link of any selected package elsewhere in the payload, including nested
  // workspace node_modules, so it cannot shadow the root-pinned closure.
  const lookupLinks=new Set(['platform/apps/api/dist/node_modules','platform/apps/api/node_modules','platform/apps/node_modules','platform/node_modules','platform/node_modules/sharp/dist/node_modules','platform/node_modules/sharp/node_modules']);
- for(const item of files){if(typeof item?.path!=='string')continue;const path=item.path.toLowerCase();if(item.link!==undefined&&lookupLinks.has(path))fail();for(const pkg of expected.packages){const suffix=`/node_modules/${pkg.name.toLowerCase()}`,root=`platform/node_modules/${pkg.name.toLowerCase()}/`;if((path.endsWith(suffix)||path.includes(`${suffix}/`))&&!path.startsWith(root))fail();}}
+ for(const item of files){if(typeof item?.path!=='string')continue;const path=item.path.toLowerCase();if(item.link!==undefined&&lookupLinks.has(path))fail();for(const pkg of expected.packages){const suffix=`/node_modules/${pkg.name.toLowerCase()}`,root=`platform/node_modules/${pkg.name}/`;if((path.endsWith(suffix)||path.includes(`${suffix}/`))&&!item.path.startsWith(root))fail();}}
  const selected=files.filter(item=>typeof item?.path==='string'&&roots.some(root=>item.path.startsWith(root)));
  if(selected.length!==expected.files.length)fail();const byPath=new Map();for(const item of selected){if(byPath.has(item.path))fail();byPath.set(item.path,item);}
  for(const item of expected.files){const actual=byPath.get(`platform/${item.path}`);if(!actual||actual.link!==undefined||actual.bytes!==item.bytes||actual.sha256!==item.sha256||actual.executable!==item.executable)fail();}
