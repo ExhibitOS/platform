@@ -154,6 +154,7 @@ it('retains a cancelled Hayes source and reports unresolved custody',()=>{
  const tenant='10000000-0000-4000-8000-000000000001',digest='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6';
  const row={tenant_id:tenant,id:'job',mime:'model/gltf-binary',state:'cancelled',hayes_attempt_id:'active',object_key:tenant+'/quarantine/source',approved_key:tenant+'/approved/source',expected_hash:digest,expected_bytes:8383096,derived:null};
  const result=rowObjectReferences('import_jobs',row);expect(result.issues).toContainEqual(expect.objectContaining({code:'HAYES_WORKER_DRAIN_UNCONFIRMED'}));expect(result.references.find(x=>x.key===row.object_key)?.required).toBe(true);
+ const approved={...row,state:'approved',approved_key:tenant+'/hayes-output/attempt/'+ 'b'.repeat(64)};const refs=rowObjectReferences('import_jobs',approved);expect(refs.references.map(x=>x.key)).toEqual([row.object_key]);expect(refs.issues).toContainEqual(expect.objectContaining({code:'HAYES_WORKER_DRAIN_UNCONFIRMED'}));
 });
 
 it('protects a reserved Hayes output even before the bytes are written',()=>{

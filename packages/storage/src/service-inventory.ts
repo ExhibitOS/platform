@@ -49,6 +49,9 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   if(hayes)issues.push({code:'HAYES_WORKER_DRAIN_UNCONFIRMED',binding});
   const required=hayes||row.state==='queued'||row.state==='processing'||row.state==='approved';
   add(row.object_key,required,row.expected_bytes,row.expected_hash,':source');
+  // Hayes approved_key points to the derived output, whose own stage/asset
+  // records carry its hash and size; expected_hash describes the original.
+  if(hayes)break;
   const prepared=row.derived;
   if(obj(prepared)&&Object.hasOwn(prepared,'viewerCoarse')){
    const coarse=prepared.viewerCoarse;
