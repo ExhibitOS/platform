@@ -4,7 +4,7 @@ import type {BlobStore} from '@exhibitos/storage';
 import {sha256} from '@exhibitos/storage';
 import {ApiError,Auth} from './auth.ts';
 import {createHayesOriginalQuarantine,isHayesOriginalContext,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
-import {parseHayesOperationBinding} from './hayes-operation-binding.ts';
+import {parseHayesOperationBinding,type HayesOperationBinding} from './hayes-operation-binding.ts';
 import {prepareHayesOwnerExchange} from './hayes-owner-exchange.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
@@ -19,14 +19,19 @@ export function isIssuedNativeHayesCaller(value:unknown,owner:NativeOexWorkspace
 /** Internal native bootstrap only: `channel`, pin and assertLive come from the
  * same authenticated Manager session, never a request. This cannot authorize
  * output approval, drain, cleanup or publication. */
-export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;auth:Auth;blobs:BlobStore;channel:Channel;runtimeGeneration:string;nativeOwnerId:string;runtimeManifestSha256:string;signal:AbortSignal;assertLive:()=>Promise<void>}){
+export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;auth:Auth;blobs:BlobStore;channel:Channel;runtimeGeneration:string;nativeOwnerId:string;runtimeManifestSha256:string;signal:AbortSignal;assertLive:()=>Promise<void>;onClaimCommitted?:(binding:HayesOperationBinding,monotonicNs:string)=>void;onProbePhase?:(phase:string,monotonicNs:string,code?:string)=>void}){
  const {owner,auth,blobs,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal,assertLive}=input;
  if(!isHayesOriginalContext(owner)||!(auth instanceof Auth)||!blobs.getBounded||!channel||typeof channel.send!=='function'||typeof channel.receive!=='function'||typeof channel.close!=='function'||typeof channel.isOpen!=='function'||!uuid.test(runtimeGeneration)||!uuid.test(nativeOwnerId)||!hex.test(runtimeManifestSha256)||!signal||typeof assertLive!=='function'||claimedChannels.has(channel)||!channel.isOpen())throw new ApiError(403,'FORBIDDEN');
  claimedChannels.add(channel);
  let used=false,busy=false,closing:Promise<void>|undefined;const localAbort=new AbortController(),fenceSignal=AbortSignal.any([signal,localAbort.signal]);
+ const report=(phase:string,code?:string)=>{try{input.onProbePhase?.(phase,process.hrtime.bigint().toString(),code);}catch{/* Diagnostics cannot change authority or protocol. */}};
+ const category=(cause:unknown)=>{try{const value=cause&&typeof cause==='object'?(cause as {code?:unknown;message?:unknown}).code??(cause as {message?:unknown}).message:undefined;return typeof value==='string'&&['HAYES_OWNER_UNAVAILABLE','HAYES_SOURCE_CHANGED','HAYES_CONTROL_INVALID','HAYES_CONTROL_CLOSE_UNCERTAIN','HAYES_EXCHANGE_CLOSE_UNCERTAIN','HAYES_OWNER_CLOSE_UNCERTAIN','NATIVE_OWNER_UNAVAILABLE','AUTH_REQUIRED','FORBIDDEN','ABORT_ERR'].includes(value)?value:'OTHER';}catch{return 'OTHER';}};
+ signal.addEventListener('abort',()=>report('owner-signal-aborted'),{once:true});
+ localAbort.signal.addEventListener('abort',()=>report('local-close-aborted'),{once:true});
  const live=async()=>{fenceSignal.throwIfAborted();if(!channel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');await assertLive();fenceSignal.throwIfAborted();if(!channel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');};
- const close=()=>closing??=(async()=>{localAbort.abort();let timer:ReturnType<typeof setTimeout>|undefined;try{await Promise.race([Promise.resolve().then(()=>channel.close()),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('HAYES_OWNER_CLOSE_UNCERTAIN')),3000);})]);}finally{if(timer)clearTimeout(timer);}})();
- const sharedChannel:Channel={send:frame=>channel.send(frame),receive:waitMs=>channel.receive(waitMs),isOpen:()=>channel.isOpen(),close};
+ const close=()=>closing??=(async()=>{report('close-start');localAbort.abort();let timer:ReturnType<typeof setTimeout>|undefined,ok=false;try{await Promise.race([Promise.resolve().then(()=>channel.close()),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('HAYES_OWNER_CLOSE_UNCERTAIN')),3000);})]);ok=true;}finally{if(timer)clearTimeout(timer);report('close-settled',ok?'OK':'FAILED');}})();
+ let awaitingOpen=false,observedOpen=false;
+ const sharedChannel:Channel={send:async frame=>{let kind='';if(input.onProbePhase&&!observedOpen)try{kind=JSON.parse(Buffer.from(frame).toString()).kind;}catch{/* Protocol validator owns errors. */}if(kind==='hayes-operation-open'){report('open-send-start');awaitingOpen=true;observedOpen=true;}await channel.send(frame);if(kind==='hayes-operation-open')report('open-send-finished');},receive:async(waitMs)=>{if(awaitingOpen)report('open-receive-start');try{const frame=await channel.receive(waitMs);if(awaitingOpen){report('open-receive-finished');awaitingOpen=false;}return frame;}catch(error){if(awaitingOpen)report('open-receive-failed',category(error));throw error;}},isOpen:()=>channel.isOpen(),close};
  const caller=Object.freeze({
   async create(credentials:Credentials,intake:Intake,deadlineMs:number){
    if(used||busy)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');busy=true;
@@ -37,16 +42,16 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
    try{
     const binding=parseHayesOperationBinding({version:1,tenantId:owner.tenantId,workspaceId:owner.workspaceId,principalId:owner.principalId,jobId:selection.jobId,leaseId:randomUUID(),attemptId:randomUUID(),runtimeGeneration,artworkId:selection.artworkId,correlationId:randomUUID(),artworkRevision:selection.artworkRevision,sourceSha256:'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6',sourceBytes:8383096});
     await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(_c,s)=>{if(s.userId!==owner.principalId)throw new ApiError(403,'FORBIDDEN');});authorized=true;used=true;
-    await live();await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>openHayesOriginalAttempt(c,s,owner,blobs,binding,live,deadlineMs));
-    await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>{
+    await live();await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>openHayesOriginalAttempt(c,s,owner,blobs,binding,live,deadlineMs));input.onClaimCommitted?.(binding,process.hrtime.bigint().toString());
+    report('source-recheck-start');await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>{
      await revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live);
      const job=await c.query("SELECT object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND hayes_attempt_id=$4 AND lease_until>clock_timestamp() FOR UPDATE",[binding.tenantId,binding.jobId,binding.leaseId,binding.attemptId]);if(job.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
      source=Buffer.from(await blobs.getBounded!(job.rows[0].object_key,binding.sourceBytes));if(source.length!==binding.sourceBytes||sha256(source)!==binding.sourceSha256)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
      await revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live);
     });
-    if(!source)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
-    return await prepareHayesOwnerExchange({binding,nativeOwnerId,runtimeManifestSha256,channel:sharedChannel,source,signal:fenceSignal,deadlineMs,revalidateCommitted:()=>auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live))});
-   }catch(cause){if(authorized)try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;}finally{source?.fill(0);busy=false;}
+    report('source-recheck-committed');if(!source)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
+    report('exchange-start');return await prepareHayesOwnerExchange({binding,nativeOwnerId,runtimeManifestSha256,channel:sharedChannel,source,signal:fenceSignal,deadlineMs,revalidateCommitted:()=>auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live))});
+   }catch(cause){report('start-failed',category(cause));if(authorized)try{await close();}catch{throw new Error('HAYES_OWNER_CLOSE_UNCERTAIN',{cause});}throw cause;}finally{source?.fill(0);busy=false;}
   },
   close,
  });
