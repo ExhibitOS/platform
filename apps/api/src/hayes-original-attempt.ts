@@ -34,7 +34,7 @@ export async function bindHayesDispositionContext(c:PoolClient,owner:NativeOexWo
  await owner.assertDatabase(c);dispositionIssued.add(owner);
 }
 export function isHayesDispositionContext(owner:NativeOexWorkspaceContext|undefined):boolean{return !!owner&&dispositionIssued.has(owner);}
-// Not selected by runtime bootstrap until the sealed 044 catalog is wired.
+// Issued only by the private bootstrap after the sealed 044 catalog checks.
 const releaseIssued=new WeakSet<NativeOexWorkspaceContext>();
 export async function bindHayesReleaseContext(c:PoolClient,owner:NativeOexWorkspaceContext):Promise<void>{
  if(!isHayesDispositionContext(owner))throw new ApiError(403,'FORBIDDEN');
