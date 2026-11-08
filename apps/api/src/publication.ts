@@ -321,9 +321,9 @@ export class Publications {
     private readonly furnishingOwner:import('./native-oex-provenance.ts').NativeOexWorkspaceContext|undefined;
     constructor(pool: Pool, blobs?: BlobStore, nativeOexWorkspace?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceFurnishing?:import('./workspace-furnishing-intakes.ts').WorkspaceFurnishingIntakes,furnishingOwner?:import('./native-oex-provenance.ts').NativeOexWorkspaceContext,workspaceMaterial?:import('./workspace-material-intakes.ts').WorkspaceMaterialIntakes) { this.workspaceMaterial=workspaceMaterial; this.pool = pool; this.blobs = blobs; this.cms = new Cms(blobs); this.listingStudio = new Studio(nativeOexWorkspace); this.workspaceFurnishing=workspaceFurnishing; this.furnishingOwner=furnishingOwner; }
     private summary(row: PublicationRow) { return { publicationId: row.id, publicUrl: `/p/${row.id}`, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: row.status }; }
-    private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864) {
+    private async prepare(c: PoolClient, s: Session, candidate: Exhibition, exhibitionId:string,stage?:ReadinessStage,budget=67108864,checkpoint?:()=>void) {
         if(!Number.isSafeInteger(budget)||budget<1||budget>536870912||budget>67108864&&!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
-        const store=(bytes:Buffer):Promise<PublicationBytes>=>stageReadinessBytes(stage,bytes);
+        const store=async(bytes:Buffer):Promise<PublicationBytes>=>{checkpoint?.();const result=await stageReadinessBytes(stage,bytes);checkpoint?.();return result;};
         const errors: PublicationIssue[] = [], prepared: PreparedAsset[] = [], media:PreparedMedia[]=[];
         let furnishings:PreparedFurnishing[]=[];
         let cover:PreparedCover|undefined;
@@ -345,12 +345,12 @@ export class Publications {
         if (errors.length)
             return { issues: errors, prepared, media, cover,furnishings,at };
         if(hasWorkspaceMaterials){try{
-            const inventory=workspaceMaterialOutputInventory(candidate);if(!workspaceMaterialPublicationWithinBudget(inventory))throw new ApiError(422,'PUBLICATION_LIMIT');for(const resource of inventory){const map=await workspaceMaterialOutputBytes(c,s,candidate,this.workspaceMaterial,resource,'export');totalBytes+=map.bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');}
-        }catch(error){errors.push(issue(error instanceof ApiError?error.code:'WORKSPACE_MATERIAL_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1workspace-materials','Workspace material source, current rights or map bytes are unavailable.','Restore the registered source and display/export grants.'));}}
+            const inventory=workspaceMaterialOutputInventory(candidate);if(!workspaceMaterialPublicationWithinBudget(inventory))throw new ApiError(422,'PUBLICATION_LIMIT');for(const resource of inventory){checkpoint?.();const map=await workspaceMaterialOutputBytes(c,s,candidate,this.workspaceMaterial,resource,'export');totalBytes+=map.bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');}
+        }catch(error){checkpoint?.();errors.push(issue(error instanceof ApiError?error.code:'WORKSPACE_MATERIAL_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1workspace-materials','Workspace material source, current rights or map bytes are unavailable.','Restore the registered source and display/export grants.'));}}
         if(hasWorkspaceFurnishings){try{
             const resources=workspaceFurnishingOutputInventory(candidate);if(!workspaceFurnishingPublicationWithinBudget(resources.map(resource=>resource.bytes)))throw new ApiError(422,'PUBLICATION_LIMIT');let workspaceBytes=0;
-            for(const resource of resources){const model=await workspaceFurnishingOutputBytes(c,s,candidate,this.workspaceFurnishing,resource,'export');workspaceBytes+=model.bytes.length;totalBytes+=model.bytes.length;if(workspaceBytes>67108864||totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');}
-        }catch(error){errors.push(issue(error instanceof ApiError?error.code:'WORKSPACE_FURNISHING_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1workspace-furnishings','Workspace furnishing source, current rights or model bytes are unavailable.','Restore the registered source and display/export grants.'));}}
+            for(const resource of resources){checkpoint?.();const model=await workspaceFurnishingOutputBytes(c,s,candidate,this.workspaceFurnishing,resource,'export');workspaceBytes+=model.bytes.length;totalBytes+=model.bytes.length;if(workspaceBytes>67108864||totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');}
+        }catch(error){checkpoint?.();errors.push(issue(error instanceof ApiError?error.code:'WORKSPACE_FURNISHING_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1workspace-furnishings','Workspace furnishing source, current rights or model bytes are unavailable.','Restore the registered source and display/export grants.'));}}
         try{
             // Furnishing pairs retain their existing in-memory bound. Do not
             // load an aggregate furnishing inventory of archive-sized buffers.
@@ -359,17 +359,17 @@ export class Publications {
             furnishings=await admittedPublicationFurnishings(c,this.blobs,s.tenantId,exhibitionId,candidate);
             totalBytes+=furnishings.reduce((n,p)=>n+p.model.length+p.notice.length,0);
             if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');
-        }catch(error){errors.push(issue(error instanceof ApiError?error.code:'FURNISHING_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1furnishing-visuals','Selected furnishing model or CC0 notice is unavailable or invalid.','Restore the exact supported catalogue bytes and functional host before publication.'));}
+        }catch(error){checkpoint?.();errors.push(issue(error instanceof ApiError?error.code:'FURNISHING_UNAVAILABLE','/candidate/extensions/org.exhibitos.studio~1furnishing-visuals','Selected furnishing model or CC0 notice is unavailable or invalid.','Restore the exact supported catalogue bytes and functional host before publication.'));}
         for(const resource of footstepResourcesFor(candidate)){
-            try{
+            checkpoint?.();try{
                 if(!this.blobs)throw new ApiError(409,'FOOTSTEP_RESOURCE_UNAVAILABLE');
                 const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,exhibitionId,resource);
                 totalBytes+=bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');
-            }catch(error){errors.push(issue(error instanceof ApiError?error.code:'FOOTSTEP_RESOURCE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1footstep-resources','Selected footstep resource bytes are unavailable or invalid.','Restore the exact registered resource before publication.'));}
+            }catch(error){checkpoint?.();errors.push(issue(error instanceof ApiError?error.code:'FOOTSTEP_RESOURCE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1footstep-resources','Selected footstep resource bytes are unavailable or invalid.','Restore the exact registered resource before publication.'));}
         }
         const watermark=watermarkFor(candidate),displayWatermark=watermark.mode==='embedded'?{...watermark,text:watermarkLabel(candidate)}:watermark;
         for(const [i,asset] of candidate.mediaAssets.entries()) {
-            try {
+            checkpoint?.();try {
                 const row=await new Audio(this.blobs).approved(c,s,exhibitionId,asset.id);
                 if(!equal(audioMedia(row),asset)||!this.blobs)throw new ApiError(409,"AUDIO_APPROVAL_CHANGED");
                 const bytes=Buffer.from(await this.blobs.get(row.object_key));
@@ -377,16 +377,16 @@ export class Publications {
                 if(!curationDurationValid(candidate,asset.id,validatePcmWav(bytes).durationSeconds))throw new ApiError(422,"CURATION_AUDIO_DURATION");totalBytes+=bytes.length;
                 if(totalBytes>budget)throw new ApiError(422,"PUBLICATION_LIMIT");
                 media.push({source:asset,bytes:await store(bytes)});
-            }catch(error){if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:"AUDIO_UNAVAILABLE",`/candidate/mediaAssets/${i}`,"Current approved audio, bytes or display rights unavailable.","Upload and approve exact PCM16 WAV for this exhibition; correct current rights or restore its availability."));}
+            }catch(error){checkpoint?.();if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:"AUDIO_UNAVAILABLE",`/candidate/mediaAssets/${i}`,"Current approved audio, bytes or display rights unavailable.","Upload and approve exact PCM16 WAV for this exhibition; correct current rights or restore its availability."));}
         }
         const still=spaceStillFor(candidate);
         if(still){try{
             const source=await new CoverImages(this.blobs).approvedBytes(c,s,exhibitionId,still.id);
             if(!equal(coverImageAsset(source.row),still))throw new ApiError(409,'COVER_IMAGE_APPROVAL_CHANGED');
             totalBytes+=source.bytes.length;if(totalBytes>budget)throw new ApiError(422,'PUBLICATION_LIMIT');cover={source:still,bytes:await store(source.bytes)};
-        }catch(error){if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:'COVER_IMAGE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1space-still','Current approved space PNG, exact bytes or display rights unavailable.','Approve the exact separate PNG for this exhibition and restore its current display grant.'));}}
+        }catch(error){checkpoint?.();if(error instanceof PublicationStageError)throw error;errors.push(issue(error instanceof ApiError?error.code:'COVER_IMAGE_UNAVAILABLE','/candidate/extensions/org.exhibitos.viewer~1space-still','Current approved space PNG, exact bytes or display rights unavailable.','Approve the exact separate PNG for this exhibition and restore its current display grant.'));}}
         for (const [i, artwork] of candidate.artworks.entries()) {
-            const path = `/candidate/artworks/${i}`;
+            checkpoint?.();const path = `/candidate/artworks/${i}`;
             const binding = artwork.extensions?.["org.exhibitos.studio/cms"];
             if (!binding || binding.tenantId !== s.tenantId || binding.artworkId !== artwork.id || binding.revision !== artwork.revision) {
                 errors.push(issue("ARTWORK_NOT_APPROVED", path, "Artwork must be an approved CMS snapshot from this tenant.", "Import the current approved artwork from CMS and replace its placements."));
@@ -408,27 +408,27 @@ export class Publications {
                     if(!asset||!this.blobs)throw new ApiError(503,"STORAGE_UNAVAILABLE");
                     const original=Buffer.from(await this.blobs.get(asset.object_key));
                     if(original.length!==Number(asset.bytes)||sha256(original)!==asset.sha256)throw new ApiError(409,"ASSET_INTEGRITY");
-                    result={bytes:await publicationImageDerivative(artwork,original,artwork.primaryAssetId,{watermark:displayWatermark,cache:{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256}}),mime:"image/png"};
+                    checkpoint?.();result={bytes:await publicationImageDerivative(artwork,original,artwork.primaryAssetId,{watermark:displayWatermark,cache:{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256,checkpoint}}),mime:"image/png"};
                 } else if(exactModel){
                     const original=await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision);
-                    if(provisionalModel){await decode(original,'model/gltf-binary');result={bytes:Buffer.from(original),mime:'model/gltf-binary'};}
+                    checkpoint?.();if(provisionalModel){await decode(original,'model/gltf-binary');result={bytes:Buffer.from(original),mime:'model/gltf-binary'};}
                     else result={bytes:await publicationModelDerivative(artwork,original,{watermark:displayWatermark}),mime:'model/gltf-binary'};
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,primary.id,artwork.revision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
-                } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision,displayWatermark) as {bytes:Buffer;mime:"model/gltf-binary"};
+                } else result=await this.cms.display(c,s,artwork.id,true,artwork.revision,displayWatermark,checkpoint) as {bytes:Buffer;mime:"model/gltf-binary"};
                 // Unsupported/nonreducing simplification remains an honest full-only fallback.
                 const fullMetric=measureFullVariant(result.bytes,result.mime);
                 const lod=artwork.extensions?.[LOD_NAMESPACE] as unknown as {profile?:GeneratedVariants['profile'];variants:{assetId:string;detail:string;triangles?:number;textureSize?:number}[]}|undefined;
                 if(lod&&!validateViewerLod(artwork).valid)throw new ApiError(409,'APPROVAL_INVALID');
                 const low=lod?.variants.find(v=>v.detail==='coarse'),high=lod?.variants.find(v=>v.detail==='full');
-                const generated:GeneratedVariants=exactModel||(low&&high&&result.mime==='image/png')?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>({full:fullMetric}));
+                checkpoint?.();const generated:GeneratedVariants=exactModel||(low&&high&&result.mime==='image/png')?{full:fullMetric}:await viewerVariants(result.bytes,result.mime).catch(()=>{checkpoint?.();return {full:fullMetric};});
                 let variants:GeneratedVariants={...generated,full:fullMetric};
                 let coarseSource:PreparedAsset['coarseSource'];
                 if(low&&high&&result.mime==='image/png'){
                     const full=await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision);
                     const coarse=await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision);
                     // Both inputs must remain authorized even for unsupported pairs.
-                    const displayCoarse=await publicationImageDerivative(artwork,coarse,low.assetId,{watermark:displayWatermark,cache:this.blobs?{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:low.assetId,sourceSha256:sha256(coarse)}:undefined});
+                    checkpoint?.();const displayCoarse=await publicationImageDerivative(artwork,coarse,low.assetId,{watermark:displayWatermark,cache:this.blobs?{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:low.assetId,sourceSha256:sha256(coarse),checkpoint}:undefined});
                     try{
                         qualifyApprovedImagePair(full,coarse,high.textureSize!,low.textureSize!);
                         const coarseMetric=measureFullVariant(displayCoarse,'image/png');
@@ -436,14 +436,14 @@ export class Publications {
                         variants={full:fullMetric,coarse:coarseMetric,bytes:displayCoarse};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
-                    }catch(error){if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
+                    }catch(error){checkpoint?.();if(!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse))throw new ApiError(409,'ASSET_INTEGRITY');
                 }
                 if(low&&high&&result.mime==='model/gltf-binary'){
                     // Current authorization/integrity failures are never converted to full-only fallback.
-                    const full=await this.cms.displayApprovedVariant(c,s,artwork.id,high.assetId,artwork.revision,displayWatermark);
-                    const coarse=await this.cms.displayApprovedVariant(c,s,artwork.id,low.assetId,artwork.revision,displayWatermark);
+                    const full=await this.cms.displayApprovedVariant(c,s,artwork.id,high.assetId,artwork.revision,displayWatermark,checkpoint);
+                    const coarse=await this.cms.displayApprovedVariant(c,s,artwork.id,low.assetId,artwork.revision,displayWatermark,checkpoint);
                     if(!full.bytes.equals(result.bytes))throw new ApiError(409,'ASSET_INTEGRITY');
                     try {
                         const textureOnly=lod?.profile===NEAR_TEXTURE_PAIR_PROFILE;
@@ -457,7 +457,7 @@ export class Publications {
                         variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes,...(lod?.profile?{profile:lod.profile}:{})};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
-                    }catch(error){if(lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE||!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
+                    }catch(error){checkpoint?.();if(lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE||!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
                     // Reobserve the entire immutable imported inventory after both decoders.
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full.original)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse.original))throw new ApiError(409,'ASSET_INTEGRITY');
@@ -471,23 +471,23 @@ export class Publications {
                     try{
                         const selected=await new ArtworkThumbnailReceipts(this.blobs).selectedForPublication(c,s,artwork.id,artwork.revision,primary.id,primary.sha256);
                         if(selected){
-                            const bytes=await cachedDisplayDerivative(selected.bytes,'image/png',{maxTextureSize:512,watermark:displayWatermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:selected.assetId,sourceSha256:selected.sha256});
+                            checkpoint?.();const bytes=await cachedDisplayDerivative(selected.bytes,'image/png',{maxTextureSize:512,watermark:displayWatermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:selected.assetId,sourceSha256:selected.sha256,checkpoint});
                             await validateThumbnailBytes(bytes);
                             const again=await new ArtworkThumbnailReceipts(this.blobs).selectedForPublication(c,s,artwork.id,artwork.revision,primary.id,primary.sha256);
                             if(!again||again.id!==selected.id||!again.bytes.equals(selected.bytes))throw new ApiError(409,'ASSET_INTEGRITY');
                             thumbnail={sourceAssetId:selected.assetId,sourceSha256:selected.sha256,bytes,receiptId:selected.id};
                         }
-                    }catch{/* A receipt or its live rights may be unavailable; keep the artwork. */}
+                    }catch{checkpoint?.();/* A receipt or its live rights may be unavailable; keep the artwork. */}
                 }
                 if(!thumbnail&&selectedThumbnail){
                     try{
                         const original=await this.cms.approvedVariantOriginal(c,s,artwork.id,selectedThumbnail.id,artwork.revision);
                         await validateThumbnailBytes(original);
-                        const bytes=await cachedDisplayDerivative(original,'image/png',{maxTextureSize:512,watermark:displayWatermark},this.blobs?{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:selectedThumbnail.id,sourceSha256:selectedThumbnail.sha256}:undefined);
+                        checkpoint?.();const bytes=await cachedDisplayDerivative(original,'image/png',{maxTextureSize:512,watermark:displayWatermark},this.blobs?{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:selectedThumbnail.id,sourceSha256:selectedThumbnail.sha256,checkpoint}:undefined);
                         await validateThumbnailBytes(bytes);
                         if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,selectedThumbnail.id,artwork.revision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
                         thumbnail={sourceAssetId:selectedThumbnail.id,sourceSha256:selectedThumbnail.sha256,bytes};
-                    }catch{/* Optional preview failure leaves the artwork available without it. */}
+                    }catch{checkpoint?.();/* Optional preview failure leaves the artwork available without it. */}
                 }
                 if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                 totalBytes += result.bytes.length + (variants?.bytes?.length??0);
@@ -502,12 +502,13 @@ export class Publications {
                 prepared.push({ artwork, sourceAssetId: primary.id, sourceSha256: primary.sha256, bytes: await store(result.bytes), mime: result.mime, variants:storedVariants, ...(coarseSource?{coarseSource}:{}),...(storedThumbnail?{thumbnail:storedThumbnail}:{}) });
             }
             catch (error) {
+                checkpoint?.();
                 if(error instanceof PublicationStageError)throw error;
                 const code = error instanceof ApiError ? error.code : "ARTWORK_UNAVAILABLE";
                 errors.push(issue(code, path, "Current approved artwork, display rights or qualified derivative is unavailable.", "Review current CMS approval, ownership/assignment and artwork/asset display grants; reimport after correcting them."));
             }
         }
-        admitOptionalThumbnails(prepared,totalBytes,budget);
+        checkpoint?.();admitOptionalThumbnails(prepared,totalBytes,budget);
         if(stage)for(const p of prepared)if(p.thumbnail)p.thumbnail={...p.thumbnail,bytes:await store(p.thumbnail.bytes as Buffer)};
         return { issues: errors, prepared, media, cover,furnishings,at };
     }
@@ -611,7 +612,7 @@ export class Publications {
         const put=async(key:string,bytes:PublicationBytes)=>{detail?.assertCurrent(s);const loaded=await load(bytes);detail?.assertCurrent(s);fileOperation?.assertClaimed();await this.blobs!.put(key,loaded);detail?.assertCurrent(s);fileOperation?.assertClaimed();};
         const byteHash=(bytes:PublicationBytes)=>{if(Buffer.isBuffer(bytes))return sha256(bytes);if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.describe(bytes).sha256;};
         if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.markEffectsPossible();
-        detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864);detail?.assertCurrent(s);
+        detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864,detail?()=>detail.assertCurrent(s):undefined);detail?.assertCurrent(s);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)

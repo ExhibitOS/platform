@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it,vi} from 'vitest';
-import {randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID} from 'node:crypto';
 import {readFile,mkdir,chmod,access} from 'node:fs/promises';
 import {appendFileSync} from 'node:fs';
 import {dirname,join} from 'node:path';
@@ -87,7 +87,7 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   await creating;await expect(conflict).rejects.toThrow('REQUEST_CONFLICT');expect((await pool.query('SELECT revision FROM artworks WHERE tenant_id=$1 AND id=$2',[tenantId,prior.id])).rows[0].revision).toBe(1);
   // Native requests must see a newly committed receipt after waiting for the
   // auth lock even when the database default is REPEATABLE READ.
-  const token='a'.repeat(43),csrf='test-csrf';await pool.query('INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval \'1 hour\')',[randomUUID(),sha256(Buffer.from(token)),sha256(Buffer.from(csrf)),csrf,tenantId,userId]);
+  const token=randomBytes(32).toString('base64url'),csrf='test-csrf';await pool.query('INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval \'1 hour\')',[randomUUID(),sha256(Buffer.from(token)),sha256(Buffer.from(csrf)),csrf,tenantId,userId]);
   const repeatablePool=new Pool({connectionString:process.env.WHEAT_TEST_PG,max:2});
   try{const firstClient=await repeatablePool.connect(),secondClient=await repeatablePool.connect();try{for(const client of [firstClient,secondClient]){await client.query('SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');expect((await client.query('SHOW default_transaction_isolation')).rows[0].default_transaction_isolation).toBe('repeatable read');}}finally{firstClient.release();secondClient.release();}const auth=new Auth(repeatablePool);let releaseFirst!:()=>void,entered!:()=>void;const firstGate=new Promise<void>(r=>{releaseFirst=r;}),enteredSignal=new Promise<void>(r=>{entered=r;});
    const first=auth.requestForNativeWorkspaceMutation(token,tenantId,csrf,async(c,s)=>{const result=await replaceApprovedArtwork(c,s,draft.exhibitionId,request,match,studio,cms,imports,blobs);entered();await firstGate;return result;});await enteredSignal;

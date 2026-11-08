@@ -5,7 +5,7 @@ import {sha256,type BlobStore} from '@exhibitos/storage';
 import {normalizeDisplayWatermark,embeddedWatermarkTextSupported,type DisplayWatermark} from '@exhibitos/studio-contract';
 import {derivative,type DerivativeOptions} from './derivative.ts';
 import {ApiError} from './auth.ts';
-export interface DisplayDerivativeCache {client:PoolClient;blobs:BlobStore;tenantId:string;assetId:string;sourceSha256:string}
+export interface DisplayDerivativeCache {client:PoolClient;blobs:BlobStore;tenantId:string;assetId:string;sourceSha256:string;checkpoint?:()=>void}
 /** Current approval/rights are checked by the caller on every use. Cache identity
  * grants neither access nor an exception to source/byte integrity. */
 export async function cachedDisplayDerivative(original:Buffer,mime:string,options:DerivativeOptions={},cache?:DisplayDerivativeCache){
@@ -27,8 +27,8 @@ export async function cachedDisplayDerivative(original:Buffer,mime:string,option
   if(bytes.length!==known.bytes||sha256(bytes)!==known.sha256)throw new ApiError(409,'DERIVATIVE_INTEGRITY');
   return bytes;
  }
- const bytes=await derivative(original,mime,{...options,watermark}),hash=sha256(bytes),key=prefix+hash;
- await cache.blobs.put(key,bytes);
- await cache.client.query('INSERT INTO asset_derivatives(tenant_id,id,metadata,asset_id) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,id) DO NOTHING',[cache.tenantId,id,{kind:'display-v2',objectKey:key,sha256:hash,mime,bytes:bytes.length,watermarked:watermark.mode==='embedded',policy:'display',sourceSha256:cache.sourceSha256,recipeSha256,recipe},cache.assetId]);
+ cache.checkpoint?.();const bytes=await derivative(original,mime,{...options,watermark}),hash=sha256(bytes),key=prefix+hash;
+ cache.checkpoint?.();await cache.blobs.put(key,bytes);
+ cache.checkpoint?.();await cache.client.query('INSERT INTO asset_derivatives(tenant_id,id,metadata,asset_id) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,id) DO NOTHING',[cache.tenantId,id,{kind:'display-v2',objectKey:key,sha256:hash,mime,bytes:bytes.length,watermarked:watermark.mode==='embedded',policy:'display',sourceSha256:cache.sourceSha256,recipeSha256,recipe},cache.assetId]);
  return bytes;
 }
