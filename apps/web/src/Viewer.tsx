@@ -34,6 +34,7 @@ import type {ViewingRenderer} from './viewer/viewing-session';
 import type {createPublicThumbnailCache} from './viewer/public-thumbnail';
 export function Viewer({
   publication,
+  coverOriginalEligible,
   artworkThumbnails={},
   thumbnailCache,
   appearance,
@@ -88,6 +89,7 @@ export function Viewer({
   onMapCancelReady?:(cancel:(()=>void)|null)=>void;
   onViewingRendererReady?:(renderer:ViewingRenderer|null)=>void;
   publication: PublicPublication;
+  coverOriginalEligible?:()=>boolean;
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
   onNavigationActive?:()=>void;
@@ -283,9 +285,10 @@ export function Viewer({
       resources: publication.resources,
       materialMapBatch: publication.materialMapBatch,
       detailPublication: publication,
+      coverOriginalEligible,
       ...publication.local,
     }),
-    [publication],
+    [publication,coverOriginalEligible],
   );
   return (
     <section className={immersive ? "immersive-viewer" : undefined} data-input-mode={resolveViewerInputMode(inputMode,coarsePointer)} aria-label="전시 Viewer">

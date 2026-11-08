@@ -236,6 +236,7 @@ export function GeometryPreview({
     materialMapBatch?: {url:string};
     /** Exact loader-owned object; copied source fields cannot attest capability provenance. */
     detailPublication?:PublicPublication;
+    coverOriginalEligible?:()=>boolean;
     fetcher?: typeof fetch;
     floorFetcher?: typeof fetch;
     retainedMaterialBytes?:number;
@@ -2499,9 +2500,10 @@ export function GeometryPreview({
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
           const detailOwner=publicSource.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
           const galleryBuffer=()=>({width:renderer.domElement.width,height:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
+          const coverReady=()=>{try{return publicSource.coverOriginalEligible?.()===true;}catch{return false;}};
           const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId):undefined;
           const selectedBinding=selectedProfile&&detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,selectedProfile.candidateId):undefined;
-          let imageProfile=selectedProfile&&selectedProfile.revisionSha256===publicSource.revisionSha256&&selectedProfile.artworkRevisionId===art.revisionId&&matchesMeasuredWheatImage(selectedProfile,selectedBinding,galleryBuffer())?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
+          let imageProfile=selectedProfile&&coverReady()&&selectedProfile.revisionSha256===publicSource.revisionSha256&&selectedProfile.artworkRevisionId===art.revisionId&&matchesMeasuredWheatImage(selectedProfile,selectedBinding,galleryBuffer())?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
           // A reopened qualified original waits for the previous owned work and
           // reservation to retire; an uncertain drain never admits a successor.
           if(imageProfile&&detailOwner&&detailAccess&&isVerifiedStaticDetailAccess(detailOwner,detailAccess))await originalDetailSlot.whenAvailable(signal);
@@ -2598,7 +2600,7 @@ export function GeometryPreview({
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
             if(input.flatImage){
               // A registered model is required before any original byte read.
-              // The current registry is empty, preserving the existing detail path.
+              // Unqualified publications retain the existing detail path.
               const owner=detailOwner,access=detailAccess,profile=imageProfile;
               const context=renderer.getContext();let legacyStarted=false;
               const viewport=()=>({width:input.host.clientWidth,height:input.host.clientHeight,canvasWidth:renderer.domElement.width,canvasHeight:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
@@ -2623,7 +2625,7 @@ export function GeometryPreview({
               if(profile&&sameDetailImageViewport(profile.detailViewport,viewport())&&owner&&access&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&typeof WebGL2RenderingContext!=='undefined'&&context instanceof WebGL2RenderingContext){
                 const admittedViewport=viewport();let legacyPending=false;
                 const scopeCurrent=()=>renderer.getContext()===context&&alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope&&isVerifiedStaticDetailAccess(owner,access);
-                const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&globalThis.document.visibilityState==='visible';
+                const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&globalThis.document.visibilityState==='visible';
                 const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startLegacy();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
                 resumeLegacy=()=>{if(legacyPending)activateLegacy();};
                 const hints=(globalThis.navigator as Navigator&{userAgentData?:{platform:string;getHighEntropyValues(hints:string[]):Promise<{fullVersionList?:Array<{brand:string;version:string}>}>}}).userAgentData;
@@ -2634,7 +2636,7 @@ export function GeometryPreview({
                   try{
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
-                      isTrusted:()=>matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
+                      isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
                       draw:next=>{if(!current())throw Error('DETAIL_STALE');originalAttached=true;scope.replaceImage(next);},
                       hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
                       completeCommands:()=>completeDetailCommands(context),

@@ -15,7 +15,7 @@ async function fixture(){
  const input={profile:{staticIndexSha256:'index',publicationSha256:'publication',candidateId:'candidate',revisionSha256:'revision',sha256:hash,bytes:3,mime:'image/jpeg' as const,width:4,height:3,reservationBytes:400,restoreReservationBytes:80,transitionCapBytes:1000,maxSceneBytes:600,maxRestoreWidth:1280,maxRestoreHeight:800,devicePixelRatio:1,detailViewport:{width:692,height:520,canvasWidth:692,canvasHeight:520,pixelRatio:1,devicePixelRatio:1},runtime:{renderer:'test',platform:'macOS',browserBrand:'Google Chrome',browserVersion:'1',samples:4,alpha:true,depth:true,antialias:true,preserveDrawingBuffer:true},artworkRevisionId:'artwork',sourceBindingSha256:'binding',featureReportSha256:'report',inspector:'inspector',model:'model'},access,peak,slot,draw,hide:vi.fn(),completeCommands,attemptId:'one',generation:1,isCurrent:()=>true,isTrusted:()=>true,signal:signal.signal,three,limit:1000};
  return {input,access,bitmap,signal,peak,slot,draw,completeCommands};
 }
-it('has no production qualified image profile and refuses over-budget before any read',async()=>{
+it('refuses unrelated image profiles and over-budget attempts before any read',async()=>{
  expect(qualifiedDetailImageProfile()).toBeUndefined();const f=await fixture();expect(()=>startDetailImageAttempt({...f.input,limit:499})).toThrow(DetailImageBudgetRefusal);try{startDetailImageAttempt({...f.input,limit:499});}catch(error){expect(error).toMatchObject({attemptId:'one',generation:1,requestedBytes:400,currentBytes:100,capBytes:499,sceneCapBytes:600});}expect(f.access.fetch).not.toHaveBeenCalled();expect(f.peak.total()).toBe(100);
 });
 it('holds the real ledger reservation through visible life and GPU completion, without replacing an active hold',async()=>{
@@ -74,4 +74,9 @@ it('hands its still-charged exact reservation to restoration without a release g
 });
 it('rejects an over-limit scene before opening any candidate reader',async()=>{
  const f=await fixture();f.input.profile={...f.input.profile,maxSceneBytes:99};expect(()=>startDetailImageAttempt(f.input)).toThrow(DetailImageBudgetRefusal);expect(f.access.candidatesFor).not.toHaveBeenCalled();expect(f.access.fetch).not.toHaveBeenCalled();expect(f.peak.total()).toBe(100);
+});
+it('registers only the exact measured Wheat revision and artwork with immutable bounds',()=>{
+ const revision='41b47f3af2adc536df77a91dcd2918aa527c6343b3b75c31c319b8a0aafe34b8',artwork='3fb6bc87-4c8d-4b51-b964-8db4a23afd0b',profile=qualifiedDetailImageProfile(revision,artwork);
+ expect(profile).toMatchObject({staticIndexSha256:'8de1650dfcb0e43aafae1f8c181293a0a88fe18c58acd2389c32de0c7bde91a1',publicationSha256:'ecf6a63b2a97ae5a08ea996eb342bea7bbfe736a0227fb47df33c0b1635758c9',candidateId:'a05143a1-eb94-48cf-997f-3506b26a16cc',sha256:'b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',reservationBytes:402653184,transitionCapBytes:536870912,maxSceneBytes:104857600});
+ expect(Object.isFrozen(profile)).toBe(true);expect(Object.isFrozen(profile!.runtime)).toBe(true);expect(Object.isFrozen(profile!.detailViewport)).toBe(true);expect(qualifiedDetailImageProfile('f'.repeat(64),artwork)).toBeUndefined();expect(qualifiedDetailImageProfile(revision,'other')).toBeUndefined();
 });
