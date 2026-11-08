@@ -32,7 +32,7 @@ export class Imports {
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
   const preparation=modelPreparationIntent(input.modelPreparation);
-  if(preparation?.sourceFull)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
+  if(preparation?.sourceFull||preparation?.sourceDisplayReference)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
   let artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
   if(preparation){
    // Match CMS approval/revision serialization; retain this row lock through
@@ -43,10 +43,9 @@ export class Imports {
   if(preparation){
    if(input.mime!=='model/gltf-binary'||input.derived!==undefined||input.modelDerivation!==undefined||input.coarsePreparation!==undefined||preparation.operationID!==input.idempotencyKey)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
    await this.requiredModelReady(c,s);
-   if(artwork.revision!==preparation.artworkRevision||artwork.metadata?.displayReference||!isDeepStrictEqual(artwork.metadata?.rights,input.rights)||!allowedRights(input.rights,'display'))throw new ApiError(409,'MODEL_PREPARATION_CONTEXT_CHANGED');
   }
   const reference=artwork.metadata?.displayReference;
-  if(reference&&!input.coarsePreparation&&(input.mime!=='model/gltf-binary'||input.sha256!==reference.assetSha256||input.scaleMeters!==1||input.derived!==undefined||input.modelDerivation!==undefined))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
+  if(reference&&!preparation&&!input.coarsePreparation&&(input.mime!=='model/gltf-binary'||input.sha256!==reference.assetSha256||input.scaleMeters!==1||input.derived!==undefined||input.modelDerivation!==undefined))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
   const model=modelDerivationInput(input.modelDerivation);
   if(model&&(input.mime!=='model/gltf-binary'||input.derived!==undefined||model.operationID!==input.idempotencyKey))throw new ApiError(400,'INVALID_MODEL_DERIVATION');
   if(model&&artwork.revision!==model.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');
@@ -64,6 +63,8 @@ export class Imports {
   const prior=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND idempotency_key=$2',[s.tenantId,input.idempotencyKey]);
   if(prior.rowCount){if(preparation&&prior.rows[0].user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(coarse){const old=storedImageCoarse(prior.rows[0]);if(prior.rows[0].user_id!==s.userId||!old||old.workspaceId!==coarseWorkspace?.workspaceId||old.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');}if(prior.rows[0].request_hash!==hash)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');if(preparation&&prior.rows[0].state==='approved')await assertModelPreparationContext(c,prior.rows[0]);return this.view(prior.rows[0]);}
   if(preparation){
+   if(artwork.revision!==preparation.artworkRevision||!isDeepStrictEqual(artwork.metadata?.rights,input.rights)||!allowedRights(input.rights,'display'))throw new ApiError(409,'MODEL_PREPARATION_CONTEXT_CHANGED');
+   if(reference&&(artwork.metadata?.provenance?.sourceUnits!=='unknown'||artwork.metadata?.provenance?.scaleApplied!==false||reference.assetSha256!==input.sha256||input.scaleMeters!==1))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
    if(artwork.approved_revision===artwork.revision)throw new ApiError(409,'MODEL_PREPARATION_REVISION_APPROVED');
    // This exact input remains bound to the existing dedicated Hayes route.
    if(input.sha256==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&input.bytes===8383096)throw new ApiError(409,'MODEL_PREPARATION_DEDICATED_ROUTE_REQUIRED');
@@ -73,7 +74,7 @@ export class Imports {
   const id=randomUUID(),key=`${s.tenantId}/quarantine/import-${id}/${input.sha256}`,target=`${s.tenantId}/approved/${derived?.sha256??input.sha256}`,preparedKey=derived?`${s.tenantId}/quarantine/import-${id}/prepared-${derived.sha256}`:null;
   const approvedCoarse=coarse&&derived?imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe).coarse:undefined;
   const storedDerived=derived&&coarse&&approvedCoarse&&coarseWorkspace?{...derived,viewerCoarse:{intent:coarse,workspaceId:coarseWorkspace.workspaceId,principalId:s.userId,stageKey:`${s.tenantId}/quarantine/import-${id}/coarse-${approvedCoarse.sha256}`,sha256:approvedCoarse.sha256,bytes:approvedCoarse.bytes}}:derived;
-  const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation,png_drain_version'+(preparation?',model_preparation':'')+') VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17'+(preparation?',$18':'')+') RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,storedDerived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null,input.mime==='image/png'||coarse||preparation?1:0,...(preparation?[{kind:'required-model-compact',request:preparation}]:[])]);
+  const row=await c.query('INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,derived,derived_object_key,model_derivation,png_drain_version'+(preparation?',model_preparation':'')+') VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17'+(preparation?',$18':'')+') RETURNING *',[s.tenantId,id,s.userId,input.artworkId,input.idempotencyKey,hash,input.mime,input.sha256,input.bytes,input.rights,key,target,input.scaleMeters,storedDerived??null,preparedKey,model?{kind:'model-texture-pair',request:model}:null,input.mime==='image/png'||coarse||preparation?1:0,...(preparation?[{kind:'required-model-compact',request:{...preparation,...(reference?{sourceDisplayReference:structuredClone(reference)}:{})}}]:[])]);
   return this.view(row.rows[0]);
  }
  model(row:Record<string,unknown>){
