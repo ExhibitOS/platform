@@ -22,12 +22,25 @@ async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=f
  try{for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
  const result=new Uint8Array(length);let offset=0;for(const c of chunks){result.set(c,offset);offset+=c.length;}return result;
 }
+// Detail capabilities own the complete response, including cancellation. A
+// failed cancel remains an error rather than evidence that the reader drained.
+async function readDetail(path:string,limit:number,signal:AbortSignal,cacheEligible=false){
+ if(!/^data\/[a-f0-9]{64}\.bin$/.test(path)&&path!=='static-publication-index.json')throw Error('STATIC_PATH');
+ signal.throwIfAborted();const response=await fetch('/'+path,{credentials:'omit',cache:cacheEligible?'default':'no-store',signal,redirect:'error'});
+ if(!response.ok||!response.body){if(response.body)await response.body.cancel();throw Error('STATIC_RESPONSE');}
+ let bytes:Uint8Array;try{bytes=new Uint8Array(limit);}catch(error){await response.body.cancel();throw error;}const reader=response.body.getReader();let length=0,chunks=0,cancellation:Promise<void>|undefined;
+ const cancel=()=>{if(!cancellation){cancellation=reader.cancel();void cancellation.catch(()=>{});}return cancellation;};
+ const abort=()=>{void cancel();};signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
+ try{for(;;){const next=await reader.read();signal.throwIfAborted();if(next.done)break;if(++chunks>65536||next.value.length===0||next.value.length>limit-length)throw Error('STATIC_SIZE');bytes.set(next.value,length);length+=next.value.length;}signal.throwIfAborted();return bytes.slice(0,length);}
+ catch(error){await cancel();throw error;}
+ finally{signal.removeEventListener('abort',abort);try{if(cancellation)await cancellation;}finally{reader.releaseLock();}}
+}
 type StaticIndex={version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[];detailAssets?:FileEntry[]};
 type DetailDescriptor={assetId:string;url:string;mime:string};
 const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
 async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal):Promise<StaticIndex>{
  if(!expected||! /^[a-f0-9]{64}$/.test(expected))throw Error("STATIC_INDEX");
- const bytes=await read("static-publication-index.json",1048576,signal,false,base);
+ const bytes=signal&&!base?await readDetail("static-publication-index.json",1048576,signal):await read("static-publication-index.json",1048576,signal,false,base);
  if(await hash(bytes)!==expected)throw Error("STATIC_INDEX_HASH");
  return parseStaticJson(bytes) as StaticIndex;
 }
@@ -83,8 +96,8 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
  return new Response(new Uint8Array(data),{headers:{"content-type":entry.mime,"content-length":String(data.length),"x-exhibitos-publication-revision":revisionSha256}});};
  const check=async()=>{if(!validateExhibition(value.exhibition,{publicationTime:new Date().toISOString()}).valid||!publicWorkspaceFurnishingRights(workspace)||!publicWorkspaceMaterialRights(material))throw Error("STATIC_DISPLAY_RIGHTS");};await check();
  const checkDetailRights=(id:string)=>{const rights=detailRights.get(id),from=rights?.validFrom===undefined?-Infinity:Date.parse(rights.validFrom);if(!rights||Number.isNaN(from)||rights.expiresAt!==undefined||!rights.permissions.display||!rights.permissions.export||!rights.permissions.download||Date.now()<from)throw Error('STATIC_DETAIL_RIGHTS');};
- const recheckDetail=async(candidateId:string,signal:AbortSignal)=>{signal.throwIfAborted();const bound=detailCandidates.get(candidateId);if(!bound)throw Error('STATIC_DETAIL');await verifiedIndex(expectedIndex,'',signal);signal.throwIfAborted();if(value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||await hash(new TextEncoder().encode(freezeCanonical(value.exhibition)))!==revisionSha256)throw Error('STATIC_PUBLICATION');await check();checkDetailRights(bound.candidate.assetId);signal.throwIfAborted();};
- const detailAccess:DetailAccess|undefined=index.version===4&&!previousIndex?Object.freeze({revisionSha256,async candidatesFor(artworkRevisionId:string){const candidates=[...detailCandidates.values()].filter(item=>item.artworkRevisionId===artworkRevisionId).map(item=>item.candidate);for(const candidate of candidates)await recheckDetail(candidate.candidateId,AbortSignal.timeout(30000));return Object.freeze(candidates);},recheck:recheckDetail,async fetch(candidateId:string,signal:AbortSignal){await recheckDetail(candidateId,signal);const bound=detailCandidates.get(candidateId)!,entry=detailEntries.find(item=>item.assetId===bound.candidate.assetId)!;const bytes=await read(entry.path,entry.bytes,signal,true);if(bytes.length!==entry.bytes||await hash(bytes)!==entry.sha256)throw Error('STATIC_ASSET_HASH');await recheckDetail(candidateId,signal);return bytes;}}):undefined;
+ const recheckDetail=async(candidateId:string,signal:AbortSignal)=>{signal.throwIfAborted();const bound=detailCandidates.get(candidateId);if(!bound)throw Error('STATIC_DETAIL');await verifiedIndex(expectedIndex,'',signal);signal.throwIfAborted();const canonical=freezeCanonical(value.exhibition);if(value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||await hash(new TextEncoder().encode(canonical))!==revisionSha256)throw Error('STATIC_PUBLICATION');await check();checkDetailRights(bound.candidate.assetId);signal.throwIfAborted();if(freezeCanonical(value.exhibition)!==canonical||value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published')throw Error('STATIC_PUBLICATION');};
+ const detailAccess:DetailAccess|undefined=index.version===4&&!previousIndex?Object.freeze({revisionSha256,async candidatesFor(artworkRevisionId:string,signal=AbortSignal.timeout(30000)){signal.throwIfAborted();const candidates=[...detailCandidates.values()].filter(item=>item.artworkRevisionId===artworkRevisionId).map(item=>item.candidate);if(candidates[0])await recheckDetail(candidates[0].candidateId,signal);for(const candidate of candidates)checkDetailRights(candidate.assetId);signal.throwIfAborted();return Object.freeze(candidates);},recheck:recheckDetail,async fetch(candidateId:string,signal:AbortSignal){await recheckDetail(candidateId,signal);const bound=detailCandidates.get(candidateId)!,entry=detailEntries.find(item=>item.assetId===bound.candidate.assetId)!;const bytes=await readDetail(entry.path,entry.bytes,signal,true);if(bytes.length!==entry.bytes||await hash(bytes)!==entry.sha256)throw Error('STATIC_ASSET_HASH');await recheckDetail(candidateId,signal);return bytes;}}):undefined;
  if(previousIndex){
   // The current publication must itself pass its normal validation before it
   // can authorize exact historical Wheat bytes absent from its inventory.
