@@ -123,3 +123,22 @@ test('staging touch transition trial is opt-in and leaves other choices unchange
  const touch={coarsePointer:true};expect(deviceBudget(touch).maxTransitionBytes).toBe(128*1024*1024);
  vi.stubGlobal('__EXHIBITOS_IPHONE12_TRANSITION_TRIAL__',true);try{expect(deviceBudget(touch).maxTransitionBytes).toBe(160*1024*1024);expect(deviceBudget({deviceMemory:2,...touch})).toEqual(DEVICE_BUDGETS.compact);expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);}finally{vi.unstubAllGlobals();}
 });
+
+test('resident trial admits the physical Hayes demand after observed scene reservations',()=>{
+ const mib=1024*1024,touch={coarsePointer:true};
+ const observedLimit=46333066,tracked=28484778,candidate=30783106;
+ const original=selectedDeviceBudget('auto',touch);
+ const reservations=original.maxCacheBytes-observedLimit;
+ expect(observedLimit).toBeLessThan(tracked+candidate);
+ vi.stubGlobal('__EXHIBITOS_IPHONE12_RESIDENT_TRIAL__',true);
+ try{
+  expect(selectedDeviceBudget('auto',touch)).toEqual(original);
+  vi.stubGlobal('__EXHIBITOS_IPHONE12_TRANSITION_TRIAL__',true);
+  const trial=selectedDeviceBudget('auto',touch);
+  expect(trial).toEqual({...original,maxCacheBytes:144*mib,maxTransitionBytes:160*mib});
+  expect(trial.maxCacheBytes-reservations-tracked-candidate).toBe(20619614);
+  expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);
+  expect(selectedDeviceBudget('auto',{...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
+  expect(selectedDeviceBudget('auto',{coarsePointer:false,finePointer:true}).maxCacheBytes).toBe(192*mib);
+ }finally{vi.unstubAllGlobals();}
+});

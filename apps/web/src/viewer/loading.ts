@@ -2,6 +2,7 @@
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
 declare const __EXHIBITOS_IPHONE12_TRANSITION_TRIAL__:boolean|undefined;
+declare const __EXHIBITOS_IPHONE12_RESIDENT_TRIAL__:boolean|undefined;
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
@@ -28,7 +29,11 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  }
  // Browsers without a memory hint can still need overlap for a visible
  // minimum. Bound touch auto headroom without changing texture admission.
- if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:112*1024*1024,maxTransitionBytes:(typeof __EXHIBITOS_IPHONE12_TRANSITION_TRIAL__!=='undefined'&&__EXHIBITOS_IPHONE12_TRANSITION_TRIAL__?160:128)*1024*1024};
+ if(memory===undefined&&input.coarsePointer){
+  const transitionTrial=typeof __EXHIBITOS_IPHONE12_TRANSITION_TRIAL__!=='undefined'&&__EXHIBITOS_IPHONE12_TRANSITION_TRIAL__;
+  const residentTrial=transitionTrial&&typeof __EXHIBITOS_IPHONE12_RESIDENT_TRIAL__!=='undefined'&&__EXHIBITOS_IPHONE12_RESIDENT_TRIAL__;
+  return {...budget,maxCacheBytes:(residentTrial?144:112)*1024*1024,maxTransitionBytes:(transitionTrial?160:128)*1024*1024};
+ }
  // An explicit fine-pointer Auto session without a memory hint uses the same
  // bounded allocation allowance as the existing detailed desktop setting.
  // Triangle and texture limits stay at the ordinary desktop profile.
