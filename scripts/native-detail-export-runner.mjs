@@ -13,7 +13,7 @@ export async function runNativeDetailExport({origin,publicationId,runtimeRoot,ou
  stdout.on('error',()=>outputAbort.abort());
  const send=async value=>{
   signal.throwIfAborted();const bytes=Buffer.from(JSON.stringify(value));if(!bytes.length||bytes.length>1024)throw Error('NATIVE_DETAIL_FRAME');const frame=Buffer.alloc(bytes.length+4);frame.writeUInt32BE(bytes.length);bytes.copy(frame,4);
-  await new Promise((resolve,reject)=>{let done=false;const finish=error=>{if(done)return;done=true;signal.removeEventListener('abort',abort);error?reject(error):resolve();},abort=()=>finish(Error('NATIVE_DETAIL_CANCELLED'));signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}stdout.write(frame,error=>{if(error)outputAbort.abort();finish(error);});});signal.throwIfAborted();
+  await new Promise((resolve,reject)=>{let done=false;const finish=error=>{if(done)return;done=true;signal.removeEventListener('abort',abort);if(error)reject(error);else resolve();},abort=()=>finish(Error('NATIVE_DETAIL_CANCELLED'));signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}stdout.write(frame,error=>{if(error)outputAbort.abort();finish(error);});});signal.throwIfAborted();
  };
  try{
   startup=await pipe.takeStartup();signal.throwIfAborted();control=controlFactory(startup,signal);const descriptors=await control.prepare();if(!Array.isArray(descriptors))throw Error('NATIVE_DETAIL_UNAVAILABLE');signal.throwIfAborted();

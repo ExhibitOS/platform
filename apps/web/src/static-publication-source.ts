@@ -37,6 +37,8 @@ async function readDetail(path:string,limit:number,signal:AbortSignal,cacheEligi
  let active=true,registrationAttempted=false,registrationUncertain=false;const abort=()=>{if(active)void cancel();};
  try{try{registrationAttempted=true;signal.addEventListener('abort',abort,{once:true});}catch(error){registrationUncertain=true;throw error;}if(signal.aborted)abort();for(;;){const next=await reader.read();signal.throwIfAborted();if(next.done)break;if(++chunks>65536||next.value.length===0||next.value.length>limit-length)throw Error('STATIC_SIZE');bytes.set(next.value,length);length+=next.value.length;}signal.throwIfAborted();return bytes.slice(0,length);}
  catch(error){await awaitCleanup(cancel);if(registrationUncertain)throw new StaticCleanupUncertain(error);throw error;}
+ // Cleanup uncertainty must override any earlier result.
+ // eslint-disable-next-line no-unsafe-finally
  finally{active=false;let removalFailed=false,removalError:unknown;try{if(registrationAttempted)signal.removeEventListener('abort',abort);}catch(error){removalFailed=true;removalError=error;}try{if(cancellation)await awaitCleanup(()=>cancellation!);}finally{try{reader.releaseLock();}catch(error){throw new StaticCleanupUncertain(error);}}if(removalFailed)throw new StaticCleanupUncertain(removalError);}
 }
 type StaticIndex={version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[];detailAssets?:FileEntry[]};

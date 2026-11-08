@@ -836,7 +836,7 @@ export class Publications {
             const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.id=$1", [id])).rows[0] as PublicationRow | undefined;
             if (!row || row.status !== "published")
                 throw new ApiError(404, "PUBLICATION_UNAVAILABLE");
-            const initial=await this.gate(c,row,assetId);let {assets,furnishings,workspaceFurnishings,workspaceMaterials} = initial;
+            const initial=await this.gate(c,row,assetId);const {assets,furnishings,workspaceFurnishings,workspaceMaterials} = initial;
             if (assetId) {
                 const material=workspaceMaterials.find(p=>p.publicId===assetId);
                 if(material){if(!material.bytes)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');return {bytes:material.bytes,mime:material.mime,revisionSha256:row.revision_sha256};}
