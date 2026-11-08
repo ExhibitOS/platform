@@ -5,7 +5,7 @@ import {AssetPeakBudget} from './loading';
 import {borrowedDetailPreview,createFlatDetailRetry} from './borrowed-detail-preview';
 
 afterEach(()=>vi.unstubAllGlobals());
-function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,keepHiddenOnDispose?:()=>boolean,deferRestore?:()=>boolean){
+function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,keepHiddenOnDispose?:()=>boolean,deferRestore?:()=>boolean,anchors=true){
  let shouldFail=renderFails;
  let disconnected=0,released=0,geometryDisposed=0,materialDisposed=0,textureDisposed=0,renders=0,resizes=0;
  vi.stubGlobal('ResizeObserver',class {observe(){}disconnect(){disconnected++;}});
@@ -14,12 +14,12 @@ function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,kee
  const parent={appendChild(value:typeof canvas){value.parentNode=this;},insertBefore(value:typeof canvas){value.parentNode=this;}};parent.appendChild(canvas);
  const target={isConnected:true,clientWidth:640,clientHeight:360,appendChild(value:typeof canvas){value.parentNode=this;}};
  let width=1280,height=720,ratio=1.5,lastScene:three.Scene|undefined;
- const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){resizes++;width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){renders++;lastScene=scene;if(shouldFail)throw Error('GPU_UNAVAILABLE');}};
+ const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){resizes++;width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){renders++;lastScene=scene;scene.traverse(node=>{if(node instanceof three.Mesh)canvas.dataset.pixelMarker=node.geometry.uuid;});if(shouldFail)throw Error('GPU_UNAVAILABLE');}};
  const texture=new three.Texture({width:4,height:3}),geometry=new three.BoxGeometry(2,3,1),material=new three.MeshStandardMaterial({map:texture});
  geometry.addEventListener('dispose',()=>geometryDisposed++);material.addEventListener('dispose',()=>materialDisposed++);texture.addEventListener('dispose',()=>textureDisposed++);
  const object=new three.Mesh(geometry,material);object.position.set(1,2,3);object.updateMatrixWorld(true);
  const before=object.matrixWorld.toArray(),abort=new AbortController();
- const create=()=>borrowedDetailPreview({three,renderer:renderer as unknown as three.WebGLRenderer,object,request:{placementId:'placement',host:target as unknown as HTMLElement,signal:abort.signal,view:{yaw:0,pitch:0,zoom:1},beforeRender,flatImage,keepHiddenOnDispose,deferRestore,anchors:[{id:'note',position:[0,0,0],text:'annotation'}],unavailable(){}},environment:()=>({map:null,intensity:.45}),onRelease(){released++;}});
+ const create=()=>borrowedDetailPreview({three,renderer:renderer as unknown as three.WebGLRenderer,object,request:{placementId:'placement',host:target as unknown as HTMLElement,signal:abort.signal,view:{yaw:0,pitch:0,zoom:1},beforeRender,flatImage,keepHiddenOnDispose,deferRestore,anchors:anchors?[{id:'note',position:[0,0,0],text:'annotation'}]:[],unavailable(){}},environment:()=>({map:null,intensity:.45}),onRelease(){released++;}});
  return {canvas,parent,target,object,geometry,material,before,abort,create,setRenderFails:(value:boolean)=>{shouldFail=value;},read:()=>({width,height,ratio,lastScene,disconnected,released,geometryDisposed,materialDisposed,textureDisposed,renders,resizes})};
 }
 
@@ -81,4 +81,21 @@ test('returns a hidden canvas without resizing its buffer while an original atte
 
 test('does not reset the drawing buffer for unchanged detail draws or interaction',()=>{
  const f=fixture(false,undefined,true),scope=f.create(),count=f.read().resizes;scope.render();scope.update({yaw:0,pitch:0,zoom:1.5});scope.replaceImage(f.object);expect(f.read().resizes).toBe(count);scope.dispose();
+});
+
+
+test('commits a borrowed sculpture swap only after drawing, without taking either model ownership',()=>{
+ const f=fixture(false,undefined,false,undefined,undefined,false),scope=f.create();const geometry=new three.BoxGeometry(5,2,1),material=new three.MeshStandardMaterial(),next=new three.Mesh(geometry,material);next.position.set(4,1,-2);next.updateMatrixWorld(true);const before=next.matrixWorld.toArray(),dispose=vi.spyOn(geometry,'dispose');
+ scope.replaceModel(next);const meshes:three.Mesh[]=[];f.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)meshes.push(node);});expect(meshes.some(node=>node.geometry===geometry)).toBe(true);expect(meshes.some(node=>node.geometry===f.geometry)).toBe(false);expect(next.matrixWorld.toArray()).toEqual(before);expect(JSON.parse(f.canvas.dataset.detailState!).artifactBounds.max[0]).toBeGreaterThan(4);scope.dispose();expect(dispose).not.toHaveBeenCalled();expect(f.read()).toMatchObject({geometryDisposed:0,materialDisposed:0,textureDisposed:0});
+});
+
+test('rejects unqualified anchors and restores the prior model on draw failure or a suppressed draw',()=>{
+ const anchored=fixture(),anchoredScope=anchored.create();expect(()=>anchoredScope.replaceModel(new three.Mesh(new three.BoxGeometry(),new three.MeshBasicMaterial()))).toThrow('DETAIL_MODEL_SWAP_UNAVAILABLE');anchoredScope.dispose();
+ const f=fixture(false,undefined,false,undefined,undefined,false),scope=f.create(),next=new three.Mesh(new three.BoxGeometry(4,1,1),new three.MeshStandardMaterial());f.setRenderFails(true);expect(()=>scope.replaceModel(next)).toThrow('GPU_UNAVAILABLE');expect(f.canvas.dataset.pixelMarker).toBe(next.geometry.uuid);expect(f.canvas.style.visibility).toBe('hidden');f.setRenderFails(false);expect(scope.render()).toBe(false);const meshes:three.Mesh[]=[];f.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)meshes.push(node);});expect(meshes.some(node=>node.geometry===f.geometry)).toBe(true);expect(meshes.some(node=>node.geometry===next.geometry)).toBe(false);const resizes=f.read().resizes;scope.dispose();expect(f.canvas.style.visibility).toBe('hidden');expect(f.read().resizes).toBe(resizes);
+ let accepted=true;const g=fixture(false,()=>accepted,false,undefined,undefined,false),other=g.create();accepted=false;expect(()=>other.replaceModel(next)).toThrow('DETAIL_DRAW_UNCONFIRMED');accepted=true;expect(other.render()).toBe(true);const retained:three.Mesh[]=[];g.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)retained.push(node);});expect(retained.some(node=>node.geometry===g.geometry)).toBe(true);other.dispose();
+});
+
+test('rejects empty models and unavailable preview scopes before committing a sculpture swap',()=>{
+ const f=fixture(false,undefined,false,undefined,undefined,false),scope=f.create();expect(()=>scope.replaceModel(new three.Group())).toThrow('DETAIL_BOUNDS_UNAVAILABLE');scope.dispose();expect(()=>scope.replaceModel(f.object)).toThrow('DETAIL_MODEL_SWAP_UNAVAILABLE');
+ const flat=fixture(false,undefined,true,undefined,undefined,false),flatScope=flat.create();expect(()=>flatScope.replaceModel(flat.object)).toThrow('DETAIL_MODEL_SWAP_UNAVAILABLE');flatScope.dispose();
 });

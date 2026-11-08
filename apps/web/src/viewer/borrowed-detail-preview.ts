@@ -32,7 +32,7 @@ export function borrowedDetailPreview(input:{
  three:typeof Three;renderer:Three.WebGLRenderer;object:Three.Object3D;
  request:SharedDetailRequest;environment:()=>{map:Three.Texture|null;intensity:number};
  onRelease():void;
-}):SharedDetailSession&{render():boolean;replaceImage(object:Three.Object3D):void}{
+}):SharedDetailSession&{render():boolean;replaceImage(object:Three.Object3D):void;replaceModel(object:Three.Object3D):void}{
  const {three,renderer,request}=input,canvas=renderer.domElement;
  request.signal.throwIfAborted();
  const parent=canvas.parentNode,next=canvas.nextSibling;
@@ -41,9 +41,9 @@ export function borrowedDetailPreview(input:{
  const pixelLimit=canvas.width*canvas.height;
  const scene=new three.Scene();scene.background=new three.Color('#181a20');
  const flat=request.flatImage?flatImagePreview(three,input.object):undefined;
- const clone=input.object.clone(true);clone.updateMatrixWorld(true);
- const box=new three.Box3().setFromObject(clone,true),size=box.getSize(new three.Vector3()),centre=box.getCenter(new three.Vector3());
- const extent=Math.max(size.x,size.y,size.z);
+ let clone=input.object.clone(true);clone.updateMatrixWorld(true);
+ let box=new three.Box3().setFromObject(clone,true),centre=box.getCenter(new three.Vector3());const size=box.getSize(new three.Vector3());
+ let extent=Math.max(size.x,size.y,size.z);
  if(box.isEmpty()||!Number.isFinite(extent)||extent<=0)throw Error('DETAIL_BOUNDS_UNAVAILABLE');
  const pivot=new three.Group(),contents=new three.Group();
  pivot.position.copy(centre);contents.position.copy(centre).negate();contents.add(clone);pivot.add(contents);scene.add(pivot);
@@ -53,9 +53,9 @@ export function borrowedDetailPreview(input:{
  scene.add(new three.HemisphereLight(0xffffff,0x333344,.6));
  const light=new three.DirectionalLight(0xffffff,2);light.position.set(3,4,5);scene.add(light);
  const camera=new three.PerspectiveCamera(45,1,.01,100);
- let view=request.view,disposed=false;
+ let view=request.view,disposed=false,unsafeModelDraw=false;
  const render=()=>{
-  if(disposed||request.beforeRender?.()===false)return false;
+  if(disposed||unsafeModelDraw||request.beforeRender?.()===false)return false;
   const width=Math.max(1,request.host.clientWidth),height=Math.max(1,request.host.clientHeight);
   const ratio=Math.min(saved.ratio,Math.sqrt(pixelLimit/(width*height)));
   if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
@@ -74,10 +74,10 @@ export function borrowedDetailPreview(input:{
  const dispose=()=>{
   if(disposed)return;disposed=true;observer.disconnect();request.signal.removeEventListener('abort',dispose);
   flat?.dispose();scene.clear();markerGeometry?.dispose();markerMaterial?.dispose();
-  delete canvas.dataset.detailState;let keepHidden:boolean;try{keepHidden=request.keepHiddenOnDispose?.()===true;}catch{keepHidden=true;}canvas.style.cssText=saved.style;if(keepHidden)canvas.style.visibility='hidden';canvas.tabIndex=saved.tabIndex;
+  delete canvas.dataset.detailState;let keepHidden:boolean;try{keepHidden=request.keepHiddenOnDispose?.()===true||unsafeModelDraw;}catch{keepHidden=true;}canvas.style.cssText=saved.style;if(keepHidden)canvas.style.visibility='hidden';canvas.tabIndex=saved.tabIndex;
   if(saved.label===null)canvas.removeAttribute('aria-label');else canvas.setAttribute('aria-label',saved.label);
   if(next?.parentNode===parent)parent.insertBefore(canvas,next);else parent.appendChild(canvas);
-  let deferred:boolean;try{deferred=request.deferRestore?.()===true;}catch{deferred=true;}if(!deferred){renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);}
+  let deferred:boolean;try{deferred=request.deferRestore?.()===true||unsafeModelDraw;}catch{deferred=true;}if(!deferred){renderer.setPixelRatio(saved.ratio);renderer.setSize(saved.size.x,saved.size.y);}
   input.onRelease();
  };
  try{
@@ -85,7 +85,19 @@ export function borrowedDetailPreview(input:{
   canvas.setAttribute('aria-label',flat?'작품 정면 이미지':'작품 상세 3D 미리보기');request.host.appendChild(canvas);
   request.signal.addEventListener('abort',dispose,{once:true});observer.observe(request.host);render();
  }catch(error){dispose();throw error;}
- return {render,replaceImage(object:Three.Object3D){if(!flat)return;const rollback=flat.replace(object);try{render();}catch(error){rollback();throw error;}},update(nextView){view=nextView;render();},dispose};
+ return {render,replaceImage(object:Three.Object3D){if(!flat)return;const rollback=flat.replace(object);try{render();}catch(error){rollback();throw error;}},
+  /** The caller owns both objects and may swap only after independently proving
+   * their identity, budget and coordinates. Existing anchors are not silently
+   * projected onto a different model. A false draw is not a committed swap. */
+  replaceModel(object:Three.Object3D){
+   if(disposed||unsafeModelDraw||flat||request.anchors.length)throw Error('DETAIL_MODEL_SWAP_UNAVAILABLE');
+   const next=object.clone(true);next.updateMatrixWorld(true);const nextBox=new three.Box3().setFromObject(next,true),nextSize=nextBox.getSize(new three.Vector3()),nextCentre=nextBox.getCenter(new three.Vector3()),nextExtent=Math.max(nextSize.x,nextSize.y,nextSize.z);
+   if(nextBox.isEmpty()||!Number.isFinite(nextExtent)||nextExtent<=0)throw Error('DETAIL_BOUNDS_UNAVAILABLE');
+   const previous={clone,box,centre,extent};contents.remove(clone);contents.add(next);clone=next;box=nextBox;centre=nextCentre;extent=nextExtent;pivot.position.copy(centre);contents.position.copy(centre).negate();
+   const rollback=()=>{contents.remove(next);contents.add(previous.clone);({clone,box,centre,extent}=previous);pivot.position.copy(centre);contents.position.copy(centre).negate();};
+   let drawn:boolean;try{drawn=render();}catch(error){rollback();unsafeModelDraw=true;canvas.style.visibility='hidden';throw error;}
+   if(!drawn){rollback();throw Error('DETAIL_DRAW_UNCONFIRMED');}
+  },update(nextView){view=nextView;render();},dispose};
 }
 
 /** Callback for the existing viewer statistics tick; owns no timer or admission. */
