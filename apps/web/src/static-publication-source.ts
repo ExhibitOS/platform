@@ -46,7 +46,7 @@ type DetailDescriptor={assetId:string;url:string;mime:string};
 // Registration remains private to this module and occurs only after the full
 // static publication has been verified. A wrapper or another publication may
 // not borrow a capability's reader-retirement disposition.
-type StaticDetailAttestation=Readonly<{indexSha256:string;publicationSha256:string;candidate:Readonly<{sha256:string;bytes:number;mime:string;width:number;height:number}>}>;
+type StaticDetailAttestation=Readonly<{indexSha256:string;publicationSha256:string;candidate:Readonly<{artworkRevisionId:string;sha256:string;bytes:number;mime:string;width:number;height:number}>}>;
 const verifiedDetailOwners=new WeakMap<object,{owner:PublicPublication;publication:PublicPublication['publication'];exhibition:PublicPublication['exhibition'];local:NonNullable<PublicPublication['local']>;attestations:ReadonlyMap<string,StaticDetailAttestation>}>();
 export function isVerifiedStaticDetailAccess(publication:unknown,access:unknown):access is DetailAccess{
  if(!access||typeof access!=='object')return false;
@@ -130,7 +130,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   }
   if(!retainsCopyInventory(index,{...activeIndex,assets:[...activeIndex.assets,...supplemental]},activeIndex.version===4))throw Error('STATIC_PREVIOUS_ASSETS');
  }
- const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,fetcher,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,candidate:Object.freeze({sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
+ const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,fetcher,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate,artworkRevisionId} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,candidate:Object.freeze({artworkRevisionId,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
  return {publication,index};
 }
 export async function loadStaticPublication(previousIndex?:string):Promise<PublicPublication>{return (await loadVerifiedStaticPublication(previousIndex)).publication;}
