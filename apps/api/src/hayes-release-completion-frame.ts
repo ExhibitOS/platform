@@ -21,3 +21,9 @@ export function decodeHayesReleaseCompletion(raw:Uint8Array,expected:Expected){
   return Object.freeze({binding,nativeOwnerId:expected.nativeOwnerId,runtimeManifestSha256:expected.runtimeManifestSha256,workerManifestSha256:expected.workerManifestSha256,nativeEvidenceSha256:expected.nativeEvidenceSha256,readyFrameSha256:expected.readyFrameSha256,dbStageId:expected.dbStageId,database:Object.freeze({...expected.database}),challenge:expected.challenge,receiptId:expected.receiptId,receiptSha256:expected.receiptSha256,intentSha256:v.intentSha256 as string,completionSha256:v.completionSha256 as string,canonical:bytes});
  }catch{throw Error('HAYES_RELEASE_COMPLETION_INVALID');}
 }
+/** Notify the same Manager only after an unambiguous durable DB commit. */
+export function encodeHayesReleaseRecorded(input:{binding:HayesOperationBinding;nativeOwnerId:string;runtimeManifestSha256:string;readyFrameSha256:string;dbStageId:string;challenge:string;receiptId:string;completionFrameSha256:string}):Uint8Array{
+ if(!input||!uuid.test(input.nativeOwnerId)||!uuid.test(input.dbStageId)||!uuid.test(input.challenge)||!uuid.test(input.receiptId)||!hash.test(input.runtimeManifestSha256)||!hash.test(input.readyFrameSha256)||!hash.test(input.completionFrameSha256))throw Error('HAYES_RELEASE_RECORDED_INVALID');
+ const binding=parseHayesOperationBinding(input.binding),frame=Buffer.from(JSON.stringify({version:1,kind:'hayes-release-recorded',binding,nativeOwnerId:input.nativeOwnerId,runtimeManifestSha256:input.runtimeManifestSha256,readyFrameSha256:input.readyFrameSha256,dbStageId:input.dbStageId,challenge:input.challenge,receiptId:input.receiptId,completionFrameSha256:input.completionFrameSha256}));
+ if(frame.length>8192)throw Error('HAYES_RELEASE_RECORDED_INVALID');return frame;
+}

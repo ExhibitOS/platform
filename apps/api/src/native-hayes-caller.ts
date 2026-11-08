@@ -16,6 +16,7 @@ import {storeHayesOutput} from './hayes-output-storage.ts';
 import {commitHayesDisposition} from './hayes-disposition-transaction.ts';
 import {decodeHayesDispositionChallenge,encodeHayesDispositionNotice} from './hayes-disposition-notice-frame.ts';
 import {recordHayesReleaseCompletion} from './hayes-release-completion.ts';
+import {encodeHayesReleaseRecorded} from './hayes-release-completion-frame.ts';
 
 type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
 type Credentials={token:string|undefined;csrf:string|undefined};
@@ -121,7 +122,9 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
      },
      async receiveRelease(){
       if(phase!=='committed'||!isHayesReleaseContext(owner))return await invalidate(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));phase='releasing';
-      try{const frame=Buffer.from(await waitHayesReadyFrame(sharedChannel,fenceSignal,deadlineMs));await bounded(live);const result=await recordHayesReleaseCompletion({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,frame});await bounded(live);phase='released';return result;}
+      try{const frame=Buffer.from(await waitHayesReadyFrame(sharedChannel,fenceSignal,deadlineMs));await bounded(live);const result=await recordHayesReleaseCompletion({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,frame});await bounded(live);
+       const release=state?.scope.release;if(!release)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');const ack=encodeHayesReleaseRecorded({binding,nativeOwnerId,runtimeManifestSha256,readyFrameSha256:release.readyFrameSha256,dbStageId:state!.scope.dbStageId,challenge:release.challenge,receiptId:release.receiptId,completionFrameSha256:result.completionFrameSha256});
+       await bounded(()=>sharedChannel.send(ack));await bounded(live);phase='released';return result;}
       catch(cause){return await invalidate(cause);}
      },
      close:async()=>{valid=false;await close();},
