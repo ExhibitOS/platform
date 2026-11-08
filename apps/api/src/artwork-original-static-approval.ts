@@ -33,7 +33,9 @@ export async function approveOriginalStaticSource(c:PoolClient,s:Session,exhibit
  const grantInput={approvalId:coarse.intent.approvalId,workspaceId:owner.workspaceId,tenantId:s.tenantId,principalId:s.userId,artworkId:input.artworkId,artworkRevision:input.artworkRevision,artworkRevisionId:approved.artwork.revisionId,jobId:job.id,originalAssetId:job.original_asset_id,primaryAssetId:job.asset_id,sha256:original.sha256,bytes:Number(original.bytes),mime:original.mime,rights:original.rights};
  if(!originalStaticGrant(grantInput))throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');
  if(!blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
- const bytes=Buffer.from(await blobs.getBounded(original.object_key,Number(original.bytes)));
+ let bytes:Buffer;
+ try{bytes=Buffer.from(await blobs.getBounded(original.object_key,Number(original.bytes)));}
+ catch(error){if(error instanceof Error&&(error.message==='object size mismatch'||'code' in error&&error.code==='ENOENT'))throw new ApiError(409,'ASSET_INTEGRITY');throw new ApiError(503,'STORAGE_UNAVAILABLE');}
  if(bytes.length!==Number(original.bytes)||sha256(bytes)!==original.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
  const grant=originalStaticGrant(grantInput);
  if(!grant)throw new ApiError(403,'ORIGINAL_STATIC_RIGHTS_DENIED');

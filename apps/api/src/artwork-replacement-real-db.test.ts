@@ -79,6 +79,14 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   }finally{await repeatablePool.end();}
   expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
   const sourceApproval={artworkId:prior.id,artworkRevision:2,importJobId:id};
+  for(const failure of [Object.assign(new Error('missing'),{code:'ENOENT'}),new Error('object size mismatch'),new Error('storage offline')]){
+   const failing=Object.create(blobs) as BlobStore;failing.getBounded=async()=>{throw failure;};
+   await expect(transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,failing))).rejects.toThrow(failure.message==='storage offline'?'STORAGE_UNAVAILABLE':'ASSET_INTEGRITY');
+   expect((await pool.query("SELECT count(*) AS n FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId])).rows[0].n).toBe('0');
+  }
+  const corrupted=Object.create(blobs) as BlobStore;corrupted.getBounded=async()=>Buffer.alloc(original.length);
+  await expect(transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,corrupted))).rejects.toThrow('ASSET_INTEGRITY');
+  expect((await pool.query("SELECT count(*) AS n FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId])).rows[0].n).toBe('0');
   expect(await transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).toEqual({approved:true,artworkId:prior.id,artworkRevision:2});
   expect(await transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).toEqual({approved:true,artworkId:prior.id,artworkRevision:2});
   const grants=(await pool.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId])).rows;
