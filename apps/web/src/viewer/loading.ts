@@ -77,12 +77,12 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  return selectedImageCapacity(DEVICE_BUDGETS[profile],input.deviceMemory);
 }
 export function prioritizePlacements(doc:Exhibition,roomId:string,position:[number,number,number]) {return [...doc.placements].sort((a,b)=>{const score=(p:Exhibition["placements"][number])=>(p.roomId.toLowerCase()===roomId.toLowerCase()?0:1e12)+p.transform.position.reduce((n,v,i)=>n+(v-position[i]!)**2,0);return score(a)-score(b)||a.id.localeCompare(b.id);});}
-export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
+export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget,preferCoarse=false):Artwork["assets"][number] {
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==="full"),coarse=variants.find(v=>v.detail==="coarse");
  const fits=(v:typeof full)=>!!v&&(v.triangles===undefined||v.triangles<=budget.maxTriangles)&&(v.textureSize===undefined||v.textureSize<=budget.maxTextureSize);
  const lod=artwork.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
  const budgetFallback=lod?.profile===BUDGET_GEOMETRY_PAIR_PROFILE;
- let selected=coarse&&(!fits(full)||!budgetFallback&&distance>2)&&fits(coarse)?coarse:fits(full)?full:undefined;
+ let selected=coarse&&(preferCoarse||!fits(full)||!budgetFallback&&distance>2)&&fits(coarse)?coarse:fits(full)?full:undefined;
  // Images already resize uniformly before GPU upload. Permit only a small,
  // bounded source when no authored variant fits; model limits stay unchanged.
  if(!selected&&artwork.artworkType==='image'){
