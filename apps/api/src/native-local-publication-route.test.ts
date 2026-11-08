@@ -45,3 +45,8 @@ it('returns an authenticated committed retry without adopting an unknown marker'
  const app=buildApp({pool:{} as Pool,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},blobs,nativeExportWorkspace:context});
  try{const result=await app.inject({method:'POST',url:`/api/v1/tenants/${session.tenantId}/studio/exhibitions/${draft.exhibitionId}/publications`,headers:{host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200','if-match':match,'x-exhibitos-publication-profile':'bounded-local-v1'},payload:{requestId}});expect(result.statusCode).toBe(201);expect(verify).toHaveBeenCalled();expect(create).not.toHaveBeenCalled();}finally{await app.close();}
 });
+it('rejects original publication without a native detail owner before source admission',async()=>{
+ const root=await realpath(await mkdtemp(join(tmpdir(),'native-original-denied-')));roots.push(root);const store=join(root,'blobs');await mkdir(store,{mode:0o700});const blobs=new FileBlobStore(store),draft=newDraft(),tenantId=randomUUID(),prepare=vi.spyOn(Publications.prototype,'publish');
+ const app=buildApp({pool:{} as Pool,auth:{mode:'local',origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'},blobs});
+ try{const result=await app.inject({method:'POST',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${draft.exhibitionId}/publications`,headers:{host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200','if-match':etag(1,draft),'x-exhibitos-publication-profile':'native-original-v1'},payload:{requestId:randomUUID()}});expect(result.statusCode).toBe(409);expect(prepare).not.toHaveBeenCalled();}finally{await app.close();}
+});

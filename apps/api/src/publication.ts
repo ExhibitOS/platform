@@ -566,9 +566,9 @@ export class Publications {
     private async owned(c: PoolClient, s: Session, id: string): Promise<PublicationRow> { uuid(id); const row = (await c.query("SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2 FOR UPDATE OF s", [s.tenantId, id])).rows[0]; if (!row)
         throw new ApiError(403, "FORBIDDEN"); await this.studio.access(c, s, row.exhibition_id); return row; }
     /** Authenticated exact-request lookup; never adopts or retires a stage. */
-    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string){
+    async existingRequest(c:PoolClient,s:Session,id:string,requestId:string,match:string,detailMode=false){
         uuid(requestId);await this.studio.access(c,s,id);
-        const payloadHash=sha256(Buffer.from(JSON.stringify({id,requestId,match})));
+        const payloadHash=sha256(Buffer.from(JSON.stringify(detailMode?{id,requestId,match,detailProfile:'native-original-v1'}:{id,requestId,match})));
         const receipt=(await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3",[s.tenantId,s.userId,requestId])).rows[0];
         if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
         return this.summary(await this.owned(c,s,receipt.publication_id));
@@ -578,6 +578,7 @@ export class Publications {
         try{
         uuid(requestId);
         if(detail&&(!isIssuedNativeOriginalPublication(detail)||!(fileOperation instanceof NativeLocalPublicationStage)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+        if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.assertDetailMode(!!detail);
         if(detail)await detail.assertLive(c,s);
         const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify(detail?{id,requestId,match,detailProfile:'native-original-v1'}:{id,requestId,match})));
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
