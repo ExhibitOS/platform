@@ -29,8 +29,14 @@ export class Imports {
   await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},row.artwork_id,true);if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}if(storedModelPreparation(row)){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
-  const artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
   const preparation=modelPreparationIntent(input.modelPreparation);
+  let artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
+  if(preparation){
+   // Match CMS approval/revision serialization; retain this row lock through
+   // idempotent replay or new-job insertion in the caller's transaction.
+   await c.query('SELECT id FROM artworks WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,input.artworkId]);
+   artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
+  }
   if(preparation){
    if(input.mime!=='model/gltf-binary'||input.derived!==undefined||input.modelDerivation!==undefined||input.coarsePreparation!==undefined||preparation.operationID!==input.idempotencyKey)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
    await this.requiredModelReady(c,s);
@@ -54,6 +60,11 @@ export class Imports {
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${s.tenantId}:${input.idempotencyKey}`]);
   const prior=await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND idempotency_key=$2',[s.tenantId,input.idempotencyKey]);
   if(prior.rowCount){if(preparation&&prior.rows[0].user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(coarse){const old=storedImageCoarse(prior.rows[0]);if(prior.rows[0].user_id!==s.userId||!old||old.workspaceId!==coarseWorkspace?.workspaceId||old.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');}if(prior.rows[0].request_hash!==hash)throw new ApiError(409,'IDEMPOTENCY_CONFLICT');if(preparation&&prior.rows[0].state==='approved')await assertModelPreparationContext(c,prior.rows[0]);return this.view(prior.rows[0]);}
+  if(preparation){
+   if(artwork.approved_revision===artwork.revision)throw new ApiError(409,'MODEL_PREPARATION_REVISION_APPROVED');
+   // This exact input remains bound to the existing dedicated Hayes route.
+   if(input.sha256==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&input.bytes===8383096)throw new ApiError(409,'MODEL_PREPARATION_DEDICATED_ROUTE_REQUIRED');
+  }
   if(coarse&&derived){if(reference)throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');if(artwork.revision!==coarse.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe);if(!allowedRights(input.rights,'display')||!allowedRights(input.rights,'export')||!isDeepStrictEqual(input.rights,artwork.metadata?.rights))throw new ApiError(403,'RIGHTS_DENIED');}
   const id=randomUUID(),key=`${s.tenantId}/quarantine/import-${id}/${input.sha256}`,target=`${s.tenantId}/approved/${derived?.sha256??input.sha256}`,preparedKey=derived?`${s.tenantId}/quarantine/import-${id}/prepared-${derived.sha256}`:null;
   const approvedCoarse=coarse&&derived?imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe).coarse:undefined;
