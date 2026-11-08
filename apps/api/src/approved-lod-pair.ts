@@ -1,3 +1,4 @@
+import {downsampleCompactTexture} from './oam-original-preparation.ts';
 import {decodePngPixels} from "./png-pixels.ts";
 import {embeddedBasisPairs, ordinaryPngRoleSet, pbrTextureBinding, pbrTextureIsLinear} from '@exhibitos/studio-contract';
 import type {PbrTextureRole} from '@exhibitos/studio-contract';
@@ -22,11 +23,12 @@ const fail=():never=>{throw Error('APPROVED_LOD_UNSUPPORTED');};
 const closed=(v:unknown,required:string[],optional:string[]=[])=>!!v&&typeof v==='object'&&!Array.isArray(v)&&required.every(k=>Object.hasOwn(v,k))&&Object.keys(v).every(k=>required.includes(k)||optional.includes(k));
 const integer=(v:unknown):v is number=>Number.isSafeInteger(v)&&(v as number)>=0;
 const same=(a:unknown,b:unknown):boolean=>{const sort=(v:unknown):unknown=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,sort(x)])):v;return JSON.stringify(sort(a))===JSON.stringify(sort(b));};
-function model(bytes:Buffer,options:{exactTopologyTextureOnly?:true;nearGeometry?:'full'|'coarse'}={}){
+function model(bytes:Buffer,options:{exactTopologyTextureOnly?:true;nearGeometry?:'full'|'coarse';compactGeometry?:'full'|'coarse'}={}){
  const textureDerivative=options.exactTopologyTextureOnly===true;
- const near=options.nearGeometry;
+ const compact=options.compactGeometry;
+ const near=options.nearGeometry??compact;
  const derivativeLayout=textureDerivative||near!==undefined;
- const maxVertices=near==='full'?85000:near==='coarse'?20000:textureDerivative?131072:65536;
+ const maxVertices=near==='full'?(compact?131072:85000):near==='coarse'?20000:textureDerivative?131072:65536;
  const maxTriangles=near==='full'?150000:near==='coarse'?20000:textureDerivative?250000:131072;
  const maxBytes=near==='full'?17*1024*1024:near==='coarse'?2*1024*1024:(textureDerivative?32:8)*1024*1024;
  if(bytes.length<28||bytes.length>maxBytes||bytes.toString('ascii',0,4)!=='glTF'||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length||bytes.readUInt32LE(16)!==0x4e4f534a)fail();
@@ -71,10 +73,13 @@ function model(bytes:Buffer,options:{exactTopologyTextureOnly?:true;nearGeometry
   const pos=read(p.attributes.POSITION,3,false,true),normal=read(p.attributes.NORMAL,3),uv=read(p.attributes.TEXCOORD_0,2),ix=read(p.indices,1,true);vertices+=pos.a.count;triangles+=ix.a.count/3;if(vertices>maxVertices||triangles>maxTriangles||ix.a.count%3||normal.a.count!==pos.a.count||uv.a.count!==pos.a.count||tangent!==null&&tangent.a.count!==pos.a.count)fail();
   const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],tuples=new Set<string>();
   for(let i=0;i<pos.a.count;i++){let norm=0;for(let c=0;c<3;c++){const x=pos.b.readFloatLE(i*12+c*4),y=normal.b.readFloatLE(i*12+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000||!Number.isFinite(y))fail();min[c]=Math.min(min[c]!,x);max[c]=Math.max(max[c]!,x);norm+=y*y;}if(norm<1e-12||Math.abs(Math.sqrt(norm)-1)>1e-4)fail();for(let c=0;c<2;c++){const x=uv.b.readFloatLE(i*8+c*4);if(!Number.isFinite(x)||Math.abs(x)>20000)fail();}if(tangent){for(let k=0;k<4;k++){const v=tangent.b.readFloatLE(i*16+k*4);if(!Number.isFinite(v)||k===3&&v!==1&&v!==-1)fail();}const length=Math.hypot(...[0,1,2].map(k=>tangent.b.readFloatLE(i*16+k*4)));const dot=[0,1,2].reduce((sum,k)=>sum+tangent.b.readFloatLE(i*16+k*4)*normal.b.readFloatLE(i*12+k*4),0);if(Math.abs(length-1)>1e-4||Math.abs(dot)>1e-4)fail();}tuples.add(Buffer.concat([pos.b.subarray(i*12,i*12+12),normal.b.subarray(i*12,i*12+12),uv.b.subarray(i*8,i*8+8),...(tangent?[tangent.b.subarray(i*16,i*16+16)]:[])]).toString('hex'));}
-  if(textureDerivative?(!Array.isArray(pos.a.min)||!Array.isArray(pos.a.max)||pos.a.min.length!==3||pos.a.max.length!==3||[0,1,2].some(k=>!Number.isFinite(pos.a.min[k])||!Number.isFinite(pos.a.max[k])||Math.abs(pos.a.min[k]-min[k]!)>1e-5||Math.abs(pos.a.max[k]-max[k]!)>1e-5)):!same(pos.a.min,min)||!same(pos.a.max,max))fail();for(let i=0;i<ix.a.count;i++)if(ix.b.readUInt32LE(i*4)>=pos.a.count)fail();
+  if(textureDerivative?(!Array.isArray(pos.a.min)||!Array.isArray(pos.a.max)||pos.a.min.length!==3||pos.a.max.length!==3||[0,1,2].some(k=>!Number.isFinite(pos.a.min[k])||!Number.isFinite(pos.a.max[k])||Math.abs(pos.a.min[k]-min[k]!)>1e-5||Math.abs(pos.a.max[k]-max[k]!)>1e-5)):compact?(!float32BoundsEqual(pos.a.min,min)||!float32BoundsEqual(pos.a.max,max)):!same(pos.a.min,min)||!same(pos.a.max,max))fail();for(let i=0;i<ix.a.count;i++)if(ix.b.readUInt32LE(i*4)>=pos.a.count)fail();
   const seen=new Set<string>();
   for(let i=0;i<ix.a.count;i+=3){const ids=[0,1,2].map(k=>ix.b.readUInt32LE((i+k)*4));if(new Set(ids).size!==3)fail();const key=[ids.join(','),[ids[1],ids[2],ids[0]].join(','),[ids[2],ids[0],ids[1]].join(',')].sort()[0]!;if(seen.has(key))fail();seen.add(key);const point=(j:number)=>[0,1,2].map(k=>pos.b.readFloatLE(ids[j]!*12+k*4)),a=point(0),b=point(1),c=point(2),ab=b.map((v,k)=>v-a[k]!),ac=c.map((v,k)=>v-a[k]!),n=[ab[1]!*ac[2]!-ab[2]!*ac[1]!,ab[2]!*ac[0]!-ab[0]!*ac[2]!,ab[0]!*ac[1]!-ab[1]!*ac[0]!];if(!n.every(Number.isFinite)||Math.hypot(...n)<1e-12)fail();let dot=0;for(const id of ids)for(let k=0;k<3;k++)dot+=n[k]!*normal.b.readFloatLE(id!*12+k*4);// Texture-only copies cannot introduce a new face or alter an authored normal.
-  if(!Number.isFinite(dot)||!textureDerivative&&dot<=0)fail();}
+  // Smooth authored normals need not share every incident face hemisphere.
+  // Compact preserves those exact tuples; strict decode and nondegenerate
+  // triangles remain required. Keep the old near-profile rule unchanged.
+  if(!Number.isFinite(dot)||!textureDerivative&&!compact&&dot<=0)fail();}
 
   return {min,max,tuples,streams:[pos.b,normal.b,uv.b,ix.b,...(tangent?[tangent.b]:[])],triangles:ix.a.count/3,material:p.material,tangentPresent:tangent!==null};
  });
@@ -145,4 +150,37 @@ export function prepareTextureDerivative(full:Buffer,resample:(png:Buffer,edge:5
  const reduced=Buffer.concat([header,json,bh,body]),high=measureFullVariant(full,'model/gltf-binary'),low=measureFullVariant(reduced,'model/gltf-binary');
  const metrics=qualifyApprovedTextureDerivativePair(full,reduced,{triangles:high.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
  return {bytes:reduced,metrics};
+}
+
+/** glTF FLOAT accessor extrema describe binary32 components. Decimal JSON
+ * spellings that round to the same component are equal; adjacent floats are not. */
+export function float32BoundsEqual(declared:unknown,actual:readonly number[]):boolean {
+ return Array.isArray(declared)&&declared.length===actual.length&&declared.every((v,i)=>typeof v==='number'&&Number.isFinite(v)&&Math.fround(v)===actual[i]);
+}
+/** The existing compact product recipe, independently bound to actual pair
+ * bytes. This is not source authority, job provenance or physical-device proof. */
+export function qualifyApprovedCompactGeometryPair(full:Buffer,coarse:Buffer,declared:{fullTriangles:number;coarseTriangles:number;fullTextureSize:number;reducedTextureSize:number}){
+ const f=model(full,{compactGeometry:'full'}),c=model(coarse,{compactGeometry:'coarse'});
+ if(full.length<=coarse.length||f.triangles!==declared.fullTriangles||c.triangles!==declared.coarseTriangles||c.triangles>=f.triangles||f.parts.length!==1||c.parts.length!==1||f.images.length!==3||c.images.length!==3||!same(f.bindings,c.bindings))fail();
+ const a=f.parts[0]!,b=c.parts[0]!;
+ if(!same(a.min,b.min)||!same(a.max,b.max)||a.material!==b.material||a.tangentPresent||b.tangentPresent)fail();
+ for(const tuple of b.tuples)if(!a.tuples.has(tuple))fail();
+ const material=f.bindings.materials[0]!;
+ const roles=[['colour',material.baseColorTexture],['occlusion',material.occlusionTexture],['normal',material.normalTexture]] as const;
+ let fullEdge=0,coarseEdge=0;
+ for(const [role,binding] of roles){
+  if(!binding)fail();const index=f.bindings.textures[binding.index]!.source;
+  const high=decodePngPixels(f.images[index]!,4194304,2048,1024),low=decodePngPixels(c.images[index]!,262144,512,1024);
+  // glTF material roles define sRGB colour vs linear data. The compact
+  // recipe intentionally emits only IHDR/IDAT/IEND; PNG rendering-intent
+  // metadata is not an output field. Verify the exact role-aware pixels/bytes.
+  if(high.channels!==3||low.channels!==3)fail();
+  const raw=Buffer.alloc(high.width*high.height*3);
+  for(let y=0;y<high.height;y++)high.pixels.copy(raw,y*high.width*3,y*(high.width*3+1)+1,(y+1)*(high.width*3+1));
+  const expected=downsampleCompactTexture(raw,high.width,high.height,3,role);
+  if(!expected.bytes.equals(c.images[index]!))fail();
+  fullEdge=Math.max(fullEdge,high.width,high.height);coarseEdge=Math.max(coarseEdge,low.width,low.height);
+ }
+ if(fullEdge!==declared.fullTextureSize||coarseEdge!==declared.reducedTextureSize||fullEdge<1024)fail();
+ return {full:measureFullVariant(full,'model/gltf-binary'),coarse:measureFullVariant(coarse,'model/gltf-binary')};
 }

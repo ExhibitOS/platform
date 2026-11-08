@@ -78,7 +78,7 @@ function png(data:Buffer,width:number,height:number){
 }
 const linear=Array.from({length:256},(_,v)=>{const c=v/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4;});
 const colourByte=(v:number)=>Math.max(0,Math.min(255,Math.round(255*(v<=0.0031308?v*12.92:1.055*v**(1/2.4)-0.055))));
-function downsample(decoded:Buffer,width:number,height:number,channels:1|3,role:Role){
+export function downsampleCompactTexture(decoded:Buffer,width:number,height:number,channels:1|3,role:Role){
  const ratio=Math.min(1,512/Math.max(width,height)),w=Math.max(1,Math.floor(width*ratio)),h=Math.max(1,Math.floor(height*ratio)),output=Buffer.alloc(w*h*3);
  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
   let r=0,g=0,b=0,count=0;
@@ -112,7 +112,7 @@ export async function prepareCompactModel(source:Buffer,identity:ModelPreparatio
  for(const plan of plans){const {role,image,encoded,channels,width,height}=plan;
   const decoded=await sharp(encoded,options).toColourspace(channels===1?'b-w':'srgb').raw().toBuffer({resolveWithObject:true});
   if(decoded.info.width!==width||decoded.info.height!==height||decoded.info.channels!==channels||decoded.data.length!==width*height*channels)fail('MODEL_PREPARATION_IMAGE_DECODE');
-  const output=compatible?{bytes:encoded,width,height}:downsample(decoded.data,width,height,channels,role);textures[image]=output.bytes;
+  const output=compatible?{bytes:encoded,width,height}:downsampleCompactTexture(decoded.data,width,height,channels,role);textures[image]=output.bytes;
   imageReceipts.push({role,sourceSHA256:modelPreparationHash(encoded),sourceBytes:encoded.length,sourceChannels:channels,width,height,decodedSHA256:modelPreparationHash(decoded.data),outputSHA256:modelPreparationHash(output.bytes),outputWidth:output.width,outputHeight:output.height});
  }
  const sourceMetric={...identity,triangles:input.indices.length/3,vertices:input.vertices,bounds:input.bounds},edge=Math.max(...imageReceipts.map(p=>Math.max(p.outputWidth,p.outputHeight)));

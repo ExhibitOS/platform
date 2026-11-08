@@ -3,7 +3,7 @@ import type {PoolClient} from 'pg';
 import type {Session} from './auth.ts';
 import {ApiError} from './api-error.ts';
 import {modelPreparationSupported,assertModelPreparationContext} from './model-preparation-import.ts';
-import {modelPreparationDrained,modelPreparationReceipt} from './model-preparation-intent.ts';
+import {modelPreparationDrained,modelPreparationReceipt,storedModelPreparation} from './model-preparation-intent.ts';
 /** Only this required-profile asset gets the additional existing-job guard. */
 export async function assertRequiredModelApproval(c:PoolClient,s:Session,artworkId:string,assetId:string){
  if(!await modelPreparationSupported(c))return;
@@ -13,6 +13,7 @@ export async function assertRequiredModelApproval(c:PoolClient,s:Session,artwork
  if(competing.rowCount)throw new ApiError(409,'MODEL_PREPARATION_ACTIVE_IMPORT');
  const jobs=(await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2 AND asset_id=$3 AND model_preparation IS NOT NULL FOR SHARE',[s.tenantId,artworkId,assetId])).rows;
  if(!jobs.length)return;if(jobs.length!==1)throw new ApiError(409,'MODEL_PREPARATION_RECEIPT_INVALID');const row=jobs[0];
+ if(storedModelPreparation(row)?.sourceFull)throw new ApiError(409,'COMPACT_VARIANT_EXPLICIT_APPROVAL_REQUIRED');
  if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(row.state!=='approved'||!modelPreparationDrained(row))throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
  await assertModelPreparationContext(c,row);modelPreparationReceipt(row);
 }

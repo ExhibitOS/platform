@@ -121,3 +121,56 @@ Optional `modelDerivation` uses `exhibitos-near-texture-pair-v1` on the existing
 The request binds the existing idempotency key as operationID, a persisted generation and artworkRevision. Ready status includes the registered full/reduced asset IDs, actual SHA256/bytes and triangle/texture metrics. Optional derivation failure preserves the successful original import; stale/cancelled work cannot register a partial pair. Cancellation alone is not drain: callers poll `modelDerivation.workerDrained` before replacing an owned operation. CMS approval records a server-owned pair snapshot; publication independently rechecks current inventory, rights and actual pair correspondence. Existing original download and publication permissions remain separate.
 
 A failed optional model derivative can use the existing retry action with the same persisted binding and still-current artwork revision. It reuses and rechecks the already approved original asset and bytes; it never uploads, re-encodes or re-registers that original. A completed pair is not regenerated. Existing attempt and current-rights limits still apply.
+
+### Prepare a compact variant of an approved model
+
+This operation preserves an existing approved full model and creates a separate
+budget fallback candidate in the same owner/workspace. It does not upload or
+replace the acquired original, change the full asset, or update any exhibition
+placement. The acquired-original lineage remains separate from
+`sourceFull → coarse`.
+
+Capability: an authenticated session advertises
+`compactModelVariantProfile: "exhibitos-budget-geometry-pair-v1"` only while the
+selected required-model schema, bounded blob store, active importer and issued
+native writer are available. The explicit service execution mode is for service
+integration, never an implicit substitute for native authority.
+
+1. POST `/api/v1/tenants/:tenantId/cms/artworks/:id/compact-preparations` with
+   `{revision, assetId, sha256, bytes, idempotencyKey, generation}`. These identify
+   the currently approved full asset. The server validates ownership, rights,
+   revision and immutable approval, then reads the existing stored bytes and
+   queues the ordinary import worker. There is no upload step.
+2. Retain the returned job ID. GET `/api/v1/tenants/:tenantId/imports/:jobId`
+   resumes the same operation after a clean process restart. Existing import
+   cancel/retry routes and drain rules apply; an uncertain crashed worker is not
+   cleared by timeout or PID guessing. Repeating the exact create request returns
+   the same job; a changed request under that key conflicts.
+3. `modelPreparation.purpose` is `approved-full-compact`. `sourceFull` identifies
+   the approved source. `coarse` and the typed `serverReceipt` appear only at
+   `status: "ready"` after the actual child/validator drain and committed custody.
+   Processing failure is not approval-ready. The receipt binds the owner job,
+   source approval/revision, rights digest, source/coarse assets and actual
+   compact-producer recipe and output. Neither asset is labelled acquired
+   original. Source bytes and storage references survive cancellation/failure.
+4. Explicitly POST
+   `/api/v1/tenants/:tenantId/cms/artworks/:id/compact-preparations/approve` with
+   `{revision: <source artwork revision>, jobId}`. It revalidates current context,
+   actual pair bytes and the drained receipt, then atomically creates the next
+   artwork revision. The full primary, metadata, units, dimensions, transform,
+   provisional display reference and previous approval remain intact. A repeat
+   returns the same `{artworkId, revision, jobId, receiptSHA256}`. A changed
+   current revision fails instead of overwriting edits.
+5. Refresh the approved artwork and use the existing exhibition save with its
+   current ETag. Preparation and approval do not edit placement or publication.
+   Publication checks the immutable approval and actual pair again.
+
+The distinct publication profile uses full whenever existing device admission
+allows it, independent of viewing distance. Coarse is eligible only when full
+cannot fit and coarse can fit; Viewer implementation/qualification is a separate
+consumer. The bounded qualifier admits at most 150,000 full triangles, 131,072
+full vertices, 2048-pixel source textures, and a smaller coarse model with at most
+20,000 triangles/20,000 vertices/512-pixel textures. It verifies preserved FLOAT
+component bounds, retained vertex attributes/material roles and the exact
+role-aware partition-box texture recipe. These checks do not establish physical
+units, visual equivalence or successful rendering on a particular device.

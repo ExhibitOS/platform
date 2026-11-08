@@ -1,3 +1,6 @@
+import {modelReceiptDigest,type CompactVariantReceipt} from './model-preparation-intent.ts';
+import {COMPACT_MODEL_RECIPE_SHA256} from './oam-original-preparation.ts';
+import {BUDGET_GEOMETRY_PAIR_PROFILE} from '@exhibitos/studio-contract';
 import {publicResourcesFor} from '../../web/src/workspace-material-resources.mjs';
 import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from './workspace-material-publication.ts';
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
@@ -47,7 +50,7 @@ import { ApiError, uuid, type Session } from "./auth.ts";
 import { Studio, etag } from "./studio.ts";
 import { Cms, validMetadata } from "./cms.ts";
 import { viewerVariants, measureFullVariant, type GeneratedVariants } from "./viewer-variants.ts";
-import { qualifyApprovedTexturedPair, qualifyApprovedNearGeometryPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
+import { qualifyApprovedTexturedPair, qualifyApprovedCompactGeometryPair, qualifyApprovedNearGeometryPair, qualifyApprovedTextureDerivativePair, qualifyApprovedImagePair } from "./approved-lod-pair.ts";
 import { Audio, audioMedia, validatePcmWav, type MediaAsset } from "./audio.ts";
 import {CoverImages,coverImageAsset} from './cover-images.ts';
 import {SPACE_STILL_NAMESPACE,spaceStillFor,type SpaceStillAsset} from '@exhibitos/spec/space-still';
@@ -140,9 +143,13 @@ export async function recheckPublicationSources(c:PoolClient,s:Session,candidate
 /** A secondary publication source must be the exact coarse member of its immutable import approval. */
 export function approvedPublicationSource(snapshot:unknown,source:{id:string;sha256:string;bytes:number;mime:string},primary:string):boolean {
     if(!snapshot||typeof snapshot!=='object')return false;
-    const approval=snapshot as {asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork;modelPair?:{version:number;profileId:string;full:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number};reduced:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number}}};
+    const approval=snapshot as {compactVariant?:CompactVariantReceipt;metadata?:{rights?:unknown};asset?:{id:string;sha256:string;bytes:number;mime:string};importedArtwork?:Artwork;modelPair?:{version:number;profileId:string;full:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number};reduced:{id:string;sha256:string;bytes:number;triangles:number;textureSize:number}}};
     if(approval.asset?.id!==primary)return false;
     if(source.id===primary)return approval.asset.sha256===source.sha256&&approval.asset.bytes===source.bytes&&approval.asset.mime===source.mime;
+    if(approval.compactVariant?.coarse?.assetId===source.id){
+      const {sha256:digest,...receipt}=approval.compactVariant,full=receipt.sourceFull,coarse=receipt.coarse;
+      return receipt.version===1&&receipt.purpose==='approved-full-compact'&&receipt.publicationProfile===BUDGET_GEOMETRY_PAIR_PROFILE&&receipt.recipeSHA256===COMPACT_MODEL_RECIPE_SHA256&&modelReceiptDigest(receipt)===digest&&receipt.rightsSHA256===modelReceiptDigest(approval.metadata?.rights)&&full?.assetId===primary&&full.sha256===approval.asset.sha256&&full.bytes===approval.asset.bytes&&full.mime===approval.asset.mime&&coarse?.assetId===source.id&&coarse.sha256===source.sha256&&coarse.bytes===source.bytes&&coarse.mime===source.mime;
+    }
     const imported=approval.importedArtwork;
     const importedPrimary=Array.isArray(imported?.assets)?imported.assets.find(a=>a.id===primary):undefined;
     const importedPrimaryMatches=imported?.primaryAssetId===primary&&importedPrimary?.sha256===approval.asset.sha256&&importedPrimary?.bytes===approval.asset.bytes&&importedPrimary?.mime===approval.asset.mime;
@@ -447,17 +454,18 @@ export class Publications {
                     if(!full.bytes.equals(result.bytes))throw new ApiError(409,'ASSET_INTEGRITY');
                     try {
                         const textureOnly=lod?.profile===NEAR_TEXTURE_PAIR_PROFILE;
-                        const nearGeometry=lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE;
+                        const nearGeometry=lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE,budgetGeometry=lod?.profile===BUDGET_GEOMETRY_PAIR_PROFILE;
                         if(textureOnly)qualifyApprovedTextureDerivativePair(full.original,coarse.original,{triangles:high.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
+                        else if(budgetGeometry)qualifyApprovedCompactGeometryPair(full.original,coarse.original,{fullTriangles:high.triangles!,coarseTriangles:low.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
                         else if(nearGeometry)qualifyApprovedNearGeometryPair(full.original,coarse.original,{fullTriangles:high.triangles!,coarseTriangles:low.triangles!,fullTextureSize:high.textureSize!,reducedTextureSize:low.textureSize!});
                         else qualifyApprovedTexturedPair(full.original,coarse.original,high.triangles!,low.triangles!);
                         const coarseMetric=measureFullVariant(coarse.bytes,coarse.mime);
                         if(!coarseMetric.triangles||!fullMetric.triangles||(textureOnly?coarseMetric.triangles!==fullMetric.triangles:coarseMetric.triangles>=fullMetric.triangles)||coarse.bytes.length>=result.bytes.length)throw Error('APPROVED_LOD_UNSUPPORTED');
-                        if(nearGeometry&&(fullMetric.triangles!==high.triangles||coarseMetric.triangles!==low.triangles||fullMetric.textureSize!==high.textureSize||coarseMetric.textureSize!==low.textureSize))throw Error('APPROVED_LOD_INVALID');
+                        if((nearGeometry||budgetGeometry)&&(fullMetric.triangles!==high.triangles||coarseMetric.triangles!==low.triangles||fullMetric.textureSize!==high.textureSize||coarseMetric.textureSize!==low.textureSize))throw Error('APPROVED_LOD_INVALID');
                         variants={full:fullMetric,coarse:coarseMetric,bytes:coarse.bytes,...(lod?.profile?{profile:lod.profile}:{})};
                         const source=artwork.assets.find(a=>a.id.toLowerCase()===low.assetId.toLowerCase())!;
                         coarseSource={id:source.id,sha256:source.sha256};
-                    }catch(error){checkpoint?.();if(lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE||!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
+                    }catch(error){checkpoint?.();if(lod?.profile===NEAR_GEOMETRY_PAIR_PROFILE||lod?.profile===BUDGET_GEOMETRY_PAIR_PROFILE||!(error instanceof Error)||error.message!=='APPROVED_LOD_UNSUPPORTED')throw new ApiError(422,'APPROVED_LOD_INVALID');variants={full:fullMetric};}
                     // Reobserve the entire immutable imported inventory after both decoders.
                     if(!equal((await this.cms.studioArtwork(c,s,artwork.id)).artwork,artwork))throw new ApiError(409,'REVISION_CONFLICT');
                     if(!(await this.cms.approvedVariantOriginal(c,s,artwork.id,high.assetId,artwork.revision)).equals(full.original)||!(await this.cms.approvedVariantOriginal(c,s,artwork.id,low.assetId,artwork.revision)).equals(coarse.original))throw new ApiError(409,'ASSET_INTEGRITY');

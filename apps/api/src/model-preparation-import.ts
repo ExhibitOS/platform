@@ -1,3 +1,4 @@
+import {assertCompactVariantContext,workCompactVariant} from './compact-model-variant.ts';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {assertIssuedFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 import {randomUUID} from 'node:crypto';
@@ -39,6 +40,7 @@ export async function assertModelPreparationSlot(c:PoolClient,tenantId:string,ar
  if(active.rowCount)throw new ApiError(409,'MODEL_PREPARATION_ACTIVE_IMPORT');
 }
 export async function assertModelPreparationContext(c:PoolClient,row:Record<string,unknown>){
+ if(storedModelPreparation(row)?.sourceFull){await assertCompactVariantContext(c,row);return;}
  const intent=storedModelPreparation(row);if(!intent)throw new ApiError(409,'MODEL_PREPARATION_STATE_INVALID');
  const artwork=await artworkAccess(c,{tenantId:String(row.tenant_id),userId:String(row.user_id)},String(row.artwork_id),true);
  if(artwork.revision!==intent.artworkRevision||artwork.metadata?.displayReference||!isDeepStrictEqual(artwork.metadata?.rights,row.rights)||!allowedRights(row.rights,'display'))throw new ApiError(409,'MODEL_PREPARATION_CONTEXT_CHANGED');
@@ -57,6 +59,7 @@ export async function assertModelPreparationAssets(c:PoolClient,row:Record<strin
  * its invocation token: Imports.work's finally owns that after actual close. */
 export async function workRequiredModelPreparation(pool:Pool,blobs:BlobStore,row:Record<string,unknown>,lease:string,hooks?:{beforeCommit?:()=>void|Promise<void>;afterCopy?:()=>void|Promise<void>},writer?:ModelPreparationWriter,nativeWorkspace?:NativeOexWorkspaceContext){
  const intent=storedModelPreparation(row);if(!intent||!blobs.getBounded)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
+ if(intent.sourceFull)return workCompactVariant(pool,blobs,row,lease,hooks,writer,nativeWorkspace);
  await transaction(pool,c=>assertModelPreparationContext(c,row));
  const bytes=Buffer.from(await blobs.getBounded(String(row.object_key),Number(row.expected_bytes)));if(bytes.length!==Number(row.expected_bytes)||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
  if(writer){assertModelPreparationWriter(writer);await writer.assertLive();if(writer.identity.tenantId!==row.tenant_id||writer.identity.principalId!==row.user_id)throw new ApiError(403,'FORBIDDEN');}
