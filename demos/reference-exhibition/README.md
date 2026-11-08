@@ -1,18 +1,21 @@
 # Reference exhibition inputs
 
-These are the exact public, approved display derivatives from the existing
-reference exhibition, not original photographs or private production material.
-The publication revision and static index hashes are pinned in `publication.json`.
-The index, publication metadata, and all 32 registered display asset entries are
-Git inputs; the Viewer JavaScript and CSS are rebuilt from this repository. The
-publication contains 15 works in five rooms. Four registered audio and notice
-resources are included. The input index is
-`11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55`;
-the publication is `50a69dd1-02d7-4db5-90cb-1c91e83390af`, revision
-`0baf7993c8dddad50a3c5fb4885913c0a06699361e9d2578a0b179872e2492ec`.
+These inputs include the approved reference exhibition and the exact
+redistributable CC0 Wheat Field with Cypresses JPEG acquired from The
+Metropolitan Museum of Art. The active Manager-produced v4 publication is
+pinned to index `8de1650dfcb0e43aafae1f8c181293a0a88fe18c58acd2389c32de0c7bde91a1`,
+publication `b7cc4bbf-2530-4acf-aa9c-32d733ed4ed2`, revision
+`41b47f3af2adc536df77a91dcd2918aa527c6343b3b75c31c319b8a0aafe34b8`.
+The original JPEG SHA-256 is
+`b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d`.
+It is an acquired-original detail candidate alongside the existing display
+derivatives. Original detail is enabled only for the explicitly qualified
+runtime and falls back to ordinary detail elsewhere. Viewer JavaScript and CSS
+are rebuilt from this repository. The exhibition has five rooms and 15 works.
+The preceding publication remains available as an approved private-copy base.
 
 The entrance floor uses a user-provided CC0 stone color map with a 2 m repeat.
-The previous public snapshot is retained as a private-copy base. The current content is the saved official Manager publication with the approved Wheat replacement; source originals remain separate from these approved display bytes. The snapshot retains the approved workspace materials, furnishings and four-stop viewing plan. Earlier approved snapshots remain private-copy bases.
+The previous public snapshot is retained as a private-copy base. The current content is the saved official Manager publication with the approved Wheat replacement; the Wheat original detail remains separately identified from the approved display bytes. The snapshot retains the approved workspace materials, furnishings and four-stop viewing plan. Earlier approved snapshots remain private-copy bases.
 
 The painting-room floor uses the user-authored Quiet Oak Herringbone material,
 `quiet-oak-herringbone/1`, with its CC0 notice and a 0.9 m repeat. This is a

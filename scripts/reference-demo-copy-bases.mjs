@@ -48,9 +48,12 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   if (!bases.length) return [];
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
   const current = parseStaticJson(currentBytes);
-  // This build-time path does not yet independently validate v4 relations.
-  // Never promote a v4 copy base based on its parsed inventory alone.
-  if (current.version === 4) fail();
+  // Only the exact independently verified active Wheat v4 is admitted here.
+  // Archived v4 copy bases remain unsupported below.
+  if (current.version === 4) {
+    const { verifiedQualifiedWheat } = await import('./qualified-wheat-reference.mjs');
+    try { await verifiedQualifiedWheat({ root: output }); } catch { fail(); }
+  }
   const readProjection = async (root, prefix, entry) => {
     if (!entry || !hex.test(entry.sha256) || entry.path !== `data/${entry.sha256}.json` ||
         entry.mime !== 'application/json' || !Number.isSafeInteger(entry.bytes)) fail();
@@ -86,7 +89,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
       if(held.length!==file.bytes||hash(held)!==file.sha256)fail();
       retained.set(file.path,held);supplemental.push(file);
     }
-    if (!retainsCopyInventory(index,{...current,assets:[...current.assets,...supplemental]})) fail();
+    if (!retainsCopyInventory(index,{...current,assets:[...current.assets,...supplemental]},current.version === 4)) fail();
     result.push([indexPath, bytes], [prefix + index.publication.path, data]);
   }
   return [...result,...retained];
@@ -127,9 +130,10 @@ export async function inspectCopyBases(output, bases, expected) {
   for(const [path,bytes] of files)if(path.startsWith('data/')){const entry=expected.get(path);if(!entry||entry.bytes!==bytes.length||entry.sha256!==hash(bytes))fail();}
   if (!expected.has('studio.html')) {
     if (paths.size) fail();
-    return;
+    return files.filter(([path])=>path.startsWith('data/')).map(([path])=>path.slice(5));
   }
   const studio = await readFile(join(output, 'studio.html'), 'utf8');
   const count = studio.split(metaName).length - 1;
   if (paths.size ? count !== 1 || !studio.includes(tag(bases)) : count !== 0) fail();
+  return files.filter(([path])=>path.startsWith('data/')).map(([path])=>path.slice(5));
 }
