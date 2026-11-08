@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {createHash} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
+import {freezeCanonical} from '@exhibitos/studio-contract';
 import {parseStaticJson} from '../apps/web/src/static-json.mjs';
 
 const emptyDigest=createHash('sha256').update('[]').digest('hex');
@@ -8,8 +9,8 @@ const exact=(x,keys)=>x&&typeof x==='object'&&!Array.isArray(x)&&Object.keys(x).
 const unavailable=()=>{throw Error('NATIVE_DETAIL_CONTROL');};
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/,sha=/^[a-f0-9]{64}$/,secret=/^[A-Za-z0-9_-]{43}$/;
 
-/** Owner-only control. Until a qualified source adapter exists, nonempty detail
- * is refused, never silently omitted. The caller owns the overall deadline. */
+/** Owner-only transport; the server independently establishes authority. The
+ * current runner refuses candidates until its v4 writer/fence is connected. */
 export function nativeDetailControl(startup,signal,fetcher=fetch){
  let parsed;try{parsed=new URL(startup.origin);}catch{unavailable();}
  if(!exact(startup,['version','jobId','runtimeGeneration','workspaceId','tenantId','principalId','publicationId','revisionSha256','origin','sessionToken','csrfToken'])||startup.version!==1||!['jobId','runtimeGeneration','workspaceId','tenantId','principalId','publicationId'].every(k=>typeof startup[k]==='string'&&uuid.test(startup[k]))||typeof startup.revisionSha256!=='string'||!sha.test(startup.revisionSha256)||typeof startup.sessionToken!=='string'||!secret.test(startup.sessionToken)||typeof startup.csrfToken!=='string'||!secret.test(startup.csrfToken)||parsed.origin!==startup.origin||parsed.protocol!=='http:'||parsed.hostname!=='127.0.0.1'||!parsed.port)unavailable();
@@ -35,7 +36,7 @@ export function nativeDetailControl(startup,signal,fetcher=fetch){
  }
  async function retry(suffix,payload,phaseSignal=signal){for(;;){const result=await request(suffix,payload,phaseSignal);if(!result.busy)return result.value;await delay(25,undefined,{signal:phaseSignal});}}
  return {
-  async prepare(){const v=await retry('/prepare',body);if(!exact(v,['version','publicationId','revisionSha256','detailAssets'])||v.version!==1||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||!Array.isArray(v.detailAssets)||v.detailAssets.length!==0)unavailable();},
+  async prepare(){const v=await retry('/prepare',body);if(!exact(v,['version','publicationId','revisionSha256','detailAssets'])||v.version!==1||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||!Array.isArray(v.detailAssets)||v.detailAssets.length>16)unavailable();const seen=new Set();for(const item of v.detailAssets){if(!exact(item,['assetId','url','mime'])||typeof item.assetId!=='string'||!uuid.test(item.assetId)||seen.has(item.assetId)||item.url!==`/api/v1/publications/${publicationId}/detail-assets/${item.assetId}`||!['image/png','image/jpeg','model/gltf-binary'].includes(item.mime))unavailable();seen.add(item.assetId);Object.freeze(item);}return Object.freeze(v.detailAssets);},
   async readCandidate(entry){
    let e;try{e=structuredClone(entry);}catch{unavailable();}if(!exact(e,['assetId','sourceBindingSha256','sha256','bytes','mime','featureReportSha256'])||typeof e.assetId!=='string'||!uuid.test(e.assetId)||![e.sourceBindingSha256,e.sha256,e.featureReportSha256].every(x=>typeof x==='string'&&sha.test(x))||!Number.isSafeInteger(e.bytes)||e.bytes<1||e.bytes>25*1024*1024||!['image/png','image/jpeg','model/gltf-binary'].includes(e.mime))unavailable();
    for(;;){const response=await send('/bytes',{...body,assetId:e.assetId,sourceBindingSha256:e.sourceBindingSha256},signal);
@@ -44,7 +45,7 @@ export function nativeDetailControl(startup,signal,fetcher=fetch){
     const bytes=await readBody(response,e.bytes,signal);signal.throwIfAborted();if(bytes.length!==e.bytes||createHash('sha256').update(bytes).digest('hex')!==e.sha256)unavailable();return bytes;
    }
   },
-  async finalCheck(){const finalSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]),v=await retry('/final-check',{...body,detailCount:0,detailSetSha256:emptyDigest},finalSignal);if(!exact(v,['version','publicationId','revisionSha256','valid'])||v.version!==1||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||v.valid!==true)unavailable();},
+  async finalCheck(plan={entries:[],detailSetSha256:emptyDigest,totalBytes:0}){let copy;try{copy=structuredClone(plan);}catch{unavailable();}if(!exact(copy,['entries','detailSetSha256','totalBytes'])||!Array.isArray(copy.entries)||copy.entries.length>16||typeof copy.detailSetSha256!=='string'||!sha.test(copy.detailSetSha256))unavailable();let previous='',total=0;for(const e of copy.entries){if(!exact(e,['assetId','sourceBindingSha256','sha256','bytes','mime','featureReportSha256'])||typeof e.assetId!=='string'||!uuid.test(e.assetId)||e.assetId<=previous||![e.sourceBindingSha256,e.sha256,e.featureReportSha256].every(x=>typeof x==='string'&&sha.test(x))||!Number.isSafeInteger(e.bytes)||e.bytes<1||e.bytes>25*1024*1024||!['image/png','image/jpeg','model/gltf-binary'].includes(e.mime))unavailable();previous=e.assetId;total+=e.bytes;}if(total>100*1024*1024||total!==copy.totalBytes||createHash('sha256').update(freezeCanonical(copy.entries)).digest('hex')!==copy.detailSetSha256)unavailable();const finalSignal=AbortSignal.any([signal,AbortSignal.timeout(30000)]),v=await retry('/final-check',{...body,detailCount:copy.entries.length,detailSetSha256:copy.detailSetSha256},finalSignal);if(!exact(v,['version','publicationId','revisionSha256','valid'])||v.version!==1||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||v.valid!==true)unavailable();},
   async close(cleanupSignal){const result=await request('/close',body,cleanupSignal),v=result.value;if(result.busy||!exact(v,['version','jobId','state'])||v.version!==1||v.jobId!==jobId||v.state!=='closing')unavailable();},
   async settled(observationSignal=signal){for(;;){const result=await request(`/operations/${jobId}`,undefined,observationSignal),v=result.value;if(result.busy||!exact(v,['version','jobId','publicationId','revisionSha256','runtimeGeneration','state'])||v.version!==1||v.jobId!==jobId||v.publicationId!==publicationId||v.revisionSha256!==revisionSha256||v.runtimeGeneration!==runtimeGeneration)unavailable();if(v.state==='settled-success')return;if(v.state!=='pending')unavailable();await delay(25,undefined,{signal:observationSignal});}},
  };

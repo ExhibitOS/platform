@@ -2,6 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {nativeDetailControl} from './native-detail-control.mjs';
+import {freezeCanonical} from '@exhibitos/studio-contract';
+import {createHash} from 'node:crypto';
 
 const startup={version:1,origin:'http://127.0.0.1:3000',tenantId:'00000000-0000-4000-8000-000000000001',publicationId:'00000000-0000-4000-8000-000000000002',jobId:'00000000-0000-4000-8000-000000000003',runtimeGeneration:'00000000-0000-4000-8000-000000000004',workspaceId:'00000000-0000-4000-8000-000000000005',principalId:'00000000-0000-4000-8000-000000000006',revisionSha256:'a'.repeat(64),sessionToken:'s'.repeat(43),csrfToken:'c'.repeat(43)};
 const response=value=>Response.json(value);
@@ -19,6 +21,10 @@ test('refuses candidates, malformed replies, wrong owner, and failed settlement'
  for(const [action,value] of [['prepare',{...prepared(),detailAssets:[{assetId:'not-eligible'}]}],['prepare',{...prepared(),extra:1}],['settled',{...status('settled-success'),runtimeGeneration:'wrong'}],['settled',status('settled-failure')]]){
   const control=nativeDetailControl(startup,AbortSignal.timeout(1000),async()=>response(value));await assert.rejects(control[action](),/NATIVE_DETAIL_CONTROL/);
  }
+});
+test('validates prepared descriptors and binds final check to the full sorted tuple set',async()=>{
+ const assetId='00000000-0000-4000-8000-000000000007',descriptor={assetId,url:`/api/v1/publications/${startup.publicationId}/detail-assets/${assetId}`,mime:'image/jpeg'},entry={assetId,sourceBindingSha256:'b'.repeat(64),sha256:'a'.repeat(64),bytes:3,mime:'image/jpeg',featureReportSha256:'c'.repeat(64)},plan={entries:[entry],detailSetSha256:createHash('sha256').update(freezeCanonical([entry])).digest('hex'),totalBytes:3};
+ const fetcher=async(url,options)=>{if(url.endsWith('/prepare'))return response({...prepared(),detailAssets:[descriptor]});const sent=JSON.parse(options.body);assert.equal(sent.detailCount,1);assert.equal(sent.detailSetSha256,plan.detailSetSha256);return response(checked());};const control=nativeDetailControl(startup,AbortSignal.timeout(1000),fetcher),items=await control.prepare();assert.deepEqual(items,[descriptor]);assert(Object.isFrozen(items[0]));await control.finalCheck(plan);await assert.rejects(control.finalCheck({...plan,detailSetSha256:'d'.repeat(64)}),/NATIVE_DETAIL_CONTROL/);
 });
 test('does not retry other failures and aborts a busy loop',async()=>{
  let count=0;const control=nativeDetailControl(startup,AbortSignal.timeout(80),async()=>{count++;return busy();});await assert.rejects(control.prepare());assert.ok(count>1);

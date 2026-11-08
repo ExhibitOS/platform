@@ -16,7 +16,7 @@ export async function runNativeDetailExport({origin,publicationId,runtimeRoot,ou
   await new Promise((resolve,reject)=>{let done=false;const finish=error=>{if(done)return;done=true;signal.removeEventListener('abort',abort);error?reject(error):resolve();},abort=()=>finish(Error('NATIVE_DETAIL_CANCELLED'));signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}stdout.write(frame,error=>{if(error)outputAbort.abort();finish(error);});});signal.throwIfAborted();
  };
  try{
-  startup=await pipe.takeStartup();signal.throwIfAborted();control=controlFactory(startup,signal);await control.prepare();signal.throwIfAborted();
+  startup=await pipe.takeStartup();signal.throwIfAborted();control=controlFactory(startup,signal);const descriptors=await control.prepare();if(!Array.isArray(descriptors)||descriptors.length)throw Error('NATIVE_DETAIL_UNAVAILABLE');signal.throwIfAborted();
   const receipt=await exporter({origin,publicationId,runtimeRoot,output,privateEditor,signal});signal.throwIfAborted();
   if(receipt.publicationId!==publicationId||receipt.revisionSha256!==startup.revisionSha256||!/^[a-f0-9]{64}$/.test(receipt.manifestSha256))throw Error('NATIVE_DETAIL_RECEIPT');
   // The exporter has awaited all writes and closes before returning. Manager
