@@ -6,12 +6,13 @@ import {verifiedParsedDetailQuality,type DetailCandidate} from '@exhibitos/studi
 import {ApiError,type Session} from './auth.ts';
 import {readApprovedOriginalStaticSource} from './artwork-original-static-approval.ts';
 import {detailSourceCommitment} from './detail-source-commitment.ts';
+import {inspectBaselineJpegStructure} from './jpeg-baseline-structure.ts';
 import type {Studio} from './studio.ts';
 import type {Cms} from './cms.ts';
 import type {Imports} from './imports.ts';
 
 const id=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/,digest=/^[a-f0-9]{64}$/;
-const keys=['version','kind','workspaceId','tenantId','principalId','publicationId','revisionSha256','artworkId','artworkRevision','publicArtworkId','publicArtworkRevisionId','importJobId','candidate','nonce','grant'];
+const keys=['version','kind','workspaceId','tenantId','principalId','publicationId','revisionSha256','artworkId','artworkRevision','publicArtworkId','publicArtworkRevisionId','importJobId','candidate','nonce','grant','modelInput'];
 const unavailable=():never=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
 type Scope={workspaceId:string;publicationId:string;revisionSha256:string;exhibitionId:string;artworkId:string;artworkRevision:number;publicArtworkId:string;publicArtworkRevisionId:string;importJobId:string;candidate:DetailCandidate};
 
@@ -31,6 +32,7 @@ export async function readBoundOriginalDetail(c:PoolClient,s:Session,scope:Scope
  const rows=(await c.query("SELECT asset_id,metadata FROM asset_derivatives WHERE tenant_id=$1 AND deleted_at IS NULL AND metadata->>'kind'='native-original-detail-binding' AND metadata->>'publicationId'=$2 AND metadata->'candidate'->>'assetId'=$3 LIMIT 2 FOR SHARE",[s.tenantId,scope.publicationId,candidate.assetId])).rows;
  signal.throwIfAborted();if(rows.length!==1||rows[0].asset_id!==grant.originalAssetId)unavailable();const record=rows[0].metadata as Record<string,unknown>;
  if(!record||typeof record!=='object'||Array.isArray(record)||Object.keys(record).length!==keys.length||!keys.every(k=>Object.hasOwn(record,k))||record.version!==1||record.kind!=='native-original-detail-binding'||record.workspaceId!==scope.workspaceId||record.tenantId!==s.tenantId||record.principalId!==s.userId||record.publicationId!==scope.publicationId||record.revisionSha256!==scope.revisionSha256||record.artworkId!==scope.artworkId||record.artworkRevision!==scope.artworkRevision||record.publicArtworkId!==scope.publicArtworkId||record.publicArtworkRevisionId!==scope.publicArtworkRevisionId||record.importJobId!==scope.importJobId||!isDeepStrictEqual(record.candidate,candidate)||!isDeepStrictEqual(record.grant,grant)||typeof record.nonce!=='string')unavailable();
+ let structure:ReturnType<typeof inspectBaselineJpegStructure>;try{structure=inspectBaselineJpegStructure(source.bytes);}catch{return unavailable();}const modelInput={sha256:candidate.sha256,bytes:candidate.bytes,width:structure.width,height:structure.height,iccSha256:structure.iccSha256??null};const media=candidate.featureReport.media;if(!isDeepStrictEqual(record.modelInput,modelInput)||media.kind!=='image'||media.width!==structure.width||media.height!==structure.height||media.colourProfile!==(structure.iccSha256?'embedded-icc':'none'))unavailable();
  let binding:string;try{binding=detailSourceCommitment({version:1,artworkRevisionId:grant.artworkRevisionId,candidateId:candidate.candidateId,assetId:candidate.assetId,tier:candidate.tier,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,featureReportSha256:candidate.featureReportSha256,rightsEvidenceSha256:grant.rightsEvidenceSha256,nonce:record.nonce as string});}catch{return unavailable();}
- if(binding!==candidate.sourceBindingSha256)unavailable();signal.throwIfAborted();returned=true;return {bytes:source.bytes,grant};}finally{if(!returned)source.bytes.fill(0);}
+ if(binding!==candidate.sourceBindingSha256)unavailable();signal.throwIfAborted();returned=true;return {bytes:source.bytes,grant,modelInput};}finally{if(!returned)source.bytes.fill(0);}
 }
