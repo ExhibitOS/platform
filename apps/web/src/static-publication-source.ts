@@ -3,6 +3,7 @@ import {publicWorkspaceMaterialRights} from './workspace-material-public-rights.
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import { retainsCopyInventory,retainedWheatCopyFiles } from './private-editor/previous-copy-compatibility';
 import type { PublicPublication,DetailAccess } from "./publication-client";
+import {DetailAccessFailure} from './detail-access-failure';
 import { freezeCanonical,validateFurnishings,furnishingsFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality,type WorkspaceFurnishings,type DetailCandidate } from "@exhibitos/studio-contract";
 import { newDraft } from "./drafts/example";
 import { validateExhibition } from "./drafts/exhibition-validation.mjs";
@@ -24,16 +25,19 @@ async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=f
 }
 // Detail capabilities own the complete response, including cancellation. A
 // failed cancel remains an error rather than evidence that the reader drained.
+class StaticCleanupUncertain extends Error {constructor(cause:unknown){super('STATIC_DETAIL_CLEANUP_UNCERTAIN',{cause});}}
+async function awaitCleanup(work:()=>Promise<void>){try{await work();}catch(error){throw new StaticCleanupUncertain(error);}}
+async function detailOperation<T>(work:()=>Promise<T>):Promise<T>{try{return await work();}catch(error){if(error instanceof StaticCleanupUncertain)throw new DetailAccessFailure('uncertain',error);throw new DetailAccessFailure('confirmed',error);}}
 async function readDetail(path:string,limit:number,signal:AbortSignal,cacheEligible=false){
  if(!/^data\/[a-f0-9]{64}\.bin$/.test(path)&&path!=='static-publication-index.json')throw Error('STATIC_PATH');
  signal.throwIfAborted();const response=await fetch('/'+path,{credentials:'omit',cache:cacheEligible?'default':'no-store',signal,redirect:'error'});
- if(!response.ok||!response.body){if(response.body)await response.body.cancel();throw Error('STATIC_RESPONSE');}
- let bytes:Uint8Array;try{bytes=new Uint8Array(limit);}catch(error){await response.body.cancel();throw error;}const reader=response.body.getReader();let length=0,chunks=0,cancellation:Promise<void>|undefined;
- const cancel=()=>{if(!cancellation){cancellation=reader.cancel();void cancellation.catch(()=>{});}return cancellation;};
+ if(!response.ok||!response.body){if(response.body)await awaitCleanup(()=>response.body!.cancel());throw Error('STATIC_RESPONSE');}
+ let bytes:Uint8Array,reader:ReadableStreamDefaultReader<Uint8Array>;try{bytes=new Uint8Array(limit);reader=response.body.getReader();}catch(error){await awaitCleanup(()=>response.body!.cancel());throw error;}let length=0,chunks=0,cancellation:Promise<void>|undefined;
+ const cancel=()=>{if(!cancellation){cancellation=Promise.resolve().then(()=>reader.cancel());void cancellation.catch(()=>{});}return cancellation;};
  const abort=()=>{void cancel();};signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
  try{for(;;){const next=await reader.read();signal.throwIfAborted();if(next.done)break;if(++chunks>65536||next.value.length===0||next.value.length>limit-length)throw Error('STATIC_SIZE');bytes.set(next.value,length);length+=next.value.length;}signal.throwIfAborted();return bytes.slice(0,length);}
- catch(error){await cancel();throw error;}
- finally{signal.removeEventListener('abort',abort);try{if(cancellation)await cancellation;}finally{reader.releaseLock();}}
+ catch(error){await awaitCleanup(cancel);throw error;}
+ finally{signal.removeEventListener('abort',abort);try{if(cancellation)await awaitCleanup(()=>cancellation!);}finally{try{reader.releaseLock();}catch(error){throw new StaticCleanupUncertain(error);}}}
 }
 type StaticIndex={version:number;publication:FileEntry;assets:FileEntry[];resources?:FileEntry[];furnishingNotices?:FileEntry[];detailAssets?:FileEntry[]};
 type DetailDescriptor={assetId:string;url:string;mime:string};
@@ -98,7 +102,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
  const check=async()=>{if(!validateExhibition(value.exhibition,{publicationTime:new Date().toISOString()}).valid||!publicWorkspaceFurnishingRights(workspace)||!publicWorkspaceMaterialRights(material))throw Error("STATIC_DISPLAY_RIGHTS");};await check();
  const checkDetailRights=(id:string)=>{const rights=detailRights.get(id),from=rights?.validFrom===undefined?-Infinity:Date.parse(rights.validFrom);if(!rights||Number.isNaN(from)||rights.expiresAt!==undefined||!rights.permissions.display||!rights.permissions.export||!rights.permissions.download||Date.now()<from)throw Error('STATIC_DETAIL_RIGHTS');};
  const recheckDetail=async(candidateId:string,signal:AbortSignal)=>{signal.throwIfAborted();const bound=detailCandidates.get(candidateId);if(!bound)throw Error('STATIC_DETAIL');await verifiedIndex(expectedIndex,'',signal);signal.throwIfAborted();const canonical=freezeCanonical(value.exhibition);if(value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published'||await hash(new TextEncoder().encode(canonical))!==revisionSha256)throw Error('STATIC_PUBLICATION');await check();checkDetailRights(bound.candidate.assetId);signal.throwIfAborted();if(freezeCanonical(value.exhibition)!==canonical||value.publication.id!==publicationId||value.publication.revisionSha256!==revisionSha256||value.publication.status!=='published')throw Error('STATIC_PUBLICATION');};
- const detailAccess:DetailAccess|undefined=index.version===4&&!previousIndex?Object.freeze({revisionSha256,async candidatesFor(artworkRevisionId:string,signal=AbortSignal.timeout(30000)){signal.throwIfAborted();const candidates=[...detailCandidates.values()].filter(item=>item.artworkRevisionId===artworkRevisionId).map(item=>item.candidate);if(candidates[0])await recheckDetail(candidates[0].candidateId,signal);for(const candidate of candidates)checkDetailRights(candidate.assetId);signal.throwIfAborted();return Object.freeze(candidates);},recheck:recheckDetail,async fetch(candidateId:string,signal:AbortSignal){await recheckDetail(candidateId,signal);const bound=detailCandidates.get(candidateId)!,entry=detailEntries.find(item=>item.assetId===bound.candidate.assetId)!;const bytes=await readDetail(entry.path,entry.bytes,signal,true);if(bytes.length!==entry.bytes||await hash(bytes)!==entry.sha256)throw Error('STATIC_ASSET_HASH');await recheckDetail(candidateId,signal);return bytes;}}):undefined;
+ const detailAccess:DetailAccess|undefined=index.version===4&&!previousIndex?Object.freeze({revisionSha256,candidatesFor(artworkRevisionId:string,signal=AbortSignal.timeout(30000)){return detailOperation(async()=>{signal.throwIfAborted();const candidates=[...detailCandidates.values()].filter(item=>item.artworkRevisionId===artworkRevisionId).map(item=>item.candidate);if(candidates[0])await recheckDetail(candidates[0].candidateId,signal);for(const candidate of candidates)checkDetailRights(candidate.assetId);signal.throwIfAborted();return Object.freeze(candidates);});},recheck(candidateId:string,signal:AbortSignal){return detailOperation(()=>recheckDetail(candidateId,signal));},fetch(candidateId:string,signal:AbortSignal){return detailOperation(async()=>{await recheckDetail(candidateId,signal);const bound=detailCandidates.get(candidateId)!,entry=detailEntries.find(item=>item.assetId===bound.candidate.assetId)!;const bytes=await readDetail(entry.path,entry.bytes,signal,true);if(bytes.length!==entry.bytes||await hash(bytes)!==entry.sha256)throw Error('STATIC_ASSET_HASH');await recheckDetail(candidateId,signal);return bytes;});}}):undefined;
  if(previousIndex){
   // The current publication must itself pass its normal validation before it
   // can authorize exact historical Wheat bytes absent from its inventory.
