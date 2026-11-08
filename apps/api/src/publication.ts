@@ -14,6 +14,7 @@ import {cachedDisplayDerivative} from './display-derivative-cache.ts';
 import {withReadinessStage,stageReadinessBytes,PublicationStageError,type PublicationStagedBytes,type ReadinessStage} from './publication-byte-stage.ts';
 import {PublicationFileOperation} from './publication-file-operation.ts';
 import {NativeLocalPublicationStage} from './native-local-publication-stage.ts';
+import {isIssuedNativeOriginalPublication,type NativeOriginalPublication} from './native-original-publication.ts';
 import {FOOTSTEP_RESOURCE_NAMESPACE,footstepResourcesFor} from '@exhibitos/spec/footstep-resources';
 import {WORKSPACE_MATERIAL_NAMESPACE} from '@exhibitos/spec/workspace-material';
 import {WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
@@ -569,10 +570,12 @@ export class Publications {
         if(!receipt)return undefined;if(receipt.payload_sha256!==payloadHash)throw new ApiError(409,'REQUEST_CONFLICT');
         return this.summary(await this.owned(c,s,receipt.publication_id));
     }
-    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage) {
+    async publish(c: PoolClient, s: Session, id: string, requestId: string, match: string,fileOperation?:PublicationFileOperation|NativeLocalPublicationStage,detail?:NativeOriginalPublication) {
         try{
         uuid(requestId);
-        const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify({ id, requestId, match })));
+        if(detail&&(!isIssuedNativeOriginalPublication(detail)||!(fileOperation instanceof NativeLocalPublicationStage)))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
+        if(detail)await detail.assertLive(c,s);
+        const row = await this.studio.access(c, s, id), payloadHash = sha256(Buffer.from(JSON.stringify(detail?{id,requestId,match,detailProfile:'native-original-v1'}:{id,requestId,match})));
         const receipt = (await c.query("SELECT * FROM publication_requests WHERE tenant_id=$1 AND user_id=$2 AND request_id=$3", [s.tenantId, s.userId, requestId])).rows[0];
         if (receipt) {
             if (receipt.payload_sha256 !== payloadHash)
@@ -586,6 +589,7 @@ export class Publications {
         // a concurrent publication after waiting for the lock, before writing.
         const existing=(await c.query('SELECT p.*,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.exhibition_id=$2 AND p.draft_revision=$3 ORDER BY p.published_at DESC,p.id DESC LIMIT 1',[s.tenantId,id,row.revision])).rows[0];
         if(existing){
+            if(detail)throw new ApiError(409,'NATIVE_DETAIL_NEW_DRAFT_REQUIRED');
             await c.query('INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)',[s.tenantId,s.userId,requestId,payloadHash,existing.id]);
             // A lost response or a second publish click must not republish an
             // explicitly withdrawn version. Its existing status is returned.
@@ -607,7 +611,9 @@ export class Publications {
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
-        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), { snapshot, assets, media,cover,workspaceBindings,workspaceMaterialBindings } = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
+        const publicationId = randomUUID(), publishedAt = new Date().toISOString(), projected = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
+        let {snapshot}=projected;const {assets,media,cover,workspaceBindings,workspaceMaterialBindings}=projected,detailPrepared=detail?await detail.prepare(c,s,id,publicationId,snapshot):undefined;if(detailPrepared)snapshot=detailPrepared.snapshot;
+        if(detailPrepared){const rows=assets.length+workspaceBindings.length+workspaceMaterialBindings.length*4+report.furnishings.length*2+publicResourcesFor(snapshot).length+detailPrepared.items.length,bound=Buffer.byteLength(JSON.stringify(snapshot),'utf8')+65536+1024*rows;if(!Number.isSafeInteger(bound)||bound>1048576)throw new ApiError(422,'PUBLICATION_NOT_READY');}
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
@@ -645,6 +651,7 @@ export class Publications {
         if(final.assets.length!==assets.length+media.length+(cover?1:0))throw new ApiError(422,'PUBLICATION_NOT_READY');
         fileOperation.assertClaimed();
         }
+        if(detail&&detailPrepared)await detail.persist(c,s,detailPrepared,digest);
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
         }finally{await stage?.close();}
         }finally{await fileOperation?.close();}
