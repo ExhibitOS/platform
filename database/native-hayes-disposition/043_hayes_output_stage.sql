@@ -96,9 +96,7 @@ BEGIN
    AND o.sha256=a.source_sha256 AND o.bytes=a.source_bytes AND o.mime='model/gltf-binary' AND o.scale_meters=1
    AND d.state='approved' AND d.deleted_at IS NULL AND d.object_key=s.object_key AND d.target_key=s.object_key
    AND d.sha256=s.output_sha256 AND d.bytes=s.output_bytes AND d.mime='model/gltf-binary' AND d.scale_meters=1
-   AND x.deleted_at IS NULL AND x.metadata->>'kind'='hayes-original-display-v1'
-   AND x.metadata->>'originalAssetId'=o.id::text AND x.metadata->>'displayAssetId'=d.id::text
-   AND x.metadata->>'attemptId'=a.id::text AND x.metadata->>'outputSha256'=s.output_sha256
+   AND x.deleted_at IS NULL AND x.metadata=jsonb_build_object('version',1,'kind','hayes-original-display-v1','originalAssetId',o.id::text,'displayAssetId',d.id::text,'attemptId',a.id::text,'sourceSha256',a.source_sha256,'sourceBytes',a.source_bytes,'outputSha256',s.output_sha256,'outputBytes',s.output_bytes,'recipe',jsonb_build_object('kind','native-hayes-generate-validate-v1','workerManifestSha256',NEW.worker_manifest_sha256),'receiptSha256',NEW.receipt_sha256)
  ) THEN RAISE EXCEPTION 'Hayes disposition incomplete'; END IF;
  RETURN NULL;
 END $$;
