@@ -5,6 +5,7 @@ import {readFile,mkdir} from 'node:fs/promises';
 import {Pool,type PoolClient} from 'pg';
 import {migrate,transaction,FileBlobStore,Storage,sha256,type BlobStore} from '@exhibitos/storage';
 import type {Artwork,Lifecycle} from '@exhibitos/spec';
+import {freezeCanonical,type DetailCandidate} from '@exhibitos/studio-contract';
 import {Auth,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {Imports} from './imports.ts';
@@ -12,6 +13,8 @@ import {Cms} from './cms.ts';
 import {Studio,etag} from './studio.ts';
 import {replaceApprovedArtwork} from './artwork-replacement.ts';
 import {approveOriginalStaticSource,readApprovedOriginalStaticSource} from './artwork-original-static-approval.ts';
+import {readBoundOriginalDetail} from './original-detail-binding.ts';
+import {detailSourceCommitment,newDetailSourceNonce} from './detail-source-commitment.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
 
@@ -94,6 +97,17 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   expect(await transaction(pool,c=>approveOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).toEqual({approved:true,artworkId:prior.id,artworkRevision:2});
   const grants=(await pool.query("SELECT metadata FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId])).rows;
   expect(grants).toHaveLength(1);expect(grants[0].metadata).toMatchObject({workspaceId,tenantId,principalId:userId,artworkId:prior.id,artworkRevision:2,jobId:id,source:{sha256:sha256(original),bytes:original.length,mime:'image/jpeg'}});
+  // A synthetic binding exercises private database correlation only. Its
+  // model is deliberately unqualified and cannot authorize publication.
+  const grant=grants[0].metadata,publicationId=randomUUID(),candidateId=randomUUID(),publicAssetId=randomUUID(),nonce=newDetailSourceNonce(),revisionSha256='f'.repeat(64),featureReport:DetailCandidate['featureReport']={version:1,inspector:'synthetic-only',assetSha256:sha256(original),assetBytes:original.length,media:{kind:'image',codec:'jpeg',width:4000,height:3184,bitDepth:8,channels:3,frameCount:1,interlaced:false,orientation:1,colourProfile:'embedded-icc'},cost:{model:'synthetic-only',residentBytes:1,peakAdditionalBytes:1}},featureReportSha256=sha256(Buffer.from(freezeCanonical(featureReport))),candidate:DetailCandidate={candidateId,assetId:publicAssetId,tier:'acquired-original',sha256:sha256(original),bytes:original.length,mime:'image/jpeg',featureReportSha256,featureReport,sourceBindingSha256:detailSourceCommitment({version:1,artworkRevisionId:grant.artworkRevisionId,candidateId,assetId:publicAssetId,tier:'acquired-original',sha256:sha256(original),bytes:original.length,mime:'image/jpeg',featureReportSha256,rightsEvidenceSha256:grant.rightsEvidenceSha256,nonce})};
+  const detailScope={workspaceId,publicationId,revisionSha256,exhibitionId:draft.exhibitionId,...sourceApproval,candidate},record={version:1,kind:'native-original-detail-binding',workspaceId,tenantId,principalId:userId,publicationId,revisionSha256,...sourceApproval,candidate,nonce,grant};
+  const readBinding=()=>transaction(pool,c=>readBoundOriginalDetail(c,session,detailScope,studio,cms,imports,blobs,AbortSignal.timeout(10000)));
+  await expect(readBinding()).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');
+  await transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`native-detail-binding:${tenantId}:${publicationId}:${publicAssetId}`]);await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,randomUUID(),grant.originalAssetId,record]);});
+  expect((await readBinding()).bytes.equals(original)).toBe(true);
+  await pool.query("UPDATE asset_derivatives SET metadata=jsonb_set(metadata,'{nonce}',to_jsonb($2::text)) WHERE tenant_id=$1 AND metadata->>'kind'='native-original-detail-binding'",[tenantId,'0'.repeat(32)]);await expect(readBinding()).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');
+  await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='native-original-detail-binding'",[tenantId,record]);await pool.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,randomUUID(),grant.originalAssetId,record]);await expect(readBinding()).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');
+  await pool.query("DELETE FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='native-original-detail-binding'",[tenantId]);
   const cancelledRead=new AbortController();cancelledRead.abort();await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,cancelledRead.signal))).rejects.toThrow();
   await pool.query("UPDATE asset_derivatives SET metadata=jsonb_set(metadata,'{source,sha256}',to_jsonb($2::text)) WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,'f'.repeat(64)]);
   await expect(transaction(pool,c=>readApprovedOriginalStaticSource(c,session,draft.exhibitionId,sourceApproval,studio,cms,imports,blobs,AbortSignal.timeout(10000)))).rejects.toThrow('ORIGINAL_SOURCE_UNAVAILABLE');
