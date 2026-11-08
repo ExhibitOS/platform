@@ -18,7 +18,7 @@ export function nativeDetailControl(startup,signal,fetcher=fetch){
  const headers={origin,cookie:`exhibitos_local_session=${startup.sessionToken}`,'x-csrf-token':startup.csrfToken,'content-type':'application/json'};
  const body={version:1,jobId,revisionSha256};
  async function readBody(response,limit,requestSignal){
-  if(!response.body)unavailable();const reader=response.body.getReader(),buffer=Buffer.allocUnsafe(limit);let size=0,count=0,cancelled;
+  if(!response.body)unavailable();let buffer;try{buffer=Buffer.allocUnsafe(limit);}catch(error){await response.body.cancel();throw error;}const reader=response.body.getReader();let size=0,count=0,cancelled;
   const cancel=()=>{cancelled??=reader.cancel();cancelled.catch(()=>{});};requestSignal.addEventListener('abort',cancel,{once:true});if(requestSignal.aborted)cancel();
   try{requestSignal.throwIfAborted();for(;;){const part=await reader.read();requestSignal.throwIfAborted();if(part.done)break;if(!part.value.byteLength||++count>65536||size+part.value.byteLength>limit)unavailable();buffer.set(part.value,size);size+=part.value.byteLength;}}
   catch(error){cancel();await cancelled;throw error;}finally{requestSignal.removeEventListener('abort',cancel);try{if(cancelled)await cancelled;}finally{reader.releaseLock();}}
