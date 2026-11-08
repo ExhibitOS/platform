@@ -507,15 +507,15 @@ export class Cms {
     if(bytes.length!==declared.bytes||sha256(bytes)!==declared.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
     return bytes;
   }
-  async displayApprovedVariant(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number,watermark?:DisplayWatermark) {
-    const original=await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision);
+  async displayApprovedVariant(c: PoolClient, s: Session, id: string, assetId: string, expectedRevision: number,watermark?:DisplayWatermark,checkpoint?:()=>void) {
+    checkpoint?.();const original=await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision);
     if(!this.blobs)throw new ApiError(503,'STORAGE_UNAVAILABLE');
-    const bytes=await cachedDisplayDerivative(original,'model/gltf-binary',{watermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId,sourceSha256:sha256(original)});
+    const bytes=await cachedDisplayDerivative(original,'model/gltf-binary',{watermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId,sourceSha256:sha256(original),checkpoint});
     if(!(await this.approvedVariantOriginal(c,s,id,assetId,expectedRevision)).equals(original))throw new ApiError(409,'ASSET_INTEGRITY');
     return {original,bytes,mime:'model/gltf-binary' as const};
   }
-  async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number,watermark?:DisplayWatermark) {
-    const displayWatermark=normalizeDisplayWatermark(watermark);
+  async display(c: PoolClient, s: Session, id: string, preview = false, expectedRevision?: number,watermark?:DisplayWatermark,checkpoint?:()=>void) {
+    checkpoint?.();const displayWatermark=normalizeDisplayWatermark(watermark);
     if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision > 2147483647))
       throw new ApiError(400, "INVALID_INPUT");
     let a;
@@ -582,7 +582,7 @@ export class Cms {
       sha256(original) !== asset.sha256
     )
       throw new ApiError(409, "ASSET_INTEGRITY");
-    const bytes = await cachedDisplayDerivative(original,asset.mime,{watermark:displayWatermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256});
+    const bytes = await cachedDisplayDerivative(original,asset.mime,{watermark:displayWatermark},{client:c,blobs:this.blobs,tenantId:s.tenantId,assetId:asset.id,sourceSha256:asset.sha256,checkpoint});
     if(!allowedRights(m.rights,'display')||!allowedRights(asset.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');
     const embedded=displayWatermark.mode==='embedded'&&asset.mime==='image/png';
     return { bytes, mime: asset.mime, revision: a.revision,watermarked:embedded,watermarkMode:embedded?'embedded' as const:'none' as const };

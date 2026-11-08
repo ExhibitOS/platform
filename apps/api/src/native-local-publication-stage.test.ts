@@ -32,3 +32,7 @@ it('does not remove marker after stage close failure',async()=>{
 it('rejects another session or request binding',async()=>{
  const f=await fixture(),op=await NativeLocalPublicationStage.create(f.c,f.s,f.context,f.blobs,'publish',f.id,f.etag,f.requestId);await expect(op.claim(f.c,{...f.s,id:randomUUID()},f.blobs,'publish',f.id,f.etag,f.requestId)).rejects.toThrow('PUBLICATION_STAGE_BINDING');await op.finish(false);
 });
+it('binds an original detail operation to its selected publication mode',async()=>{
+ const f=await fixture(),op=await NativeLocalPublicationStage.create(f.c,f.s,f.context,f.blobs,'publish',f.id,f.etag,f.requestId,true);
+ expect(()=>op.assertDetailMode(true)).not.toThrow();expect(()=>op.assertDetailMode(false)).toThrow('PUBLICATION_STAGE_BINDING');await op.finish(false);
+});

@@ -23,3 +23,8 @@ test('recipe reuse shares clean none/overlay bytes, distinguishes quality/embed,
   await expect(cachedDisplayDerivative(source,'image/png',{watermark:{version:1,mode:'embedded',text:'ß'}},cache)).rejects.toMatchObject({code:'WATERMARK_TEXT_UNSUPPORTED'});expect(query).toHaveBeenCalledTimes(before);expect(generate).toHaveBeenCalledTimes(3);
  }finally{generate.mockRestore();}
 });
+test('cancellation during derivation prevents a new cache write',async()=>{
+ const source=Buffer.from('synthetic source'),hash=createHash('sha256').update(source).digest('hex'),controller=new AbortController();let entered!:()=>void,release!:()=>void;
+ const started=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;}),put=vi.fn(async()=>{}),query=vi.fn(async()=>({rows:[]})),generate=vi.spyOn(generator,'derivative').mockImplementation(async()=>{entered();await gate;return Buffer.from('derived');});
+ try{const pending=cachedDisplayDerivative(source,'image/png',{}, {client:{query} as unknown as PoolClient,blobs:{put} as unknown as BlobStore,tenantId:'11111111-1111-4111-8111-111111111111',assetId:'22222222-2222-4222-8222-222222222222',sourceSha256:hash,checkpoint:()=>controller.signal.throwIfAborted()});await started;controller.abort();release();await expect(pending).rejects.toThrow();expect(put).not.toHaveBeenCalled();expect(query).toHaveBeenCalledTimes(1);}finally{release();generate.mockRestore();}
+});
