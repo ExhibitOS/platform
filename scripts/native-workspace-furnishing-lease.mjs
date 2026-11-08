@@ -11,7 +11,7 @@ function decimal(value,positive=false){if(typeof value!=='string'||! /^(?:0|[1-9
 function checkedFields(value){
  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length!==keys.length||keys.some(k=>!Object.hasOwn(value,k)))throw Error('FURNISHING_LEASE_INVALID');
  for(const key of keys.slice(0,4))if(typeof value[key]!=='string'||!uuid.test(value[key]))throw Error('FURNISHING_LEASE_INVALID');
- if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7','workspace-furnishing-039-to-040-upgrade-v1'].includes(value.mode)||typeof value.payloadManifestSHA256!=='string'||!hash.test(value.payloadManifestSHA256))throw Error('FURNISHING_LEASE_INVALID');
+ if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1'].includes(value.mode)||typeof value.payloadManifestSHA256!=='string'||!hash.test(value.payloadManifestSHA256))throw Error('FURNISHING_LEASE_INVALID');
  decimal(value.rootDevice);decimal(value.rootInode,true);decimal(value.lockDevice);decimal(value.lockInode,true);
  return Object.fromEntries(keys.map(key=>[key,value[key]]));
 }
