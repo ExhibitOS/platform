@@ -37,9 +37,23 @@ export async function localStaticPublicationSource({sourceDir,sourceManifestSha2
  return {origin,fetch,entries};
 }
 
+// The retained private-editor export is recognized only by its complete known
+// catalogue set and studio entry. Partial or unknown sets remain unqualified.
+export const EDITOR_CATALOGUE_PATHS=Object.freeze([
+ 'furnish-catalog/backless-oak-bench/1/model.glb',
+ 'furnish-catalog/backless-oak-bench/1/LICENSE-NOTICE.txt',
+ 'material-catalogue-thumbnails/fine-gallery-concrete/1/preview-82b907f0df15.png',
+ 'material-catalogue-thumbnails/quiet-oak-herringbone/1/preview-4423a1fc11dc.png',
+]);
+export function retainedPrivateEditor(entries){
+ const present=EDITOR_CATALOGUE_PATHS.filter(path=>entries.has(path)).length;
+ if(present!==0&&(present!==EDITOR_CATALOGUE_PATHS.length||!entries.has('studio.html')))throw Error('REFRESH_CONTENT_UNCLASSIFIED');
+ return present===EDITOR_CATALOGUE_PATHS.length;
+}
+
 /** Reject unclassified content and any logical publication byte drift. */
 export function assertSamePublicationContent(entries,generated){
- const content=p=>p==='static-publication-index.json'||p.startsWith('data/')||p.startsWith('floor-textures/')||p==='floor-texture-notices.txt'||p.startsWith('surface-material-textures/')||p.startsWith('surface-material-notices/');
+ const content=p=>EDITOR_CATALOGUE_PATHS.includes(p)||p==='static-publication-index.json'||p.startsWith('data/')||p.startsWith('floor-textures/')||p==='floor-texture-notices.txt'||p.startsWith('surface-material-textures/')||p.startsWith('surface-material-notices/');
  const shell=p=>/^assets\/[A-Za-z0-9_.-]+$/.test(p)||/^basis\/[A-Za-z0-9_.-]+$/.test(p)||['index.html','studio.html','THIRD_PARTY_NOTICES.txt','viewer-favicon.svg','voice-pcm-worklet.js'].includes(p);
  if(!Array.isArray(generated)||[...entries.keys(),...generated.map(x=>x.path)].some(path=>!content(path)&&!shell(path)))throw Error('REFRESH_CONTENT_UNCLASSIFIED');
  const actual=new Map(generated.filter(x=>content(x.path)).map(x=>[x.path,x]));

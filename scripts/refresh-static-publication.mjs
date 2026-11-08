@@ -5,7 +5,7 @@ import {dirname,join,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createPagesPublicationSource} from './pages-publication-source.mjs';
 import {exportStaticPublication} from './export-static-publication.mjs';
-import {localStaticPublicationSource,assertSamePublicationContent} from './local-static-publication-source.mjs';
+import {localStaticPublicationSource,assertSamePublicationContent,retainedPrivateEditor} from './local-static-publication-source.mjs';
 
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const keys=['sourceDir','sourceManifestSha256','indexSha256','publicationId','revisionSha256','targetRuntimeDir','targetManifestSha256','stagedOutputDir'];
@@ -36,7 +36,7 @@ export async function refreshStaticPublication(request,{cancelled=()=>false}={})
  };
  const stage=await mkdtemp(join(parent,'.exhibitos-refresh-'));const candidate=join(stage,'candidate');let committed=false;
  try{
-  const result=await exportStaticPublication({origin:'http://127.0.0.1',publicationId:request.publicationId,runtimeRoot:join(runtime,'platform/apps/web/dist-static'),output:candidate,fetcher});
+  const result=await exportStaticPublication({origin:'http://127.0.0.1',publicationId:request.publicationId,runtimeRoot:join(runtime,'platform/apps/web/dist-static'),output:candidate,fetcher,privateEditor:retainedPrivateEditor(local.entries)});
   if(result.revisionSha256!==request.revisionSha256||result.indexSha256!==request.indexSha256)fail('REFRESH_CONTENT_CHANGED');
   if(cancelled())fail('REFRESH_CANCELLED');
   const generated=JSON.parse(await readFile(join(candidate,'static-export-manifest.json'),'utf8'));
