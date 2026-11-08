@@ -10,7 +10,7 @@ export type DiagnosticAssetStage=DiagnosticEvent&{
   cameraQuaternion:[number,number,number,number];
   verticalFov:number;
   worldBounds:{min:[number,number,number];max:[number,number,number]}|null;
- };
+ }|null;
 };
 export type DiagnosticSnapshot={
  version:1;capturedAt:string;
