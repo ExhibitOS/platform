@@ -48,6 +48,9 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   if (!bases.length) return [];
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
   const current = parseStaticJson(currentBytes);
+  // This build-time path does not yet independently validate v4 relations.
+  // Never promote a v4 copy base based on its parsed inventory alone.
+  if (current.version === 4) fail();
   const readProjection = async (root, prefix, entry) => {
     if (!entry || !hex.test(entry.sha256) || entry.path !== `data/${entry.sha256}.json` ||
         entry.mime !== 'application/json' || !Number.isSafeInteger(entry.bytes)) fail();
@@ -68,6 +71,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     const bytes = await boundedFile(archiveRoot, indexPath, 1048576);
     if (hash(bytes) !== base.indexSha256) fail();
     const index = parseStaticJson(bytes);
+    if (index.version === 4) fail();
     const { data, projection } = await readProjection(archiveRoot, prefix, index.publication);
     if (projection.publication.id !== base.publicationId || projection.publication.status !== 'published' ||
         projection.publication.revisionSha256 !== base.revisionSha256 || revisionHash(projection.exhibition) !== base.revisionSha256 ||

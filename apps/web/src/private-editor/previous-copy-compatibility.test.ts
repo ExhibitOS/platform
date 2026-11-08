@@ -21,6 +21,20 @@ describe('previous private copy compatibility', () => {
     expect(retainsCopyInventory(before,{...before,version:3})).toBe(false);
   });
 
+  it('keeps each ordinary previous category when moving only from v1–3 to v4',()=>{
+    for(const version of [1,2,3]){
+      const old={version,assets:[first,first],resources:[added],furnishingNotices:[added]};
+      const active={...old,version:4,detailAssets:[first]};
+      expect(retainsCopyInventory(old,active)).toBe(false);
+      expect(retainsCopyInventory(old,active,true)).toBe(true);
+      expect(retainsCopyInventory(old,{...active,assets:[first]},true)).toBe(false);
+      expect(retainsCopyInventory(old,{...active,resources:[]},true)).toBe(false);
+      expect(retainsCopyInventory(old,{...active,furnishingNotices:[]},true)).toBe(false);
+      expect(retainsCopyInventory(active,old,true)).toBe(false);
+    }
+    expect(retainsCopyInventory({version:5,assets:[first]},{version:4,assets:[first]})).toBe(false);
+  });
+
   it('requires each previous work’s assets, roles and rights despite remapped IDs', () => {
     const work=syntheticArtwork('image');
     const project=(artworks:ExhibitionV1['artworks']):ExhibitionV1=>({...newDraft().candidate,artworks,mediaAssets:[]} as ExhibitionV1);
