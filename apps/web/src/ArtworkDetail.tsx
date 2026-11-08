@@ -66,7 +66,7 @@ export function ArtworkDetail({ publication, placementId, onClose, onVoicePlay, 
         <dl className="artwork-detail-facts">
           {creationDate&&<><dt>{caption ? "제작 시기" : "제작 연도"}</dt><dd data-testid="artwork-creation-year">{creationDate}</dd></>}
           {artwork.metadata.medium&&<><dt>재료·기법</dt><dd>{artwork.metadata.medium}</dd></>}
-          <dt>{artwork.schemaVersion==='1.0.0-draft.2'?'기관 보고 크기':'기록된 크기'}</dt><dd>{formatArtworkRecordedDimensions(artwork)}{artwork.schemaVersion==='1.0.0-draft.2'&&<span> · 모델 축과의 대응 미확인; 표시 크기는 임시 기준</span>}</dd>
+          <dt>{artwork.schemaVersion==='1.0.0-draft.2'?'등록된 크기':'기록된 크기'}</dt><dd>{formatArtworkRecordedDimensions(artwork)}{artwork.schemaVersion==='1.0.0-draft.2'&&<span> · 모델 축과의 대응 미확인; 표시 크기는 임시 기준</span>}</dd>
         </dl>
         <section aria-label="작품 설명"><h3>작품 설명</h3><p className="detail-text">{description??"설명이 등록되지 않았습니다."}</p></section>
         {voices.length>0&&<section className="artwork-detail-voices" aria-label="작품 음성 설명"><h3>음성 설명</h3>
