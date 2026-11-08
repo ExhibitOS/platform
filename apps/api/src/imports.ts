@@ -1,5 +1,5 @@
 import {modelPreparationIntent,storedModelPreparation,modelPreparationView,type ModelPreparationIntent} from './model-preparation-intent.ts';
-import {assertModelPreparationContext,workRequiredModelPreparation,assertModelPreparationExecution,type ModelPreparationExecution} from './model-preparation-import.ts';
+import {assertModelPreparationContext,assertModelPreparationSlot,workRequiredModelPreparation,assertModelPreparationExecution,type ModelPreparationExecution} from './model-preparation-import.ts';
 import {isDeepStrictEqual} from 'node:util';
 import {modelDerivationInput,prepareModelPair,type ModelDerivation,type ModelPairResult} from './model-derivation.ts';
 import { randomUUID, createHash } from 'node:crypto';
@@ -64,6 +64,7 @@ export class Imports {
    if(artwork.approved_revision===artwork.revision)throw new ApiError(409,'MODEL_PREPARATION_REVISION_APPROVED');
    // This exact input remains bound to the existing dedicated Hayes route.
    if(input.sha256==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&input.bytes===8383096)throw new ApiError(409,'MODEL_PREPARATION_DEDICATED_ROUTE_REQUIRED');
+   await assertModelPreparationSlot(c,s.tenantId,input.artworkId,preparation.artworkRevision);
   }
   if(coarse&&derived){if(reference)throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');if(artwork.revision!==coarse.artworkRevision)throw new ApiError(409,'REVISION_CONFLICT');imageCoarsePolicy(coarse,input.sha256,derived.sha256,derived.bytes,derived.recipe);if(!allowedRights(input.rights,'display')||!allowedRights(input.rights,'export')||!isDeepStrictEqual(input.rights,artwork.metadata?.rights))throw new ApiError(403,'RIGHTS_DENIED');}
   const id=randomUUID(),key=`${s.tenantId}/quarantine/import-${id}/${input.sha256}`,target=`${s.tenantId}/approved/${derived?.sha256??input.sha256}`,preparedKey=derived?`${s.tenantId}/quarantine/import-${id}/prepared-${derived.sha256}`:null;
@@ -114,6 +115,10 @@ export class Imports {
   const result=await c.query("UPDATE import_jobs SET state='queued',progress=10,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id]);return this.view(result.rows[0]);
  }
  async action(c:PoolClient,s:Session,id:string,action:'cancel'|'retry'){
+  if(action==='retry'){
+   const peek=(await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0];
+   if(peek&&storedModelPreparation(peek)){await artworkAccess(c,s,peek.artwork_id,true);await c.query('SELECT id FROM artworks WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[s.tenantId,peek.artwork_id]);}
+  }
   const row=await this.access(c,s,id);
   if(action==='cancel'){
    if(row.hayes_attempt_id!=null){await c.query("UPDATE import_jobs SET state='cancelled',updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='processing'",[s.tenantId,id]);return this.view((await c.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]);}
@@ -122,7 +127,7 @@ export class Imports {
    else await c.query("UPDATE import_jobs SET state='cancelled',lease_id=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2",[s.tenantId,id]);
   }else{
    if(row.hayes_attempt_id!=null)throw new ApiError(409,'WORKER_DRAIN_UNCONFIRMED');
-   if(storedModelPreparation(row))await assertModelPreparationContext(c,row);
+   const required=storedModelPreparation(row);if(required){await assertModelPreparationContext(c,row);await assertModelPreparationSlot(c,s.tenantId,String(row.artwork_id),required.artworkRevision,id);}
    const model=this.model(row),value=row.model_derivation as {result?:Record<string,unknown>}|null;
    const optionalRetry=!!model&&row.state==='approved'&&row.asset_id!=null&&value?.result?.status==='failed'&&row.lease_id==null;
    if(!optionalRetry&&row.state!=='failed'||row.attempts>=5||new Date(row.available_at).getTime()>Date.now())throw new ApiError(409,'JOB_STATE');

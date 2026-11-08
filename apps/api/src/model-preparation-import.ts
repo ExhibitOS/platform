@@ -33,10 +33,16 @@ export function assertModelPreparationExecution(value:ModelPreparationExecution,
 export async function modelPreparationSupported(c:PoolClient){
  const result=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='model_preparation' AND NOT attisdropped) AND EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='import_jobs'::regclass AND conname='import_model_preparation_shape') AS supported");return result.rows[0]?.supported===true;
 }
+/** Caller holds the artwork row lock, shared with CMS approval and revision. */
+export async function assertModelPreparationSlot(c:PoolClient,tenantId:string,artworkId:string,revision:number,exceptJob?:string){
+ const active=await c.query("SELECT id FROM import_jobs WHERE tenant_id=$1 AND artwork_id=$2 AND model_preparation->'request'->>'artworkRevision'=$3 AND ($4::uuid IS NULL OR id<>$4) AND (state NOT IN ('failed','cancelled') OR lease_id IS NOT NULL OR cardinality(png_worker_tokens)>0) LIMIT 1",[tenantId,artworkId,String(revision),exceptJob??null]);
+ if(active.rowCount)throw new ApiError(409,'MODEL_PREPARATION_ACTIVE_IMPORT');
+}
 export async function assertModelPreparationContext(c:PoolClient,row:Record<string,unknown>){
  const intent=storedModelPreparation(row);if(!intent)throw new ApiError(409,'MODEL_PREPARATION_STATE_INVALID');
  const artwork=await artworkAccess(c,{tenantId:String(row.tenant_id),userId:String(row.user_id)},String(row.artwork_id),true);
  if(artwork.revision!==intent.artworkRevision||artwork.metadata?.displayReference||!isDeepStrictEqual(artwork.metadata?.rights,row.rights)||!allowedRights(row.rights,'display'))throw new ApiError(409,'MODEL_PREPARATION_CONTEXT_CHANGED');
+ if(artwork.approved_revision===artwork.revision&&(row.state!=='approved'||artwork.approved_asset_id!==row.asset_id))throw new ApiError(409,'MODEL_PREPARATION_REVISION_APPROVED');
  if(row.state==='approved')await assertModelPreparationAssets(c,row);
 }
 export async function assertModelPreparationAssets(c:PoolClient,row:Record<string,unknown>){
