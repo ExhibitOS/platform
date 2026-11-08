@@ -32,10 +32,17 @@ export class NativeDetailOperations {
   if(!entry.closing||entry.active.size)return 'pending';
   return !entry.failed&&entry.finalized?'settled-success':'settled-failure';
  }
+ /** Retrieve only a scope belonging to the already-authenticated owner. */
+ lookup(owner:Omit<NativeDetailScope,'revisionSha256'|'jobId'>,jobId:string):NativeDetailScope {
+  const entry=this.entries.get(jobId);if(!entry||this.shuttingDown||!Object.entries(owner).every(([key,value])=>entry.scope[key as keyof NativeDetailScope]===value))throw Error('NATIVE_DETAIL_UNAVAILABLE');
+  return {...entry.scope};
+ }
  /** work and its cleanup both remain charged until cleanup actually settles. */
  async run<T>(scope:NativeDetailScope,phase:'prepare'|'bytes'|'final',work:(signal:AbortSignal)=>Promise<T>,cleanup:()=>Promise<void>):Promise<T>{
   const entry=this.entry(scope,phase==='prepare');
-  if(entry.closing||entry.failed||entry.active.size!==0||(phase==='prepare'?entry.prepared:!entry.prepared))throw Error('NATIVE_DETAIL_UNAVAILABLE');
+  if(entry.closing||entry.failed)throw Error('NATIVE_DETAIL_UNAVAILABLE');
+  if(entry.active.size!==0)throw Error('NATIVE_DETAIL_BUSY');
+  if(phase==='prepare'?entry.prepared:!entry.prepared)throw Error('NATIVE_DETAIL_UNAVAILABLE');
   if(phase==='final')entry.closing=true;
   const controller=new AbortController();entry.controllers.add(controller);
   // Install the promise in active before any caller-controlled callback can

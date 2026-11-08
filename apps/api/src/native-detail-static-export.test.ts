@@ -34,7 +34,7 @@ it('closes failed admission after cleanup instead of leaving an unrecoverable pe
 });
 it('accounts for reentrant admission and runtime close before callback execution',async()=>{
  const registry=new NativeDetailOperations(),s=scope();let draining:Promise<boolean>|undefined;
- const running=registry.run(s,'prepare',async()=>{await expect(registry.run(s,'prepare',done,done)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');draining=registry.closeRuntime();},done);
+ const running=registry.run(s,'prepare',async()=>{await expect(registry.run(s,'prepare',done,done)).rejects.toThrow('NATIVE_DETAIL_BUSY');draining=registry.closeRuntime();},done);
  await expect(running).rejects.toThrow();expect(await draining).toBe(true);
  const second=new NativeDetailOperations(),other=scope();let called=false;const pending=second.run(other,'prepare',async()=>{called=true;},done),closed=second.closeRuntime();await expect(pending).rejects.toThrow();expect(called).toBe(false);expect(await closed).toBe(true);
 });
