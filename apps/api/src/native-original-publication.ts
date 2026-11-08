@@ -33,6 +33,7 @@ export function createNativeOriginalPublication(services:Services){
  const pending=new WeakSet<object>(),persisted=new WeakSet<object>();
  const freeze=(v:unknown):void=>{if(v&&typeof v==='object'&&!Object.isFrozen(v)){for(const item of Object.values(v))freeze(item);Object.freeze(v);}};
  const producer=Object.freeze({
+  assertCurrent(s:Session){if(!context.live()||s.tenantId!==owner.tenantId||s.userId!==owner.principalId||!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))unavailable();context.signal.throwIfAborted();},
   async assertLive(c:PoolClient,s:Session){await live(c,s);},
   async verifyExisting(c:PoolClient,s:Session,exhibitionId:string,publicationId:string,revision:string,snapshot:Exhibition){
    await live(c,s);if((await c.query('SHOW transaction_isolation')).rows[0]?.transaction_isolation!=='read committed'||revisionHash(snapshot)!==revision)unavailable();
