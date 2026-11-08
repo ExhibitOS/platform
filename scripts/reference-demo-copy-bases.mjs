@@ -50,7 +50,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
   const current = parseStaticJson(currentBytes);
   // Only the exact independently verified active Wheat v4 is admitted here.
-  // Archived v4 copy bases remain unsupported below.
+  // Below, the single pinned former Wheat v4 is the only permitted v4 archive.
   if (current.version === 4) {
     const { verifiedQualifiedWheat } = await import('./qualified-wheat-reference.mjs');
     try { await verifiedQualifiedWheat({ root: output }); } catch { fail(); }
