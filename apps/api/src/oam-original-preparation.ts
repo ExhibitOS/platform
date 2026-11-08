@@ -17,7 +17,7 @@ export type CompactModelProfile=typeof COMPACT_MODEL_RECIPE.id|typeof LARGE_MODE
 export const modelPreparationHash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 export const COMPACT_MODEL_RECIPE_SHA256=modelPreparationHash(Buffer.from(JSON.stringify(COMPACT_MODEL_RECIPE)));
 export const LARGE_MODEL_RECIPE_SHA256=modelPreparationHash(Buffer.from(JSON.stringify(LARGE_MODEL_RECIPE)));
-function recipeFor(profile:CompactModelProfile){
+export function compactModelRecipeFor(profile:CompactModelProfile){
  switch(profile){
   case COMPACT_MODEL_RECIPE.id:return COMPACT_MODEL_RECIPE;
   case LARGE_MODEL_RECIPE.id:return LARGE_MODEL_RECIPE;
@@ -38,7 +38,7 @@ export interface CompactModelReceipt {
  simplifier:{version:'1.1.1';relativeAppearanceError:number;lockedVertices:number};decoder:typeof COMPACT_MODEL_RECIPE.decoder;
 }
 export interface CompactModelPreparation {bytes:Buffer;receipt:CompactModelReceipt}
-export function matchesModelPreparationInput(bytes:Buffer,input:ModelPreparationInput,profile:CompactModelProfile=COMPACT_MODEL_RECIPE.id){return !!input&&Number.isSafeInteger(input.bytes)&&input.bytes>=28&&input.bytes<=recipeFor(profile).limits.sourceBytes&&/^[a-f0-9]{64}$/.test(input.sha256)&&Buffer.isBuffer(bytes)&&bytes.length===input.bytes&&modelPreparationHash(bytes)===input.sha256;}
+export function matchesModelPreparationInput(bytes:Buffer,input:ModelPreparationInput,profile:CompactModelProfile=COMPACT_MODEL_RECIPE.id){return !!input&&Number.isSafeInteger(input.bytes)&&input.bytes>=28&&input.bytes<=compactModelRecipeFor(profile).limits.sourceBytes&&/^[a-f0-9]{64}$/.test(input.sha256)&&Buffer.isBuffer(bytes)&&bytes.length===input.bytes&&modelPreparationHash(bytes)===input.sha256;}
 function bounds(positions:Float32Array):Bounds{
  const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
  for(let i=0;i<positions.length;i++){const value=positions[i]!;if(!Number.isFinite(value)||Math.abs(value)>20000)fail();const axis=i%3;min[axis]=Math.min(min[axis]!,value);max[axis]=Math.max(max[axis]!,value);}
@@ -47,7 +47,7 @@ function bounds(positions:Float32Array):Bounds{
 /** Narrow static, one-node/one-material indexed profile. No hash allowlist,
  * external resources, transformations, animations, extensions or unit guesses. */
 export function inspectCompactModelSource(bytes:Buffer,input:ModelPreparationInput,profile:CompactModelProfile=COMPACT_MODEL_RECIPE.id){
- const {limits}=recipeFor(profile);
+ const {limits}=compactModelRecipeFor(profile);
  if(!matchesModelPreparationInput(bytes,input,profile))fail('MODEL_PREPARATION_INPUT_INTEGRITY');
  if(bytes.toString('ascii',0,4)!=='glTF'||bytes.readUInt32LE(4)!==2||bytes.readUInt32LE(8)!==bytes.length)fail();
  const jsonLength=bytes.readUInt32LE(12),binAt=20+jsonLength;
@@ -109,7 +109,7 @@ export function downsampleCompactTexture(decoded:Buffer,width:number,height:numb
 }
 /** Worker-only entry: source hash is supplied by a persisted ordinary job. */
 export async function prepareCompactModel(source:Buffer,identity:ModelPreparationInput,profile:CompactModelProfile=COMPACT_MODEL_RECIPE.id):Promise<CompactModelPreparation>{
- const recipe=recipeFor(profile),limits=recipe.limits;
+ const recipe=compactModelRecipeFor(profile),limits=recipe.limits;
  const recipeSHA256=profile===LARGE_MODEL_RECIPE.id?LARGE_MODEL_RECIPE_SHA256:COMPACT_MODEL_RECIPE_SHA256;
  const input=inspectCompactModelSource(source,identity,profile),{validateBytes}=await import('gltf-validator'),{MeshoptSimplifier}=await import('meshoptimizer'),sharp=(await import('sharp')).default;
  const checked=await validateBytes(source,{externalResourceFunction:async()=>fail(),maxIssues:64});if(checked.issues.numErrors!==0)fail('MODEL_PREPARATION_GEOMETRY_REJECTED');
