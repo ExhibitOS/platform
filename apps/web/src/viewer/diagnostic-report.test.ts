@@ -48,3 +48,35 @@ it('retains bounded per-asset outcomes independently of recent events', () => {
  expect(result.metrics.assetRenderOutcome).toContain('visible pixels are unverified');
  expect(json).not.toContain('secret');
 });
+
+it('projects only bounded main-scene mesh submission fields on retained render returns', () => {
+ const submission = {
+  drawCalls: 0,
+  cameraPosition: [6, 1.65, -5] as [number, number, number],
+  cameraQuaternion: [0, 0, 0, 1] as [number, number, number, number],
+  verticalFov: 48,
+  worldBounds: {min: [5, 1, -5] as [number, number, number], max: [6, 2, -4] as [number, number, number]},
+ };
+ const render = {assetId: first, artworkRevisionId, atMs: 10, stage: 'display-attached-render-returned', errorCode: null};
+ const lastAssetStages = [
+  {...render, mainMeshSubmission: {...submission, debugPath: '/secret'}},
+  {...render, mainMeshSubmission: {...submission, drawCalls: 2, worldBounds: null}},
+  {...render, mainMeshSubmission: {...submission, cameraPosition: [0, Infinity, 0] as [number, number, number]}},
+  {...render, mainMeshSubmission: {...submission, worldBounds: {...submission.worldBounds, max: [1, 2, 3] as [number, number, number]}}},
+  {...render, mainMeshSubmission: null},
+  {...render, stage: 'attached-awaiting-draw', mainMeshSubmission: submission},
+  render,
+ ];
+ const json = createDiagnosticReport({...snapshot, lastAssetStages}, {publicationId, revisionSha256});
+ const fields = JSON.parse(json).snapshot.lastAssetStages.map((row: {mainMeshSubmission?: unknown}) => row.mainMeshSubmission);
+ expect(fields).toEqual([
+  submission,
+  {...submission, drawCalls: 2, worldBounds: null},
+  null,
+  {...submission, worldBounds: null},
+  null,
+  undefined,
+  undefined,
+ ]);
+ expect(json).not.toContain('/secret');
+});

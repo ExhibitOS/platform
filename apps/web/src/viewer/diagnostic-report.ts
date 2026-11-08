@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { DiagnosticSnapshot } from "./diagnostic-source";
+import type { DiagnosticAssetStage, DiagnosticSnapshot } from "./diagnostic-source";
 
 const maximumReportBytes = 128 * 1024;
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -21,6 +21,26 @@ function number(value: number | null): number | null {
 
 function byteCount(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function finiteTuple(value: unknown, length: number): number[] | null {
+  if (!Array.isArray(value) || value.length !== length) return null;
+  const tuple = [...value];
+  return tuple.every(item => typeof item === "number" && Number.isFinite(item)) ? tuple : null;
+}
+
+function projectMainMeshSubmission(value: DiagnosticAssetStage["mainMeshSubmission"]) {
+  if (!value) return null;
+  const drawCalls = byteCount(value.drawCalls);
+  const cameraPosition = finiteTuple(value.cameraPosition, 3);
+  const cameraQuaternion = finiteTuple(value.cameraQuaternion, 4);
+  const verticalFov = number(value.verticalFov);
+  if (drawCalls === null || !cameraPosition || !cameraQuaternion || verticalFov === null ||
+    verticalFov <= 0 || verticalFov >= 180) return null;
+  const min = finiteTuple(value.worldBounds?.min, 3);
+  const max = finiteTuple(value.worldBounds?.max, 3);
+  const worldBounds = min && max && min.every((axis, index) => axis <= max[index]) ? { min, max } : null;
+  return { drawCalls, cameraPosition, cameraQuaternion, verticalFov, worldBounds };
 }
 
 function projectStage(event: DiagnosticSnapshot["events"][number]) {
@@ -135,6 +155,8 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
         residentCandidateBytes: byteCount(event.residentCandidateBytes),
         residentLimitBytes: byteCount(event.residentLimitBytes),
         renderOutcome: token(event.renderOutcome ?? null, /^(?:returned|skipped|threw)$/),
+        ...(row.stage === "display-attached-render-returned" && event.mainMeshSubmission !== undefined
+          ? { mainMeshSubmission: projectMainMeshSubmission(event.mainMeshSubmission) } : {}),
       }];
     }),
   };
