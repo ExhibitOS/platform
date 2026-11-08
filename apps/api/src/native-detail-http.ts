@@ -42,7 +42,7 @@ export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard
   const scopedRequest=(phase:'prepare'|'final')=>async(request:FastifyRequest,reply:import('fastify').FastifyReply)=>{
    reply.header('cache-control','no-store');const keys=phase==='prepare'?['version','jobId','revisionSha256']:['version','jobId','revisionSha256','detailCount','detailSetSha256'],body=checkedBody(request,keys),p=request.params as {publicationId:string};
    if(phase==='final'&&(body.detailCount!==0||body.detailSetSha256!==emptyDigest))invalid();
-   const disconnected=new AbortController();let bound:NativeDetailScope|undefined;
+   const disconnected=new AbortController();let bound:NativeDetailScope|undefined,hijacked=false;
    const abort=()=>{disconnected.abort();if(bound)try{registry.close(bound);}catch{/* Unobservable cleanup stays unconfirmed. */}};
    const closed=()=>{if(!reply.raw.writableFinished)abort();};request.raw.once('aborted',abort);reply.raw.once('close',closed);if(request.raw.aborted||reply.raw.destroyed)abort();
    try{
@@ -51,10 +51,12 @@ export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard
     await registry.run(bound,phase,async signal=>{
      const owner=bound!;await authenticated(request,async(c,s)=>{if(s.id!==owner.sessionId||!context.live())invalid();signal.throwIfAborted();await publication(c,s,p.publicationId,owner.revisionSha256);await live(c,s);signal.throwIfAborted();});
      const response=phase==='prepare'?{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,detailAssets:[]}:{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,valid:true};
-     signal.throwIfAborted();reply.hijack();reply.raw.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});reply.raw.end(JSON.stringify(response));await finished(reply.raw);
+     const stopResponse=()=>{if(hijacked&&!reply.raw.destroyed)reply.raw.destroy();};signal.addEventListener('abort',stopResponse,{once:true});
+     try{signal.throwIfAborted();reply.hijack();hijacked=true;if(signal.aborted)stopResponse();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});reply.raw.end(JSON.stringify(response));await finished(reply.raw);}
+     finally{signal.removeEventListener('abort',stopResponse);}
     },async()=>{});
     return reply;
-   }catch(error){if(reply.raw.headersSent)reply.raw.destroy();return normalize(error);}finally{request.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);}
+   }catch(error){if(hijacked){reply.raw.destroy();return reply;}return normalize(error);}finally{request.raw.removeListener('aborted',abort);reply.raw.removeListener('close',closed);}
   };
   scoped.post(`${prefix}/prepare`,{bodyLimit:4096},scopedRequest('prepare'));
   scoped.post(`${prefix}/final-check`,{bodyLimit:4096},scopedRequest('final'));
