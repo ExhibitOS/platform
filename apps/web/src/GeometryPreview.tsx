@@ -30,6 +30,7 @@ import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
 import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-budget-retry';
+import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
@@ -1796,6 +1797,11 @@ export function GeometryPreview({
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
         const minimumObjects=new Map<string,{assetId:string;object:InstanceType<typeof three.Object3D>}>(), minimumBlocked=new Set<string>(),materialBudgetDeferred=new Map<string,{full:boolean;prepareOnly:boolean;detailPromotion:boolean;manual:boolean}>();
+        // Remember the measured resident requirement so an unchanged budget
+        // does not decode and discard the same visible minimum every five seconds.
+        const residentMinimumWait=new Map<string,{bytes:number;assetId:string}>();
+        let residentRecoveryCancelled=false;
+        const retryWaitingMinimum=(id:string,required:number,needed:boolean)=>retryResidentMinimum({required,needed,pending:pending.has(id),used:()=>peak.total(),limit:()=>assetBudgetBytes,reclaim:deficit=>reclaimOffroom(id,deficit)});
         let materialRetryEpoch=0;
         let minimumRoomId:string|undefined,minimumRooms:ReadonlySet<string>=new Set();
         const placeholders=new Map([...placements].map(([id,group])=>[id,[...group.children]]));
@@ -2163,7 +2169,17 @@ export function GeometryPreview({
               for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
               if(neededMinimum(task))reclaimOffroom(art.revisionId,deficit);
               if(deficit()>0){
-                discardResult(result);retryAfter.set(art.revisionId,performance.now()+5000);update();return;
+                const missingMinimum=neededMinimum(task);
+                const required=object.userData.viewer?.decodedBytes;
+                discardResult(result);
+                if(missingMinimum){
+                  minimumBlocked.add(art.revisionId);
+                  if(Number.isSafeInteger(required)&&required>=0){residentMinimumWait.set(art.revisionId,{bytes:required,assetId:inventory.id});retryAfter.set(art.revisionId,Infinity);}
+                  else retryAfter.set(art.revisionId,performance.now()+5000);
+                  if(art.revisionId===demandContext().owner)reclaimForCurrent();
+                  reduceSurfaceForCurrent(art.revisionId);
+                }else retryAfter.set(art.revisionId,performance.now()+5000);
+                update();return;
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
                 if(preparing.has(art.revisionId)){prepared.set(inventory.id,{artId:art.revisionId,object,lastUseful:performance.now()});stage(inventory.id,'prepared-resident',undefined,key);}
@@ -2203,7 +2219,7 @@ export function GeometryPreview({
               stage(inventory.id,'attached-awaiting-draw',undefined,key);
               if(oldId&&oldId!==inventory.id)byteCache.delete(oldId);
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
-              failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);retryAfter.delete(art.revisionId);
+              failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);residentMinimumWait.delete(art.revisionId);retryAfter.delete(art.revisionId);
               shadowPass.invalidate();
               render();
               stage(inventory.id,'display-attached-render-requested',undefined,key);
@@ -2271,11 +2287,16 @@ export function GeometryPreview({
             surfacePlan.residentBytes=residentBytes;releaseMaterialLoadHold('surface');
             const surfaceState=renderer.domElement.dataset.surfaceTextures;
             if(surfaceState)renderer.domElement.dataset.surfaceTextures=JSON.stringify({...JSON.parse(surfaceState),residentBytes});
-            retryAfter.delete(artId);failed.delete(artId);minimumBlocked.delete(artId);
+            const wait=residentMinimumWait.get(artId);
+            if(wait===undefined||residentMinimumFits(peak.total(),wait.bytes,assetBudgetBytes)){
+              retryAfter.delete(artId);residentMinimumWait.delete(artId);failed.delete(artId);minimumBlocked.delete(artId);
+            }
             shadowPass.invalidate();render();update();
           }).catch(()=>{/* Old complete material stays valid; no retry loop. */}).finally(()=>{materialReductionPending=false;});
         };
         demand.current = (kind) => {
+          if(kind==='cancel')residentRecoveryCancelled=true;
+          else residentRecoveryCancelled=false;
           if (kind === 'auto'){automatic=true;return;}
           if(kind==='cancel'||kind==='coarse'){
             preparing.clear();
@@ -2298,10 +2319,17 @@ export function GeometryPreview({
                   .filter((a) => !requested.has(a.revisionId))
                   .slice(0, viewerBudget.entranceAssets)
               : kind === "retry"
-                ? arts.filter((a) => failed.has(a.revisionId))
+                ? arts.filter((a) => failed.has(a.revisionId)||residentMinimumWait.has(a.revisionId))
                 : arts.filter((a) => requested.has(a.revisionId));
           for (const art of selected) {
             if (kind === "retry") visibleWaitStarted.delete(art.revisionId);
+            const residentWait=residentMinimumWait.get(art.revisionId);
+            if(residentWait!==undefined){
+              let selectedId:string|undefined;
+              try{selectedId=selectAssetVariant(art,kind==='full'||kind==='next'&&!automatic&&manualFull?0:Infinity,viewerBudget).id;}catch{/* Let normal admission report an unsupported target. */}
+              if(sameResidentMinimumAsset(residentWait.assetId,selectedId)&&!retryWaitingMinimum(art.revisionId,residentWait.bytes,true)){reduceSurfaceForCurrent(art.revisionId);continue;}
+              residentMinimumWait.delete(art.revisionId);minimumBlocked.delete(art.revisionId);
+            }
             retryAfter.delete(art.revisionId);
             request(art, kind === "full" || (kind === "next" && !automatic && manualFull),false,false,true);
           }
@@ -2671,7 +2699,7 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
@@ -2698,7 +2726,7 @@ export function GeometryPreview({
           for (const object of objects.values()) destroy(object);
           for(const value of prepared.values())destroy(value.object);
           prepared.clear();
-          for(const value of minimumObjects.values())destroy(value.object);minimumObjects.clear();minimumBlocked.clear();
+          for(const value of minimumObjects.values())destroy(value.object);minimumObjects.clear();minimumBlocked.clear();residentMinimumWait.clear();
           byteCache.clear();
           renderer.domElement.dataset.disposed = "true";
         };
