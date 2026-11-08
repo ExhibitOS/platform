@@ -1796,7 +1796,9 @@ export function GeometryPreview({
         // Keep only the verified header cost when expendable encoded bytes are
         // evicted. Losing the bytes must not restart an impossible warm fetch.
         const imageDecodeCeilings=new Map<string,number>();
-        const diagnosticEvents=createDiagnosticEvents();
+        const collectDiagnostics=diagnosticsEnabled();
+        const preferredDiagnosticAssets=new Set(collectDiagnostics?document.artworks.flatMap(art=>art.assets.filter(asset=>asset.mime==='model/gltf-binary').map(asset=>asset.id.toLowerCase())):[]);
+        const diagnosticEvents=createDiagnosticEvents(preferredDiagnosticAssets);
         const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key),diagnosticsEnabled()?diagnosticEvents.record:undefined);
         const stage=stages.record;
         let currentArtwork:string|undefined;
@@ -1839,7 +1841,7 @@ export function GeometryPreview({
             device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles,effectiveResidentBytes:assetBudgetBytes,effectiveTransitionBytes:transitionBudgetBytes,selectedDetailResidentBytes:selectedLimits?.resident??null,selectedDetailTransitionBytes:selectedLimits?.transition??null,originalDetailTransitionBytes:diagnosticOriginalLimits?.transition??null,originalDetailSceneBytes:diagnosticOriginalLimits?.scene??null}},
             navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
             memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:detailOmitted?null:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:detailOmitted?null:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
-            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot()};
+            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot(),lastAssetStages:diagnosticEvents.lastAssetStages()};
         });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
         const requestLimits=(task?:{detailPromotion?:boolean;imageBudget?:DeviceBudget})=>{
@@ -2197,6 +2199,11 @@ export function GeometryPreview({
               tasks.delete(key);
               if(!object){update();return;}
               if (disposed || !current || desired.get(art.revisionId) !== inventory.id) {
+                if(collectDiagnostics&&!disposed&&!stage(inventory.id,'discarded-stale-generation',undefined,key)){
+                  // Keep the superseded request in the recent ring without
+                  // replacing the newer generation's per-asset state.
+                  diagnosticEvents.record({atMs:performance.now(),assetId:inventory.id,artworkRevisionId:art.revisionId,stage:'discarded-stale-generation',errorCode:null},false);
+                }
                 discardResult(result);
                 return;
               }
@@ -2209,6 +2216,9 @@ export function GeometryPreview({
               if(deficit()>0){
                 const missingMinimum=neededMinimum(task);
                 const required=object.userData.viewer?.decodedBytes;
+                if(collectDiagnostics)stage(inventory.id,'deferred-resident-budget',new Error('ASSET_RESIDENT_BUDGET'),key,{
+                  residentUsedBytes:peak.total(),residentCandidateBytes:required??0,residentLimitBytes:steady,
+                });
                 discardResult(result);
                 if(missingMinimum){
                   minimumBlocked.add(art.revisionId);
@@ -2221,7 +2231,10 @@ export function GeometryPreview({
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
                 if(preparing.has(art.revisionId)){prepared.set(inventory.id,{artId:art.revisionId,object,lastUseful:performance.now()});stage(inventory.id,'prepared-resident',undefined,key);}
-                else destroy(object);
+                else{
+                  if(collectDiagnostics)stage(inventory.id,'discarded-prepare-only',undefined,key);
+                  destroy(object);
+                }
                 update();return;
               }
               if(task.detailPromotion){
@@ -2259,8 +2272,18 @@ export function GeometryPreview({
               xrArtworks.set(art.revisionId,{revisionId:art.revisionId,assetId:inventory.id,label:art.metadata.title,object});xrCallbacks.current.onXrArtworks?.([...xrArtworks.values()]);
               failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);residentMinimumWait.delete(art.revisionId);retryAfter.delete(art.revisionId);
               shadowPass.invalidate();
-              render();
-              stage(inventory.id,'display-attached-render-requested',undefined,key);
+              if(collectDiagnostics){
+                try{
+                  const returned=render();
+                  stage(inventory.id,returned?'display-attached-render-returned':'display-attached-render-skipped',undefined,key,{renderOutcome:returned?'returned':'skipped'});
+                }catch(error){
+                  stage(inventory.id,'display-attached-render-threw',undefined,key,{renderOutcome:'threw'});
+                  throw error;
+                }
+              }else{
+                render();
+                stage(inventory.id,'display-attached-render-requested',undefined,key);
+              }
               update();
             })
             .catch((error) => {

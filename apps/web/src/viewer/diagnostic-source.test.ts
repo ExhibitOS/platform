@@ -34,3 +34,15 @@ it('retains only 64 bounded safe event tokens',()=>{
  buffer.record({...event,errorCode:'PRIVATE URL'});
  expect(buffer.snapshot()).toHaveLength(64);expect(buffer.snapshot()[0]?.atMs).toBe(6);expect(buffer.snapshot().at(-1)?.atMs).toBe(69);
 });
+
+it('retains a preferred model stage beyond rollover without replacing it with a stale request',()=>{
+ vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
+ const model='11111111-1111-4111-8111-111111111111',buffer=createDiagnosticEvents(new Set([model]));
+ const event={atMs:1,assetId:model,artworkRevisionId:null,stage:'deferred-resident-budget',errorCode:'ASSET_RESIDENT_BUDGET'};
+ buffer.record({...event,residentUsedBytes:40,residentCandidateBytes:20,residentLimitBytes:50});
+ for(let n=2;n<72;n++)buffer.record({...event,atMs:n,assetId:`11111111-1111-4111-8111-${String(n).padStart(12,'0')}`,stage:'fetch-verify',errorCode:null});
+ expect(buffer.snapshot().some(item=>item.assetId===model)).toBe(false);
+ buffer.record({...event,atMs:72,stage:'discarded-stale-generation',errorCode:null},false);
+ expect(buffer.lastAssetStages()).toHaveLength(32);
+ expect(buffer.lastAssetStages().find(item=>item.assetId===model)).toEqual({...event,residentUsedBytes:40,residentCandidateBytes:20,residentLimitBytes:50});
+});

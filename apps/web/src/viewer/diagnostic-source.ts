@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 declare const __EXHIBITOS_STAGING_DIAGNOSTICS__: boolean | undefined;
 export type DiagnosticEvent={atMs:number;assetId:string;artworkRevisionId:string|null;stage:string;errorCode:string|null};
+export type DiagnosticAssetStage=DiagnosticEvent&{
+ residentUsedBytes?:number;residentCandidateBytes?:number;residentLimitBytes?:number;
+ renderOutcome?:'returned'|'skipped'|'threw';
+};
 export type DiagnosticSnapshot={
  version:1;capturedAt:string;
  lifecycle:'live'|'stopped'|'context-lost';
@@ -12,6 +16,7 @@ export type DiagnosticSnapshot={
  memory:{residentEstimateBytes:number|null;transitionEstimateBytes:number|null;peakTransitionEstimateBytes:number|null;textureEstimateBytes:number|null;peakTextureEstimateBytes:number|null;meshEstimateBytes:number|null;peakMeshEstimateBytes:number|null;renderTargetEstimateBytes:number|null;peakRenderTargetEstimateBytes:null;gpuPhysicalBytes:null};
  assets:Array<{assetId:string;artworkRevisionId:string|null;sha256:string|null;bytes:number|null;mime:string|null;path:string|null;active:boolean}>;
  events:DiagnosticEvent[];
+ lastAssetStages?:DiagnosticAssetStage[];
 };
 export const diagnosticsEnabled=()=>typeof __EXHIBITOS_STAGING_DIAGNOSTICS__!=='undefined'&&__EXHIBITOS_STAGING_DIAGNOSTICS__===true;
 let current:(()=>DiagnosticSnapshot)|null=null;
@@ -25,10 +30,24 @@ export function readDiagnosticSnapshot(expected:{publicationId:string;revisionSh
  const snapshot=current();if(snapshot.identity.publicationId!==expected.publicationId||snapshot.identity.revisionSha256!==expected.revisionSha256)return null;
  return snapshot;
 }
-export function createDiagnosticEvents(){
+export function createDiagnosticEvents(preferredAssets:ReadonlySet<string>=new Set()){
  const events:DiagnosticEvent[]=[];
- return {record(event:DiagnosticEvent){
-  if(!diagnosticsEnabled()||!Number.isFinite(event.atMs)||event.atMs<0||!/^[a-f0-9-]{36}$/i.test(event.assetId)||event.artworkRevisionId!==null&&!/^[a-f0-9-]{36}$/i.test(event.artworkRevisionId)||!/^[a-z][a-z0-9-]{0,63}$/.test(event.stage)||event.errorCode!==null&&!/^[A-Z][A-Z0-9_]{0,79}$/.test(event.errorCode))return;
-  events.push({...event});if(events.length>64)events.shift();
- },snapshot:()=>events.map(event=>({...event}))};
+ const last=new Map<string,DiagnosticAssetStage>();
+ return {
+  record(event:DiagnosticAssetStage,retainLast=true){
+   if(!diagnosticsEnabled()||!Number.isFinite(event.atMs)||event.atMs<0||!/^[a-f0-9-]{36}$/i.test(event.assetId)||event.artworkRevisionId!==null&&!/^[a-f0-9-]{36}$/i.test(event.artworkRevisionId)||!/^[a-z][a-z0-9-]{0,63}$/.test(event.stage)||event.errorCode!==null&&!/^[A-Z][A-Z0-9_]{0,79}$/.test(event.errorCode))return;
+   const {atMs,assetId,artworkRevisionId,stage,errorCode}=event;
+   events.push({atMs,assetId,artworkRevisionId,stage,errorCode});
+   if(events.length>64)events.shift();
+   if(!retainLast)return;
+   last.delete(assetId);
+   last.set(assetId,{...event});
+   if(last.size>32){
+    const oldestOther=[...last.keys()].find(id=>!preferredAssets.has(id));
+    last.delete(oldestOther??last.keys().next().value!);
+   }
+  },
+  snapshot:()=>events.map(event=>({...event})),
+  lastAssetStages:()=>[...last.values()].reverse().map(event=>({...event})),
+ };
 }
