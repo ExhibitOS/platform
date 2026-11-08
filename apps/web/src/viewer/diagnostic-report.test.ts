@@ -15,3 +15,12 @@ it('recognizes an observed acquired original by verified hash without an asset i
 it('does not project another placement display or its detail limits',()=>{
  const result=report(second);expect(result.requestedDetail.attachment).toBe('not-observed');expect(result.snapshot.displayed.tier).toBeNull();expect(result.snapshot.device.budget.selectedDetailResidentBytes).toBeNull();expect(result.snapshot.device.budget.originalDetailSceneBytes).toBeNull();expect(result.snapshot.device.budget.originalDetailTransitionBytes).toBeNull();
 });
+it('requires a valid original hash or an approved asset id to mark attachment observed',()=>{
+ const expected={publicationId,revisionSha256,detail:{placementId:first,artworkRevisionId}};
+ for(const displayed of [
+  {...snapshot.displayed,sha256:null},
+  {...snapshot.displayed,sha256:'invalid'},
+  {...snapshot.displayed,tier:'detail-approved' as const,sha256:'b'.repeat(64)},
+  {...snapshot.displayed,tier:'scene' as const,assetId:first},
+ ]) expect(JSON.parse(createDiagnosticReport({...snapshot,displayed},expected)).requestedDetail.attachment).toBe('not-observed');
+});
