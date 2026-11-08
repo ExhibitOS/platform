@@ -222,3 +222,50 @@ export compare the same reference-aware metadata contract. Existing profile,
 rights, asset hash/decode, staging, worker drain and native owner checks remain
 required. This does not add historical-format support or restore source native
 processing-job authority from a portable package.
+
+### Native completed-import upload settlement
+
+A successful selected `bounded-file-v1` / draft.12 import retires its native
+reservation and journal before clearing `cleanupPending`. The issued owner
+then calls `settleBoundedWorkspaceOexCleanup` with the exact committed proof,
+saved r2 receipt, current Session/physical owner and actual drain verification.
+Only the job's enumerated `oex-staging/<job>/chunk-N` files are durably removed.
+Imported asset/source bytes, result/proof, `staging_keys` and `cleanup_keys`
+remain unchanged. Once removal and current authority are reverified, the flag
+is cleared transactionally and the completed job leaves the upload quota.
+
+A failed deletion, sync, authority check or uncertain commit retains evidence.
+Retry this settlement with the same proof and freshly established exclusive
+native owner/drain; do not repeat import or export. The existing
+`verifySelectedWorkspaceOexFinalization` check requires actual retired anchor,
+unchanged journal/provider identity and current committed database evidence.
+This internal operation is not an HTTP route, a receipt-only permission, a
+legacy-worker expansion or permission to settle a live foreign profile.
+
+Retained completed jobs use the ordinary native clean-reopen startup hook.
+Manager may set `EXHIBITOS_NATIVE_OEX_CLEANUP_SELECTION` to exactly
+`{"jobId":"<uuid>","importRuntimeGeneration":"<uuid>"}` for its internal command.
+This selector grants no authority. It requires the issued exclusive writer and
+`clean-reopen` admission (no restore/upgrade/selected-import), current private
+channel Session/CSRF and same physical workspace. Before readiness/workers,
+the runtime resolves only the two generation-named local journal/budget paths,
+reads the exact same-owner034 terminal record and verifies its original claim,
+retired journal and saved r2 proof. Missing evidence fails closed.
+
+Success emits `EXHIBITOS_NATIVE_OEX_CLEANUP_RESULT ` followed by JSON with
+`version:1`, matching `jobId`/`importRuntimeGeneration`, `state:"complete"`,
+`cleanupPending:false` and `stagingChunks`, then continues normal startup.
+Manager uses its existing ordinary stop and clean exit. A recoverable settlement failure with the issued owner still live emits a
+matching result with `state:"unresolved"`, `cleanupPending:null` and
+`errorCode:"NATIVE_OEX_CLEANUP_FAILED"`. The runtime emits `LOCAL_RUNTIME_START_FAILED_OEX_CLEANUP`, keeps readiness
+false (HTTP remains unavailable), skips remaining deferred work and starts no
+OEX/import workers. The existing authenticated ordinary drain handler is
+installed before the cleanup hook; only that owned drain channel remains usable.
+Manager must report operation failure, perform the existing authenticated ordinary stop/drain/clean return,
+then use a new clean-reopen for settlement retry. A lost success result has the
+same retry boundary. Selector idempotence does not authorize immediate restart.
+Owner loss/setup failure remains `LOCAL_RUNTIME_START_FAILED_OEX_CLEANUP` (or
+its earlier startup stage) and the existing Manager recovery fence; no clean
+completion is synthesized. Future imports likewise retain a pending flag on
+cleanup failure while preserving their completed import and normal owned stop.
+No HTTP cleanup endpoint is installed, and import/export is never replayed.

@@ -17,7 +17,8 @@ type Owner={workspaceId:string;tenantId:string;principalId:string;assertDatabase
  * exclude competing workspace operations, and independently prove complete
  * worker/decoder drain and durable settlement/retirement before replay. This
  * helper alone is not replay authority and is not connected to a route. */
-export async function verifyWorkspaceOexCommitted(pool:Pool,s:Session,owner:Owner,input:{scope:Scope;proofBytes:Uint8Array;resultBytes:Uint8Array;claimSha256:string;save:Save}){
+type CommittedInput={scope:Scope;proofBytes:Uint8Array;resultBytes:Uint8Array;claimSha256:string;save:Save};
+function committedVerification(s:Session,owner:Owner,input:CommittedInput){
  if(!input||typeof input.claimSha256!=='string'||!/^[0-9a-f]{64}$/.test(input.claimSha256)||!(input.proofBytes instanceof Uint8Array)||input.proofBytes.byteLength<1||input.proofBytes.byteLength>8192||!(input.resultBytes instanceof Uint8Array)||input.resultBytes.byteLength<1||input.resultBytes.byteLength>4*1024*1024)throw Error('OEX_TERMINAL_COMMITTED_INVALID');
  const session=structuredClone(s),scope=structuredClone(input.scope),save=structuredClone(input.save),claimSha256=input.claimSha256,proofBytes=Buffer.from(input.proofBytes),resultBytes=Buffer.from(input.resultBytes);
  if(!owner||typeof owner.assertDatabase!=='function'||typeof owner.assertImportCatalog!=='function'||typeof owner.assertRecord!=='function'||owner.workspaceId!==scope.workspaceId||owner.tenantId!==scope.tenantId||owner.principalId!==scope.principalId||session.tenantId!==scope.tenantId||session.userId!==scope.principalId||!['admin','artist'].includes(session.role))throw Error('OEX_TERMINAL_COMMITTED_INVALID');
@@ -26,10 +27,8 @@ export async function verifyWorkspaceOexCommitted(pool:Pool,s:Session,owner:Owne
  const {proof}=readWorkspaceOexTerminalProof(scope,{proofBytes,resultBytes});if(proof.exhibitionId!==save.exhibitionId)throw Error('OEX_TERMINAL_COMMITTED_INVALID');
  const result=JSON.parse(resultBytes.toString('utf8')) as {draft:Draft;etag:string};
  const expectedPayload=createHash('sha256').update(freezeCanonical({method:'PUT',id:save.exhibitionId,match:proof.studioETag,input:{draft:result.draft,requestId:save.requestId}})).digest('hex');
- await transaction(pool,async c=>{
-  await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
-  await c.query("SELECT set_config('lock_timeout','5000ms',true),set_config('statement_timeout','10000ms',true)");await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
-  const requireActive=async()=>{const active=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL FOR SHARE OF a,u,m,t",[session.id,session.tenantId,session.userId]);if(active.rowCount!==1||active.rows[0]?.role!==session.role)throw Error('OEX_TERMINAL_COMMITTED_INVALID');};
+ return async(c:PoolClient)=>{
+  const requireActive=()=>lockWorkspaceOexSession(c,session);
   await requireActive();await owner.assertDatabase(c);await owner.assertImportCatalog(c);
   const found=await c.query(`SELECT t.proof_bytes,t.result_bytes,t.result_sha256,p.claim_sha256,p.payload_manifest_sha256,p.source_database_system_id,p.source_database_oid,
    j.result AS job_result,first.snapshot AS initial_snapshot,last.snapshot AS saved_snapshot,r.payload_sha256 AS save_payload,r.response AS save_response
@@ -46,5 +45,25 @@ export async function verifyWorkspaceOexCommitted(pool:Pool,s:Session,owner:Owne
   if(found.rowCount!==1)throw Error('OEX_TERMINAL_COMMITTED_INVALID');const row=found.rows[0],response=row.save_response;
   if(!Buffer.isBuffer(row.proof_bytes)||!row.proof_bytes.equals(proofBytes)||!Buffer.isBuffer(row.result_bytes)||!row.result_bytes.equals(resultBytes)||row.result_sha256!==proof.resultSha256||row.claim_sha256!==claimSha256||!isDeepStrictEqual(row.job_result,JSON.parse(resultBytes.toString('utf8')))||!isDeepStrictEqual(row.initial_snapshot,result.draft)||!isDeepStrictEqual(row.saved_snapshot,result.draft)||row.save_payload!==expectedPayload||!response||Object.keys(response).sort().join(',')!=='draft,etag,revision'||response.revision!==2||response.etag!==save.etag||!isDeepStrictEqual(response.draft,row.saved_snapshot)||etag(2,response.draft)!==save.etag)throw Error('OEX_TERMINAL_COMMITTED_INVALID');
   await owner.assertRecord(c,Object.freeze({workspaceId:scope.workspaceId,tenantId:scope.tenantId,principalId:scope.principalId,importJobId:scope.jobId,requestId:scope.importRequestId,attemptId:scope.attemptId,claimSha256:row.claim_sha256,payloadManifestSha256:row.payload_manifest_sha256,sourceDatabaseSystemId:row.source_database_system_id,sourceDatabaseOid:row.source_database_oid,sourceSha256:scope.sourceArchiveSha256,exhibitionId:proof.exhibitionId}));await owner.assertImportCatalog(c);await owner.assertDatabase(c);await requireActive();
+ };
+}
+
+/** Hold current auth rows until the caller commits; expiry uses wall time. */
+export async function lockWorkspaceOexSession(c:PoolClient,session:Session){const active=await c.query("SELECT m.role FROM auth_sessions a JOIN users u ON u.id=a.user_id JOIN memberships m ON (m.tenant_id,m.user_id)=(a.tenant_id,a.user_id) JOIN tenants t ON t.id=a.tenant_id WHERE a.id=$1 AND a.tenant_id=$2 AND a.user_id=$3 AND NOT a.revoked AND a.expires_at>clock_timestamp() AND NOT u.disabled AND t.deleted_at IS NULL FOR SHARE OF a,u,m,t",[session.id,session.tenantId,session.userId]);if(active.rowCount!==1||active.rows[0]?.role!==session.role)throw Error('OEX_TERMINAL_COMMITTED_INVALID');}
+
+/** Existing separately owned verification transaction. */
+export async function verifyWorkspaceOexCommitted(pool:Pool,s:Session,owner:Owner,input:CommittedInput){
+ const verify=committedVerification(s,owner,input);
+ await transaction(pool,async c=>{
+  await c.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+  await c.query("SELECT set_config('lock_timeout','5000ms',true),set_config('statement_timeout','10000ms',true)");
+  await c.query('SELECT pg_advisory_xact_lock_shared(82003)');await c.query('SELECT pg_advisory_xact_lock_shared(82002)');
+  await verify(c);
  });
+}
+/** Reuse a caller's READ COMMITTED transaction and already-held 82003→82002
+ * fence. This is only the same domain proof read: it does not acquire a new
+ * connection, start/commit a transaction, or reacquire advisory locks. */
+export async function verifyWorkspaceOexCommittedOnClient(c:PoolClient,s:Session,owner:Owner,input:CommittedInput){
+ await committedVerification(s,owner,input)(c);
 }
