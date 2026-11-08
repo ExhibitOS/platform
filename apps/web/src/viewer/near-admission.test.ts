@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {test,expect} from 'vitest';
+import {test,expect,vi} from 'vitest';
 import {BufferAttribute,InterleavedBuffer,InterleavedBufferAttribute} from 'three';
 import {deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget,MemoryAssetCache,retainEncodedBuffer} from './loading';
 
@@ -36,11 +36,11 @@ test('known-memory Compact can admit the measured model phase without enlarging 
 });
 test('touch auto without a memory hint uses bounded steady and transition headroom',()=>{
  const touch={coarsePointer:true};
- expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:160*1024*1024});
+ expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024});
  expect(deviceBudget({...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
  expect(deviceBudget({coarsePointer:false,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
- expect(deviceBudget({coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:160*1024*1024});
+ expect(deviceBudget({coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024});
  expect(deviceBudget({deviceMemory:2,coarsePointer:false,finePointer:true})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false,finePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);
@@ -117,4 +117,9 @@ test('candidate keeps backing, encoded coexistence and minimum scene charged bef
  expect(cache.delete('detail')).toBe(true);peak.reserve('detail',Math.ceil(decode));expect(peak.total()).toBeLessThanOrEqual(transition);
  const committed=minimum+geometryBytes+textures+backing.retainedBytes;expect(committed).toBeLessThan(steady);expect(committed+32*mib).toBeGreaterThan(steady);
  peak.release('detail');backing.dispose();
+});
+
+test('staging touch transition trial is opt-in and leaves other choices unchanged',()=>{
+ const touch={coarsePointer:true};expect(deviceBudget(touch).maxTransitionBytes).toBe(128*1024*1024);
+ vi.stubGlobal('__EXHIBITOS_IPHONE12_TRANSITION_TRIAL__',true);try{expect(deviceBudget(touch).maxTransitionBytes).toBe(160*1024*1024);expect(deviceBudget({deviceMemory:2,...touch})).toEqual(DEVICE_BUDGETS.compact);expect(selectedDeviceBudget('compact',touch)).toEqual(DEVICE_BUDGETS.compact);}finally{vi.unstubAllGlobals();}
 });
