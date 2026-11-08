@@ -16,12 +16,12 @@ export async function prepareProductImageInWorker(source:Buffer,identity:{sha256
   const url=new URL('./product-image-preparation-worker.js',import.meta.url);if(import.meta.url.endsWith('.ts'))url.pathname=url.pathname.replace(/\.js$/,'.ts');
   const stdio:('pipe'|number)[]=['pipe','pipe','pipe','pipe'];if(hooks.writerFd!==undefined)stdio.push(hooks.writerFd);
   let child:ChildProcess;try{child=spawn(process.execPath,['--max-old-space-size=256',fileURLToPath(url),JSON.stringify(identity)],{env:{PATH:process.env.PATH},stdio});}catch{reject(new ApiError(503,'IMAGE_PREPARATION_WORKER_UNAVAILABLE'));return;}
-  let unavailable=false,size=0,errorBytes=0,errorText='',aborted=false;const output:Buffer[]=[];
+  let unavailable=false,size=0,errorBytes=0,errorText='',aborted=false;const outputChunks:Buffer[]=[];
   const kill=()=>{try{child.kill('SIGKILL');}catch{/* Await close. */}};
   const abort=()=>{aborted=true;kill();};hooks.signal?.addEventListener('abort',abort,{once:true});
   const timer=setTimeout(()=>{unavailable=true;kill();},20000);
   child.once('error',()=>{unavailable=true;});child.stdin?.on('error',()=>{});
-  child.stdout?.on('data',(part:Buffer)=>{size+=part.length;if(size>PRODUCT_IMAGE_LIMITS.outputBytes*2+16392){unavailable=true;kill();}else output.push(part);});
+  child.stdout?.on('data',(part:Buffer)=>{size+=part.length;if(size>PRODUCT_IMAGE_LIMITS.outputBytes*2+16392){unavailable=true;kill();}else outputChunks.push(part);});
   child.stderr?.on('data',(part:Buffer)=>{errorBytes+=part.length;if(errorBytes>4096){unavailable=true;kill();}else errorText+=part.toString();});
   child.once('close',(code,signal)=>{
    clearTimeout(timer);hooks.signal?.removeEventListener('abort',abort);child.stdio[3]?.destroy();
@@ -29,7 +29,7 @@ export async function prepareProductImageInWorker(source:Buffer,identity:{sha256
    if(unavailable||signal!==null){reject(new ApiError(503,'IMAGE_PREPARATION_WORKER_UNAVAILABLE'));return;}
    if(code!==0){reject(new ApiError(422,/^IMAGE_PREPARATION_[A-Z_]+\n$/.test(errorText)?errorText.trim():'IMAGE_PREPARATION_FAILED'));return;}
    try{
-    const data=Buffer.concat(output,size);if(data.length<8||data.toString('ascii',0,4)!=='EIPP')throw Error();const n=data.readUInt32LE(4);if(n>16384||n<1||n+8>=data.length)throw Error();
+    const data=Buffer.concat(outputChunks,size);if(data.length<8||data.toString('ascii',0,4)!=='EIPP')throw Error();const n=data.readUInt32LE(4);if(n>16384||n<1||n+8>=data.length)throw Error();
     const metadata=JSON.parse(data.toString('utf8',8,n+8)),receipt=metadata.receipt as ProductImageOutput['receipt'],body=data.subarray(n+8),usage=metadata.resourceUsage;
     if(!receipt?.full||!Number.isSafeInteger(receipt.full.bytes)||receipt.full.bytes<1||receipt.full.bytes>PRODUCT_IMAGE_LIMITS.outputBytes)throw Error();
     const full=body.subarray(0,receipt.full.bytes),coarse=receipt.coarse?body.subarray(receipt.full.bytes):undefined;
