@@ -5,7 +5,7 @@ type Artwork=Pick<Exhibition['artworks'][number],'revisionId'|'assets'>;
 interface Stage {stage:string;at:number;durationsMs:Record<string,number>;artworkRevisionId:string|null;errorCode:string|null}
 /** Existing local loader readout, bounded to its latest 32 assets. Request keys
  * fence asynchronous diagnostics only; they never enter the display contract. */
-export function createPreparationStages(artworks:readonly Artwork[],now=()=>performance.now(),pending:(key:string)=>boolean=()=>false){
+export function createPreparationStages(artworks:readonly Artwork[],now=()=>performance.now(),pending:(key:string)=>boolean=()=>false,onRecord?:(event:{assetId:string;artworkRevisionId:string|null;stage:string;atMs:number;errorCode:string|null})=>void){
  const owners=new Map<string,Set<string>>();
  for(const art of artworks)for(const asset of art.assets){const id=asset.id.toLowerCase(),set=owners.get(id)??new Set<string>();set.add(art.revisionId.toLowerCase());owners.set(id,set);}
  const rows=new Map<string,Stage>(),latest=new Map<string,string>();
@@ -18,6 +18,7 @@ export function createPreparationStages(artworks:readonly Artwork[],now=()=>perf
   // Filter to a canonical token, never publish a raw exception message/URL/stack.
   const errorCode=stage!=='cancelled-settled'&&error instanceof Error&&error.name!=='AbortError'&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null;
   rows.delete(id);rows.set(id,{stage,at,durationsMs,artworkRevisionId:revisions.size===1?[...revisions][0]!:null,errorCode});
+  onRecord?.({assetId:id,artworkRevisionId:revisions.size===1?[...revisions][0]!:null,stage,atMs:at,errorCode});
   while(rows.size>32){const oldest=rows.keys().next().value!;rows.delete(oldest);const request=latest.get(oldest);if(request===undefined||!pending(request))latest.delete(oldest);}
  };
  return {

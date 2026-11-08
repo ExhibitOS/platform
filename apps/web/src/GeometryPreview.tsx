@@ -9,6 +9,8 @@ import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
+import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource} from './viewer/diagnostic-source';
+import {readRuntimeHistory} from './viewer/runtime-history';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
@@ -1634,7 +1636,9 @@ export function GeometryPreview({
                   }
             }
           });
-          decodedBytes+=geometryResidentBytes(geometryAttributes);
+          const geometryBytes=geometryResidentBytes(geometryAttributes);
+          const textureBytes=decodedBytes-retainedModelBytes;
+          decodedBytes+=geometryBytes;
           if (
             signal.aborted ||
             disposed ||
@@ -1653,6 +1657,7 @@ export function GeometryPreview({
           object.userData.viewer = {
             triangles,
             decodedBytes,
+            ...(diagnosticsEnabled()?{geometryEstimateBytes:geometryBytes,textureEstimateBytes:textureBytes}:{}),
             retainedModelBytes,
             decodeBackingReleased,
             measuredGeometry:object.userData.metricGeometry,
@@ -1791,7 +1796,8 @@ export function GeometryPreview({
         // Keep only the verified header cost when expendable encoded bytes are
         // evicted. Losing the bytes must not restart an impossible warm fetch.
         const imageDecodeCeilings=new Map<string,number>();
-        const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key));
+        const diagnosticEvents=createDiagnosticEvents();
+        const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key),diagnosticsEnabled()?diagnosticEvents.record:undefined);
         const stage=stages.record;
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
@@ -1810,6 +1816,21 @@ export function GeometryPreview({
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
+        let diagnosticPeak=0,diagnosticPeakTexture=0,diagnosticPeakMesh=0;
+        const unregisterDiagnostic=registerDiagnosticSource(()=>{
+          const history=readRuntimeHistory(renderer.domElement.ownerDocument),records=stages.snapshot();
+          const recent=new Map(records.map(row=>[row.assetId,row]));
+          const all=arts.flatMap(art=>art.assets.map(asset=>({art,asset})));
+          all.sort((a,b)=>Number(recent.has(b.asset.id.toLowerCase()))-Number(recent.has(a.asset.id.toLowerCase())));
+          const memory=(navigator as Navigator&{deviceMemory?:number}).deviceMemory;
+          const values=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
+          const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
+          return {version:1,capturedAt:new Date().toISOString(),identity:{publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256??null,buildId:history.buildId,sourceCommit:history.sourceCommit},
+            device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles}},
+            navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
+            memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
+            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot()};
+        });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
         const requestLimits=(task?:{detailPromotion?:boolean;imageBudget?:DeviceBudget})=>{
           const target=task?.detailPromotion?task.imageBudget:undefined;
@@ -1880,6 +1901,7 @@ export function GeometryPreview({
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           peak.reserve(key,bytes,limit);
+          if(diagnosticsEnabled())diagnosticPeak=Math.max(diagnosticPeak,peak.total());
         };
         const tasks = new Map<
           string,
@@ -2022,6 +2044,12 @@ export function GeometryPreview({
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
           );
+          if(diagnosticsEnabled()){
+            const values=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
+            const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
+            diagnosticPeakTexture=Math.max(diagnosticPeakTexture,sum('textureEstimateBytes'));
+            diagnosticPeakMesh=Math.max(diagnosticPeakMesh,sum('geometryEstimateBytes'));
+          }
           for (const key of tasks.keys()) {
             if (
               decodedTotal + byteCache.stats().bytes <=
@@ -2099,7 +2127,8 @@ export function GeometryPreview({
               full ? 0 : Infinity,
               viewerBudget,
             );
-          } catch {
+          } catch (error) {
+            if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:art.primaryAssetId,artworkRevisionId:art.revisionId,stage:'variant-admission-refused',errorCode:error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null});
             failed.add(art.revisionId);
             update();
             return;
@@ -2702,6 +2731,7 @@ export function GeometryPreview({
         const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
+          unregisterDiagnostic();
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
           window.removeEventListener('blur',stopSculptureOrbit);window.removeEventListener('focus',orbitVisibility);
           renderer.domElement.ownerDocument.removeEventListener('visibilitychange',orbitVisibility);
