@@ -27,3 +27,17 @@ export async function restoreDetailCanvas(input:{peak:AssetPeakBudget;key:string
  const revealed=await revealAfterGalleryDraw(input);if(!revealed)throw Error('DETAIL_RESTORE_UNAVAILABLE');
  input.peak.release(input.key);
 }
+
+
+/** Restore only a genuinely vacant focus after a completed canvas reveal.
+ * An active panel, hidden document, newer owner, or deliberate focus wins. */
+export function focusRestoredDetailCanvas(canvas:HTMLCanvasElement,current:()=>boolean):boolean{
+ try{
+  const doc=canvas.ownerDocument,win=doc.defaultView;
+  if(!current()||doc.hidden||!doc.hasFocus()||doc.activeElement!==doc.body||!win||!canvas.isConnected||canvas.tabIndex<0||!canvas.getClientRects().length||canvas.closest('[hidden], [inert]')||win.getComputedStyle(canvas).visibility!=='visible')return false;
+  const obstacles=doc.querySelectorAll<HTMLElement>('dialog[open], [aria-modal="true"], details[data-visitor-panel][open], .viewer-brief');
+  for(const element of obstacles)if(element.isConnected&&!element.closest('[hidden], [inert], details:not([open])')&&element.getClientRects().length&&win.getComputedStyle(element).visibility==='visible')return false;
+  if(!current()||doc.activeElement!==doc.body)return false;
+  canvas.focus({preventScroll:true});return doc.activeElement===canvas;
+ }catch{return false;}
+}
