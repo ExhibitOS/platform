@@ -155,3 +155,12 @@ it('retains a cancelled Hayes source and reports unresolved custody',()=>{
  const row={tenant_id:tenant,id:'job',mime:'model/gltf-binary',state:'cancelled',hayes_attempt_id:'active',object_key:tenant+'/quarantine/source',approved_key:tenant+'/approved/source',expected_hash:digest,expected_bytes:8383096,derived:null};
  const result=rowObjectReferences('import_jobs',row);expect(result.issues).toContainEqual(expect.objectContaining({code:'HAYES_WORKER_DRAIN_UNCONFIRMED'}));expect(result.references.find(x=>x.key===row.object_key)?.required).toBe(true);
 });
+
+it('protects a reserved Hayes output even before the bytes are written',()=>{
+ const attempt='10000000-0000-4000-8000-000000000002',output='b'.repeat(64),stage={tenant_id:tenant,id,attempt_id:attempt,output_sha256:output,output_bytes:123,object_key:`${tenant}/hayes-output/${attempt}/${output}`};
+ const inventory=rowObjectReferences('hayes_output_stages',stage);
+ expect(inventory.references).toEqual([expect.objectContaining({key:stage.object_key,required:false,expectedBytes:123,expectedSha256:output})]);
+ expect(inventory.issues).toContainEqual(expect.objectContaining({code:'HAYES_WORKER_DRAIN_UNCONFIRMED'}));
+ expect(rowObjectReferences('hayes_output_stages',{...stage,object_key:'other/foreign'}).issues).toContainEqual(expect.objectContaining({code:'INVALID_HAYES_OUTPUT_STAGE'}));
+ expect(rowObjectReferences('hayes_output_stages',{...stage,output_bytes:16777217}).issues).toContainEqual(expect.objectContaining({code:'INVALID_HAYES_OUTPUT_STAGE'}));
+});

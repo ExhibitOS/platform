@@ -52,6 +52,25 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   await transaction(pool,c=>revalidateHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{}));
   await expect(transaction(pool,c=>revalidateHayesOriginalAttempt(c,s,bound,blobs,{...b,runtimeGeneration:randomUUID()},async()=>{}))).rejects.toThrow('HAYES_SOURCE_CHANGED');
   let delayedRecheck=false;await expect(transaction(pool,c=>{const wrapped=new Proxy(c,{get(target,key){if(key==='query')return async (...args:unknown[])=>{if(typeof args[0]==='string'&&args[0].startsWith('SELECT 1 FROM import_jobs WHERE tenant_id=')){delayedRecheck=true;await new Promise(resolve=>setTimeout(resolve,1200));}return Reflect.apply(target.query,target,args);};return Reflect.get(target,key,target);}});return revalidateHayesOriginalAttempt(wrapped,s,bound,blobs,b,async()=>{});})).rejects.toThrow('HAYES_SOURCE_CHANGED');expect(delayedRecheck).toBe(true);
+  // The selected stage catalog is inert until a separate runtime capability
+  // admits it. Test the DB reservation on this isolated database only.
+  await pool.query(await readFile(new URL('../../../database/native-hayes-disposition/043_hayes_output_stage.sql',import.meta.url),'utf8'));
+  const stageId=randomUUID(),outputHash='b'.repeat(64),stageKey=`${tenantId}/hayes-output/${b.attemptId}/${outputHash}`;
+  await pool.query('ALTER TABLE import_jobs DISABLE TRIGGER hayes_original_job_guard');await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()+interval '1 second' WHERE id=$1",[jobId]);await pool.query('ALTER TABLE import_jobs ENABLE TRIGGER hayes_original_job_guard');
+  const blocker=await pool.connect(),waiter=await pool.connect();try{
+   await blocker.query('BEGIN');await blocker.query('SELECT id FROM import_jobs WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,jobId]);
+   const waiterPid=(await waiter.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+   const waiting=waiter.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,stageKey]);
+   const rejected=expect(waiting).rejects.toThrow('Hayes output stage owner invalid');
+   let locked=false;for(let i=0;i<50&&!locked;i++){locked=(await pool.query("SELECT wait_event_type='Lock' AS waiting FROM pg_stat_activity WHERE pid=$1",[waiterPid])).rows[0]?.waiting===true;if(!locked)await new Promise(resolve=>setTimeout(resolve,10));}expect(locked).toBe(true);
+   await new Promise(resolve=>setTimeout(resolve,1200));await blocker.query('COMMIT');await rejected;
+  }finally{await blocker.query('ROLLBACK').catch(()=>{});blocker.release();waiter.release();}
+  await pool.query('ALTER TABLE import_jobs DISABLE TRIGGER hayes_original_job_guard');await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()+interval '30 seconds' WHERE id=$1",[jobId]);await pool.query('ALTER TABLE import_jobs ENABLE TRIGGER hayes_original_job_guard');
+  await expect(pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,`${tenantId}/wrong/key`])).rejects.toThrow();
+  await pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,stageId,b.attemptId,jobId,outputHash,123,stageKey]);
+  await expect(pool.query('DELETE FROM hayes_output_stages WHERE id=$1',[stageId])).rejects.toThrow('verified disposition');
+  await expect(pool.query('UPDATE hayes_output_stages SET output_bytes=124 WHERE id=$1',[stageId])).rejects.toThrow('verified disposition');
+  await expect(pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,stageKey])).rejects.toThrow();
   await expect(pool.query("UPDATE import_jobs SET lease_id=NULL WHERE id=$1",[jobId])).rejects.toThrow('Hayes owner unresolved');
   await expect(pool.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,state,hayes_attempt_id) VALUES($1,$2,$3,$4,'forged','hash','model/gltf-binary',$5,$6,$7,$8,$9,1,'queued',$10)",[tenantId,randomUUID(),userId,artworkId,b.sourceSha256,b.sourceBytes,rights,`${tenantId}/quarantine/fake`,`${tenantId}/approved/fake`,b.attemptId])).rejects.toThrow('claimed after upload');
   await expect(pool.query('DELETE FROM hayes_original_attempts WHERE id=$1',[b.attemptId])).rejects.toThrow('verified disposition');
