@@ -4,7 +4,7 @@ import type { ExhibitionV1 } from '@exhibitos/spec';
 import { LOD_NAMESPACE } from '@exhibitos/studio-contract';
 import { newDraft } from '../drafts/example';
 import { syntheticArtwork } from '../placement/model';
-import { retainsCopyInventory, retainsCopyRights } from './previous-copy-compatibility';
+import { retainsCopyInventory, retainsCopyRights,retainedWheatCopyFiles } from './previous-copy-compatibility';
 
 const file = (digest: string) => ({path:`data/${digest}.bin`,sha256:digest,bytes:42,mime:'image/png'});
 const first = file('1'.repeat(64));
@@ -72,5 +72,18 @@ describe('previous private copy compatibility', () => {
     fails(candidate=>{candidate.primaryAssetId=coarse.id;});
     fails(candidate=>{candidate.extensions={};});
     fails(candidate=>{candidate.extensions={[LOD_NAMESPACE]:{version:1,variants:[{...full,assetId:current.primaryAssetId},{...reduced,textureSize:513}]}};});
+  });
+
+  it('recognizes only the two exact approved Wheat derivatives of the same source',()=>{
+    const old=syntheticArtwork('image'),full=old.assets[0]!,coarse={...full,id:crypto.randomUUID()};
+    const raw='b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',evidence='8c89d1cc6dc07d25e11f8ba084472a3aa8db2fce882dfa78970a034156d3e215';
+    const variants=[{approval:'9e57417c-72a7-557e-af97-2935ef654733',full:'2d202bfa522a54dd6e0a73063ff2eabdb7f90aae246ba9322d6505019c5bda9f',bytes:7503560,coarse:'e246eae77c461d0c3aed5949fe24ff1805f175e44aacf1752f2143cd2b9fbc0b',lowBytes:633155,edge:1792,recipe:'fe002ad256885d6c1899025aa2a07910faaf6eca9055bd87880a2b3b43a8ef24'},{approval:'ce328328-97fa-56cf-8fc1-6bafd4573153',full:'cde67c823c0fed9574d94d4a95facbcc7e3b7782af8424d55fb41c8a53c250b7',bytes:8103573,coarse:'0b0ff85114f13554a7b122a9a50cf73130f056dffa0220f7463d7ffbecd7f304',lowBytes:509458,edge:2048,recipe:'5206824d01e36782dbdd9dc9d0872f64c5e17990000495e511bc80d11bb979fd'}];
+    old.assets.push(coarse);
+    function prepare(work:typeof old,index:number){const v=variants[index]!;work.assets[0]!.sha256=v.full;work.assets[0]!.bytes=v.bytes;work.assets[1]!.sha256=v.coarse;work.assets[1]!.bytes=v.lowBytes;work.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:work.primaryAssetId,detail:'full',textureSize:v.edge},{assetId:work.assets[1]!.id,detail:'coarse',textureSize:512}]},'org.exhibitos.viewer/display-policy':{version:1,profile:'approved-open-access-demo-v1',approvalId:v.approval,sourceAssetSha256:v.full,rightsEvidenceSha256:evidence}};work.provenance.events=[{id:crypto.randomUUID(),at:'2026-01-01T00:00:00Z',type:'exhibited',description:`Approved exact selected open-access display. Object https://www.metmuseum.org/art/collection/search/436535; raw SHA256 ${raw}; canonical SHA256 ${v.full}; recipe SHA256 ${v.recipe}; rights evidence SHA256 ${evidence}.`}];}
+    prepare(old,0);const active=structuredClone(old);prepare(active,1);
+    const project=(artworks:ExhibitionV1['artworks']):ExhibitionV1=>({...newDraft().candidate,artworks,mediaAssets:[]} as ExhibitionV1),previous=project([old]),current=project([active]);
+    expect(retainsCopyRights(previous,current)).toBe(true);expect(retainedWheatCopyFiles(previous,current).map(x=>x.sha256)).toEqual([variants[0]!.full,variants[0]!.coarse]);
+    for(const change of [(x:typeof active)=>{x.rights.permissions.export=false;},(x:typeof active)=>{x.metadata.title='Another work';},(x:typeof active)=>{x.dimensions.width+=1;},(x:typeof active)=>{x.assets[1]!.sha256='0'.repeat(64);},(x:typeof active)=>{x.provenance.events[0]!.description+=' altered';},(x:typeof active)=>{(x.extensions!['org.exhibitos.viewer/display-policy'] as {rightsEvidenceSha256:string}).rightsEvidenceSha256='0'.repeat(64);}]){const candidate=structuredClone(active);change(candidate);expect(retainsCopyRights(previous,project([candidate]))).toBe(false);expect(retainedWheatCopyFiles(previous,project([candidate]))).toEqual([]);}
+    expect(retainsCopyRights(current,previous)).toBe(false);
   });
 });
