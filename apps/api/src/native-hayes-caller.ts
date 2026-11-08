@@ -8,7 +8,7 @@ import {parseHayesOperationBinding,type HayesOperationBinding} from './hayes-ope
 import {prepareHayesOwnerExchange} from './hayes-owner-exchange.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
-type Channel={send(frame:Uint8Array):Promise<void>;receive():Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
+type Channel={send(frame:Uint8Array):Promise<void>;receive(waitMs?:number):Promise<Uint8Array>;close():Promise<void>;isOpen():boolean};
 type Credentials={token:string|undefined;csrf:string|undefined};
 type Intake={artworkId:string;artworkRevision:number;displayReferenceSha256:string;idempotencyKey:string};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -31,7 +31,7 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
  const live=async()=>{fenceSignal.throwIfAborted();if(!channel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');await assertLive();fenceSignal.throwIfAborted();if(!channel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');};
  const close=()=>closing??=(async()=>{report('close-start');localAbort.abort();let timer:ReturnType<typeof setTimeout>|undefined,ok=false;try{await Promise.race([Promise.resolve().then(()=>channel.close()),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('HAYES_OWNER_CLOSE_UNCERTAIN')),3000);})]);ok=true;}finally{if(timer)clearTimeout(timer);report('close-settled',ok?'OK':'FAILED');}})();
  let awaitingOpen=false,observedOpen=false;
- const sharedChannel:Channel={send:async frame=>{let kind='';if(input.onProbePhase&&!observedOpen)try{kind=JSON.parse(Buffer.from(frame).toString()).kind;}catch{/* Protocol validator owns errors. */}if(kind==='hayes-operation-open'){report('open-send-start');awaitingOpen=true;observedOpen=true;}await channel.send(frame);if(kind==='hayes-operation-open')report('open-send-finished');},receive:async()=>{if(awaitingOpen)report('open-receive-start');try{const frame=await channel.receive();if(awaitingOpen){report('open-receive-finished');awaitingOpen=false;}return frame;}catch(error){if(awaitingOpen)report('open-receive-failed',category(error));throw error;}},isOpen:()=>channel.isOpen(),close};
+ const sharedChannel:Channel={send:async frame=>{let kind='';if(input.onProbePhase&&!observedOpen)try{kind=JSON.parse(Buffer.from(frame).toString()).kind;}catch{/* Protocol validator owns errors. */}if(kind==='hayes-operation-open'){report('open-send-start');awaitingOpen=true;observedOpen=true;}await channel.send(frame);if(kind==='hayes-operation-open')report('open-send-finished');},receive:async(waitMs)=>{if(awaitingOpen)report('open-receive-start');try{const frame=await channel.receive(waitMs);if(awaitingOpen){report('open-receive-finished');awaitingOpen=false;}return frame;}catch(error){if(awaitingOpen)report('open-receive-failed',category(error));throw error;}},isOpen:()=>channel.isOpen(),close};
  const caller=Object.freeze({
   async create(credentials:Credentials,intake:Intake,deadlineMs:number){
    if(used||busy)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');busy=true;
