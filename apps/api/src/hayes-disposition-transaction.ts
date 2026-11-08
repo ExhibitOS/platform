@@ -9,7 +9,7 @@ import {matchHayesDispositionReceipt} from './hayes-disposition-receipt.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {resolveHayesReady} from './hayes-ready-authority.ts';
 
-/** INACTIVE until the private ready issuer and positive adapter exist. */
+/** Private selected settlement only; commit is not a native custody release. */
 export async function commitHayesDisposition(input:{admission:unknown;auth:Auth;owner:NativeOexWorkspaceContext;blobs:BlobStore;token:string|undefined;csrf:string|undefined;receiptId:string;originalAssetId:string;displayAssetId:string;derivativeId:string;rightsId:string}){
  const {admission,auth,owner,blobs,token,csrf,receiptId,originalAssetId,displayAssetId,derivativeId,rightsId}=input;
  if(!(auth instanceof Auth)||!blobs.getBounded)throw new ApiError(403,'FORBIDDEN');

@@ -6,8 +6,8 @@ import {parseHayesOperationBinding} from './hayes-operation-binding.ts';
 import {resolveHayesReady} from './hayes-ready-authority.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
-/** INACTIVE: the authenticated ready issuer is not implemented. Reserve and
- * commit the attempt-scoped destination before requesting any output bytes. */
+/** Reserve and commit the attempt-scoped destination before requesting any
+ * output bytes. Admission is limited to the authenticated private caller. */
 export async function reserveHayesOutput(input:{admission:unknown;auth:Auth;owner:NativeOexWorkspaceContext;blobs:BlobStore;token:string|undefined;csrf:string|undefined}){
  const {admission,auth,owner,blobs,token,csrf}=input;
  if(!(auth instanceof Auth)||!blobs.getBounded)throw new ApiError(403,'FORBIDDEN');

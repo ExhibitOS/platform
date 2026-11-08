@@ -6,7 +6,7 @@ import {parseHayesOperationBinding} from './hayes-operation-binding.ts';
 import {resolveHayesReady} from './hayes-ready-authority.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
-/** INACTIVE: call only after an independently committed reservation and the
+/** Call only after an independently committed reservation and the
  * private reservation-ready exchange. Failure retains that reservation and
  * any durable bytes; neither rollback nor EOF proves disposal. */
 export async function storeHayesOutput(input:{admission:unknown;auth:Auth;owner:NativeOexWorkspaceContext;blobs:FileBlobStore;token:string|undefined;csrf:string|undefined;bytes:Uint8Array}){
