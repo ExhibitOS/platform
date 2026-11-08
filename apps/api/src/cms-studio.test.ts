@@ -5,6 +5,7 @@ import { ARTWORK_DETAILS_NAMESPACE, creationYearFor } from "@exhibitos/studio-co
 import { Cms, validMetadata, type ArtworkMetadata } from "./cms.ts";
 import {approvedDimensionsMatch} from "./oex.ts";
 import {projectPublication} from "./publication.ts";
+import {replaceArtworkReferences} from './artwork-snapshot-replacement.ts';
 import {newDraft} from "../../web/src/drafts/example.ts";
 import type { Session } from "./auth.ts";
 import {sha256} from '@exhibitos/storage';
@@ -59,6 +60,14 @@ describe("protected approved CMS to Studio metadata projection", () => {
         row.sha256='b'.repeat(64);await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});row.sha256=coarse.sha256;
         row.rights={...rights,permissions:{...rights.permissions,display:false}};await expect(cms.approvedVariantOriginal(c,session,id,coarse.id,7)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
         expect(get).toHaveBeenCalledOnce();
+    });
+    it('preserves the CMS-created historical event while replacing its live revision and asset',async()=>{
+        const {cms,c}=setup('image/png'),prior=(await cms.studioArtwork(c,session,id)).artwork;expect(prior.provenance.events[0]!.id).toBe(prior.revisionId);
+        const current=structuredClone(prior),next=structuredClone(prior);next.revision++;next.revisionId='10000000-0000-4000-8000-000000000088';next.primaryAssetId='10000000-0000-4000-8000-000000000089';next.assets=[{...next.assets[0]!,id:next.primaryAssetId,path:`assets/${next.primaryAssetId}/image.png`}];next.provenance.events.push({id:next.revisionId,type:'edited',at:'2026-11-08T00:00:00Z',description:'New approval'});
+        const scene={...newDraft().candidate,artworks:[prior],placements:[{id:'10000000-0000-4000-8000-000000000090',roomId:'10000000-0000-4000-8000-000000000091',artworkRevisionId:prior.revisionId,assetId:prior.primaryAssetId}]} as unknown as ReturnType<typeof newDraft>['candidate'];
+        const out=replaceArtworkReferences(scene,prior,next);expect(out.artworks[0]!.provenance.events[0]).toEqual(current.provenance.events[0]);expect(out.placements[0]).toMatchObject({artworkRevisionId:next.revisionId,assetId:next.primaryAssetId});expect(prior).toEqual(current);
+        const forged=structuredClone(next);forged.provenance.events[0]!.description='Changed historical record';expect(()=>replaceArtworkReferences(scene,prior,forged)).toThrow('ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
+        const live=structuredClone(scene);live.extensions={...live.extensions,unsupported:{assetId:prior.primaryAssetId}};expect(()=>replaceArtworkReferences(live,prior,next)).toThrow('ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
     });
     it("produces stable full public snapshots for sculpture and painting without fetching bytes or private notes/keys", async () => {
         for (const mime of ["model/gltf-binary", "image/png"]) {

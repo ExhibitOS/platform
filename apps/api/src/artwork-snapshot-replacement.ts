@@ -30,7 +30,13 @@ export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next
  // Refuse any unsupported cover, thumbnail, frame or other reference rather
  // than guessing how it should be rebound. Artwork identity itself is stable.
  const containsOld=(value:string)=>[...oldIds].some(id=>value.toLowerCase().includes(id));
- const hasOldReference=(value:unknown):boolean=>typeof value==='string'?containsOld(value):Array.isArray(value)?value.some(hasOldReference):!!value&&typeof value==='object'&&Object.entries(value).some(([key,item])=>containsOld(key)||hasOldReference(item));
+ // An unchanged historical event can legitimately use the prior revision ID
+ // as its own event identity (the CMS projection does this). Ignore only
+ // that exact inherited event's id field; every other value and key remains
+ // subject to the old-reference check.
+ const historicalEvents=new WeakSet<object>();
+ for(const [i,event] of (copy.artworks[index]!.provenance?.events??[]).entries()){if(typeof event.id==='string'&&same(event.id,prior.revisionId)&&isDeepStrictEqual(prior.provenance?.events?.[i],event))historicalEvents.add(event);}
+ const hasOldReference=(value:unknown):boolean=>typeof value==='string'?containsOld(value):Array.isArray(value)?value.some(hasOldReference):!!value&&typeof value==='object'&&Object.entries(value).some(([key,item])=>containsOld(key)||!(key==='id'&&historicalEvents.has(value))&&hasOldReference(item));
  if(hasOldReference(copy))throw new ApiError(409,'ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
  return copy;
 }
