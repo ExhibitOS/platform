@@ -335,6 +335,8 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copy(join(source,'scripts/export-static-publication.mjs'),join(platform,'scripts/export-static-publication.mjs'));
   for(const name of ['pages-publication-source.mjs','local-static-publication-source.mjs','refresh-static-publication.mjs']) await copy(join(source,'scripts',name),join(platform,'scripts',name));
   await copy(join(source,'scripts/native-static-export.mjs'),join(platform,'scripts/native-static-export.mjs'));
+  await copy(join(source,'scripts/native-detail-capability.mjs'),join(platform,'scripts/native-detail-capability.mjs'));
+  await copy(join(source,'scripts/native-detail-pipe.mjs'),join(platform,'scripts/native-detail-pipe.mjs'));
   await copy(join(source,'LICENSE'),join(platform,'LICENSE'));
   // Install exact production dependencies into the NEW payload; never prune the
   // developer checkout. No npm/tsc/vite/Homebrew executable is shipped or needed.
