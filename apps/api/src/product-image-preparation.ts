@@ -21,6 +21,12 @@ function fullDimensions(width:number,height:number,maxEdge:number){
  const ratio=Math.min(1,maxEdge/Math.max(width,height));
  return {width:Math.max(1,Math.round(width*ratio)),height:Math.max(1,Math.round(height*ratio))};
 }
+export function validProductFullDimensions(source:Pick<ImageMetric,'width'|'height'>,full:Pick<ImageMetric,'width'|'height'>){
+ return [2048,1600].some(edge=>{
+  const allowed=fullDimensions(source.width,source.height,edge);
+  return full.width===allowed.width&&full.height===allowed.height;
+ });
+}
 function prepareFull(source:Buffer,sourceWidth:number,sourceHeight:number,maxEdge:number){
  const {width,height}=fullDimensions(sourceWidth,sourceHeight,maxEdge);
  const pixels=Buffer.alloc(width*height*3);
@@ -35,12 +41,8 @@ function prepareFull(source:Buffer,sourceWidth:number,sourceHeight:number,maxEdg
 const metric=(b:Buffer,width:number,height:number):ImageMetric=>({sha256:imageHash(b),bytes:b.length,width,height});
 export function validateProductImageOutput(result:ProductImageOutput,source:{sha256:string;bytes:number}){
  const r=result.receipt;if(!r||r.version!==1||r.recipeSHA256!==PRODUCT_IMAGE_RECIPE_SHA256||r.decoder!==PRODUCT_IMAGE_RECIPE.decoder||r.source.mime!=='image/jpeg'||r.source.sha256!==source.sha256||r.source.bytes!==source.bytes||!Number.isSafeInteger(r.source.width)||!Number.isSafeInteger(r.source.height)||r.source.width<1||r.source.height<1||Math.max(r.source.width,r.source.height)>PRODUCT_IMAGE_LIMITS.edge||r.source.width*r.source.height>PRODUCT_IMAGE_LIMITS.pixels||r.source.iccSHA256!==null&&!/^[a-f0-9]{64}$/.test(r.source.iccSHA256))fail('IMAGE_PREPARATION_RECEIPT_INVALID');
+ if(!r.full||!validProductFullDimensions(r.source,r.full))fail('IMAGE_PREPARATION_RECEIPT_INVALID');
  const {width:w,height:h}=r.full;
- const permittedDimensions=[2048,1600].some(edge=>{
-  const allowed=fullDimensions(r.source.width,r.source.height,edge);
-  return w===allowed.width&&h===allowed.height;
- });
- if(!permittedDimensions)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
  const check=(b:Buffer,m:ImageMetric,width:number,height:number)=>{if(!b||b.length>PRODUCT_IMAGE_LIMITS.outputBytes||m.bytes!==b.length||m.sha256!==imageHash(b)||m.width!==width||m.height!==height)fail('IMAGE_PREPARATION_RECEIPT_INVALID');const d=decodePngPixels(b);if(d.width!==width||d.height!==height||d.channels!==3||d.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');};
  check(result.full,r.full,w,h);const low=Math.min(1,512/Math.max(w,h));
  if(low===1){if(result.coarse!==undefined||r.coarse!==undefined)fail('IMAGE_PREPARATION_RECEIPT_INVALID');}

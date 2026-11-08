@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {ApiError} from './api-error.ts';
-import {PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_LIMITS,imageHash,type ProductImageProducerReceipt,type ImageMetric} from './product-image-preparation.ts';
+import {PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_LIMITS,imageHash,validProductFullDimensions,type ProductImageProducerReceipt,type ImageMetric} from './product-image-preparation.ts';
 export interface ProductImageIntent {version:1;profile:typeof PRODUCT_IMAGE_PROFILE;artworkRevision:number}
 export const PRODUCT_IMAGE_INTENT_SCHEMA={type:'object',additionalProperties:false,required:['version','profile','artworkRevision'],properties:{version:{const:1},profile:{const:PRODUCT_IMAGE_PROFILE},artworkRevision:{type:'integer',minimum:1,maximum:2147483646}}};
 export const canonicalImageHash=(value:unknown):string=>{const sort=(v:unknown):unknown=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,x])=>[k,sort(x)])):v;return imageHash(sort(value) as object);};
@@ -27,7 +27,7 @@ export function productImageReceipt(row:Record<string,unknown>):ProductImageRece
  const projection=(m:ImageMetric)=>({sha256:m.sha256,bytes:m.bytes,width:m.width,height:m.height});
  if(!p.full||!dimensions(receipt.full,2048)||receipt.full.mime!=='image/png'||canonicalImageHash(p.full)!==canonicalImageHash(projection(receipt.full)))bad();
  const source=p.source;if(!Number.isSafeInteger(source.width)||!Number.isSafeInteger(source.height)||source.width<1||source.height<1||Math.max(source.width,source.height)>PRODUCT_IMAGE_LIMITS.edge||source.width*source.height>PRODUCT_IMAGE_LIMITS.pixels||source.iccSHA256!==null&&!/^[a-f0-9]{64}$/.test(source.iccSHA256))bad();
- const scale=Math.min(1,2048/Math.max(source.width,source.height));if(receipt.full.width!==Math.max(1,Math.round(source.width*scale))||receipt.full.height!==Math.max(1,Math.round(source.height*scale)))bad();
+ if(!validProductFullDimensions(source,receipt.full))bad();
  const low=Math.min(1,512/Math.max(receipt.full.width,receipt.full.height));if(low<1){const c=receipt.coarse;if(!c||!p.coarse||c.bytes>=receipt.full.bytes||!uuid(c.assetId)||[receipt.original.assetId,receipt.full.assetId].includes(c.assetId)||c.mime!=='image/png'||!dimensions(c,512)||canonicalImageHash(p.coarse)!==canonicalImageHash(projection(c))||c.width!==Math.max(1,Math.round(receipt.full.width*low))||c.height!==Math.max(1,Math.round(receipt.full.height*low)))bad();}else if(receipt.coarse||p.coarse)bad();
  return receipt;
 }
