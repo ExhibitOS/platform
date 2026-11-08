@@ -105,13 +105,16 @@ export async function bindNativeOexWorkspace(c:PoolClient,input:{workspaceId:str
 export interface NativeLocalExportContext {
  readonly workspaceId:string;readonly tenantId:string;readonly principalId:string;
  assertDatabase(client:PoolClient):Promise<void>;
+ matchesBlobRoot?(root:string):boolean;
 }
+const issuedLocalExports=new WeakSet<NativeLocalExportContext>();
+export function isIssuedNativeLocalExport(context:NativeLocalExportContext){return issuedLocalExports.has(context);}
 export async function bindNativeLocalExportWorkspace(c:PoolClient,input:{workspaceId:string;tenantId:string;principalId:string;ownerUid:number;blobRoot:string}):Promise<NativeLocalExportContext>{
  const {workspaceId,tenantId,principalId,ownerUid,blobRoot}=input;for(const value of [workspaceId,tenantId,principalId]){uuid(value);if(value!==value.toLowerCase())throw new ApiError(403,'FORBIDDEN');}
  if(!Number.isSafeInteger(ownerUid)||ownerUid<=0||ownerUid!==process.getuid?.()||typeof blobRoot!=='string')throw new ApiError(403,'FORBIDDEN');
  const verify=async(client:PoolClient)=>{const r=await client.query('SELECT 1 FROM local_workspaces WHERE id=$1 AND tenant_id=$2 AND user_id=$3 AND mac_uid=$4',[workspaceId,tenantId,principalId,ownerUid]);if(r.rowCount!==1)throw new ApiError(403,'FORBIDDEN');};
  await verify(c);const owner=await publicationDiskOwner(c,blobRoot);
- return Object.freeze({workspaceId,tenantId,principalId,assertDatabase:async(client:PoolClient)=>{await verify(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}});
+ const context=Object.freeze({workspaceId,tenantId,principalId,matchesBlobRoot:(root:string)=>root===blobRoot,assertDatabase:async(client:PoolClient)=>{await verify(client);if(!isDeepStrictEqual(await publicationDiskOwner(client,blobRoot),owner))throw new ApiError(409,'NATIVE_OEX_PROVENANCE_INVALID');}});issuedLocalExports.add(context);return context;
 }
 
 /** Called only after the normal Studio tenant/role access check. A missing

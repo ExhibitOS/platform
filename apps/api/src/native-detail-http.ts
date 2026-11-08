@@ -7,11 +7,10 @@ import {ARTWORK_DETAIL_QUALITY_NAMESPACE,freezeCanonical} from '@exhibitos/studi
 import {parseStaticJson} from '../../web/src/static-json.mjs';
 import {Auth,ApiError,type Session} from './auth.ts';
 import {NativeDetailOperations,type NativeDetailScope} from './native-detail-static-export.ts';
-import type {NativeLocalExportContext} from './native-oex-provenance.ts';
+import {isIssuedNativeDetailContext,type NativeDetailContext} from './native-detail-context.ts';
 import type {PoolClient} from 'pg';
 
-type Context={owner:NativeLocalExportContext;runtimeGeneration:string;live:()=>boolean};
-type Dependencies={auth:Auth;context:Context;guard:(request:FastifyRequest,mutate:boolean)=>void;token:(request:FastifyRequest)=>string|undefined};
+type Dependencies={auth:Auth;context:NativeDetailContext;guard:(request:FastifyRequest,mutate:boolean)=>void;token:(request:FastifyRequest)=>string|undefined};
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/,hex=/^[a-f0-9]{64}$/;
 const exact=(v:unknown,keys:string[]):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 const invalid=()=>{throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');};
@@ -21,9 +20,11 @@ const emptyDigest=createHash('sha256').update(freezeCanonical([])).digest('hex')
  * actual source/inspector adapter is still required before any detail bytes
  * can be admitted. Never mount without an issued live native owner context. */
 export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard,token}:Dependencies){
+ if(!isIssuedNativeDetailContext(context))throw Error('NATIVE_DETAIL_CONFIGURATION');
  const registry=new NativeDetailOperations();
+ const ownerLost=()=>{void registry.closeRuntime();};context.signal.addEventListener('abort',ownerLost,{once:true});if(context.signal.aborted)ownerLost();
  app.addHook('preClose',async()=>{void registry.closeRuntime();});
- app.addHook('onClose',async()=>{if(!await registry.closeRuntime())throw Error('NATIVE_DETAIL_DRAIN_UNCERTAIN');});
+ app.addHook('onClose',async()=>{context.signal.removeEventListener('abort',ownerLost);if(!await registry.closeRuntime())throw Error('NATIVE_DETAIL_DRAIN_UNCERTAIN');});
  app.register(async scoped=>{
   scoped.removeContentTypeParser('application/json');
   scoped.addContentTypeParser('application/json',{parseAs:'buffer',bodyLimit:4096},(_req,body,done)=>{try{done(null,parseStaticJson(body as Buffer,4096));}catch{done(new ApiError(400,'INVALID_INPUT'));}});
