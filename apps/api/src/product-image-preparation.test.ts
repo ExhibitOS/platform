@@ -22,8 +22,9 @@ it('prepares the selected JPEG in the product worker and preserves the source id
  expect(result.receipt).toMatchObject({recipeSHA256:PRODUCT_IMAGE_RECIPE_SHA256,
   source:{...identity,mime:'image/jpeg',width,height},
   full:{width,height,sha256:imageHash(result.full)},
-  coarse:{width:512,height:341,sha256:imageHash(result.coarse!)},
  });
+ expect(result.coarse).toBeUndefined();
+ expect(result.receipt.coarse).toBeUndefined();
  expect(imageHash(jpeg)).toBe(identity.sha256);
  await expect(prepareProductImageInWorker(jpeg,{...identity,sha256:'f'.repeat(64)})).rejects.toMatchObject({code:'IMAGE_PREPARATION_INPUT_INTEGRITY'});
 },30000);

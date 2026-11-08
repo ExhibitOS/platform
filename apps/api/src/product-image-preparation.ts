@@ -4,7 +4,7 @@ import {deflateSync} from 'node:zlib';
 import {decodePngPixels,pngCrc} from './png-pixels.ts';
 export const PRODUCT_IMAGE_PROFILE='product-image-pair-2048-512-v1' as const;
 export const PRODUCT_IMAGE_LIMITS={sourceBytes:33554432,pixels:25165824,edge:8192,iccBytes:1048576,outputBytes:8388608} as const;
-export const PRODUCT_IMAGE_RECIPE={version:1,id:PRODUCT_IMAGE_PROFILE,decoder:'sharp-0.35.4-vips-8.18.6-mozjpeg-0826579',source:'baseline-rgb8-jpeg-orientation1',colour:'embedded-icc-to-srgb-or-assumed-srgb',full:'nearest-centre-2048-then-1600-if-png-exceeds-cap',coarse:'partition-box-512',png:'rgb8-filter0-srgb0-zlib9',limits:PRODUCT_IMAGE_LIMITS} as const;
+export const PRODUCT_IMAGE_RECIPE={version:1,id:PRODUCT_IMAGE_PROFILE,decoder:'sharp-0.35.4-vips-8.18.6-mozjpeg-0826579',source:'baseline-rgb8-jpeg-orientation1',colour:'embedded-icc-to-srgb-or-assumed-srgb',full:'nearest-centre-2048-then-1600-if-png-exceeds-cap',coarse:'partition-box-512-when-smaller',png:'rgb8-filter0-srgb0-zlib9',limits:PRODUCT_IMAGE_LIMITS} as const;
 export const imageHash=(value:Buffer|object)=>createHash('sha256').update(Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex');
 export const PRODUCT_IMAGE_RECIPE_SHA256=imageHash(PRODUCT_IMAGE_RECIPE);
 export interface ImageMetric {sha256:string;bytes:number;width:number;height:number}
@@ -45,8 +45,10 @@ export function validateProductImageOutput(result:ProductImageOutput,source:{sha
  const {width:w,height:h}=r.full;
  const check=(b:Buffer,m:ImageMetric,width:number,height:number)=>{if(!b||b.length>PRODUCT_IMAGE_LIMITS.outputBytes||m.bytes!==b.length||m.sha256!==imageHash(b)||m.width!==width||m.height!==height)fail('IMAGE_PREPARATION_RECEIPT_INVALID');const d=decodePngPixels(b);if(d.width!==width||d.height!==height||d.channels!==3||d.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');};
  check(result.full,r.full,w,h);const low=Math.min(1,512/Math.max(w,h));
- if(low===1){if(result.coarse!==undefined||r.coarse!==undefined)fail('IMAGE_PREPARATION_RECEIPT_INVALID');}
- else{if(!result.coarse||!r.coarse||result.coarse.length>=result.full.length)fail('IMAGE_PREPARATION_RECEIPT_INVALID');check(result.coarse!,r.coarse!,Math.max(1,Math.round(w*low)),Math.max(1,Math.round(h*low)));}
+ if(result.coarse!==undefined||r.coarse!==undefined){
+  if(low===1||!result.coarse||!r.coarse||result.coarse.length>=result.full.length)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
+  check(result.coarse!,r.coarse!,Math.max(1,Math.round(w*low)),Math.max(1,Math.round(h*low)));
+ }
 }
 /** Shared product producer. Input bytes remain untouched and never become PNG
  * authority merely because a caller supplied a conversion declaration. */
@@ -62,6 +64,6 @@ export async function prepareProductImage(source:Buffer,identity:{sha256:string;
  if(prepared.bytes.length>PRODUCT_IMAGE_LIMITS.outputBytes)prepared=prepareFull(data,m.width,m.height,1600);
  const {width:w,height:h,pixels,bytes:full}=prepared;
  const receipt:ProductImageProducerReceipt={version:1,recipeSHA256:PRODUCT_IMAGE_RECIPE_SHA256,decoder:PRODUCT_IMAGE_RECIPE.decoder,source:{...metric(source,m.width,m.height),mime:'image/jpeg',iccSHA256:m.icc?imageHash(m.icc):null},full:metric(full,w,h)};
- let coarse:Buffer|undefined;const low=Math.min(1,512/Math.max(w,h));if(low<1){const lw=Math.max(1,Math.round(w*low)),lh=Math.max(1,Math.round(h*low)),out=Buffer.alloc(lw*lh*3);for(let y=0;y<lh;y++)for(let x=0;x<lw;x++)for(let c=0;c<3;c++){let sum=0,n=0;for(let sy=Math.floor(y*h/lh);sy<Math.max(Math.floor(y*h/lh)+1,Math.floor((y+1)*h/lh));sy++)for(let sx=Math.floor(x*w/lw);sx<Math.max(Math.floor(x*w/lw)+1,Math.floor((x+1)*w/lw));sx++){sum+=pixels[(sy*w+sx)*3+c]!;n++;}out[(y*lw+x)*3+c]=Math.round(sum/n);}coarse=png(lw,lh,out);receipt.coarse=metric(coarse,lw,lh);}
+ let coarse:Buffer|undefined;const low=Math.min(1,512/Math.max(w,h));if(low<1){const lw=Math.max(1,Math.round(w*low)),lh=Math.max(1,Math.round(h*low)),out=Buffer.alloc(lw*lh*3);for(let y=0;y<lh;y++)for(let x=0;x<lw;x++)for(let c=0;c<3;c++){let sum=0,n=0;for(let sy=Math.floor(y*h/lh);sy<Math.max(Math.floor(y*h/lh)+1,Math.floor((y+1)*h/lh));sy++)for(let sx=Math.floor(x*w/lw);sx<Math.max(Math.floor(x*w/lw)+1,Math.floor((x+1)*w/lw));sx++){sum+=pixels[(sy*w+sx)*3+c]!;n++;}out[(y*lw+x)*3+c]=Math.round(sum/n);}const candidate=png(lw,lh,out);if(candidate.length<full.length){coarse=candidate;receipt.coarse=metric(coarse,lw,lh);}}
  const result={full,...(coarse?{coarse}:{}),receipt};validateProductImageOutput(result,identity);return result;
 }
