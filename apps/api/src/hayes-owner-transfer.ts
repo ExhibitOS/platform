@@ -14,6 +14,7 @@ type Direction='source'|'output';
 type Channel={send(frame:Uint8Array):Promise<void>;receive():Promise<Uint8Array>;close():Promise<void>};
 type Header={version:1;kind:'hayes-transfer-start'|'hayes-transfer-end'|'hayes-transfer-accepted';attemptId:string;correlationId:string;direction:Direction;bytes:number;sha256:string};
 type Data={version:1;kind:'hayes-transfer-data';attemptId:string;correlationId:string;direction:Direction;offset:number;data:string};
+type Next={version:1;kind:'hayes-transfer-next';attemptId:string;correlationId:string;direction:'output';offset:number};
 const digest=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
 const error=()=>new Error('HAYES_TRANSFER_INVALID');
 const headerKeys=['version','kind','attemptId','correlationId','direction','bytes','sha256'] as const;
@@ -25,7 +26,7 @@ function parse(raw:Uint8Array,keys:readonly string[]):Record<string,unknown>{
  if(Object.keys(v).length!==keys.length||keys.some(k=>!Object.hasOwn(v,k))||text!==JSON.stringify(Object.fromEntries(keys.map(k=>[k,v[k]]))))throw error();
  return v;
 }
-function packet(value:Header|Data):Buffer{const b=Buffer.from(JSON.stringify(value));if(b.length<1||b.length>MAX_FRAME)throw error();return b;}
+function packet(value:Header|Data|Next):Buffer{const b=Buffer.from(JSON.stringify(value));if(b.length<1||b.length>MAX_FRAME)throw error();return b;}
 
 /** One source upload followed by one output download on an already bound
  * Manager connection. Input is copied and wiped; successful output belongs to
@@ -53,7 +54,7 @@ export function createHayesOwnerTransfer(input:{attemptId:string;correlationId:s
   throw cause;
  }
  const h=(kind:Header['kind'],direction:Direction,bytes:number,sha256:string):Header=>({version:1,kind,attemptId,correlationId,direction,bytes,sha256});
- const send=async(v:Header|Data)=>{const bytes=packet(v);try{await bounded(()=>channel.send(Buffer.from(bytes)));}finally{bytes.fill(0);}};
+ const send=async(v:Header|Data|Next)=>{const bytes=packet(v);try{await bounded(()=>channel.send(Buffer.from(bytes)));}finally{bytes.fill(0);}};
  const receive=async(keys:readonly string[])=>parse(await bounded(()=>channel.receive()),keys);
  const exact=(v:Record<string,unknown>,expected:Header)=>{if(JSON.stringify(v)!==JSON.stringify(expected))throw error();};
  return Object.freeze({
@@ -73,8 +74,9 @@ export function createHayesOwnerTransfer(input:{attemptId:string;correlationId:s
     const start=await receive(headerKeys),size=start.bytes,hash=start.sha256;
     if(start.version!==1||start.kind!=='hayes-transfer-start'||start.attemptId!==attemptId||start.correlationId!==correlationId||start.direction!=='output'||!Number.isSafeInteger(size)||Number(size)<1||Number(size)>MAX_OUTPUT||typeof hash!=='string'||!sha.test(hash))throw error();
     const n=Number(size);output=Buffer.alloc(n);let offset=0;
-    while(offset<n){const v=await receive(dataKeys);if(v.version!==1||v.kind!=='hayes-transfer-data'||v.attemptId!==attemptId||v.correlationId!==correlationId||v.direction!=='output'||v.offset!==offset||typeof v.data!=='string')throw error();const part=Buffer.from(v.data,'base64');try{if(part.length!==Math.min(CHUNK,n-offset)||part.toString('base64')!==v.data)throw error();part.copy(output,offset);offset+=part.length;}finally{part.fill(0);}}
-    exact(await receive(headerKeys),h('hayes-transfer-end','output',n,hash));if(digest(output)!==hash)throw error();
+    const next=async()=>send({version:1,kind:'hayes-transfer-next',attemptId,correlationId,direction:'output',offset});
+    while(offset<n){await next();const v=await receive(dataKeys);if(v.version!==1||v.kind!=='hayes-transfer-data'||v.attemptId!==attemptId||v.correlationId!==correlationId||v.direction!=='output'||v.offset!==offset||typeof v.data!=='string')throw error();const part=Buffer.from(v.data,'base64');try{if(part.length!==Math.min(CHUNK,n-offset)||part.toString('base64')!==v.data)throw error();part.copy(output,offset);offset+=part.length;}finally{part.fill(0);}}
+    await next();exact(await receive(headerKeys),h('hayes-transfer-end','output',n,hash));if(digest(output)!==hash)throw error();
     await send(h('hayes-transfer-accepted','output',n,hash));check();state='done';const bytes=output;output=undefined;return {bytes,sha256:hash};
    }catch(cause){output?.fill(0);return await invalidate(cause);}finally{output?.fill(0);busy=false;}
   },
