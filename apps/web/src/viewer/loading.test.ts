@@ -102,6 +102,7 @@ describe('automatic detail transitions',()=>{
    expect(selectAssetVariant(a,distance,DEVICE_BUDGETS.desktop).id).toBe(full.id);
    expect(selectAssetVariant(a,distance,DEVICE_BUDGETS.compact).id).toBe(coarse.id);
   }
+  expect(selectAssetVariant(a,Infinity,DEVICE_BUDGETS.desktop,true).id).toBe(coarse.id);
   const neither={...DEVICE_BUDGETS.compact,maxTriangles:19999};
   expect(()=>selectAssetVariant(a,0,neither)).toThrow('ASSET_BUDGET_EXCEEDED');
   expect(displayedDetailReclamation([{id:a.revisionId,artwork:a,assetId:full.id,visible:true,lastAttended:0}],'other',5000,DEVICE_BUDGETS.desktop)).toBeUndefined();
