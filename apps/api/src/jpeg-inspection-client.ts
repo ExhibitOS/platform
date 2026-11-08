@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {types} from 'node:util';
 import {parseStaticJson} from '../../web/src/static-json.mjs';
 import {inspectBaselineJpegStructure} from './jpeg-baseline-structure.ts';
+import {NativeDetailDrainUncertain} from './native-detail-drain.ts';
 
 // One experimental worker per runtime. The caller must still retain its own
 // operation reservation until this promise settles, including on abort. The
@@ -18,9 +19,9 @@ export async function inspectJpegInOwnedWorker(bytes:Buffer,signal:AbortSignal,h
   const groupAlive=(pid:number)=>{try{process.kill(-pid,0);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')return false;throw error;}};
   // Never signal a numeric process group after its leader is reaped.
   const abort=()=>{failed=true;if(spawned&&!exited&&child.pid)try{process.kill(-child.pid,'SIGKILL');}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')failed=true;}};
-  const uncertain=()=>{if(settled)return;settled=true;drainUncertain=true;clearTimeout(timer);signal.removeEventListener('abort',abort);reject(Error('JPEG_INSPECTION_DRAIN_UNCERTAIN'));};
+  const uncertain=()=>{if(settled)return;settled=true;drainUncertain=true;clearTimeout(timer);signal.removeEventListener('abort',abort);reject(new NativeDetailDrainUncertain());};
   const finish=()=>{if(!closed||settled)return;settled=true;clearTimeout(timer);clearTimeout(hardTimer);signal.removeEventListener('abort',abort);
-   try{if(child.pid&&groupAlive(child.pid))throw Error('GROUP_REMAINS');}catch{drainUncertain=true;snapshot.fill(0);reject(Error('JPEG_INSPECTION_DRAIN_UNCERTAIN'));return;}
+   try{if(child.pid&&groupAlive(child.pid))throw Error('GROUP_REMAINS');}catch{drainUncertain=true;snapshot.fill(0);reject(new NativeDetailDrainUncertain());return;}
    if(failed||signal.aborted||code!==0){reject(Error('JPEG_INSPECTION_UNAVAILABLE'));return;}try{const result=parseStaticJson(Buffer.concat(chunks,totalOut),2048) as Record<string,unknown>;if(!result||typeof result!=='object'||Array.isArray(result)||Object.keys(result).sort().join(',')!=='decodedSha256,decoder,height,iccBytes,iccSha256,sourceBytes,sourceSha256,version,width'||result.version!==1||result.sourceSha256!==digest||result.sourceBytes!==snapshot.length||result.width!==structure.width||result.height!==structure.height||result.iccBytes!==structure.iccBytes||result.iccSha256!==(structure.iccSha256??null)||result.decoder!=='sharp-0.35.4-vips-8.18.6-mozjpeg-0826579'||typeof result.decodedSha256!=='string'||!/^[a-f0-9]{64}$/.test(result.decodedSha256))throw Error();resolve(result);}catch{reject(Error('JPEG_INSPECTION_UNAVAILABLE'));}
   };
   const child=spawn(process.execPath,['--max-old-space-size=128',fileURLToPath(path)],{detached:true,stdio:['pipe','pipe','pipe','pipe'],env:{PATH:process.env.PATH}});

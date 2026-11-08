@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {NativeDetailDrainUncertain} from './native-detail-drain.ts';
 /** Private in-runtime accounting for one owner's bounded detail exports.
  * Callers must authenticate and recheck native owner/database identity before
  * constructing Scope; this registry is not an authorization mechanism. */
@@ -50,7 +51,7 @@ export class NativeDetailOperations {
   const task=Promise.resolve().then(async()=>{
    let result:T|undefined,failure:unknown,failed=false;
    try{controller.signal.throwIfAborted();result=await work(controller.signal);controller.signal.throwIfAborted();}
-   catch(error){failed=true;failure=error;entry.closing=true;entry.failed=true;for(const other of entry.controllers)other.abort();}
+   catch(error){failed=true;failure=error;entry.closing=true;entry.failed=true;if(error instanceof NativeDetailDrainUncertain)entry.uncertain=true;for(const other of entry.controllers)other.abort();}
    try{await cleanup();}catch(error){entry.closing=true;entry.uncertain=true;entry.failed=true;failed=true;failure=error;}finally{entry.controllers.delete(controller);}
    if(!failed&&controller.signal.aborted){failed=true;failure=controller.signal.reason;entry.failed=true;}
    if(failed)throw failure;

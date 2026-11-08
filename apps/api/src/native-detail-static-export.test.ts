@@ -2,6 +2,7 @@
 import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
 import {NativeDetailOperations,type NativeDetailScope} from './native-detail-static-export.ts';
+import {NativeDetailDrainUncertain} from './native-detail-drain.ts';
 
 const scope=():NativeDetailScope=>({runtimeGeneration:randomUUID(),workspaceId:randomUUID(),tenantId:randomUUID(),principalId:randomUUID(),sessionId:randomUUID(),publicationId:randomUUID(),revisionSha256:'a'.repeat(64),jobId:randomUUID()});
 const done=async()=>{};
@@ -28,6 +29,9 @@ it('requires successful preparation, no concurrent scopes and an actual final cl
 it('retains uncertainty on cleanup failure and refuses unbounded tombstone growth',async()=>{
  const registry=new NativeDetailOperations(),s=scope();await expect(registry.run(s,'prepare',done,async()=>{throw Error('cleanup');})).rejects.toThrow('cleanup');expect(registry.status(s)).toBe('uncertain');
  const bounded=new NativeDetailOperations();for(let i=0;i<128;i++)bounded.close(scope());expect(()=>bounded.close(scope())).toThrow('NATIVE_DETAIL_UNAVAILABLE');
+});
+it('retains the job and refuses runtime drain when a JPEG worker has uncertain cleanup',async()=>{
+ const registry=new NativeDetailOperations(),s=scope();await registry.run(s,'prepare',done,done);await expect(registry.run(s,'bytes',async()=>{throw new NativeDetailDrainUncertain();},done)).rejects.toThrow('JPEG_INSPECTION_DRAIN_UNCERTAIN');expect(registry.status(s)).toBe('uncertain');await expect(registry.run(s,'bytes',done,done)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');expect(await registry.closeRuntime()).toBe(false);
 });
 it('closes failed admission after cleanup instead of leaving an unrecoverable pending job',async()=>{
  const registry=new NativeDetailOperations(),s=scope();await expect(registry.run(s,'prepare',async()=>{throw Error('denied');},done)).rejects.toThrow('denied');expect(registry.status(s)).toBe('settled-failure');await expect(registry.run(s,'prepare',done,done)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');
