@@ -4,6 +4,7 @@ import {readFile,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {PoolClient} from 'pg';
 import type {BlobStore} from './blobs.js';
+import {confirmedHayesReleaseBindings} from './hayes-release-inventory.js';
 export interface ObjectReference {key:string;binding:string;required:boolean;expectedBytes?:number;expectedSha256?:string;aggregate?:{id:string;index:number;count:number;bytes:number;sha256:string}}
 export interface InventoryIssue {code:string;key?:string;binding?:string}
 export interface ServiceInventory {schemaVersion:'1.0.0-draft.1';createdAt:string;schemaDigest?:string;migrations:{name:string;sha256:string}[];tables:{name:string;rowCount:number;sha256:string}[];objects:{key:string;bytes:number;sha256:string;referenced:boolean;bindings:string[]}[];references:ObjectReference[];issues:InventoryIssue[]}
@@ -190,6 +191,13 @@ export async function collectServiceInventory(c:PoolClient,store:BlobStore,optio
   await c.query(`DECLARE ${quote(cursor)} NO SCROLL CURSOR FOR SELECT to_jsonb(t)::text AS raw FROM public.${quote(table.name)} t ${options.tenantId?'WHERE tenant_id=$1':''} ORDER BY to_jsonb(t)::text COLLATE "C"`,options.tenantId?[options.tenantId]:[]);
   try{for(;;){const batch=await c.query(`FETCH 1000 FROM ${quote(cursor)}`);if(!batch.rowCount)break;for(const item of batch.rows){rowHash.update(item.raw+'\n');rowCount++;if(referencedTables.has(table.name)){const value=JSON.parse(item.raw);const extracted=rowObjectReferences(table.name,value);report.references.push(...extracted.references);report.issues.push(...extracted.issues);if(table.name==='workspace_frame_preparations'&&value.state==='staged')report.issues.push({code:'FRAME_PREPARATION_UNSETTLED',binding:`${table.name}:${String(value.tenant_id)}:${String(value.intake_id)}`});}}}}finally{await c.query(`CLOSE ${quote(cursor)}`);}
   if(!options.tenantId)report.tables.push({name:table.name,rowCount,sha256:rowHash.digest('hex')});
+ }
+ // Clear only exact released attempt and stage issues proved by a matching
+ // immutable completion in this same snapshot. Historical producer DB pins
+ // remain valid across logical restore; all object checks still run below.
+ if(tables.some(t=>t.name==='hayes_native_releases')){
+  const released=await confirmedHayesReleaseBindings(c,options.tenantId);
+  report.issues=report.issues.filter(issue=>issue.code!=='HAYES_WORKER_DRAIN_UNCONFIRMED'||!issue.binding||!released.has(issue.binding));
  }
  // The two individually valid objects also need one complete registered
  // intake/version binding. A missing stage must not turn preparation into a
