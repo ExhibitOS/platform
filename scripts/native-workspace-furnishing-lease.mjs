@@ -19,7 +19,7 @@ function mac(kind,fields,secret){
  if(!kinds.includes(kind)||!Buffer.isBuffer(secret)||secret.length!==32)throw Error('FURNISHING_LEASE_INVALID');
  const ids=keys.slice(0,4).map(key=>Buffer.from(fields[key].replaceAll('-',''),'hex'));
  const words=['rootDevice','rootInode','lockDevice','lockInode'].map(key=>{const bytes=Buffer.alloc(8);bytes.writeBigUInt64BE(decimal(fields[key],key.endsWith('Inode')));return bytes;});
- return createHmac('sha256',secret).update(Buffer.concat([Buffer.from(`ExhibitOS/workspace-furnishing/${kind}/v1\0`,'ascii'),...ids,Buffer.from([fields.mode==='workspace-furnishing-036-initialize-v1'?1:fields.mode==='workspace-furnishing-036-reopen-v1'?2:fields.mode==='workspace-furnishing-038-selected-import-v7'?3:fields.mode==='workspace-furnishing-039-selected-import-v7'?4:fields.mode==='workspace-furnishing-040-selected-import-v7'?5:6]),Buffer.from(fields.payloadManifestSHA256,'hex'),...words])).digest('hex');
+ return createHmac('sha256',secret).update(Buffer.concat([Buffer.from(`ExhibitOS/workspace-furnishing/${kind}/v1\0`,'ascii'),...ids,Buffer.from([fields.mode==='workspace-furnishing-036-initialize-v1'?1:fields.mode==='workspace-furnishing-036-reopen-v1'?2:fields.mode==='workspace-furnishing-038-selected-import-v7'?3:fields.mode==='workspace-furnishing-039-selected-import-v7'?4:fields.mode==='workspace-furnishing-040-selected-import-v7'?5:fields.mode==='workspace-furnishing-039-to-040-upgrade-v1'?6:7]),Buffer.from(fields.payloadManifestSHA256,'hex'),...words])).digest('hex');
 }
 /** Build one canonical body; transport applies the existing 4-byte frame. */
 export function encodeFurnishingLeaseFrame(kind,fields,secret){
