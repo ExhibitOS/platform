@@ -28,3 +28,13 @@ it('allows the same asset identity only when actual original bytes and hash are 
  expect(modelPreparationView(ready(true))).toMatchObject({original:{assetId:'display'},display:{assetId:'display',reusedOriginal:true}});
  expect(()=>createModelPreparationReceipt(row(),'display','display',producer)).toThrow('MODEL_PREPARATION_RECEIPT_INVALID');const p=structuredClone(producer);p.output.reusedOriginal=true;expect(()=>createModelPreparationReceipt(row(),'display','display',p)).toThrow('MODEL_PREPARATION_RECEIPT_INVALID');
 });
+
+it('requires explicit active execution and rejects forged or contextless native authority',async()=>{
+ const {createServiceModelPreparationExecution,createNativeModelPreparationExecution}=await import('./model-preparation-import.ts');
+ const blobs={getBounded:async()=>new Uint8Array()} as unknown as BlobStore,pool={} as Pool,c={query:async()=>({rows:[{supported:true}]})} as unknown as import('pg').PoolClient;
+ await expect(new Imports(pool,blobs).requiredModelReady(c)).rejects.toMatchObject({code:'MODEL_PREPARATION_UNAVAILABLE'});
+ let active=false;const context=createServiceModelPreparationExecution(blobs,()=>active),service=new Imports(pool,blobs,undefined,context);
+ await expect(service.requiredModelReady(c)).rejects.toMatchObject({code:'MODEL_PREPARATION_UNAVAILABLE'});active=true;await service.requiredModelReady(c);active=false;await expect(service.requiredModelReady(c)).rejects.toMatchObject({code:'MODEL_PREPARATION_UNAVAILABLE'});
+ expect(()=>new Imports(pool,blobs,undefined,{...context})).toThrow('MODEL_PREPARATION_UNAVAILABLE');
+ expect(()=>createNativeModelPreparationExecution(blobs,{} as import('./native-oex-provenance.ts').NativeOexWorkspaceContext,{writerFd:10,identity:{},assertLive:async()=>{}} as never,()=>true)).toThrow('FURNISHING_LEASE_INVALID');
+});

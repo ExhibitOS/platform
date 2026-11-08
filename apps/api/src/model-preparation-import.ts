@@ -12,6 +12,23 @@ import {storedModelPreparation,createModelPreparationReceipt,modelPreparationRec
 
 export interface ModelPreparationWriter {writerFd:number;identity:Readonly<{workspaceId:string;tenantId:string;principalId:string;runtimeGeneration:string;rootDevice:string;rootInode:string;lockDevice:string;lockInode:string}>;assertLive:()=>Promise<void>}
 export function assertModelPreparationWriter(writer:ModelPreparationWriter){assertIssuedFurnishingWriterLease(writer);}
+export interface ModelPreparationExecution {readonly mode:'native'|'service';readonly blobs:BlobStore;readonly workspace?:NativeOexWorkspaceContext;readonly writer?:ModelPreparationWriter;isActive:()=>boolean;assertReady:(c:PoolClient,actor?:{tenantId:string;userId:string})=>Promise<void>}
+const executions=new WeakSet<ModelPreparationExecution>();
+function execution(blobs:BlobStore,active:()=>boolean,workspace?:NativeOexWorkspaceContext,writer?:ModelPreparationWriter):ModelPreparationExecution {
+ if(!blobs.getBounded||typeof active!=='function')throw Error('MODEL_PREPARATION_UNAVAILABLE');
+ const result:ModelPreparationExecution=Object.freeze({mode:writer?'native':'service',blobs,workspace,writer,isActive:active,assertReady:async(c:PoolClient,actor?:{tenantId:string;userId:string})=>{
+  if(!active())throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
+  if(writer&&workspace){assertModelPreparationWriter(writer);if(actor&&(writer.identity.tenantId!==actor.tenantId||writer.identity.principalId!==actor.userId))throw new ApiError(403,'FORBIDDEN');await writer.assertLive();await workspace.assertDatabase(c);}
+  if(!await modelPreparationSupported(c)||!active())throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
+ }});executions.add(result);return result;
+}
+export function createNativeModelPreparationExecution(blobs:BlobStore,workspace:NativeOexWorkspaceContext,writer:ModelPreparationWriter,active:()=>boolean){
+ assertModelPreparationWriter(writer);if(!workspace||writer.identity.workspaceId!==workspace.workspaceId||writer.identity.tenantId!==workspace.tenantId||writer.identity.principalId!==workspace.principalId)throw Error('FURNISHING_LEASE_INVALID');return execution(blobs,active,workspace,writer);
+}
+/** Explicit service execution, used by isolated service tests. Absence of a
+ * native context NEVER selects this mode implicitly. */
+export function createServiceModelPreparationExecution(blobs:BlobStore,active:()=>boolean){return execution(blobs,active);}
+export function assertModelPreparationExecution(value:ModelPreparationExecution,blobs:BlobStore,workspace?:NativeOexWorkspaceContext){if(!executions.has(value)||value.blobs!==blobs||value.workspace!==workspace||value.mode==='native'&&!value.writer)throw Error('MODEL_PREPARATION_UNAVAILABLE');}
 
 export async function modelPreparationSupported(c:PoolClient){
  const result=await c.query("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='import_jobs'::regclass AND attname='model_preparation' AND NOT attisdropped) AND EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='import_jobs'::regclass AND conname='import_model_preparation_shape') AS supported");return result.rows[0]?.supported===true;

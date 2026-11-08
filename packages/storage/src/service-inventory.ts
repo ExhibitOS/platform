@@ -48,11 +48,24 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  case 'import_jobs':{
   const hayes=row.hayes_attempt_id!==undefined&&row.hayes_attempt_id!==null;
   if(hayes)issues.push({code:'HAYES_WORKER_DRAIN_UNCONFIRMED',binding});
-  const required=hayes||row.state==='queued'||row.state==='processing'||row.state==='approved';
+  const required=hayes||row.state==='queued'||row.state==='processing'||row.state==='approved'||row.model_preparation!=null&&row.state==='failed';
   add(row.object_key,required,row.expected_bytes,row.expected_hash,':source');
   // Hayes approved_key points to the derived output, whose own stage/asset
   // records carry its hash and size; expected_hash describes the original.
   if(hayes)break;
+  if(row.model_preparation!==undefined&&row.model_preparation!==null){
+   const preparation=row.model_preparation,request=obj(preparation)?preparation.request:undefined;
+   const invalid=()=>issues.push({code:'INVALID_REQUIRED_MODEL_IMPORT',binding});
+   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||request.profileId!=='embedded-model-compact-20k-512-v1'||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
+   if(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length>0)issues.push({code:'MODEL_PREPARATION_WORKER_DRAIN_UNCONFIRMED',binding});
+   if(row.state==='approved'){
+    const receipt=preparation.result;if(!obj(receipt)||!obj(receipt.original)||!obj(receipt.display)||!obj(receipt.producer)||!obj(receipt.producer.source)||!obj(receipt.producer.output)){invalid();break;}
+    const {sha256:receiptHash,...body}=receipt,original=receipt.original,display=receipt.display,producer=receipt.producer,source=producer.source as Record<string,unknown>,output=producer.output as Record<string,unknown>;
+    if(!hex(receiptHash)||hash(body)!==receiptHash||receipt.version!==1||receipt.profileId!==request.profileId||receipt.recipeSHA256!==producer.recipeSHA256||!hex(receipt.recipeSHA256)||producer.recipeId!==request.profileId||receipt.jobId!==row.id||receipt.artworkId!==row.artwork_id||receipt.artworkRevision!==request.artworkRevision||receipt.operationID!==request.operationID||receipt.generation!==request.generation||receipt.rightsSHA256!==hash(row.rights)||original.assetId!==(row.original_asset_id??row.asset_id)||display.assetId!==row.asset_id||original.mime!=='model/gltf-binary'||display.mime!=='model/gltf-binary'||original.sha256!==row.expected_hash||original.bytes!==Number(row.expected_bytes)||!hex(display.sha256)||!bytes(display.bytes)||typeof display.reusedOriginal!=='boolean'||source.sha256!==original.sha256||source.bytes!==original.bytes||output.sha256!==display.sha256||output.bytes!==display.bytes||output.reusedOriginal!==display.reusedOriginal||display.reusedOriginal&&(original.assetId!==display.assetId||original.sha256!==display.sha256||original.bytes!==display.bytes)||!display.reusedOriginal&&original.assetId===display.assetId||row.approved_key!==`${tenant}/approved/${display.sha256}`){invalid();break;}
+    add(row.approved_key,true,display.bytes,display.sha256,':approved-model');
+   }else if(preparation.result!==undefined||row.asset_id!=null||row.original_asset_id!=null)invalid();
+   break;
+  }
   const prepared=row.derived;
   if(obj(prepared)&&Object.hasOwn(prepared,'viewerCoarse')){
    const coarse=prepared.viewerCoarse;
