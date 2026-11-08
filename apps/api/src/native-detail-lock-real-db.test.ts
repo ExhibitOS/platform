@@ -20,10 +20,13 @@ it.skipIf(!process.env.NATIVE_DETAIL_TEST_PG)('disconnect cancels the admitted r
   const read=registry.run(s,'bytes',signal=>auth.requestForNativeDetailRead(token,tenantId,csrf,async(c)=>{expect((await c.query('SHOW transaction_isolation')).rows[0].transaction_isolation).toBe('read committed');entered.release();await new Promise<void>(resolve=>signal.addEventListener('abort',()=>resolve(),{once:true}));signal.throwIfAborted();}),async()=>{await cleanup.promise;});
   await entered.promise;
   const writer=auth.requestForNativeWorkspaceMutation(token,tenantId,csrf,async()=>{writerEntered.release();await releaseWriter.promise;});
-  let waiting=false;for(let i=0;i<100;i++){const rows=await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock(82003)%' LIMIT 1");if(rows.rowCount){waiting=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}expect(waiting).toBe(true);
-  const close=auth.requestForNativeDetailRead(token,tenantId,csrf,async()=>{registry.close(s);});
-  // The admitted request's own disconnect is independent of the queued DB control path.
-  registry.close(s);expect(registry.status(s)).toBe('pending');await writerEntered.promise;expect(registry.status(s)).toBe('pending');
-  releaseWriter.release();await writer;await close;cleanup.release();await expect(read).rejects.toThrow();expect(registry.status(s)).toBe('settled-failure');
+  let close:Promise<void>|undefined;
+  try{
+   let waiting=false;for(let i=0;i<100;i++){const rows=await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock(82003)%' LIMIT 1");if(rows.rowCount){waiting=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}expect(waiting).toBe(true);
+   close=auth.requestForNativeDetailRead(token,tenantId,csrf,async()=>{registry.close(s);});
+   // The admitted request's own disconnect is independent of the queued DB control path.
+   registry.close(s);expect(registry.status(s)).toBe('pending');await writerEntered.promise;expect(registry.status(s)).toBe('pending');
+   releaseWriter.release();await writer;await close;cleanup.release();await expect(read).rejects.toThrow();expect(registry.status(s)).toBe('settled-failure');
+  }finally{registry.close(s);releaseWriter.release();cleanup.release();await Promise.allSettled([read,writer,...(close?[close]:[])]);}
  }finally{await pool.end();}
 },120000);
