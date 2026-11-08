@@ -15,6 +15,8 @@ test('automatic headroom uses bounded residency and transition limits in known m
  const mib=1024*1024;
  expect(deviceBudget({deviceMemory:4})).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
  expect(deviceBudget({deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
+ expect(deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:256*mib,maxTransitionBytes:320*mib});
+ expect(deviceBudget({deviceMemory:8,coarsePointer:true,finePointer:true})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
  for(const memory of [undefined,2,Infinity,NaN])expect(deviceBudget({deviceMemory:memory}).maxTransitionBytes).toBeUndefined();
  expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(deviceBudget({deviceMemory:4}));
  expect(selectedDeviceBudget('compact',{deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);

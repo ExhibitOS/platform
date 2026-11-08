@@ -19,8 +19,12 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
  // Limits bound tracked allocations. They do not reserve memory up front.
- if(memory!==undefined&&Number.isFinite(memory)&&memory>=8)
-  return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
+ if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
+  // Explicit fine-pointer sessions can use the same bounded allowance as the
+  // existing detailed profile; tracked scene and transition limits still apply.
+  const fine=input.coarsePointer===false&&input.finePointer===true;
+  return selectedImageCapacity({...budget,maxCacheBytes:(fine?256:192)*1024*1024,maxTransitionBytes:(fine?320:256)*1024*1024},memory);
+ }
  // Browsers without a memory hint can still need overlap for a visible
  // minimum. Bound touch auto headroom without changing texture admission.
  if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:112*1024*1024,maxTransitionBytes:128*1024*1024};
