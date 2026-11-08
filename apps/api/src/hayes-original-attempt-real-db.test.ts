@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdtemp,realpath,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {expect,it} from 'vitest';
 import {migrate,transaction,type BlobStore} from '@exhibitos/storage';
 import type {Session} from './auth.ts';
-import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import {bindNativeOexWorkspace,assertIssuedWorkspaceImport,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import {publicationDiskOwner} from './publication-attempt.ts';
 import {bindHayesOriginalContext,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
 import {Imports} from './imports.ts';
 
@@ -14,17 +17,21 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
  const rights={holder:'Synthetic owner',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic'};
  const b={version:1 as const,tenantId,workspaceId,principalId:userId,jobId,leaseId:randomUUID(),attemptId:randomUUID(),runtimeGeneration:randomUUID(),artworkId,correlationId:randomUUID(),artworkRevision:1,sourceSha256:'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6',sourceBytes:8383096};
  const source=await readFile(process.env.EXHIBITOS_HAYES_ORIGINAL!);const blobs={getBounded:async()=>Buffer.from(source),get:async()=>Buffer.from('x')} as unknown as BlobStore;
- const owner={workspaceId,tenantId,principalId:userId,assertDatabase:async()=>{}} as unknown as NativeOexWorkspaceContext,s={id:randomUUID(),tenantId,userId,role:'admin'} as Session;
+ const root=await realpath(await mkdtemp(join(tmpdir(),'hayes-042-owner-'))),s={id:randomUUID(),tenantId,userId,role:'admin'} as Session;
  try{
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
   expect(await new Imports(pool,blobs).work()).toBe(false);
-  await pool.query('CREATE UNIQUE INDEX local_workspaces_owner_scope ON local_workspaces(id,tenant_id,user_id)');
+  await migrate(pool,new URL('../../../database/native-oex-normal/',import.meta.url).pathname);
+  await migrate(pool,new URL('../../../database/native-oex-workspace-import/',import.meta.url).pathname);
   await pool.query(await readFile(new URL('../../../database/native-hayes-original/042_hayes_original_attempt.sql',import.meta.url),'utf8'));
   await pool.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',['042_hayes_original_attempt.sql','074de4171572039f2f400d49d07aff8a3ec83ec222c1684cbc5452c6cc8b3ece']);
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'test']);await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
-  await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,1)',[workspaceId,tenantId,userId]);await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'test'}]);await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artworkId,artistId,{rights}]);
+  await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,process.getuid!()]);await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'test'}]);await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artworkId,artistId,{rights}]);
   await pool.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,state) VALUES($1,$2,$3,$4,'test','hash','model/gltf-binary',$5,$6,$7,$8,$9,1,'queued')",[tenantId,jobId,userId,artworkId,b.sourceSha256,b.sourceBytes,rights,`${tenantId}/quarantine/source`,`${tenantId}/approved/source`]);
-  const bound=await transaction(pool,c=>bindHayesOriginalContext(c,owner));
+  const owner=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid:process.getuid!(),blobRoot:root,workspaceImport:true}));
+  const disk=await transaction(pool,c=>publicationDiskOwner(c,root));expect(()=>assertIssuedWorkspaceImport(owner,disk)).not.toThrow();
+  await expect(transaction(pool,c=>bindHayesOriginalContext(c,{...owner} as NativeOexWorkspaceContext))).rejects.toMatchObject({code:'FORBIDDEN'});
+  const bound=await transaction(pool,c=>bindHayesOriginalContext(c,owner));expect(bound).toBe(owner);expect(()=>assertIssuedWorkspaceImport(bound,disk)).not.toThrow();
   expect(await new Imports(pool,blobs).work()).toBe(false);
   await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{throw Error('owner lost');}))).rejects.toThrow('owner lost');
   expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_attempts')).rows[0].n).toBe(0);
@@ -54,5 +61,5 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   await transaction(pool,c=>new Imports(pool,blobs,bound).action(c,s,jobId,'cancel'));
   const cancelled=(await pool.query('SELECT * FROM import_jobs WHERE id=$1',[jobId])).rows[0];expect(cancelled.state).toBe('cancelled');expect(cancelled.lease_id).toBe(b.leaseId);
   await expect(transaction(pool,c=>new Imports(pool,blobs,bound).action(c,s,jobId,'retry'))).rejects.toThrow('WORKER_DRAIN_UNCONFIRMED');
- }finally{source.fill(0);await pool.end();}
+ }finally{source.fill(0);await pool.end();await rm(root,{recursive:true,force:true});}
 });

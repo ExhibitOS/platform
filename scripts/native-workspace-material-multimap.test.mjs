@@ -65,3 +65,32 @@ test('portal marker is exact and requires the fixed models parent for packaging'
  const catalog=await import('./native-oex-normal-catalog.mjs'),{packageNativeRuntime}=await import('./package-native-runtime.mjs'),tmp=await mkdtemp(join(tmpdir(),'exhibitos-portal-marker-')),path=join(tmp,'marker');
  try{assert.equal(await catalog.hasWorkspacePortalFinishCapability(path),false);await writeFile(path,catalog.WORKSPACE_PORTAL_FINISH_CAPABILITY);assert.equal(await catalog.hasWorkspacePortalFinishCapability(path),true);const marker=JSON.parse(catalog.WORKSPACE_PORTAL_FINISH_CAPABILITY);assert.equal(marker.parentCapabilitySHA256,createHash('sha256').update(catalog.WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY).digest('hex'));await writeFile(path,catalog.WORKSPACE_PORTAL_FINISH_CAPABILITY+' ');await assert.rejects(catalog.hasWorkspacePortalFinishCapability(path),/NATIVE_OEX_CATALOG/);await assert.rejects(packageNativeRuntime('/synthetic-unused',{workspacePortalFinishSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);}finally{await rm(tmp,{recursive:true,force:true});}
 });
+
+test('042 is selected explicitly and binds the exact parent and SQL',async()=>{
+ const catalog=await import('./native-oex-normal-catalog.mjs'),base=dir('migrations'),extra=dir('native-oex-normal'),preparation=dir('native-workspace-frame-preparation'),hayes=dir('native-hayes-original'),rows=[];
+ for(const directory of [base,extra,...Object.values(options),preparation,hayes])for(const name of (await readdir(directory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort())rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+ rows.sort((a,b)=>a.name.localeCompare(b.name));assert.equal(rows.length,42);const pool={query:async()=>({rows})},selected={...options,workspaceFramePreparationDirectory:preparation,hayesOriginalDirectory:hayes};
+ assert.equal(await recognizeNormalOexCatalog(pool,base,extra,selected),extra);await catalog.assertExactHayesOriginalCatalog(pool);
+ await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,{...selected,hayesOriginalDirectory:undefined}),/NATIVE_OEX_CATALOG/);
+ rows[41].sha256='0'.repeat(64);await assert.rejects(recognizeNormalOexCatalog(pool,base,extra,selected),/NATIVE_OEX_CATALOG/);
+ const tmp=await mkdtemp(join(tmpdir(),'exhibitos-hayes-marker-')),path=join(tmp,'marker');try{assert.equal(await catalog.hasHayesOriginalCapability(path),false);await writeFile(path,catalog.HAYES_ORIGINAL_CAPABILITY);assert.equal(await catalog.hasHayesOriginalCapability(path),true);await writeFile(path,catalog.HAYES_ORIGINAL_CAPABILITY+' ');await assert.rejects(catalog.hasHayesOriginalCapability(path),/NATIVE_OEX_CATALOG/);}finally{await rm(tmp,{recursive:true,force:true});}
+});
+
+test('042 SQL is excluded by default and included only with its selected parent',async()=>{
+ const {copyNormalOexSelectedFile,nativePackageExcludedFiles,packageNativeRuntime}=await import('./package-native-runtime.mjs');
+ const tmp=await realpath(await mkdtemp(join(tmpdir(),'exhibitos-hayes-package-'))),output=join(tmp,'output'),source=await realpath(fileURLToPath(new URL('../',import.meta.url))),tracked=new Map([['database',new Set()]]);
+ try{
+  assert.ok(nativePackageExcludedFiles(false,true).has('database/native-hayes-original/042_hayes_original_attempt.sql'));
+  await assert.rejects(packageNativeRuntime('/synthetic-unused',{hayesOriginalSelected:true}),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await assert.rejects(copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,false,true),/NATIVE_PACKAGE_INPUT_INVALID/);
+  await copyNormalOexSelectedFile(source,output,tracked,true,true,true,true,true,true,true,true,true,true,true);
+  const bytes=await readFile(join(output,'database/native-hayes-original/042_hayes_original_attempt.sql'));assert.equal(createHash('sha256').update(bytes).digest('hex'),'074de4171572039f2f400d49d07aff8a3ec83ec222c1684cbc5452c6cc8b3ece');
+ }finally{await rm(tmp,{recursive:true,force:true});}
+});
+
+test('042 backup catalog requires the exact selected migration',async()=>{
+ const {inventorySnapshotOptionsForDatabase}=await import('./service-backup.mjs'),base=dir('migrations'),extra=dir('native-oex-normal'),preparation=dir('native-workspace-frame-preparation'),hayes=dir('native-hayes-original'),rows=[];
+ for(const directory of [base,extra,...Object.values(options),preparation,hayes])for(const name of (await readdir(directory)).filter(name=>/^\d+.*\.sql$/.test(name)).sort())rows.push({name,sha256:createHash('sha256').update(await readFile(join(directory,name))).digest('hex')});
+ rows.sort((a,b)=>a.name.localeCompare(b.name));const pool={query:async()=>({rows})};assert.deepEqual(await inventorySnapshotOptionsForDatabase(pool,base,extra,rows),{migrationCatalog:rows});
+ rows[41].sha256='0'.repeat(64);await assert.rejects(inventorySnapshotOptionsForDatabase(pool,base,extra),/NATIVE_OEX_CATALOG/);
+});
