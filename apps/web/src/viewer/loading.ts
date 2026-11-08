@@ -44,6 +44,11 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  // At 4 GiB, Auto already selects Compact geometry and texture limits.
  // Keep its bounded transition headroom when the visitor selects Compact directly.
  if(profile==='auto'||(profile==='compact'&&input.deviceMemory===4))return deviceBudget(input);
+ // A capable device selecting Compact keeps the existing 4 GiB preset's
+ // bounded scene/transition allowance, while its model and texture limits
+ // remain Compact. Unknown and lower-memory devices retain their old limits.
+ if(profile==='compact'&&input.deviceMemory!==undefined&&Number.isFinite(input.deviceMemory)&&input.deviceMemory>4)
+  return selectedImageCapacity({...DEVICE_BUDGETS.compact,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024},input.deviceMemory);
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
   const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
