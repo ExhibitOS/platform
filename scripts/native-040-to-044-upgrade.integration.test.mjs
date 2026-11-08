@@ -37,6 +37,7 @@ try{
  await test('explicit owner-fenced 040→044 preserves workspace and rolls back on failures',async()=>{
   const init='workspace-furnishing-036-initialize-v1',upgradeMode='workspace-furnishing-040-to-044-upgrade-v1',kind='catalog-upgrade-040-to-044';
   await openWith(await admission(init,'fresh-empty'),init,{base40:true});assert.equal((await ledger()).length,40);
+  await assert.rejects(admission(upgradeMode,'clean-reopen'),/FURNISHING_ADMISSION_INVALID/);await assert.rejects(admission('workspace-furnishing-036-reopen-v1',kind),/FURNISHING_ADMISSION_INVALID/);
   const exhibitionId=randomUUID(),metadata={name:'retained fixture',rooms:[{name:'original'}]};await pool.query('INSERT INTO exhibitions(tenant_id,id,metadata,revision) VALUES($1,$2,$3,7)',[workspace.tenantId,exhibitionId,metadata]);
   const before=JSON.stringify(await ledger()),exhibition=JSON.stringify((await pool.query('SELECT metadata,revision FROM exhibitions WHERE tenant_id=$1 AND id=$2',[workspace.tenantId,exhibitionId])).rows[0]),opts={upgrade:true,preparation:true,disposition:true,release:true};
   await assert.rejects(openWith(await admission(upgradeMode,kind),upgradeMode,{...opts,hayesOpen:false}),/FURNISHING_ADMISSION_INVALID/);assert.equal(JSON.stringify(await ledger()),before);
