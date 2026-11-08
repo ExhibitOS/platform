@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PassThrough} from 'node:stream';
+import {PassThrough,Writable} from 'node:stream';
 import {runNativeDetailExport} from './native-detail-export-runner.mjs';
 
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`,hash='a'.repeat(64),manifest='b'.repeat(64);
@@ -19,6 +19,14 @@ test('mismatched revision closes the owned operation and never emits ready',asyn
  const controlFactory=()=>({prepare:async()=>{},close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,controlFactory,exporter:async()=>({publicationId:owner.publicationId,revisionSha256:'f'.repeat(64),manifestSha256:manifest})});input.write(frame(owner));await assert.rejects(pending,/NATIVE_DETAIL_RECEIPT/);assert.deepEqual(events,['close']);
 });
 test('parent disconnect cancels in-flight export and waits for it before close',async()=>{
- const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];let started,release;const entered=new Promise(resolve=>{started=resolve;}),drain=new Promise(resolve=>{release=resolve;});stdout.on('data',()=>events.push('frame'));
- const controlFactory=()=>({prepare:async()=>{},close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,controlFactory,exporter:async({signal})=>{started();await drain;signal.throwIfAborted();}});input.write(frame(owner));await entered;input.end();await new Promise(resolve=>setTimeout(resolve,10));assert.deepEqual(events,[]);release();await assert.rejects(pending);assert.deepEqual(events,['close']);
+ const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];let started,release,observed;const entered=new Promise(resolve=>{started=resolve;}),drain=new Promise(resolve=>{release=resolve;}),aborted=new Promise(resolve=>{observed=resolve;});stdout.on('data',()=>events.push('frame'));
+ const controlFactory=()=>({prepare:async()=>{},close:async signal=>{assert.equal(signal.aborted,false);events.push('close');}});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,controlFactory,exporter:async({signal})=>{signal.addEventListener('abort',observed,{once:true});started();await drain;signal.throwIfAborted();}});input.write(frame(owner));await entered;input.end();await aborted;assert.deepEqual(events,[]);release();await assert.rejects(pending);assert.deepEqual(events,['close']);
+});
+for(const late of [false,true])test(late?'late stdout error after abort remains handled':'stdout callback failure and later error allow cleanup',async()=>{
+ const owner=startup(),input=new PassThrough(),events=[];let writeStarted,completeWrite;const entered=new Promise(resolve=>{writeStarted=resolve;}),stdout=new Writable({write(_chunk,_encoding,callback){writeStarted();if(late)completeWrite=callback;else callback(Error('synthetic output failure'));}});
+ const controlFactory=()=>({prepare:async()=>{},close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,controlFactory,exporter:async()=>({publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest})});input.write(frame(owner));await entered;if(late){input.end();await assert.rejects(pending);completeWrite(Error('late output failure'));}else await assert.rejects(pending);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(events,['close']);
+});
+test('overall deadline interrupts an ACK wait',async()=>{
+ const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),deadline=new AbortController(),events=[];let staged;const emitted=new Promise(resolve=>{staged=resolve;});stdout.on('data',()=>staged());
+ const controlFactory=()=>({prepare:async()=>{},close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,overallSignal:deadline.signal,controlFactory,exporter:async()=>({publicationId:owner.publicationId,revisionSha256:hash,manifestSha256:manifest})});input.write(frame(owner));await emitted;deadline.abort();await assert.rejects(pending);assert.deepEqual(events,['close']);
 });

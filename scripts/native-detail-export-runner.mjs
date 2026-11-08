@@ -4,11 +4,14 @@ import {nativeDetailControl} from './native-detail-control.mjs';
 import {exportStaticPublication} from './export-static-publication.mjs';
 
 /** Candidate-free protocol plumbing only; it is not a source-byte producer. */
-export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportStaticPublication}){
- const pipe=nativeDetailPipe(input,{origin,publicationId}),signal=AbortSignal.any([pipe.signal,AbortSignal.timeout(120000)]);let startup,control,finished=false;
+export async function runNativeDetailExport({origin,publicationId,runtimeRoot,output,privateEditor,input=process.stdin,stdout=process.stdout,controlFactory=nativeDetailControl,exporter=exportStaticPublication,overallSignal=AbortSignal.timeout(120000)}){
+ const pipe=nativeDetailPipe(input,{origin,publicationId}),outputAbort=new AbortController(),signal=AbortSignal.any([pipe.signal,outputAbort.signal,overallSignal]);let startup,control,finished=false;
+ // A Writable may emit error after its write callback, including after abort.
+ // Keep this sink for the stream lifetime; it never captures credentials.
+ stdout.on('error',()=>outputAbort.abort());
  const send=async value=>{
   signal.throwIfAborted();const bytes=Buffer.from(JSON.stringify(value));if(!bytes.length||bytes.length>1024)throw Error('NATIVE_DETAIL_FRAME');const frame=Buffer.alloc(bytes.length+4);frame.writeUInt32BE(bytes.length);bytes.copy(frame,4);
-  await new Promise((resolve,reject)=>{let done=false;const finish=error=>{if(done)return;done=true;signal.removeEventListener('abort',abort);stdout.removeListener('error',fail);error?reject(error):resolve();},abort=()=>finish(Error('NATIVE_DETAIL_CANCELLED')),fail=()=>finish(Error('NATIVE_DETAIL_OUTPUT'));signal.addEventListener('abort',abort,{once:true});stdout.once('error',fail);if(signal.aborted){abort();return;}stdout.write(frame,error=>finish(error));});signal.throwIfAborted();
+  await new Promise((resolve,reject)=>{let done=false;const finish=error=>{if(done)return;done=true;signal.removeEventListener('abort',abort);error?reject(error):resolve();},abort=()=>finish(Error('NATIVE_DETAIL_CANCELLED'));signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}stdout.write(frame,error=>{if(error)outputAbort.abort();finish(error);});});signal.throwIfAborted();
  };
  try{
   startup=await pipe.takeStartup();signal.throwIfAborted();control=controlFactory(startup,signal);await control.prepare();signal.throwIfAborted();
@@ -17,7 +20,8 @@ export async function runNativeDetailExport({origin,publicationId,runtimeRoot,ou
   // The exporter has awaited all writes and closes before returning. Manager
   // verifies and fsyncs through its pinned descriptors after this boundary.
   const ack=pipe.expectAck(startup.jobId,receipt.manifestSha256);
-  await send({version:1,kind:'staged',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});await ack;signal.throwIfAborted();
+  await send({version:1,kind:'staged',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});
+  await new Promise((resolve,reject)=>{const abort=()=>{signal.removeEventListener('abort',abort);reject(Error('NATIVE_DETAIL_CANCELLED'));};signal.addEventListener('abort',abort,{once:true});if(signal.aborted){abort();return;}ack.then(()=>{signal.removeEventListener('abort',abort);resolve();},error=>{signal.removeEventListener('abort',abort);reject(error);});});signal.throwIfAborted();
   await control.finalCheck();await control.settled();signal.throwIfAborted();
   await send({version:1,kind:'ready',jobId:startup.jobId,manifestSha256:receipt.manifestSha256});signal.throwIfAborted();pipe.finish();finished=true;
  }finally{
