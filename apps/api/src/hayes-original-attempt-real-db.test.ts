@@ -36,6 +36,8 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   const bound=await transaction(pool,c=>bindHayesOriginalContext(c,owner));expect(bound).toBe(owner);expect(()=>assertIssuedWorkspaceImport(bound,disk)).not.toThrow();
   const initial=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,{artworkId,artworkRevision:1,displayReferenceSha256:initialDisplay,idempotencyKey:randomUUID()}));jobId=initial.id;b.jobId=jobId;await transaction(pool,c=>new Imports(pool,blobs,bound).upload(c,s,jobId,source));await transaction(pool,c=>new Imports(pool,blobs,bound).complete(c,s,jobId));
   expect(await new Imports(pool,blobs).work()).toBe(false);
+  await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{},Date.now()-1))).rejects.toThrow('HAYES_OWNER_UNAVAILABLE');
+  await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{},Date.now()+301000))).rejects.toThrow('HAYES_OWNER_UNAVAILABLE');
   await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{throw Error('owner lost');}))).rejects.toThrow('owner lost');
   expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_attempts')).rows[0].n).toBe(0);
   let calls=0;await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{if(++calls===3)throw Error('late owner lost');}))).rejects.toThrow('late owner lost');
@@ -68,6 +70,22 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   await pool.query('ALTER TABLE import_jobs DISABLE TRIGGER hayes_original_job_guard');await pool.query("UPDATE import_jobs SET lease_until=clock_timestamp()+interval '30 seconds' WHERE id=$1",[jobId]);await pool.query('ALTER TABLE import_jobs ENABLE TRIGGER hayes_original_job_guard');
   await expect(pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,`${tenantId}/wrong/key`])).rejects.toThrow();
   await pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,stageId,b.attemptId,jobId,outputHash,123,stageKey]);
+  // Synthetic DB-only receipt: structural referential checks are not an
+  // attestation, blob validation, native drain, or actual asset registration.
+  const originalId=randomUUID(),displayId=randomUUID(),derivativeId=randomUUID(),rightsId=randomUUID(),receiptId=randomUUID();
+  const makeReceipt=async(c:PoolClient,receiptHash=createHash('sha256').update('synthetic').digest('hex'))=>{
+   const current=(await c.query('SELECT rights,object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,jobId])).rows[0];
+   await c.query("UPDATE artworks SET metadata=jsonb_set(metadata,'{displayReference,assetSha256}',to_jsonb($2::text)) WHERE tenant_id=$1 AND id=$3",[tenantId,outputHash,artworkId]);
+   await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[tenantId,rightsId,current.rights]);
+   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'model/gltf-binary',1,'quarantine')",[tenantId,originalId,artworkId,rightsId,current.object_key,b.sourceSha256,b.sourceBytes]);
+   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,123,'model/gltf-binary',1,'approved')",[tenantId,displayId,artworkId,rightsId,stageKey,outputHash]);
+   await c.query('INSERT INTO asset_derivatives(tenant_id,id,asset_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,derivativeId,originalId,{kind:'hayes-original-display-v1',originalAssetId:originalId,displayAssetId:displayId,attemptId:b.attemptId,outputSha256:outputHash}]);
+   await c.query('INSERT INTO hayes_original_dispositions(tenant_id,id,attempt_id,job_id,stage_id,native_owner_id,database_system_identifier,database_oid,runtime_manifest_sha256,worker_manifest_sha256,native_evidence_sha256,attestation,receipt_canonical,receipt_sha256,original_asset_id,display_asset_id,derivative_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9,$10,$11,$12,$13,$14,$15)',[tenantId,receiptId,b.attemptId,jobId,stageId,randomUUID(),'1','1','c'.repeat(64),{},Buffer.from('synthetic'),receiptHash,originalId,displayId,derivativeId]);
+  };
+  await expect(transaction(pool,c=>makeReceipt(c,'0'.repeat(64)))).rejects.toThrow('check constraint');
+  await expect(transaction(pool,async c=>{await makeReceipt(c);await c.query('SET CONSTRAINTS ALL IMMEDIATE');})).rejects.toThrow('Hayes disposition incomplete');
+  await expect(transaction(pool,async c=>{await makeReceipt(c);await c.query("UPDATE import_jobs SET state='approved',progress=100,asset_id=$3,approved_key=$4,hayes_disposition_id=$5 WHERE tenant_id=$1 AND id=$2",[tenantId,jobId,displayId,stageKey,receiptId]);await c.query('SET CONSTRAINTS ALL IMMEDIATE');throw Error('synthetic receipt rollback');})).rejects.toThrow('synthetic receipt rollback');
+  expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_dispositions')).rows[0].n).toBe(0);
   await expect(pool.query('DELETE FROM hayes_output_stages WHERE id=$1',[stageId])).rejects.toThrow('verified disposition');
   await expect(pool.query('UPDATE hayes_output_stages SET output_bytes=124 WHERE id=$1',[stageId])).rejects.toThrow('verified disposition');
   await expect(pool.query('INSERT INTO hayes_output_stages(tenant_id,id,attempt_id,job_id,output_sha256,output_bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,randomUUID(),b.attemptId,jobId,outputHash,123,stageKey])).rejects.toThrow();
@@ -115,8 +133,8 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
 
   expect(isIssuedNativeHayesCaller(caller,bound,store)).toBe(true);expect(isIssuedNativeHayesCaller({...caller},bound,store)).toBe(false);expect(()=>createNativeHayesCaller({owner:bound,auth:new Auth(pool),blobs:store,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:new AbortController().signal,assertLive:async()=>{}})).toThrow();
   await expect(caller.start({token:randomBytes(32).toString('base64url'),csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},Date.now()+30000)).rejects.toMatchObject({code:'AUTH_REQUIRED'});expect(events).toEqual([]);expect(active).toBe(true);
-  const exchange=await caller.start({token,csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},Date.now()+30000);expect(events).toEqual(['open','source','revalidated']);
-  const activeJob=(await pool.query('SELECT state,lease_id,hayes_attempt_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,created.id])).rows[0];expect(activeJob.state).toBe('processing');expect(activeJob.lease_id).toBeTruthy();expect(activeJob.hayes_attempt_id).toBeTruthy();
+  const operationDeadline=Date.now()+90000,exchange=await caller.start({token,csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},operationDeadline);expect(events).toEqual(['open','source','revalidated']);
+  const activeJob=(await pool.query('SELECT state,lease_id,lease_until,hayes_attempt_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,created.id])).rows[0];expect(activeJob.state).toBe('processing');expect(activeJob.lease_id).toBeTruthy();expect(activeJob.hayes_attempt_id).toBeTruthy();expect(activeJob.lease_until.getTime()).toBeLessThanOrEqual(operationDeadline);expect(activeJob.lease_until.getTime()).toBeGreaterThan(Date.now()+30000);
   await exchange.close();await caller.close();expect(events.filter(x=>x==='close')).toHaveLength(1);
   const secondRequest={...request,idempotencyKey:randomUUID()},second=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,secondRequest));await transaction(pool,c=>imports.upload(c,s,second.id,source));await transaction(pool,c=>imports.complete(c,s,second.id));
   const interrupted=new AbortController(),outcomes:string[]=[],incoming:Buffer[]=[];let commits=0,secondBinding:Record<string,unknown>|undefined,open=true;

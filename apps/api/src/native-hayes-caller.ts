@@ -37,7 +37,7 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
    try{
     const binding=parseHayesOperationBinding({version:1,tenantId:owner.tenantId,workspaceId:owner.workspaceId,principalId:owner.principalId,jobId:selection.jobId,leaseId:randomUUID(),attemptId:randomUUID(),runtimeGeneration,artworkId:selection.artworkId,correlationId:randomUUID(),artworkRevision:selection.artworkRevision,sourceSha256:'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6',sourceBytes:8383096});
     await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(_c,s)=>{if(s.userId!==owner.principalId)throw new ApiError(403,'FORBIDDEN');});authorized=true;used=true;
-    await live();await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>openHayesOriginalAttempt(c,s,owner,blobs,binding,live));
+    await live();await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>openHayesOriginalAttempt(c,s,owner,blobs,binding,live,deadlineMs));
     await auth.requestForHayesNativeMutation(credentials.token,owner.tenantId,credentials.csrf,{signal:fenceSignal,deadlineMs},async(c,s)=>{
      await revalidateHayesOriginalAttempt(c,s,owner,blobs,binding,live);
      const job=await c.query("SELECT object_key FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND hayes_attempt_id=$4 AND lease_until>clock_timestamp() FOR UPDATE",[binding.tenantId,binding.jobId,binding.leaseId,binding.attemptId]);if(job.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
