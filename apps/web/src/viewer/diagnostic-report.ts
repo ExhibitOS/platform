@@ -39,7 +39,7 @@ function projectMainMeshSubmission(value: DiagnosticAssetStage["mainMeshSubmissi
     verticalFov <= 0 || verticalFov >= 180) return null;
   const min = finiteTuple(value.worldBounds?.min, 3);
   const max = finiteTuple(value.worldBounds?.max, 3);
-  const worldBounds = min && max && min.every((axis, index) => axis <= max[index]) ? { min, max } : null;
+  const worldBounds = min && max && min.every((axis, index) => axis <= (max[index] ?? -Infinity)) ? { min, max } : null;
   return { drawCalls, cameraPosition, cameraQuaternion, verticalFov, worldBounds };
 }
 
