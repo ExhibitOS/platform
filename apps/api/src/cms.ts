@@ -383,12 +383,14 @@ export class Cms {
     if (!validMetadata(a.metadata)) throw new ApiError(400, "INVALID_METADATA");
     uuid(b.assetId);
     const result = await c.query(
-      `SELECT a.*,r.metadata AS rights,r.revision AS rights_revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL
-        AND NOT EXISTS (
+      `SELECT a.*,r.metadata AS rights,r.revision AS rights_revision,
+        EXISTS (
           SELECT 1 FROM import_jobs j WHERE j.tenant_id=a.tenant_id AND j.artwork_id=a.artwork_id
           AND j.derived->>'kind'='product-image-pair'
           AND (j.asset_id=a.id OR j.derived#>>'{result,coarse,assetId}'=a.id::text)
-        )`,
+        ) AS product_image_output
+        FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id)
+        WHERE a.tenant_id=$1 AND a.artwork_id=$2 AND a.id=$3 AND a.state='approved' AND a.deleted_at IS NULL AND r.deleted_at IS NULL`,
       [s.tenantId, id, b.assetId],
     );
     const asset = result.rows[0];
@@ -410,6 +412,11 @@ export class Cms {
     if (!allowedRights(a.metadata.rights, "display"))
       throw new ApiError(403, "RIGHTS_DENIED");
     const lineage=(await c.query('SELECT revision,snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision<=$3 ORDER BY revision DESC LIMIT 1',[s.tenantId,id,revision])).rows[0] as ImportedApproval|undefined;
+    if(asset.product_image_output){
+      const prior=lineage?.snapshot.asset as {id?:string}|null|undefined;
+      if(!lineage||!Object.hasOwn(lineage.snapshot,'importedArtwork')||prior?.id!==asset.id)
+        throw new ApiError(409,'ASSET_NOT_APPROVED');
+    }
     let importedArtwork:Artwork|undefined;
     if(lineage&&Object.hasOwn(lineage.snapshot,'importedArtwork')){
       const previous=lineage.snapshot.metadata,primary=lineage.snapshot.asset as {id?:string;sha256?:string;bytes?:number;mime?:string}|null;
