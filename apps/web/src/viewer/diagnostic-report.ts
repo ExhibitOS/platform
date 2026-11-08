@@ -19,6 +19,21 @@ function number(value: number | null): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function byteCount(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function projectStage(event: DiagnosticSnapshot["events"][number]) {
+  const assetId = token(event.assetId, uuid);
+  const stage = token(event.stage, stageName);
+  if (!assetId || !stage) return null;
+  return {
+    atMs: number(event.atMs), assetId, stage,
+    artworkRevisionId: token(event.artworkRevisionId, uuid),
+    errorCode: token(event.errorCode, errorName),
+  };
+}
+
 export type DiagnosticReportContext = {
   publicationId: string;
   revisionSha256: string;
@@ -108,15 +123,18 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
       }];
     }),
     events: snapshot.events.slice(-64).flatMap(event => {
-      const assetId = token(event.assetId, uuid);
-      const stage = token(event.stage, stageName);
-      if (!assetId || !stage) return [];
+      const row = projectStage(event);
+      return row ? [row] : [];
+    }),
+    lastAssetStages: (snapshot.lastAssetStages ?? []).slice(0, 32).flatMap(event => {
+      const row = projectStage(event);
+      if (!row) return [];
       return [{
-        atMs: number(event.atMs),
-        assetId,
-        artworkRevisionId: token(event.artworkRevisionId, uuid),
-        stage,
-        errorCode: token(event.errorCode, errorName),
+        ...row,
+        residentUsedBytes: byteCount(event.residentUsedBytes),
+        residentCandidateBytes: byteCount(event.residentCandidateBytes),
+        residentLimitBytes: byteCount(event.residentLimitBytes),
+        renderOutcome: token(event.renderOutcome ?? null, /^(?:returned|skipped|threw)$/),
       }];
     }),
   };
@@ -147,6 +165,7 @@ export function createDiagnosticReport(
       textureAndMeshPeak: "highest sampled estimate of tracked loaded and prepared assets",
       textureAndMeshCurrent: "estimate of tracked loaded and prepared assets, unavailable if active detail allocations are omitted",
       transitionPeak: "tracked allocation estimate high-water mark",
+      assetRenderOutcome: "render function outcome only; visible pixels are unverified",
       selectedDetailBudget: "approved fallback promotion limits",
       originalDetailBudget: "acquired original attempt limits when active",
       physicalGpuMemoryBytes: null,

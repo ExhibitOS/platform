@@ -24,3 +24,27 @@ it('requires a valid original hash or an approved asset id to mark attachment ob
   {...snapshot.displayed,tier:'scene' as const,assetId:first},
  ]) expect(JSON.parse(createDiagnosticReport({...snapshot,displayed},expected)).requestedDetail.attachment).toBe('not-observed');
 });
+
+it('retains bounded per-asset outcomes independently of recent events', () => {
+ const stage = {
+  assetId: first, artworkRevisionId, atMs: 10, stage: 'deferred-resident-budget',
+  errorCode: 'RESIDENT_BUDGET', residentUsedBytes: 100,
+  residentCandidateBytes: 50, residentLimitBytes: 125,
+ };
+ const render = {
+  ...stage, assetId: second, stage: 'display-attached-render-returned',
+  errorCode: 'https://example.invalid/?secret=value', residentCandidateBytes: -1,
+  renderOutcome: 'returned' as const,
+ };
+ const lastAssetStages = [stage, render, ...Array.from({length: 31}, () => stage)];
+ const json = createDiagnosticReport({...snapshot, lastAssetStages}, {publicationId, revisionSha256});
+ const result = JSON.parse(json);
+ expect(result.snapshot.events).toEqual([]);
+ expect(result.snapshot.lastAssetStages).toHaveLength(32);
+ expect(result.snapshot.lastAssetStages[0]).toMatchObject(stage);
+ expect(result.snapshot.lastAssetStages[1]).toMatchObject({
+  renderOutcome: 'returned', errorCode: null, residentCandidateBytes: null,
+ });
+ expect(result.metrics.assetRenderOutcome).toContain('visible pixels are unverified');
+ expect(json).not.toContain('secret');
+});
