@@ -41,6 +41,7 @@ export class NativeDetailOperations {
  }
  /** work and its cleanup both remain charged until cleanup actually settles. */
  async run<T>(scope:NativeDetailScope,phase:'prepare'|'bytes'|'final',work:(signal:AbortSignal)=>Promise<T>,cleanup:()=>Promise<void>):Promise<T>{
+  if(phase==='prepare'&&valid(scope)&&!this.entries.has(scope.jobId)&&this.activeCount!==0){if(this.shuttingDown||this.poisoned)throw Error('NATIVE_DETAIL_UNAVAILABLE');throw Error('NATIVE_DETAIL_BUSY');}
   const entry=this.entry(scope,phase==='prepare');
   if(entry.closing||entry.failed||this.poisoned)throw Error('NATIVE_DETAIL_UNAVAILABLE');
   if(entry.active.size!==0||this.activeCount!==0)throw Error('NATIVE_DETAIL_BUSY');
