@@ -297,7 +297,8 @@ function projectPublicationCore(candidate:Exhibition,prepared:PreparedAsset[],at
     snapshot.createdAt = at;
     snapshot.revision = 1;
     if(!validateStudioMaterials(snapshot).valid||!validateStudioFloors(snapshot).valid)throw new ApiError(422,'PUBLICATION_NOT_READY');
-    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined,workspaceBindings:workspace?.bindings??[],workspaceMaterialBindings:workspaceMaterials?.bindings??[] };
+    const artworkIdentities=prepared.filter(p=>p.artwork.artworkType==='image').map(p=>({artworkId:p.artwork.id,artworkRevisionId:p.artwork.revisionId,artworkRevision:p.artwork.revision,publicArtworkId:map(p.artwork.id),publicArtworkRevisionId:map(p.artwork.revisionId)}));
+    return { snapshot, assets, media:media.map(p=>({id:map(p.source.id),prepared:p})),cover:cover?{id:map(cover.source.id),prepared:cover}:undefined,workspaceBindings:workspace?.bindings??[],workspaceMaterialBindings:workspaceMaterials?.bindings??[],artworkIdentities };
 }
 /** Optional read-only approved Pages projection for the selected hosted profile.
  * This never supplies private roles or opening host authority. */
@@ -612,8 +613,7 @@ export class Publications {
         if (!this.blobs)
             throw new ApiError(503, "STORAGE_UNAVAILABLE");
         const publicationId = randomUUID(), publishedAt = new Date().toISOString(), projected = projectPublicationCore(row.metadata.candidate, report.prepared, publishedAt, report.media,report.cover,report.furnishings,byteHash,!!this.workspaceFurnishing&&!!this.furnishingOwner?.workspaceFurnishingPublication,!!this.workspaceMaterial&&!!this.furnishingOwner?.workspaceMaterialPublication);
-        let {snapshot}=projected;const {assets,media,cover,workspaceBindings,workspaceMaterialBindings}=projected,detailPrepared=detail?await detail.prepare(c,s,id,publicationId,snapshot):undefined;if(detailPrepared)snapshot=detailPrepared.snapshot;
-        if(detailPrepared){const rows=assets.length+workspaceBindings.length+workspaceMaterialBindings.length*4+report.furnishings.length*2+publicResourcesFor(snapshot).length+detailPrepared.items.length,bound=Buffer.byteLength(JSON.stringify(snapshot),'utf8')+65536+1024*rows;if(!Number.isSafeInteger(bound)||bound>1048576)throw new ApiError(422,'PUBLICATION_NOT_READY');}
+        let {snapshot}=projected;const {assets,media,cover,workspaceBindings,workspaceMaterialBindings,artworkIdentities}=projected,reservedIds=[...assets.map(a=>a.id),...media.map(a=>a.id),...(cover?[cover.id]:[]),...workspaceBindings.map(a=>a.publicId),...workspaceMaterialBindings.map(a=>a.publicId),...(furnishingsFor(snapshot)?.assets??[]).map(a=>a.id)],detailPrepared=detail?await detail.prepare(c,s,id,publicationId,snapshot,artworkIdentities,reservedIds):undefined;if(detailPrepared)snapshot=detailPrepared.snapshot;
         const valid = validateExhibition(snapshot, { publicationTime: publishedAt });
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
@@ -642,16 +642,22 @@ export class Publications {
         await stage?.close();
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
+        const publishedRow={tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
+        if(detail&&detailPrepared){
+         await detail.persist(c,s,detailPrepared,digest);
+         const projection=await this.publicProjection(c,publishedRow,await this.gate(c,publishedRow)),detailAssets=detailPrepared.items.map(({candidate})=>({assetId:candidate.assetId,url:`/api/v1/publications/${publicationId}/detail-assets/${candidate.assetId}`,mime:candidate.mime}));
+         if(Buffer.byteLength(JSON.stringify({...projection,detailAssets}),'utf8')>1048576)throw new ApiError(422,'PUBLICATION_NOT_READY');
+        }
         if(fileOperation){
         const final=await finalizePublicationOperation(
           ()=>fileOperation.verify(c,s,this.blobs,'publish',id,match,requestId),
           ()=>recheckPublicationSources(c,s,row.metadata.candidate,id,this.cms,this.blobs),
-          ()=>this.gate(c,{tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published'}),
+          ()=>this.gate(c,publishedRow),
           ()=>fileOperation.assertClaimed());
         if(final.assets.length!==assets.length+media.length+(cover?1:0))throw new ApiError(422,'PUBLICATION_NOT_READY');
         fileOperation.assertClaimed();
         }
-        if(detail&&detailPrepared)await detail.persist(c,s,detailPrepared,digest);
+        if(detail&&detailPrepared){await detail.recheck(c,s,detailPrepared,digest);fileOperation!.assertClaimed();}
         return this.summary({ id: publicationId, published_at: new Date(publishedAt), revision_sha256: digest, status: "published" } as PublicationRow);
         }finally{await stage?.close();}
         }finally{await fileOperation?.close();}
@@ -796,6 +802,20 @@ export class Publications {
             if(JSON.stringify(actual)!==JSON.stringify(records))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');signal?.throwIfAborted();const now=Date.now();if(!validateExhibition(row.snapshot,{publicationTime:new Date(now).toISOString()}).valid||workspaceMaterials.some(item=>!allowedRights(item.sourceDescriptor.rights,'display',now)||!allowedRights(item.sourceDescriptor.rights,'export',now)))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');start?.();return {revisionSha256:row.revision_sha256};
         });
     }
+    private async publicProjection(c:PoolClient,row:PublicationRow,initial:Awaited<ReturnType<Publications['gate']>>) {
+        let {assets,furnishings,workspaceFurnishings,workspaceMaterials}=initial;
+            let coverVariants:Awaited<ReturnType<typeof approvedCoverProjection>>;
+            const coverAssetId=entranceFor(row.snapshot).imageAssetId?.toLowerCase();
+            if(this.blobs&&coverAssetId&&row.snapshot.artworks.some(a=>a.artworkType==='image'&&a.primaryAssetId.toLowerCase()===coverAssetId)){
+                try{coverVariants=await approvedCoverProjection(row.snapshot,row.revision_sha256,assets,this.blobs);}catch{/* An optional cover pair never replaces the primary. */}
+                // I/O can cross a rights expiry. A failed optional pair must not
+                // turn a changed or revoked required source into success.
+                ({assets,furnishings,workspaceFurnishings,workspaceMaterials}=await this.gate(c,row));
+                if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
+            }
+            const resources=publicResourcesFor(row.snapshot);
+            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
+    }
     async anonymous(id: string, assetId?: string) {
         uuid(id);
         if (assetId)
@@ -835,17 +855,7 @@ export class Publications {
                 if(!(await this.gate(c,row)).assets.some(current=>current.id===assetId))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
                 return { bytes, mime: asset.mime, revisionSha256: row.revision_sha256 };
             }
-            let coverVariants:Awaited<ReturnType<typeof approvedCoverProjection>>;
-            const coverAssetId=entranceFor(row.snapshot).imageAssetId?.toLowerCase();
-            if(this.blobs&&coverAssetId&&row.snapshot.artworks.some(a=>a.artworkType==='image'&&a.primaryAssetId.toLowerCase()===coverAssetId)){
-                try{coverVariants=await approvedCoverProjection(row.snapshot,row.revision_sha256,assets,this.blobs);}catch{/* An optional cover pair never replaces the primary. */}
-                // I/O can cross a rights expiry. A failed optional pair must not
-                // turn a changed or revoked required source into success.
-                ({assets,furnishings,workspaceFurnishings,workspaceMaterials}=await this.gate(c,row));
-                if(coverVariants&&![coverVariants.primary,...coverVariants.variants].every(v=>assets.some(a=>a.id===v.assetId&&a.sha256===v.sha256&&Number(a.bytes)===v.bytes)))coverVariants=undefined;
-            }
-            const resources=publicResourcesFor(row.snapshot);
-            return { publication: { id: row.id, revisionSha256: row.revision_sha256, publishedAt: new Date(row.published_at).toISOString(), status: "published" }, exhibition: row.snapshot, assets: [...assets.map(a => ({ assetId: a.id, mime: a.mime, url: `/api/v1/publications/${row.id}/assets/${a.id}` })),...furnishings.map(p=>({assetId:p.source.id,mime:p.source.mime,url:`/api/v1/publications/${row.id}/assets/${p.source.id}`})),...workspaceFurnishings.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`})),...workspaceMaterials.map(p=>({assetId:p.publicId,mime:p.mime,url:`/api/v1/publications/${row.id}/assets/${p.publicId}`}))],...(coverVariants?{coverVariants}:{}),...(furnishings.length?{furnishingNotices:furnishings.map(p=>({assetId:p.source.id,sha256:p.source.rights.notice.sha256,bytes:p.source.rights.notice.bytes,mime:'text/plain; charset=utf-8',url:`/api/v1/publications/${row.id}/furnishing-notices/${p.source.id}`}))}:{}),...(resources.length?{resources:resources.map(resource=>({sha256:resource.sha256,bytes:resource.bytes,mime:resource.mime,url:`/api/v1/publications/${row.id}/resources/${resource.sha256}`}))}:{}),...(workspaceMaterials.length&&this.workspaceMaterial?.supportsMultimap()?{materialMapBatch:{url:`/api/v1/publications/${row.id}/material-maps`}}:{}) };
+            return this.publicProjection(c,row,{assets,furnishings,workspaceFurnishings,workspaceMaterials});
         });
     }
 }
