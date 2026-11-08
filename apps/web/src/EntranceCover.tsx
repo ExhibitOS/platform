@@ -6,6 +6,7 @@ import { fetchVerifiedAsset } from './viewer/loading';
 import { waitForCoverLayout } from './cover-ready';
 import {validateCoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 import {selectCoverVariant} from './cover-variant-selection';
+import type {createWheatCoverRetirement} from './viewer/wheat-cover-retirement';
 import {entranceRuntime,entranceContent,catalogueStyle} from './entrance-runtime';
 import {PosterCover} from './entrance-themes/PosterCover';
 import {ArtworkCover} from './entrance-themes/ArtworkCover';
@@ -25,9 +26,9 @@ export interface EntranceCoverSource {
  /** Host-only authenticated display derivative, never supplied through publication JSON. */
  image(assetId:string,signal:AbortSignal):Promise<ArrayBuffer>;
 }
-export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale,source,onImageState }: {
+export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale,source,onImageState,coverRetirement }: {
   publication: PublicPublication|Pick<PublicPublication,'exhibition'>; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;locale?:string;
-  source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;
+  source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;coverRetirement?:ReturnType<typeof createWheatCoverRetirement>;
 }) {
   const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
   const still=spaceStillFor(publication.exhibition),hasUsableImage=!!settings.imageAssetId&&(design.theme!=='threshold'||!!still);
@@ -37,6 +38,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   const [layoutReady,setLayoutReady]=useState(false);
   const [loaded, setLoaded] = useState(false), [failed, setFailed] = useState(false), [retry, setRetry] = useState(0);
   const [paper, setPaper] = useState<'folded'|'opening'|'open'|'flat'>(()=>showImage&&hasUsableImage&&motion&&canReveal?'folded':'flat');
+  const retirementRef=useRef<ReturnType<ReturnType<typeof createWheatCoverRetirement>['begin']>|undefined>(undefined);
   const imageStateCallback=useRef(onImageState);imageStateCallback.current=onImageState;
   const displayedImageState:ThemeProps['image']['status']=!showImage||!hasUsableImage?'absent':failed?'failed':image?(loaded?'ready':'decoded'):'loading';
   useEffect(()=>{imageStateCallback.current?.(displayedImageState);},[displayedImageState]);
@@ -77,7 +79,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
   const selected=descriptor&&measured&&!forcePrimary?selectCoverVariant(descriptor.primary,descriptor.variants.map(v=>({...v,id:v.assetId})),{...measured,fit:design.image.fit}):undefined;
   useEffect(() => {
     const current=++generation.current, abort = new AbortController();
-    let objectURL = '';
+    let objectURL = '';let retirement:ReturnType<ReturnType<typeof createWheatCoverRetirement>['begin']>|undefined;
     setImage(null); setLoaded(false); setFailed(false);
     if (!showImage || !hasUsableImage || !settings.imageAssetId) return;
     if(trusted&&!measured)return;
@@ -86,6 +88,7 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
       const signal=AbortSignal.any([abort.signal,deadline,...(target.toLowerCase()===id?[]:[AbortSignal.timeout(5000)])]),inventory=publication.exhibition.artworks.flatMap(a=>a.assets).find(a=>a.id.toLowerCase()===target.toLowerCase())??(still?.id.toLowerCase()===target.toLowerCase()?still:undefined);
       const asset='assets' in publication?publication.assets.find(a=>a.assetId.toLowerCase()===target.toLowerCase()):undefined;
       if(!inventory||!source&&(!asset||!('publication' in publication)))throw Error('COVER_SOURCE_UNAVAILABLE');
+      retirement=coverRetirement?.begin({sha256:inventory.sha256,bytes:inventory.bytes,mime:inventory.mime});retirementRef.current=retirement;
       const bytes=source?await source.image(id,signal):'publication' in publication&&asset?await fetchVerifiedAsset({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,inventory,asset,signal,...publication.local,maxBytes:MAX_COVER_BYTES}):(()=>{throw Error('COVER_SOURCE_UNAVAILABLE');})();
       signal.throwIfAborted();
       if(bytes.byteLength>MAX_COVER_BYTES)throw Error('COVER_PNG_LIMIT');
@@ -102,17 +105,19 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
         if(signal.aborted)stop();
       }); signal.throwIfAborted();
       if(current!==generation.current)return;
+      retirement?.decoded(objectURL,{width:decoded.naturalWidth,height:decoded.naturalHeight});
       setImage({url:objectURL,width:view.getUint32(16),height:view.getUint32(20),generation:current,variant:target.toLowerCase()!==id});
     };
     void (async()=>{try{await load(selectedId);}catch(error){
+      retirement?.fail();
       if(objectURL){URL.revokeObjectURL(objectURL);objectURL='';}
       abort.signal.throwIfAborted();deadline.throwIfAborted();if(selectedId.toLowerCase()===id)throw error;
       await load(id);
-    }})().catch(() => { if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
-    return () => { abort.abort(); if(current===generation.current)generation.current++;if (objectURL) URL.revokeObjectURL(objectURL); };
-  }, [publication, showImage, settings.imageAssetId, hasUsableImage,retry,source,trusted,!!measured,selected?.id]);
-  const displayed=()=>{if(image?.generation===generation.current)requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});};
-  const imageFailed=()=>{if(image?.generation===generation.current){if(image.variant)setForcePrimary(true);else setFailed(true);}};
+    }})().catch(() => { retirement?.fail();if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
+    return () => { abort.abort(); if(current===generation.current)generation.current++;let revoked=false;try{if(objectURL){URL.revokeObjectURL(objectURL);revoked=true;}}finally{retirement?.retire(revoked);if(retirementRef.current===retirement)retirementRef.current=undefined;} };
+  }, [publication, showImage, settings.imageAssetId, hasUsableImage,retry,source,trusted,!!measured,selected?.id,coverRetirement]);
+  const displayed=()=>{if(image?.generation===generation.current){retirementRef.current?.displayed(image.url);requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});}};
+  const imageFailed=()=>{if(image?.generation===generation.current){retirementRef.current?.fail();if(image.variant)setForcePrimary(true);else setFailed(true);}};
   const phase=paper;
   if(design.theme!=='catalogue'){
     const Component={poster:PosterCover,artwork:ArtworkCover,invitation:InvitationCover,threshold:ThresholdCover}[design.theme];
