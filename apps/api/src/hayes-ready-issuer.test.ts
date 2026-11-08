@@ -9,7 +9,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 import {FileBlobStore} from '@exhibitos/storage';
 const mocks=vi.hoisted(()=>({binding:undefined as any,events:[] as string[],admission:undefined as unknown,owner:undefined as any,blobs:undefined as any,mode:'ok',release:undefined as undefined|(()=>void)}));
 vi.mock('@exhibitos/storage',async importOriginal=>{const actual=await importOriginal<typeof import('@exhibitos/storage')>();return {...actual,sha256:()=> 'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'};});
-vi.mock('./auth.ts',()=>({ApiError:class extends Error{constructor(_status:number,public code:string){super(code);}},Auth:class{async requestForHayesNativeMutation(_t:unknown,_tenant:unknown,_csrf:unknown,_fence:unknown,fn:(c:unknown,s:unknown)=>Promise<unknown>){return fn({query:async(sql:string)=>sql.includes('pg_control_system')?{rows:[{system_identifier:'123',database_oid:'456'}]}:{rowCount:1,rows:[{object_key:'source'}]}},{userId:mocks.owner.principalId});}}}));
+vi.mock('./auth.ts',()=>({ApiError:class extends Error{code:string;constructor(_status:number,code:string){super(code);this.code=code;}},Auth:class{async requestForHayesNativeMutation(_t:unknown,_tenant:unknown,_csrf:unknown,_fence:unknown,fn:(c:unknown,s:unknown)=>Promise<unknown>){return fn({query:async(sql:string)=>sql.includes('pg_control_system')?{rows:[{system_identifier:'123',database_oid:'456'}]}:{rowCount:1,rows:[{object_key:'source'}]}},{userId:mocks.owner.principalId});}}}));
 vi.mock('./hayes-original-attempt.ts',()=>({isHayesOriginalContext:()=>true,isHayesDispositionContext:()=>true,openHayesOriginalAttempt:async()=>{},revalidateHayesOriginalAttempt:async()=>{},createHayesOriginalQuarantine:async()=>{}}));
 vi.mock('./hayes-owner-exchange.ts',()=>({prepareHayesOwnerExchange:async(input:any)=>{mocks.binding=input.binding;return {close:async()=>{},receiveOutput:async()=>{mocks.events.push('transfer');return {bytes:Buffer.from('synthetic'),sha256:'unused'};}};}}));
 vi.mock('./hayes-output-reservation.ts',()=>({reserveHayesOutput:async(input:any)=>{mocks.events.push('reserve-start');mocks.admission=input.admission;const {resolveHayesReady}=await import('./hayes-ready-authority.ts');expect(resolveHayesReady(input.admission,input.owner,input.blobs).phase).toBe('ready');if(mocks.mode==='hold')await new Promise<void>(r=>{mocks.release=r;});if(mocks.mode==='fail')throw Error('reservation commit failed');mocks.events.push('reserve-committed');return {stageId:resolveHayesReady(input.admission,input.owner,input.blobs).dbStageId,sha256:'x',bytes:1};}}));
@@ -27,7 +27,8 @@ async function fixture(change?:(ready:any)=>void){
  const caller=createNativeHayesCaller({owner:owner as any,auth:new Auth({} as any),blobs,channel,runtimeGeneration:randomUUID(),nativeOwnerId:ownerId,runtimeManifestSha256:manifest,signal:new AbortController().signal,assertLive:async()=>{}});
  const exchange=await caller.start({token:'token',csrf:'csrf'},{jobId:randomUUID(),artworkId:randomUUID(),artworkRevision:1},Date.now()+60000);
  if(!('stageOutput' in exchange))throw Error('selected scope missing');
- return {exchange,owner,blobs,cleanup:async()=>{await caller.close();await rm(root,{recursive:true,force:true});}};
+ const selected=exchange as typeof exchange & {stageOutput:()=>Promise<unknown>;commit:()=>Promise<unknown>};
+ return {exchange:selected,owner,blobs,cleanup:async()=>{await caller.close();await rm(root,{recursive:true,force:true});}};
 }
 it('issues no forgeable capability and orders reservation, transfer, store and commit',async()=>{const f=await fixture();try{
  expect(()=>resolveHayesReady({},f.owner as any,f.blobs)).toThrow('HAYES_READY_NOT_ADMITTED');await f.exchange.stageOutput();
