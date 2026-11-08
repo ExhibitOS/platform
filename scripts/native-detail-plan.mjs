@@ -12,12 +12,12 @@ export async function buildNativeDetailPlan(publicationId,exhibition,ordinaryAss
  if(typeof publicationId!=='string'||!uuid.test(publicationId)||!Array.isArray(exhibition?.artworks)||!Array.isArray(ordinaryAssets)||!Array.isArray(descriptors)||descriptors.length>16)fail();
  let snapshot;try{snapshot=structuredClone({exhibition,ordinaryAssets,descriptors});}catch{fail();}
  const ordinary=new Set();for(const asset of snapshot.ordinaryAssets){if(!asset||typeof asset.assetId!=='string')fail();ordinary.add(asset.assetId.toLowerCase());}
- const ids=new Set(),candidates=new Set(),plan=[];let total=0;
+ const ids=new Set(),candidates=new Set(),hashes=new Map(),plan=[];let total=0;
  for(const artwork of snapshot.exhibition.artworks){
   const relation=artwork?.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE];if(relation===undefined)continue;
   if(artwork.artworkType!=='image'&&artwork.artworkType!=='sculpture')fail();const verified=await verifiedParsedDetailQuality(relation,artwork.artworkType);if(!verified)fail();
   for(const candidate of verified.candidates){
-   const {assetId,candidateId,sha256,bytes,mime,sourceBindingSha256,featureReportSha256}=candidate;if(ids.has(assetId)||candidates.has(candidateId)||ordinary.has(assetId)||bytes>25*1024*1024)fail();ids.add(assetId);candidates.add(candidateId);total+=bytes;if(ids.size>16||total>100*1024*1024)fail();
+   const {assetId,candidateId,sha256,bytes,mime,sourceBindingSha256,featureReportSha256}=candidate,previous=hashes.get(sha256);if(ids.has(assetId)||candidates.has(candidateId)||ordinary.has(assetId)||bytes>25*1024*1024||previous&&(previous.bytes!==bytes||previous.mime!==mime))fail();ids.add(assetId);candidates.add(candidateId);hashes.set(sha256,{bytes,mime});total+=bytes;if(ids.size>16||total>100*1024*1024)fail();
    const matches=snapshot.descriptors.filter(item=>item?.assetId===assetId);if(matches.length!==1||!exact(matches[0],['assetId','url','mime'])||matches[0].url!==`/api/v1/publications/${publicationId}/detail-assets/${assetId}`||matches[0].mime!==mime)fail();
    plan.push({assetId,sourceBindingSha256,sha256,bytes,mime,featureReportSha256});
   }
