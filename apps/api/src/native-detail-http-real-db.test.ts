@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import Fastify from 'fastify';
 import {expect,it} from 'vitest';
 import {Pool} from 'pg';
@@ -11,8 +11,8 @@ import {registerNativeDetailHttp} from './native-detail-http.ts';
 function deferred(){let release!:()=>void;const promise=new Promise<void>(resolve=>{release=resolve;});return {promise,release};}
 
 it.skipIf(!process.env.NATIVE_DETAIL_TEST_PG)('actual socket disconnect keeps an admitted detail scope charged until it settles',async()=>{
- const pool=new Pool({connectionString:process.env.NATIVE_DETAIL_TEST_PG,max:5}),tenantId=randomUUID(),userId=randomUUID(),sessionId=randomUUID(),publicationId=randomUUID(),jobId=randomUUID(),token='a'.repeat(43),csrf='detail-csrf',hash=(v:string)=>createHash('sha256').update(v).digest('hex'),entered=deferred(),release=deferred();
- const app=Fastify();app.setErrorHandler((error,_request,reply)=>{const status=error instanceof ApiError?error.status:500,code=error instanceof ApiError?error.code:'INTERNAL_ERROR';return reply.code(status).send({code});});let calls=0;
+ const pool=new Pool({connectionString:process.env.NATIVE_DETAIL_TEST_PG,max:5}),tenantId=randomUUID(),userId=randomUUID(),sessionId=randomUUID(),publicationId=randomUUID(),jobId=randomUUID(),token=randomBytes(32).toString('base64url'),csrf='detail-csrf',hash=(v:string)=>createHash('sha256').update(v).digest('hex'),entered=deferred(),release=deferred();
+ const app=Fastify();app.setErrorHandler((error,_request,reply)=>{const status=error instanceof ApiError?error.status:500,code=error instanceof ApiError?error.code:'INTERNAL_ERROR';return reply.code(status).send({code});});app.addHook('onRequest',async(request,reply)=>{if(request.headers['x-test-write-failure']==='1')reply.raw.writeHead=(()=>{throw Error('synthetic write failure');}) as typeof reply.raw.writeHead;});let calls=0;
  try{
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'isolated']);await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
@@ -33,5 +33,7 @@ it.skipIf(!process.env.NATIVE_DETAIL_TEST_PG)('actual socket disconnect keeps an
   const currentJob=randomUUID(),initial={version:1,jobId:currentJob,revisionSha256:revision};expect((await fetch(`${base}/prepare`,{method:'POST',headers,body:JSON.stringify(initial)})).status).toBe(200);
   const terminal={...initial,detailCount:0,detailSetSha256:hash('[]')};let finish=await fetch(`${base}/final-check`,{method:'POST',headers,body:JSON.stringify(terminal)});if(finish.status===409){expect((await finish.json() as {code:string}).code).toBe('NATIVE_DETAIL_BUSY');await new Promise(resolve=>setTimeout(resolve,20));finish=await fetch(`${base}/final-check`,{method:'POST',headers,body:JSON.stringify(terminal)});}expect(finish.status).toBe(200);
   let finalState='pending';for(let i=0;i<100&&finalState==='pending';i++){await new Promise(resolve=>setTimeout(resolve,20));finalState=((await (await fetch(`${base}/operations/${currentJob}`,{headers})).json()) as {state:string}).state;}expect(finalState).toBe('settled-success');
+  const failedJob=randomUUID();await fetch(`${base}/prepare`,{method:'POST',headers:{...headers,'x-test-write-failure':'1'},body:JSON.stringify({version:1,jobId:failedJob,revisionSha256:revision})}).catch(()=>undefined);
+  let failedState='pending';for(let i=0;i<100&&failedState==='pending';i++){await new Promise(resolve=>setTimeout(resolve,20));failedState=((await (await fetch(`${base}/operations/${failedJob}`,{headers})).json()) as {state:string}).state;}expect(failedState).toBe('settled-failure');
  }finally{release.release();await app.close();await pool.end();}
 },120000);

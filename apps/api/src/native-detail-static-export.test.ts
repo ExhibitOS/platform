@@ -42,3 +42,7 @@ it('does not return a successful result when cancellation arrives during cleanup
  const registry=new NativeDetailOperations(),s=scope(),cleanup=deferred(),entered=deferred();
  const pending=registry.run(s,'prepare',async()=>42,async()=>{entered.release();await cleanup.promise;});await entered.promise;registry.close(s);expect(registry.status(s)).toBe('pending');cleanup.release();await expect(pending).rejects.toThrow();expect(registry.status(s)).toBe('settled-failure');
 });
+it('returns busy while a previous response cleanup is still settling, then allows the next phase',async()=>{
+ const registry=new NativeDetailOperations(),s=scope(),cleanup=deferred(),entered=deferred();const pending=registry.run(s,'prepare',async()=>42,async()=>{entered.release();await cleanup.promise;});await entered.promise;
+ await expect(registry.run(s,'final',done,done)).rejects.toThrow('NATIVE_DETAIL_BUSY');cleanup.release();expect(await pending).toBe(42);await registry.run(s,'final',done,done);expect(registry.status(s)).toBe('settled-success');
+});

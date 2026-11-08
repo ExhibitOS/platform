@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
 import {Pool} from 'pg';
 import {migrate} from '@exhibitos/storage';
@@ -9,7 +9,7 @@ import {NativeDetailOperations,type NativeDetailScope} from './native-detail-sta
 function deferred(){let release!:()=>void;const promise=new Promise<void>(resolve=>{release=resolve;});return {promise,release};}
 
 it.skipIf(!process.env.NATIVE_DETAIL_TEST_PG)('disconnect cancels the admitted read even with an exclusive writer and shared close queued',async()=>{
- const pool=new Pool({connectionString:process.env.NATIVE_DETAIL_TEST_PG,max:5}),tenantId=randomUUID(),userId=randomUUID(),sessionId=randomUUID(),token='a'.repeat(43),csrf='detail-csrf',sha=(v:string)=>createHash('sha256').update(v).digest('hex');
+ const pool=new Pool({connectionString:process.env.NATIVE_DETAIL_TEST_PG,max:5}),tenantId=randomUUID(),userId=randomUUID(),sessionId=randomUUID(),token=randomBytes(32).toString('base64url'),csrf='detail-csrf',sha=(v:string)=>createHash('sha256').update(v).digest('hex');
  try{
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'isolated']);await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);

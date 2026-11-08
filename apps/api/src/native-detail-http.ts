@@ -52,7 +52,12 @@ export function registerNativeDetailHttp(app:FastifyInstance,{auth,context,guard
      const owner=bound!;await authenticated(request,async(c,s)=>{if(s.id!==owner.sessionId||!context.live())invalid();signal.throwIfAborted();await publication(c,s,p.publicationId,owner.revisionSha256);await live(c,s);signal.throwIfAborted();});
      const response=phase==='prepare'?{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,detailAssets:[]}:{version:1,publicationId:p.publicationId,revisionSha256:owner.revisionSha256,valid:true};
      const stopResponse=()=>{if(hijacked&&!reply.raw.destroyed)reply.raw.destroy();};signal.addEventListener('abort',stopResponse,{once:true});
-     try{signal.throwIfAborted();reply.hijack();hijacked=true;if(signal.aborted)stopResponse();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});reply.raw.end(JSON.stringify(response));await finished(reply.raw);}
+     try{
+      signal.throwIfAborted();reply.hijack();hijacked=true;
+      const settled=finished(reply.raw);settled.catch(()=>{});
+      try{if(signal.aborted)stopResponse();signal.throwIfAborted();reply.raw.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});reply.raw.end(JSON.stringify(response));await settled;}
+      catch(error){reply.raw.destroy();await settled.catch(()=>{});throw error;}
+     }
      finally{signal.removeEventListener('abort',stopResponse);}
     },async()=>{});
     return reply;
