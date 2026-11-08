@@ -46,4 +46,9 @@ test('pinned release manifest uses the existing catalogue and rejects substituti
   await assert.rejects(verifyDefaultFurnishingsManifest(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
   await writeFile(join(root,'manifest.json'),bytes);await assert.rejects(checkedDefaultFurnishingsRoot(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
   await assert.rejects(checkedDefaultFurnishingsRoot('relative/path'),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+  const frameRelease=fileURLToPath(new URL('./fixtures/default-furnishings-1.1.0.manifest.json',import.meta.url));
+  await writeFile(join(root,'manifest.json'),await readFile(frameRelease));
+  assert.deepEqual(await verifyDefaultFurnishingsManifest(root),{commit:'90fb64d44b9c9fd91bb5c09045f92077484d1030',manifestSHA256:'b0173c3e8c5e0b85b66ca2e4a1f569fc1f5ca811d501b35cccd70739e5c6588f'});
+  await assert.rejects(checkedDefaultFurnishingsRoot(root),/NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID/);
+
 });

@@ -32,20 +32,22 @@ the pinned Spec artifact and the selected native OEX supplemental migrations and
 capability declarations. The destination must be new. This payload is not a
 signed or distribution-qualified release.
 
-To build a candidate from the independently published defaults, set the
-configuration's `defaultFurnishingsRoot` to the canonical absolute path of an
-offline checkout of `ExhibitOS/default-furnishings` at commit
-`4ac7d23c1b557d8e303ad04d78379bcefab50b40` (release `v1.0.0`). The producer
-checks that commit and the release manifest SHA-256
-`f11ba6f4407e31531230cdb94921d7d7baef3caca49b1859f8696fa1a39c4530`,
-compares it with the existing catalogue, and verifies all four model/notice
-pairs before and after copying to the existing runtime paths. The producer's
-result records the selected commit and manifest hash for the build evidence.
-If a selected release fails validation, packaging fails; it never falls back to
-different assets. Omitting the option retains the existing Platform-source
-packaging mode. Installed runtimes do not fetch this repository or need network
-access to use the packaged defaults. This option alone does not qualify an
-installation or replace verification of the newly produced payload manifest.
+To build from a pinned `ExhibitOS/default-furnishings` release, set
+`defaultFurnishingsRoot` to the absolute path of its offline checkout. The
+producer verifies the checkout commit, manifest hash and each supported model
+and notice against the pins in `scripts/package-native-runtime.mjs`. A
+mismatched release fails packaging. Installed runtimes use the bundled files
+offline. Omitting the option retains the four Platform-source defaults.
+
+Release `v1.1.0` retains the four `v1.0.0` entries and includes the black
+aluminum artwork frame for runtimes with
+`workspaceFurnishingArtworkFrameModelsSelected`. The runtime copies its
+renderable model, CC0 notice and acquired original into the sealed payload.
+Only the renderable model is used for display. The release records recipe
+provenance. In Manager, the frame appears in the ordinary artwork-frame
+list and uses the existing attachment rules for a planar 0.6 × 0.8 m image. Its
+installed catalog UUID is independent of any workspace intake. The prior
+`v1.0.0` input remains usable for the four existing defaults.
 
 For a newly provisioned empty workspace, the authenticated native owner can select
 `normal-oex-028-v4`; the runtime applies the exact 026–030 supplemental migrations

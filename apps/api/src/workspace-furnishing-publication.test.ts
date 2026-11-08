@@ -2,6 +2,7 @@
 import {expect,it,vi} from 'vitest';
 import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings} from '@exhibitos/studio-contract';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
+import {installedFrameDescriptor} from './installed-artwork-frame.ts';
 import {Privacy} from './privacy.ts';
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 it('projects the portal opening and its furnishing to public identities',()=>{
@@ -56,4 +57,28 @@ it('rejects v2 bench-only public reads without the stool capability before DB or
 it('rejects v3 public reads without room-visual capability before DB or model I/O',async()=>{
  const descriptor={id:id(2),version:1,kind:'bench',name:'Synthetic',rights:{permissions:{display:true,export:true}},provenance:'Provided by the exhibition editor.',model:{mime:'model/gltf-binary',bytes:3,sha256:'a'.repeat(64)}},candidate={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8}}],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{version:3,furnishings:[descriptor],placements:[{id:id(3),roomId:id(1),furnishingId:id(2),furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}}};
  const query=vi.fn(),publicationModel=vi.fn(),service={supportsRoomVisual:()=>false,publicationModel};await expect(admittedPublicationWorkspaceFurnishings({query} as never,id(6),id(8),candidate,service as never)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});expect(query).not.toHaveBeenCalled();expect(publicationModel).not.toHaveBeenCalled();
+});
+
+
+it('uses the sealed catalog only for the exact server-projected installed frame',async()=>{
+ const frame=installedFrameDescriptor(),transform={scale:[1,1,1]};
+ const room={id:id(1),dimensions:{width:6,height:3,depth:8},transform};
+ const art={id:id(8),revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width:.6,height:.8},transform};
+ const placement={id:id(4),roomId:room.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,transform};
+ const candidate={rooms:[room],artworks:[art],placements:[placement],extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:{
+  version:5,furnishings:[frame],placements:[],frameAttachments:[{placementId:placement.id,artworkRevisionId:art.revisionId,assetId:art.primaryAssetId,furnishingId:frame.id,furnishingVersion:1,modelSha256:frame.model.sha256}],
+ }}};
+ const publicId=id(12),projected=projectWorkspaceFurnishings(candidate,key=>key===frame.id?publicId:key)!;
+ const published={...candidate,extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:projected.extension}};
+ const model={bytes:Buffer.alloc(frame.model.bytes),sha256:frame.model.sha256,mime:frame.model.mime};
+ const query=vi.fn().mockResolvedValue({rows:[]}),client={query} as never;
+ const installedPublicationModel=vi.fn().mockResolvedValue(model),publicationFence=vi.fn().mockResolvedValue(undefined);
+ const service={supportsArtworkFrameModels:()=>true,installedPublicationModel,publicationFence} as never;
+ await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),published,service,publicId,undefined,id(7))).resolves.toMatchObject([{publicId,bytes:model.bytes}]);
+ expect(installedPublicationModel).toHaveBeenCalledWith(client,id(6),id(7),undefined);
+ expect(publicationFence).toHaveBeenCalledWith(client,[frame]);
+ await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),published,service)).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
+ const extension=structuredClone(projected.extension);
+ extension.furnishings[0]!.provenance='Provided by the exhibition editor.';
+ await expect(admittedPublicationWorkspaceFurnishings(client,id(6),id(9),{...published,extensions:{[WORKSPACE_FURNISHING_NAMESPACE]:extension}},service,publicId,undefined,id(7))).rejects.toMatchObject({code:'PUBLICATION_UNAVAILABLE'});
 });
