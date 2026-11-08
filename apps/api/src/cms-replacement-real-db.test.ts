@@ -32,7 +32,7 @@ it.skipIf(!process.env.PROVENANCE_TEST_PG)('rejects staged image outputs and rea
  const tenantId=randomUUID(),userId=randomUUID(),artistId=randomUUID(),artworkId=randomUUID(),rightsId=randomUUID();
  const session={tenantId,userId,role:'admin'} as Session;
  const rights={holder:'Synthetic owner',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic credit'};
- const metadata={title:'Prepared image',description:'',dimensions:{width:1,height:1,unit:'m' as const},rights,provenance:{source:'human-authored' as const,sourceUnits:'m',scaleApplied:true,notes:''}};
+ const metadata:Omit<Parameters<Cms['revise']>[3],'revision'>={title:'Prepared image',description:'',dimensions:{width:1,height:1,unit:'m' as const},rights,provenance:{source:'human-authored' as const,sourceUnits:'m',scaleApplied:true,notes:''}};
  const blobs=new FileBlobStore(root),cms=new Cms(blobs);
  try{
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
