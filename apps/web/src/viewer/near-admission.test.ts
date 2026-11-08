@@ -6,7 +6,7 @@ import {deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,mod
 test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
  expect(selectedDeviceBudget('auto',{viewportWidth:1400,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
- expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024});
+ expect(selectedDeviceBudget('compact',{viewportWidth:1400,deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:64*1024*1024,maxTransitionBytes:80*1024*1024});
  expect(selectedDeviceBudget('desktop',{viewportWidth:390,deviceMemory:8})).toMatchObject({...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024});
  expect(selectedDeviceBudget('desktop',{viewportWidth:1400,deviceMemory:4})).toEqual(DEVICE_BUDGETS.desktop);
  const near=selectedDeviceBudget('desktop',{viewportWidth:1400});expect(near.maxTriangles).toBe(250000);expect(near.maxTextureSize).toBe(2048);expect(near.maxCacheBytes).toBe(192*1024*1024);expect(near.maxTransitionBytes).toBe(256*1024*1024);
@@ -21,15 +21,17 @@ test('automatic headroom uses bounded residency and transition limits in known m
  expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(deviceBudget({deviceMemory:4}));
  expect(selectedDeviceBudget('compact',{deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  for(const memory of [undefined,2,3,Infinity,NaN])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toEqual(DEVICE_BUDGETS.compact);
- for(const memory of [4,8,16])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
+ for(const memory of [4,6])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
+ for(const memory of [8,16])expect(selectedDeviceBudget('compact',{deviceMemory:memory})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:64*mib,maxTransitionBytes:80*mib});
 });
 test('known-memory Compact can admit the measured model phase without enlarging model quality limits',()=>{
  const compact=selectedDeviceBudget('compact',{deviceMemory:8});
- const sceneOverhead=32*1024*1024-23288458,used=22109195,cpuReserve=13942224;
+ const sceneOverhead=48*1024*1024-36395656,used=28472922,cpuReserve=13942224;
+ expect(used+8763010).toBeGreaterThan(36395656);
  const peak=new AssetPeakBudget(compact.maxTransitionBytes!-sceneOverhead,()=>used);
  expect(()=>peak.reserve('model',cpuReserve)).not.toThrow();
  expect(compact.maxTriangles).toBe(20000);expect(compact.maxTextureSize).toBe(512);
- expect(compact.maxCacheBytes-sceneOverhead).toBeGreaterThan(used+8763008);
+ expect(compact.maxCacheBytes-sceneOverhead).toBeGreaterThan(used+8763010);
  peak.release('model');expect(peak.total()).toBe(used);
 });
 test('touch auto without a memory hint uses bounded steady and transition headroom',()=>{
@@ -52,7 +54,7 @@ test('a narrow canvas cannot classify the same capacity as a lower-memory device
  }
  expect(deviceBudget({deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({})).toEqual(DEVICE_BUDGETS.desktop);
- expect(selectedDeviceBudget('compact',{deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024});
+ expect(selectedDeviceBudget('compact',{deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.compact,maxCacheBytes:64*1024*1024,maxTransitionBytes:80*1024*1024});
 });
 test('an explicit image allowance never lifts ordinary budgets or unknown/constrained memory',()=>{
  for(const deviceMemory of [undefined,2,4,Infinity,NaN]){
@@ -60,7 +62,7 @@ test('an explicit image allowance never lifts ordinary budgets or unknown/constr
   expect(selectedDeviceBudget('compact',{deviceMemory}).selectedImage).toBeUndefined();
  }
  const {selectedImage,...ordinary}=selectedDeviceBudget('compact',{deviceMemory:8});
- expect(ordinary).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024});
+ expect(ordinary).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:64*1024*1024,maxTransitionBytes:80*1024*1024});
  expect(selectedImage).toEqual({maxCacheBytes:96*1024*1024,maxTransitionBytes:128*1024*1024});
  const near=selectedDeviceBudget('desktop',{deviceMemory:8});
  expect(near.selectedImage?.maxCacheBytes).toBe(near.maxCacheBytes);
