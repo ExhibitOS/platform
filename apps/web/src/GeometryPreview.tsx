@@ -29,6 +29,7 @@ import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredB
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
+import {createDetailBudgetRetry} from './viewer/detail-budget-retry';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
@@ -1751,7 +1752,7 @@ export function GeometryPreview({
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let detailImageCandidate:InstanceType<typeof three.Object3D>|undefined;
-        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined;
+        let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined,retryOriginalDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
         let viewingPreparing=0;
@@ -2552,6 +2553,7 @@ export function GeometryPreview({
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
             if(!alive)return;alive=false;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            retryOriginalDetail=undefined;
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
             const pendingDetail=pending.get(art.revisionId);
@@ -2633,7 +2635,8 @@ export function GeometryPreview({
                   if(!stillCurrent()){activateLegacy();return;}if(!matches){activateLegacy();return;}
                   const generation=++originalDetailGeneration,attemptId=`viewer-detail-${generation}-${crypto.randomUUID()}`;
                   const current=()=>generation===originalDetailGeneration&&stillCurrent();
-                  try{
+                  const retryDeadline=performance.now()+15000;
+                  const attemptOriginal=()=>{try{
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
@@ -2643,7 +2646,13 @@ export function GeometryPreview({
                     });
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
                     void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
-                  }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal)startLegacy();}
+                  }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
+                    startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
+                    retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,
+                      ready:()=>{const work=scheduler.stats(),used=peak.total();return work.active===0&&work.queued===0&&!pending.has(art.revisionId)&&!detailImageCandidate&&Number.isSafeInteger(used)&&used<=profile.maxSceneBytes&&used+profile.reservationBytes<=profile.transitionCapBytes;},
+                      retry:()=>{retryOriginalDetail=undefined;if(settleDetail===promoteImage)settleDetail=undefined;if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;attemptOriginal();}});
+                  }}};
+                  attemptOriginal();
                 }).catch(()=>{activateLegacy();});
               }else startLegacy();
             }
@@ -2662,7 +2671,7 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        const statsTimer = setInterval(()=>{automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
