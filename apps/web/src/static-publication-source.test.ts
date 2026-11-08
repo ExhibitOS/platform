@@ -20,6 +20,17 @@ function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corrup
  const requests:{path:string;cache:RequestCache|undefined}[]=[];const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{const path=String(input);requests.push({path,cache:init?.cache});const data=path==='/static-publication-index.json'?index:path==='/'+pubPath||path===`/data/${'a'.repeat(64)}.json`?pub:path==='/'+assetPath||path===`/data/${'b'.repeat(64)}.bin`?(options.corruptAsset?Buffer.from('x'.repeat(assetBytes.length)):assetBytes):undefined;return data?new Response(data):new Response(null,{status:404});});vi.stubGlobal('fetch',fetcher);return {requests,assetPath,pubPath,assetId,publicationId,indexDigest:digest(index)};
 }
 describe('static publication content-addressed reads',()=>{
+ it('rejects duplicate keys in the hash-pinned index and publication before exposure',async()=>{
+  const duplicateIndex=Buffer.from('{"version":1,"\\u0076ersion":1}');
+  vi.stubGlobal('document',{querySelector:()=>({content:digest(duplicateIndex)})});
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(duplicateIndex)));
+  await expect(loadStaticPublication()).rejects.toThrow('STATIC_JSON_INVALID');
+  const pub=Buffer.from('{"publication":{},"exhibition":{},"\\u0065xhibition":{}}'),pubHash=digest(pub),pubPath=`data/${pubHash}.json`;
+  const index=Buffer.from(JSON.stringify({version:1,publication:{path:pubPath,bytes:pub.length,sha256:pubHash,mime:'application/json'},assets:[]}));
+  vi.stubGlobal('document',{querySelector:()=>({content:digest(index)})});
+  vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>new Response(String(input)==='/static-publication-index.json'?index:pub)));
+  await expect(loadStaticPublication()).rejects.toThrow('STATIC_JSON_INVALID');
+ });
  it('binds a selected furnishing model and notice to the version3 source and rejects changed notice bytes',async()=>{
   const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic-media.oex'))),doc=original.exhibition,room=doc.rooms[0]!,id=randomUUID(),viewpointId=randomUUID(),publicationId=randomUUID(),catalog=furnishingCatalogueEntry('backless-oak-bench'),{min,max}=catalog.bounds;
   const bench={id,name:'bench',roomId:room.id,position:[0,0,0] as [number,number,number],yaw:0,kind:'slab' as const,dimensions:{width:max[0]-min[0],depth:max[2]-min[2],height:.45},material:{preset:'wood' as const,color:'#755741',roughness:.7,metalness:0},viewpointId};

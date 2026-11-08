@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { revisionHash, validateExhibition } from '@exhibitos/spec';
 import { spaceStillFor } from '@exhibitos/spec/space-still';
 import { retainsCopyInventory, retainsCopyRights } from '../apps/web/src/private-editor/previous-copy-compatibility.ts';
+import { parseStaticJson } from '../apps/web/src/static-json.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const hex = /^[a-f0-9]{64}$/;
@@ -46,13 +47,13 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
   if (!Array.isArray(bases) || bases.length > 16) fail();
   if (!bases.length) return [];
   const currentBytes = await boundedFile(output, 'static-publication-index.json', 1048576);
-  const current = JSON.parse(currentBytes);
+  const current = parseStaticJson(currentBytes);
   const readProjection = async (root, prefix, entry) => {
     if (!entry || !hex.test(entry.sha256) || entry.path !== `data/${entry.sha256}.json` ||
         entry.mime !== 'application/json' || !Number.isSafeInteger(entry.bytes)) fail();
     const data = await boundedFile(root, prefix + entry.path, 1048576);
     if (data.length !== entry.bytes || hash(data) !== entry.sha256) fail();
-    return { data, projection: JSON.parse(data) };
+    return { data, projection: parseStaticJson(data) };
   };
   const { projection: active } = await readProjection(output, '', current.publication);
   requireRights(active.exhibition);
@@ -66,7 +67,7 @@ export async function verifiedCopyBases({ output, archiveRoot, bases }) {
     const indexPath = prefix + 'static-publication-index.json';
     const bytes = await boundedFile(archiveRoot, indexPath, 1048576);
     if (hash(bytes) !== base.indexSha256) fail();
-    const index = JSON.parse(bytes);
+    const index = parseStaticJson(bytes);
     if (!retainsCopyInventory(index,current)) fail();
     const { data, projection } = await readProjection(archiveRoot, prefix, index.publication);
     if (projection.publication.id !== base.publicationId || projection.publication.status !== 'published' ||
