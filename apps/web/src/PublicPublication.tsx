@@ -1,5 +1,5 @@
 import {ViewerIcon} from './viewer/ViewerIcon';
-import {createWheatCoverRetirement} from './viewer/wheat-cover-retirement';
+import {createWheatCoverRetirement,tracksWheatCover} from './viewer/wheat-cover-retirement';
 import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
@@ -48,7 +48,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     [error, setError] = useState(""),
     [loading, setLoading] = useState(Boolean(initial));
   const generation = useRef(0);
-  const coverRetirement=useMemo(()=>value?.publication.revisionSha256==='41b47f3af2adc536df77a91dcd2918aa527c6343b3b75c31c319b8a0aafe34b8'?createWheatCoverRetirement(()=>document.images):undefined,[value]);
+  const coverRetirement=useMemo(()=>tracksWheatCover(value?.publication.revisionSha256)?createWheatCoverRetirement(()=>document.images):undefined,[value]);
   const publicationRoot=useRef<HTMLElement>(null);
   useEffect(()=>{if(publicationRoot.current&&value?.publication.id)return installPanelDismissal(publicationRoot.current);},[value?.publication.id,value?.publication.revisionSha256]);
   const entry=useEntranceEntry(),{mode,modeRef,stageReady,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState}=entry;
