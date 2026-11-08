@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,it} from 'vitest';
-import {createWheatCoverRetirement} from './wheat-cover-retirement';
+import {createWheatCoverRetirement,tracksWheatCover} from './wheat-cover-retirement';
 const primary={sha256:'cde67c823c0fed9574d94d4a95facbcc7e3b7782af8424d55fb41c8a53c250b7',bytes:8103573,mime:'image/png'};
 const variant={sha256:'0b0ff85114f13554a7b122a9a50cf73130f056dffa0220f7463d7ffbecd7f304',bytes:509458,mime:'image/png'};
+it('tracks only the two exact Wheat publication revisions',()=>{
+ expect(tracksWheatCover('41b47f3af2adc536df77a91dcd2918aa527c6343b3b75c31c319b8a0aafe34b8')).toBe(true);
+ expect(tracksWheatCover('66595ef205a030ba360791fe75b970e9a4a536e5d4e1cf37505c49bc96f91648')).toBe(true);
+ expect(tracksWheatCover('f'.repeat(64))).toBe(false);expect(tracksWheatCover(undefined)).toBe(false);
+});
 it('requires the exact decoded, revoked and disconnected cover before admitting the original',()=>{
  let connected=true;const session=createWheatCoverRetirement(()=>[{src:'blob:cover',isConnected:connected}]),operation=session.begin(primary);expect(session.canAdmit()).toBe(false);operation.decoded('blob:cover',{width:2048,height:1630});operation.displayed('blob:cover');expect(session.canAdmit()).toBe(false);operation.retire(true);expect(session.canAdmit()).toBe(false);connected=false;expect(session.canAdmit()).toBe(true);
  const fresh=createWheatCoverRetirement(()=>[]),next=fresh.begin(variant);next.decoded('blob:next',{width:512,height:408});next.displayed('blob:next');next.retire(true);expect(fresh.canAdmit()).toBe(true);

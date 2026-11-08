@@ -5,6 +5,8 @@ type CoverIdentity={sha256:string;bytes:number;mime:string};
 type ImageSize={width:number;height:number};
 const primary={sha256:'cde67c823c0fed9574d94d4a95facbcc7e3b7782af8424d55fb41c8a53c250b7',bytes:8103573,width:2048,height:1630};
 const variant={sha256:'0b0ff85114f13554a7b122a9a50cf73130f056dffa0220f7463d7ffbecd7f304',bytes:509458,width:512,height:408};
+/** Only the exact publications with a qualified Wheat detail profile track cover retirement. */
+export function tracksWheatCover(revision:string|undefined){return revision==='41b47f3af2adc536df77a91dcd2918aa527c6343b3b75c31c319b8a0aafe34b8'||revision==='66595ef205a030ba360791fe75b970e9a4a536e5d4e1cf37505c49bc96f91648';}
 // A new publication component cannot forget cover work from an old instance.
 // Positively retired operations are removed; uncertain cleanup remains blocked.
 type CoverWork={url:string;retired:boolean;images:()=>Iterable<{src:string;isConnected:boolean}>};
