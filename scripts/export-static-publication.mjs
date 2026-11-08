@@ -33,11 +33,12 @@ export function safeStaticPath(path){return typeof path==="string"&&path.length<
 export function assertStaticBudget(path,bytes,count){if(bytes>MAX)fail("STATIC_FILE_TOO_LARGE",path);if(count>=COUNT)fail("STATIC_FILE_COUNT",path);}
 async function bounded(response,limit,name){if(!response.ok||!response.body)fail("STATIC_FETCH",name);const reader=response.body.getReader(),chunks=[];let n=0;try{for(;;){const {done,value}=await reader.read();if(done)break;n+=value.length;if(n>limit)fail("STATIC_FILE_TOO_LARGE",name);chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}return Buffer.concat(chunks);}
 /** Only the public, already-published API projection is accepted; no database or private source reads. */
-export async function exportStaticPublication({origin,publicationId,runtimeRoot,output,fetcher=fetch,studioDemo=false,privateEditor=false,coverCompanion='native'}){
+export async function exportStaticPublication({origin,publicationId,runtimeRoot,output,fetcher=fetch,studioDemo=false,privateEditor=false,coverCompanion='native',signal}){
  if(coverCompanion!=='native'&&coverCompanion!=='reference-demo')fail('STATIC_COVER_COMPANION','coverCompanion');
  let url;try{url=new URL(origin);}catch{fail("STATIC_LOCAL_ORIGIN","origin");}if(!["http:","https:"].includes(url.protocol)||!["localhost","127.0.0.1","[::1]"].includes(url.hostname)||url.username||url.password||url.pathname!=="/"||url.search||url.hash)fail("STATIC_LOCAL_ORIGIN","origin");
  if(!uuid.test(publicationId))fail("STATIC_PUBLICATION_ID",publicationId);
- const request=path=>fetcher(new URL(path===`/api/v1/publications/${publicationId}`?path+'?footsteps=1':path,url),{credentials:"omit",redirect:"error",signal:AbortSignal.timeout(30000)});
+ const request=path=>fetcher(new URL(path===`/api/v1/publications/${publicationId}`?path+'?footsteps=1':path,url),{credentials:"omit",redirect:"error",signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
+ signal?.throwIfAborted();
  const raw=parseStaticJson(await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json"));
  refuseDetail(raw);
  const [profile,cover,projection]=await (coverCompanion==='reference-demo'?Promise.all([import('../apps/api/dist-public-export/oex-profile.js'),import('../apps/api/dist-public-export/cover-validation.js'),import('../apps/api/dist-public-export/approved-cover-projection.js')]):Promise.all([import('../apps/api/dist/oex-profile.js'),import('../apps/api/dist/cover-validation.js'),import('../apps/api/dist/approved-cover-projection.js')]));
@@ -97,7 +98,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  const target=resolve(output),parent=dirname(target);try{await lstat(target);fail("STATIC_OUTPUT_EXISTS",target);}catch(e){if(e.code!=="ENOENT")throw e;}
  const parentStat=await lstat(parent);if(!parentStat.isDirectory()||parentStat.isSymbolicLink())fail("STATIC_OUTPUT_PARENT",parent);
  const temporary=join(parent,`.static-export-${randomUUID()}`);await mkdir(temporary,{mode:0o700});
- const files=new Map(),assetIndex=[],resourceIndex=[],noticeIndex=[];const put=async(path,bytes)=>{if(!safeStaticPath(path)||files.has(path))fail("STATIC_PATH_COLLISION",path);assertStaticBudget(path,bytes.length,files.size);await mkdir(dirname(join(temporary,path)),{recursive:true});await writeFile(join(temporary,path),bytes,{flag:"wx",mode:0o600});files.set(path,{bytes:bytes.length,sha256:sha(bytes)});};
+ const files=new Map(),assetIndex=[],resourceIndex=[],noticeIndex=[];const put=async(path,bytes)=>{signal?.throwIfAborted();if(!safeStaticPath(path)||files.has(path))fail("STATIC_PATH_COLLISION",path);assertStaticBudget(path,bytes.length,files.size);await mkdir(dirname(join(temporary,path)),{recursive:true});await writeFile(join(temporary,path),bytes,{flag:"wx",mode:0o600});signal?.throwIfAborted();files.set(path,{bytes:bytes.length,sha256:sha(bytes)});};
  try{
  if(raw.materialMapBatch!==undefined){
   if(!material||!raw.materialMapBatch||Object.keys(raw.materialMapBatch).join(',')!=='url'||raw.materialMapBatch.url!==`/api/v1/publications/${publicationId}/material-maps`)fail('STATIC_WORKSPACE_MATERIAL','publication.json');
@@ -183,7 +184,7 @@ export async function exportStaticPublication({origin,publicationId,runtimeRoot,
  const current=parseStaticJson(await bounded(await request(`/api/v1/publications/${publicationId}`),1048576,"publication.json"));refuseDetail(current);const membership=assets=>JSON.stringify(assets.map(a=>[a.assetId,a.mime,a.url]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));if(!publicWorkspaceFurnishingRights(raw.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE])||!publicWorkspaceMaterialRights(material)||current.publication?.status!=="published"||current.publication?.revisionSha256!==publication.publication.revisionSha256||!Array.isArray(current.assets)||membership(current.assets)!==membership(raw.assets)||JSON.stringify(current.resources??null)!==JSON.stringify(raw.resources??null)||JSON.stringify(current.materialMapBatch??null)!==JSON.stringify(raw.materialMapBatch??null)||JSON.stringify(current.furnishingNotices??null)!==JSON.stringify(raw.furnishingNotices??null)||coverVariants&&JSON.stringify(current.coverVariants??null)!==JSON.stringify(coverVariants))fail("STATIC_PUBLICATION_CHANGED",publicationId);
  const manifest=Buffer.from(JSON.stringify({format:"exhibitos-static-publication-v1",publicationId,revisionSha256:publication.publication.revisionSha256,indexSha256:sha(index),files:[...files].map(([path,entry])=>({path,...entry})).sort((a,b)=>a.path.localeCompare(b.path))}));await put("static-export-manifest.json",manifest);
  try{await lstat(target);fail("STATIC_OUTPUT_EXISTS",target);}catch(e){if(e.code!=="ENOENT")throw e;}
- await rename(temporary,target);
+ signal?.throwIfAborted();await rename(temporary,target);
  return {publicationId,revisionSha256:publication.publication.revisionSha256,indexSha256:sha(index),manifestSha256:sha(manifest),files:files.size,bytes:[...files.values()].reduce((n,b)=>n+b.bytes,0),output:target};
  }catch(e){await rm(temporary,{recursive:true,force:true});throw e;}
 
