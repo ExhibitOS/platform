@@ -36,6 +36,8 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   const bound=await transaction(pool,c=>bindHayesOriginalContext(c,owner));expect(bound).toBe(owner);expect(()=>assertIssuedWorkspaceImport(bound,disk)).not.toThrow();
   const initial=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,{artworkId,artworkRevision:1,displayReferenceSha256:initialDisplay,idempotencyKey:randomUUID()}));jobId=initial.id;b.jobId=jobId;await transaction(pool,c=>new Imports(pool,blobs,bound).upload(c,s,jobId,source));await transaction(pool,c=>new Imports(pool,blobs,bound).complete(c,s,jobId));
   expect(await new Imports(pool,blobs).work()).toBe(false);
+  await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{},Date.now()-1))).rejects.toThrow('HAYES_OWNER_UNAVAILABLE');
+  await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{},Date.now()+301000))).rejects.toThrow('HAYES_OWNER_UNAVAILABLE');
   await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{throw Error('owner lost');}))).rejects.toThrow('owner lost');
   expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_attempts')).rows[0].n).toBe(0);
   let calls=0;await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{if(++calls===3)throw Error('late owner lost');}))).rejects.toThrow('late owner lost');
@@ -96,8 +98,8 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
 
   expect(isIssuedNativeHayesCaller(caller,bound,store)).toBe(true);expect(isIssuedNativeHayesCaller({...caller},bound,store)).toBe(false);expect(()=>createNativeHayesCaller({owner:bound,auth:new Auth(pool),blobs:store,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:new AbortController().signal,assertLive:async()=>{}})).toThrow();
   await expect(caller.start({token:randomBytes(32).toString('base64url'),csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},Date.now()+30000)).rejects.toMatchObject({code:'AUTH_REQUIRED'});expect(events).toEqual([]);expect(active).toBe(true);
-  const exchange=await caller.start({token,csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},Date.now()+30000);expect(events).toEqual(['open','source','revalidated']);
-  const activeJob=(await pool.query('SELECT state,lease_id,hayes_attempt_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,created.id])).rows[0];expect(activeJob.state).toBe('processing');expect(activeJob.lease_id).toBeTruthy();expect(activeJob.hayes_attempt_id).toBeTruthy();
+  const operationDeadline=Date.now()+90000,exchange=await caller.start({token,csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},operationDeadline);expect(events).toEqual(['open','source','revalidated']);
+  const activeJob=(await pool.query('SELECT state,lease_id,lease_until,hayes_attempt_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,created.id])).rows[0];expect(activeJob.state).toBe('processing');expect(activeJob.lease_id).toBeTruthy();expect(activeJob.hayes_attempt_id).toBeTruthy();expect(activeJob.lease_until.getTime()).toBeLessThanOrEqual(operationDeadline);expect(activeJob.lease_until.getTime()).toBeGreaterThan(Date.now()+30000);
   await exchange.close();await caller.close();expect(events.filter(x=>x==='close')).toHaveLength(1);
   const secondRequest={...request,idempotencyKey:randomUUID()},second=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,secondRequest));await transaction(pool,c=>imports.upload(c,s,second.id,source));await transaction(pool,c=>imports.complete(c,s,second.id));
   const interrupted=new AbortController(),outcomes:string[]=[],incoming:Buffer[]=[];let commits=0,secondBinding:Record<string,unknown>|undefined,open=true;
