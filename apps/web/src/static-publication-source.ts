@@ -47,7 +47,7 @@ type DetailDescriptor={assetId:string;url:string;mime:string};
 const verifiedDetailOwners=new WeakMap<object,{owner:PublicPublication;publication:PublicPublication['publication'];exhibition:PublicPublication['exhibition'];local:NonNullable<PublicPublication['local']>}>();
 export function isVerifiedStaticDetailAccess(publication:unknown,access:unknown):access is DetailAccess{
  if(!access||typeof access!=='object')return false;
- try{const binding=verifiedDetailOwners.get(access),owner=binding?.owner;return !!binding&&owner===publication&&owner.publication===binding.publication&&owner.exhibition===binding.exhibition&&owner.local===binding.local&&binding.local.kind==='static'&&binding.local.detailAccess===access;}catch{return false;}
+ try{const binding=verifiedDetailOwners.get(access);if(!binding)return false;const owner=binding.owner;return owner===publication&&owner.publication===binding.publication&&owner.exhibition===binding.exhibition&&owner.local===binding.local&&binding.local.kind==='static'&&binding.local.detailAccess===access;}catch{return false;}
 }
 const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
 async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal):Promise<StaticIndex>{
