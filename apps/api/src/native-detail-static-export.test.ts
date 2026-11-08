@@ -29,6 +29,9 @@ it('retains uncertainty on cleanup failure and refuses unbounded tombstone growt
  const registry=new NativeDetailOperations(),s=scope();await expect(registry.run(s,'prepare',done,async()=>{throw Error('cleanup');})).rejects.toThrow('cleanup');expect(registry.status(s)).toBe('uncertain');
  const bounded=new NativeDetailOperations();for(let i=0;i<128;i++)bounded.close(scope());expect(()=>bounded.close(scope())).toThrow('NATIVE_DETAIL_UNAVAILABLE');
 });
+it('closes failed admission after cleanup instead of leaving an unrecoverable pending job',async()=>{
+ const registry=new NativeDetailOperations(),s=scope();await expect(registry.run(s,'prepare',async()=>{throw Error('denied');},done)).rejects.toThrow('denied');expect(registry.status(s)).toBe('settled-failure');await expect(registry.run(s,'prepare',done,done)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');
+});
 it('accounts for reentrant admission and runtime close before callback execution',async()=>{
  const registry=new NativeDetailOperations(),s=scope();let draining:Promise<boolean>|undefined;
  const running=registry.run(s,'prepare',async()=>{await expect(registry.run(s,'prepare',done,done)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');draining=registry.closeRuntime();},done);

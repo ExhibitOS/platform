@@ -43,8 +43,8 @@ export class NativeDetailOperations {
   const task=Promise.resolve().then(async()=>{
    let result:T|undefined,failure:unknown,failed=false;
    try{controller.signal.throwIfAborted();result=await work(controller.signal);controller.signal.throwIfAborted();}
-   catch(error){failed=true;failure=error;entry.failed=true;for(const other of entry.controllers)other.abort();}
-   try{await cleanup();}catch(error){entry.uncertain=true;entry.failed=true;failed=true;failure=error;}finally{entry.controllers.delete(controller);}
+   catch(error){failed=true;failure=error;entry.closing=true;entry.failed=true;for(const other of entry.controllers)other.abort();}
+   try{await cleanup();}catch(error){entry.closing=true;entry.uncertain=true;entry.failed=true;failed=true;failure=error;}finally{entry.controllers.delete(controller);}
    if(!failed&&controller.signal.aborted){failed=true;failure=controller.signal.reason;entry.failed=true;}
    if(failed)throw failure;
    if(phase==='prepare')entry.prepared=true;if(phase==='final')entry.finalized=true;
