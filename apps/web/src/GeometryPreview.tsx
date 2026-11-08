@@ -9,6 +9,8 @@ import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
+import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource} from './viewer/diagnostic-source';
+import {readRuntimeHistory} from './viewer/runtime-history';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {catalogBenchSource,installPrivateCatalogBench,catalogOtherSources,installCatalogOtherVisuals,FURNISHING_RESERVE_BYTES} from './private-editor/catalog-bench-renderer';
@@ -1634,7 +1636,9 @@ export function GeometryPreview({
                   }
             }
           });
-          decodedBytes+=geometryResidentBytes(geometryAttributes);
+          const geometryBytes=geometryResidentBytes(geometryAttributes);
+          const textureBytes=decodedBytes-retainedModelBytes;
+          decodedBytes+=geometryBytes;
           if (
             signal.aborted ||
             disposed ||
@@ -1653,6 +1657,7 @@ export function GeometryPreview({
           object.userData.viewer = {
             triangles,
             decodedBytes,
+            ...(diagnosticsEnabled()?{geometryEstimateBytes:geometryBytes,textureEstimateBytes:textureBytes}:{}),
             retainedModelBytes,
             decodeBackingReleased,
             measuredGeometry:object.userData.metricGeometry,
@@ -1791,7 +1796,8 @@ export function GeometryPreview({
         // Keep only the verified header cost when expendable encoded bytes are
         // evicted. Losing the bytes must not restart an impossible warm fetch.
         const imageDecodeCeilings=new Map<string,number>();
-        const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key));
+        const diagnosticEvents=createDiagnosticEvents();
+        const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key),diagnosticsEnabled()?diagnosticEvents.record:undefined);
         const stage=stages.record;
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
@@ -1809,7 +1815,32 @@ export function GeometryPreview({
         const demandContext=()=>artworkDemandContext(currentArtwork,detailPinnedArtwork);
         const detailBytes=()=>(detailRetired?(detailPinned?.userData.viewer?.decodedBytes??0):0)+(detailImageCandidate?.userData.viewer?.decodedBytes??0);
         const resident=()=>[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)].reduce((sum,value)=>sum+(value.userData.viewer?.decodedBytes??0),detailBytes())+byteCache.stats().bytes;
-        const peak=new AssetPeakBudget(transitionBudgetBytes,resident);
+        let diagnosticPeak=0,diagnosticPeakTexture=0,diagnosticPeakMesh=0;
+        let diagnosticOriginal:{artworkRevisionId:string;sha256:string}|null=null;
+        let diagnosticDetailPlacement:string|null=null;
+        let diagnosticOriginalLimits:{transition:number;scene:number}|null=null;
+        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{diagnosticPeak=Math.max(diagnosticPeak,total);}:undefined);
+        const unregisterDiagnostic=registerDiagnosticSource(()=>{
+          const history=readRuntimeHistory(renderer.domElement.ownerDocument),records=stages.snapshot();
+          const recent=new Map(records.map(row=>[row.assetId,row]));
+          const all=arts.flatMap(art=>art.assets.map(asset=>({art,asset})));
+          const selectedId=detailPinnedArtwork??currentArtwork??null,selectedArt=arts.find(art=>art.revisionId===selectedId);
+          all.sort((a,b)=>Number(b.art.revisionId===selectedId)-Number(a.art.revisionId===selectedId)||Number(recent.has(b.asset.id.toLowerCase()))-Number(recent.has(a.asset.id.toLowerCase())));
+          const memory=(navigator as Navigator&{deviceMemory?:number}).deviceMemory;
+          const values=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
+          const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
+          const displayedId=detailPinnedArtwork?(detailPinned?.userData.viewerAssetId as string|undefined):selectedId?active.get(selectedId):undefined;
+          const displayedAsset=selectedArt?.assets.find(asset=>asset.id===displayedId);
+          const selectedLimits=selectedArt&&detailPinnedArtwork?requestLimits({detailPromotion:true,imageBudget:selectedImageDetail(selectedArt,viewerBudget)?.budget}):undefined;
+          const detailOmitted=!!detailPinned||!!detailImageCandidate||detailRetired;
+          return {version:1,capturedAt:new Date().toISOString(),lifecycle:gpuLost?'context-lost':disposed||publicDisplayStopped?'stopped':'live',identity:{publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256??null,buildId:history.buildId,sourceCommit:history.sourceCommit},
+            selected:{placementId:diagnosticDetailPlacement,artworkRevisionId:selectedId,reason:detailPinnedArtwork?'detail':currentArtwork?'attended':null},
+            displayed:diagnosticOriginal?{artworkRevisionId:diagnosticOriginal.artworkRevisionId,assetId:null,sha256:diagnosticOriginal.sha256,tier:'acquired-original'}:{artworkRevisionId:displayedAsset?selectedId:null,assetId:displayedAsset?.id??null,sha256:displayedAsset?.sha256??null,tier:displayedAsset?(detailPinnedArtwork?'detail-approved':'scene'):null},
+            device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles,effectiveResidentBytes:assetBudgetBytes,effectiveTransitionBytes:transitionBudgetBytes,selectedDetailResidentBytes:selectedLimits?.resident??null,selectedDetailTransitionBytes:selectedLimits?.transition??null,originalDetailTransitionBytes:diagnosticOriginalLimits?.transition??null,originalDetailSceneBytes:diagnosticOriginalLimits?.scene??null}},
+            navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
+            memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:detailOmitted?null:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:detailOmitted?null:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
+            assets:all.slice(0,32).map(({art,asset})=>({assetId:asset.id,artworkRevisionId:art.revisionId,sha256:asset.sha256??null,bytes:asset.bytes??null,mime:asset.mime??null,path:null,active:active.get(art.revisionId)===asset.id})),events:diagnosticEvents.snapshot()};
+        });
         const originalDetailSlot=createDetailImageSlot();let originalDetailGeneration=0;
         const requestLimits=(task?:{detailPromotion?:boolean;imageBudget?:DeviceBudget})=>{
           const target=task?.detailPromotion?task.imageBudget:undefined;
@@ -2022,6 +2053,12 @@ export function GeometryPreview({
             (sum, value) => sum + (value.userData.viewer?.decodedBytes ?? 0),
             detailBytes(),
           );
+          if(diagnosticsEnabled()){
+            const values=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
+            const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
+            diagnosticPeakTexture=Math.max(diagnosticPeakTexture,sum('textureEstimateBytes'));
+            diagnosticPeakMesh=Math.max(diagnosticPeakMesh,sum('geometryEstimateBytes'));
+          }
           for (const key of tasks.keys()) {
             if (
               decodedTotal + byteCache.stats().bytes <=
@@ -2099,7 +2136,8 @@ export function GeometryPreview({
               full ? 0 : Infinity,
               viewerBudget,
             );
-          } catch {
+          } catch (error) {
+            if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:art.primaryAssetId,artworkRevisionId:art.revisionId,stage:'variant-admission-refused',errorCode:error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null});
             failed.add(art.revisionId);
             update();
             return;
@@ -2569,7 +2607,7 @@ export function GeometryPreview({
           // replacement can be requested again after the detail scope returns.
           const loading=pending.get(art.revisionId);if(loading){pending.delete(art.revisionId);scheduler.cancel(loading);}
           desired.set(art.revisionId,active.get(art.revisionId)!);
-          detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;
+          detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;diagnosticDetailPlacement=input.placementId;
           sharedDetailUnavailable=input.unavailable;
           let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
@@ -2581,6 +2619,8 @@ export function GeometryPreview({
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
             if(!alive)return;alive=false;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            diagnosticOriginal=null;
+            diagnosticOriginalLimits=null;
             retryOriginalDetail=undefined;
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
@@ -2589,7 +2629,7 @@ export function GeometryPreview({
             desired.set(art.revisionId,active.get(art.revisionId)!);
             const spare=detailImageCandidate;detailImageCandidate=undefined;if(spare)destroy(spare);
             peak.release(detailKey);
-            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;if(retired&&object)destroy(object);
+            sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;diagnosticDetailPlacement=null;if(retired&&object)destroy(object);
             // Only encoded bytes can remain above the ordinary scene budget
             // after a selected-only allocation is returned. Retain warm bytes
             // when they fit; never discard a displayed object to trim the cache.
@@ -2669,11 +2709,12 @@ export function GeometryPreview({
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
                       draw:next=>{if(!current())throw Error('DETAIL_STALE');originalAttached=true;scope.replaceImage(next);},
-                      hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
+                      hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;diagnosticOriginal=null;diagnosticOriginalLimits=null;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
                       completeCommands:()=>completeDetailCommands(context),
                     });
+                    if(diagnosticsEnabled())diagnosticOriginalLimits={transition:profile.transitionCapBytes,scene:profile.maxSceneBytes};
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
-                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
+                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,
@@ -2702,6 +2743,7 @@ export function GeometryPreview({
         const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
+          unregisterDiagnostic();
           sculptureOrbitRuntime.current?.dispose();sculptureOrbitRuntime.current=null;
           window.removeEventListener('blur',stopSculptureOrbit);window.removeEventListener('focus',orbitVisibility);
           renderer.domElement.ownerDocument.removeEventListener('visibilitychange',orbitVisibility);
