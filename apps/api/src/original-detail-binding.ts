@@ -24,7 +24,7 @@ type Scope={workspaceId:string;publicationId:string;revisionSha256:string;exhibi
 export async function readBoundOriginalDetail(c:PoolClient,s:Session,scope:Scope,studio:Studio,cms:Cms,imports:Imports,blobs:BlobStore,signal:AbortSignal){
  signal.throwIfAborted();
  if(!scope||![scope.workspaceId,scope.publicationId,scope.exhibitionId,scope.artworkId,scope.importJobId,s.tenantId,s.userId].every(v=>typeof v==='string'&&id.test(v))||!digest.test(scope.revisionSha256)||!Number.isSafeInteger(scope.artworkRevision)||scope.artworkRevision<1)unavailable();
- const relation=await verifiedParsedDetailQuality({version:1,candidates:[scope.candidate]},'image');signal.throwIfAborted();if(!relation||relation.candidates.length!==1||relation.candidates[0]!.tier!=='acquired-original')unavailable();
+ const relation=await verifiedParsedDetailQuality({version:1,candidates:[scope.candidate]},'image');signal.throwIfAborted();if(!relation||relation.candidates.length!==1||relation.candidates[0]!.tier!=='acquired-original')return unavailable();
  const candidate=relation.candidates[0]!,source=await readApprovedOriginalStaticSource(c,s,scope.exhibitionId,{artworkId:scope.artworkId,artworkRevision:scope.artworkRevision,importJobId:scope.importJobId},studio,cms,imports,blobs,signal);
  let returned=false;try{const grant=source.grant;if(grant.workspaceId!==scope.workspaceId||grant.source.sha256!==candidate.sha256||grant.source.bytes!==candidate.bytes||grant.source.mime!==candidate.mime)unavailable();
  await c.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1,0))',[`native-detail-binding:${s.tenantId}:${scope.publicationId}:${candidate.assetId}`]);signal.throwIfAborted();
