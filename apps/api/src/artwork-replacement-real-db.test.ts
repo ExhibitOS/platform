@@ -119,5 +119,11 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   }finally{await sourcePool.end();await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,grants[0].metadata]);}
   await expect(transaction(pool,c=>approveOriginalStaticSource(c,{...session,userId:randomUUID()},draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).rejects.toThrow();
   expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
+  // An explicit identical confirmation save creates a fresh draft revision;
+  // retries retain the same receipt and do not create further revisions. This
+  // exercises the input boundary, not a detail publication producer.
+  const current=(await pool.query('SELECT revision,metadata FROM exhibitions WHERE tenant_id=$1 AND id=$2',[tenantId,draft.exhibitionId])).rows[0],save={draft:structuredClone(current.metadata),requestId:randomUUID()},saveMatch=etag(current.revision,current.metadata);
+  const saved=await transaction(pool,c=>studio.put(c,session,draft.exhibitionId,save,saveMatch));expect(saved.revision).toBe(current.revision+1);expect(saved.draft).toEqual(current.metadata);
+  expect(await transaction(pool,c=>studio.put(c,session,draft.exhibitionId,save,saveMatch))).toEqual(saved);expect((await pool.query('SELECT revision FROM exhibitions WHERE tenant_id=$1 AND id=$2',[tenantId,draft.exhibitionId])).rows[0].revision).toBe(saved.revision);
  }finally{await pool.end();}
 },120000);
