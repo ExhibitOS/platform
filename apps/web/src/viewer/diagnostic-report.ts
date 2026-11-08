@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import type { DiagnosticSnapshot } from "./diagnostic-source";
+
+const maximumReportBytes = 128 * 1024;
+const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+const sha256 = /^[a-f0-9]{64}$/i;
+const commit = /^[a-f0-9]{40}$/i;
+const safePath = /^\/?data\/[a-f0-9]{64}\.(?:bin|json)$/i;
+const stageName = /^[a-z][a-z0-9-]{0,79}$/;
+const errorName = /^[A-Z][A-Z0-9_]{0,79}$/;
+const mimeType = /^(?:model|image|audio|video|application)\/[a-z0-9.+-]{1,64}$/i;
+
+function token(value: string | null, pattern: RegExp): string | null {
+  return typeof value === "string" && pattern.test(value) ? value : null;
+}
+
+function number(value: number | null): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function projectSnapshot(snapshot: DiagnosticSnapshot) {
+  const { identity, device, navigation, memory } = snapshot;
+  const budget = device.budget;
+  return {
+    version: 1,
+    identity: {
+      publicationId: token(identity.publicationId, uuid),
+      revisionSha256: token(identity.revisionSha256, sha256),
+      indexSha256: token(identity.indexSha256, sha256),
+      buildId: token(identity.buildId, sha256),
+      sourceCommit: token(identity.sourceCommit, commit),
+    },
+    device: {
+      deviceMemoryGiB: number(device.deviceMemoryGiB),
+      coarsePointer: device.coarsePointer === true,
+      finePointer: device.finePointer === true,
+      pixelRatio: number(device.pixelRatio),
+      viewportWidth: number(device.viewportWidth),
+      viewportHeight: number(device.viewportHeight),
+      budget: budget ? {
+        maxCacheBytes: number(budget.maxCacheBytes),
+        maxTransitionBytes: number(budget.maxTransitionBytes),
+        maxTextureSize: number(budget.maxTextureSize),
+        maxTriangles: number(budget.maxTriangles),
+      } : null,
+    },
+    navigation: navigation ? {
+      roomId: token(navigation.roomId, uuid),
+      position: navigation.position.slice(0, 3).map(number),
+      quaternion: navigation.quaternion.slice(0, 4).map(number),
+      verticalFov: number(navigation.verticalFov),
+    } : null,
+    memory: {
+      residentEstimateBytes: number(memory.residentEstimateBytes),
+      transitionEstimateBytes: number(memory.transitionEstimateBytes),
+      peakTransitionEstimateBytes: number(memory.peakTransitionEstimateBytes),
+      textureEstimateBytes: number(memory.textureEstimateBytes),
+      meshEstimateBytes: number(memory.meshEstimateBytes),
+      renderTargetEstimateBytes: null,
+      gpuPhysicalBytes: null,
+    },
+    assets: snapshot.assets.slice(0, 32).flatMap(asset => {
+      const assetId = token(asset.assetId, uuid);
+      if (!assetId) return [];
+      const hash = token(asset.sha256, sha256);
+      const path = token(asset.path, safePath);
+      return [{
+        assetId,
+        artworkRevisionId: token(asset.artworkRevisionId, uuid),
+        sha256: hash,
+        bytes: number(asset.bytes),
+        mime: token(asset.mime, mimeType),
+        path: hash && path?.replace(/^\//, "").split("/")[1]?.split(".")[0] === hash ? path : null,
+        active: asset.active === true,
+      }];
+    }),
+    events: snapshot.events.slice(-64).flatMap(event => {
+      const assetId = token(event.assetId, uuid);
+      const stage = token(event.stage, stageName);
+      if (!assetId || !stage) return [];
+      return [{
+        atMs: number(event.atMs),
+        assetId,
+        artworkRevisionId: token(event.artworkRevisionId, uuid),
+        stage,
+        errorCode: token(event.errorCode, errorName),
+      }];
+    }),
+  };
+}
+
+export function createDiagnosticReport(snapshot: DiagnosticSnapshot | null): string {
+  const report = {
+    format: "exhibitos-viewer-diagnostic-v1",
+    capturedAt: new Date().toISOString(),
+    staging: true,
+    metrics: {
+      allocationBytes: "estimated",
+      physicalGpuMemoryBytes: null,
+      browserProcessMemoryBytes: null,
+      browserPlatform: null,
+      browserVersion: null,
+    },
+    snapshotStatus: snapshot ? "available" : "unavailable",
+    snapshot: snapshot ? projectSnapshot(snapshot) : null,
+  };
+  const json = JSON.stringify(report, null, 2);
+  if (new TextEncoder().encode(json).byteLength > maximumReportBytes) {
+    throw Error("DIAGNOSTIC_REPORT_TOO_LARGE");
+  }
+  return json;
+}

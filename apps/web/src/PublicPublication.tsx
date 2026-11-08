@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { entranceFor, entryPresentationFor, plaquesFor, artworkPlaqueCaptionFor, creationYearFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
+import { ViewerDiagnosticExport } from "./ViewerDiagnosticExport";
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
 import { GuidedRoutes, type GuideRequest } from "./GuidedRoutes";
 import type { AudioApi, VoicePlayback } from "./viewer/audio";
@@ -319,6 +320,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <GuidedRoutes key={value.publication.revisionSha256} exhibition={value.exhibition} onArtwork={id=>{detailEntry.current?.prepare();detailEntry.current?.commit(false);setSelectedId(id);}} onView={mode === "3d" && stageReady && !viewerUnavailable && !selectedId && !overview ? (routeId,index)=>{stopVoice();setMenuOpen(false);setGuideRequest({routeId,index,sequence:performance.now()});} : undefined} />
           <section className="publication-settings-menu" aria-label="설정"><h2>설정</h2>
           <div ref={setControlsHost} inert={entryControlsBlocked(mode,stageReady,viewerUnavailable,entry.entryFailed)} aria-hidden={entryControlsBlocked(mode,stageReady,viewerUnavailable,entry.entryFailed)} />
+          <ViewerDiagnosticExport />
           {mode==='3d'&&<button type="button" className="publication-panel-link" onClick={()=>{const panel=publicationRoot.current?.querySelector<HTMLDetailsElement>('.viewer-audio-menu');if(panel){panel.open=true;queueMicrotask(()=>{if(panel.open&&panel.isConnected&&publicationRoot.current?.contains(panel))panel.querySelector<HTMLElement>(':scope>summary')?.focus({preventScroll:true});});}}}>소리 설정</button>}
           <details className="publication-accessibility-menu"><summary>접근성</summary><section aria-label="관람 방식과 접근성 설정">
             {runtime!.design.translations.length>0&&<label>표지 언어<select value={entranceLocale} onChange={e=>setEntranceLocale(e.target.value)}><option value="">원문</option>{runtime!.design.translations.map(t=><option key={t.locale} value={t.locale}>{t.locale}</option>)}</select></label>}
