@@ -111,6 +111,11 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
     let blocked=false;for(let i=0;i<100;i++){const r=await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE 'SELECT pg_advisory_xact_lock_shared(82003)%' LIMIT 1");if(r.rowCount){blocked=true;break;}await new Promise(resolve=>setTimeout(resolve,20));}expect(blocked).toBe(true);
    }finally{if(timer)clearTimeout(timer);release();await writer.catch(()=>{});}
    await writer;if(!reader)throw Error('READER_NOT_STARTED');await expect(reader).rejects.toThrow('ORIGINAL_SOURCE_UNAVAILABLE');
+   await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,grants[0].metadata]);
+   let blobEntered!:()=>void,releaseBlob!:()=>void,settled=false;const blobSignal=new Promise<void>(r=>{blobEntered=r;}),blobGate=new Promise<void>(r=>{releaseBlob=r;}),abort=new AbortController();
+   const slow=Object.create(blobs) as BlobStore;slow.getBounded=async(key,size)=>{blobEntered();await blobGate;return blobs.getBounded(key,size);};
+   const cancelled=auth.requestForNativeDetailRead(token,tenantId,csrf,(c,s)=>readApprovedOriginalStaticSource(c,s,draft.exhibitionId,sourceApproval,studio,cms,imports,slow,abort.signal));void cancelled.then(()=>{settled=true;},()=>{settled=true;});
+   let blobTimer:ReturnType<typeof setTimeout>|undefined;try{await Promise.race([blobSignal,cancelled.then(()=>{throw Error('READ_ENDED_BEFORE_BLOB');}),new Promise<never>((_,reject)=>{blobTimer=setTimeout(()=>reject(Error('BLOB_READY_TIMEOUT')),5000);})]);abort.abort();await Promise.resolve();expect(settled).toBe(false);}finally{if(blobTimer)clearTimeout(blobTimer);releaseBlob();}await expect(cancelled).rejects.toThrow();
   }finally{await sourcePool.end();await pool.query("UPDATE asset_derivatives SET metadata=$2 WHERE tenant_id=$1 AND metadata->>'kind'='exact-original-static-grant'",[tenantId,grants[0].metadata]);}
   await expect(transaction(pool,c=>approveOriginalStaticSource(c,{...session,userId:randomUUID()},draft.exhibitionId,sourceApproval,studio,cms,imports,blobs))).rejects.toThrow();
   expect((await pool.query('SELECT count(*) AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n).toBe('2');
