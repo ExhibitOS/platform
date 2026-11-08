@@ -28,7 +28,7 @@ export type DiagnosticReportContext = {
 function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportContext["detail"]) {
   const { identity, device, navigation, memory } = snapshot;
   const budget = device.budget;
-  const selected = !detail || (snapshot.selected.reason === "detail" &&
+  const selected = !detail || (snapshot.selected.reason === "detail" && snapshot.selected.placementId === detail.placementId &&
     snapshot.selected.artworkRevisionId === detail.artworkRevisionId);
   const displayed = selected && (!detail || (snapshot.displayed.artworkRevisionId === detail.artworkRevisionId &&
     (snapshot.displayed.tier === "detail-approved" || snapshot.displayed.tier === "acquired-original")));
@@ -82,6 +82,7 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
       gpuPhysicalBytes: null,
     },
     selected: {
+      placementId: token(detail?.placementId ?? snapshot.selected.placementId, uuid),
       artworkRevisionId: token(detail?.artworkRevisionId ?? snapshot.selected.artworkRevisionId, uuid),
       reason: detail ? "detail" : token(snapshot.selected.reason, /^(?:detail|attended)$/),
     },
