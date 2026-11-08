@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {deflateSync} from 'node:zlib';
 import {mkdtemp,writeFile,readFile,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {Pool} from 'pg';
+import {revisionHash,validateLifecycle} from '@exhibitos/spec';
 import {FileBlobStore,migrate,transaction,sha256} from '@exhibitos/storage';
 import {pngCrc} from './png-pixels.ts';
 import {Imports,type ImportInput} from './imports.ts';
@@ -15,6 +16,10 @@ import {assertRequiredModelApproval} from './model-preparation-approval.ts';
 import {createServiceModelPreparationExecution} from './model-preparation-import.ts';
 import {collectServiceInventory,rowObjectReferences} from '../../../packages/storage/dist/service-inventory.js';
 import {COMPACT_MODEL_RECIPE} from './oam-original-preparation.ts';
+import {replaceApprovedArtwork,resolveApprovedModelCandidate} from './artwork-replacement.ts';
+import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import {Studio} from './studio.ts';
+import {newDraft} from '../../web/src/drafts/example.ts';
 
 function fixture(colour=192,width=1){
  const chunk=(name:string,data:Buffer)=>{const body=Buffer.concat([Buffer.from(name),data]),b=Buffer.alloc(data.length+12);b.writeUInt32BE(data.length);body.copy(b,4);b.writeUInt32BE(pngCrc(body),b.length-4);return b;};
@@ -33,8 +38,9 @@ it.skipIf(!process.env.EXHIBITOS_MODEL_TEST_DATABASE_URL)('runs ordinary require
  const rights={holder:'Synthetic owner',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic'},metadata={title:'Synthetic model',description:'Declared synthetic geometry',dimensions:{width:1,height:1,depth:.05,unit:'m'},rights,provenance:{source:'human-authored',sourceUnits:'m',scaleApplied:true,notes:''}};
  const run=<T>(fn:(c:import('pg').PoolClient)=>Promise<T>)=>transaction(pool,fn),state=async(id:string)=>run(async c=>importer.view(await importer.access(c,session,id)));
  try{
-  const base=new URL('../../../database/migrations/',import.meta.url).pathname,supplement=new URL('../../../database/native-model-preparation/',import.meta.url).pathname;await migrate(pool,base);await migrate(pool,supplement);
-  const migrationCatalog=(await Promise.all([base,supplement].map(async dir=>Promise.all((await readdir(dir)).filter(n=>n.endsWith('.sql')).map(async name=>({name,sha256:sha256(await readFile(join(dir,name)))})))))).flat().sort((a,b)=>a.name.localeCompare(b.name));
+  const migrations=['migrations','native-oex-normal','native-model-preparation'].map(name=>new URL(`../../../database/${name}/`,import.meta.url).pathname);
+  for(const directory of migrations)await migrate(pool,directory);
+  const migrationCatalog=(await Promise.all(migrations.map(async dir=>Promise.all((await readdir(dir)).filter(n=>n.endsWith('.sql')).map(async name=>({name,sha256:sha256(await readFile(join(dir,name)))})))))).flat().sort((a,b)=>a.name.localeCompare(b.name));
   const inventory=()=>run(async c=>{await c.query('SELECT pg_advisory_xact_lock(82002)');return collectServiceInventory(c,blobs,{migrationCatalog});});
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'isolated required model']);await pool.query('INSERT INTO users(id,subject) VALUES($1,$2),($3,$4)',[userId,randomUUID(),otherUser,randomUUID()]);await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin'),($1,$3,'admin')",[tenantId,userId,otherUser]);await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'Synthetic artist'}]);await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[tenantId,artworkId,artistId,metadata]);await pool.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[tenantId,artworkId,metadata]);
   let inputRevision=1;
@@ -72,6 +78,82 @@ it.skipIf(!process.env.EXHIBITOS_MODEL_TEST_DATABASE_URL)('runs ordinary require
   await expect(run(c=>importer.create(c,session,input(fixture(92))))).rejects.toMatchObject({code:'MODEL_PREPARATION_REVISION_APPROVED'});
   expect((await run(c=>importer.create(c,session,request))).id).toBe(id);
   expect((await pool.query('SELECT approved_asset_id FROM artworks WHERE tenant_id=$1 AND id=$2',[tenantId,artworkId])).rows[0].approved_asset_id).toBe(ready.assetId);
+
+  // Consume the generated candidate in a real draft transaction. Only the
+  // native host binding is synthetic; the model job, CMS approval and bytes are real.
+  const workspace={workspaceId:randomUUID(),tenantId,principalId:userId,assertDatabase:async()=>{},assertRecord:async()=>{}} as unknown as NativeOexWorkspaceContext;
+  const studio=new Studio(workspace,true),cms=new Cms(blobs),nativeImports=new Imports(pool,blobs,workspace);
+  vi.spyOn(nativeImports,'requiredModelReady').mockImplementation((c,s)=>importer.requiredModelReady(c,s));
+  const oldArtworkId=randomUUID(),oldAssetId=randomUUID(),oldRightsId=randomUUID(),oldBytes=fixture(30),oldHash=sha256(oldBytes),oldKey=`${tenantId}/approved/${oldHash}`;
+  const oldMetadata={...metadata,title:'Previous model'};
+  await blobs.put(oldKey,oldBytes);
+  const prior=await run(async c=>{
+   await c.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata,cms_managed) VALUES($1,$2,$3,$4,true)',[tenantId,oldArtworkId,artistId,oldMetadata]);
+   await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,1,$3)',[tenantId,oldArtworkId,oldMetadata]);
+   await c.query('INSERT INTO rights(tenant_id,id,metadata) VALUES($1,$2,$3)',[tenantId,oldRightsId,rights]);
+   await c.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'model/gltf-binary',1,'approved')",[tenantId,oldAssetId,oldArtworkId,oldRightsId,oldKey,oldHash,oldBytes.length]);
+   await cms.approve(c,session,oldArtworkId,{revision:1,assetId:oldAssetId});
+   return (await cms.studioArtwork(c,session,oldArtworkId)).artwork;
+  });
+  const candidate=(await run(c=>cms.studioArtwork(c,session,artworkId))).artwork;
+  if(prior.schemaVersion!=='1.0.0-draft.1'||candidate.schemaVersion!=='1.0.0-draft.1')throw Error('expected ordinary model projections');
+  const draft=newDraft(),placementId=randomUUID(),publicationId=randomUUID();
+  draft.candidate.artworks.push(prior);
+  draft.candidate.placements.push({id:placementId,roomId:draft.candidate.rooms[0]!.id,artworkRevisionId:prior.revisionId,assetId:prior.primaryAssetId,transform:{position:[1,1,0],rotation:[0,0,0,1],scale:[1,1,1]}});
+  draft.candidate.accessibility.artworkDescriptions.push({placementId,text:'A model on display'});
+  expect(validateLifecycle(draft).errors).toEqual([]);
+  const saved=await run(c=>studio.create(c,session,{draft,requestId:randomUUID()}));
+  const publication=saved.draft.candidate,publicationHash=revisionHash(publication);
+  await run(async c=>{
+   await c.query('INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,publicationId,draft.exhibitionId,saved.revision,userId,publication,publicationHash]);
+   await c.query("INSERT INTO publication_states(publication_id,status) VALUES($1,'published')",[publicationId]);
+  });
+  const replacementRequest={kind:'approved-model-candidate-v1' as const,requestId:randomUUID(),placementId,artworkId,artworkRevision:1,importJobId:id};
+  const replace=(input=replacementRequest,match=saved.etag,assetStore=blobs)=>run(c=>replaceApprovedArtwork(c,session,draft.exhibitionId,input,match,studio,cms,nativeImports,assetStore));
+  const ownership=async()=>({
+   artwork:(await pool.query('SELECT id,revision,approved_revision,approved_asset_id FROM artworks WHERE tenant_id=$1 ORDER BY id',[tenantId])).rows,
+   approvals:(await pool.query('SELECT artwork_id,revision,asset_id,snapshot FROM artwork_approvals WHERE tenant_id=$1 ORDER BY artwork_id,revision',[tenantId])).rows,
+   assets:(await pool.query('SELECT id,artwork_id,state,object_key,sha256 FROM assets WHERE tenant_id=$1 ORDER BY id',[tenantId])).rows,
+  });
+  const beforeReplacement=await ownership();
+  const resolveCandidate=(candidateId=artworkId,revision=1)=>run(c=>resolveApprovedModelCandidate(c,session,candidateId,revision,cms,nativeImports));
+  expect(await resolveCandidate()).toEqual(ready);
+  await expect(resolveCandidate(artworkId,2)).rejects.toMatchObject({code:'ARTWORK_REPLACEMENT_STALE'});
+  await expect(resolveCandidate(oldArtworkId)).rejects.toMatchObject({code:'MODEL_CANDIDATE_NOT_READY'});
+  await expect(replace({...replacementRequest,artworkRevision:2})).rejects.toMatchObject({code:'MODEL_CANDIDATE_NOT_READY'});
+  await expect(replace({...replacementRequest,importJobId:randomUUID()})).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(replace({...replacementRequest,placementId:randomUUID()})).rejects.toMatchObject({code:'ARTWORK_REPLACEMENT_INVALID'});
+  await expect(replace(replacementRequest,'"studio-r0-stale"')).rejects.toMatchObject({code:'REMOTE_CONFLICT'});
+  await pool.query('UPDATE import_jobs SET png_worker_tokens=ARRAY[$3::uuid] WHERE tenant_id=$1 AND id=$2',[tenantId,id,randomUUID()]);
+  await expect(replace()).rejects.toMatchObject({code:'MODEL_CANDIDATE_NOT_READY'});
+  await expect(resolveCandidate()).rejects.toMatchObject({code:'MODEL_CANDIDATE_NOT_READY'});
+  await pool.query("UPDATE import_jobs SET png_worker_tokens='{}' WHERE tenant_id=$1 AND id=$2",[tenantId,id]);
+  await run(async c=>{
+   await c.query('SAVEPOINT removed_approval');
+   await c.query('UPDATE artworks SET approved_revision=NULL,approved_asset_id=NULL WHERE tenant_id=$1 AND id=$2',[tenantId,artworkId]);
+   await expect(replaceApprovedArtwork(c,session,draft.exhibitionId,replacementRequest,saved.etag,studio,cms,nativeImports,blobs)).rejects.toMatchObject({code:'ARTWORK_REPLACEMENT_STALE'});
+   await expect(resolveApprovedModelCandidate(c,session,artworkId,1,cms,nativeImports)).rejects.toMatchObject({code:'ARTWORK_REPLACEMENT_STALE'});
+   await c.query('ROLLBACK TO SAVEPOINT removed_approval');
+  });
+  const corrupted=Object.create(blobs) as FileBlobStore;
+  corrupted.getBounded=async()=>Buffer.alloc(receipt.display.bytes);
+  await expect(replace(replacementRequest,saved.etag,corrupted)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+  await expect(run(async c=>{
+   await replaceApprovedArtwork(c,session,draft.exhibitionId,replacementRequest,saved.etag,studio,cms,nativeImports,blobs);
+   throw Error('test transaction rollback');
+  })).rejects.toThrow('test transaction rollback');
+  expect(await run(c=>studio.get(c,session,draft.exhibitionId))).toEqual(saved);
+  const replaced=await replace(),expected=structuredClone(saved.draft);
+  expected.candidate.artworks[0]=candidate;
+  Object.assign(expected.candidate.placements[0]!,{artworkRevisionId:candidate.revisionId,assetId:candidate.primaryAssetId});
+  expect(replaced).toMatchObject({revision:saved.revision+1,draft:expected});
+  expect(await replace()).toEqual(replaced);
+  await expect(replace({...replacementRequest,placementId:randomUUID()})).rejects.toMatchObject({code:'REQUEST_CONFLICT'});
+  expect(await run(c=>studio.get(c,session,draft.exhibitionId))).toEqual(replaced);
+  expect(await resolveCandidate()).toEqual(ready);
+  expect(await ownership()).toEqual(beforeReplacement);
+  expect((await pool.query('SELECT p.snapshot,p.revision_sha256,p.draft_revision,s.status FROM studio_publications p JOIN publication_states s ON s.publication_id=p.id WHERE p.tenant_id=$1 AND p.id=$2',[tenantId,publicationId])).rows[0]).toEqual({snapshot:publication,revision_sha256:publicationHash,draft_revision:saved.revision,status:'published'});
+
   await run(c=>new Cms(blobs).revise(c,session,artworkId,{...metadata,revision:1} as Parameters<Cms['revise']>[3]));inputRevision=2;
   expect((await pool.query('SELECT count(*)::int AS n FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,artworkId])).rows[0].n).toBe(1);
 

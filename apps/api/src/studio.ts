@@ -288,13 +288,13 @@ export class Studio {
     return this.putInternal(c,s,id,input,match);
   }
   /** Server-only narrow operation; authorization and verified approval remain caller obligations. */
-  async putArtworkReplacement(c:PoolClient,s:Session,id:string,prior:Artwork,next:Artwork,requestId:string,match:string):Promise<StudioResponse>{
+  async putArtworkReplacement(c:PoolClient,s:Session,id:string,prior:Artwork,next:Artwork,requestId:string,match:string,placementId?:string):Promise<StudioResponse>{
     if(!this.nativeOexWorkspace||this.nativeOexWorkspace.tenantId!==s.tenantId||this.nativeOexWorkspace.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
     await this.nativeOexWorkspace.assertDatabase(c);
     const row=await this.access(c,s,id);if(row.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
     const draft=structuredClone(row.metadata) as Draft;
-    draft.candidate=replaceArtworkReferences(draft.candidate,prior,next) as Draft['candidate'];
-    return this.putInternal(c,s,id,{draft,requestId},match,{prior,next});
+    draft.candidate=replaceArtworkReferences(draft.candidate,prior,next,placementId) as Draft['candidate'];
+    return this.putInternal(c,s,id,{draft,requestId},match,{prior,next,placementId});
   }
   private async putInternal(
     c: PoolClient,
@@ -302,14 +302,14 @@ export class Studio {
     id: string,
     input: StudioInput,
     match: string,
-    replacement?:{prior:Artwork;next:Artwork},
+    replacement?:{prior:Artwork;next:Artwork;placementId?:string|undefined},
   ): Promise<StudioResponse> {
     if(!this.nativeOexWorkspace)checked(input);
     const row = await this.access(c, s, id);
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()

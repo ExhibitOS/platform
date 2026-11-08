@@ -7,9 +7,14 @@ import {ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
 /** Build the narrowly scoped draft change after the caller independently verifies
  * current owner, approval, original/derived bytes and new policy. This function
  * grants no asset authority and performs no persistence. */
-export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next:Artwork):Exhibition {
+export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next:Artwork,placementId?:string):Exhibition {
  const same=(a:string,b:string)=>a.toLowerCase()===b.toLowerCase();
- if(prior.artworkType!=='image'||next.artworkType!=='image'||!same(prior.id,next.id)||same(prior.revisionId,next.revisionId)||next.revision!==prior.revision+1||same(prior.primaryAssetId,next.primaryAssetId))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+ if(placementId===undefined){
+  if(prior.artworkType!=='image'||next.artworkType!=='image'||!same(prior.id,next.id)||next.revision!==prior.revision+1)throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+ }else if(prior.artworkType!=='sculpture'||next.artworkType!=='sculpture'||same(prior.id,next.id)||prior.units!==next.units||prior.coordinates!==next.coordinates||!isDeepStrictEqual(prior.transform,next.transform)||candidate.artworks.some(a=>same(a.id,next.id))){
+  throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+ }
+ if(same(prior.revisionId,next.revisionId)||same(prior.primaryAssetId,next.primaryAssetId))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
  const matches=candidate.artworks.filter(a=>same(a.id,prior.id));
  if(matches.length!==1||!same(matches[0]!.revisionId,prior.revisionId)||!isDeepStrictEqual(matches[0],prior))throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
  const oldIds=new Set([prior.revisionId,...prior.assets.map(a=>a.id)].map(id=>id.toLowerCase()));
@@ -17,18 +22,19 @@ export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next
  const unrelated=candidate.artworks.filter(a=>!same(a.id,prior.id)),usedRevisions=new Set(unrelated.map(a=>a.revisionId.toLowerCase())),usedAssets=new Set(unrelated.flatMap(a=>a.assets.map(asset=>asset.id.toLowerCase()))),newIds=next.assets.map(a=>a.id.toLowerCase());
  if(usedRevisions.has(next.revisionId.toLowerCase())||new Set(newIds).size!==newIds.length||newIds.some(id=>usedAssets.has(id)))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
  const copy=structuredClone(candidate),index=copy.artworks.findIndex(a=>same(a.id,prior.id));copy.artworks[index]=structuredClone(next);
- let replaced=0;for(const placement of copy.placements){if(same(placement.artworkRevisionId,prior.revisionId)){
+ let replaced=0;for(const placement of copy.placements){if(same(placement.artworkRevisionId,prior.revisionId)&&(placementId===undefined||same(placement.id,placementId))){
   if(!same(placement.assetId,prior.primaryAssetId))throw new ApiError(409,'ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
   placement.artworkRevisionId=next.revisionId;placement.assetId=next.primaryAssetId;replaced++;
  }}
- if(!replaced)throw new ApiError(409,'ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
+ if(!replaced||placementId!==undefined&&replaced!==1)throw new ApiError(409,'ARTWORK_REPLACEMENT_REFERENCE_UNSUPPORTED');
  // The existing entrance contract permits selecting this exact primary image.
  // Preserve all authored entrance text and presentation, changing only its
  // primary binding. The caller validates the complete draft before saving.
  const entrance=copy.extensions?.[ENTRANCE_NAMESPACE] as {imageAssetId?:unknown}|undefined;
- if(entrance&&typeof entrance.imageAssetId==='string'&&same(entrance.imageAssetId,prior.primaryAssetId))entrance.imageAssetId=next.primaryAssetId;
- // Refuse any unsupported cover, thumbnail, frame or other reference rather
- // than guessing how it should be rebound. Artwork identity itself is stable.
+ if(placementId===undefined&&entrance&&typeof entrance.imageAssetId==='string'&&same(entrance.imageAssetId,prior.primaryAssetId))entrance.imageAssetId=next.primaryAssetId;
+ // Refuse unsupported cover, thumbnail, frame or other references. The
+ // legacy image update retains its artwork ID; the model candidate differs.
+ if(placementId!==undefined)oldIds.add(prior.id.toLowerCase());
  const containsOld=(value:string)=>[...oldIds].some(id=>value.toLowerCase().includes(id));
  // An unchanged historical event can legitimately use the prior revision ID
  // as its own event identity (the CMS projection does this). Ignore only
