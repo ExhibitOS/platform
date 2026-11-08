@@ -608,10 +608,10 @@ export class Publications {
         const stage=fileOperation?await fileOperation.claim(c,s,this.blobs,'publish',id,match,requestId):undefined;
         try{
         const load=async(bytes:PublicationBytes):Promise<Buffer>=>{if(Buffer.isBuffer(bytes))return bytes;if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.read(bytes);};
-        const put=async(key:string,bytes:PublicationBytes)=>{const loaded=await load(bytes);fileOperation?.assertClaimed();await this.blobs!.put(key,loaded);fileOperation?.assertClaimed();};
+        const put=async(key:string,bytes:PublicationBytes)=>{detail?.assertCurrent(s);const loaded=await load(bytes);detail?.assertCurrent(s);fileOperation?.assertClaimed();await this.blobs!.put(key,loaded);detail?.assertCurrent(s);fileOperation?.assertClaimed();};
         const byteHash=(bytes:PublicationBytes)=>{if(Buffer.isBuffer(bytes))return sha256(bytes);if(!stage)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');return stage.describe(bytes).sha256;};
         if(fileOperation instanceof NativeLocalPublicationStage)fileOperation.markEffectsPossible();
-        const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864);
+        detail?.assertCurrent(s);const report = await this.prepare(c, s, row.metadata.candidate, id,stage,fileOperation?.budget??67108864);detail?.assertCurrent(s);
         if (report.issues.length)
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         if (!this.blobs)
@@ -622,12 +622,12 @@ export class Publications {
         if (!valid.valid || !validateStudioPresentation(snapshot).valid || !validateArchitecture(snapshot,true).valid || !validateSpatialProfile(snapshot).valid || !validateViewerCuration(snapshot).valid || !validateViewerExperience(snapshot).valid || snapshot.artworks.some(a=>!validateViewerLod(a).valid||!validateArtworkDetails(a).valid||!validateArtworkThumbnail(a).valid))
             throw new ApiError(422, "PUBLICATION_NOT_READY");
         const digest = revisionHash(snapshot);
-        if(fileOperation)await fileOperation.manifest(publicationId,digest,[
+        detail?.assertCurrent(s);if(fileOperation)await fileOperation.manifest(publicationId,digest,[
          ...assets.map(({id:assetId,prepared:p})=>{const hash=byteHash(p.bytes);return {key:`${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`,sha256:hash,bytes:p.bytes.length};}),
          ...media.map(({id:mediaId,prepared:p})=>({key:`${s.tenantId}/publications/${publicationId}/${mediaId}/${p.source.sha256}`,sha256:p.source.sha256,bytes:p.source.bytes})),
          ...(cover?[{key:`${s.tenantId}/publications/${publicationId}/${cover.id}/${cover.prepared.source.sha256}`,sha256:cover.prepared.source.sha256,bytes:cover.prepared.source.bytes}]:[])
         ]);
-        await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
+        detail?.assertCurrent(s);await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
         await c.query("INSERT INTO publication_states VALUES($1,'published',now())", [publicationId]);
         if(workspaceBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceFurnishing||!this.workspaceFurnishing.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceFurnishing.authorize(c,s);for(const binding of workspaceBindings)await c.query('INSERT INTO publication_workspace_furnishings(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
         if(workspaceMaterialBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceMaterial||!this.workspaceMaterial.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceMaterial.authorize(c,s);for(const binding of workspaceMaterialBindings)await c.query('INSERT INTO publication_workspace_materials(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
@@ -643,7 +643,7 @@ export class Publications {
             await c.query("INSERT INTO publication_media(tenant_id,publication_id,id,source_audio_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)",[s.tenantId,publicationId,mediaId,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);
         }
         if(cover){const p=cover.prepared,key=`${s.tenantId}/publications/${publicationId}/${cover.id}/${p.source.sha256}`;await put(key,p.bytes);await c.query('INSERT INTO publication_cover_images(tenant_id,publication_id,id,source_image_id,source_sha256,object_key,sha256,bytes,mime) VALUES($1,$2,$3,$4,$5,$6,$5,$7,$8)',[s.tenantId,publicationId,cover.id,p.source.id,p.source.sha256,key,p.source.bytes,p.source.mime]);}
-        await stage?.close();
+        await stage?.close();detail?.assertCurrent(s);
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
         const publishedRow={tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
