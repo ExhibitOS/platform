@@ -343,7 +343,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     let nativeDetailContext;
     if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&furnishingMode&&!selectedPhase&&privateOwner&&nativeExportWorkspace&&await hasNativeDetailCapability(fileURLToPath(new URL('./native-detail-static-export-capability-v1.json',import.meta.url)))){
       const marker='platform/scripts/native-detail-static-export-capability-v1.json';
-      if(!ordinaryAdmission||!writerLease||!pinnedPayload||!pinnedPayload.hasRegular(marker)||!pinnedPayload.hasExact(marker,'9663e0fb346c78ebbd1b9e883bbd2400a1b968368d101102f0e0285c8e7deaef',Buffer.byteLength(NATIVE_DETAIL_CAPABILITY))||!hasNativeDetailRequiredFiles(pinnedPayload))throw Error('NATIVE_DETAIL_CONFIGURATION');
+      if(!ordinaryAdmission||!writerLease||!pinnedPayload||!pinnedPayload.hasRegular('platform/apps/api/dist/private-wheat-candidate-pin.js')||!pinnedPayload.hasRegular(marker)||!pinnedPayload.hasExact(marker,'9663e0fb346c78ebbd1b9e883bbd2400a1b968368d101102f0e0285c8e7deaef',Buffer.byteLength(NATIVE_DETAIL_CAPABILITY))||!hasNativeDetailRequiredFiles(pinnedPayload))throw Error('NATIVE_DETAIL_CONFIGURATION');
       await pinnedPayload.verify();await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       nativeDetailContext=bindNativeDetailContext(nativeExportWorkspace,privateOwner.runtimeGeneration,ownerAbort.signal,isOwnerAvailable);
     }

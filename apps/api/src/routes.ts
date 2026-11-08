@@ -321,8 +321,8 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
     if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}
     await nativeExportWorkspace.assertDatabase(c);
     if(detailMode)cancelled.signal.throwIfAborted();
+    if(detailMode&&!hasQualifiedOriginalImageModel(nativeDetailContext,s,p.id))throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
     if(mutate){const existing=await publications.existingRequest(c,s,p.id,requestId!,match!,detailMode);if(existing){if(detailMode){cancelled.signal.throwIfAborted();if(!nativeDetailContext!.live())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');}if(!Number.isFinite(Date.parse(s.expiresAt))||Date.now()>=Date.parse(s.expiresAt))throw new ApiError(401,'AUTH_REQUIRED');return existing;}}
-    if(detailMode&&!hasQualifiedOriginalImageModel())throw new ApiError(409,'NATIVE_DETAIL_UNAVAILABLE');
     {
      const row=await studio.access(c,s,p.id),current=etag(row.revision,row.metadata);if(match&&match!==current)throw new ApiError(412,'REMOTE_CONFLICT');
      operation=await NativeLocalPublicationStage.create(c,s,nativeExportWorkspace,store,kind,p.id,current,requestId,detailMode);
