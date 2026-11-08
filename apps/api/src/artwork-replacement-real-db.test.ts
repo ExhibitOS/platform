@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {readFile,mkdir} from 'node:fs/promises';
 import {Pool,type PoolClient} from 'pg';
 import {migrate,transaction,FileBlobStore,Storage,sha256,type BlobStore} from '@exhibitos/storage';
-import type {Artwork,Lifecycle} from '@exhibitos/spec';
+import {revisionHash,type Artwork,type Lifecycle} from '@exhibitos/spec';
 import {freezeCanonical,type DetailCandidate} from '@exhibitos/studio-contract';
 import {Auth,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
@@ -15,6 +15,11 @@ import {replaceApprovedArtwork} from './artwork-replacement.ts';
 import {approveOriginalStaticSource,readApprovedOriginalStaticSource} from './artwork-original-static-approval.ts';
 import {readBoundOriginalDetail} from './original-detail-binding.ts';
 import {detailSourceCommitment,newDetailSourceNonce} from './detail-source-commitment.ts';
+import {bindNativeLocalExportWorkspace} from './native-oex-provenance.ts';
+import {bindNativeDetailContext} from './native-detail-context.ts';
+import {createNativeOriginalPublication} from './native-original-publication.ts';
+import * as imageModel from './native-original-image-model.ts';
+import * as jpegInspector from './jpeg-inspection-client.ts';
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
 
@@ -143,5 +148,13 @@ it.skipIf(!process.env.WHEAT_TEST_PG||!process.env.WHEAT_TEST_ROOT||!process.env
   const current=(await pool.query('SELECT revision,metadata FROM exhibitions WHERE tenant_id=$1 AND id=$2',[tenantId,draft.exhibitionId])).rows[0],save={draft:structuredClone(current.metadata),requestId:randomUUID()},saveMatch=etag(current.revision,current.metadata);
   const saved=await transaction(pool,c=>studio.put(c,session,draft.exhibitionId,save,saveMatch));expect(saved.revision).toBe(current.revision+1);expect(saved.draft).toEqual(current.metadata);
   expect(await transaction(pool,c=>studio.put(c,session,draft.exhibitionId,save,saveMatch))).toEqual(saved);expect((await pool.query('SELECT revision FROM exhibitions WHERE tenant_id=$1 AND id=$2',[tenantId,draft.exhibitionId])).rows[0].revision).toBe(saved.revision);
+  // Actual private source and PostgreSQL; the inspector receipt and device
+  // model are explicitly mocked and are not production qualification.
+  await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,process.getuid!()]);const ownerBinding=await transaction(pool,c=>bindNativeLocalExportWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid:process.getuid!(),blobRoot:root})),ownerChannel=new AbortController(),detailContext=bindNativeDetailContext(ownerBinding,randomUUID(),ownerChannel.signal,()=>true),producer=createNativeOriginalPublication({context:detailContext,studio,cms,imports,blobs}),producerSession={...session,id:randomUUID(),expiresAt:'2099-01-01T00:00:00.000Z'},inspect=vi.spyOn(jpegInspector,'inspectJpegInOwnedWorker');
+  await expect(transaction(pool,c=>producer.prepare(c,producerSession,draft.exhibitionId,randomUUID(),saved.draft.candidate))).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');expect(inspect).not.toHaveBeenCalled();
+  vi.spyOn(imageModel,'hasQualifiedOriginalImageModel').mockReturnValue(true);vi.spyOn(imageModel,'qualifiedOriginalImageModel').mockReturnValue({model:'synthetic-test-only',residentBytes:1,peakAdditionalBytes:1});inspect.mockImplementation(async bytes=>({bytes:Buffer.from(bytes),receipt:{sourceSha256:sha256(bytes),sourceBytes:bytes.length,width:4000,height:3184,iccSha256:'a'.repeat(64),decoder:'sharp-0.35.4-vips-8.18.6-mozjpeg-0826579'}}));
+  const testPublicationId=randomUUID();await expect(transaction(pool,async c=>{const prepared=await producer.prepare(c,producerSession,draft.exhibitionId,testPublicationId,saved.draft.candidate),revision=revisionHash(prepared.snapshot);expect(prepared.items).toHaveLength(1);await c.query('INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,testPublicationId,draft.exhibitionId,saved.revision,userId,prepared.snapshot,revision]);await c.query("INSERT INTO publication_states(publication_id,status) VALUES($1,'published')",[testPublicationId]);await producer.persist(c,producerSession,prepared,revision);expect((await c.query("SELECT count(*) AS n FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='native-original-detail-binding' AND metadata->>'publicationId'=$2",[tenantId,testPublicationId])).rows[0].n).toBe('1');throw Error('forced producer rollback');})).rejects.toThrow('forced producer rollback');
+  expect((await pool.query('SELECT count(*) AS n FROM studio_publications WHERE tenant_id=$1 AND id=$2',[tenantId,testPublicationId])).rows[0].n).toBe('0');expect((await pool.query("SELECT count(*) AS n FROM asset_derivatives WHERE tenant_id=$1 AND metadata->>'kind'='native-original-detail-binding' AND metadata->>'publicationId'=$2",[tenantId,testPublicationId])).rows[0].n).toBe('0');
+  await transaction(pool,async c=>{const prepared=await producer.prepare(c,producerSession,draft.exhibitionId,testPublicationId,saved.draft.candidate),revision=revisionHash(prepared.snapshot);await c.query('INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256) VALUES($1,$2,$3,$4,$5,$6,$7)',[tenantId,testPublicationId,draft.exhibitionId,saved.revision,userId,prepared.snapshot,revision]);await c.query("INSERT INTO publication_states(publication_id,status) VALUES($1,'published')",[testPublicationId]);await producer.persist(c,producerSession,prepared,revision);const detailScope={workspaceId,publicationId:testPublicationId,revisionSha256:revision,exhibitionId:draft.exhibitionId,artworkId:prior.id,artworkRevision:2,importJobId:id,candidate:prepared.items[0]!.candidate};expect((await readBoundOriginalDetail(c,producerSession,detailScope,studio,cms,imports,blobs,AbortSignal.timeout(10000))).bytes.equals(original)).toBe(true);await expect(producer.persist(c,producerSession,prepared,revision)).rejects.toThrow('NATIVE_DETAIL_UNAVAILABLE');});ownerChannel.abort();
  }finally{await pool.end();}
 },120000);
