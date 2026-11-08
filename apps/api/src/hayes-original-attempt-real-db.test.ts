@@ -5,9 +5,10 @@ import {join} from 'node:path';
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {Pool,type PoolClient} from 'pg';
 import {expect,it} from 'vitest';
-import {migrate,transaction,type BlobStore} from '@exhibitos/storage';
+import {FileBlobStore,migrate,transaction,type BlobStore} from '@exhibitos/storage';
+import {buildApp} from './app.ts';
 import {Auth,digest,type Session} from './auth.ts';
-import {createNativeHayesCaller} from './native-hayes-caller.ts';
+import {createNativeHayesCaller,isIssuedNativeHayesCaller} from './native-hayes-caller.ts';
 import {bindNativeOexWorkspace,assertIssuedWorkspaceImport,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {publicationDiskOwner} from './publication-attempt.ts';
 import {bindHayesOriginalContext,createHayesOriginalQuarantine,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
@@ -81,19 +82,33 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
    if(message.kind==='hayes-operation-revalidated')events.push('revalidated');
   }};
   const caller=createNativeHayesCaller({owner:bound,auth:new Auth(pool),blobs:store,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:new AbortController().signal,assertLive:async()=>{}});
+  const fileStore=new FileBlobStore(root),routeChannel={isOpen:()=>true,close:async()=>{},receive:async()=>{throw Error('unused');},send:async()=>{}},routeCaller=createNativeHayesCaller({owner:bound,auth:new Auth(pool),blobs:fileStore,channel:routeChannel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:new AbortController().signal,assertLive:async()=>{}});let ready=true;
+  const appConfig={pool,blobs:fileStore,nativeOexWorkspace:bound,nativeHayesCaller:routeCaller,runtimeAvailable:()=>ready,auth:{mode:'local' as const,origin:'http://127.0.0.1:13200',bindHost:'127.0.0.1'}};expect(()=>buildApp({...appConfig,blobs:new FileBlobStore(join(root,'other'))})).toThrow('HAYES_OWNER_CONFIGURATION');expect(()=>buildApp({...appConfig,runtimeAvailable:undefined})).toThrow('HAYES_OWNER_CONFIGURATION');
+  const app=buildApp(appConfig),headers={host:'127.0.0.1:13200',origin:'http://127.0.0.1:13200',cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf},url=`/api/v1/tenants/${tenantId}/imports/native-hayes-original`,routeRequest={...request,idempotencyKey:randomUUID()};
+  try{
+   expect((await app.inject({method:'POST',url,headers:{...headers,origin:'http://evil.example'},payload:routeRequest})).statusCode).toBe(403);
+   expect((await app.inject({method:'POST',url,headers:{...headers,cookie:'exhibitos_local_session=invalid'},payload:routeRequest})).statusCode).toBe(401);
+   expect((await app.inject({method:'POST',url,headers,payload:{...routeRequest,nativeOwnerId}})).statusCode).toBe(400);
+   ready=false;expect((await app.inject({method:'POST',url,headers,payload:routeRequest})).statusCode).toBe(503);ready=true;
+   const response=await app.inject({method:'POST',url,headers,payload:routeRequest});expect(response.statusCode).toBe(200);expect(response.json().state).toBe('uploading');expect((await app.inject({method:'POST',url,headers,payload:routeRequest})).json()).toEqual(response.json());
+   expect((await app.inject({method:'POST',url:`${url}/${response.json().id}/start`,headers,payload:{artworkId:provisional,artworkRevision:1}})).statusCode).toBe(404);
+  }finally{await app.close();await routeCaller.close();}
+
+  expect(isIssuedNativeHayesCaller(caller,bound,store)).toBe(true);expect(isIssuedNativeHayesCaller({...caller},bound,store)).toBe(false);expect(()=>createNativeHayesCaller({owner:bound,auth:new Auth(pool),blobs:store,channel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:new AbortController().signal,assertLive:async()=>{}})).toThrow();
+  await expect(caller.start({token:randomBytes(32).toString('base64url'),csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},Date.now()+30000)).rejects.toMatchObject({code:'AUTH_REQUIRED'});expect(events).toEqual([]);expect(active).toBe(true);
   const exchange=await caller.start({token,csrf},{jobId:created.id,artworkId:provisional,artworkRevision:1},Date.now()+30000);expect(events).toEqual(['open','source','revalidated']);
   const activeJob=(await pool.query('SELECT state,lease_id,hayes_attempt_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,created.id])).rows[0];expect(activeJob.state).toBe('processing');expect(activeJob.lease_id).toBeTruthy();expect(activeJob.hayes_attempt_id).toBeTruthy();
   await exchange.close();await caller.close();expect(events.filter(x=>x==='close')).toHaveLength(1);
   const secondRequest={...request,idempotencyKey:randomUUID()},second=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,secondRequest));await transaction(pool,c=>imports.upload(c,s,second.id,source));await transaction(pool,c=>imports.complete(c,s,second.id));
   const interrupted=new AbortController(),outcomes:string[]=[],incoming:Buffer[]=[];let commits=0,secondBinding:Record<string,unknown>|undefined,open=true;
-  const delayedPool=new Proxy(pool,{get(target,key){if(key==='connect')return async()=>{const client=await target.connect();return new Proxy(client,{get(c,k){if(k==='query')return async (...args:unknown[])=>{const result=await Reflect.apply(c.query,c,args);if(args[0]==='COMMIT'&&++commits===3)interrupted.abort();return result;};const value=Reflect.get(c,k,c);return typeof value==='function'?value.bind(c):value;}}) as PoolClient;};const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});
+  const delayedPool=new Proxy(pool,{get(target,key){if(key==='connect')return async()=>{const client=await target.connect();return new Proxy(client,{get(c,k){if(k==='query')return async (...args:unknown[])=>{const result=await Reflect.apply(c.query,c,args);if(args[0]==='COMMIT'&&++commits===4)interrupted.abort();return result;};const value=Reflect.get(c,k,c);return typeof value==='function'?value.bind(c):value;}}) as PoolClient;};const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;}});
   const secondChannel={isOpen:()=>open,close:async()=>{open=false;outcomes.push('close');},receive:async()=>{const item=incoming.shift();if(!item)throw Error('EOF');return item;},send:async(raw:Uint8Array)=>{const m=JSON.parse(Buffer.from(raw).toString()) as Record<string,unknown>;
    if(m.kind==='hayes-operation-open'){secondBinding=m.binding as Record<string,unknown>;incoming.push(frame({version:1,kind:'hayes-operation-open-accepted',binding:secondBinding,nativeOwnerId,runtimeManifestSha256}));}
    if(m.kind==='hayes-transfer-end'&&m.direction==='source')incoming.push(frame({version:1,kind:'hayes-transfer-accepted',attemptId:secondBinding!.attemptId,correlationId:secondBinding!.correlationId,direction:'source',bytes:b.sourceBytes,sha256:b.sourceSha256}),frame({version:1,kind:'hayes-operation-revalidate',binding:secondBinding,challenge,runtimeManifestSha256}));
    if(m.kind==='hayes-operation-revalidated')outcomes.push('revalidated');
   }};
   const interruptedCaller=createNativeHayesCaller({owner:bound,auth:new Auth(delayedPool),blobs:store,channel:secondChannel,runtimeGeneration,nativeOwnerId,runtimeManifestSha256,signal:interrupted.signal,assertLive:async()=>{}});
-  await expect(interruptedCaller.start({token,csrf},{jobId:second.id,artworkId:provisional,artworkRevision:1},Date.now()+30000)).rejects.toThrow();expect(commits).toBe(3);expect(outcomes).toEqual(['close']);
+  await expect(interruptedCaller.start({token,csrf},{jobId:second.id,artworkId:provisional,artworkRevision:1},Date.now()+30000)).rejects.toThrow();expect(commits).toBe(4);expect(outcomes).toEqual(['close']);
   const retained=(await pool.query('SELECT state,lease_id,hayes_attempt_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,second.id])).rows[0];expect(retained.state).toBe('processing');expect(retained.lease_id).toBeTruthy();expect(retained.hayes_attempt_id).toBeTruthy();
 
 
