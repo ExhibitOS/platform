@@ -15,6 +15,7 @@ import {Imports} from './imports.ts';
 import {reserveHayesOutput} from './hayes-output-reservation.ts';
 import {storeHayesOutput} from './hayes-output-storage.ts';
 import {commitHayesDisposition} from './hayes-disposition-transaction.ts';
+import {recordHayesReleaseCompletion} from './hayes-release-completion.ts';
 const mock=vi.hoisted(()=>({scope:undefined as unknown,admission:undefined as unknown,owner:undefined as unknown,blobs:undefined as unknown}));
 vi.mock('./hayes-ready-authority.ts',()=>({resolveHayesReady:(admission:unknown,owner:unknown,blobs:unknown)=>{if(!mock.scope||admission!==mock.admission||owner!==mock.owner||blobs!==mock.blobs)throw Error('HAYES_READY_NOT_ADMITTED');return mock.scope;}}));
 const sha=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
@@ -51,7 +52,11 @@ it.skipIf(!process.env.HAYES_CUSTODY_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGI
   const rawCompletion=Buffer.from(JSON.stringify(releaseFrame)),insertRelease='INSERT INTO hayes_native_releases(tenant_id,attempt_id,job_id,disposition_id,stage_id,native_owner_id,runtime_manifest_sha256,worker_manifest_sha256,native_evidence_sha256,ready_frame_sha256,database_system_identifier,database_oid,challenge,receipt_sha256,intent_sha256,completion_sha256,completion_canonical,completion_frame_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)';
   const releaseArgs=[tenantId,binding.attemptId,created.id,receiptId,stageId,scope.nativeOwnerId,h,h,h,readyFrameSha256,database.systemIdentifier,database.databaseOid,challenge,committed.receiptSha256,intentSha256,completionSha256,rawCompletion,sha(rawCompletion)];
   const wrong=[...releaseArgs];wrong[14]='0'.repeat(64);await expect(pool.query(insertRelease,wrong)).rejects.toThrow('Hayes release evidence invalid');
-  await pool.query(insertRelease,releaseArgs);await expect(pool.query('UPDATE hayes_native_releases SET completion_sha256=$2 WHERE tenant_id=$1',[tenantId,'0'.repeat(64)])).rejects.toThrow('Hayes release evidence immutable');await expect(pool.query('DELETE FROM hayes_native_releases WHERE tenant_id=$1',[tenantId])).rejects.toThrow('Hayes release evidence immutable');
+  mock.scope=Object.freeze({...scope,phase:'committed',release:{readyFrameSha256,challenge,receiptId,receiptSha256:committed.receiptSha256}});
+  const releaseInput={...common,frame:rawCompletion};const releaseRecord=await recordHayesReleaseCompletion(releaseInput);expect(releaseRecord).toEqual({attemptId:binding.attemptId,completionFrameSha256:sha(rawCompletion)});expect(await recordHayesReleaseCompletion(releaseInput)).toEqual(releaseRecord);
+  const different=Buffer.from(JSON.stringify({...releaseFrame,completionSha256:'e'.repeat(64)}));await expect(recordHayesReleaseCompletion({...releaseInput,frame:different})).rejects.toThrow('HAYES_RELEASE_CONFLICT');
+  await expect(recordHayesReleaseCompletion({...releaseInput,frame:Buffer.from(JSON.stringify({...releaseFrame,database:{...database,databaseOid:'999'}}))})).rejects.toThrow('HAYES_RELEASE_COMPLETION_INVALID');
+  await expect(pool.query('UPDATE hayes_native_releases SET completion_sha256=$2 WHERE tenant_id=$1',[tenantId,'0'.repeat(64)])).rejects.toThrow('Hayes release evidence immutable');await expect(pool.query('DELETE FROM hayes_native_releases WHERE tenant_id=$1',[tenantId])).rejects.toThrow('Hayes release evidence immutable');
   await pool.query("UPDATE artworks SET metadata=jsonb_set(metadata,'{rights,permissions,display}','false'::jsonb) WHERE tenant_id=$1 AND id=$2",[tenantId,artworkId]);expect((await pool.query("SELECT metadata->'rights'->'permissions'->>'display' AS display FROM artworks WHERE tenant_id=$1 AND id=$2",[tenantId,artworkId])).rows[0].display).toBe('false');
   // A separate synthetic attempt loses its owner immediately after the real
   // durable link. The stage and bytes must survive; no asset is committed.
