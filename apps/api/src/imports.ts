@@ -1,3 +1,4 @@
+import {createCompactVariant,type CompactVariantInput} from './compact-model-variant.ts';
 import {modelPreparationIntent,storedModelPreparation,modelPreparationView,type ModelPreparationIntent} from './model-preparation-intent.ts';
 import {assertModelPreparationContext,assertModelPreparationSlot,workRequiredModelPreparation,assertModelPreparationExecution,type ModelPreparationExecution} from './model-preparation-import.ts';
 import {isDeepStrictEqual} from 'node:util';
@@ -21,6 +22,7 @@ export class Imports {
  readonly pool:Pool; readonly blobs:BlobStore; readonly nativeWorkspace:NativeOexWorkspaceContext|undefined; readonly modelExecution:ModelPreparationExecution|undefined;
  constructor(pool:Pool,blobs:BlobStore,nativeWorkspace?:NativeOexWorkspaceContext,modelExecution?:ModelPreparationExecution){if(modelExecution)assertModelPreparationExecution(modelExecution,blobs,nativeWorkspace);this.pool=pool;this.blobs=blobs;this.nativeWorkspace=nativeWorkspace;this.modelExecution=modelExecution;}
  async requiredModelReady(c:PoolClient,s?:{tenantId:string;userId:string}){if(!this.modelExecution)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');await this.modelExecution.assertReady(c,s);}
+ async createCompact(c:PoolClient,s:Session,artworkId:string,input:CompactVariantInput){await this.requiredModelReady(c,s);return this.view(await createCompactVariant(c,s,artworkId,input,this.modelExecution!));}
  async coarseOwner(c:PoolClient,tenantId:string,principalId:string,workspaceId?:string){const owner=this.nativeWorkspace;if(!owner||owner.tenantId!==tenantId||owner.principalId!==principalId||(workspaceId!==undefined&&owner.workspaceId!==workspaceId))throw new ApiError(403,'FORBIDDEN');await owner.assertDatabase(c);return owner;}
  async boundedBlob(key:string,bytes:number){const read=this.blobs.getBounded;if(!read)throw new ApiError(503,'STORAGE_UNAVAILABLE');return read.call(this.blobs,key,bytes);}
  async access(c:PoolClient,s:Session,id:string) {
@@ -30,6 +32,7 @@ export class Imports {
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
   const preparation=modelPreparationIntent(input.modelPreparation);
+  if(preparation?.sourceFull)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
   let artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
   if(preparation){
    // Match CMS approval/revision serialization; retain this row lock through

@@ -15,7 +15,7 @@ it('uses existing durable intent token semantics and a new draft revision withou
 });
 it('withholds every output identity before actual drain and keeps required failure distinct',()=>{
  const imports=new Imports({} as Pool,{} as BlobStore);
- for(const state of ['uploading','queued','processing','failed','cancelled']){const r={...row(),state};const result=imports.view(r);expect(result.assetId).toBeUndefined();expect(result.modelPreparation).not.toHaveProperty('display');expect(result.modelPreparation).not.toHaveProperty('serverReceipt');expect(result.modelPreparation?.original).not.toHaveProperty('assetId');}
+ for(const state of ['uploading','queued','processing','failed','cancelled']){const r={...row(),state};const result=imports.view(r);expect(result.assetId).toBeUndefined();expect(result.modelPreparation).not.toHaveProperty('display');expect(result.modelPreparation).not.toHaveProperty('serverReceipt');expect(result.modelPreparation).not.toHaveProperty('original.assetId');}
  const r=ready();r.png_worker_tokens=['old-worker'];const pending=imports.view(r);expect(pending.assetId).toBeUndefined();expect(pending.modelPreparation).toMatchObject({status:'processing',workerDrained:false});r.png_worker_tokens=[];expect(imports.view(r).modelPreparation).toMatchObject({status:'ready',workerDrained:true,display:{assetId:'display'},original:{assetId:'original'}});
 });
 it('reconstructs exact immutable producer, job, intent, rights and asset binding before returning ready',()=>{

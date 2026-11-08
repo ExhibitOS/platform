@@ -58,6 +58,18 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
    const invalid=()=>issues.push({code:'INVALID_REQUIRED_MODEL_IMPORT',binding});
    if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||request.profileId!=='embedded-model-compact-20k-512-v1'||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
    if(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length>0)issues.push({code:'MODEL_PREPARATION_WORKER_DRAIN_UNCONFIRMED',binding});
+   if(request.sourceFull!==undefined){
+    const full=request.sourceFull;
+    if(!obj(full)||!(typeof full.assetId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(full.assetId))||!hex(full.approvalSHA256)){invalid();break;}
+    if(row.state==='approved'){
+     const receipt=preparation.result;
+     if(!obj(receipt)||!obj(receipt.sourceFull)||!obj(receipt.coarse)||!obj(receipt.producer)||!obj(receipt.producer.source)||!obj(receipt.producer.output)){invalid();break;}
+     const {sha256:digest,...body}=receipt,a=receipt.sourceFull,b=receipt.coarse,producer=receipt.producer,source=producer.source as Record<string,unknown>,output=producer.output as Record<string,unknown>;
+     if(!hex(digest)||hash(body)!==digest||receipt.version!==1||receipt.purpose!=='approved-full-compact'||receipt.publicationProfile!=='exhibitos-budget-geometry-pair-v1'||receipt.profileId!==request.profileId||receipt.recipeSHA256!==producer.recipeSHA256||!hex(receipt.recipeSHA256)||producer.recipeId!==request.profileId||receipt.jobId!==row.id||receipt.artworkId!==row.artwork_id||receipt.artworkRevision!==request.artworkRevision||receipt.operationID!==request.operationID||receipt.generation!==request.generation||receipt.rightsSHA256!==hash(row.rights)||receipt.approvalSHA256!==full.approvalSHA256||a.assetId!==full.assetId||row.original_asset_id!==a.assetId||a.assetId===b.assetId||b.assetId!==row.asset_id||a.mime!=='model/gltf-binary'||b.mime!=='model/gltf-binary'||a.sha256!==row.expected_hash||a.bytes!==Number(row.expected_bytes)||!hex(b.sha256)||!bytes(b.bytes)||source.sha256!==a.sha256||source.bytes!==a.bytes||output.sha256!==b.sha256||output.bytes!==b.bytes||output.reusedOriginal!==false||row.approved_key!==`${tenant}/approved/${b.sha256}`){invalid();break;}
+     add(row.approved_key,true,b.bytes,b.sha256,':approved-compact-variant');
+    }else if(preparation.result!==undefined||row.asset_id!=null||row.original_asset_id!=null)invalid();
+    break;
+   }
    if(row.state==='approved'){
     const receipt=preparation.result;if(!obj(receipt)||!obj(receipt.original)||!obj(receipt.display)||!obj(receipt.producer)||!obj(receipt.producer.source)||!obj(receipt.producer.output)){invalid();break;}
     const {sha256:receiptHash,...body}=receipt,original=receipt.original,display=receipt.display,producer=receipt.producer,source=producer.source as Record<string,unknown>,output=producer.output as Record<string,unknown>;

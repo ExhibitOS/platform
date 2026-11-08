@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Artwork, Exhibition } from "@exhibitos/spec";
-import { lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
+import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
@@ -57,7 +57,9 @@ export function prioritizePlacements(doc:Exhibition,roomId:string,position:[numb
 export function selectAssetVariant(artwork:Artwork,distance:number,budget:DeviceBudget):Artwork["assets"][number] {
  const variants=lodVariantsFor(artwork),full=variants.find(v=>v.detail==="full"),coarse=variants.find(v=>v.detail==="coarse");
  const fits=(v:typeof full)=>!!v&&(v.triangles===undefined||v.triangles<=budget.maxTriangles)&&(v.textureSize===undefined||v.textureSize<=budget.maxTextureSize);
- let selected=coarse&&(distance>2||!fits(full))&&fits(coarse)?coarse:fits(full)?full:undefined;
+ const lod=artwork.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
+ const budgetFallback=lod?.profile===BUDGET_GEOMETRY_PAIR_PROFILE;
+ let selected=coarse&&(!fits(full)||!budgetFallback&&distance>2)&&fits(coarse)?coarse:fits(full)?full:undefined;
  // Images already resize uniformly before GPU upload. Permit only a small,
  // bounded source when no authored variant fits; model limits stay unchanged.
  if(!selected&&artwork.artworkType==='image'){

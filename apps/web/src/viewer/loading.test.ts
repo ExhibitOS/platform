@@ -8,7 +8,7 @@ import {createFlatDetailRetry} from "./borrowed-detail-preview";
 import { newPlacement,syntheticArtwork } from "../placement/model";
 import { newDraft } from "../drafts/example";
 import { newDoor,newRoom,newSurface } from "../geometry/model";
-import { LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
+import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE, validateViewerLod, lodVariantsFor } from "@exhibitos/studio-contract";
 const tick=()=>new Promise(r=>setTimeout(r,0));
 describe('authored painting near tiers',()=>{
  const image=()=>{const a=syntheticArtwork('image'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:1000};full.bytes=1048576;a.assets.push(coarse);a.extensions={[LOD_NAMESPACE]:{version:1,variants:[{assetId:full.id,detail:'full',textureSize:2048},{assetId:coarse.id,detail:'coarse',textureSize:512}]}};return {a,full,coarse};};
@@ -93,6 +93,19 @@ describe("bounded Viewer loading",()=>{
 });
 
 describe('automatic detail transitions',()=>{
+ it('uses the budget geometry fallback only when the full model cannot fit',()=>{
+  const a=syntheticArtwork('sculpture'),full=a.assets[0]!,coarse={...full,id:crypto.randomUUID(),bytes:1000};
+  full.bytes=16000000;a.assets.push(coarse);
+  a.extensions={[LOD_NAMESPACE]:{version:1,profile:BUDGET_GEOMETRY_PAIR_PROFILE,variants:[{assetId:full.id,detail:'full',triangles:100000,textureSize:2048},{assetId:coarse.id,detail:'coarse',triangles:20000,textureSize:512}]}};
+  expect(validateViewerLod(a).valid).toBe(true);
+  for(const distance of [0,3,Infinity]){
+   expect(selectAssetVariant(a,distance,DEVICE_BUDGETS.desktop).id).toBe(full.id);
+   expect(selectAssetVariant(a,distance,DEVICE_BUDGETS.compact).id).toBe(coarse.id);
+  }
+  const neither={...DEVICE_BUDGETS.compact,maxTriangles:19999};
+  expect(()=>selectAssetVariant(a,0,neither)).toThrow('ASSET_BUDGET_EXCEEDED');
+  expect(displayedDetailReclamation([{id:a.revisionId,artwork:a,assetId:full.id,visible:true,lastAttended:0}],'other',5000,DEVICE_BUDGETS.desktop)).toBeUndefined();
+ });
  it('keeps near-plane-intersecting geometry in demand without projecting behind-eye corners, and rejects out-of-frustum bounds',()=>{
   const near={corners:[{x:-2,y:-2,z:-3,depth:0},{x:.5,y:.5,z:.5,depth:-1}],near:.1,intersectsFrustum:true,width:800,height:600};
   expect(detailScreenBounds(near)).toEqual({visible:true,occupancy:1,projectedPixels:800,gazeDistance:0});
