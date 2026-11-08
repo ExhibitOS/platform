@@ -21,7 +21,7 @@ function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corrup
 }
 describe('static publication content-addressed reads',()=>{
  it('validates the active v4 publication before allowing a previous copy to reopen',async()=>{
-  const exhibition={id:'synthetic',artworks:[]},publicationId='synthetic-publication',revision=digest(freezeCanonical(exhibition));
+  const exhibition={id:'synthetic',artworks:[],mediaAssets:[]},publicationId='synthetic-publication',revision=digest(freezeCanonical(exhibition));
   const oldValue={publication:{id:publicationId,status:'published',revisionSha256:revision},exhibition,assets:[]},activeValue={...oldValue,detailAssets:[]};
   const make=(value:unknown,version:number)=>{const pub=Buffer.from(JSON.stringify(value)),sha=digest(pub),path=`data/${sha}.json`,index=Buffer.from(JSON.stringify({version,publication:{path,bytes:pub.length,sha256:sha,mime:'application/json'},assets:[],...(version===4?{detailAssets:[]}:{})}));return {pub,path,index};};
   let old=make(oldValue,1),active=make(activeValue,4);

@@ -95,6 +95,11 @@ export class Auth {
  requestForExportPreparation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
   return this.authorizedRequest(token,tenantId,csrf,'export-preparation',work);
  }
+ /** Detail control and reads need a fresh post-lock snapshot without holding
+  * the exclusive mutation lock across cancellable bounded I/O. */
+ requestForNativeDetailRead<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
+  return this.authorizedRequest(token,tenantId,csrf,'export-preparation',work,true);
+ }
  private async authorizedRequest<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mode:'read'|'write'|'export-preparation',work:(client:PoolClient,session:Session)=>Promise<T>,readCommitted=false){
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new ApiError(401,'AUTH_REQUIRED');
   return transaction(this.pool, async client => {
