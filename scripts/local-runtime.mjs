@@ -23,7 +23,7 @@ import {createSelectedStudioPutSlot} from "../apps/api/dist/native-selected-stud
 import {runFreshNativeOexOwner} from "../apps/api/dist/native-fresh-oex-owner.js";
 import {bindNativeOexWorkspace,bindNativeLocalExportWorkspace} from "../apps/api/dist/native-oex-provenance.js";
 import {bindNativeDetailContext} from "../apps/api/dist/native-detail-context.js";
-import {hasNativeDetailCapability,NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
+import {hasNativeDetailCapability,hasNativeDetailRequiredFiles,NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {hasWorkspaceFurnishingCapability,verifyWorkspaceFurnishingMigration,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256} from './native-oex-normal-catalog.mjs';
 import {assertFurnishingBeforeCommit,assertWorkspaceFurnishingRuntimeAdmission,prepareWorkspaceFurnishingCatalog} from './native-workspace-furnishing-bootstrap.mjs';
 import {WorkspaceFurnishingIntakes} from '../apps/api/dist/workspace-furnishing-intakes.js';
@@ -315,8 +315,8 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const isOwnerAvailable=()=>runtimeReady&&!ownerStopped&&!!ownerChannel?.isOpen(),deferredStartup=[];
     let nativeDetailContext;
     if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&furnishingMode&&!selectedPhase&&privateOwner&&nativeExportWorkspace&&await hasNativeDetailCapability(fileURLToPath(new URL('./native-detail-static-export-capability-v1.json',import.meta.url)))){
-      const marker='platform/scripts/native-detail-static-export-capability-v1.json',required=['platform/apps/api/dist/native-detail-static-export.js','platform/apps/api/dist/native-detail-http.js','platform/apps/api/dist/native-detail-context.js','platform/scripts/native-static-export.mjs','platform/scripts/export-static-publication.mjs','platform/scripts/native-detail-plan.mjs','platform/scripts/native-detail-pipe.mjs','platform/scripts/native-detail-control.mjs','platform/scripts/native-detail-export-runner.mjs','platform/apps/web/src/static-json.mjs'];
-      if(!ordinaryAdmission||!writerLease||!pinnedPayload||!pinnedPayload.hasRegular(marker)||!pinnedPayload.hasExact(marker,'9663e0fb346c78ebbd1b9e883bbd2400a1b968368d101102f0e0285c8e7deaef',Buffer.byteLength(NATIVE_DETAIL_CAPABILITY))||required.some(path=>!pinnedPayload.hasRegular(path)))throw Error('NATIVE_DETAIL_CONFIGURATION');
+      const marker='platform/scripts/native-detail-static-export-capability-v1.json';
+      if(!ordinaryAdmission||!writerLease||!pinnedPayload||!pinnedPayload.hasRegular(marker)||!pinnedPayload.hasExact(marker,'9663e0fb346c78ebbd1b9e883bbd2400a1b968368d101102f0e0285c8e7deaef',Buffer.byteLength(NATIVE_DETAIL_CAPABILITY))||!hasNativeDetailRequiredFiles(pinnedPayload))throw Error('NATIVE_DETAIL_CONFIGURATION');
       await pinnedPayload.verify();await writerLease.assertLive();if(ownerStopped||!ownerChannel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
       nativeDetailContext=bindNativeDetailContext(nativeExportWorkspace,privateOwner.runtimeGeneration,ownerAbort.signal,isOwnerAvailable);
     }
