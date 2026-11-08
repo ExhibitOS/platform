@@ -56,7 +56,10 @@ function projectSnapshot(snapshot: DiagnosticSnapshot) {
       peakTransitionEstimateBytes: number(memory.peakTransitionEstimateBytes),
       textureEstimateBytes: number(memory.textureEstimateBytes),
       meshEstimateBytes: number(memory.meshEstimateBytes),
+      peakTextureEstimateBytes: number(memory.peakTextureEstimateBytes),
+      peakMeshEstimateBytes: number(memory.peakMeshEstimateBytes),
       renderTargetEstimateBytes: null,
+      peakRenderTargetEstimateBytes: null,
       gpuPhysicalBytes: null,
     },
     assets: snapshot.assets.slice(0, 32).flatMap(asset => {
@@ -96,6 +99,8 @@ export function createDiagnosticReport(snapshot: DiagnosticSnapshot | null): str
     staging: true,
     metrics: {
       allocationBytes: "estimated",
+      textureAndMeshPeak: "highest sampled estimate of tracked loaded and prepared assets",
+      transitionPeak: "tracked allocation estimate high-water mark",
       physicalGpuMemoryBytes: null,
       browserProcessMemoryBytes: null,
       browserPlatform: null,
