@@ -2,6 +2,7 @@ import {workspaceFloorMaterials} from './drafts/workspace-material-validation.mj
 import {publicWorkspaceMaterialRights} from './workspace-material-public-rights.mjs';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import { retainsCopyInventory,retainedWheatCopyFiles } from './private-editor/previous-copy-compatibility';
+import { PREVIOUS_WHEAT_V4_INDEX } from './private-editor/previous-wheat-v4.mjs';
 import type { PublicPublication,DetailAccess } from "./publication-client";
 import {DetailAccessFailure} from './detail-access-failure';
 import { freezeCanonical,validateFurnishings,furnishingsFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality,type WorkspaceFurnishings,type DetailCandidate } from "@exhibitos/studio-contract";
@@ -74,7 +75,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
  const value=parseStaticJson(p) as PublicPublication,draft=newDraft();draft.schemaVersion=value.exhibition.schemaVersion;draft.exhibitionId=value.exhibition.id;draft.candidate=value.exhibition;
  if(value.publication.status!=="published"||!validateDraft(draft).valid||!validateFurnishings(value.exhibition).valid||!validFootstepPublication(value)||await hash(new TextEncoder().encode(freezeCanonical(value.exhibition)))!==value.publication.revisionSha256)throw Error("STATIC_PUBLICATION");
  const publicationId=value.publication.id,revisionSha256=value.publication.revisionSha256;
- if(previousIndex&&index.version===4)throw Error('STATIC_PREVIOUS_ASSETS');
+ if(previousIndex&&index.version===4&&previousIndex!==PREVIOUS_WHEAT_V4_INDEX)throw Error('STATIC_PREVIOUS_ASSETS');
  const workspace=value.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;if(!validateWorkspaceFurnishings(value.exhibition).valid||!publicWorkspaceFurnishingRights(workspace))throw Error('STATIC_WORKSPACE_FURNISHING');
  const workspaceAssets=workspace?.furnishings??[];
  const material=value.exhibition.extensions?.['org.exhibitos.studio/workspace-materials'];if(!publicWorkspaceMaterialRights(material))throw Error('STATIC_WORKSPACE_MATERIAL');
@@ -123,6 +124,17 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   // The current publication must itself pass its normal validation before it
   // can authorize exact historical Wheat bytes absent from its inventory.
   const active=await loadVerifiedStaticPublication(),activeIndex=active.index,supplemental:FileEntry[]=[];
+  if(index.version===4){
+   // The exact previously public original must still be present in the
+   // independently validated active publication and at its hashed path.
+   const old=detailEntries[0];
+   if(activeIndex.version!==4||detailEntries.length!==1||!old||!activeIndex.detailAssets?.some(e=>e.path===old.path&&e.sha256===old.sha256&&e.bytes===old.bytes&&e.mime===old.mime))throw Error('STATIC_PREVIOUS_ASSETS');
+   const access=active.publication.local?.detailAccess;let authorized=false;
+   if(!access)throw Error('STATIC_PREVIOUS_ASSETS');
+   for(const artwork of active.publication.exhibition.artworks){const candidates=await access.candidatesFor(artwork.revisionId);if(candidates.some(c=>c.sha256===old.sha256&&c.bytes===old.bytes&&c.mime===old.mime))authorized=true;}
+   if(!authorized)throw Error('STATIC_PREVIOUS_ASSETS');
+   const bytes=await read(old.path,old.bytes,undefined,true);if(bytes.length!==old.bytes||await hash(bytes)!==old.sha256)throw Error('STATIC_PREVIOUS_ASSETS');
+  }
   for(const file of retainedWheatCopyFiles(value.exhibition,active.publication.exhibition)){
    const same=(entry:FileEntry)=>entry.path===file.path&&entry.sha256===file.sha256&&entry.bytes===file.bytes&&entry.mime===file.mime;
    if(!index.assets.some(same)||activeIndex.assets.some(same))continue;
