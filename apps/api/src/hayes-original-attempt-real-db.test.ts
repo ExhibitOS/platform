@@ -9,7 +9,7 @@ import {migrate,transaction,type BlobStore} from '@exhibitos/storage';
 import type {Session} from './auth.ts';
 import {bindNativeOexWorkspace,assertIssuedWorkspaceImport,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {publicationDiskOwner} from './publication-attempt.ts';
-import {bindHayesOriginalContext,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
+import {bindHayesOriginalContext,createHayesOriginalQuarantine,openHayesOriginalAttempt,revalidateHayesOriginalAttempt} from './hayes-original-attempt.ts';
 import {Imports} from './imports.ts';
 
 it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('retains a native claim across expiry, rejects stale owners and leaves ordinary imports usable',async()=>{
@@ -61,5 +61,14 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   await transaction(pool,c=>new Imports(pool,blobs,bound).action(c,s,jobId,'cancel'));
   const cancelled=(await pool.query('SELECT * FROM import_jobs WHERE id=$1',[jobId])).rows[0];expect(cancelled.state).toBe('cancelled');expect(cancelled.lease_id).toBe(b.leaseId);
   await expect(transaction(pool,c=>new Imports(pool,blobs,bound).action(c,s,jobId,'retry'))).rejects.toThrow('WORKER_DRAIN_UNCONFIRMED');
+  const provisional=randomUUID(),display='b'.repeat(64),request={artworkId:provisional,artworkRevision:1,displayReferenceSha256:display,idempotencyKey:randomUUID()};
+  await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,provisional,artistId,{rights,displayReference:{status:'provisional-uncalibrated',assetSha256:display},provenance:{sourceUnits:'unknown',scaleApplied:false}}]);
+  const objects=new Map<string,Buffer>(),store={put:async(key:string,bytes:Buffer)=>{objects.set(key,Buffer.from(bytes));},get:async(key:string)=>{const bytes=objects.get(key);if(!bytes)throw Error('missing');return Buffer.from(bytes);},getBounded:async(key:string)=>{const bytes=objects.get(key);if(!bytes)throw Error('missing');return Buffer.from(bytes);}} as unknown as BlobStore,imports=new Imports(pool,store,bound);
+  await expect(transaction(pool,c=>imports.create(c,s,{artworkId:provisional,idempotencyKey:randomUUID(),mime:'model/gltf-binary',sha256:b.sourceSha256,bytes:b.sourceBytes,scaleMeters:1,rights}))).rejects.toThrow('PROVISIONAL_ASSET_MISMATCH');
+  const created=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,request));expect(created.state).toBe('uploading');expect(await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,{idempotencyKey:request.idempotencyKey,displayReferenceSha256:display,artworkRevision:1,artworkId:provisional}))).toEqual(created);
+  await expect(transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,{...request,displayReferenceSha256:'c'.repeat(64)}))).rejects.toThrow('HAYES_SOURCE_CHANGED');
+  await expect(transaction(pool,c=>imports.upload(c,s,created.id,Buffer.from('wrong')))).rejects.toThrow('UPLOAD_INTEGRITY');await transaction(pool,c=>imports.upload(c,s,created.id,source));await transaction(pool,c=>imports.complete(c,s,created.id));
+  expect(await imports.work()).toBe(false);const quarantine=(await pool.query('SELECT state,object_key,asset_id FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,created.id])).rows[0];expect(quarantine.state).toBe('queued');expect(quarantine.asset_id).toBeNull();expect(quarantine.object_key).toContain('/quarantine/');
+
  }finally{source.fill(0);await pool.end();await rm(root,{recursive:true,force:true});}
 });

@@ -14,7 +14,7 @@ export async function readNativeWorkspaceChannel() {
     const data = chunk => { count += chunk.length; if (count > 4096) { chunk.fill(0); fail(); } else { chunks.push(chunk); } };
     const end = () => {
       cleanup(); const bytes = Buffer.concat(chunks);
-      try { resolve(JSON.parse(bytes.toString('utf8'))); } catch { reject(Error('LOCAL_WORKSPACE_CHANNEL_INVALID')); }
+      try { const text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes),value=JSON.parse(text);if(value&&Object.hasOwn(value,'hayesOwnerChannel')&&text!==JSON.stringify(value))throw Error();resolve(value); } catch { reject(Error('LOCAL_WORKSPACE_CHANNEL_INVALID')); }
       finally { bytes.fill(0); for (const chunk of chunks) chunk.fill(0); }
     };
     process.stdin.on('data', data); process.stdin.once('end', end); process.stdin.once('error', fail);

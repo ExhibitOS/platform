@@ -90,6 +90,13 @@ export class Auth {
  requestForNativeWorkspaceMutation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
   return this.authorizedRequest(token,tenantId,csrf,'write',work,true);
  }
+ /** Hayes operations retain unresolved custody if cancellation races COMMIT.
+  * A successful return means COMMIT finished and the local fence still holds;
+  * rejection after COMMIT began is not proof of rollback or worker drain. */
+ requestForHayesNativeMutation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,fence:{signal:AbortSignal;deadlineMs:number},work:(client:PoolClient,session:Session)=>Promise<T>){
+  if(!fence?.signal||typeof fence.signal.throwIfAborted!=='function'||!Number.isSafeInteger(fence.deadlineMs)||fence.deadlineMs<=Date.now()||fence.deadlineMs>Date.now()+300000)throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');
+  return this.authorizedRequest(token,tenantId,csrf,'write',work,true,fence);
+ }
  /** CSRF-protected export preparation reads DB state under its existing row
   * and maintenance locks. Keep authorization stable while allowing status reads. */
  requestForExportPreparation<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
@@ -100,9 +107,12 @@ export class Auth {
  requestForNativeDetailRead<T>(token:string|undefined,tenantId:string,csrf:string|undefined,work:(client:PoolClient,session:Session)=>Promise<T>){
   return this.authorizedRequest(token,tenantId,csrf,'export-preparation',work,true);
  }
- private async authorizedRequest<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mode:'read'|'write'|'export-preparation',work:(client:PoolClient,session:Session)=>Promise<T>,readCommitted=false){
+ private async authorizedRequest<T>(token:string|undefined,tenantId:string|undefined,csrf:string|undefined,mode:'read'|'write'|'export-preparation',work:(client:PoolClient,session:Session)=>Promise<T>,readCommitted=false,fence?:{signal:AbortSignal;deadlineMs:number}){
+  let expiresAt:string|undefined;
+  const checkFence=()=>{if(!fence)return;fence.signal.throwIfAborted();if(Date.now()>=fence.deadlineMs||expiresAt!==undefined&&Date.now()>=Date.parse(expiresAt))throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');};
+  checkFence();
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new ApiError(401,'AUTH_REQUIRED');
-  return transaction(this.pool, async client => {
+  const value=await transaction(this.pool, async client => {
    if(readCommitted)await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
    await client.query(`SELECT pg_advisory_xact_lock${mode==='write' ? '' : '_shared'}(82003)`);
    if(mode!=='read') await client.query('SELECT pg_advisory_xact_lock_shared(82002)');
@@ -111,8 +121,10 @@ export class Auth {
    if (tenantId && tenantId !== row.tenant_id) throw new ApiError(403,'FORBIDDEN');
    if (mode!=='read' && (!csrf || !timingSafeEqual(Buffer.from(digest(csrf)),Buffer.from(row.csrf_hash)))) throw new ApiError(403,'CSRF_REJECTED');
    const session:Session={id:row.id,userId:row.user_id,tenantId:row.tenant_id,role:row.role,csrfToken:row.csrf_token,expiresAt:row.expires_at.toISOString()};
-   try { return await work(client,session); } catch(error) { if (error instanceof AccessDenied) throw new ApiError(403,'FORBIDDEN'); throw error; }
+   expiresAt=session.expiresAt;checkFence();
+   try { const result=await work(client,session);checkFence();return result; } catch(error) { if (error instanceof AccessDenied) throw new ApiError(403,'FORBIDDEN'); throw error; }
   });
+  checkFence();return value;
  }
  async resource(client:PoolClient,s:Session,kind:'artworks'|'exhibitions',id:string,revision?:number,metadata?:Record<string,unknown>) {
   const actor={tenantId:s.tenantId,userId:s.userId};

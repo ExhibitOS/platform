@@ -11,6 +11,7 @@ import { FileBlobStore, migrate, migrateInTransaction, transaction } from "../pa
 import { openLocalWorkspace, validateLocalWorkspace } from "../apps/api/dist/local-workspace.js";
 import { readNativeWorkspaceChannel } from "./native-workspace-channel.mjs";
 import {closeNativeOwnerDescriptor,openNativeOwnerChannel,unpackNativeOwnerInput} from "./native-owner-channel.mjs";
+import {openHayesOwnerChannel} from "./native-hayes-owner-channel.mjs";
 import {HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,hasHayesOriginalCapability,WORKSPACE_PORTAL_FINISH_CAPABILITY,hasWorkspacePortalFinishCapability,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,hasWorkspaceFramePreparationCapability,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,hasWorkspaceFurnishingArtworkFrameModelsCapability,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,hasWorkspaceFurnishingArtworkFrameCapability,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,hasWorkspaceFurnishingRoomVisualCapability,WORKSPACE_FURNISHING_STOOL_CAPABILITY,hasWorkspaceFurnishingStoolCapability,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,hasWorkspaceMaterialMultimapCapability,assertExactWorkspaceMaterialMultimapCatalog,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,hasWorkspaceMaterialPublicationCapability,assertExactWorkspaceMaterialPublicationCatalog,NORMAL_OEX_MIGRATION,NORMAL_OEX_SHA256,NORMAL_OEX_PROVENANCE_MIGRATION,NORMAL_OEX_PROVENANCE_SHA256,NORMAL_OEX_MATERIAL_MIGRATION,NORMAL_OEX_MATERIAL_SHA256,NORMAL_OEX_FLOOR_MIGRATION,NORMAL_OEX_FLOOR_SHA256,NORMAL_OEX_CONCRETE_MIGRATION,NORMAL_OEX_CONCRETE_SHA256,preflightNormalOexCatalog,assertExactWorkspacePublicationCatalog,assertWorkspaceImportOwnerMode,verifyNormalOexMigration,verifyNormalOexProvenanceMigration,verifyNormalOexMaterialMigration,verifyNormalOexFloorMigration,verifyNormalOexConcreteMigration,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,verifyWorkspaceMaterialMigrations,hasWorkspaceMaterialCapability,hasWorkspaceImportCapability,verifyWorkspaceImportMigrations,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,hasWorkspaceWallImportCapability,verifyWorkspaceWallImportMigration,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256} from "./native-oex-normal-catalog.mjs";
 import { bootstrap, config } from "../apps/api/dist/auth.js";
 import { buildApp } from "../apps/api/dist/app.js";
@@ -138,13 +139,14 @@ async function signingKey(directory) {
   } catch (error) { if (error.code !== "EEXIST") throw error; }
   return path;
 }
-export async function startLocalRuntime(environment = process.env, privateWorkspace, privateOwner) {
-  const transfer={started:false};
+export async function startLocalRuntime(environment = process.env, privateWorkspace, privateOwner, privateHayes) {
+  const transfer={started:false,hayesStarted:false};
+  if(privateHayes&&environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD===environment.EXHIBITOS_NATIVE_OWNER_FD){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;transfer.hayesStarted=true;throw Error('NATIVE_OWNER_UNAVAILABLE');}
   if(!privateOwner&&environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
-  try{return await startLocalRuntimeInner(environment,privateWorkspace,privateOwner,transfer);}
-  finally{if(!transfer.started&&(privateOwner||environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined))closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);}
+  try{if(privateHayes&&(!privateOwner||privateHayes.runtimeGeneration!==privateOwner.runtimeGeneration||privateHayes.secret===privateOwner.secret||environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD===environment.EXHIBITOS_NATIVE_FURNISHING_WRITER_FD))throw Error('HAYES_OWNER_UNAVAILABLE');return await startLocalRuntimeInner(environment,privateWorkspace,privateOwner,privateHayes,transfer);}
+  finally{if(!transfer.started&&(privateOwner||environment.EXHIBITOS_AUTHORING_MODE==='personal'&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&environment.EXHIBITOS_NATIVE_OWNER_FD!==undefined))closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);if(!transfer.hayesStarted&&environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==undefined)closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD);}
 }
-async function startLocalRuntimeInner(environment, privateWorkspace, privateOwner, transfer) {
+async function startLocalRuntimeInner(environment, privateWorkspace, privateOwner, privateHayes, transfer) {
   const { port, apiPort, proxyPort, proxyHost } = localRuntimeNetwork(environment);
   const personal = environment.EXHIBITOS_AUTHORING_MODE === "personal";
   const freshOexTest = privateOwner?.mode === 'fresh-oex-test-v1';
@@ -168,16 +170,19 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, ownerChannel, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController();
+  let app, proxy, ownerChannel, hayesChannel, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
   let ownerTask=Promise.resolve();
   if(personal&&privateOwner&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.started=true;ownerTask=openNativeOwnerChannel(environment.EXHIBITOS_NATIVE_OWNER_FD,privateWorkspace,privateOwner,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else ownerChannel=channel;}).catch(()=>{});}
   else if(privateOwner){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
+  let hayesTask=Promise.resolve();
+  if(personal&&privateOwner&&privateHayes&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.hayesStarted=true;hayesTask=openHayesOwnerChannel(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD,privateWorkspace,privateHayes,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else hayesChannel=channel;}).catch(()=>{});}
+  else if(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==undefined){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD);transfer.hayesStarted=true;}
   const close = (normalStop=false) => closed ??= (async () => {
     stopping=true;runtimeReady=false;ownerStopped=true;if(!normalStop)ownerAbort.abort();let failed=false;
     const attempt=async action=>{try{await action();}catch{failed=true;}};
-    await attempt(()=>ownerTask);if(!normalStop&&ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
+    await attempt(()=>ownerTask);await attempt(()=>hayesTask);if(hayesChannel)await attempt(()=>hayesChannel.close());if(!normalStop&&ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
     if(payloadAcquisition)await payloadAcquisition.catch(()=>{});if(proxyCreation)await proxyCreation.catch(()=>{});if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});if(deferredWork)await deferredWork.catch(()=>{});
     if(proxy){await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());if(proxy.listening)await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));}
     await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});if(app)await attempt(()=>app.close());await attempt(()=>pool.end());
@@ -216,6 +221,8 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const hayesOriginalCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasHayesOriginalCapability(fileURLToPath(new URL('./native-hayes-original-capability-v1.json',import.meta.url))):false;
     const hayesOriginalDirectory=hayesOriginalCapability?fileURLToPath(new URL('../database/native-hayes-original/',import.meta.url)):undefined;
     if(hayesOriginalCapability&&(!workspaceFramePreparationCapability||!furnishingMode||furnishingSelected||privateOwner?.mode==='workspace-furnishing-039-to-040-upgrade-v1'))throw Error('NATIVE_OEX_CATALOG');
+    await hayesTask;if(hayesOriginalCapability!==!!privateHayes||hayesOriginalCapability&&(!hayesChannel?.isOpen()||environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD===environment.EXHIBITOS_NATIVE_FURNISHING_WRITER_FD))throw Error('HAYES_OWNER_UNAVAILABLE');
+    if(hayesOriginalCapability)void hayesChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;});}});
     if(workspaceFurnishingArtworkFrameModelsCapability&&!workspaceFurnishingArtworkFrameCapability)throw Error('NATIVE_OEX_CATALOG');
     if(workspaceFurnishingArtworkFrameCapability&&!workspaceFurnishingRoomVisualCapability)throw Error('NATIVE_OEX_CATALOG');
     if(workspaceFurnishingRoomVisualCapability&&!workspaceFurnishingStoolCapability)throw Error('NATIVE_OEX_CATALOG');
@@ -266,6 +273,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       if(workspacePortalFinishCapability?!pinnedPayload.hasExact(portalMarker,'6a7e94ccd178ec05d57a120d77de28d7fcc6fb54f2069c18ead5beb52cd9aebc',Buffer.byteLength(WORKSPACE_PORTAL_FINISH_CAPABILITY)):pinnedPayload.hasPath(portalMarker))throw Error('NATIVE_OEX_CATALOG');
       const framePreparationMarker='platform/scripts/native-workspace-frame-preparation-capability-v1.json',framePreparationMigration='platform/database/native-workspace-frame-preparation/'+WORKSPACE_FRAME_PREPARATION_MIGRATION;
       if(workspaceFramePreparationCapability?(!pinnedPayload.hasExact(framePreparationMarker,'c1fe667c80a3b36ddb124fddb5ce427131bae3018c47ecfce7238be556955f92',Buffer.byteLength(WORKSPACE_FRAME_PREPARATION_CAPABILITY))||!pinnedPayload.hasExact(framePreparationMigration,WORKSPACE_FRAME_PREPARATION_SHA256,4199)):(pinnedPayload.hasPath(framePreparationMarker)||pinnedPayload.hasPath(framePreparationMigration)))throw Error('NATIVE_OEX_CATALOG');
+      if(hayesOriginalCapability&&privateHayes.runtimeManifestSha256!==pinnedPayload.digest)throw Error('HAYES_OWNER_UNAVAILABLE');
       const hayesMarker='platform/scripts/native-hayes-original-capability-v1.json',hayesMigration='platform/database/native-hayes-original/'+HAYES_ORIGINAL_MIGRATION;
       if(hayesOriginalCapability?(!pinnedPayload.hasExact(hayesMarker,'89bcf960b415e5601cdf345be7c763975744f3d6e45f6772a90d8d1a0f991762',Buffer.byteLength(HAYES_ORIGINAL_CAPABILITY))||!pinnedPayload.hasExact(hayesMigration,HAYES_ORIGINAL_SHA256,3617)):(pinnedPayload.hasPath(hayesMarker)||pinnedPayload.hasPath(hayesMigration)))throw Error('NATIVE_OEX_CATALOG');
       const roomVisualMarker='platform/scripts/native-workspace-furnishing-room-visual-capability-v1.json';
@@ -353,6 +361,6 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   let handedOff=false;
-  try { const received = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? unpackNativeOwnerInput(await readNativeWorkspaceChannel()) : {}; handedOff=true;const runtime = await startLocalRuntime(process.env, received.workspace, received.ownerChannel); console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
-  catch (error) { if(!handedOff&&process.env.EXHIBITOS_AUTHORING_MODE==='personal')closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_OWNER_FD);console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
+  try { const received = process.env.EXHIBITOS_AUTHORING_MODE === "personal" ? unpackNativeOwnerInput(await readNativeWorkspaceChannel()) : {}; handedOff=true;const runtime = await startLocalRuntime(process.env, received.workspace, received.ownerChannel, received.hayesOwnerChannel); console.info("ExhibitOS local runtime started."); for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, async () => { await runtime.close(); }); }
+  catch (error) { if(!handedOff&&process.env.EXHIBITOS_AUTHORING_MODE==='personal'){closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_OWNER_FD);if(process.env.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==process.env.EXHIBITOS_NATIVE_OWNER_FD)closeNativeOwnerDescriptor(process.env.EXHIBITOS_NATIVE_HAYES_OWNER_FD);}console.error(/^LOCAL_[A-Z_]+$/.test(error.message) ? error.message : "LOCAL_RUNTIME_START_FAILED"); process.exitCode = 1; }
 }
