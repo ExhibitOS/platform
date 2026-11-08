@@ -5,15 +5,16 @@ import {artworkAccess,sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
 import {allowedRights} from './rights.ts';
 import {parseHayesOperationBinding,type HayesOperationBinding} from './hayes-operation-binding.ts';
-import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import {isIssuedNativeWorkspaceImport,type NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
 const MIGRATION_SHA='074de4171572039f2f400d49d07aff8a3ec83ec222c1684cbc5452c6cc8b3ece';
 const issued=new WeakSet<NativeOexWorkspaceContext>();
 async function catalog(c:PoolClient){const result=await c.query('SELECT sha256 FROM schema_migrations WHERE name=$1',['042_hayes_original_attempt.sql']);if(result.rowCount!==1||result.rows[0].sha256!==MIGRATION_SHA)throw new ApiError(409,'HAYES_CATALOG_INVALID');}
 /** Runtime-private opt-in. A context is not a Manager custody receipt. */
 export async function bindHayesOriginalContext(c:PoolClient,owner:NativeOexWorkspaceContext):Promise<NativeOexWorkspaceContext>{
+ if(!isIssuedNativeWorkspaceImport(owner))throw new ApiError(403,'FORBIDDEN');
  await owner.assertDatabase(c);await catalog(c);await owner.assertDatabase(c);
- const context=Object.freeze({...owner,hayesOriginal:true as const});issued.add(context);return context;
+ issued.add(owner);return owner;
 }
 export function isHayesOriginalContext(owner:NativeOexWorkspaceContext|undefined):boolean{return !!owner&&issued.has(owner);}
 /** Must execute inside the authenticated operation transaction. The manager

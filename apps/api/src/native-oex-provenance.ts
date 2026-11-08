@@ -27,8 +27,6 @@ export interface NativeOexWorkspaceContext {
  readonly workspaceFurnishingArtworkFrame?:true;
  readonly workspaceFurnishingArtworkFrameModels?:true;
  readonly workspaceArtworkFramePreparation?:true;
- /** Only supplied by the authenticated native 042 catalog binding. */
- readonly hayesOriginal?:true;
  readonly workspacePortalFinish?:true;
  assertImportCatalog?(client:PoolClient):Promise<void>;
  assertOwner?(owner:import('./publication-disk-budget.ts').DiskOwner):void;
@@ -41,6 +39,7 @@ export interface NativeOexWorkspaceContext {
  assertRecord(client:PoolClient,record:Readonly<{workspaceId:string;tenantId:string;principalId:string;importJobId:string;requestId:string;attemptId:string;claimSha256:string;payloadManifestSha256:string;sourceDatabaseSystemId:string;sourceDatabaseOid:string;sourceSha256:string;exhibitionId:string}>):Promise<void>;
 }
 const issuedWorkspaceImports=new WeakSet<NativeOexWorkspaceContext>();
+export function isIssuedNativeWorkspaceImport(context:NativeOexWorkspaceContext){return issuedWorkspaceImports.has(context);}
 /** Passed only from a freshly authenticated native owner admission. This is a
  * snapshot pin, not authority to change or recreate a historical import. */
 export interface NativeRestoredProvenance {
