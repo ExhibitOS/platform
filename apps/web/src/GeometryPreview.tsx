@@ -29,7 +29,7 @@ import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredB
 import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
-import {createDetailBudgetRetry} from './viewer/detail-budget-retry';
+import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-budget-retry';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
@@ -2649,7 +2649,7 @@ export function GeometryPreview({
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
                     startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,
-                      ready:()=>{const work=scheduler.stats(),used=peak.total();return work.active===0&&work.queued===0&&!pending.has(art.revisionId)&&!detailImageCandidate&&Number.isSafeInteger(used)&&used<=profile.maxSceneBytes&&used+profile.reservationBytes<=profile.transitionCapBytes;},
+                      ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
                       retry:()=>{retryOriginalDetail=undefined;if(settleDetail===promoteImage)settleDetail=undefined;if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;attemptOriginal();}});
                   }}};
                   attemptOriginal();
