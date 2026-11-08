@@ -9,8 +9,12 @@ const KEYS=['version',...IDS,'artworkRevision','sourceSha256','sourceBytes'] as 
 type Id=typeof IDS[number];
 export type HayesOperationBinding=Readonly<Record<Id,string>&{version:1;artworkRevision:number;sourceSha256:string;sourceBytes:number}>;
 export function parseHayesOperationBinding(value:unknown):HayesOperationBinding{
- if(!value||typeof value!=='object'||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype)throw new Error('HAYES_BINDING_INVALID');
- const r=value as Record<string,unknown>;
- if(Object.keys(r).length!==KEYS.length||KEYS.some(k=>!Object.hasOwn(r,k))||r.version!==1||IDS.some(k=>typeof r[k]!=='string'||!UUID.test(r[k] as string))||!Number.isSafeInteger(r.artworkRevision)||Number(r.artworkRevision)<1||r.sourceSha256!==SOURCE_SHA||r.sourceBytes!==8383096)throw new Error('HAYES_BINDING_INVALID');
- return Object.freeze(Object.fromEntries(KEYS.map(k=>[k,r[k]]))) as HayesOperationBinding;
+ try{
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.getPrototypeOf(value)!==Object.prototype)throw new Error();
+  const own=Reflect.ownKeys(value);if(own.length!==KEYS.length||own.some(k=>typeof k!=='string'||!KEYS.includes(k as typeof KEYS[number])))throw new Error();
+  const descriptors=Object.getOwnPropertyDescriptors(value),snapshot:Record<string,unknown>={};
+  for(const key of KEYS){const d=descriptors[key];if(!d||!d.enumerable||!Object.hasOwn(d,'value'))throw new Error();snapshot[key]=d.value;}
+  if(snapshot.version!==1||IDS.some(k=>typeof snapshot[k]!=='string'||!UUID.test(snapshot[k] as string))||!Number.isSafeInteger(snapshot.artworkRevision)||Number(snapshot.artworkRevision)<1||snapshot.sourceSha256!==SOURCE_SHA||snapshot.sourceBytes!==8383096)throw new Error();
+  return Object.freeze(snapshot) as HayesOperationBinding;
+ }catch{throw new Error('HAYES_BINDING_INVALID');}
 }
