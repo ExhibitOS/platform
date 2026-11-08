@@ -3,6 +3,7 @@ import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
 declare const __EXHIBITOS_IPHONE12_TRANSITION_TRIAL__:boolean|undefined;
 declare const __EXHIBITOS_IPHONE12_RESIDENT_TRIAL__:boolean|undefined;
+declare const __EXHIBITOS_DESKTOP_ARTWORK_CAPACITY_TRIAL__:boolean|undefined;
 export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
@@ -17,9 +18,16 @@ function selectedImageCapacity(budget:DeviceBudget,memory:number|undefined):Devi
  // scene/cache budgets, or grants new capacity to unknown/constrained devices.
  return {...budget,...(memory!==undefined&&Number.isFinite(memory)&&memory>4?{selectedImage:{maxCacheBytes:Math.max(budget.maxCacheBytes,96*1024*1024),maxTransitionBytes:Math.max(budget.maxTransitionBytes??budget.maxCacheBytes,128*1024*1024)}}:{})};
 }
+function desktopArtworkCapacityTrial(input:Parameters<typeof deviceBudget>[0]){
+ const memory=input.deviceMemory;
+ return typeof __EXHIBITOS_DESKTOP_ARTWORK_CAPACITY_TRIAL__!=='undefined'&&__EXHIBITOS_DESKTOP_ARTWORK_CAPACITY_TRIAL__&&
+  input.coarsePointer===false&&input.finePointer===true&&(memory===undefined||Number.isFinite(memory)&&memory>=8);
+}
+const desktopArtworkCapacity={maxCacheBytes:320*1024*1024,maxTransitionBytes:416*1024*1024,maxTriangles:150000};
 export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number;coarsePointer?:boolean;finePointer?:boolean}):DeviceBudget {
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
+ if(desktopArtworkCapacityTrial(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity},memory);
  // Limits bound tracked allocations. They do not reserve memory up front.
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   // Explicit fine-pointer sessions can use the same bounded allowance as the
@@ -60,6 +68,7 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  }
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
+  if(desktopArtworkCapacityTrial(input))return selectedImageCapacity({...DESKTOP_NEAR_BUDGET,...desktopArtworkCapacity,maxTriangles:DESKTOP_NEAR_BUDGET.maxTriangles},memory);
   const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
     ?{...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024}
     :DESKTOP_NEAR_BUDGET;

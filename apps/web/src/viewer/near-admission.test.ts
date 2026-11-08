@@ -142,3 +142,18 @@ test('resident trial admits the physical Hayes demand after observed scene reser
   expect(selectedDeviceBudget('auto',{coarsePointer:false,finePointer:true}).maxCacheBytes).toBe(192*mib);
  }finally{vi.unstubAllGlobals();}
 });
+
+test('desktop artwork trial raises only the qualified pointer branches',()=>{
+ const mib=1024*1024,desktop={coarsePointer:false,finePointer:true};
+ expect(selectedDeviceBudget('auto',desktop).maxCacheBytes).toBe(192*mib);
+ vi.stubGlobal('__EXHIBITOS_DESKTOP_ARTWORK_CAPACITY_TRIAL__',true);
+ try{
+  const limits={maxCacheBytes:320*mib,maxTransitionBytes:416*mib,maxTriangles:150000,maxTextureSize:2048};
+  expect(selectedDeviceBudget('auto',desktop)).toMatchObject(limits);
+  expect(selectedDeviceBudget('auto',{...desktop,deviceMemory:8})).toMatchObject(limits);
+  expect(selectedDeviceBudget('desktop',desktop)).toMatchObject({...limits,maxTriangles:250000});
+  expect(selectedDeviceBudget('auto',{...desktop,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
+  expect(selectedDeviceBudget('auto',{coarsePointer:true,finePointer:false}).maxCacheBytes).toBe(112*mib);
+  expect(selectedDeviceBudget('compact',desktop)).toEqual(DEVICE_BUDGETS.compact);
+ }finally{vi.unstubAllGlobals();}
+});
