@@ -29,11 +29,11 @@ export async function inspectJpegInOwnedWorker(bytes:Buffer,signal:AbortSignal,h
   const entry=fileURLToPath(path),apiDir=realpathSync(dirname(entry)),root=realpathSync(resolvePath(apiDir,'../../..')),moduleRoot=realpathSync(join(root,'node_modules'));
   // The native package gate pins these six complete package trees. The Node
   // permission model narrows JS file access; native addon code is not sandboxed.
-  // Source tests may use a workspace dependency link; packaged JS must resolve
-  // the module root inside the Manager-admitted payload itself.
-  if(!import.meta.url.endsWith('.ts')&&moduleRoot!==join(root,'node_modules'))throw Error('JPEG_INSPECTION_UNAVAILABLE');
+  // Both source and packaged workers require a physical module root in their
+  // own workspace; a linked ancestor is not an admitted dependency closure.
+  if(moduleRoot!==join(root,'node_modules'))throw Error('JPEG_INSPECTION_UNAVAILABLE');
   const names=['sharp','@img/colour','detect-libc','semver','@img/sharp-darwin-arm64','@img/sharp-libvips-darwin-arm64'],packages=names.map(name=>{const expected=join(moduleRoot,name);if(realpathSync(expected)!==expected)throw Error('JPEG_INSPECTION_UNAVAILABLE');return expected;});
-  const permitted=[apiDir,join(root,'package.json'),join(root,'apps/api/package.json'),...packages,...(import.meta.url.endsWith('.ts')?names.map(name=>join(root,'node_modules',name)):[])];if(permitted.some(value=>value.includes('*')))throw Error('JPEG_INSPECTION_UNAVAILABLE');
+  const permitted=[apiDir,join(root,'package.json'),join(root,'apps/api/package.json'),...packages];if(permitted.some(value=>value.includes('*')))throw Error('JPEG_INSPECTION_UNAVAILABLE');
   const child=spawn(process.execPath,['--max-old-space-size=128','--permission','--allow-addons',...permitted.map(value=>`--allow-fs-read=${value}`),entry],{detached:true,stdio:['pipe','pipe','pipe','pipe'],env:{}});
   const timer=setTimeout(abort,10000),hardTimer=setTimeout(uncertain,15000);signal.addEventListener('abort',abort,{once:true});
   child.once('spawn',()=>{spawned=true;if(failed||signal.aborted)abort();});child.once('error',()=>{failed=true;});child.once('exit',()=>{exited=true;});child.once('close',value=>{code=value;closed=true;if(drainUncertain)snapshot.fill(0);finish();});

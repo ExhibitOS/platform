@@ -5,14 +5,19 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
 import {createInterface} from 'node:readline';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {expect,it} from 'vitest';
 import sharp from 'sharp';
 import {inspectJpegInOwnedWorker} from './jpeg-inspection-client.ts';
 const bounded=<T>(promise:Promise<T>)=>Promise.race([promise,new Promise<never>((_,reject)=>{const timer=setTimeout(()=>reject(Error('FIXTURE_CLOSE_TIMEOUT')),3000);timer.unref();})]);
 
 it('fully decodes a synthetic baseline JPEG in the owned worker and rejects missing EOI',async()=>{
- const bytes=await sharp({create:{width:4,height:3,channels:3,background:{r:30,g:80,b:120}}}).jpeg({progressive:false}).toBuffer(),original=Buffer.from(bytes);let pid=0;const result=await inspectJpegInOwnedWorker(bytes,AbortSignal.timeout(10000),{onSpawn:child=>{pid=child.pid!;bytes.fill(0);}});
+ const bytes=await sharp({create:{width:4,height:3,channels:3,background:{r:30,g:80,b:120}}}).jpeg({progressive:false}).toBuffer(),original=Buffer.from(bytes);let pid=0,argv:string[]=[];const result=await inspectJpegInOwnedWorker(bytes,AbortSignal.timeout(10000),{onSpawn:child=>{pid=child.pid!;argv=child.spawnargs.slice(1,-1);bytes.fill(0);}});
  expect(result.receipt).toMatchObject({version:1,sourceSha256:createHash('sha256').update(original).digest('hex'),sourceBytes:original.length,width:4,height:3,decoder:'sharp-0.35.4-vips-8.18.6-mozjpeg-0826579'});expect(result.bytes.equals(original)).toBe(true);expect(pid).toBeGreaterThan(0);console.log('jpeg-owned-group',pid);expect(()=>process.kill(-pid,0)).toThrow(expect.objectContaining({code:'ESRCH'}));
+ expect(argv).toContain('--permission');expect(argv).toContain('--allow-addons');expect(argv.some(arg=>arg.startsWith('--allow-fs-write')||arg==='--allow-child-process'||arg.includes('*'))).toBe(false);
+ const root=await mkdtemp(join(tmpdir(),'jpeg-permission-probe-'));try{const path=join(root,'private.txt');await writeFile(path,'synthetic');const program="const fs=require('node:fs'),cp=require('node:child_process');let read=false,child=false;try{fs.readFileSync(process.argv[1])}catch(e){read=e.code==='ERR_ACCESS_DENIED'}try{const p=cp.spawnSync(process.execPath,['-e','']);child=p.error?.code==='ERR_ACCESS_DENIED'}catch(e){child=e.code==='ERR_ACCESS_DENIED'}console.log(JSON.stringify({read,child}));";const probe=spawn(process.execPath,[...argv,'-e',program,path],{stdio:['ignore','pipe','pipe'],env:{}}),closed=once(probe,'close');let text='';probe.stdout!.on('data',chunk=>{text+=chunk.toString();});probe.stderr!.resume();expect(await bounded(closed)).toEqual([0,null]);expect(JSON.parse(text)).toEqual({read:true,child:true});}finally{await rm(root,{recursive:true,force:true});}
  await expect(inspectJpegInOwnedWorker(original.subarray(0,original.length-2),AbortSignal.timeout(10000))).rejects.toThrow('JPEG_INSPECTION_UNAVAILABLE');
 });
 it('waits for a cancelled child to close before returning',async()=>{
