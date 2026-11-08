@@ -10,6 +10,22 @@ it('is disabled outside explicit staging and fences source teardown',()=>{
  vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
  const release=registerDiagnosticSource(one),releaseTwo=registerDiagnosticSource(two);release();expect(readDiagnosticSnapshot(identity)).toEqual({version:1,identity});expect(readDiagnosticSnapshot({...identity,revisionSha256:'other'})).toBeNull();releaseTwo();expect(readDiagnosticSnapshot(identity)).toBeNull();
 });
+it('reports a pending modal without borrowing another attended artwork',()=>{
+ vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
+ const identity={publicationId:'p',revisionSha256:'r'};
+ const snapshot={version:1,identity,selected:{placementId:null,artworkRevisionId:'other',reason:'attended'},displayed:{artworkRevisionId:'other',assetId:'asset',sha256:'a'.repeat(64),tier:'scene'}} as DiagnosticSnapshot;
+ const release=registerDiagnosticSource(()=>snapshot);
+ const result=readDiagnosticSnapshot({...identity,detail:{placementId:'placement',artworkRevisionId:'wanted'}});
+ expect(result?.selected).toEqual({placementId:'placement',artworkRevisionId:'wanted',reason:'detail'});expect(result?.displayed).toEqual({artworkRevisionId:null,assetId:null,sha256:null,tier:null});release();
+});
+it('does not confuse two placements of the same artwork',()=>{
+ vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
+ const identity={publicationId:'p',revisionSha256:'r'};
+ const snapshot={version:1,identity,selected:{placementId:'first',artworkRevisionId:'art',reason:'detail'},displayed:{artworkRevisionId:'art',assetId:'asset',sha256:null,tier:'detail-approved'}} as DiagnosticSnapshot;
+ const release=registerDiagnosticSource(()=>snapshot);
+ expect(readDiagnosticSnapshot({...identity,detail:{placementId:'second',artworkRevisionId:'art'}})?.displayed.tier).toBeNull();
+ expect(readDiagnosticSnapshot({...identity,detail:{placementId:'first',artworkRevisionId:'art'}})?.displayed.tier).toBe('detail-approved');release();
+});
 it('retains only 64 bounded safe event tokens',()=>{
  vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);const buffer=createDiagnosticEvents();
  const event={atMs:0,assetId:'11111111-1111-4111-8111-111111111111',artworkRevisionId:null,stage:'fetch-verify',errorCode:null};
