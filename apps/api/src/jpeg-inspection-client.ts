@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {spawn,type ChildProcess} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {realpathSync} from 'node:fs';
+import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {types} from 'node:util';
 import {parseStaticJson} from '../../web/src/static-json.mjs';
@@ -24,7 +26,11 @@ export async function inspectJpegInOwnedWorker(bytes:Buffer,signal:AbortSignal,h
    try{if(child.pid&&groupAlive(child.pid))throw Error('GROUP_REMAINS');}catch{drainUncertain=true;snapshot.fill(0);reject(new NativeDetailDrainUncertain());return;}
    if(failed||signal.aborted||code!==0){reject(Error('JPEG_INSPECTION_UNAVAILABLE'));return;}try{const result=parseStaticJson(Buffer.concat(chunks,totalOut),2048) as Record<string,unknown>;if(!result||typeof result!=='object'||Array.isArray(result)||Object.keys(result).sort().join(',')!=='cpuMicros,decodedSha256,decoder,height,iccBytes,iccSha256,peakRssKiB,sourceBytes,sourceSha256,version,width'||result.version!==1||result.sourceSha256!==digest||result.sourceBytes!==snapshot.length||result.width!==structure.width||result.height!==structure.height||result.iccBytes!==structure.iccBytes||result.iccSha256!==(structure.iccSha256??null)||result.decoder!=='sharp-0.35.4-vips-8.18.6-mozjpeg-0826579'||typeof result.decodedSha256!=='string'||!/^[a-f0-9]{64}$/.test(result.decodedSha256)||!Number.isSafeInteger(result.peakRssKiB)||Number(result.peakRssKiB)<1||!Number.isSafeInteger(result.cpuMicros)||Number(result.cpuMicros)<0)throw Error();resolve(result);}catch{reject(Error('JPEG_INSPECTION_UNAVAILABLE'));}
   };
-  const child=spawn(process.execPath,['--max-old-space-size=128',fileURLToPath(path)],{detached:true,stdio:['pipe','pipe','pipe','pipe'],env:{}});
+  const entry=fileURLToPath(path),apiDir=dirname(entry),root=resolve(apiDir,'../../..');
+  // The native package gate pins these six complete package trees. The Node
+  // permission model narrows JS file access; native addon code is not sandboxed.
+  const permitted=[apiDir,join(root,'package.json'),join(root,'apps/api/package.json'),...['sharp','@img/colour','detect-libc','semver','@img/sharp-darwin-arm64','@img/sharp-libvips-darwin-arm64'].map(name=>realpathSync(join(root,'node_modules',name)))];
+  const child=spawn(process.execPath,['--max-old-space-size=128','--permission','--allow-addons',...permitted.map(value=>`--allow-fs-read=${value}`),entry],{detached:true,stdio:['pipe','pipe','pipe','pipe'],env:{}});
   const timer=setTimeout(abort,10000),hardTimer=setTimeout(uncertain,15000);signal.addEventListener('abort',abort,{once:true});
   child.once('spawn',()=>{spawned=true;if(failed||signal.aborted)abort();});child.once('error',()=>{failed=true;});child.once('exit',()=>{exited=true;});child.once('close',value=>{code=value;closed=true;if(drainUncertain)snapshot.fill(0);finish();});
   child.stdout?.on('data',(chunk:Buffer)=>{totalOut+=chunk.length;if(totalOut>2048){abort();return;}chunks.push(Buffer.from(chunk));});child.stderr?.on('data',(chunk:Buffer)=>{totalErr+=chunk.length;if(totalErr>2048)abort();});child.stdout?.on('error',abort);child.stderr?.on('error',abort);child.stdin?.on('error',()=>{});child.stdio[3]?.on('error',()=>{});
