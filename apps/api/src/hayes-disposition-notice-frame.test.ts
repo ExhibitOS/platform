@@ -14,6 +14,8 @@ it('decodes the bound challenge and encodes only a compact receipt selector',()=
 it('rejects wrong owner, binding, malformed, noncanonical and oversized challenges',()=>{
  const values=[{...body(),nativeOwnerId:receiptId},{...body(),challenge:'wrong'},{...body(),dbStageId:receiptId},{...body(),readyFrameSha256:'0'.repeat(64)},{...body(),binding:{...expected.binding,jobId:receiptId}},{...body(),extra:true}];
  for(const v of values)expect(()=>decodeHayesDispositionChallenge(Buffer.from(JSON.stringify(v)),expected)).toThrow('HAYES_DISPOSITION_CHALLENGE_INVALID');
+ const b=expected.binding,reordered={tenantId:b.tenantId,version:b.version,...Object.fromEntries(Object.entries(b).filter(([key])=>key!=='version'&&key!=='tenantId'))};
+ expect(()=>decodeHayesDispositionChallenge(Buffer.from(JSON.stringify({...body(),binding:reordered})),expected)).toThrow('HAYES_DISPOSITION_CHALLENGE_INVALID');
  for(const raw of [Buffer.from(JSON.stringify(body())+' '),Buffer.from([0xff]),Buffer.alloc(8193)])expect(()=>decodeHayesDispositionChallenge(raw,expected)).toThrow('HAYES_DISPOSITION_CHALLENGE_INVALID');
 });
 it('rejects invalid receipt selectors',()=>{const decoded=decodeHayesDispositionChallenge(Buffer.from(JSON.stringify(body())),expected);expect(()=>encodeHayesDispositionNotice(decoded,{receiptId,receiptSha256:'invalid'})).toThrow('HAYES_DISPOSITION_NOTICE_INVALID');});
