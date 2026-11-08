@@ -8,7 +8,7 @@ import {fixtureURL,readOex} from '@exhibitos/spec';
 vi.mock('./drafts/example',()=>({newDraft:()=>({})}));
 vi.mock('./drafts/exhibition-validation.mjs',()=>({validateExhibition:()=>({valid:true})}));
 vi.mock('./drafts/validator',()=>({validateDraft:()=>({valid:true})}));
-import {loadStaticPublication} from './static-publication-source';
+import {loadStaticPublication,staticDetailAttestation} from './static-publication-source';
 const digest=(b:Uint8Array|string)=>createHash('sha256').update(b).digest('hex');
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corruptAsset?:boolean}={}){
@@ -46,6 +46,7 @@ describe('static publication content-addressed reads',()=>{
   let index=indexFor(detailEntry),available=true;
   vi.stubGlobal('document',{querySelector:()=>({content:digest(index)})});vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>{const path=String(input),body=path==='/static-publication-index.json'?index:path==='/'+pubPath?pub:path===`/data/${sha}.bin`&&available?bytes:undefined;return body?new Response(new Uint8Array(body)):new Response(null,{status:404});}));
   const result=await loadStaticPublication();expect(await (await result.local!.fetcher(descriptor.url)).text()).toBe('synthetic detail');
+  const detailAccess=result.local!.detailAccess!,attestation=staticDetailAttestation(detailAccess,result,candidate.candidateId);expect(attestation).toEqual({indexSha256:digest(index),publicationSha256:pubHash,candidate:{sha256:sha,bytes:bytes.length,mime:'image/png',width:1,height:1}});expect(Object.isFrozen(attestation)).toBe(true);expect(Object.isFrozen(attestation!.candidate)).toBe(true);expect(staticDetailAttestation({...detailAccess},result,candidate.candidateId)).toBeUndefined();expect(staticDetailAttestation(detailAccess,{...result},candidate.candidateId)).toBeUndefined();expect(staticDetailAttestation(detailAccess,result,randomUUID())).toBeUndefined();result.local!.verifiedIndexSha256='f'.repeat(64);expect(staticDetailAttestation(detailAccess,result,candidate.candidateId)).toEqual(attestation);const realLocal=result.local!;result.local={...realLocal};expect(staticDetailAttestation(detailAccess,result,candidate.candidateId)).toBeUndefined();result.local=realLocal;
   const ordinaryUrl=result.assets[0]!.url,revision=value.publication.revisionSha256;result.assets[0]!.url=descriptor.url;result.publication.revisionSha256='f'.repeat(64);
   const isolated=await result.local!.fetcher(descriptor.url);expect(await isolated.text()).toBe('synthetic detail');expect(isolated.headers.get('x-exhibitos-publication-revision')).toBe(revision);result.assets[0]!.url=ordinaryUrl;result.publication.revisionSha256=revision;
   result.exhibition.artworks.find(a=>a.id===work.id)!.rights.permissions.download=false;expect(await (await result.local!.fetcher(descriptor.url)).text()).toBe('synthetic detail');result.exhibition.artworks.find(a=>a.id===work.id)!.rights.permissions.download=true;
