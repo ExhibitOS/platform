@@ -13,10 +13,11 @@ import {bindHayesOriginalContext,createHayesOriginalQuarantine,openHayesOriginal
 import {Imports} from './imports.ts';
 
 it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('retains a native claim across expiry, rejects stale owners and leaves ordinary imports usable',async()=>{
- const pool=new Pool({connectionString:process.env.HAYES_TEST_PG}),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),artistId=randomUUID(),artworkId=randomUUID(),jobId=randomUUID();
+ const pool=new Pool({connectionString:process.env.HAYES_TEST_PG}),tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID(),artistId=randomUUID(),artworkId=randomUUID();let jobId:string=randomUUID();
  const rights={holder:'Synthetic owner',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Synthetic'};
  const b={version:1 as const,tenantId,workspaceId,principalId:userId,jobId,leaseId:randomUUID(),attemptId:randomUUID(),runtimeGeneration:randomUUID(),artworkId,correlationId:randomUUID(),artworkRevision:1,sourceSha256:'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6',sourceBytes:8383096};
- const source=await readFile(process.env.EXHIBITOS_HAYES_ORIGINAL!);const blobs={getBounded:async()=>Buffer.from(source),get:async()=>Buffer.from('x')} as unknown as BlobStore;
+ const source=await readFile(process.env.EXHIBITOS_HAYES_ORIGINAL!),sourceObjects=new Map<string,Buffer>();const blobs={put:async(key:string,value:Buffer)=>{sourceObjects.set(key,Buffer.from(value));},getBounded:async(key:string)=>Buffer.from(sourceObjects.get(key)??Buffer.from('x')),get:async(key:string)=>Buffer.from(sourceObjects.get(key)??Buffer.from('x'))} as unknown as BlobStore;
+ const initialDisplay='d'.repeat(64),metadata=(r:unknown,display=initialDisplay)=>({rights:r,displayReference:{status:'provisional-uncalibrated',assetSha256:display},provenance:{sourceUnits:'unknown',scaleApplied:false}});
  const root=await realpath(await mkdtemp(join(tmpdir(),'hayes-042-owner-'))),s={id:randomUUID(),tenantId,userId,role:'admin'} as Session;
  try{
   await migrate(pool,new URL('../../../database/migrations/',import.meta.url).pathname);
@@ -26,24 +27,25 @@ it.skipIf(!process.env.HAYES_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGINAL)('re
   await pool.query(await readFile(new URL('../../../database/native-hayes-original/042_hayes_original_attempt.sql',import.meta.url),'utf8'));
   await pool.query('INSERT INTO schema_migrations(name,sha256) VALUES($1,$2)',['042_hayes_original_attempt.sql','074de4171572039f2f400d49d07aff8a3ec83ec222c1684cbc5452c6cc8b3ece']);
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'test']);await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
-  await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,process.getuid!()]);await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'test'}]);await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artworkId,artistId,{rights}]);
-  await pool.query("INSERT INTO import_jobs(tenant_id,id,user_id,artwork_id,idempotency_key,request_hash,mime,expected_hash,expected_bytes,rights,object_key,approved_key,scale_meters,state) VALUES($1,$2,$3,$4,'test','hash','model/gltf-binary',$5,$6,$7,$8,$9,1,'queued')",[tenantId,jobId,userId,artworkId,b.sourceSha256,b.sourceBytes,rights,`${tenantId}/quarantine/source`,`${tenantId}/approved/source`]);
+  await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,process.getuid!()]);await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'test'}]);await pool.query('INSERT INTO artworks(tenant_id,id,artist_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artworkId,artistId,metadata(rights)]);
   const owner=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid:process.getuid!(),blobRoot:root,workspaceImport:true}));
   const disk=await transaction(pool,c=>publicationDiskOwner(c,root));expect(()=>assertIssuedWorkspaceImport(owner,disk)).not.toThrow();
   await expect(transaction(pool,c=>bindHayesOriginalContext(c,{...owner} as NativeOexWorkspaceContext))).rejects.toMatchObject({code:'FORBIDDEN'});
   const bound=await transaction(pool,c=>bindHayesOriginalContext(c,owner));expect(bound).toBe(owner);expect(()=>assertIssuedWorkspaceImport(bound,disk)).not.toThrow();
+  const initial=await transaction(pool,c=>createHayesOriginalQuarantine(c,s,bound,{artworkId,artworkRevision:1,displayReferenceSha256:initialDisplay,idempotencyKey:randomUUID()}));jobId=initial.id;b.jobId=jobId;await transaction(pool,c=>new Imports(pool,blobs,bound).upload(c,s,jobId,source));await transaction(pool,c=>new Imports(pool,blobs,bound).complete(c,s,jobId));
   expect(await new Imports(pool,blobs).work()).toBe(false);
   await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{throw Error('owner lost');}))).rejects.toThrow('owner lost');
   expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_attempts')).rows[0].n).toBe(0);
   let calls=0;await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{if(++calls===3)throw Error('late owner lost');}))).rejects.toThrow('late owner lost');
   expect((await pool.query('SELECT count(*)::int AS n FROM hayes_original_attempts')).rows[0].n).toBe(0);expect((await pool.query('SELECT state FROM import_jobs WHERE id=$1',[jobId])).rows[0].state).toBe('queued');
-  const expiring={...rights,expiresAt:new Date(Date.now()+1000).toISOString()};await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,{rights:expiring}]);await pool.query('UPDATE import_jobs SET rights=$2 WHERE id=$1',[jobId,expiring]);
+  const expiring={...rights,expiresAt:new Date(Date.now()+1000).toISOString()};await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,metadata(expiring)]);await pool.query('UPDATE import_jobs SET rights=$2 WHERE id=$1',[jobId,expiring]);
   let rightCalls=0,delayed=false;await expect(transaction(pool,c=>{const wrapped=new Proxy(c,{get(target,key){if(key==='query')return async (...args:unknown[])=>{if(typeof args[0]==='string'&&args[0].startsWith('SELECT 1 FROM import_jobs WHERE tenant_id=')){delayed=true;await new Promise(resolve=>setTimeout(resolve,1200));}return Reflect.apply(target.query,target,args);};return Reflect.get(target,key,target);}});return openHayesOriginalAttempt(wrapped,s,bound,blobs,b,async()=>{rightCalls++;});})).rejects.toThrow('HAYES_SOURCE_CHANGED');expect(rightCalls).toBe(3);expect(delayed).toBe(true);
-  await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,{rights}]);await pool.query('UPDATE import_jobs SET rights=$2 WHERE id=$1',[jobId,rights]);
+  await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,metadata(rights)]);await pool.query('UPDATE import_jobs SET rights=$2 WHERE id=$1',[jobId,rights]);
+  await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,metadata(rights,'e'.repeat(64))]);await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{}))).rejects.toThrow('HAYES_SOURCE_CHANGED');await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,metadata(rights)]);
   await pool.query('UPDATE artworks SET revision=2 WHERE id=$1',[artworkId]);
   await expect(transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{}))).rejects.toThrow('HAYES_SOURCE_CHANGED');
   await pool.query('UPDATE artworks SET revision=1 WHERE id=$1',[artworkId]);
-  const expiringRecheck={...rights,expiresAt:new Date(Date.now()+1000).toISOString()};await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,{rights:expiringRecheck}]);await pool.query('UPDATE import_jobs SET rights=$2 WHERE id=$1',[jobId,expiringRecheck]);
+  const expiringRecheck={...rights,expiresAt:new Date(Date.now()+1000).toISOString()};await pool.query('UPDATE artworks SET metadata=$2 WHERE id=$1',[artworkId,metadata(expiringRecheck)]);await pool.query('UPDATE import_jobs SET rights=$2 WHERE id=$1',[jobId,expiringRecheck]);
   await transaction(pool,c=>openHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{}));
   await transaction(pool,c=>revalidateHayesOriginalAttempt(c,s,bound,blobs,b,async()=>{}));
   await expect(transaction(pool,c=>revalidateHayesOriginalAttempt(c,s,bound,blobs,{...b,runtimeGeneration:randomUUID()},async()=>{}))).rejects.toThrow('HAYES_SOURCE_CHANGED');

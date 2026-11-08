@@ -231,6 +231,9 @@ async function copyPostgres(postgresRoot, root, selection) {
   }
 }
 
+export async function copyNativeOwnerSupport(sourceRoot,platformRoot){
+ for(const name of ['native-owner-channel.mjs','native-hayes-owner-channel.mjs','native-owner-frames.mjs'])await copy(join(sourceRoot,'scripts',name),join(platformRoot,'scripts',name));
+}
 export async function copyNativeFurnishingSupport(sourceRoot,platformRoot){
  for(const name of ['native-workspace-furnishing-lease.mjs','native-workspace-furnishing-fd.mjs','native-workspace-furnishing-admission.mjs','native-workspace-furnishing-ordinary-assertion.mjs','native-workspace-furnishing-recovery.mjs'])await copy(join(sourceRoot,'scripts',name),join(platformRoot,'scripts',name));
 }
@@ -286,7 +289,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   await copyNativeFurnishings(furnishingsRoot, platform);
   await copy(join(source,'scripts/local-runtime.mjs'),join(platform,'scripts/local-runtime.mjs'));
   await copy(join(source,'scripts/native-workspace-channel.mjs'),join(platform,'scripts/native-workspace-channel.mjs'));
-  await copy(join(source,'scripts/native-owner-channel.mjs'),join(platform,'scripts/native-owner-channel.mjs'));
+  await copyNativeOwnerSupport(source,platform);
   await copy(join(source,'scripts/native-workspace-furnishing-bootstrap.mjs'),join(platform,'scripts/native-workspace-furnishing-bootstrap.mjs'));
   await copyNativeFurnishingSupport(source,platform);
   await writeNormalOexCapability(platform,normalOexSelected,workspaceMaterialSelected,workspaceImportSelected,workspaceWallImportSelected,workspaceFurnishingSelected,workspaceFurnishingWriterSelected,workspaceFurnishingPublicationSelected,workspaceMaterialPublicationSelected,workspaceMaterialMultimapSelected);
@@ -301,7 +304,6 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if(workspacePortalFinishSelected)await writeFile(join(platform,'scripts/native-workspace-portal-finish-capability-v1.json'),WORKSPACE_PORTAL_FINISH_CAPABILITY,{flag:'wx',mode:0o600});
   if(workspaceMaterialMultimapSelectedImport)await writeFile(join(platform,'scripts/native-workspace-furnishing-selected-oex-040-v1.json'),WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,{flag:'wx',mode:0o600});
   await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
-  await copy(join(source,'scripts/native-owner-frames.mjs'),join(platform,'scripts/native-owner-frames.mjs'));
   // Producer capability declaration only; Manager must still admit the exact
   // inventory and runtime source, not infer compatibility from this marker.
   await writeFile(join(platform,'scripts/native-owner-channel-v1.json'),'{"format":1,"kind":"exhibitos-native-owner-channel","version":1}',{flag:'wx',mode:0o600});

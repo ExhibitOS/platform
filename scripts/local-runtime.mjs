@@ -170,19 +170,19 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   // pg-pool already removes the failed idle client. Handle its separate error event
   // so readiness can report unavailable without an uncaught process exception.
   pool.on("error", () => { console.error("Local database connection became unavailable; pending jobs remain recoverable."); });
-  let app, proxy, ownerChannel, hayesChannel, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController();
+  let app, proxy, ownerChannel, hayesChannel, shutdown, selectedTask, writerLease, ordinaryAdmission, ordinaryStop, pinnedPayload, ownerStopped=false, runtimeReady=false, terminalFailure=false, stage = "MIGRATIONS", timer, running, closed, apiListening, proxyListening, proxyCreation, payloadAcquisition, deferredWork;let stopping=false;const ownerAbort=new AbortController(),hayesAbort=new AbortController();
   // This handshake is optional and grants no import authority. Legacy startup
   // must not wait for or depend on it; failure only leaves it unavailable.
   let ownerTask=Promise.resolve();
   if(personal&&privateOwner&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.started=true;ownerTask=openNativeOwnerChannel(environment.EXHIBITOS_NATIVE_OWNER_FD,privateWorkspace,privateOwner,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else ownerChannel=channel;}).catch(()=>{});}
   else if(privateOwner){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_OWNER_FD);transfer.started=true;}
   let hayesTask=Promise.resolve();
-  if(personal&&privateOwner&&privateHayes&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.hayesStarted=true;hayesTask=openHayesOwnerChannel(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD,privateWorkspace,privateHayes,ownerAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else hayesChannel=channel;}).catch(()=>{});}
+  if(personal&&privateOwner&&privateHayes&&environment.EXHIBITOS_RUNTIME_MODE==='native'){transfer.hayesStarted=true;hayesTask=openHayesOwnerChannel(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD,privateWorkspace,privateHayes,hayesAbort.signal).then(async channel=>{if(ownerStopped)await channel.close();else hayesChannel=channel;}).catch(()=>{});}
   else if(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD!==undefined){closeNativeOwnerDescriptor(environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD);transfer.hayesStarted=true;}
   const close = (normalStop=false) => closed ??= (async () => {
     stopping=true;runtimeReady=false;ownerStopped=true;if(!normalStop)ownerAbort.abort();let failed=false;
     const attempt=async action=>{try{await action();}catch{failed=true;}};
-    await attempt(()=>ownerTask);await attempt(()=>hayesTask);if(hayesChannel)await attempt(()=>hayesChannel.close());if(!normalStop&&ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
+    await attempt(()=>ownerTask);hayesAbort.abort();await attempt(()=>hayesTask);if(hayesChannel)await attempt(()=>hayesChannel.close());if(!normalStop&&ownerChannel)await attempt(()=>ownerChannel.close());clearTimeout(timer);
     if(payloadAcquisition)await payloadAcquisition.catch(()=>{});if(proxyCreation)await proxyCreation.catch(()=>{});if(apiListening)await apiListening.catch(()=>{});if(proxyListening)await proxyListening.catch(()=>{});if(deferredWork)await deferredWork.catch(()=>{});
     if(proxy){await attempt(()=>proxy.closeUpgradedConnections());await attempt(()=>proxy.closeAllConnections());if(proxy.listening)await attempt(()=>new Promise((resolve,reject)=>proxy.close(error=>error?reject(error):resolve())));}
     await attempt(()=>running);if(selectedTask)await selectedTask.catch(()=>{});if(app)await attempt(()=>app.close());await attempt(()=>pool.end());
@@ -222,7 +222,7 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const hayesOriginalDirectory=hayesOriginalCapability?fileURLToPath(new URL('../database/native-hayes-original/',import.meta.url)):undefined;
     if(hayesOriginalCapability&&(!workspaceFramePreparationCapability||!furnishingMode||furnishingSelected||privateOwner?.mode==='workspace-furnishing-039-to-040-upgrade-v1'))throw Error('NATIVE_OEX_CATALOG');
     await hayesTask;if(hayesOriginalCapability!==!!privateHayes||hayesOriginalCapability&&(!hayesChannel?.isOpen()||environment.EXHIBITOS_NATIVE_HAYES_OWNER_FD===environment.EXHIBITOS_NATIVE_FURNISHING_WRITER_FD))throw Error('HAYES_OWNER_UNAVAILABLE');
-    if(hayesOriginalCapability)void hayesChannel.whenClosed().then(()=>{if(!ownerStopped){ownerStopped=true;ownerAbort.abort();if(shutdown)void shutdown().catch(()=>{process.exitCode=1;});}});
+    if(hayesOriginalCapability)void hayesChannel.whenClosed().then(()=>hayesAbort.abort());
     if(workspaceFurnishingArtworkFrameModelsCapability&&!workspaceFurnishingArtworkFrameCapability)throw Error('NATIVE_OEX_CATALOG');
     if(workspaceFurnishingArtworkFrameCapability&&!workspaceFurnishingRoomVisualCapability)throw Error('NATIVE_OEX_CATALOG');
     if(workspaceFurnishingRoomVisualCapability&&!workspaceFurnishingStoolCapability)throw Error('NATIVE_OEX_CATALOG');

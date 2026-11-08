@@ -22,3 +22,14 @@ async function handshake(change={},duplicate=false){
 }
 test('dedicated inherited socket accepts exact pin and omits secret from ACK',{timeout:15000},async()=>{const r=await handshake();assert.equal(r.status,0);assert.equal(r.output,'OK');const n=r.reply.readUInt32BE(0);assert.equal(n,r.reply.length-4);assert.deepEqual(JSON.parse(r.reply.subarray(4).toString()),{version:1,kind:'hayes-owner-hello-ack',...workspace,runtimeGeneration:id,nativeOwnerId:ownerId,runtimeManifestSha256:manifest});assert(!r.reply.includes(hayesSecret));});
 for(const [label,change,duplicate] of [['secret',{secret},false],['owner',{nativeOwnerId:id},false],['manifest',{runtimeManifestSha256:'d'.repeat(64)},false],['duplicate',{},true]])test(`rejects ${label} without ACK`,{timeout:15000},async()=>{const r=await handshake(change,duplicate);assert.notEqual(r.status,0);assert.equal(r.output,'REFUSED');assert.equal(r.reply.length,0);});
+
+test('closing the dedicated owner leaves the ordinary inherited channel open',{timeout:15000},async()=>{
+ const pin={runtimeGeneration:id,secret:hayesSecret,nativeOwnerId:ownerId,runtimeManifestSha256:manifest};
+ const source=`import {openHayesOwnerChannel} from ${JSON.stringify(new URL('./native-hayes-owner-channel.mjs',import.meta.url).href)};import {openNativeOwnerChannel} from ${JSON.stringify(new URL('./native-owner-channel.mjs',import.meta.url).href)};const w=${JSON.stringify(workspace)},p=${JSON.stringify(pin)};try{const [a,b]=await Promise.all([openNativeOwnerChannel('10',w,{runtimeGeneration:p.runtimeGeneration,secret:${JSON.stringify(secret)}}),openHayesOwnerChannel('11',w,p)]);await b.close();process.stdout.write(String(a.isOpen()));await a.close();}catch{process.exitCode=1;}`;
+ const child=spawn(process.execPath,['--input-type=module','-e',source],{stdio:['ignore','pipe','ignore','ignore','ignore','ignore','ignore','ignore','ignore','ignore','pipe','pipe']}),ordinary=child.stdio[10],hayes=child.stdio[11],out=[];let failure;
+ const stop=e=>{failure??=e;child.kill('SIGKILL');};ordinary.on('error',stop);hayes.on('error',stop);child.on('error',stop);child.stdout.on('data',x=>out.push(x));ordinary.resume();hayes.resume();
+ const frame=x=>{const b=Buffer.from(JSON.stringify(x)),h=Buffer.alloc(4);h.writeUInt32BE(b.length);return Buffer.concat([h,b]);};
+ const ended=new Promise(resolve=>child.once('close',resolve)),timer=setTimeout(()=>stop(Error('CHILD_TIMEOUT')),5000);
+ ordinary.write(frame({version:1,kind:'hello',...workspace,runtimeGeneration:id,secret}));hayes.write(frame({version:1,kind:'hayes-owner-hello',...workspace,runtimeGeneration:id,secret:hayesSecret,nativeOwnerId:ownerId,runtimeManifestSha256:manifest}));
+ const status=await ended;clearTimeout(timer);if(failure)throw failure;assert.equal(status,0);assert.equal(Buffer.concat(out).toString(),'true');
+});
