@@ -107,10 +107,14 @@ export function createNativeHayesCaller(input:{owner:NativeOexWorkspaceContext;a
        const challenge=decodeHayesDispositionChallenge(rawChallenge,challengeExpected);
        selectedIds=Object.freeze({receiptId:randomUUID(),originalAssetId:randomUUID(),displayAssetId:randomUUID(),derivativeId:randomUUID(),rightsId:randomUUID()});
        const result=await commitHayesDisposition({admission,auth,owner,blobs,token:credentials.token,csrf:credentials.csrf,...selectedIds});
-       await live();const frame=encodeHayesDispositionNotice(challenge,result);
-       let timer:ReturnType<typeof setTimeout>|undefined,onAbort:()=>void=()=>{};
-       try{await Promise.race([sharedChannel.send(frame),new Promise<never>((_,reject)=>{onAbort=()=>reject(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));fenceSignal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(onAbort,Math.max(0,deadlineMs-Date.now()));})]);}finally{if(timer)clearTimeout(timer);fenceSignal.removeEventListener('abort',onAbort);}
-       await live();phase='committed';return result;
+       const checkDeadline=()=>{fenceSignal.throwIfAborted();if(Date.now()>=deadlineMs||!sharedChannel.isOpen())throw new ApiError(409,'HAYES_OWNER_UNAVAILABLE');};
+       const bounded=async<T>(operation:()=>Promise<T>):Promise<T>=>{checkDeadline();let timer:ReturnType<typeof setTimeout>|undefined,onAbort:()=>void=()=>{};try{
+        const interrupted=new Promise<never>((_,reject)=>{onAbort=()=>reject(new ApiError(409,'HAYES_OWNER_UNAVAILABLE'));fenceSignal.addEventListener('abort',onAbort,{once:true});timer=setTimeout(onAbort,Math.max(0,deadlineMs-Date.now()));});
+        const value=await Promise.race([Promise.resolve().then(()=>{checkDeadline();return operation();}),interrupted]);checkDeadline();return value;
+       }finally{if(timer)clearTimeout(timer);fenceSignal.removeEventListener('abort',onAbort);}};
+       await bounded(live);const frame=encodeHayesDispositionNotice(challenge,result);
+       checkDeadline();await bounded(()=>sharedChannel.send(frame));checkDeadline();
+       await bounded(live);checkDeadline();phase='committed';return result;
       }catch(cause){return await invalidate(cause);}
      },
      close:async()=>{valid=false;await close();},
