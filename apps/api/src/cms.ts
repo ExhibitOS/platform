@@ -389,9 +389,15 @@ export class Cms {
     if (!asset) throw new ApiError(409, "ASSET_NOT_APPROVED");
     const requiredPreparation=await assertRequiredModelApproval(c,s,id,b.assetId);
     if(requiredPreparation?.displayReference&&a.revision===requiredPreparation.artworkRevision&&json(a.metadata.displayReference)!==json(requiredPreparation.displayReference)){
-      await this.revise(c,s,id,{...a.metadata,revision,displayReference:requiredPreparation.displayReference});
-      a=await this.ownArtwork(c,s,id);revision=a.revision;
-      asset.rights_revision=(await c.query('SELECT revision FROM rights WHERE tenant_id=$1 AND id=$2',[s.tenantId,asset.rights_id])).rows[0].revision;
+      // This product-bound reference update changes no rights. General revise
+      // deliberately advances rights revisions, so use only its artwork/snapshot
+      // writes while retaining the existing artwork lock and transaction.
+      const metadata={...a.metadata,displayReference:requiredPreparation.displayReference};
+      if(!validMetadata(metadata))throw new ApiError(400,'INVALID_METADATA');
+      const advanced=await c.query('UPDATE artworks SET metadata=$4,cms_managed=true,revision=revision+1,approved_revision=NULL,approved_asset_id=NULL,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND revision=$3 RETURNING *',[s.tenantId,id,revision,metadata]);
+      if(!advanced.rowCount)throw new ApiError(409,'REVISION_CONFLICT');
+      a=advanced.rows[0];revision=a.revision;
+      await c.query('INSERT INTO artwork_revisions(tenant_id,artwork_id,revision,snapshot) VALUES($1,$2,$3,$4)',[s.tenantId,id,revision,metadata]);
     }
     if(a.metadata.displayReference&&(asset.mime!=='model/gltf-binary'||asset.sha256!==a.metadata.displayReference.assetSha256||Number(asset.scale_meters)!==1))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
     if(asset.mime==='model/gltf-binary'&&a.metadata.dimensions.depth===undefined)throw new ApiError(422,'MODEL_DEPTH_REQUIRED');

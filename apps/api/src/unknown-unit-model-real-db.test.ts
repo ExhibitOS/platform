@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {deflateSync} from 'node:zlib';
-import {mkdtemp} from 'node:fs/promises';
+import {mkdtemp,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {Pool} from 'pg';
@@ -52,8 +52,16 @@ it.skipIf(!process.env.EXHIBITOS_MODEL_TEST_DATABASE_URL)('retains unknown sourc
   if(!receipt||!('original' in receipt))throw Error('missing ordinary preparation receipt');
   expect(ready.modelPreparation).toMatchObject({status:'ready',workerDrained:true});expect(receipt.display.sha256).not.toBe(inspection.original.sha256);expect(receipt.displayReference).toEqual({...metadata.displayReference,assetSha256:receipt.display.sha256});
   expect((await run(c=>cms.detail(c,session,artworkId))).approvedRevision).toBeNull();
+  const olderRightsId=randomUUID(),olderAssetId=randomUUID(),olderKey=`${tenantId}/quarantine/older-model`;
+  await blobs.put(olderKey,source);
+  await pool.query('INSERT INTO rights(tenant_id,id,metadata,revision) VALUES($1,$2,$3,7)',[tenantId,olderRightsId,rights]);
+  await pool.query("INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'model/gltf-binary',1,'quarantine')",[tenantId,olderAssetId,artworkId,olderRightsId,olderKey,sha256(source),source.length]);
+  const allRights=async()=>(await pool.query('SELECT r.* FROM rights r WHERE tenant_id=$1 ORDER BY id',[tenantId])).rows;
+  const rightsBefore=await allRights();expect(rightsBefore.some(r=>r.id===olderRightsId&&r.revision===7)).toBe(true);
   expect((await run(c=>cms.approve(c,session,artworkId,{revision:1,assetId:receipt.display.assetId}))).revision).toBe(2);
+  expect(await allRights()).toEqual(rightsBefore);
   const reopened=new Cms(blobs),again=await run(c=>reopened.approve(c,session,artworkId,{revision:1,assetId:receipt.display.assetId}));expect(again.revision).toBe(2);expect(again.approvedRevision).toBe(2);
+  expect(await allRights()).toEqual(rightsBefore);
   expect((await run(c=>resumed.create(c,session,request))).id).toBe(jobId);
   expect((await run(async c=>resumed.view(await resumed.access(c,session,jobId)))).modelPreparation).toMatchObject({status:'ready',workerDrained:true});
   const originalRevision=(await pool.query('SELECT snapshot FROM artwork_revisions WHERE tenant_id=$1 AND artwork_id=$2 AND revision=1',[tenantId,artworkId])).rows[0].snapshot;expect(originalRevision).toEqual(metadata);
@@ -61,5 +69,21 @@ it.skipIf(!process.env.EXHIBITOS_MODEL_TEST_DATABASE_URL)('retains unknown sourc
   const display=await run(c=>reopened.studioArtwork(c,session,artworkId));expect(display.artwork.units).toBe('unknown');expect(display.artwork.transform).toEqual(metadata.displayReference!.pose);expect(display.artwork.assets[0]?.sha256).toBe(receipt.display.sha256);
   const original=(await pool.query('SELECT * FROM assets WHERE tenant_id=$1 AND id=$2',[tenantId,receipt.original.assetId])).rows[0];expect(original.state).toBe('quarantine');expect(sha256(Buffer.from(await blobs.get(original.object_key)))).toBe(inspection.original.sha256);
   const badMeta=structuredClone(again.metadata!);badMeta.displayReference!.referenceHeightMeters=2;await expect(run(c=>reopened.revise(c,session,artworkId,{...badMeta,revision:2}))).rejects.toMatchObject({code:'INVALID_METADATA'});
- }finally{await pool.end();}
+  // A structurally plausible but false caller reference must fail before any
+  // approved output is written, while the durable uploaded original survives.
+  const rejectedSource=fixture(66,640),badMetadata=structuredClone(metadata);
+  badMetadata.displayReference!.assetSha256=sha256(rejectedSource);badMetadata.displayReference!.rawBounds.max[0]=2;
+  const rejectedArtwork=await run(c=>cms.createArtwork(c,session,{artistId,...badMetadata})),badOperation=randomUUID();
+  const rejectedRequest:ImportInput={...request,artworkId:String(rejectedArtwork.id),sha256:sha256(rejectedSource),bytes:rejectedSource.length,idempotencyKey:badOperation,modelPreparation:{...request.modelPreparation!,operationID:badOperation}};
+  const rejected=await run(c=>importer.create(c,session,rejectedRequest)),rejectedId=String(rejected.id);
+  await run(c=>importer.upload(c,session,rejectedId,rejectedSource));await run(c=>importer.complete(c,session,rejectedId));
+  const writes=vi.spyOn(blobs,'put');expect(await importer.work()).toBe(true);
+  const approvedWrites=writes.mock.calls.filter(([key])=>key.includes('/approved/')).map(([key])=>key);expect(approvedWrites).toEqual([]);writes.mockRestore();
+  const failed=await run(async c=>importer.view(await importer.access(c,session,rejectedId)));
+  expect(failed).toMatchObject({state:'failed',modelPreparation:{status:'failed',workerDrained:true}});expect(failed.assetId).toBeUndefined();
+  const rejectedRow=(await pool.query('SELECT * FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,rejectedId])).rows[0];
+  expect(rejectedRow.error_code).toBe('MODEL_PREPARATION_DISPLAY_REFERENCE_INVALID');expect(sha256(Buffer.from(await blobs.get(rejectedRow.object_key)))).toBe(sha256(rejectedSource));
+  expect((await pool.query('SELECT count(*)::int AS n FROM assets WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,rejectedArtwork.id])).rows[0].n).toBe(0);
+  if(process.env.EXHIBITOS_MODEL_TEST_EVIDENCE)await writeFile(join(process.env.EXHIBITOS_MODEL_TEST_EVIDENCE,'review-fix-proof.json'),JSON.stringify({rightsBefore,rightsAfter:await allRights(),approvalRevision:again.revision,originalRevision,preparedReceipt:receipt,rejected:{jobId:rejectedId,state:rejectedRow.state,errorCode:rejectedRow.error_code,workerTokens:rejectedRow.png_worker_tokens,approvedWrites,sourceSHA256:sha256(Buffer.from(await blobs.get(rejectedRow.object_key))),expectedSourceSHA256:sha256(rejectedSource),assetCount:0},syntheticOnly:true},null,2)+'\n');
+ }finally{await pool.end();vi.restoreAllMocks();}
 },45000);
