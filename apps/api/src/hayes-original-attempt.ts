@@ -7,7 +7,7 @@ import {allowedRights} from './rights.ts';
 import {parseHayesOperationBinding,type HayesOperationBinding} from './hayes-operation-binding.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 
-const MIGRATION_SHA='ef324c5d97c46fef91062d85459c91a0fa715b0383d5de91bcbad39b1faf7701';
+const MIGRATION_SHA='074de4171572039f2f400d49d07aff8a3ec83ec222c1684cbc5452c6cc8b3ece';
 const issued=new WeakSet<NativeOexWorkspaceContext>();
 async function catalog(c:PoolClient){const result=await c.query('SELECT sha256 FROM schema_migrations WHERE name=$1',['042_hayes_original_attempt.sql']);if(result.rowCount!==1||result.rows[0].sha256!==MIGRATION_SHA)throw new ApiError(409,'HAYES_CATALOG_INVALID');}
 /** Runtime-private opt-in. A context is not a Manager custody receipt. */
@@ -33,7 +33,7 @@ export async function openHayesOriginalAttempt(c:PoolClient,s:Session,owner:Nati
  await owner.assertDatabase(c);await catalog(c);await assertManagerLive(b);
  await c.query('INSERT INTO hayes_original_attempts(tenant_id,id,workspace_id,principal_id,job_id,lease_id,runtime_generation,correlation_id,artwork_id,artwork_revision,source_sha256,source_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[b.tenantId,b.attemptId,b.workspaceId,b.principalId,b.jobId,b.leaseId,b.runtimeGeneration,b.correlationId,b.artworkId,b.artworkRevision,b.sourceSha256,b.sourceBytes]);
  const claimed=await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',hayes_attempt_id=$4,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='queued' AND hayes_attempt_id IS NULL AND attempts<5 RETURNING id",[b.tenantId,b.jobId,b.leaseId,b.attemptId]);
- if(claimed.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');await assertManagerLive(b);const live=await c.query("SELECT 1 FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND hayes_attempt_id=$4 AND lease_until>clock_timestamp()",[b.tenantId,b.jobId,b.leaseId,b.attemptId]);if(live.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');return b;
+ if(claimed.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');await assertManagerLive(b);if(!allowedRights(row.rights,'display')||!allowedRights(row.rights,'export'))throw new ApiError(409,'HAYES_SOURCE_CHANGED');const live=await c.query("SELECT 1 FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND hayes_attempt_id=$4 AND lease_until>clock_timestamp()",[b.tenantId,b.jobId,b.leaseId,b.attemptId]);if(live.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');return b;
 }
 
 /** Recheck the committed claim immediately before a separately authorized
@@ -49,5 +49,6 @@ export async function revalidateHayesOriginalAttempt(c:PoolClient,s:Session,owne
  if(artwork.revision!==b.artworkRevision||!isDeepStrictEqual(artwork.metadata?.rights,row.rights)||!allowedRights(row.rights,'display')||!allowedRights(row.rights,'export')||row.expected_hash!==b.sourceSha256||Number(row.expected_bytes)!==b.sourceBytes)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
  const source=Buffer.from(await blobs.getBounded(row.object_key,b.sourceBytes));try{if(source.length!==b.sourceBytes||sha256(source)!==b.sourceSha256)throw new ApiError(409,'HAYES_SOURCE_CHANGED');}finally{source.fill(0);}
  await owner.assertDatabase(c);await catalog(c);await assertManagerLive(b);
+ if(!allowedRights(row.rights,'display')||!allowedRights(row.rights,'export'))throw new ApiError(409,'HAYES_SOURCE_CHANGED');
  const live=await c.query("SELECT 1 FROM import_jobs WHERE tenant_id=$1 AND id=$2 AND state='processing' AND lease_id=$3 AND hayes_attempt_id=$4 AND lease_until>clock_timestamp()",[b.tenantId,b.jobId,b.leaseId,b.attemptId]);if(live.rowCount!==1)throw new ApiError(409,'HAYES_SOURCE_CHANGED');
 }

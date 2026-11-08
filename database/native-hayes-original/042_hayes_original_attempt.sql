@@ -24,6 +24,10 @@ END $$;
 CREATE TRIGGER hayes_original_attempt_immutable BEFORE UPDATE OR DELETE ON hayes_original_attempts FOR EACH ROW EXECUTE FUNCTION protect_hayes_original_attempt();
 CREATE FUNCTION protect_hayes_original_job() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+ IF TG_OP='INSERT' THEN
+  IF NEW.hayes_attempt_id IS NOT NULL THEN RAISE EXCEPTION 'Hayes binding must be claimed after upload'; END IF;
+  RETURN NEW;
+ END IF;
  IF TG_OP='UPDATE' AND OLD.hayes_attempt_id IS NULL AND NEW.hayes_attempt_id IS NOT NULL THEN
   IF (to_jsonb(NEW)-'state'-'progress'-'attempts'-'lease_id'-'lease_until'-'hayes_attempt_id'-'updated_at') IS DISTINCT FROM (to_jsonb(OLD)-'state'-'progress'-'attempts'-'lease_id'-'lease_until'-'hayes_attempt_id'-'updated_at') OR NEW.attempts<>OLD.attempts+1 OR NEW.lease_until IS NULL OR NEW.lease_until<=clock_timestamp() OR OLD.state<>'queued' OR NEW.state<>'processing' OR NEW.mime<>'model/gltf-binary' OR NEW.derived IS NOT NULL OR NEW.model_derivation IS NOT NULL OR NEW.expected_hash<>'e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6' OR NEW.expected_bytes<>8383096 OR NOT EXISTS (SELECT 1 FROM hayes_original_attempts a WHERE a.tenant_id=NEW.tenant_id AND a.id=NEW.hayes_attempt_id AND a.job_id=NEW.id AND a.principal_id=NEW.user_id AND a.artwork_id=NEW.artwork_id AND a.lease_id=NEW.lease_id) THEN RAISE EXCEPTION 'Hayes binding invalid'; END IF;
  END IF;
@@ -35,4 +39,4 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
-CREATE TRIGGER hayes_original_job_guard BEFORE UPDATE OR DELETE ON import_jobs FOR EACH ROW EXECUTE FUNCTION protect_hayes_original_job();
+CREATE TRIGGER hayes_original_job_guard BEFORE INSERT OR UPDATE OR DELETE ON import_jobs FOR EACH ROW EXECUTE FUNCTION protect_hayes_original_job();
