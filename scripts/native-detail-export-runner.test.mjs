@@ -18,3 +18,7 @@ test('mismatched revision closes the owned operation and never emits ready',asyn
  const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];stdout.on('data',()=>events.push('frame'));
  const controlFactory=()=>({prepare:async()=>{},close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,controlFactory,exporter:async()=>({publicationId:owner.publicationId,revisionSha256:'f'.repeat(64),manifestSha256:manifest})});input.write(frame(owner));await assert.rejects(pending,/NATIVE_DETAIL_RECEIPT/);assert.deepEqual(events,['close']);
 });
+test('parent disconnect cancels in-flight export and waits for it before close',async()=>{
+ const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];let started,release;const entered=new Promise(resolve=>{started=resolve;}),drain=new Promise(resolve=>{release=resolve;});stdout.on('data',()=>events.push('frame'));
+ const controlFactory=()=>({prepare:async()=>{},close:async()=>events.push('close')});const pending=runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,runtimeRoot:'/runtime',output:'/stage',input,stdout,controlFactory,exporter:async({signal})=>{started();await drain;signal.throwIfAborted();}});input.write(frame(owner));await entered;input.end();await new Promise(resolve=>setTimeout(resolve,10));assert.deepEqual(events,[]);release();await assert.rejects(pending);assert.deepEqual(events,['close']);
+});
