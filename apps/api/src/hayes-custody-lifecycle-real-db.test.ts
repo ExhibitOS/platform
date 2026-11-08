@@ -16,6 +16,7 @@ import {reserveHayesOutput} from './hayes-output-reservation.ts';
 import {storeHayesOutput} from './hayes-output-storage.ts';
 import {commitHayesDisposition} from './hayes-disposition-transaction.ts';
 import {recordHayesReleaseCompletion} from './hayes-release-completion.ts';
+import {confirmedHayesReleaseBindings} from '../../../packages/storage/src/hayes-release-inventory.ts';
 const mock=vi.hoisted(()=>({scope:undefined as unknown,admission:undefined as unknown,owner:undefined as unknown,blobs:undefined as unknown}));
 vi.mock('./hayes-ready-authority.ts',()=>({resolveHayesReady:(admission:unknown,owner:unknown,blobs:unknown)=>{if(!mock.scope||admission!==mock.admission||owner!==mock.owner||blobs!==mock.blobs)throw Error('HAYES_READY_NOT_ADMITTED');return mock.scope;}}));
 const sha=(b:Uint8Array)=>createHash('sha256').update(b).digest('hex');
@@ -58,6 +59,8 @@ it.skipIf(!process.env.HAYES_CUSTODY_TEST_PG||!process.env.EXHIBITOS_HAYES_ORIGI
   await expect(transaction(pool,async c=>{await c.query('ALTER TABLE import_jobs DISABLE TRIGGER hayes_original_job_guard');await c.query("UPDATE import_jobs SET lease_until=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND id=$2",[tenantId,created.id]);await c.query('ALTER TABLE import_jobs ENABLE TRIGGER hayes_original_job_guard');await c.query(insertRelease,releaseArgs);})).rejects.toThrow('Hayes release evidence invalid');
   mock.scope=Object.freeze({...scope,phase:'committed',release:{readyFrameSha256,challenge,receiptId,receiptSha256:committed.receiptSha256}});
   const releaseInput={...common,frame:rawCompletion};const releaseRecord=await recordHayesReleaseCompletion(releaseInput);expect(releaseRecord).toEqual({attemptId:binding.attemptId,completionFrameSha256:sha(rawCompletion)});expect(await recordHayesReleaseCompletion(releaseInput)).toEqual(releaseRecord);
+  const releaseBindings=await transaction(pool,c=>confirmedHayesReleaseBindings(c));expect(releaseBindings).toEqual(new Set([`import_jobs:${tenantId}:${created.id}`,`hayes_output_stages:${tenantId}:${stageId}`]));
+  await transaction(pool,async c=>{await c.query('ALTER TABLE hayes_native_releases DISABLE TRIGGER hayes_native_release_guard');await c.query('UPDATE hayes_native_releases SET completion_sha256=$2 WHERE tenant_id=$1',[tenantId,'0'.repeat(64)]);expect((await confirmedHayesReleaseBindings(c)).size).toBe(0);await c.query('UPDATE hayes_native_releases SET completion_sha256=$2 WHERE tenant_id=$1',[tenantId,completionSha256]);await c.query('ALTER TABLE hayes_native_releases ENABLE TRIGGER hayes_native_release_guard');});
   const different=Buffer.from(JSON.stringify({...releaseFrame,completionSha256:'e'.repeat(64)}));await expect(recordHayesReleaseCompletion({...releaseInput,frame:different})).rejects.toThrow('HAYES_RELEASE_CONFLICT');
   await expect(recordHayesReleaseCompletion({...releaseInput,frame:Buffer.from(JSON.stringify({...releaseFrame,database:{...database,databaseOid:'999'}}))})).rejects.toThrow('HAYES_RELEASE_COMPLETION_INVALID');
   await expect(pool.query('UPDATE hayes_native_releases SET completion_sha256=$2 WHERE tenant_id=$1',[tenantId,'0'.repeat(64)])).rejects.toThrow('Hayes release evidence immutable');await expect(pool.query('DELETE FROM hayes_native_releases WHERE tenant_id=$1',[tenantId])).rejects.toThrow('Hayes release evidence immutable');
