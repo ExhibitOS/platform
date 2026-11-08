@@ -30,7 +30,7 @@ import {WatermarkOverlay} from './WatermarkOverlay';
 import {borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
-import {completeDetailCommands,restoreDetailCanvas} from './viewer/detail-command-completion';
+import {completeDetailCommands,focusRestoredDetailCanvas,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
 import {isVerifiedStaticDetailAccess,staticDetailAttestation} from './static-publication-source';
 import {matchesMeasuredWheatImage} from './viewer/detail-image-eligibility';
@@ -2577,7 +2577,7 @@ export function GeometryPreview({
                   const restoreFits=()=>!!host.current&&host.current.clientWidth>0&&host.current.clientHeight>0&&host.current.clientWidth<=imageProfile.maxRestoreWidth&&host.current.clientHeight<=imageProfile.maxRestoreHeight&&globalThis.devicePixelRatio===imageProfile.devicePixelRatio;
                   let drawnWidth=0,drawnHeight=0;
                   await restoreDetailCanvas({peak,key:hold.key,heldBytes:hold.bytes,requiredBytes:imageProfile.restoreReservationBytes,limit:imageProfile.transitionCapBytes,draw:()=>{if(!restoreFits()||!host.current)return false;drawnWidth=host.current.clientWidth;drawnHeight=host.current.clientHeight;resize(true);update();return render(true);},complete:()=>completeDetailCommands(context),current:()=>Number.isSafeInteger(peak.total())&&peak.total()<=imageProfile.transitionCapBytes&&restoreFits()&&host.current?.clientWidth===drawnWidth&&host.current?.clientHeight===drawnHeight&&returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!context.isContextLost()&&renderer.domElement.style.visibility==='hidden',reveal:()=>{deferredCanvasRestore=false;renderer.domElement.style.visibility=previousCanvasVisibility;}});restoreHold=undefined;
-                  if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus(null);
+                  if(!disposed&&!gpuLost&&!publicDisplayStopped){setDetailRestoreStatus(null);try{requestAnimationFrame(()=>{focusRestoredDetailCanvas(renderer.domElement,()=>returnEpoch===canvasReturnEpoch&&!disposed&&!gpuLost&&!publicDisplayStopped&&!sharedDetail&&!deferredCanvasRestore&&!suspendedRef.current&&!xrActive.current&&!!host.current?.contains(renderer.domElement));});}catch{/* Focus recovery must not undo a completed canvas restoration. */}}
                 }catch(error){deferredCanvasRestore=true;renderer.domElement.style.visibility='hidden';throw error;}
               });
               void canvasRestorePromise.catch(()=>{if(!disposed&&!gpuLost&&!publicDisplayStopped)setDetailRestoreStatus('failed');});
