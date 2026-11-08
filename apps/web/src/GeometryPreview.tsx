@@ -32,7 +32,8 @@ import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfi
 import {assertDetailMountCurrent} from './viewer/detail-attempt';
 import {completeDetailCommands,restoreDetailCanvas} from './viewer/detail-command-completion';
 import {matchesDetailRuntime} from './viewer/detail-runtime-profile';
-import {isVerifiedStaticDetailAccess} from './static-publication-source';
+import {isVerifiedStaticDetailAccess,staticDetailAttestation} from './static-publication-source';
+import {matchesMeasuredWheatImage} from './viewer/detail-image-eligibility';
 import {surfaceTextureFor,materialFor} from '@exhibitos/studio-contract';
 import {floorFor,floorMaterial,validateStudioFloors,MATERIAL_NAMESPACE,type StudioMaterials} from '@exhibitos/studio-contract';
 import {surfacePanels as panels,wallFinishesFor} from '@exhibitos/studio-contract';
@@ -2497,14 +2498,17 @@ export function GeometryPreview({
           const art=arts.find(a=>a.revisionId.toLowerCase()===placement?.artworkRevisionId.toLowerCase());
           if(!art)throw Error('DETAIL_ARTWORK_UNAVAILABLE');
           const detailOwner=publicSource.detailPublication,detailAccess=detailOwner?.local?.detailAccess;
+          const galleryBuffer=()=>({width:renderer.domElement.width,height:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
           const selectedProfile=input.flatImage?qualifiedDetailImageProfile(publicSource.revisionSha256,art.revisionId):undefined;
-          const imageProfile=selectedProfile?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
+          const selectedBinding=selectedProfile&&detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,selectedProfile.candidateId):undefined;
+          let imageProfile=selectedProfile&&selectedProfile.revisionSha256===publicSource.revisionSha256&&selectedProfile.artworkRevisionId===art.revisionId&&matchesMeasuredWheatImage(selectedProfile,selectedBinding,galleryBuffer())?Object.freeze({...selectedProfile,detailViewport:Object.freeze({...selectedProfile.detailViewport}),runtime:Object.freeze({...selectedProfile.runtime})}):undefined;
           // A reopened qualified original waits for the previous owned work and
           // reservation to retire; an uncertain drain never admits a successor.
           if(imageProfile&&detailOwner&&detailAccess&&isVerifiedStaticDetailAccess(detailOwner,detailAccess))await originalDetailSlot.whenAvailable(signal);
           await canvasRestorePromise;assertMount();cancelDetail?.();
           try{await checkPublicAvailability(signal);}catch(error){if(mountEpoch===detailMountEpoch&&!signal.aborted&&!disposed){stopPublicDisplay();input.unavailable('rights');}throw error;}
           assertMount();
+          if(imageProfile&&!matchesMeasuredWheatImage(imageProfile,detailOwner&&detailAccess?staticDetailAttestation(detailAccess,detailOwner,imageProfile.candidateId):undefined,galleryBuffer()))imageProfile=undefined;
           if(!objects.has(art.revisionId))await new Promise<void>((resolve,reject)=>{
             const deadline=performance.now()+10000;let settled=false;
             const finish=(error?:Error)=>{if(settled)return;settled=true;signal.removeEventListener('abort',cancel);if(settleDetail===check)settleDetail=undefined;if(cancelDetail===cancel)cancelDetail=undefined;if(error)reject(error);else resolve();};
@@ -2587,6 +2591,7 @@ export function GeometryPreview({
             }finally{checking=false;}
           };
           try{
+            const admittedGallery=galleryBuffer();
             const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
@@ -2615,10 +2620,10 @@ export function GeometryPreview({
                 });
                 retryFlatDetail=retryPromotion;retryPromotion();
               };
-              if(profile&&sameDetailImageViewport(profile.detailViewport,viewport())&&owner&&access&&isVerifiedStaticDetailAccess(owner,access)&&typeof WebGL2RenderingContext!=='undefined'&&context instanceof WebGL2RenderingContext){
+              if(profile&&sameDetailImageViewport(profile.detailViewport,viewport())&&owner&&access&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&typeof WebGL2RenderingContext!=='undefined'&&context instanceof WebGL2RenderingContext){
                 const admittedViewport=viewport();let legacyPending=false;
                 const scopeCurrent=()=>renderer.getContext()===context&&alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope&&isVerifiedStaticDetailAccess(owner,access);
-                const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&globalThis.document.visibilityState==='visible';
+                const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&globalThis.document.visibilityState==='visible';
                 const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startLegacy();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
                 resumeLegacy=()=>{if(legacyPending)activateLegacy();};
                 const hints=(globalThis.navigator as Navigator&{userAgentData?:{platform:string;getHighEntropyValues(hints:string[]):Promise<{fullVersionList?:Array<{brand:string;version:string}>}>}}).userAgentData;
@@ -2629,7 +2634,7 @@ export function GeometryPreview({
                   try{
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
-                      isTrusted:()=>isVerifiedStaticDetailAccess(owner,access),
+                      isTrusted:()=>matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
                       draw:next=>{if(!current())throw Error('DETAIL_STALE');originalAttached=true;scope.replaceImage(next);},
                       hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
                       completeCommands:()=>completeDetailCommands(context),
