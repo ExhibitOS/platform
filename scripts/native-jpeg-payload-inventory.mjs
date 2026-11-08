@@ -9,6 +9,10 @@ const fail=()=>{throw Error('NATIVE_PACKAGE_JPEG_INVENTORY');};
  * independently admit the final, possibly re-signed, complete inventory. */
 export function assertNativeJpegPayloadInventory(files){
  if(!Array.isArray(files)||expected.version!==1||expected.platform!=='darwin-arm64')fail();
+ // Node resolves from the worker's directory upward. Refuse a second copy or
+ // link of any selected package elsewhere in the payload, including nested
+ // workspace node_modules, so it cannot shadow the root-pinned closure.
+ for(const item of files){if(typeof item?.path!=='string')continue;for(const pkg of expected.packages){const suffix=`/node_modules/${pkg.name}`;if((item.path.endsWith(suffix)||item.path.includes(`${suffix}/`))&&!item.path.startsWith(`platform/node_modules/${pkg.name}/`))fail();}}
  const selected=files.filter(item=>typeof item?.path==='string'&&roots.some(root=>item.path.startsWith(root)));
  if(selected.length!==expected.files.length)fail();const byPath=new Map();for(const item of selected){if(byPath.has(item.path))fail();byPath.set(item.path,item);}
  for(const item of expected.files){const actual=byPath.get(`platform/${item.path}`);if(!actual||actual.link!==undefined||actual.bytes!==item.bytes||actual.sha256!==item.sha256||actual.executable!==item.executable)fail();}
