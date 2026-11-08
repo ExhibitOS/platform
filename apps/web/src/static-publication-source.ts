@@ -10,6 +10,7 @@ import { validateDraft } from "./drafts/validator";
 import {validFootstepPublication} from './viewer/footstep-publication';
 import {validateCoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 import {packageFurnishingNoticeManifest} from './vendor/furnishings-v1.mjs';
+import {parseStaticJson} from './static-json.mjs';
 interface FileEntry {path:string;bytes:number;sha256:string;mime:string;assetId?:string}
 const hash=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes)))].map(x=>x.toString(16).padStart(2,"0")).join("");
 async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false,base=""){
@@ -27,7 +28,7 @@ async function verifiedIndex(expected:string|undefined,base=""):Promise<StaticIn
  if(!expected||! /^[a-f0-9]{64}$/.test(expected))throw Error("STATIC_INDEX");
  const bytes=await read("static-publication-index.json",1048576,undefined,false,base);
  if(await hash(bytes)!==expected)throw Error("STATIC_INDEX_HASH");
- return JSON.parse(new TextDecoder().decode(bytes)) as StaticIndex;
+ return parseStaticJson(bytes) as StaticIndex;
 }
 export async function loadStaticPublication(previousIndex?: string):Promise<PublicPublication>{
  const archive=previousIndex&&/^[a-f0-9]{64}$/.test(previousIndex)?`/private-copy-bases/${previousIndex}`:"";
@@ -37,7 +38,7 @@ export async function loadStaticPublication(previousIndex?: string):Promise<Publ
  if(![1,2,3].includes(index.version)||!Array.isArray(index.assets)||index.assets.length>20000||index.version===1&&(index.resources!==undefined||index.furnishingNotices!==undefined)||index.version===2&&(!Array.isArray(index.resources)||index.resources.length>141||index.furnishingNotices!==undefined)||index.version===3&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>141)))throw Error("STATIC_INDEX");
  if(!index.publication||! /^[a-f0-9]{64}$/.test(index.publication.sha256)||!Number.isSafeInteger(index.publication.bytes)||index.publication.bytes<1||index.publication.bytes>1048576||index.publication.mime!=='application/json')throw Error("STATIC_INDEX");
  const p=await read(index.publication.path,index.publication.bytes,undefined,!archive&&index.publication.path===`data/${index.publication.sha256}.json`,archive);if(p.length!==index.publication.bytes||await hash(p)!==index.publication.sha256)throw Error("STATIC_PUBLICATION_HASH");
- const value=JSON.parse(new TextDecoder().decode(p)) as PublicPublication,draft=newDraft();draft.schemaVersion=value.exhibition.schemaVersion;draft.exhibitionId=value.exhibition.id;draft.candidate=value.exhibition;
+ const value=parseStaticJson(p) as PublicPublication,draft=newDraft();draft.schemaVersion=value.exhibition.schemaVersion;draft.exhibitionId=value.exhibition.id;draft.candidate=value.exhibition;
  if(value.publication.status!=="published"||!validateDraft(draft).valid||!validateFurnishings(value.exhibition).valid||!validFootstepPublication(value)||await hash(new TextEncoder().encode(freezeCanonical(value.exhibition)))!==value.publication.revisionSha256)throw Error("STATIC_PUBLICATION");
  const workspace=value.exhibition.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;if(!validateWorkspaceFurnishings(value.exhibition).valid||!publicWorkspaceFurnishingRights(workspace))throw Error('STATIC_WORKSPACE_FURNISHING');
  const workspaceAssets=workspace?.furnishings??[];

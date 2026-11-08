@@ -43,6 +43,19 @@ test('public export cover validation runs its own worker and rejects corrupted P
  await assert.rejects(validateCoverImage(corrupted),/FORMAT_REJECTED/);
 });
 async function setup(t){const directory=await mkdtemp(join(tmpdir(),"exhibitos-static-export-test-"));t.after(()=>rm(directory,{recursive:true,force:true}));const runtime=join(directory,"runtime");await mkdir(runtime);await writeFile(join(runtime,"static.html"),'<html><head><meta name="exhibitos-static-index" content="STATIC_INDEX_SHA256"></head><body><div id="root"></div></body></html>');const fixture=await staticFixture(),options={origin:"http://127.0.0.1:3000",publicationId:fixture.id,runtimeRoot:runtime,output:join(directory,"output"),fetcher:fixture.fetcher};return {directory,runtime,fixture,options};}
+test('duplicate publication keys are rejected both before export and at its final fence',async t=>{
+ for(const corruptRead of [1,2]){
+  const {fixture,options,directory}=await setup(t);let reads=0;
+  options.fetcher=async(...args)=>{
+   const response=await fixture.fetcher(...args);
+   if(new URL(args[0]).pathname!==`/api/v1/publications/${fixture.id}`||++reads!==corruptRead)return response;
+   const raw=await response.text();return new Response(raw.replace('"publication":','"publication":null,"publication":'));
+  };
+  await assert.rejects(exportStaticPublication(options),/STATIC_JSON_INVALID/);
+  await assert.rejects(lstat(options.output),{code:'ENOENT'});
+  assert.deepEqual(await readdir(directory),['runtime']);
+ }
+});
 for(const contract of ['native','reference-demo'])test(`${contract}: selected furnishing model and notice survive static and Pages roundtrip with fail-closed integrity`,async t=>{
  const {fixture,options,directory}=await setup(t),room=fixture.raw.exhibition.rooms[0],id=randomUUID(),viewpointId=randomUUID(),catalog=furnishingCatalogueEntry('backless-oak-bench'),{min,max}=catalog.bounds;
  options.coverCompanion=contract;
@@ -336,7 +349,7 @@ async function isolatedBenchExporter(t){
  await copyFile(new URL('./export-static-publication.mjs',import.meta.url),join(code,'scripts/export-static-publication.mjs'));
  for(const name of ['oex-profile.js','cover-validation.js','api-error.js','approved-cover-projection.js'])await symlink(await realpath(new URL('../apps/api/dist/'+name,import.meta.url)),join(api,name));
  await copyFile(new URL('../apps/api/dist/furnishing-assets.js',import.meta.url),join(api,'furnishing-assets.js'));
- const web=join(code,'apps/web/src');await mkdir(join(web,'workspace-furnishing'),{recursive:true});for(const name of ['cover-variant-descriptor.mjs','workspace-material-resources.mjs','workspace-material-batch.mjs','workspace-material-public-rights.mjs','workspace-furnishing/public-rights.mjs'])await copyFile(new URL('../apps/web/src/'+name,import.meta.url),join(web,name));
+ const web=join(code,'apps/web/src');await mkdir(join(web,'workspace-furnishing'),{recursive:true});for(const name of ['static-json.mjs','cover-variant-descriptor.mjs','workspace-material-resources.mjs','workspace-material-batch.mjs','workspace-material-public-rights.mjs','workspace-furnishing/public-rights.mjs'])await copyFile(new URL('../apps/web/src/'+name,import.meta.url),join(web,name));
  await symlink(await realpath(new URL('../node_modules',import.meta.url)),join(code,'node_modules'));
  const entry=furnishingCatalogueEntry('backless-oak-bench');
  for(const path of [entry.path,entry.rights.noticePath]){const destination=join(code,path);await mkdir(dirname(destination),{recursive:true});await copyFile(new URL('../'+path,import.meta.url),destination);}
