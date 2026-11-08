@@ -53,9 +53,8 @@ export async function inspectDemo({output, pin, commit, approvedBases, runtimeRo
  if(!publication?.id||!publication.revisionSha256||publication.status!=='published')throw Error('DEMO_CONTENT_IDENTITY');
  if(qualified){
   const {expectedWheatHtml}=await import('./qualified-wheat-reference.mjs');
-  const bases=approvedBases??await readApprovedCopyBases(join(root,'demos/reference-exhibition/previous-copy-bases.json'));
   let hasStudio=true;try{await lstat(join(output,'studio.html'));}catch(e){if(e.code!=='ENOENT')throw e;hasStudio=false;}
-  const expectedHtml=await expectedWheatHtml({runtimeRoot,exhibition:qualified.publication.exhibition,privateEditor:hasStudio,bases});
+  const expectedHtml=await expectedWheatHtml({runtimeRoot,exhibition:qualified.publication.exhibition,privateEditor:hasStudio});
   if(!(await readFile(join(output,'index.html'))).equals(expectedHtml.index))throw Error('DEMO_CONTENT_HTML');
   if(hasStudio&&!(await readFile(join(output,'studio.html'))).equals(expectedHtml.studio))throw Error('DEMO_CONTENT_HTML');
  }
@@ -89,7 +88,8 @@ export async function inspectDemo({output, pin, commit, approvedBases, runtimeRo
   if(JSON.stringify(runtimeFiles.sort())!==JSON.stringify(expectedRuntime.sort()))throw Error('DEMO_RUNTIME_INVENTORY');
   for(const path of runtimeFiles){const source=await readFile(join(runtimeRoot,path)),row=expected.get(path);if(!row||row.bytes!==source.length||row.sha256!==sha256(source))throw Error('DEMO_RUNTIME_BYTES');}
  }
- const retained=await inspectCopyBases(output,approvedBases??await readApprovedCopyBases(join(root,'demos/reference-exhibition/previous-copy-bases.json')),expected);
+ const bases=qualified?[]:approvedBases??await readApprovedCopyBases(join(root,'demos/reference-exhibition/previous-copy-bases.json'));
+ const retained=await inspectCopyBases(output,bases,expected);
  if(JSON.stringify(actual)!==JSON.stringify([...new Set([...uniqueNames,...retained])].sort()))throw Error('DEMO_CONTENT_INVENTORY');
  const headers=staticCacheHeaders(index,description.files);
  const allowed=new Set([...expected.keys(),'static-export-manifest.json',...(headers?['_headers']:[])]);

@@ -51,10 +51,11 @@ async function exportReferenceDemoStage({runtimeRoot,output,privateEditor,coverC
  if(coverCompanion==='reference-demo'){
   const {assembleQualifiedWheat}=await import('./qualified-wheat-reference.mjs');
   await assembleQualifiedWheat({output:result.output,sourceRoot:join(demoRoot,'source'),runtimeRoot,privateEditor});
+ }else{
+  const bases=await readApprovedCopyBases(join(demoRoot,'previous-copy-bases.json'));
+  if(bases.length&&!privateEditor)throw Error('DEMO_COPY_BASE');
+  await writeCopyBases(result.output,demoRoot,bases);
  }
- const bases=await readApprovedCopyBases(join(demoRoot,'previous-copy-bases.json'));
- if(bases.length&&!privateEditor)throw Error('DEMO_COPY_BASE');
- await writeCopyBases(result.output,demoRoot,bases);
  const manifestBytes=await readFile(join(result.output,'static-export-manifest.json'));
  const manifest=JSON.parse(manifestBytes);
  const index=JSON.parse(await readFile(join(result.output,'static-publication-index.json'),'utf8'));
@@ -74,7 +75,7 @@ export async function exportReferenceDemo({runtimeRoot=join(root,'apps/web/dist-
   stage=await mkdtemp(join(dirname(target),'.reference-demo-'));const candidate=join(stage,'output');
   const result=await exportReferenceDemoStage({runtimeRoot,output:candidate,privateEditor,coverCompanion});
   const {inspectDemo}=await import('./deploy-reference-demo.mjs');
-  await inspectDemo({output:candidate,pin:result.indexSha256,commit:'local-build',approvedBases:await readApprovedCopyBases(join(root,'demos/reference-exhibition/previous-copy-bases.json')),runtimeRoot});
+  await inspectDemo({output:candidate,pin:result.indexSha256,commit:'local-build',runtimeRoot});
   try{await lstat(target);throw Error('DEMO_OUTPUT_EXISTS');}catch(e){if(e.code!=='ENOENT')throw e;}
   await rename(candidate,target);return {...result,output:target};
  }finally{if(stage)await rm(stage,{recursive:true,force:true});await lock.close();await unlink(lockPath);}
