@@ -7,6 +7,7 @@ import {runNativeDetailExport} from './native-detail-export-runner.mjs';
 const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`,hash='a'.repeat(64),manifest='b'.repeat(64);
 const startup=()=>({version:1,jobId:id(1),runtimeGeneration:id(2),workspaceId:id(3),tenantId:id(4),principalId:id(5),publicationId:id(6),revisionSha256:hash,origin:'http://127.0.0.1:3000',sessionToken:'s'.repeat(43),csrfToken:'c'.repeat(43)});
 const frame=value=>{const data=Buffer.from(JSON.stringify(value)),buffer=Buffer.alloc(data.length+4);buffer.writeUInt32BE(data.length);data.copy(buffer,4);return buffer;};
+test('detail stage requires a literal dot and an absolute runtime root',async()=>{const owner=startup();for(const options of [{output:'/stage',runtimeRoot:'/runtime'},{output:'.',runtimeRoot:'runtime'}])await assert.rejects(runNativeDetailExport({origin:owner.origin,publicationId:owner.publicationId,...options}),/NATIVE_DETAIL_STAGE/);});
 
 test('stages before ACK, final fence, settlement and ready',async()=>{
  const owner=startup(),input=new PassThrough(),stdout=new PassThrough(),events=[];let buffered=Buffer.alloc(0);
