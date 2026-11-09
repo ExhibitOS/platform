@@ -7,8 +7,6 @@ import {createHash} from 'node:crypto';
 import {dirname, join, resolve, relative, isAbsolute} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {LARGE_MODEL_RECOVERY_CAPABILITY,LARGE_MODEL_CAPABILITY,LARGE_MODEL_MIGRATION,LARGE_MODEL_SHA256,FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,HAYES_RELEASE_CAPABILITY,HAYES_RELEASE_MIGRATION,HAYES_RELEASE_SHA256,HAYES_DISPOSITION_CAPABILITY,HAYES_DISPOSITION_MIGRATION,HAYES_DISPOSITION_SHA256,HAYES_ORIGINAL_CAPABILITY,HAYES_ORIGINAL_MIGRATION,HAYES_ORIGINAL_SHA256,WORKSPACE_PORTAL_FINISH_CAPABILITY,WORKSPACE_FRAME_PREPARATION_CAPABILITY,WORKSPACE_FRAME_PREPARATION_MIGRATION,WORKSPACE_FRAME_PREPARATION_SHA256,WORKSPACE_FURNISHING_ARTWORK_FRAME_MODELS_CAPABILITY,WORKSPACE_FURNISHING_ARTWORK_FRAME_CAPABILITY,WORKSPACE_FURNISHING_ROOM_VISUAL_CAPABILITY,WORKSPACE_FURNISHING_STOOL_CAPABILITY,WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_CAPABILITY,WORKSPACE_MATERIAL_MULTIMAP_MIGRATION,WORKSPACE_MATERIAL_MULTIMAP_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_039_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_CAPABILITY,WORKSPACE_MATERIAL_PUBLICATION_MIGRATION,WORKSPACE_MATERIAL_PUBLICATION_SHA256,WORKSPACE_FURNISHING_SELECTED_OEX_CAPABILITY,WORKSPACE_MATERIAL_CAPABILITY,WORKSPACE_MATERIAL_MIGRATION,WORKSPACE_MATERIAL_SHA256,WORKSPACE_MATERIAL_OEX_MIGRATION,WORKSPACE_MATERIAL_OEX_SHA256,WORKSPACE_IMPORT_CAPABILITY,WORKSPACE_IMPORT_STAGE_MIGRATION,WORKSPACE_IMPORT_STAGE_SHA256,WORKSPACE_IMPORT_PROOF_MIGRATION,WORKSPACE_IMPORT_PROOF_SHA256,WORKSPACE_WALL_IMPORT_CAPABILITY,WORKSPACE_WALL_IMPORT_MIGRATION,WORKSPACE_WALL_IMPORT_SHA256,WORKSPACE_FURNISHING_CAPABILITY,WORKSPACE_FURNISHING_MIGRATION,WORKSPACE_FURNISHING_SHA256,WORKSPACE_FURNISHING_WRITER_CAPABILITY,WORKSPACE_FURNISHING_WRITER_MIGRATION,WORKSPACE_FURNISHING_WRITER_SHA256,WORKSPACE_FURNISHING_PUBLICATION_CAPABILITY,WORKSPACE_FURNISHING_PUBLICATION_MIGRATION,WORKSPACE_FURNISHING_PUBLICATION_SHA256} from './native-oex-normal-catalog.mjs';
-import {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} from '@exhibitos/studio-contract';
-import {USER_ASSET_CATALOGUE} from '../packages/studio-contract/dist/user-asset-catalogue.js';
 import {NATIVE_DETAIL_CAPABILITY} from './native-detail-capability.mjs';
 import {assertNativeJpegPayloadInventory} from './native-jpeg-payload-inventory.mjs';
 
@@ -156,6 +154,8 @@ const DEFAULT_FRAME_ENTRY={
 };
 /** Validate the immutable public release against the already-qualified runtime catalogue. */
 async function readDefaultFurnishingsManifest(root){
+  const {furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
+  const {USER_ASSET_CATALOGUE} = await import('../packages/studio-contract/dist/user-asset-catalogue.js');
   const manifestPath=join(root,'manifest.json');
   if(await checkedSource(manifestPath,'file')!==manifestPath)fail('NATIVE_PACKAGE_FURNISHING_RELEASE_INVALID');
   const manifestSize=(await lstat(manifestPath)).size;
@@ -207,6 +207,7 @@ export async function checkedDefaultFurnishingsRoot(root){
   return {root:canonical,...release};
 }
 export async function copyNativeFurnishings(sourceRoot, platformRoot, release) {
+  const {SUPPORTED_FURNISHINGS, furnishingCatalogueEntry} = await import('@exhibitos/studio-contract');
   const ids = ['backless-oak-bench', 'museum-track-spot', 'gallery-open-portal', 'rectangular-plinth'];
   if (Object.keys(SUPPORTED_FURNISHINGS).length !== ids.length || ids.some(id => !Object.hasOwn(SUPPORTED_FURNISHINGS, id))) fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   const includesExitOriginals=release?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES['1.3.0'].manifestSHA256;
@@ -320,9 +321,6 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if (!isAbsolute(destination) || resolve(destination) !== destination) fail('NATIVE_PACKAGE_DESTINATION_INVALID');
   nodeBinary = await checkedSource(nodeBinary, 'file'); nodeLicense = await checkedSource(nodeLicense, 'file');
   npmCLI = await checkedSource(npmCLI, 'file'); postgresRoot = await checkedSource(postgresRoot, 'directory');
-  const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
-  if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
-  if(['1.2.0','1.3.0'].some(version=>furnishingsRelease?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   const provenance = JSON.parse(await readFile(postgresSourceReceipt, 'utf8'));
   if (provenance.release !== 'v2.9.6' || provenance.assetID !== 512422981 || provenance.sha256 !== '9fc7d0dc08cf46dfd94bb32cbaaad81b41b37847a42d6dcb2f9fbd292813defb') fail('NATIVE_PACKAGE_POSTGRES_SOURCE_INVALID');
   const noticeRoot = join(source, 'notices/native-runtime');
@@ -336,6 +334,14 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if (await command(nodeBinary, ['--version'], {capture:true}) !== 'v24.21.0') fail('NATIVE_PACKAGE_NODE_INVALID');
   if (await command(nodeBinary, [npmCLI, '--version'], {capture:true}) !== '11.19.0') fail('NATIVE_PACKAGE_NPM_INVALID');
   if (!/^postgres \(PostgreSQL\) 18\.6 \(Postgres\.app\)$/.test(await command(join(postgresRoot, 'bin/postgres'), ['--version'], {capture:true,env:{PATH:'/usr/bin:/bin',LANG:'C'}}))) fail('NATIVE_PACKAGE_POSTGRES_INVALID');
+  // Rebuild the contract before reading its catalogue or copying its dist.
+  // A Git pin alone cannot identify an ignored build directory.
+  await command(nodeBinary, [npmCLI, 'run', 'build', '--workspace', '@exhibitos/studio-contract'], {
+    cwd: source, env: {...process.env, PATH: dirname(nodeBinary) + ':' + (process.env.PATH ?? '')}
+  });
+  const furnishingsRelease=defaultFurnishingsRoot===undefined?undefined:await checkedDefaultFurnishingsRoot(defaultFurnishingsRoot);
+  if(furnishingsRelease&&furnishingsRelease.manifestSHA256!==DEFAULT_FURNISHINGS_RELEASES['1.0.0'].manifestSHA256&&!workspaceFurnishingArtworkFrameModelsSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
+  if(['1.2.0','1.3.0'].some(version=>furnishingsRelease?.manifestSHA256===DEFAULT_FURNISHINGS_RELEASES[version].manifestSHA256)&&!workspaceFurnishingRoomVisualSelected)fail('NATIVE_PACKAGE_FURNISHING_UNSUPPORTED');
   // mkdir without recursive refuses an existing destination and preserves failures.
   await mkdir(destination, {mode:0o700});
   const root = await realpath(destination), platform = join(root, 'platform');
