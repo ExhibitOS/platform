@@ -26,10 +26,12 @@ export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque,locale
  if(plaque.source.kind==='room')return {title:content.title,summary:roomPlaqueIntroductionFor(document,plaque.roomId,'ko')??''};
  const caption=artworkPlaqueCaptionFor(plaque,locale);
  const year=creationYearFor(plaqueArtwork(document,plaque.source.placementId));
- const attribution=[caption?.artist??content.summary,caption?.date??(year===undefined?'':String(year))].filter(Boolean).join(' · ');
  const korean=artworkPlaqueCaptionFor(plaque,'ko');
  const translations=plaque.artworkCaption?.translations;
  const medium=caption?.medium??korean?.medium??translations?.find(row=>row.medium)?.medium;
  const dimensions=caption?.dimensions??korean?.dimensions??translations?.find(row=>row.dimensions)?.dimensions;
+ const authoredDate=medium||dimensions?korean?.date??translations?.find(row=>row.medium||row.dimensions)?.date:undefined;
+ const date=caption?.date??(year===undefined?authoredDate:String(year));
+ const attribution=[caption?.artist??content.summary,date].filter(Boolean).join(' · ');
  return {title:content.title,summary:[attribution,medium,dimensions].filter(Boolean).join('\n')};
 }
