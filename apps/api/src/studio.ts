@@ -6,8 +6,8 @@ import {assertWorkspaceMaterialSnapshot} from './workspace-material-snapshot.ts'
 import type {WorkspaceMaterialIntakes} from './workspace-material-intakes.ts';
 import {validateViewingPlan} from '@exhibitos/studio-contract';
 import {validateStudioFloors} from '@exhibitos/studio-contract';
-import {validateArchitecturalFinishes} from '@exhibitos/studio-contract';
-import {validateStudioPlaques} from '@exhibitos/studio-contract';
+import {applyArchitecturalFinishCommand,validateArchitecturalFinishes,type ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
+import {applyPlaqueCommand,validateStudioPlaques,type PlaqueCommand} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
 import {validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
@@ -30,6 +30,11 @@ export interface StudioResponse {
   etag: string;
   draft: Draft;
 }
+export const NATIVE_AUTHORING_PROPOSAL_PROFILE='saved-head-v1';
+type AuthoringProposalBinding={version:1;epoch:string;sequence:number;tenantId:string;principalId:string;requestId:string};
+type SupportedAuthoringCommand=Exclude<PlaqueCommand,{type:'remove-plaque'}>|Exclude<ArchitecturalFinishCommand,{type:'remove-wall-finish'}>;
+export interface NativeAuthoringProposalInput {expectedRevision:number;request:AuthoringProposalBinding&SupportedAuthoringCommand}
+
 export interface StudioInput {
   draft: Draft;
   requestId: string;
@@ -288,6 +293,31 @@ export class Studio {
     return this.putInternal(c,s,id,input,match);
   }
   /** Server-only narrow operation; authorization and verified approval remain caller obligations. */
+  async proposeNativeAuthoring(c:PoolClient,s:Session,id:string,input:NativeAuthoringProposalInput,match:string){
+    const owner=this.nativeOexWorkspace;
+    if(!this.nativeBoundedEditing||!owner||owner.tenantId!==s.tenantId||owner.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
+    const {expectedRevision,request}=input;
+    const {version,epoch,sequence,tenantId,principalId,requestId}=request;
+    if(tenantId!==s.tenantId||principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
+    await owner.assertDatabase(c);
+    const row=await this.access(c,s,id);
+    if(row.studio_owner_user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');
+    const head=etag(row.revision,row.metadata);
+    if(expectedRevision!==row.revision||match!==head)throw new ApiError(412,'REMOTE_CONFLICT');
+    const draft=row.metadata as Draft;
+    checked({draft,requestId});
+    const wall=request.type==='set-wall-finish';
+    let candidate:Draft['candidate'];
+    try{
+      candidate=wall?applyArchitecturalFinishCommand(draft.candidate,request):applyPlaqueCommand(draft.candidate,request);
+    }catch{
+      throw new ApiError(422,'AUTHORING_PROPOSAL_INVALID');
+    }
+    checked({draft:{...draft,candidate} as Draft,requestId});
+    const target=wall?{surfaceId:request.wall.surfaceId}:{plaqueId:request.plaque.id};
+    return {etag:head,proposal:{version,epoch,sequence,tenantId,principalId,requestId,...target,candidate}};
+  }
+
   async putArtworkReplacement(c:PoolClient,s:Session,id:string,prior:Artwork,next:Artwork,requestId:string,match:string,placementId?:string):Promise<StudioResponse>{
     if(!this.nativeOexWorkspace||this.nativeOexWorkspace.tenantId!==s.tenantId||this.nativeOexWorkspace.principalId!==s.userId)throw new ApiError(403,'FORBIDDEN');
     await this.nativeOexWorkspace.assertDatabase(c);
