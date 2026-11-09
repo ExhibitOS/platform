@@ -48,7 +48,7 @@ export class Imports {
   if(Object.hasOwn(row,'hayes_attempt_id')&&row.mime==='model/gltf-binary'&&row.expected_hash==='e66715a51c9cad0b904d2715d5b27fb80b97d43fe8c2a3cd10276c1b336a2cf6'&&Number(row.expected_bytes)===8383096){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await assertHayesOriginalContext(c,s,this.nativeWorkspace);}const coarse=storedImageCoarse(row);if(coarse){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');await this.coarseOwner(c,s.tenantId,s.userId,coarse.workspaceId);}if(storedModelPreparation(row)){if(row.user_id!==s.userId)throw new ApiError(403,'FORBIDDEN');if(row.state==='approved')await assertModelPreparationContext(c,row);}return row;
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
-  if(isProductImageIntent(input.coarsePreparation))return createProductImageImport(this,c,s,input);
+  if(input.imagePreparation!==undefined||isProductImageIntent(input.coarsePreparation))return createProductImageImport(this,c,s,input);
   const preparation=modelPreparationIntent(input.modelPreparation);
   if(preparation?.sourceFull||preparation?.sourceDisplayReference)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
   let artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
