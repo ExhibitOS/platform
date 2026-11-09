@@ -9,11 +9,13 @@ import {PublicationByteStage} from './publication-byte-stage.ts';
 import {isPublicationFileStore,pinPublicationFileStore} from './publication-attempt.ts';
 import type {NativeLocalExportContext} from './native-oex-provenance.ts';
 
+const NATIVE_PUBLICATION_STAGE_BYTES=160*1024*1024;
+
 /** Private, one-at-a-time local publication staging. This is not a disk
  * reservation or a restart recovery capability. Any potentially written
  * publication objects are retained if transaction completion is uncertain. */
 export class NativeLocalPublicationStage {
- readonly budget=128*1024*1024;
+ readonly budget=NATIVE_PUBLICATION_STAGE_BYTES;
  private claimed=false;private closed=false;private journaled=false;private effectsPossible=false;
  private marker?:{dev:bigint;ino:bigint};
  private readonly c:PoolClient;private readonly session:Session;private readonly context:NativeLocalExportContext;private readonly blobs:FileBlobStore;private readonly kind:'readiness'|'publish';private readonly detailMode:boolean;private readonly exhibitionId:string;private readonly etag:string;private readonly requestId:string|undefined;private readonly dir:string;private readonly identity:{dev:bigint;ino:bigint};private readonly stage:PublicationByteStage;private closing?:Promise<void>;
@@ -23,11 +25,11 @@ export class NativeLocalPublicationStage {
   if(s.tenantId!==context.tenantId||s.userId!==context.principalId)throw new ApiError(403,'FORBIDDEN');pinPublicationFileStore(blobs);await context.assertDatabase(c);
   const root=await realpath(blobs.root),parent=await realpath(dirname(root)),p=await lstat(parent);
   if(root!==blobs.root||dirname(root)!==parent||!p.isDirectory()||p.isSymbolicLink()||p.uid!==process.getuid?.()||(p.mode&0o077)!==0)throw new ApiError(409,'PUBLICATION_STAGE_UNAVAILABLE');
-  const capacity=await statfs(parent,{bigint:true});if(capacity.bavail*capacity.bsize<BigInt(128*1024*1024*3+1024*1024*1024))throw new ApiError(409,'PUBLICATION_STAGE_CAPACITY');
+  const capacity=await statfs(parent,{bigint:true});if(capacity.bavail*capacity.bsize<BigInt(NATIVE_PUBLICATION_STAGE_BYTES*3+1024*1024*1024))throw new ApiError(409,'PUBLICATION_STAGE_CAPACITY');
   const dir=join(parent,`native-publication-${context.workspaceId}`);try{await mkdir(dir,{mode:0o700});}catch(e){if((e as NodeJS.ErrnoException).code==='EEXIST')throw new ApiError(409,'PUBLICATION_STAGE_BUSY');throw e;}
   const d=await lstat(dir,{bigint:true});if(!d.isDirectory()||d.isSymbolicLink()||d.uid!==BigInt(process.getuid?.()??-1)||(d.mode&0o077n)!==0n)throw Error('PUBLICATION_STAGE_UNCERTAIN');
   const parentFd=await open(parent,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);try{await parentFd.sync();}finally{await parentFd.close();}
-  try{const stage=await PublicationByteStage.create(128*1024*1024,parent);return new NativeLocalPublicationStage(c,s,context,blobs,kind,exhibitionId,etag,requestId,dir,{dev:d.dev,ino:d.ino},stage,detailMode);}catch(e){const current=await lstat(dir,{bigint:true}).catch(()=>undefined);if(current&&current.dev===d.dev&&current.ino===d.ino)await rmdir(dir).catch(()=>{});throw e;}
+  try{const stage=await PublicationByteStage.create(NATIVE_PUBLICATION_STAGE_BYTES,parent);return new NativeLocalPublicationStage(c,s,context,blobs,kind,exhibitionId,etag,requestId,dir,{dev:d.dev,ino:d.ino},stage,detailMode);}catch(e){const current=await lstat(dir,{bigint:true}).catch(()=>undefined);if(current&&current.dev===d.dev&&current.ino===d.ino)await rmdir(dir).catch(()=>{});throw e;}
  }
  assertDetailMode(expected:boolean){if(this.detailMode!==expected)throw Error('PUBLICATION_STAGE_BINDING');}
  assertClaimed(){if(!this.claimed||this.closed)throw Error('PUBLICATION_STAGE_STATE');}
