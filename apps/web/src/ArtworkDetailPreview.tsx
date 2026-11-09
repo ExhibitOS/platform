@@ -300,17 +300,21 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
           let object:THREE.Object3D,measured:Candidate['measured'];
           if(inventory.mime==='image/png'){
             const sourceSize=checkImageDecode(bytes,artwork,inventory,budget);
-            let bitmap=await createImageBitmap(new Blob([bytes],{type:'image/png'}),{imageOrientation:'flipY'});
-            resources.add({dispose:()=>bitmap.close()});
+            const original=await createImageBitmap(new Blob([bytes],{type:'image/png'}),{imageOrientation:'flipY'});
+            const originalOwner={dispose:()=>original.close()};
+            resources.add(originalOwner);
+            let bitmap=original;
             abort.signal.throwIfAborted();
             if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
             if(bitmap.width>budget.maxTextureSize||bitmap.height>budget.maxTextureSize){
               const scale=budget.maxTextureSize/Math.max(bitmap.width,bitmap.height);
               const resized=await createImageBitmap(bitmap,{imageOrientation:'none',
                 resizeWidth:Math.max(1,Math.round(bitmap.width*scale)),resizeHeight:Math.max(1,Math.round(bitmap.height*scale))});
-              bitmap.close();
-              bitmap=resized;
+              resources.add({dispose:()=>resized.close()});
               abort.signal.throwIfAborted();
+              originalOwner.dispose();
+              resources.delete(originalOwner);
+              bitmap=resized;
             }
             if(bitmap.width*bitmap.height*4*4/3>steady)throw Error('DETAIL_MEMORY_BUDGET');
             resident=textureResidentBytes(bitmap.width,bitmap.height);
@@ -441,7 +445,7 @@ export function ArtworkDetailPreview({ publication, artwork, anchors, placementI
       }
 
       const preferred=selectAssetVariant(artwork,0,budget);
-      const initial=selectAssetVariant(artwork,0,budget,true);
+      const initial=!flat&&anchors.length?preferred:selectAssetVariant(artwork,0,budget,true);
       try{commit(await load(initial));}
       catch(error){
         if(initial.id===preferred.id||!current())throw error;
