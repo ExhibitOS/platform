@@ -2848,7 +2848,7 @@ export function GeometryPreview({
               approvedStarted=true;
               let target:ReturnType<typeof selectAssetVariant>;
               try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{promotionDecision('promotion-skipped-variant-unavailable');return;}
-              if(tiers.get(target.id.toLowerCase())!=='full'){promotionDecision('promotion-skipped-no-full-variant',target.id);return;}
+              if(tiers.get(target.id.toLowerCase())!=='full'){promotionDecision('promotion-skipped-target-not-full',target.id);return;}
               if(target.id===object?.userData.viewerAssetId){promotionDecision('promotion-skipped-already-full',target.id);return;}
               promoteImage=()=>{
                 const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
