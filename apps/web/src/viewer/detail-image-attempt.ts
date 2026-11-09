@@ -85,7 +85,23 @@ const r21Wheat:QualifiedDetailImage=Object.freeze({...r20Wheat,
  artworkRevisionId:'75450bac-6b51-45ce-ba6b-7e501b68a340',
  sourceBindingSha256:'c1103601c93be343acd04ff878ebdbab96ac6addddb1b159916472eb0c5f73a9',
 });
-const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat]);
+const r22Wheat:QualifiedDetailImage=Object.freeze({...r21Wheat,
+ staticIndexSha256:'04033f1f69797b1e6dc0ac39dfb5b0d30dae20df58b74968f0c9e6601543a3b0',
+ publicationSha256:'2b3b595067e1a85084bab2148a04aa77851ab887b8ec010b03887f03e7c98d41',
+ candidateId:'e0149040-ee18-4ec2-b2e6-945e82f83239',
+ revisionSha256:'bc58417d00d6c8a07062032ed8f181a4a770640bbd2faa754cc268a2249b48ba',
+ artworkRevisionId:'f34e0f81-fb80-4ee1-a1fe-82ce43ae52a1',
+ sourceBindingSha256:'df8bef03cf46319723cdfd6800c09cd53dbdad0121498a62921c2e00384aa114',
+});
+const r23Wheat:QualifiedDetailImage=Object.freeze({...r22Wheat,
+ staticIndexSha256:'7fbb7f2e5ec8a14b55f1c10c52d1c0ddce1d9c2fedb8beb85e5c38b636bae0ed',
+ publicationSha256:'f7aa68f6b16f90c837fb7fe9b62d850d232063ab579b08a8b935f7c7b5b0f6ba',
+ candidateId:'de6908dd-39e9-4dc4-ba85-7a206a39278a',
+ revisionSha256:'971bae6d2bd7bac044f4a80c578021571136e68432f95dc1472fa57e73afe8bc',
+ artworkRevisionId:'0e80073c-663f-4c68-8643-fed9dde4af05',
+ sourceBindingSha256:'c8e5c7e4aba21aa00e0cfe13cf2e81b2dee1e0de2678e167e56874d98b125dea',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat,r21Wheat,r22Wheat,r23Wheat]);
 export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
