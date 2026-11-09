@@ -42,6 +42,7 @@ import {allowedRights} from './rights.ts';
 import {decode} from './imports.ts';
 import {validatePcmWav,audioMedia,type AudioRow} from './audio.ts';
 export const MAX_OEX_UPLOAD=67108864;
+const MAX_OEX_PAYLOAD_ENTRIES=254;
 /** Package overhead is included in the limit and can reject before bytes return. */
 export async function writeOexWithinBudget(write:()=>Promise<Buffer>,dropOptional?:()=>void){
  const attempt=async()=>{try{const bytes=await write();if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');return bytes;}catch(error){if(object(error)&&['ZIP_ARCHIVE_LIMIT','JSON_DOCUMENT_LIMIT','OEX_LIMIT'].includes(String(error.code)))throw new ApiError(422,'OEX_LIMIT');throw new ApiError(422,'OEX_INVALID');}};
@@ -362,7 +363,7 @@ export class Oex {
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
   const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported,undefined,true,true);e=portableOexSnapshot(source);}:undefined;
   const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length+workspaceMaterialOutputInventory(e).length+workspaceFurnishingOutputInventory(e).length;};
-  if(dropOptional&&packageEntries()>254)dropOptional();
+  if(dropOptional&&packageEntries()>MAX_OEX_PAYLOAD_ENTRIES)dropOptional();
   let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
   // A preview may expire during archive I/O. Remove only that optional image,
@@ -436,6 +437,7 @@ export class Oex {
   const pinPath=(pin:FrozenThumbnailPin)=>`assets/${pin.thumbnailAssetId}/thumbnail.png`;
   for(const art of source.artworks){
    signal.throwIfAborted();
+   if(inputs.size>=MAX_OEX_PAYLOAD_ENTRIES)break;
    const primary=art.assets.find(asset=>asset.id===art.primaryAssetId);
    if(!this.blobs.getBounded||!primary||artworkThumbnailFor(art))continue;
    try{

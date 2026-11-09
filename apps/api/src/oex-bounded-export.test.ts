@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {mkdtemp,open,readFile,rm} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {deflateSync} from 'node:zlib';
@@ -195,6 +196,26 @@ describe('internal bounded OEX producer',()=>{
     });}finally{await handle.close();}
     authority.mockRejectedValueOnce(new ApiError(403,'RIGHTS_DENIED'));
     await expect(oex.revalidateBoundedExport(client,session,candidate.id,match,[],selectedResult.pins)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+
+    const modelBytes=files.get(primary.path)!;
+    while(files.size<254){
+     const work=JSON.parse(JSON.stringify(artwork).replaceAll(artwork.revisionId,randomUUID()).replaceAll(artwork.id,randomUUID()).replaceAll(primary.id,randomUUID())) as typeof artwork;
+     work.assets=[];
+     for(let j=0;j<8&&files.size<254;j++){
+      const id=j===0?work.primaryAssetId:randomUUID(),asset={...primary,id,path:`assets/${id}/model.glb`};
+      work.assets.push(asset);files.set(asset.path,modelBytes);
+     }
+     (candidate.artworks as typeof artwork[]).push(work);
+    }
+    const capacityPath=join(dir,'capacity.oex'),capacityMatch=etag(row.revision,row.metadata as Parameters<typeof etag>[1]);
+    expect(files.size).toBe(254);
+    selected.mockClear();
+    const capacity=await oex.exportBoundedFile(client,session,candidate.id,capacityMatch,capacityPath,new AbortController().signal);
+    expect(capacity.pins).toEqual([]);
+    expect(selected).not.toHaveBeenCalled();
+    const atCapacity=await open(capacityPath,'r');
+    try{await withOexFileHandle(atCapacity,async output=>{expect(output.manifest.assets).toHaveLength(254);});}finally{await atCapacity.close();}
+
    }finally{selected.mockRestore();authority.mockRestore();}
   }finally{await rm(dir,{recursive:true,force:true});}
  });
