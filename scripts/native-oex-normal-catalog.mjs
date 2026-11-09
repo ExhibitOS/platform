@@ -100,6 +100,17 @@ export async function hasCatalog045InterruptedRecoveryCapability(path){
  try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}
  catch(error){if(error?.code==='ENOENT')return false;throw error;}
 }
+export const CATALOG_045_RETAINED_IMAGE_RECOVERY_MARKER='native-catalog-045-retained-image-recovery-capability-v1.json';
+export const CATALOG_045_RETAINED_IMAGE_RECOVERY_CAPABILITY=JSON.stringify({format:1,kind:'exhibitos-native-catalog-045-retained-image-recovery',catalog:45,admissionKind:'interrupted-reopen',wireVersion:3});
+export async function hasCatalog045RetainedImageRecoveryCapability(path){
+ try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(CATALOG_045_RETAINED_IMAGE_RECOVERY_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}
+ catch(error){if(error?.code==='ENOENT')return false;throw error;}
+}
+export function assertCatalog045RecoverySelection({interrupted,legacyRecovery,retainedImageRecovery,hayesCompletion,oexCleanupSelection}){
+ if(retainedImageRecovery?(legacyRecovery||!!oexCleanupSelection||interrupted!==!!hayesCompletion):
+  (hayesCompletion&&(!legacyRecovery||!interrupted||!oexCleanupSelection)||interrupted&&oexCleanupSelection&&!hayesCompletion))
+  throw Error('LOCAL_OEX_CLEANUP_CONFIGURATION_INVALID');
+}
 export async function hasModelPreparationCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(MODEL_PREPARATION_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
 export async function hasHayesDispositionCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(HAYES_DISPOSITION_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}
 export async function hasHayesOriginalCapability(path){try{const bytes=await regular(path);if(!bytes.equals(Buffer.from(HAYES_ORIGINAL_CAPABILITY)))throw Error('NATIVE_OEX_CATALOG');return true;}catch(error){if(error?.code==='ENOENT')return false;throw error;}}

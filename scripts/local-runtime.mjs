@@ -1,6 +1,6 @@
 import {parseNativeOexCleanupSelection,attemptNativeOexCleanup} from '../apps/api/dist/native-oex-cleanup.js';
 import {createNativeModelPreparationExecution} from '../apps/api/dist/model-preparation-import.js';
-import {CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY,hasCatalog045InterruptedRecoveryCapability,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,hasModelPreparationCapability,verifyModelPreparationMigration} from './native-oex-normal-catalog.mjs';
+import {CATALOG_045_RETAINED_IMAGE_RECOVERY_MARKER,CATALOG_045_RETAINED_IMAGE_RECOVERY_CAPABILITY,hasCatalog045RetainedImageRecoveryCapability,assertCatalog045RecoverySelection,CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY,hasCatalog045InterruptedRecoveryCapability,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,hasModelPreparationCapability,verifyModelPreparationMigration} from './native-oex-normal-catalog.mjs';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createServer, request as httpRequest } from "node:http";
 import { constants } from "node:fs";
@@ -161,11 +161,13 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
   const normalOexV7=privateOwner?.mode==='normal-oex-workspace-import-v7',normalOexV6=privateOwner?.mode==='normal-oex-workspace-import-v6'||normalOexV7,normalOexV5=privateOwner?.mode==='normal-oex-workspace-v5'||normalOexV6,normalOexV4=privateOwner?.mode==='normal-oex-028-v4'||normalOexV5,normalOexV3=privateOwner?.mode==='normal-oex-027-v3'||normalOexV4,normalOexV2=privateOwner?.mode==='normal-oex-027-v2'||normalOexV3,normalOex=privateOwner?.mode==='normal-oex-v1'||normalOexV2,selectedOex=freshOexTest||normalOex,selectedPhase=selectedOex||furnishingSelected;
   if((selectedOex||furnishingMode)&&(!personal||environment.EXHIBITOS_RUNTIME_MODE!=='native'))throw Error('LOCAL_WORKSPACE_CONFIGURATION_INVALID');
   const oexCleanupSelection=parseNativeOexCleanupSelection(environment.EXHIBITOS_NATIVE_OEX_CLEANUP_SELECTION);
+  const retainedImageRecovery=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'&&await hasCatalog045RetainedImageRecoveryCapability(fileURLToPath(new URL('./'+CATALOG_045_RETAINED_IMAGE_RECOVERY_MARKER,import.meta.url)));
+  if(retainedImageRecovery&&oexCleanupSelection)throw Error('LOCAL_OEX_CLEANUP_CONFIGURATION_INVALID');
   const hayesCompletionRaw=environment.EXHIBITOS_NATIVE_045_HAYES_COMPLETION;
   let hayesCompletion;
   if(hayesCompletionRaw!==undefined){
     const invalid=()=>Error('LOCAL_OEX_CLEANUP_CONFIGURATION_INVALID');
-    if(typeof hayesCompletionRaw!=='string'||Buffer.byteLength(hayesCompletionRaw)>256||!oexCleanupSelection)throw invalid();
+    if(typeof hayesCompletionRaw!=='string'||Buffer.byteLength(hayesCompletionRaw)>256||!oexCleanupSelection&&!retainedImageRecovery)throw invalid();
     try{hayesCompletion=JSON.parse(hayesCompletionRaw);}catch{throw invalid();}
     if(!hayesCompletion||Object.keys(hayesCompletion).sort().join(',')!=='completionFrameSha256,jobId'||
        typeof hayesCompletion.jobId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(hayesCompletion.jobId)||
@@ -242,7 +244,9 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     const hayesReleaseDirectory=hayesReleaseCapability?fileURLToPath(new URL('../database/native-hayes-release/',import.meta.url)):undefined;
     if(hayesReleaseCapability&&!hayesDispositionCapability)throw Error('NATIVE_OEX_CATALOG');
     const modelPreparationCapability=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasModelPreparationCapability(fileURLToPath(new URL('./native-model-preparation-capability-v1.json',import.meta.url))):false;
-    const recovery045=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasCatalog045InterruptedRecoveryCapability(fileURLToPath(new URL('./native-catalog-045-interrupted-recovery-capability-v2.json',import.meta.url))):false;
+    const legacyRecovery045=personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'?await hasCatalog045InterruptedRecoveryCapability(fileURLToPath(new URL('./native-catalog-045-interrupted-recovery-capability-v2.json',import.meta.url))):false;
+    if(legacyRecovery045&&retainedImageRecovery)throw Error('NATIVE_OEX_CATALOG');
+    const recovery045=legacyRecovery045||retainedImageRecovery;
     if(recovery045&&(!modelPreparationCapability||!furnishingMode||privateOwner.mode!=='workspace-furnishing-036-reopen-v1'))throw Error('NATIVE_OEX_CATALOG');
     if(hayesCompletion&&!recovery045)throw Error('LOCAL_OEX_CLEANUP_CONFIGURATION_INVALID');
     const modelPreparationDirectory=modelPreparationCapability?fileURLToPath(new URL('../database/native-model-preparation/',import.meta.url)):undefined;
@@ -318,11 +322,12 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
       if(modelPreparationCapability)await verifyModelPreparationMigration(modelPreparationDirectory);
       ordinaryAdmission=await acceptFurnishingOrdinaryAdmission({writer:writerLease,channel:ownerChannel,secret:Buffer.from(privateOwner.secret,'hex')});
       const recoveryMarker='platform/scripts/native-catalog-045-interrupted-recovery-capability-v2.json';
-      if(recovery045?!pinnedPayload.hasExact(recoveryMarker,createHash('sha256').update(CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY).digest('hex'),Buffer.byteLength(CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY)):pinnedPayload.hasRegular(recoveryMarker))throw Error('NATIVE_OEX_CATALOG');
+      if(legacyRecovery045?!pinnedPayload.hasExact(recoveryMarker,createHash('sha256').update(CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY).digest('hex'),Buffer.byteLength(CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY)):pinnedPayload.hasRegular(recoveryMarker))throw Error('NATIVE_OEX_CATALOG');
+      const retainedMarker='platform/scripts/'+CATALOG_045_RETAINED_IMAGE_RECOVERY_MARKER;
+      if(retainedImageRecovery?!pinnedPayload.hasExact(retainedMarker,createHash('sha256').update(CATALOG_045_RETAINED_IMAGE_RECOVERY_CAPABILITY).digest('hex'),Buffer.byteLength(CATALOG_045_RETAINED_IMAGE_RECOVERY_CAPABILITY)):pinnedPayload.hasRegular(retainedMarker))throw Error('NATIVE_OEX_CATALOG');
       await assertWorkspaceFurnishingRuntimeAdmission(privateOwner.mode,ordinaryAdmission,recovery045);
       const interrupted=ordinaryAdmission.fields.admissionKind==='interrupted-reopen';
-      if(hayesCompletion&&(!recovery045||!interrupted)||interrupted&&oexCleanupSelection&&!hayesCompletion)
-        throw Error('LOCAL_OEX_CLEANUP_CONFIGURATION_INVALID');
+      assertCatalog045RecoverySelection({interrupted,legacyRecovery:legacyRecovery045,retainedImageRecovery,hayesCompletion,oexCleanupSelection});
       ordinaryStop=furnishingOrdinaryStopControl(ordinaryAdmission,ownerChannel,Buffer.from(privateOwner.secret,'hex'));
       supplementalMigrationDirectory=fileURLToPath(new URL('../database/native-oex-normal/',import.meta.url));
     }else if(personal&&environment.EXHIBITOS_RUNTIME_MODE==='native'){
