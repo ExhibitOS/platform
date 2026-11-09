@@ -2,7 +2,7 @@ import {FRESH_IMAGE_INTENT_SCHEMA} from './fresh-image-intent.ts';
 import {inspectModelOriginal} from './model-original-inspection.ts';
 import {COMPACT_MODEL_LIMITS,LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
 import type {CompactVariantInput} from './compact-model-variant.ts';
-import {MODEL_PREPARATION_SCHEMA} from './model-preparation-intent.ts';
+import {MODEL_PREPARATION_SCHEMA,storedModelPreparation} from './model-preparation-intent.ts';
 import type {ModelPreparationExecution} from './model-preparation-import.ts';
 import {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
 import {PassThrough} from 'node:stream';
@@ -444,10 +444,28 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  if(nativeOexWorkspace&&nativeBoundedEditing&&store&&modelPreparationExecution)app.get(`${prefix}/studio/artworks/:id/native-model-candidate`,{schema:{querystring:object({artworkRevision:{type:'string',pattern:'^[1-9][0-9]{0,9}$'}})}},call(false,async(c,s,req)=>{const revision=Number((req.query as {artworkRevision:string}).artworkRevision);if(!Number.isSafeInteger(revision)||revision>2147483647)throw new ApiError(400,'INVALID_INPUT');return resolveApprovedModelCandidate(c,s,cmsId(req),revision,cms,importer());}));
  if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-artwork-replacement`,{bodyLimit:4096,schema:{body:{oneOf:[object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id}),object({requestId:id,artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id,kind:{const:'approved-model-candidate-v1'},placementId:id})]}}},nativeMutation(async(c,s,req,reply)=>{if((req.body as {kind?:unknown}).kind!==undefined&&!nativeBoundedEditing)throw new ApiError(403,'NATIVE_MODEL_REPLACEMENT_UNAVAILABLE');const result=await replaceApprovedArtwork(c,s,(req.params as {id:string}).id,req.body as ArtworkReplacementInput,requiredMatch(req.headers['if-match']),studio,cms,importer(),store);reply.header('etag',result.etag);return result;}));
  if(nativeOexWorkspace&&!freshOexTest&&store)app.post(`${sp}/:id/native-original-static-approval`,{bodyLimit:4096,schema:{body:object({artworkId:id,artworkRevision:{type:'integer',minimum:1,maximum:2147483647},importJobId:id})}},nativeMutation(async(c,s,req)=>approveOriginalStaticSource(c,s,(req.params as {id:string}).id,req.body as OriginalStaticApprovalInput,studio,cms,importer(),store)));
+ // Reject non-owner requests before Fastify allocates the extended binary body.
+ // The handler repeats authorization under the operation's transaction.
+ const largeModelBody=async(req:FastifyRequest)=>{
+  guarded(req,true);
+  const {tenantId,id:jobId}=req.params as {tenantId:string;id?:string};
+  uuid(tenantId);
+  if(jobId!==undefined)uuid(jobId);
+  const csrf=typeof req.headers['x-csrf-token']==='string'?req.headers['x-csrf-token']:undefined;
+  await auth.requestForNativeDetailRead(token(req),tenantId,csrf,async(c,s)=>{
+   await importer().largeModelReady(c,s);
+   if(req.headers['content-type']!=='application/octet-stream')throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');
+   if(jobId!==undefined){
+    const row=await importer().access(c,s,jobId);
+    if(row.state!=='uploading'||storedModelPreparation(row)?.profileId!==LARGE_MODEL_RECIPE.id)
+     throw new ApiError(409,'MODEL_PREPARATION_PROFILE_MISMATCH');
+   }
+  });
+ };
  app.addContentTypeParser('application/octet-stream',{parseAs:'buffer',bodyLimit:MAX_UPLOAD},(_req,body,done)=>done(null,body));
  if(modelPreparationExecution&&store)app.post(`${prefix}/imports/model-inspection`,{bodyLimit:COMPACT_MODEL_LIMITS.sourceBytes,schema:{querystring:object({})}},importMutation(async(c,s,req)=>{await importer().requiredModelReady(c,s);return inspectModelOriginal(req.body as Buffer);}));
  if(modelPreparationExecution&&nativeOexWorkspace&&nativeBoundedEditing&&store)app.post(`${prefix}/imports/large-model-inspection`,{
-  bodyLimit:LARGE_MODEL_RECIPE.limits.sourceBytes,schema:{querystring:object({})},
+  bodyLimit:LARGE_MODEL_RECIPE.limits.sourceBytes,onRequest:largeModelBody,schema:{querystring:object({})},
  },nativeMutation(async(c,s,req)=>{
   await importer().largeModelReady(c,s);
   if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');
@@ -461,7 +479,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,input:AuthConfig,stor
  app.post(`${prefix}/imports`,{schema:{body:object({artworkId:id,idempotencyKey:{...str,minLength:1,maxLength:128},mime:{enum:['model/gltf-binary','image/png','image/jpeg']},sha256:{...str,pattern:'^[0-9a-f]{64}$'},bytes:{type:'integer',minimum:1,maximum:nativeBoundedEditing?LARGE_MODEL_RECIPE.limits.sourceBytes:MAX_UPLOAD},scaleMeters:{type:'number',exclusiveMinimum:0,maximum:1000000},rights:{type:'object'},derived:PREPARED_IMAGE_SCHEMA,modelDerivation:MODEL_DERIVATION_SCHEMA,modelPreparation:MODEL_PREPARATION_SCHEMA,...(nativeOexWorkspace&&nativeBoundedEditing?{imagePreparation:FRESH_IMAGE_INTENT_SCHEMA}:{}),coarsePreparation:{oneOf:[IMAGE_COARSE_INTENT_SCHEMA,PRODUCT_IMAGE_INTENT_SCHEMA]}},['artworkId','idempotencyKey','mime','sha256','bytes','scaleMeters','rights'])}},importMutation(async(c,s,req,reply)=>{reply.code(201);return importer().create(c,s,req.body as ImportInput);}));
  app.get(`${prefix}/imports/:id`,call(false,async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);return importer().view(await importer().access(c,s,p.id));}));
  app.put(`${prefix}/imports/:id/bytes`,{bodyLimit:MAX_UPLOAD},importMutation(async(c,s,req)=>{const p=req.params as {id:string};uuid(p.id);if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');return importer().upload(c,s,p.id,req.body);}));
- if(modelPreparationExecution&&nativeOexWorkspace&&nativeBoundedEditing)app.put(`${prefix}/imports/:id/large-model-bytes`,{bodyLimit:LARGE_MODEL_RECIPE.limits.sourceBytes},nativeMutation(async(c,s,req)=>{
+ if(modelPreparationExecution&&nativeOexWorkspace&&nativeBoundedEditing)app.put(`${prefix}/imports/:id/large-model-bytes`,{bodyLimit:LARGE_MODEL_RECIPE.limits.sourceBytes,onRequest:largeModelBody},nativeMutation(async(c,s,req)=>{
   const p=req.params as {id:string};uuid(p.id);
   if(req.headers['content-type']!=='application/octet-stream'||!Buffer.isBuffer(req.body))throw new ApiError(415,'UNSUPPORTED_MEDIA_TYPE');
   return importer().upload(c,s,p.id,req.body,true);

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {request} from 'node:http';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {randomBytes,randomUUID} from 'node:crypto';
@@ -121,6 +122,19 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   expect(created.statusCode,created.body).toBe(201);
   const id=created.json().id as string,jobUrl=`${api}/imports/${id}`;
   expect((await create(LARGE_MODEL_RECIPE.id)).json().id).toBe(id);
+  const nativeAddress=await app.listen({host:'127.0.0.1',port:0});
+  const preBody=async(method:string,path:string,cookie?:string)=>new Promise<number|undefined>((resolve,reject)=>{
+   const req=request(nativeAddress+path,{method,headers:{host:headers.host,origin,'content-type':'application/octet-stream',
+    'content-length':String(source.length),...(cookie?{cookie}:{})}},response=>{
+    response.resume();resolve(response.statusCode);req.destroy();
+   });
+   req.setTimeout(3000,()=>req.destroy(Error('large request was not rejected before body parsing')));
+   req.once('error',reject);
+   req.flushHeaders(); // Deliberately send no bytes.
+  });
+  expect(await preBody('POST',`${api}/imports/large-model-inspection`)).toBe(401);
+  expect(await preBody('PUT',`${jobUrl}/large-model-bytes`,headers.cookie)).toBe(403);
+
   expect((await app.inject({method:'PUT',url:`${jobUrl}/bytes`,headers:octets,payload:source})).statusCode).toBe(413);
   const upload=await app.inject({method:'PUT',url:`${jobUrl}/large-model-bytes`,headers:octets,payload:source});
   expect(upload.statusCode,upload.body).toBe(200);
