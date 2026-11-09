@@ -46,3 +46,31 @@ export function fitModularPortal(three:typeof Three,object:Three.Object3D,source
   geometry.computeBoundingBox();geometry.computeBoundingSphere();
  }
 }
+
+
+// Each architectural shell uses the base material owned by its surface.
+// Keep that material so asynchronous wall textures still update it.
+const wallBias=new WeakMap<Three.Material,{owners:number;restore:()=>void}>();
+export function biasPairedPortalWalls(three:typeof Three,room:Three.Object3D,wallIds:ReadonlySet<string>){
+ let root=room;
+ while(root.parent)root=root.parent;
+ const materials=new Set<Three.Material>();
+ root.traverse(object=>{
+  const finish=object.userData.architecturalFinish as {kind?:string;surfaceId?:string}|undefined;
+  if(object instanceof three.Mesh&&finish?.kind==='structure'&&finish.surfaceId&&wallIds.has(finish.surfaceId.toLowerCase())&&!Array.isArray(object.material))materials.add(object.material);
+ });
+ for(const material of materials){
+  const state=wallBias.get(material);
+  if(state){state.owners++;continue;}
+  const {polygonOffset,polygonOffsetFactor,polygonOffsetUnits}=material;
+  wallBias.set(material,{owners:1,restore:()=>Object.assign(material,{polygonOffset,polygonOffsetFactor,polygonOffsetUnits})});
+  material.polygonOffset=true;material.polygonOffsetFactor=3;material.polygonOffsetUnits=6;
+ }
+ return ()=>{
+  for(const material of materials){
+   const state=wallBias.get(material);
+   if(state&&--state.owners===0){state.restore();wallBias.delete(material);}
+  }
+  materials.clear();
+ };
+}
