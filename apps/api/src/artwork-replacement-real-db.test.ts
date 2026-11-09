@@ -8,7 +8,7 @@ import {createServer} from 'node:net';
 import {Pool,type PoolClient} from 'pg';
 import {migrate,transaction,FileBlobStore,Storage,sha256,type BlobStore} from '@exhibitos/storage';
 import {revisionHash,validateLifecycle,type Artwork,type Lifecycle} from '@exhibitos/spec';
-import {freezeCanonical,type DetailCandidate} from '@exhibitos/studio-contract';
+import {ARTWORK_THUMBNAIL_NAMESPACE,artworkThumbnailFor,freezeCanonical,type DetailCandidate} from '@exhibitos/studio-contract';
 import {Auth,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {Imports} from './imports.ts';
@@ -16,6 +16,7 @@ import {createServiceModelPreparationExecution} from './model-preparation-import
 import {Cms} from './cms.ts';
 import {Studio,etag} from './studio.ts';
 import {replaceApprovedArtwork} from './artwork-replacement.ts';
+import {prepareProductImageThumbnail} from './product-image-preparation.ts';
 import {approveOriginalStaticSource,readApprovedOriginalStaticSource} from './artwork-original-static-approval.ts';
 import {readBoundOriginalDetail} from './original-detail-binding.ts';
 import {detailSourceCommitment,newDetailSourceNonce} from './detail-source-commitment.ts';
@@ -47,6 +48,12 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
   const find=(v:unknown):Extract<Lifecycle,{kind:'exhibition-draft'}>|undefined=>{if(!v||typeof v!=='object')return;const o=v as Record<string,unknown>;if(o.kind==='exhibition-draft'&&o.candidate&&typeof o.candidate==='object'&&Array.isArray((o.candidate as {artworks?:unknown}).artworks))return v as Extract<Lifecycle,{kind:'exhibition-draft'}>;for(const x of Object.values(v)){const result=find(x);if(result)return result;}return;};
   const draft=find(data);if(!draft)throw Error('draft missing');const prior=draft.candidate.artworks.find((a:Artwork)=>a.assets.some(x=>x.sha256==='2d202bfa522a54dd6e0a73063ff2eabdb7f90aae246ba9322d6505019c5bda9f'));if(!prior)throw Error('artwork missing');
   prior.extensions!['org.exhibitos.studio/cms']={tenantId,artworkId:prior.id,revision:prior.revision};
+  const priorPreview=product?await (await import('sharp')).default({create:{width:32,height:24,channels:3,background:'#733519'}}).png().toBuffer():undefined;
+  if(priorPreview){
+   const id=randomUUID();
+   prior.assets.push({id,path:`assets/${id}/thumbnail.png`,role:'preview',mime:'image/png',bytes:priorPreview.length,sha256:sha256(priorPreview)});
+   prior.extensions![ARTWORK_THUMBNAIL_NAMESPACE]={version:1,assetId:id};
+  }
   const metadata={title:prior.metadata.title,description:prior.metadata.description??'',...(prior.metadata.medium?{medium:prior.metadata.medium}:{}),dimensions:{...prior.dimensions,unit:'m'},rights:prior.rights,provenance:{source:prior.provenance.authorship,sourceUnits:'m',scaleApplied:false,notes:''}};
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'isolated test']);await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
   await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:prior.metadata.artist}]);
@@ -56,6 +63,7 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
   const old=prior.assets.find(a=>a.id===prior.primaryAssetId)!;await pool.query('INSERT INTO artwork_approvals(tenant_id,artwork_id,revision,asset_id,snapshot) VALUES($1,$2,1,$3,$4)',[tenantId,prior.id,old.id,{metadata,asset:{id:old.id,sha256:old.sha256,bytes:old.bytes,mime:old.mime,rightsRevision:1},importedArtwork:prior}]);await pool.query('UPDATE artworks SET approved_revision=1,approved_asset_id=$3 WHERE tenant_id=$1 AND id=$2',[tenantId,prior.id,old.id]);
   await pool.query('INSERT INTO exhibitions(tenant_id,id,metadata,studio_managed,studio_owner_user_id) VALUES($1,$2,$3,true,$4)',[tenantId,draft.exhibitionId,draft,userId]);await pool.query('INSERT INTO exhibition_revisions(tenant_id,exhibition_id,revision,snapshot) VALUES($1,$2,1,$3)',[tenantId,draft.exhibitionId,draft]);
   await mkdir(root,{recursive:true,mode:0o700});const blobs=new FileBlobStore(root),owner={tenantId,principalId:userId,workspaceId,assertDatabase:async()=>{}} as unknown as NativeOexWorkspaceContext,session={tenantId,userId,role:'admin'} as Session,imports=new Imports(pool,blobs,owner),cms=new Cms(blobs);
+  if(priorPreview)await blobs.put(`${tenantId}/approved/${sha256(priorPreview)}`,priorPreview);
   // Real DB writes and validators; only native bounded-provenance admission is
   // replaced by a test stub. No official owner database or runtime is used.
   const bindAccess=(studio:Studio)=>vi.spyOn(studio,'access').mockImplementation(async(c:PoolClient,_s:Session,id:string)=>{const result=await c.query('SELECT id,revision,metadata,studio_owner_user_id FROM exhibitions WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[tenantId,id]);if(!result.rowCount)throw Error('missing exhibition');return {...result.rows[0],nativeBounded:true};});
@@ -97,14 +105,32 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
    for(const asset of [prepared.full,prepared.coarse])await expect(mutate((c,s)=>cms.approve(c,s,prior.id,{revision:1,assetId:asset.assetId}))).rejects.toMatchObject({code:'ASSET_NOT_APPROVED'});
    const request={requestId:randomUUID(),artworkId:prior.id,artworkRevision:1,importJobId:id};
    const replace=(c:PoolClient,s:Session)=>replaceApprovedArtwork(c,s,draft.exhibitionId,request,etag(1,draft),studio,cms,imports,blobs);
+   const assetCount=async()=>Number((await pool.query('SELECT count(*) AS n FROM assets WHERE tenant_id=$1 AND artwork_id=$2',[tenantId,prior.id])).rows[0].n);
+   const receiptCount=async()=>Number((await pool.query('SELECT count(*) AS n FROM studio_requests WHERE tenant_id=$1 AND request_id=$2',[tenantId,request.requestId])).rows[0].n);
+   const beforeAssets=await assetCount();
    await expect(mutate(async(c,s)=>{await replace(c,s);throw Error('force replacement rollback');})).rejects.toThrow('force replacement rollback');
    expect((await mutate((c,s)=>cms.studioArtwork(c,s,prior.id))).artwork.primaryAssetId).toBe(old.id);
+   expect(await assetCount()).toBe(beforeAssets);
+   expect(await receiptCount()).toBe(0);
    const committed=await mutate(replace);
    expect(committed.revision).toBe(2);
    expect(await mutate(replace)).toEqual(committed);
+   expect(await assetCount()).toBe(beforeAssets+1);
+   expect(await receiptCount()).toBe(1);
    const reopened=await mutate((c,s)=>studio.access(c,s,draft.exhibitionId));
    expect(reopened.revision).toBe(2);
-   expect(reopened.metadata.candidate.artworks.find((a:Artwork)=>a.id===prior.id)?.primaryAssetId).toBe(prepared.full.assetId);
+   const updated=reopened.metadata.candidate.artworks.find((a:Artwork)=>a.id===prior.id)!;
+   expect(updated.primaryAssetId).toBe(prepared.full.assetId);
+   const thumbnail=artworkThumbnailFor(updated)!;
+   expect(thumbnail.id).not.toBe(artworkThumbnailFor(prior)?.id);
+   expect(thumbnail.sha256).not.toBe(sha256(priorPreview!));
+   const full=Buffer.from(await blobs.get(`${tenantId}/approved/${prepared.full.sha256}`));
+   const preview=prepareProductImageThumbnail(full,prepared.full);
+   expect(thumbnail.sha256).toBe(sha256(preview));
+   expect(Buffer.from(await blobs.get(`${tenantId}/approved/${thumbnail.sha256}`))).toEqual(preview);
+   expect(Buffer.from(await blobs.get(`${tenantId}/approved/${sha256(priorPreview!)}`))).toEqual(priorPreview);
+   const history=(await pool.query('SELECT snapshot FROM artwork_approvals WHERE tenant_id=$1 AND artwork_id=$2 AND revision=1',[tenantId,prior.id])).rows[0].snapshot;
+   expect(artworkThumbnailFor(history.importedArtwork)).toEqual(artworkThumbnailFor(prior));
    return;
   }
   const proposal=JSON.parse(await readFile(process.env.EXHIBITOS_WHEAT_PROPOSAL!,'utf8')),original=await readFile(process.env.EXHIBITOS_WHEAT_ORIGINAL!),full=await readFile(process.env.EXHIBITOS_WHEAT_FULL!);

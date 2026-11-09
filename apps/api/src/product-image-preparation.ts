@@ -27,16 +27,22 @@ export function validProductFullDimensions(source:Pick<ImageMetric,'width'|'heig
   return full.width===allowed.width&&full.height===allowed.height;
  });
 }
-function prepareFull(source:Buffer,sourceWidth:number,sourceHeight:number,maxEdge:number){
+function prepareFull(source:Buffer,sourceWidth:number,sourceHeight:number,maxEdge:number,rowPrefix=0){
  const {width,height}=fullDimensions(sourceWidth,sourceHeight,maxEdge);
  const pixels=Buffer.alloc(width*height*3);
  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
   const sy=Math.min(sourceHeight-1,Math.floor((y+0.5)*sourceHeight/height));
   const sx=Math.min(sourceWidth-1,Math.floor((x+0.5)*sourceWidth/width));
-  const offset=(sy*sourceWidth+sx)*3;
+  const offset=sy*(sourceWidth*3+rowPrefix)+rowPrefix+sx*3;
   source.copy(pixels,(y*width+x)*3,offset,offset+3);
  }
  return {width,height,pixels,bytes:png(width,height,pixels)};
+}
+/** Derive the small preview from the verified product Full PNG. */
+export function prepareProductImageThumbnail(source:Buffer,full:ImageMetric):Buffer {
+ const decoded=decodePngPixels(source);
+ if(decoded.width!==full.width||decoded.height!==full.height||decoded.channels!==3||decoded.srgbIntent!==0)fail('IMAGE_PREPARATION_RECEIPT_INVALID');
+ return prepareFull(decoded.pixels,decoded.width,decoded.height,256,1).bytes;
 }
 const metric=(b:Buffer,width:number,height:number):ImageMetric=>({sha256:imageHash(b),bytes:b.length,width,height});
 export function validateProductImageOutput(result:ProductImageOutput,source:{sha256:string;bytes:number}){

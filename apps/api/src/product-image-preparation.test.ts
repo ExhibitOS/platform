@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {expect,it} from 'vitest';
 import sharp from 'sharp';
 import {prepareProductImageInWorker} from './product-image-preparation-process.ts';
-import {imageHash,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
+import {imageHash,prepareProductImageThumbnail,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256} from './product-image-preparation.ts';
 import {canonicalImageHash,productImageView} from './product-image-intent.ts';
 
 it('prepares the selected JPEG in the product worker and preserves the source identity',async()=>{
@@ -26,6 +26,12 @@ it('prepares the selected JPEG in the product worker and preserves the source id
  expect(result.coarse).toBeUndefined();
  expect(result.receipt.coarse).toBeUndefined();
  expect(imageHash(jpeg)).toBe(identity.sha256);
+ const thumb=prepareProductImageThumbnail(result.full,result.receipt.full);
+ const preview=await sharp(thumb).raw().toBuffer({resolveWithObject:true});
+ const full=await sharp(result.full).raw().toBuffer();
+ expect(preview.info).toMatchObject({width:256,height:171,channels:3});
+ const x=111,y=72,sx=Math.floor((x+.5)*width/256),sy=Math.floor((y+.5)*height/171);
+ expect(preview.data.subarray((y*256+x)*3,(y*256+x)*3+3)).toEqual(full.subarray((sy*width+sx)*3,(sy*width+sx)*3+3));
  await expect(prepareProductImageInWorker(jpeg,{...identity,sha256:'f'.repeat(64)})).rejects.toMatchObject({code:'IMAGE_PREPARATION_INPUT_INTEGRITY'});
 },30000);
 
