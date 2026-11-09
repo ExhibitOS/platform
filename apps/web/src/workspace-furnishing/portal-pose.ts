@@ -17,10 +17,8 @@ function axis(fromMin:number,fromMax:number,toMin:number,toMax:number){
 }
 
 /** Adapt only nine independently measured rails. The loader owns their
- * geometry. Paired reveals get placement-owned depth bias so the lining wins
- * at coplanar structural faces without moving the passage or trim. */
-export function fitModularPortal(three:typeof Three,object:Three.Object3D,source:ModularPortalFit,target:Target,paired=false){
- const revealMaterials=new Map<Three.Material,Three.Material>();
+ * geometry; neither the registered GLB nor its material is rewritten. */
+export function fitModularPortal(three:typeof Three,object:Three.Object3D,source:ModularPortalFit,target:Target){
  const pending=new Map(Object.entries(source.parts) as [ModularPortalRole,ModularPortalFit['parts'][ModularPortalRole]][]);
  if(object.children.length!==pending.size)throw Error('WORKSPACE_PLACEMENT_INVALID');
  object.updateMatrixWorld(true);
@@ -31,23 +29,8 @@ export function fitModularPortal(three:typeof Three,object:Three.Object3D,source
   const box=new three.Box3().setFromObject(child,true),entry=[...pending].find(([,part])=>box.min.toArray().every((n,i)=>near(n,part.min[i]!))&&box.max.toArray().every((n,i)=>near(n,part.max[i]!)));
   if(!entry||!positions||!normals||positions.count!==normals.count)throw Error('WORKSPACE_PLACEMENT_INVALID');
   const [role,part]=entry;pending.delete(role);
-  const [face,section]=role.split('-');
-  if(paired&&face==='reveal'){
-   const original=child.material;
-   if(Array.isArray(original))throw Error('WORKSPACE_PLACEMENT_INVALID');
-   let material=revealMaterials.get(original);
-   if(!material){
-    const biased:Three.Material=original.clone();
-    biased.polygonOffset=true;
-    biased.polygonOffsetFactor=-3;
-    biased.polygonOffsetUnits=-6;
-    revealMaterials.set(original,biased);
-    material=biased;
-   }
-   child.material=material;
-  }
   if(near(deltaX,0)&&near(deltaY,0)&&near(target.minZ,source.minZ)&&near(target.maxZ,source.maxZ))continue;
-  const {min,max}=part,translation=child.position;
+  const [face,section]=role.split('-'),{min,max}=part,translation=child.position;
   const x=axis(min[0],max[0],min[0]+(section==='right'?deltaX:-deltaX),max[0]+(section==='left'?-deltaX:deltaX));
   const y=axis(min[1],max[1],min[1]+(section==='head'?deltaY:0),max[1]+deltaY);
   const shift=face==='front'?target.maxZ-source.maxZ:target.minZ-source.minZ;
@@ -62,4 +45,32 @@ export function fitModularPortal(three:typeof Three,object:Three.Object3D,source
   positions.needsUpdate=true;normals.needsUpdate=true;
   geometry.computeBoundingBox();geometry.computeBoundingSphere();
  }
+}
+
+
+// Each architectural shell uses the base material owned by its surface.
+// Keep that material so asynchronous wall textures still update it.
+const wallBias=new WeakMap<Three.Material,{owners:number;restore:()=>void}>();
+export function biasPairedPortalWalls(three:typeof Three,room:Three.Object3D,wallIds:ReadonlySet<string>){
+ let root=room;
+ while(root.parent)root=root.parent;
+ const materials=new Set<Three.Material>();
+ root.traverse(object=>{
+  const finish=object.userData.architecturalFinish as {kind?:string;surfaceId?:string}|undefined;
+  if(object instanceof three.Mesh&&finish?.kind==='structure'&&finish.surfaceId&&wallIds.has(finish.surfaceId.toLowerCase())&&!Array.isArray(object.material))materials.add(object.material);
+ });
+ for(const material of materials){
+  const state=wallBias.get(material);
+  if(state){state.owners++;continue;}
+  const {polygonOffset,polygonOffsetFactor,polygonOffsetUnits}=material;
+  wallBias.set(material,{owners:1,restore:()=>Object.assign(material,{polygonOffset,polygonOffsetFactor,polygonOffsetUnits})});
+  material.polygonOffset=true;material.polygonOffsetFactor=3;material.polygonOffsetUnits=6;
+ }
+ return ()=>{
+  for(const material of materials){
+   const state=wallBias.get(material);
+   if(state&&--state.owners===0){state.restore();wallBias.delete(material);}
+  }
+  materials.clear();
+ };
 }

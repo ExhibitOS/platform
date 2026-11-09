@@ -10,7 +10,7 @@ import {OwnerPreviewBudget} from './owner-preview-budget';
 import {artworkFrameMatrix,fitArtworkFrameGeometry} from './frame-pose';
 import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artworkFrameFit,artworkFrameModel,portalFinishModel} from '@exhibitos/studio-contract';
-import {fitModularPortal} from './portal-pose';
+import {biasPairedPortalWalls,fitModularPortal} from './portal-pose';
 
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
@@ -24,8 +24,8 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
  const controller=new AbortController(),abort=()=>controller.abort(signal.reason);signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
  const pose=placement&&structuredClone(placement);let source:WorkspaceModelSource,loaded:Awaited<ReturnType<typeof loadWorkspaceFurnishingModel>>;
  try{source=options.source??ownerWorkspaceModelSource(options.scope,descriptor,controller.signal);loaded=await loadWorkspaceFurnishingModel(three,options.renderer,descriptor.model,source,controller.signal,options.unavailable,options.budget,options.ledger);}catch(error){signal.removeEventListener('abort',abort);controller.abort();throw error;}
- let stopped=false,checking=false,timer:ReturnType<typeof setInterval>|undefined,expiryTimer:ReturnType<typeof setTimeout>|undefined,release:(()=>void)|undefined;
- const dispose=()=>{if(stopped)return;stopped=true;controller.abort();if(timer)clearInterval(timer);if(expiryTimer)clearTimeout(expiryTimer);signal.removeEventListener('abort',abort);signal.removeEventListener('abort',onAbort);if(typeof document!=='undefined')document.removeEventListener('visibilitychange',enforce);loaded.object.visible=false;loaded.dispose();release?.();};
+ let stopped=false,checking=false,timer:ReturnType<typeof setInterval>|undefined,expiryTimer:ReturnType<typeof setTimeout>|undefined,release:(()=>void)|undefined,releaseWallBias:(()=>void)|undefined;
+ const dispose=()=>{if(stopped)return;stopped=true;controller.abort();if(timer)clearInterval(timer);if(expiryTimer)clearTimeout(expiryTimer);signal.removeEventListener('abort',abort);signal.removeEventListener('abort',onAbort);if(typeof document!=='undefined')document.removeEventListener('visibilitychange',enforce);loaded.object.visible=false;releaseWallBias?.();loaded.dispose();release?.();};
  const changed=()=>{try{options.onVisibilityChange?.();}catch{/* Rendering callbacks cannot grant authority. */}};
  const fail=(error:unknown)=>{if(stopped)return;try{dispose();}catch{/* Failed resource cleanup retains the scene and byte holds. */}changed();try{options.onRevoked(error);}catch{/* Consumer notification cannot restore visibility. */}};
  const enforce=()=>{if(stopped)return false;try{if(controller.signal.aborted||options.unavailable()||Date.now()>=expires){fail(Error('WORKSPACE_MODEL_AUTHORITY'));return false;}return true;}catch(error){fail(error);return false;}};
@@ -40,7 +40,12 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
    const modular=measured?.profile==='modular-portal-v1'?qualifiedModularPortalTarget(measured,doc,opening.id):undefined;
    if(measured?.profile==='modular-portal-v1'){
     if(!modular)throw Error('WORKSPACE_PLACEMENT_INVALID');
-    fitModularPortal(three,loaded.object,measured,modular,opening.connectsToOpeningId!==undefined);
+    fitModularPortal(three,loaded.object,measured,modular);
+    if(opening.connectsToOpeningId!==undefined){
+     const mate=doc.openings.find(other=>other.id.toLowerCase()===opening.connectsToOpeningId!.toLowerCase());
+     if(!mate)throw Error('WORKSPACE_PLACEMENT_INVALID');
+     releaseWallBias=biasPairedPortalWalls(three,room,new Set([wall.id.toLowerCase(),mate.surfaceId.toLowerCase()]));
+    }
    }
    const height=modular?.height??(measured?.profile==='continuous-portal-v1'?measured.openingHeight:portalFinishModel(descriptor.model.sha256,descriptor.model.bytes)?.height);
    if(height===undefined)throw Error('WORKSPACE_PLACEMENT_INVALID');

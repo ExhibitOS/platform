@@ -8,7 +8,7 @@ import {qualifiedModularPortalTarget} from '@exhibitos/spec/workspace-fit-models
 import {applyArchitecturalFinishCommand,validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {packageWorkspaceFurnishingManifest} from '@exhibitos/spec/workspace-furnishing';
 import {validateWorkspaceFurnishingGlb} from '../../../api/src/workspace-furnishing-glb';
-import {fitModularPortal} from './portal-pose';
+import {biasPairedPortalWalls,fitModularPortal} from './portal-pose';
 
 const catalogue=new URL('../../../../assets/furnishings/user-authored-20261027/',import.meta.url);
 const demo=new URL('../../../../demos/reference-exhibition/source/',import.meta.url);
@@ -64,19 +64,36 @@ it('measures both modular originals and fits one unchanged source to the single 
  ] as const){
   const {scene}=await new GLTFLoader().parseAsync(new Uint8Array(original).buffer,'');
   const materials=scene.children.map(child=>(child as three.Mesh).material);
-  fitModularPortal(three,scene,geometry,target,target===paired);
+  fitModularPortal(three,scene,geometry,target);
   const box=new three.Box3().setFromObject(scene,true),size=box.getSize(new three.Vector3()).toArray();
   expected.forEach((value,axis)=>expect(size[axis]).toBeCloseTo(value,5));
   expect(box.min.y).toBeCloseTo(0,5);
   expect(box.min.z).toBeCloseTo(target.minZ-.006,5);
   expect(box.max.z).toBeCloseTo(target.maxZ+.006,5);
-  const placed=scene.children.map(child=>(child as three.Mesh).material as three.Material);
-  const biased=placed.filter((material,index)=>material!==materials[index]);
-  expect(biased).toHaveLength(target===paired?3:0);
-  for(const material of biased)expect(material).toMatchObject({polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-6});
-  for(const material of materials)expect(material).toMatchObject({polygonOffset:false});
-  scene.traverse(child=>{if(child instanceof three.Mesh)child.geometry.dispose();});
-  for(const material of new Set([...materials,...placed]))(material as three.Material).dispose();
+  expect(scene.children.map(child=>(child as three.Mesh).material)).toEqual(materials);
+  scene.traverse(child=>{if(child instanceof three.Mesh){child.geometry.dispose();(child.material as three.Material).dispose();}});
  }
  expect(sha256(original)).toBe('385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b');
 },15_000);
+
+
+it('applies the proven bias to paired structural surfaces and restores it on final release',()=>{
+ const room=new three.Group(),otherRoom=new three.Group(),root=new three.Group();
+ root.add(room,otherRoom);
+ const surfaces=['host','peer','unrelated'].map((surfaceId,i)=>{
+  const wall=new three.Mesh(new three.BoxGeometry(),new three.MeshStandardMaterial());
+  wall.userData.architecturalFinish={surfaceId,kind:'structure'};
+  (i===1?otherRoom:room).add(wall);
+  return wall;
+ });
+ const ids=new Set(['host','peer']),release=biasPairedPortalWalls(three,room,ids),other=biasPairedPortalWalls(three,otherRoom,ids);
+ for(const wall of surfaces.slice(0,2))expect(wall.material).toMatchObject({polygonOffset:true,polygonOffsetFactor:3,polygonOffsetUnits:6});
+ expect(surfaces[2]!.material.polygonOffset).toBe(false);
+ release();release();
+ expect(surfaces[0]!.material.polygonOffset).toBe(true);
+ other();
+ for(const wall of surfaces){
+  expect(wall.material).toMatchObject({polygonOffset:false,polygonOffsetFactor:0,polygonOffsetUnits:0});
+  wall.geometry.dispose();wall.material.dispose();
+ }
+});
