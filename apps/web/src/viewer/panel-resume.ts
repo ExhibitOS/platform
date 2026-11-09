@@ -76,18 +76,32 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   const gate = createPanelResumeGate(restoredWalking), pointers = new Set<number>();
   let gestureBlocked = false, resumingDrag = false;
   let panelFocus = false, focusTimer: ReturnType<typeof setTimeout> | undefined;
+  let benchFocus: { id: number; button: Element } | undefined;
+  let benchFocusTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearBenchFocus = () => {
+    benchFocus = undefined;
+    clearTimeout(benchFocusTimer);
+  };
   const panels = () => [...(root?.querySelectorAll<HTMLDetailsElement>("details[data-visitor-panel]") ?? [])];
   const owns = (target: EventTarget | null) => target instanceof Element &&
     (panels().some(panel => panel.contains(target)) || !!target.closest(".viewer-brief, .artwork-detail"));
-  const ownsBenchSit = (target: EventTarget | null) => target instanceof Element &&
-    !!target.closest('button[data-bench-action][data-bench-seated="false"]')?.closest('.geometry-preview')?.contains(canvas);
+  const benchSitButton = (target: EventTarget | null) => {
+    const button = target instanceof Element ? target.closest('button[data-bench-action][data-bench-seated="false"]') : null;
+    return button?.closest('.geometry-preview')?.contains(canvas) ? button : undefined;
+  };
   const open = () => panels().some(panel => panel.open);
   const down = (event: PointerEvent) => {
+    clearBenchFocus();
     pointers.add(event.pointerId);
     if (pointers.size > 1) gestureBlocked = true;
     gate.cancel();
     if (!event.isTrusted || !event.isPrimary || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || pointers.size !== 1) return;
-    if (owns(event.target) || ownsBenchSit(event.target)) {
+    const benchButton = benchSitButton(event.target);
+    if (benchButton && event.pointerType === "touch") {
+      // Touch compatibility focus can arrive at release, before activation.
+      benchFocus = { id: event.pointerId, button: benchButton };
+      pause();
+    } else if (owns(event.target) || benchButton) {
       // Pause before the pointer's default focus change, including browsers
       // whose canvas blur has a null relatedTarget. The opening click is never
       // a canvas gesture and therefore cannot resume the session it just paused.
@@ -108,11 +122,16 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
     pointers.delete(event.pointerId);
     if (!pointers.size) gestureBlocked = false;
     gate.end(event.pointerId, event.clientX, event.clientY, event.target === canvas);
+    if (benchFocus?.id === event.pointerId) {
+      if (!event.isTrusted || benchSitButton(event.target) !== benchFocus.button) clearBenchFocus();
+      else benchFocusTimer = setTimeout(clearBenchFocus, 500);
+    }
   };
-  const cancel = () => gate.cancel();
-  const invalid = () => { gate.invalidate(); pointers.clear(); gestureBlocked = false; panelFocus = false; availabilityChanged(false); };
-  const background = () => { gate.background(); pointers.clear(); gestureBlocked = false; panelFocus = false; availabilityChanged(false); };
+  const cancel = () => { gate.cancel(); clearBenchFocus(); };
+  const invalid = () => { gate.invalidate(); pointers.clear(); gestureBlocked = false; panelFocus = false; clearBenchFocus(); availabilityChanged(false); };
+  const background = () => { gate.background(); pointers.clear(); gestureBlocked = false; panelFocus = false; clearBenchFocus(); availabilityChanged(false); };
   const key = (event: KeyboardEvent) => {
+    clearBenchFocus();
     if (event.key !== "Escape") return;
     // The input listener pauses the current session. A repeated Escape must not
     // erase that explicit resume choice; closing a mandatory dialog still does.
@@ -133,6 +152,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
     else if (canResume() && owns(document.activeElement)) canvas.focus({ preventScroll: true });
     availabilityChanged(canResume());
   };
+  document.addEventListener("click", clearBenchFocus, true);
   document.addEventListener("pointerdown", down, true);
   document.addEventListener("pointermove", move, true);
   // Observe actual contact termination before document-level panel dismissal
@@ -154,6 +174,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   const canResume = () => gate.canResume() && !open() && safe();
   return {
     mode(walking: boolean, paused: boolean, reason?: WalkingPauseReason) {
+      if (!walking || reason === "escape" || reason === "pointerlock" || reason === "user") clearBenchFocus();
       gate.mode(walking, paused, reason);
       if (walking && !paused && open() && !resumingDrag) queueMicrotask(() => { if (open() && gate.isActive()) pause(); });
       availabilityChanged(canResume());
@@ -184,7 +205,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
       if(open()||!safe()||!gate.panelClosed())return false;
       resume();availabilityChanged(canResume());return true;
     },
-    isPanelFocus: (target: EventTarget | null) => panelFocus || owns(target),
+    isPanelFocus: (target: EventTarget | null) => panelFocus || (target === null && !!benchFocus) || owns(target),
     blank(event: MouseEvent, allowed: boolean) {
       if (!gate.consume(event.clientX, event.clientY, allowed && event.isTrusted && event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && canResume())) return;
       // Existing start clears held input and velocity; no pointer-lock request.
@@ -192,6 +213,7 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
     },
     dispose() {
       invalid(); clearTimeout(focusTimer);
+      document.removeEventListener("click", clearBenchFocus, true);
       document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", up, true);
