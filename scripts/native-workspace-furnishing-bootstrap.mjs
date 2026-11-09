@@ -15,11 +15,11 @@ import {assertExactWorkspaceMaterialPublicationCatalog,assertExactWorkspaceMater
 // Only the authenticated, generation-bound Manager lifecycle assertion may
 // select these modes. The database's exclusive token check remains mandatory;
 // this admission never reclaims an unknown predecessor's retained work.
-export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission){
+export async function assertWorkspaceFurnishingRuntimeAdmission(mode,admission,recovery045=false){
  const upgrade='workspace-furnishing-039-to-040-upgrade-v1',upgrade44='workspace-furnishing-040-to-044-upgrade-v1',upgrade45='workspace-furnishing-044-to-045-upgrade-v1',init='workspace-furnishing-036-initialize-v1',reopen='workspace-furnishing-036-reopen-v1',selected='workspace-furnishing-038-selected-import-v7',selected39='workspace-furnishing-039-selected-import-v7',selected40='workspace-furnishing-040-selected-import-v7';
  if(mode!==init&&mode!==reopen&&mode!==upgrade&&mode!==upgrade44&&mode!==upgrade45&&mode!==selected&&mode!==selected39&&mode!==selected40)return;
  assertIssuedFurnishingOrdinaryAdmission(admission);
- if(admission.writer.identity.mode!==mode||(mode===upgrade?admission.fields.admissionKind!=='catalog-upgrade-039-to-040':mode===upgrade44?admission.fields.admissionKind!=='catalog-upgrade-040-to-044':mode===upgrade45?admission.fields.admissionKind!=='catalog-upgrade-044-to-045':mode===init||mode===selected||mode===selected39||mode===selected40?admission.fields.admissionKind!=='fresh-empty':!['clean-reopen','verified-restore'].includes(admission.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
+ if(admission.writer.identity.mode!==mode||(mode===upgrade?admission.fields.admissionKind!=='catalog-upgrade-039-to-040':mode===upgrade44?admission.fields.admissionKind!=='catalog-upgrade-040-to-044':mode===upgrade45?admission.fields.admissionKind!=='catalog-upgrade-044-to-045':mode===init||mode===selected||mode===selected39||mode===selected40?admission.fields.admissionKind!=='fresh-empty':!['clean-reopen','verified-restore',...(recovery045&&mode===reopen?['interrupted-reopen']:[])].includes(admission.fields.admissionKind)))throw Error('FURNISHING_ADMISSION_INVALID');
  await admission.writer.assertLive();
 }
 
@@ -35,7 +35,7 @@ export async function assertFurnishingBeforeCommit(c,{mode,ordinaryAdmission,wri
  if(isStopped()||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
 }
 
-export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission}){
+export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,imports,wall,furnishing,writerDirectory,publicationDirectory,materialPublicationDirectory,materialMultimapDirectory,framePreparationDirectory,hayesOriginalDirectory,hayesDispositionDirectory,hayesReleaseDirectory,modelPreparationDirectory,ownerUid,writer,channel,hayesChannel,ordinaryAdmission,recovery045=false}){
  const selected=['workspace-furnishing-038-selected-import-v7','workspace-furnishing-039-selected-import-v7','workspace-furnishing-040-selected-import-v7'];
  const upgrade=mode==='workspace-furnishing-039-to-040-upgrade-v1',upgrade44=mode==='workspace-furnishing-040-to-044-upgrade-v1',upgrade45=mode==='workspace-furnishing-044-to-045-upgrade-v1';
  if(!['workspace-furnishing-036-initialize-v1','workspace-furnishing-036-reopen-v1','workspace-furnishing-039-to-040-upgrade-v1','workspace-furnishing-040-to-044-upgrade-v1','workspace-furnishing-044-to-045-upgrade-v1',...selected].includes(mode)||!channel?.isOpen())throw Error('NATIVE_OWNER_UNAVAILABLE');
@@ -49,6 +49,8 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
  if(upgrade&&(!ordinaryAdmission||!writer||!writerDirectory||!publicationDirectory||!materialPublicationDirectory||!materialMultimapDirectory||!Number.isSafeInteger(ownerUid)||ownerUid<0))throw Error('FURNISHING_ADMISSION_INVALID');
  if(selected.includes(mode)&&(!publicationDirectory||!writer||!ordinaryAdmission)||mode==='workspace-furnishing-039-selected-import-v7'&&(!materialPublicationDirectory||materialMultimapDirectory)||mode==='workspace-furnishing-040-selected-import-v7'&&(!materialPublicationDirectory||!materialMultimapDirectory)||mode==='workspace-furnishing-038-selected-import-v7'&&(materialPublicationDirectory||materialMultimapDirectory))throw Error('FURNISHING_ADMISSION_INVALID');
  if(ordinaryAdmission!==undefined){assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if((ordinaryAdmission.fields.admissionKind==='catalog-upgrade-039-to-040')!==upgrade||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-040-to-044')!==upgrade44||(ordinaryAdmission.fields.admissionKind==='catalog-upgrade-044-to-045')!==upgrade45||ordinaryAdmission.writer!==writer||(ordinaryAdmission.fields.admissionKind==='fresh-empty')!==(['workspace-furnishing-036-initialize-v1',...selected].includes(mode)))throw Error('FURNISHING_ADMISSION_INVALID');}
+ const interrupted=ordinaryAdmission?.fields.admissionKind==='interrupted-reopen';
+ if(interrupted&&(!recovery045||!modelPreparationDirectory||mode!=='workspace-furnishing-036-reopen-v1'))throw Error('FURNISHING_ADMISSION_INVALID');
  if(writerDirectory!==undefined||writer!==undefined){assertIssuedFurnishingWriterLease(writer);if(!writerDirectory||writer.identity.mode!==mode)throw Error('FURNISHING_LEASE_INVALID');await writer.assertLive();}
  if(publicationDirectory&&!writerDirectory||materialPublicationDirectory&&!publicationDirectory||materialMultimapDirectory&&!materialPublicationDirectory)throw Error('NATIVE_OEX_CATALOG');
  const writerOptions={...(writerDirectory?{workspaceFurnishingWriterDirectory:writerDirectory}:{}),...(publicationDirectory?{workspaceFurnishingPublicationDirectory:publicationDirectory}:{}),...(materialPublicationDirectory?{workspaceMaterialPublicationDirectory:materialPublicationDirectory}:{}),...(materialMultimapDirectory?{workspaceMaterialMultimapDirectory:materialMultimapDirectory}:{}),...(framePreparationDirectory?{workspaceFramePreparationDirectory:framePreparationDirectory}:{}),...(hayesOriginalDirectory?{hayesOriginalDirectory}:{}),...(hayesDispositionDirectory?{hayesDispositionDirectory}:{}),...(hayesReleaseDirectory?{hayesReleaseDirectory}:{}),...(modelPreparationDirectory?{modelPreparationDirectory}:{})};
@@ -97,6 +99,17 @@ export async function prepareWorkspaceFurnishingCatalog(c,{mode,base,normal,impo
    await assertExactModelPreparationCatalog(c);
    if(!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen()||!hayesChannel.isOpen())throw Error('NATIVE_OEX_CATALOG');
   }else if(rows.length!==(modelPreparationDirectory?45:hayesReleaseDirectory?44:hayesDispositionDirectory?43:hayesOriginalDirectory?42:framePreparationDirectory?41:materialMultimapDirectory?40:materialPublicationDirectory?39:publicationDirectory?38:writerDirectory?37:36)||!await recognizeNormalOexCatalog(c,base,normal,{workspaceImportDirectory:imports,workspaceWallImportDirectory:wall,workspaceFurnishingDirectory:furnishing,...writerOptions})||!channel.isOpen())throw Error('NATIVE_OEX_CATALOG');
+  if(interrupted){
+   // openLocalWorkspace holds the exclusive furnishing transaction lock.
+   const claims=(await c.query(`SELECT
+    EXISTS (SELECT 1 FROM import_jobs WHERE state IN ('uploading','queued','processing') OR lease_id IS NOT NULL OR lease_until IS NOT NULL
+      OR cardinality(png_worker_tokens)>0 OR model_preparation ? 'claim') OR
+    EXISTS (SELECT 1 FROM oex_import_jobs WHERE state IN ('uploading','queued','processing')
+      OR lease_id IS NOT NULL OR lease_until IS NOT NULL OR cleanup_pending) OR
+    EXISTS (SELECT 1 FROM workspace_material_intakes WHERE phase IN ('uploading','validating','cancelling') OR worker_token IS NOT NULL) OR
+    EXISTS (SELECT 1 FROM workspace_furnishing_intakes WHERE phase IN ('uploading','validating','cancelling') OR worker_token IS NOT NULL) AS unsettled`)).rows[0];
+   if(claims?.unsettled!==false)throw Error('FURNISHING_RECOVERY_UNAVAILABLE');
+  }
   if(writer)await writer.assertLive();
   // A committed first boot includes its owner in the same transaction. Never
   // create one when reopening or recovering an already occupied catalog.
