@@ -2,8 +2,8 @@
 import {checkedPublicProjection} from './private-agent-publication.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
-import {createReadStream,fstatSync} from 'node:fs';
-import {readFile,writeFile,lstat,realpath,mkdir,rm,rename} from 'node:fs/promises';
+import {constants,createReadStream,fstatSync} from 'node:fs';
+import {readFile,writeFile,lstat,realpath,mkdir,rm,rename,open} from 'node:fs/promises';
 import {resolve,dirname,join,isAbsolute,relative} from 'node:path';
 import {createServer} from 'node:http';
 import {pathToFileURL,fileURLToPath} from 'node:url';
@@ -100,10 +100,22 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
   const readAsset=async role=>{
    const asset=input[role];
    await plain(asset.path);
-   if((await lstat(asset.path)).size!==asset.bytes)fail('AGENT_STALE');
-   const bytes=await readFile(asset.path,{signal});
-   if(bytes.length!==asset.bytes||hash(bytes)!==asset.sha256)fail('AGENT_STALE');
-   return bytes;
+   const file=await open(asset.path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+   try{
+    const stat=await file.stat();
+    if(!stat.isFile()||stat.uid!==process.getuid()||stat.size!==asset.bytes)fail('AGENT_STALE');
+    const buffer=Buffer.allocUnsafe(asset.bytes+1);
+    let offset=0;
+    while(offset<buffer.length){
+     signal.throwIfAborted();
+     const {bytesRead}=await file.read(buffer,offset,buffer.length-offset,offset);
+     if(!bytesRead)break;
+     offset+=bytesRead;
+    }
+    const bytes=buffer.subarray(0,offset);
+    if(offset!==asset.bytes||hash(bytes)!==asset.sha256)fail('AGENT_STALE');
+    return bytes;
+   }finally{await file.close();}
   };
   for(const role of roles){
    const asset=input[role];
@@ -180,18 +192,19 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
   }
   const result={version:1,operation:input.operation,requestId:input.requestId,inputSha256,settings,
    reference:images.get('reference').result,candidate:images.get('candidate').result};
-  await checkInput();
-  for(const role of roles)await readAsset(role);
-  const temporary=join(dirname(outputPath),'.agent-'+randomUUID());
-  await mkdir(temporary,{mode:0o700});
+  signal.throwIfAborted();
+  try{await mkdir(outputPath,{mode:0o700});}
+  catch(error){if(error.code==='EEXIST')fail('AGENT_OUTPUT_EXISTS');throw error;}
   try{
-   for(const {bytes,result:{png}} of images.values())await writeFile(join(temporary,png.path),bytes,{flag:'wx',mode:0o600,signal});
-   await writeFile(join(temporary,'result.json'),JSON.stringify(result)+'\n',{flag:'wx',mode:0o600,signal});
+   for(const {bytes,result:{png}} of images.values())await writeFile(join(outputPath,png.path),bytes,{flag:'wx',mode:0o600,signal});
+   const marker=join(outputPath,'.result-'+randomUUID());
+   await writeFile(marker,JSON.stringify(result)+'\n',{flag:'wx',mode:0o600,signal});
+   await checkInput();
+   for(const role of roles)await readAsset(role);
    signal.throwIfAborted();
-   try{await lstat(outputPath);fail('AGENT_OUTPUT_EXISTS');}catch(error){if(error.code!=='ENOENT')throw error;}
-   await rename(temporary,outputPath);
+   await rename(marker,join(outputPath,'result.json'));
    return result;
-  }finally{await rm(temporary,{recursive:true,force:true});}
+  }catch(error){await rm(outputPath,{recursive:true,force:true});throw error;}
  }
  async function publish(result,png,recheck=checkInput){
   await recheck();let created=false;
