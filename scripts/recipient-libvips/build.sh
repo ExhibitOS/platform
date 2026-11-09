@@ -3,6 +3,19 @@
 set -euo pipefail
 umask 077
 [ "$#" -eq 2 ] || { echo "usage: bash build.sh INPUT_DIRECTORY NEW_BUILD_DIRECTORY" >&2; exit 2; }
+case "${RECIPIENT_GLIB_COMPAT:-1}:${RECIPIENT_JPEG_PROOF:-0}" in
+  0:0|0:1|1:0|1:1) ;;
+  *) echo "RECIPIENT_GLIB_COMPAT and RECIPIENT_JPEG_PROOF accept 0 or 1" >&2; exit 2 ;;
+esac
+case "${RECIPIENT_VIPS_PATCH:-}" in
+  "") ;;
+  /*) test -f "$RECIPIENT_VIPS_PATCH" ;;
+  *) echo "RECIPIENT_VIPS_PATCH must be an absolute patch file path" >&2; exit 2 ;;
+esac
+if [ "${RECIPIENT_JPEG_PROOF:-0}" = 1 ] && [ -n "${RECIPIENT_VIPS_PATCH:-}" ]; then
+  echo "Select either the JPEG proof patch or your own libvips patch" >&2
+  exit 2
+fi
 recipe_source="$(cd "$(dirname "$0")" && pwd -P)"
 inputs="$(cd "$1" && pwd -P)"
 mkdir "$2"
