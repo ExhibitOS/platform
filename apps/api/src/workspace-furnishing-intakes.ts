@@ -76,6 +76,11 @@ export class WorkspaceFurnishingIntakes {
   const verified=this.portableImportReceipts.get(receipt);
   if(!verified||!this.supportsReusableFit()||!this.portableImportKey(s.tenantId,key))throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
   if(!allowedRights(verified.rights,'display')||!allowedRights(verified.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
+  let bytes:Buffer;
+  try{bytes=Buffer.from(await (this.blobs.getBounded?this.blobs.getBounded(key,verified.model.bytes):this.blobs.get(key)));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+  if(bytes.length!==verified.model.bytes||sha256(bytes)!==verified.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+  await this.checkOwner(c,s);
+  if(!allowedRights(verified.rights,'display')||!allowedRights(verified.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
   const descriptor={...verified,id};
   await c.query('INSERT INTO workspace_furnishing_versions(workspace_id,tenant_id,user_id,id,version,descriptor,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[this.owner.workspaceId,s.tenantId,s.userId,id,descriptor.version,descriptor,key]);
  }

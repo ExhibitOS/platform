@@ -81,6 +81,10 @@ it('registers a portable model only with its own writer-verified fit receipt',as
  vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce(geometry);
  const receipt=await service.validatePortableImport(f.client,f.session,descriptor,f.bytes);
  expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(descriptor.model,f.bytes,{writerFd:12},'straight-ring-v1');
+ await expect(service.registerPortableImport(f.client,f.session,receipt,id(14),key)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+ await f.blobs.put(key,Buffer.alloc(f.bytes.length));
+ await expect(service.registerPortableImport(f.client,f.session,receipt,id(14),key)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
+ expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO workspace_furnishing_versions'))).toBe(false);
  await f.blobs.put(key,f.bytes);
  await service.registerPortableImport(f.client,f.session,receipt,id(14),key);
  expect(await service.readVersion(f.client,f.session,id(14),1)).toEqual({...descriptor,id:id(14)});

@@ -591,7 +591,13 @@ export class Oex {
     for(const resource of footstepResources){
      await c.query('INSERT INTO studio_footstep_resources(tenant_id,exhibition_id,family,pack_version,role,resource_path,sha256,bytes,object_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[s.tenantId,e.id,resource.family,resource.version,resource.role,resource.artifactPath,resource.sha256,resource.bytes,keys.get(resource.artifactPath)]);
     }
-    if(grants.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
+    const portable=e.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+    if(portable?.version===7){
+     if(!this.workspaceFurnishing)throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
+     await this.workspaceFurnishing.authorize(c,s);
+    }
+    const now=Date.now();
+    if(grants.some(r=>!allowedRights(r,'export',now))||portable?.version===7&&portable.furnishings.some(({rights})=>!allowedRights(rights,'display',now)||!allowedRights(rights,'export',now)))throw new ApiError(403,'RIGHTS_DENIED');
     const valid=(await c.query('SELECT lease_until>clock_timestamp() AS valid FROM oex_import_jobs WHERE tenant_id=$1 AND id=$2',[s.tenantId,id])).rows[0]?.valid;if(!valid)throw new ApiError(409,'LEASE_EXPIRED');
     const result={...response,exhibitionId:e.id,idMap,assetAliases};
     const terminal=await c.query("UPDATE oex_import_jobs SET state='complete',result=$4,lease_id=NULL,lease_until=NULL,cleanup_pending=true,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND lease_id=$3 AND state='processing' AND lease_until>clock_timestamp() AND payload_sha256=$5 AND user_id=$6 RETURNING id",[s.tenantId,id,lease,result,payloadSha256,s.userId]);
