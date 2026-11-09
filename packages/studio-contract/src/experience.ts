@@ -5,7 +5,15 @@ export interface ViewerExperience {
   footsteps: {surfaceId:string;material:'wood'|'stone'|'concrete'|'carpet'|'metal';assetId?:string;bank?:{assetId:string}[]}[];
   voices: {placementId:string;assetId:string;transcript:string;locale:string}[];
   annotations: {annotationId:string;position:[number,number,number]}[];
-  rooms: {roomId:string;reverb:number}[];
+  audioDefaults?: {soundOn:boolean};
+  rooms: {
+    roomId:string;
+    reverb:number;
+    footstepsOn?:boolean;
+    reverbOn?:boolean;
+    bgmOn?:boolean;
+    bgm?:{assetId:string}|null;
+  }[];
   translations: {placementId:string;locale:string;title:string;description:string}[];
 }
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -17,7 +25,10 @@ export function validateViewerExperience(candidate:unknown) {
   const fail=(message:string)=>errors.push({code:'VIEWER_EXPERIENCE_INVALID',path:'/extensions/org.exhibitos.viewer~1experience',message});
   if(!object(candidate)||!object(candidate.extensions)||!Object.hasOwn(candidate.extensions,EXPERIENCE_NAMESPACE))return {valid:true,errors};
   const value=candidate.extensions[EXPERIENCE_NAMESPACE];
-  if(!object(value)||!keys(value,['version','footsteps','voices','annotations','rooms','translations'])||value.version!==1){fail('Expected experience version1 and its five bounded arrays');return {valid:false,errors};}
+  if(!object(value)||!keys(value,['version','footsteps','voices','annotations','rooms','translations'],['audioDefaults'])||value.version!==1){fail('Expected experience version1 and its five bounded arrays');return {valid:false,errors};}
+  const defaults=value.audioDefaults;
+  if(defaults!==undefined&&(!object(defaults)||!keys(defaults,['soundOn'])||typeof defaults.soundOn!=='boolean'))
+    fail('Expected a boolean sound default');
   const ref=(v:unknown)=>typeof v==='string'?v.toLowerCase():'';
   const ids=(name:string)=>new Set(Array.isArray(candidate[name])?candidate[name].filter(object).map(x=>ref(x.id)):[]);
   const floors=new Set(Array.isArray(candidate.surfaces)?candidate.surfaces.filter(object).filter(x=>x.type==='floor').map(x=>ref(x.id)):[]);
@@ -38,7 +49,13 @@ export function validateViewerExperience(candidate:unknown) {
     return !!dimensions&&Array.isArray(x.position)&&x.position.every((n,i)=>typeof n==='number'&&Math.abs(n)<=Number(dimensions[['width','height','depth'][i]!]??0)/2+0.001);
   };
   check('annotations',256,x=>keys(x,['annotationId','position'])&&annotations.has(ref(x.annotationId))&&Array.isArray(x.position)&&x.position.length===3&&x.position.every(n=>typeof n==='number'&&Number.isFinite(n)&&Math.abs(n)<=1000000)&&anchorBounds(x),x=>ref(x.annotationId));
-  check('rooms',32,x=>keys(x,['roomId','reverb'])&&rooms.has(ref(x.roomId))&&typeof x.reverb==='number'&&Number.isFinite(x.reverb)&&x.reverb>=0&&x.reverb<=1,x=>ref(x.roomId));
+  check('rooms',32,x=>{
+    const bgm=x.bgm;
+    return keys(x,['roomId','reverb'],['footstepsOn','reverbOn','bgmOn','bgm'])
+      &&rooms.has(ref(x.roomId))&&typeof x.reverb==='number'&&Number.isFinite(x.reverb)&&x.reverb>=0&&x.reverb<=1
+      &&[x.footstepsOn,x.reverbOn,x.bgmOn].every(v=>v===undefined||typeof v==='boolean')
+      &&(bgm===undefined||bgm===null||object(bgm)&&keys(bgm,['assetId'])&&wavMedia.has(ref(bgm.assetId)));
+  },x=>ref(x.roomId));
   check('translations',256,x=>keys(x,['placementId','locale','title','description'])&&placements.has(ref(x.placementId))&&locale(x.locale)&&text(x.title,512)&&text(x.description,16384),x=>`${ref(x.placementId)}:${String(x.locale).toLowerCase()}`);
   return {valid:errors.length===0,errors};
 }

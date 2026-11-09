@@ -18,6 +18,29 @@ describe('experience reference boundaries',()=>{
   x.footsteps[0]!.bank=[{assetId:a},{assetId:b}];e.mediaAssets[1]!.mime='audio/mpeg';expect(validateViewerExperience(e).valid).toBe(false);
  });
  it('preserves absent extension compatibility and returns a detached default',()=>{const e={};const first=experienceFor(e);first.rooms.push({roomId:'x',reverb:1});expect(experienceFor(e).rooms).toEqual([]);expect(validateViewerExperience(e).valid).toBe(true);});
+ it('keeps room music selection independent of the three initial effects',async()=>{
+  const e=await fixture(),id='60000000-0000-4000-8000-000000000001';
+  e.mediaAssets=[{id,mime:'audio/wav'}] as Exhibition['mediaAssets'];
+  const x=experienceFor(e);
+  x.audioDefaults={soundOn:true};
+  const room=x.rooms[0]!;
+  Object.assign(room,{footstepsOn:true,reverbOn:false,bgmOn:false,bgm:{assetId:id.toUpperCase()}});
+  e.extensions={[EXPERIENCE_NAMESPACE]:x};
+  expect(validateViewerExperience(e).valid).toBe(true);
+  expect(experienceFor(e).rooms[0]).toEqual(room);
+  e.mediaAssets[0]!.mime='audio/mpeg';
+  expect(validateViewerExperience(e).valid).toBe(false);
+  room.bgm=null;
+  expect(validateViewerExperience(e).valid).toBe(true);
+  for(const patch of [{footstepsOn:1},{reverbOn:null},{bgmOn:'true'},{bgm:{assetId:'missing'}},{bgm:{assetId:id,volume:1}}]){
+   const bad=structuredClone(e),badExperience=experienceFor(bad);
+   Object.assign(badExperience.rooms[0]!,patch);
+   bad.extensions={[EXPERIENCE_NAMESPACE]:badExperience};
+   expect(validateViewerExperience(bad).valid).toBe(false);
+  }
+  Object.assign(x.audioDefaults,{extra:true});
+  expect(validateViewerExperience(e).valid).toBe(false);
+ });
  it('qualifies model-local centered annotation, reverb and translation',async()=>{const e=await fixture();expect(validateViewerExperience(e).valid).toBe(true);const x=experienceFor(e);x.rooms[0]!.roomId=x.rooms[0]!.roomId.toUpperCase();e.extensions={[EXPERIENCE_NAMESPACE]:x};expect(validateViewerExperience(e).valid).toBe(true);});
  it('rejects unknown fields, reference spoof, duplicate locales and outside-model anchor',async()=>{const e=await fixture();const x=experienceFor(e);x.annotations[0]!.position=[1000,0,0];e.extensions={[EXPERIENCE_NAMESPACE]:x};expect(validateViewerExperience(e).valid).toBe(false);x.annotations[0]!.position=[0,0,0];x.translations.push({...x.translations[0]!,locale:'KO'});expect(validateViewerExperience(e).valid).toBe(false);x.translations.pop();x.rooms[0]!.roomId='10000000-0000-4000-8000-000000000000';expect(validateViewerExperience(e).valid).toBe(false);});
 });

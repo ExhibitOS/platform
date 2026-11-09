@@ -176,7 +176,7 @@ describe("immutable anonymous publication projection", () => {
         candidate.mediaAssets=[source];
         candidate.audioZones=[{id:"60000000-0000-4000-8000-000000000002",roomId:candidate.rooms[0]!.id,assetId:source.id,position:[0,1,0],radius:3,volume:0.5,autoplay:false,transcript:source.id}];
         const original=source.id;
-        candidate.extensions={[EXPERIENCE_NAMESPACE]:{version:1,footsteps:[],voices:[{placementId:candidate.placements[0]!.id,assetId:source.id,transcript:original,locale:"en"}],annotations:[{annotationId:candidate.annotations[0]!.id,position:[0,0,0]}],rooms:[{roomId:candidate.rooms[0]!.id,reverb:0.3}],translations:[{placementId:candidate.placements[0]!.id,locale:"ko",title:original,description:original}]}};
+        candidate.extensions={[EXPERIENCE_NAMESPACE]:{version:1,footsteps:[],voices:[{placementId:candidate.placements[0]!.id,assetId:source.id,transcript:original,locale:"en"}],annotations:[{annotationId:candidate.annotations[0]!.id,position:[0,0,0]}],audioDefaults:{soundOn:true},rooms:[{roomId:candidate.rooms[0]!.id,reverb:0.3,footstepsOn:true,reverbOn:true,bgmOn:false,bgm:{assetId:source.id}}],translations:[{placementId:candidate.placements[0]!.id,locale:"ko",title:original,description:original}]}};
         candidate.extensions![CURATION_NAMESPACE]={version:1,audioZones:[{zoneId:candidate.audioZones[0]!.id,referenceDistance:1,maxDistance:20,rolloff:1,occlusion:{enabled:true,closedGain:0.2}}],transcripts:[{placementId:candidate.placements[0]!.id,locale:'en',durationSeconds:2,cues:[{start:0,end:1,text:original}],translations:[{locale:'ko',cues:[{start:0,end:1,text:original}]}]}],annotationTranslations:[{annotationId:candidate.annotations[0]!.id,locale:'ko',text:original}],routes:candidate.navigation.map(r=>({routeId:r.id,stops:r.waypoints.map((_w,i)=>({waypointIndex:i,title:original,description:original}))}))};
         const prepared=candidate.artworks.map(a=>({artwork:a,sourceAssetId:a.primaryAssetId,sourceSha256:a.assets[0]!.sha256,bytes:Buffer.from("synthetic bytes"),mime:a.artworkType==="image"?"image/png" as const:"model/gltf-binary" as const}));
         const {snapshot,media}=projectPublication(candidate,prepared,"2026-10-01T00:00:00.000Z",[{source,bytes:Buffer.alloc(1600)}]);
@@ -199,7 +199,11 @@ describe("immutable anonymous publication projection", () => {
         expect(experience.voices[0]!.assetId).toBe(media[0]!.id);
         expect(experience.voices[0]!.placementId).toBe(snapshot.placements[0]!.id);
         expect(experience.annotations[0]!.annotationId).toBe(snapshot.annotations[0]!.id);
-        expect(experience.rooms[0]!.roomId).toBe(snapshot.rooms[0]!.id);
+        expect(experience.audioDefaults).toEqual({soundOn:true});
+        expect(experience.rooms[0]).toEqual({roomId:snapshot.rooms[0]!.id,reverb:0.3,footstepsOn:true,reverbOn:true,bgmOn:false,bgm:{assetId:media[0]!.id}});
+        const portable=remapOex(candidate).exhibition;
+        expect(validateViewerExperience(portable).valid).toBe(true);
+        expect(experienceFor(portable).rooms[0]).toEqual({...experience.rooms[0],roomId:portable.rooms[0]!.id,bgm:{assetId:portable.mediaAssets[0]!.id}});
         expect(experience.voices[0]!.transcript).toBe(original);
         expect(experience.translations[0]!.title).toBe(original);
         expect(snapshot.audioZones[0]!.transcript).toBe(original);
