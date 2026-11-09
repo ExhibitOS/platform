@@ -15,10 +15,10 @@ it('pinches relative to current distance and transitions one to two to one witho
   gesture.begin(2, { x: 120, y: 10 });
   expect(gesture.move(2, { x: 120, y: 10 }, view)).toEqual(view);
   view = gesture.move(2, { x: 220, y: 10 }, view);
-  expect(view).toEqual({ yaw: 10, pitch: 5, zoom: 2 });
+  expect(view).toEqual({ yaw: 10, pitch: 5, zoom: 2, panX: 50, panY: 0 });
   gesture.end(1);
   expect(gesture.move(2, { x: 220, y: 10 }, view)).toEqual(view);
-  expect(gesture.move(2, { x: 230, y: 20 }, view)).toEqual({ yaw: 15, pitch: 10, zoom: 2 });
+  expect(gesture.move(2, { x: 230, y: 20 }, view)).toEqual({ yaw: 15, pitch: 10, zoom: 2, panX: 50, panY: 0 });
 });
 it('bounds zoom and rejects degenerate pinch, ended, extra and cleared pointers', () => {
   const gesture = new DetailGesture();
@@ -32,4 +32,8 @@ it('bounds zoom and rejects degenerate pinch, ended, extra and cleared pointers'
   expect(gesture.move(2, { x: 300, y: 0 }, INITIAL_DETAIL_VIEW)).toEqual(INITIAL_DETAIL_VIEW);
   gesture.clear();
   expect(gesture.move(1, { x: 100, y: 100 }, INITIAL_DETAIL_VIEW)).toEqual(INITIAL_DETAIL_VIEW);
+});
+
+it('bounds sculpture pan without changing the orbit or zoom',()=>{
+  expect(detailView({yaw:15,pitch:10,zoom:2,panX:500,panY:-500})).toEqual({yaw:15,pitch:10,zoom:2,panX:240,panY:-240});
 });
