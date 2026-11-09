@@ -2760,6 +2760,14 @@ export function GeometryPreview({
                   const current=()=>generation===originalDetailGeneration&&stillCurrent();
                   const retryDeadline=performance.now()+15000;
                   const attemptOriginal=()=>{try{
+                    // The measured original has its own tighter scene ceiling.
+                    // Reclaim only expendable encoded and unshown prepared assets.
+                    const sceneLimit=Math.min(profile.maxSceneBytes,profile.transitionCapBytes-profile.reservationBytes);
+                    const deficit=()=>peak.total()-sceneLimit;
+                    if(current()&&deficit()>0){
+                      for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
+                      evictPrepared(deficit);
+                    }
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
