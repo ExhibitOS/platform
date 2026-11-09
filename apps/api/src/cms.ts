@@ -1,4 +1,5 @@
 import type {Imports} from './imports.ts';
+import {prepareProductImageThumbnail} from './product-image-preparation.ts';
 import {preparedImageReceipt,productImageDrained,storedPreparedImage} from './product-image-intent.ts';
 import {approvedDimensionsMatch,IMPORTED_DISPLAY_REFERENCE} from './imported-artwork-metadata.ts';
 import {validDisplayReference,type ProvisionalDisplayReference} from './model-preparation-display-reference.ts';
@@ -395,14 +396,20 @@ export class Cms {
       let bytes:Buffer;
       try{bytes=Buffer.from(await imports.boundedBlob(key,asset.bytes));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
       if(bytes.length!==asset.bytes||sha256(bytes)!==asset.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
+      return bytes;
     };
     await verify(job.object_key,receipt.original);
-    await verify(job.approved_key,receipt.full);
+    const full=await verify(job.approved_key,receipt.full);
     if(receipt.coarse)await verify(`${s.tenantId}/quarantine/import-${b.jobId}/product-coarse`,receipt.coarse);
     const artist=(await c.query('SELECT metadata FROM artists WHERE tenant_id=$1 AND id=$2',[s.tenantId,artwork.artist_id])).rows[0];
-    const primary=(await c.query('SELECT r.revision FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.id=$2',
+    const primary=(await c.query('SELECT r.revision,a.rights_id FROM assets a JOIN rights r ON (r.tenant_id,r.id)=(a.tenant_id,a.rights_id) WHERE a.tenant_id=$1 AND a.id=$2',
       [s.tenantId,receipt.full.assetId])).rows[0];
     if(typeof artist?.metadata?.name!=='string'||!Number.isSafeInteger(primary?.revision))throw new ApiError(409,'APPROVAL_INVALID');
+    if(!this.blobs?.putDurable)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+    let preview:Buffer;
+    try{preview=prepareProductImageThumbnail(full,receipt.full);}catch{throw new ApiError(409,'ASSET_INTEGRITY');}
+    const thumbnail={id:randomUUID(),bytes:preview.length,sha256:sha256(preview)};
+    const previewKey=`${s.tenantId}/approved/${thumbnail.sha256}`;
     const revisionId=revisionIdentity(s,id,b.revision),createdAt=new Date().toISOString();
     const importedArtwork:Artwork={
       schemaVersion:'1.0.0-draft.1',kind:'artwork',id,revisionId,revision:b.revision,createdAt,
@@ -411,23 +418,30 @@ export class Cms {
       dimensions:{width:metadata.dimensions.width,height:metadata.dimensions.height,...(metadata.dimensions.depth===undefined?{}:{depth:metadata.dimensions.depth})},
       transform:{position:[0,0,0],rotation:[0,0,0,1],scale:[1,1,1]},
       primaryAssetId:receipt.full.assetId,
-      assets:assets.map(asset=>({id:asset.assetId,path:`assets/${asset.assetId}/image.png`,role:'image',mime:'image/png',bytes:asset.bytes,sha256:asset.sha256})),
+      assets:[...assets.map(asset=>({id:asset.assetId,path:`assets/${asset.assetId}/image.png`,role:'image',mime:'image/png',bytes:asset.bytes,sha256:asset.sha256})),
+        {...thumbnail,path:`assets/${thumbnail.id}/thumbnail.png`,role:'preview',mime:'image/png'}],
       rights:structuredClone(metadata.rights) as Artwork['rights'],
       provenance:{authorship:metadata.provenance.source,events:[{id:revisionId,type:'edited',at:createdAt,description:'CMS reviewed server-prepared display images.'}]},
       extensions:{
         'org.exhibitos.studio/cms':{tenantId:s.tenantId,artworkId:id,revision:b.revision},
         ...(metadata.creationYear===undefined?{}:{[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:metadata.creationYear}}),
+        [ARTWORK_THUMBNAIL_NAMESPACE]:{version:1,assetId:thumbnail.id},
         [LOD_NAMESPACE]:{version:1,variants:assets.map((asset,index)=>({assetId:asset.assetId,detail:index===0?'full':'coarse',textureSize:Math.max(asset.width,asset.height)}))},
       },
     } as Artwork;
-    if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid)
+    if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid||!validateArtworkThumbnail(importedArtwork).valid)
       throw new ApiError(409,'APPROVAL_INVALID');
     qualifyDemoDisplay(importedArtwork);
     const snapshot={metadata,asset:{id:receipt.full.assetId,mime:receipt.full.mime,bytes:receipt.full.bytes,sha256:receipt.full.sha256,rightsRevision:primary.revision},
       importedArtwork,freshImagePreparation:receipt.sha256};
+    await c.query(
+      "INSERT INTO assets(tenant_id,id,artwork_id,rights_id,object_key,target_key,sha256,bytes,mime,scale_meters,state) VALUES($1,$2,$3,$4,$5,$5,$6,$7,'image/png',1,'approved')",
+      [s.tenantId,thumbnail.id,id,primary.rights_id,previewKey,thumbnail.sha256,thumbnail.bytes]);
     await c.query('INSERT INTO artwork_approvals VALUES($1,$2,$3,$4,$5,now())',[s.tenantId,id,b.revision,receipt.full.assetId,snapshot]);
     await c.query('UPDATE artworks SET approved_revision=$3,approved_asset_id=$4 WHERE tenant_id=$1 AND id=$2',
       [s.tenantId,id,b.revision,receipt.full.assetId]);
+    await this.blobs.putDurable(previewKey,preview);
+    await verify(previewKey,thumbnail);
     return this.detail(c,s,id);
   }
   async approve(
