@@ -29,7 +29,7 @@ export function checkedFrame(value:unknown,previous?:NativeViewportFrame,archive
  if(v.selection!==null){const s=v.selection;if(Object.keys(s).sort().join(',')!=='id,kind'||!uuid.test(s.id)||!['room','surface','opening','placement'].includes(s.kind))throw Error('VIEWPORT_SELECTION_INVALID');const rows={room:v.draft.candidate.rooms,surface:v.draft.candidate.surfaces,opening:v.draft.candidate.openings,placement:v.draft.candidate.placements}[s.kind];if(!rows.some(r=>r.id===s.id))throw Error('VIEWPORT_SELECTION_INVALID');}
  return structuredClone(v);
 }
-const commands=new Set(['set-room','set-surface','set-opening','set-material','set-material-texture','set-placement','align-placement','white-cube','add-room','add-light']);
+const commands=new Set(['set-room','set-surface','set-opening','set-material','set-material-texture','set-placement','align-placement','white-cube','add-room','add-room-with-base-light','ensure-room-base-light','add-light']);
 export function geometryProposal(frame:NativeViewportFrame,command:GeometryCommand,bounded=false):Draft['candidate'] {
  if(frame.disabled||!commands.has(command.type))throw Error('VIEWPORT_COMMAND_DENIED');
  if(bounded){
@@ -51,7 +51,7 @@ export function geometryProposal(frame:NativeViewportFrame,command:GeometryComma
  }
  return result;
 }
-export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room';name:string}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'|'set-material-texture'}>;
+export type NativeGeometryAction={type:'white-cube';roomId:string}|{type:'add-room'|'add-room-with-base-light';name:string}|{type:'add-light';roomId:string}|Extract<GeometryCommand,{type:'set-room'|'set-surface'|'set-opening'|'set-material'|'set-material-texture'|'ensure-room-base-light'}>;
 export function nativeGeometryAction(frame:NativeViewportFrame,action:NativeGeometryAction):Draft['candidate'] {
  if(frame.disabled)throw Error('VIEWPORT_COMMAND_DENIED');
  if(action.type==='set-material-texture'){
@@ -63,7 +63,8 @@ export function nativeGeometryAction(frame:NativeViewportFrame,action:NativeGeom
  if(action.type==='set-surface'&&Object.keys(action).sort().join(',')==='id,surface,type'&&uuid.test(action.id)&&frame.selection?.kind==='surface'&&frame.selection.id===action.id)return geometryProposal(frame,action);
  if(action.type==='set-opening'&&Object.keys(action).sort().join(',')==='id,opening,type'&&uuid.test(action.id)&&frame.selection?.kind==='opening'&&frame.selection.id===action.id)return geometryProposal(frame,action);
  if(action.type==='white-cube'&&Object.keys(action).sort().join(',')==='roomId,type'&&uuid.test(action.roomId))return geometryProposal(frame,{type:'white-cube',roomId:action.roomId});
- if(action.type==='add-room'&&Object.keys(action).sort().join(',')==='name,type'&&typeof action.name==='string'&&action.name.trim()&&action.name.length<=512)return geometryProposal(frame,{type:'add-room',room:newRoom(action.name,{width:12,height:4,depth:8})});
+ if((action.type==='add-room'||action.type==='add-room-with-base-light')&&Object.keys(action).sort().join(',')==='name,type'&&typeof action.name==='string'&&action.name.trim()&&action.name.length<=512)return geometryProposal(frame,{type:action.type,room:newRoom(action.name,{width:12,height:4,depth:8})});
+ if(action.type==='ensure-room-base-light'&&Object.keys(action).sort().join(',')==='roomId,type'&&uuid.test(action.roomId)&&frame.selection?.kind==='room'&&frame.selection.id===action.roomId)return geometryProposal(frame,action);
  if(action.type==='add-light'&&Object.keys(action).sort().join(',')==='roomId,type'&&uuid.test(action.roomId))return geometryProposal(frame,{type:'add-light',light:newLight(action.roomId)});
  throw Error('VIEWPORT_COMMAND_DENIED');
 }

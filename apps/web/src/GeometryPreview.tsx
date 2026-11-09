@@ -80,7 +80,7 @@ import {
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners } from "@exhibitos/studio-contract";
+import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -576,15 +576,21 @@ export function GeometryPreview({
         owned: Array<{ dispose: () => void }> = [];
       scene.add(model);owned.push(floorTextures,surfaceTextures);if(workspaceTextures)owned.push(workspaceTextures);
       const spaceLighting=spaceLightingFor(document);
+      const roomBaseLightIds = new Set(lightDetailsFor(document)
+        .filter(details => details.purpose === 'room-base')
+        .map(details => details.lightId.toLowerCase()));
+      // A room default adds local fill without changing the exhibition-wide
+      // fallback selected by the existing, explicitly authored lights.
+      const hasAuthoredLighting = document.lights.some(light => !roomBaseLightIds.has(light.id.toLowerCase()));
       const hemisphere = new three.HemisphereLight(
           0xffffff,
           0x71806a,
-          spaceLighting?.baselineIntensity ?? (document.lights.length ? 0.4 : 2.5),
+          spaceLighting?.baselineIntensity ?? (hasAuthoredLighting ? 0.4 : 2.5),
         );
       scene.add(hemisphere);
       const sun = new three.DirectionalLight(
         0xffffff,
-        spaceLighting || document.lights.length ? 0 : 3,
+        spaceLighting || hasAuthoredLighting ? 0 : 3,
       );
       const daylight=daylightFor(document);
       if(daylight){const direction=daylightDirection(daylight);sun.position.fromArray(direction.map(n=>n*100) as [number,number,number]);sun.intensity=daylight.enabled&&direction[1]>0?daylight.intensity:0;}else sun.position.set(20, 30, 25);
@@ -1202,8 +1208,8 @@ export function GeometryPreview({
         if(!environment)return;
         if(disposed||gpuLost){environment.dispose();return;}
         owned.push(environment);scene.environmentIntensity=spaceLighting?.reflectionIntensity ?? .45;
-        hemisphere.intensity=spaceLighting?.baselineIntensity ?? (document.lights.length ? .2 : .6);
-        if(!spaceLighting&&!daylight&&!document.lights.length)sun.intensity=2;
+        hemisphere.intensity=spaceLighting?.baselineIntensity ?? (hasAuthoredLighting ? .2 : .6);
+        if(!spaceLighting&&!daylight&&!hasAuthoredLighting)sun.intensity=2;
         reportSpaceLighting();
         renderer.domElement.dataset.renderQuality=JSON.stringify({tone:referenceTone,exposure:1,environmentSize:environment.size,environmentReserveBytes:environmentReserve,shadowReserveBytes:shadowReserve,assetBudgetBytes});
         render();
