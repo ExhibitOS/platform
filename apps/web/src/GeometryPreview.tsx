@@ -64,7 +64,7 @@ import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/priv
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
-import {benchesFor,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
+import {benchesFor,experienceFor,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
@@ -178,7 +178,9 @@ export function GeometryPreview({
   thumbnailCache,
   suppliedThumbnails,
   onMapThumbnail,
+  onExitRequest,
 }: {
+  onExitRequest?:(placementId:string)=>void;
   mapThumbnailsEnabled?:boolean;
   thumbnailCache?:ReturnType<typeof createPublicThumbnailCache>|null;
   suppliedThumbnails?:Readonly<Record<string,string>>;
@@ -325,6 +327,11 @@ export function GeometryPreview({
   const orbitEnabled = useRef<((enabled: boolean) => void) | null>(null);
   const seatedBenchRef=useRef<string|null>(null);
   const benchActionButton=useRef<HTMLButtonElement|null>(null);
+  const exitActionButton=useRef<HTMLButtonElement|null>(null);
+  const exitAction=useRef<((placementId:string)=>boolean)|null>(null);
+  const exitRequest=useRef(onExitRequest);
+  exitRequest.current=onExitRequest;
+  const [nearbyExitId,setNearbyExitId]=useState<string|null>(null);
   const benchAction=useRef<((benchId:string,seated:boolean)=>boolean)|null>(null);
   const nearbyBenchRef=useRef<string|null>(null);
   const [nearbyBenchId,setNearbyBenchId]=useState<string|null>(null);
@@ -476,6 +483,7 @@ export function GeometryPreview({
     seatedBenchRef.current=null;setSeatedBenchId(null);
     setReadyWorkspaceBenches(null);
     nearbyBenchRef.current=null;setNearbyBenchId(null);benchAction.current=null;
+    setNearbyExitId(null);exitAction.current=null;
     xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
     setWalkPaused(true);
@@ -847,12 +855,58 @@ export function GeometryPreview({
       renderer.domElement.addEventListener("pointermove",movePick);
       renderer.domElement.addEventListener("pointercancel",cancelPick);
       renderer.domElement.addEventListener("pointerdown",down);
+      const exitDoors=publicSource&&immersive?experienceFor(document).exitDoors??[]:[];
+      const exitRows=exitDoors.map(door=>({door,roomId:document.surfaces.find(surface=>
+        surface.id.toLowerCase()===door.surfaceId.toLowerCase())?.roomId.toLowerCase()}));
+      let exitNavigation:NavigationState|undefined,currentExitId:string|null=null;
+      const requestExit=(id:string)=>{
+        if(disposed||gpuLost||xrActive.current||suspendedRef.current||viewingStyleRef.current!=='free'||
+          renderer.domElement.closest('[hidden],[inert]')||!exitRequest.current||!ownerFurnishings?.publicBarrier(id))return false;
+        exitRequest.current(id);
+        return true;
+      };
+      exitAction.current=id=>id===currentExitId&&requestExit(id);
+      const refreshExit=()=>{
+        if(!exitRows.length||disposed)return;
+        let id:string|null=null,nearest=1.7;
+        const state=exitNavigation;
+        if(state?.roomId)for(const row of exitRows){
+          if(row.roomId!==state.roomId.toLowerCase())continue;
+          const object=ownerFurnishings?.publicBarrier(row.door.placementId);
+          if(!object)continue;
+          const position=object.getWorldPosition(new three.Vector3());
+          const distance=Math.hypot(position.x-state.eyePosition[0],position.z-state.eyePosition[2]);
+          if(distance<nearest){id=row.door.placementId;nearest=distance;}
+        }
+        if(id!==currentExitId){currentExitId=id;setNearbyExitId(id);}
+      };
+      const publishNavigationState=(state:NavigationState)=>{
+        exitNavigation=state;
+        refreshExit();
+        navigationCallbacks.current.onNavigationState?.(state);
+      };
+      const activateExit=()=>{
+        const button=exitActionButton.current,id=button?.dataset.exitAction;
+        return !!id&&!!button?.getClientRects().length&&!!exitAction.current?.(id);
+      };
       const pick = (event: MouseEvent) => {
         if(!pointerStart || Math.hypot(event.clientX-pointerStart[0],event.clientY-pointerStart[1])>5)return;
         if (xrActive.current || suspendedRef.current || (!panelResume && !navigationCallbacks.current.onArtworkSelect && !navigationCallbacks.current.onPlaqueSelect && !navigationCallbacks.current.onScriptClick)) return;
         const box = renderer.domElement.getBoundingClientRect(), ray = new three.Raycaster();
         ray.setFromCamera(globalThis.document.pointerLockElement===renderer.domElement?new three.Vector2(0,0):new three.Vector2((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1), camera);
-        const hit=ray.intersectObject(model,true)[0];
+        const hits=ray.intersectObject(model,true);
+        if(exitRows.length&&event.button===0&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey){
+          const first=hits.find(({object})=>{
+            if(!(object instanceof three.Mesh)||object.userData.exhibitosContactShadow)return false;
+            for(let node:Object3D|null=object;node;node=node.parent)if(!node.visible)return false;
+            return true;
+          });
+          if(first)for(let node:Object3D|null=first.object;node;node=node.parent){
+            const row=exitRows.find(({door})=>ownerFurnishings?.publicBarrier(door.placementId)===node);
+            if(row&&requestExit(row.door.placementId))return;
+          }
+        }
+        const hit=hits[0];
         let object=hit?.object;
         while(object) { if(typeof object.userData.plaqueId === "string") {if(navigationCallbacks.current.onPlaqueSelect){detailEntry.current.prepare();detailEntry.current.commit(true);navigationCallbacks.current.onPlaqueSelect(object.userData.plaqueId);}return;} if(typeof object.userData.placementId === "string") { navigationCallbacks.current.onScriptClick?.(object.userData.placementId); if(navigationCallbacks.current.onArtworkSelect){detailEntry.current.prepare(); detailEntry.current.commit(true); navigationCallbacks.current.onArtworkSelect(object.userData.placementId);} return; } object=object.parent ?? undefined; }
         panelResume?.blank(event, currentWalkMode.current.walking && currentWalkMode.current.paused && !gpuLost);
@@ -896,6 +950,7 @@ export function GeometryPreview({
           ownerFurnishingFrame=0;
           if(disposed||gpuLost)return;
           if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());
+          refreshExit();
           shadowPass.invalidate();
           render();
         });
@@ -1342,14 +1397,14 @@ export function GeometryPreview({
                 // A dialog may focus before the suspension effect, and Safari can
                 // report null relatedTarget. The existing committed entry still
                 // identifies this temporary obstruction without erasing its base stop.
-                isPanelFocus: target => (target!==null && target===benchActionButton.current) || committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
+                isPanelFocus: target => (target!==null && (target===benchActionButton.current||target===exitActionButton.current)) || committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
                 resumeMovement: () => viewingStyleRef.current==='free'&&(panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 resumeDrag: () => viewingStyleRef.current==='free'&&(panelResume?.drag(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 settings: { ...walkSettingsRef.current },
                 render,
                 onState: (state) => {
                   if(disposed)return;
-                  navigationCallbacks.current.onNavigationState?.(state);
+                  publishNavigationState(state);
                   const cb = navigationCallbacks.current;
                   if (cb.proximityDetail && cb.onArtworkSelect && !suspendedRef.current && !state.paused) {
                     const placement = document.placements.find(p => {
@@ -1373,9 +1428,10 @@ export function GeometryPreview({
                   if(disposed)return;
                   nearbyBenchRef.current=id;setNearbyBenchId(id);
                 },
-                activateBench:()=>{
+                activateContextAction:()=>{
                   const button=benchActionButton.current,id=button?.dataset.benchAction;
-                  return !!id&&!!button?.getClientRects().length&&tryBenchAction(id,button.dataset.benchSeated==='true');
+                  if(id&&button?.getClientRects().length)return tryBenchAction(id,button.dataset.benchSeated==='true');
+                  return activateExit();
                 },
                 onSeat:id=>{
                   if(disposed)return;
@@ -1489,7 +1545,8 @@ export function GeometryPreview({
                 const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
                 const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,
                   resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
-                  onState:state=>{if(!closed&&!signal.aborted)navigationCallbacks.current.onNavigationState?.(state);},
+                  onState:state=>{if(!closed&&!signal.aborted)publishNavigationState(state);},
+                  activateContextAction:activateExit,
                   onMode:(walking,paused)=>{if(!closed&&!signal.aborted){currentWalkMode.current={walking,paused};setWalkingMode(walking);setWalkPaused(paused);}},
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
@@ -3339,6 +3396,7 @@ export function GeometryPreview({
   const availableBenches=benchesFor(document).filter(bench=>!bench.workspaceVisual||readyWorkspaceBenchIds?.has(bench.id));
   const ControlsFrame = immersive || compactControls ? "details" : "div";
   const visibleBenchId=ready&&viewingStyle==='free'&&!xrRunning&&!suspendNavigation?(seatedBenchId??(immersive?nearbyBenchId:null)):null;
+  const visibleExitId=ready&&immersive&&viewingStyle==='free'&&!visibleBenchId&&!xrRunning&&!suspendNavigation&&onExitRequest?nearbyExitId:null;
   const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : detailRestoreMessage ? "detail-restore" : ready ? artworkNotice : undefined;
   const noticeMessage = noticeState === "scene" ? sceneIssue
     : noticeState === "detail-restore" ? detailRestoreMessage
@@ -3364,6 +3422,8 @@ export function GeometryPreview({
           onClick={()=>benchAction.current?.(visibleBenchId,!!seatedBenchId)}>
           {seatedBenchId?'일어서기':'앉기'}
         </button>}
+        {visibleExitId&&<button ref={exitActionButton} className="bench-return" data-exit-action={visibleExitId}
+          aria-keyshortcuts="F" onClick={()=>exitAction.current?.(visibleExitId)}>전시 나가기</button>}
         {viewerBudget && walkingMode && viewingStyle==='free' && (
           <WalkingTouch
             available={ready && !xrRunning && !suspendNavigation}

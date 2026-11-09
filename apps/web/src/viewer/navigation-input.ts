@@ -10,7 +10,7 @@ export function createWalkingInput(
   resumeMovement: () => boolean = () => false,
   resumeDrag: () => boolean = resumeMovement,
   resumeBenchArrow: () => boolean = () => false,
-  activateBench?: () => boolean,
+  activateContextAction?: () => boolean,
   onPointerLook?: () => void,
   allowPointerLook: () => boolean = () => true,
 ) {
@@ -69,13 +69,13 @@ export function createWalkingInput(
       event.altKey || event.ctrlKey || event.metaKey || document.hidden) return;
     const active = document.activeElement;
     if (event.code === "KeyF") {
-      if (!activateBench || event.repeat || event.shiftKey) return;
-      const ownsBenchControl = (target: EventTarget | null) => typeof Element !== "undefined" && target instanceof Element &&
-        target.matches("button[data-bench-action]") && !!target.closest(".geometry-preview")?.contains(canvas);
-      if ((protectedTarget(event.target) && !ownsBenchControl(event.target)) ||
-        (protectedTarget(active) && !ownsBenchControl(active))) return;
-      if ((active === canvas || active === document.body || document.pointerLockElement === canvas || ownsBenchControl(active)) &&
-        activateBench()) event.preventDefault();
+      if (!activateContextAction || event.repeat || event.shiftKey) return;
+      const ownsContextControl = (target: EventTarget | null) => typeof Element !== "undefined" && target instanceof Element &&
+        target.matches("button[data-bench-action],button[data-exit-action]") && !!target.closest(".geometry-preview")?.contains(canvas);
+      if ((protectedTarget(event.target) && !ownsContextControl(event.target)) ||
+        (protectedTarget(active) && !ownsContextControl(active))) return;
+      if ((active === canvas || active === document.body || document.pointerLockElement === canvas || ownsContextControl(active)) &&
+        activateContextAction()) event.preventDefault();
       return;
     }
     if (protectedTarget(event.target) || protectedTarget(active)) return;

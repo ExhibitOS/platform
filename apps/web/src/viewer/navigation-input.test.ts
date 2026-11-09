@@ -420,3 +420,25 @@ test('keeps F available to typing and unrelated controls',()=>{
  expect(event.defaultPrevented).toBe(false);
  f.input.dispose();
 });
+
+
+test('lets F activate the displayed exit control but ignores another viewer',()=>{
+ const activate=vi.fn(()=>true),f=fixture(undefined,undefined,activate);
+ let ownsCanvas=true;
+ class ExitControl extends EventTarget {
+  closest(selector:string){return selector==='.geometry-preview'?{contains:()=>ownsCanvas}:this;}
+  matches(selector:string){return selector.includes('button[data-exit-action]');}
+ }
+ vi.stubGlobal('Element',ExitControl);
+ f.doc.activeElement=new ExitControl();
+ const press=()=>{
+  const event=Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyF'});
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+ };
+ expect(press()).toBe(true);
+ ownsCanvas=false;
+ expect(press()).toBe(false);
+ expect(activate).toHaveBeenCalledOnce();
+ f.input.dispose();
+});
