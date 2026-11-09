@@ -50,7 +50,7 @@ import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnap
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor} from '@exhibitos/studio-contract';
 import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
-import {supportContacts} from './viewer/support-contacts';
+import {supportContactFits,supportContacts} from './viewer/support-contacts';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -545,8 +545,6 @@ export function GeometryPreview({
       const compactQuality=(resources?.maxTextureSize??2048)<=512;
       const environmentReserve=environmentEstimate(compactQuality?64:128).generationPeakBytes;
       const shadowReserve=compactQuality?0:SHADOW_RESERVE_BYTES;
-      // One 4 KiB mask plus the bounded geometry and instance matrices.
-      const supportContactReserve=publicSource&&!document.scripts.length?8192:0;
       const plaqueReserve=plaqueTextureReserve(document,compactQuality);
       const mapImageIds=document.placements.filter(p=>document.artworks.some(a=>a.revisionId.toLowerCase()===p.artworkRevisionId.toLowerCase()&&a.artworkType==='image')).map(p=>p.id);
       const mapThumbnailReserve=viewerBudget&&onMapThumbnail?mapThumbnailRosterReserve(mapImageIds.length):0;
@@ -557,7 +555,7 @@ export function GeometryPreview({
       // The bounded 2D frame belongs only to this rebuild. The old WebGL
       // renderer and its allocations are still disposed before the new build.
       let qualityFrameReserve=qualityFrame.current?1024*1024:0;
-      const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-supportContactReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
+      const beforeSnapshot=(resources?.maxCacheBytes??33554432)-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes;
       const beforeBench=beforeSnapshot;
       const benchAuthority=publicSource?{...publicSource,fetcher:publicSource.fetcher??fetch,check:publicSource.check??(async()=>{const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');})}:undefined;
       const benchSource=catalogBenchSource(document,benchAuthority,privateCatalogue);
@@ -582,12 +580,12 @@ export function GeometryPreview({
       // Snapshot admission must not lower existing floor/surface/catalog quality.
       const snapshotReserve=snapshotEnabled&&materialCapacity-materialReserve>SCENE_SNAPSHOT_RESERVE_BYTES?SCENE_SNAPSHOT_RESERVE_BYTES:0;
       let assetBudgetBytes=Math.max(1,availableAssetBytes-materialReserve-snapshotReserve-qualityFrameReserve);
-      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-supportContactReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialReserve);
+      let transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialReserve);
       let floorSettled=false,surfaceSettled=false,growAssetLimits=()=>{};
       const refreshAssetLimits=()=>{
         const materialBytes=serialMaterialPhaseBytes(floorPlan,surfacePlan,floorSettled,surfaceSettled);
         assetBudgetBytes=Math.max(1,availableAssetBytes-materialBytes-snapshotReserve-qualityFrameReserve);
-        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-supportContactReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
+        transitionBudgetBytes=Math.max(assetBudgetBytes,(resources?.maxTransitionBytes??resources?.maxCacheBytes??33554432)-qualityFrameReserve-environmentReserve-shadowReserve-plaqueReserve-mapThumbnailReserve-suppliedThumbnailReserve-retainedMaterialBytes-benchReserve-otherReserve-snapshotReserve-materialBytes);
         renderer.domElement.dataset.materialBudget=JSON.stringify({phase:floorSettled&&surfaceSettled?'resident':'loading',materialBytes,retainedMaterialBytes,mapThumbnailReserve,suppliedThumbnailReserve,assetBudgetBytes,transitionBudgetBytes});
         const quality=renderer.domElement.dataset.renderQuality;
         if(quality)renderer.domElement.dataset.renderQuality=JSON.stringify({...JSON.parse(quality),assetBudgetBytes});
@@ -943,18 +941,6 @@ export function GeometryPreview({
       if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
       if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
-      if(supportContactReserve)void Promise.allSettled(catalogSettled).then(()=>{
-        if(disposed||gpuLost)return;
-        const contacts=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,shadowCandidates,contactBench);
-        contactShadows=installSupportContactShadows(three,contacts,compactQuality,value=>{
-          renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);
-        });
-        owned.push(contactShadows);
-        contactShadows.setRoom(shadowRoom);
-        render();
-      }).catch(()=>{
-        if(!disposed&&!gpuLost)renderer.domElement.dataset.supportContactShadows='unavailable';
-      });
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
       scriptDiagnostics();navigationCallbacks.current.onScriptSceneReady?.(scriptScene);
       const benchmark = () => {
@@ -1934,7 +1920,30 @@ export function GeometryPreview({
         let diagnosticOriginal:{artworkRevisionId:string;sha256:string}|null=null;
         let diagnosticDetailPlacement:string|null=null;
         let diagnosticOriginalLimits:{transition:number;scene:number}|null=null;
-        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{diagnosticPeak=Math.max(diagnosticPeak,total);}:undefined);
+        let contactReceivers:ReturnType<typeof supportContacts>|undefined;
+        const contactEligible=!document.scripts.length;
+        const releaseContact=()=>{
+          contactShadows?.dispose();
+          contactShadows=undefined;
+        };
+        const retireContactForBudget=(used:number)=>{
+          if(contactShadows&&!supportContactFits(used,Math.min(assetBudgetBytes,transitionBudgetBytes))){
+            releaseContact();
+            renderer.domElement.dataset.supportContactShadows='budget';
+          }
+        };
+        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,contactEligible||diagnosticsEnabled()?total=>{
+          retireContactForBudget(total);
+          if(diagnosticsEnabled())diagnosticPeak=Math.max(diagnosticPeak,total);
+        }:undefined);
+        if(contactEligible){
+          owned.push({dispose:releaseContact});
+          void Promise.allSettled(catalogSettled).then(()=>{
+            if(!disposed&&!gpuLost)contactReceivers=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,shadowCandidates,contactBench);
+          }).catch(()=>{
+            if(!disposed&&!gpuLost)renderer.domElement.dataset.supportContactShadows='unavailable';
+          });
+        }
         const unregisterDiagnostic=registerDiagnosticSource(()=>{
           const history=readRuntimeHistory(renderer.domElement.ownerDocument),records=stages.snapshot();
           const recent=new Map(records.map(row=>[row.assetId,row]));
@@ -2860,6 +2869,7 @@ export function GeometryPreview({
           assertMount();
           let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
+          releaseContact();
           const returnEpoch=++canvasReturnEpoch;
           const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
@@ -3033,7 +3043,28 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover')preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        const updateSupportContact=()=>{
+          if(!contactReceivers?.length||!shadowRoom||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled)return;
+          const used=peak.total(),limit=Math.min(assetBudgetBytes,transitionBudgetBytes);
+          retireContactForBudget(used);
+          if(contactShadows||scheduler.stats().active||scheduler.stats().queued)return;
+          if(!supportContactFits(used,limit)){
+            renderer.domElement.dataset.supportContactShadows='budget';
+            return;
+          }
+          try{
+            contactShadows=installSupportContactShadows(three,contactReceivers,compactQuality,value=>{
+              renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);
+            });
+            contactShadows.setRoom(shadowRoom);
+            render();
+          }catch{
+            releaseContact();
+            contactReceivers=undefined;
+            renderer.domElement.dataset.supportContactShadows='unavailable';
+          }
+        };
+        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           unregisterDiagnostic();

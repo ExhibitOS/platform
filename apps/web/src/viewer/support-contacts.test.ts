@@ -3,7 +3,7 @@ import {expect,it} from 'vitest';
 import * as three from 'three';
 import type {Exhibition} from '@exhibitos/spec';
 import {BENCH_NAMESPACE} from '@exhibitos/studio-contract';
-import {supportContacts} from './support-contacts';
+import {supportContactFits,supportContacts} from './support-contacts';
 
 it('uses only visible geometry in the verified catalog legs',()=>{
   const room=new three.Group(),floor=new three.Group(),model=new three.Group();
@@ -29,4 +29,11 @@ it('uses only visible geometry in the verified catalog legs',()=>{
   model.visible=true;visible.visible=false;
   expect(get()).toEqual([]);
   geometry.dispose();material.dispose();
+});
+
+it('leaves the existing scene allocation alone when the optional pass cannot fit',()=>{
+  const scene=400_000;
+  expect(supportContactFits(scene,scene)).toBe(false);
+  expect(supportContactFits(scene,scene+8191)).toBe(false);
+  expect(supportContactFits(scene,scene+8192)).toBe(true);
 });

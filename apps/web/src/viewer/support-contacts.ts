@@ -8,6 +8,12 @@ type Rectangle = {x:number;y:number;width:number;height:number};
 type RoomLights = readonly {room:Three.Group;light:Three.DirectionalLight|Three.SpotLight}[];
 type Receiver = {group:Three.Group;rectangles:readonly Rectangle[]};
 
+// One mask plus bounded CPU/GPU geometry and instance matrices.
+const SUPPORT_CONTACT_BYTES=8192;
+export function supportContactFits(used:number,limit:number){
+  return used<=limit-SUPPORT_CONTACT_BYTES;
+}
+
 export function supportContacts(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,
   surfaces:ReadonlyMap<string,Three.Group>,rectangles:readonly (readonly Rectangle[])[],
   pedestals:ReadonlyMap<string,readonly Three.Object3D[]>,lights:RoomLights,
