@@ -9,6 +9,7 @@ import { artworkAccess, transaction, type BlobStore, sha256 } from '@exhibitos/s
 import { ApiError, type Session } from './auth.ts';
 import { validRights,allowedRights } from './rights.ts';
 import {preparedImageInput,preparedImageHeader,type PreparedImage} from './prepared-image.ts';
+import {LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {MAX_UPLOAD} from './upload-limits.ts';
 export {MAX_UPLOAD} from './upload-limits.ts';
 export interface ImportInput { artworkId:string; idempotencyKey:string; mime:'model/gltf-binary'|'image/png'|'image/jpeg'; sha256:string; bytes:number; scaleMeters:number; rights:unknown; derived?:PreparedImage; modelDerivation?:ModelDerivation; coarsePreparation?:ImageCoarseIntent; modelPreparation?:ModelPreparationIntent; }
@@ -22,6 +23,11 @@ export class Imports {
  readonly pool:Pool; readonly blobs:BlobStore; readonly nativeWorkspace:NativeOexWorkspaceContext|undefined; readonly modelExecution:ModelPreparationExecution|undefined;
  constructor(pool:Pool,blobs:BlobStore,nativeWorkspace?:NativeOexWorkspaceContext,modelExecution?:ModelPreparationExecution){if(modelExecution)assertModelPreparationExecution(modelExecution,blobs,nativeWorkspace);this.pool=pool;this.blobs=blobs;this.nativeWorkspace=nativeWorkspace;this.modelExecution=modelExecution;}
  async requiredModelReady(c:PoolClient,s?:{tenantId:string;userId:string}){if(!this.modelExecution)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');await this.modelExecution.assertReady(c,s);}
+ async largeModelReady(c:PoolClient,s:{tenantId:string;userId:string}){
+  await this.requiredModelReady(c,s);
+  const result=await c.query('SELECT 1 FROM schema_migrations WHERE name=$1 AND sha256=$2',['046_large_model_preparation.sql','88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4']);
+  if(!result.rowCount)throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
+ }
  async createCompact(c:PoolClient,s:Session,artworkId:string,input:CompactVariantInput){await this.requiredModelReady(c,s);return this.view(await createCompactVariant(c,s,artworkId,input,this.modelExecution!));}
  async coarseOwner(c:PoolClient,tenantId:string,principalId:string,workspaceId?:string){const owner=this.nativeWorkspace;if(!owner||owner.tenantId!==tenantId||owner.principalId!==principalId||(workspaceId!==undefined&&owner.workspaceId!==workspaceId))throw new ApiError(403,'FORBIDDEN');await owner.assertDatabase(c);return owner;}
  async boundedBlob(key:string,bytes:number){const read=this.blobs.getBounded;if(!read)throw new ApiError(503,'STORAGE_UNAVAILABLE');return read.call(this.blobs,key,bytes);}
@@ -32,6 +38,7 @@ export class Imports {
  }
  async create(c:PoolClient,s:Session,input:ImportInput) {
   const preparation=modelPreparationIntent(input.modelPreparation);
+  const large=preparation?.profileId===LARGE_MODEL_RECIPE.id;
   if(preparation?.sourceFull||preparation?.sourceDisplayReference)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
   let artwork=await artworkAccess(c,{tenantId:s.tenantId,userId:s.userId},input.artworkId,true);
   if(preparation){
@@ -42,7 +49,7 @@ export class Imports {
   }
   if(preparation){
    if(input.mime!=='model/gltf-binary'||input.derived!==undefined||input.modelDerivation!==undefined||input.coarsePreparation!==undefined||preparation.operationID!==input.idempotencyKey)throw new ApiError(400,'INVALID_MODEL_PREPARATION');
-   await this.requiredModelReady(c,s);
+   if(large)await this.largeModelReady(c,s);else await this.requiredModelReady(c,s);
   }
   const reference=artwork.metadata?.displayReference;
   if(reference&&!preparation&&!input.coarsePreparation&&(input.mime!=='model/gltf-binary'||input.sha256!==reference.assetSha256||input.scaleMeters!==1||input.derived!==undefined||input.modelDerivation!==undefined))throw new ApiError(409,'PROVISIONAL_ASSET_MISMATCH');
@@ -54,7 +61,7 @@ export class Imports {
   const coarseWorkspace=coarse?await this.coarseOwner(c,s.tenantId,s.userId):undefined;
   if(coarse&&(input.mime!=='image/jpeg'||!derived||model||input.scaleMeters!==1))throw new ApiError(400,'COARSE_INTENT_INVALID');
   if((input.mime==='image/jpeg')!==(derived!==undefined))throw new ApiError(400,'INVALID_DERIVED_INPUT');
-  if(!['model/gltf-binary','image/png','image/jpeg'].includes(input.mime)||!Number.isInteger(input.bytes)||input.bytes<1||input.bytes>MAX_UPLOAD||!Number.isFinite(input.scaleMeters)||input.scaleMeters<=0||input.scaleMeters>1000000||!/^[0-9a-f]{64}$/.test(input.sha256)||typeof input.idempotencyKey!=='string'||input.idempotencyKey.length<1||input.idempotencyKey.length>128)throw new ApiError(400,'INVALID_INPUT');
+  if(!['model/gltf-binary','image/png','image/jpeg'].includes(input.mime)||!Number.isInteger(input.bytes)||input.bytes<1||input.bytes>(large?LARGE_MODEL_RECIPE.limits.sourceBytes:MAX_UPLOAD)||!Number.isFinite(input.scaleMeters)||input.scaleMeters<=0||input.scaleMeters>1000000||!/^[0-9a-f]{64}$/.test(input.sha256)||typeof input.idempotencyKey!=='string'||input.idempotencyKey.length<1||input.idempotencyKey.length>128)throw new ApiError(400,'INVALID_INPUT');
   if(!validRights(input.rights))throw new ApiError(400,'INVALID_RIGHTS');
   // Rights object order is normalized for semantic replay equality.
   const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
@@ -105,15 +112,19 @@ export class Imports {
   if(bytes.length!==derived.bytes||sha256(bytes)!==derived.sha256)throw new ApiError(422,'UPLOAD_INTEGRITY');
   await this.blobs.put(row.derived_object_key,bytes);return {received:bytes.length};
  }
- async upload(c:PoolClient,s:Session,id:string,bytes:Buffer){
+ async upload(c:PoolClient,s:Session,id:string,bytes:Buffer,large=false){
   const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
+  if((storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id)!==large)throw new ApiError(409,'MODEL_PREPARATION_PROFILE_MISMATCH');
+  if(large)await this.largeModelReady(c,s);
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
   await this.blobs.put(row.object_key,bytes);return {received:bytes.length};
  }
  async complete(c:PoolClient,s:Session,id:string){
   const row=await this.access(c,s,id);if(['queued','processing','approved'].includes(row.state))return this.view(row);
   if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
-  let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
+  const large=storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id;
+  if(large)await this.largeModelReady(c,s);
+  let bytes:Buffer;try{bytes=Buffer.from(large?await this.boundedBlob(row.object_key,Number(row.expected_bytes)):await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
   const derived=this.prepared(row);if(derived)await this.preparedBytes(row,derived);
   const result=await c.query("UPDATE import_jobs SET state='queued',progress=10,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id]);return this.view(result.rows[0]);
