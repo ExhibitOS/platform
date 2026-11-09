@@ -12,6 +12,7 @@ import {freezeCanonical,type DetailCandidate} from '@exhibitos/studio-contract';
 import {Auth,type Session} from './auth.ts';
 import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {Imports} from './imports.ts';
+import {createServiceModelPreparationExecution} from './model-preparation-import.ts';
 import {Cms} from './cms.ts';
 import {Studio,etag} from './studio.ts';
 import {replaceApprovedArtwork} from './artwork-replacement.ts';
@@ -61,7 +62,13 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
   if(product){
    // Keep the production auth transaction, worker, byte store and commit.
    // The sealed native readiness and material registry are fixture boundaries.
-   vi.spyOn(imports,'requiredModelReady').mockResolvedValue(undefined);
+   await migrate(pool,new URL('../../../database/native-model-preparation/',import.meta.url).pathname);
+   const imports=new Imports(pool,blobs,undefined,createServiceModelPreparationExecution(blobs,()=>true));
+   vi.spyOn(imports,'coarseOwner').mockImplementation(async(c,tenant,principal,workspace)=>{
+    if(tenant!==tenantId||principal!==userId||workspace!==undefined&&workspace!==workspaceId)throw Error('wrong fixture owner');
+    await owner.assertDatabase(c);
+    return owner;
+   });
    const materials=draft.candidate.extensions?.['org.exhibitos.studio/workspace-materials'] as {materials:{id:string;version:number}[]};
    const materialService={readVersion:async(_c:PoolClient,_s:Session,id:string,version:number)=>{
     const material=materials.materials.find(m=>m.id===id&&m.version===version);
@@ -80,9 +87,9 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
    const job=await mutate((c,s)=>imports.create(c,s,input)),id=String(job.id);
    await mutate((c,s)=>imports.upload(c,s,id,original));
    await mutate((c,s)=>imports.complete(c,s,id));
-   await imports.work();
+   expect(await imports.work()).toBe(true);
    const ready=await mutate(async(c,s)=>imports.view(await imports.access(c,s,id))),prepared='imagePreparation' in ready?ready.imagePreparation:undefined;
-   expect(ready.state).toBe('approved');
+   expect(ready).toMatchObject({state:'approved',errorCode:null});
    if(prepared?.provenance!=='server-generated'||!prepared.full||!prepared.coarse)throw Error('missing prepared image pair');
    expect(prepared).toMatchObject({status:'ready',workerDrained:true,original:{sha256:input.sha256,bytes:original.length},
     full:{sha256:'8d62ecbe291f5c4f386541b0526dda9f718095e05f14438b9e428ddb4e3bdbfa'},
