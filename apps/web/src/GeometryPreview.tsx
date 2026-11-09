@@ -2142,7 +2142,8 @@ export function GeometryPreview({
           },
           onDiscard: result=>{const task=tasks.get(result.key);if(task)stage(task.inventory.id,'cancelled-settled',undefined,result.key);peak.release(result.key);tasks.delete(result.key);discardResult(result);},
         });
-        let entranceOptional:{key:string;artId:string;assetId:string;compatibleOnEnter:boolean}|undefined;
+        type OptionalArtwork = {key:string;artId:string;assetId:string;compatibleOnEnter:boolean;drain?:Promise<void>};
+        let entranceOptional:OptionalArtwork|undefined;
         const cancelIncompatibleOptional=(assetId?:string)=>{
           if(entranceOptional&&entranceOptional.assetId!==assetId)scheduler.cancel(entranceOptional.key);
         };
@@ -2614,19 +2615,23 @@ export function GeometryPreview({
           const {art,inventory,compatibleOnEnter}=next;
           entranceOptionalAttempted.add(inventory.id);
           const key=`entrance-encoded/${inventory.id}/${sequence++}`;
-          entranceOptional={key,artId:art.revisionId,assetId:inventory.id,compatibleOnEnter};
+          const owned:OptionalArtwork={key,artId:art.revisionId,assetId:inventory.id,compatibleOnEnter};
+          entranceOptional=owned;
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
             peak.reserve(key,inventory.bytes*4,transitionBudgetBytes);
             const body=readArtworkBytes(art,inventory,signal,undefined,false);
             entranceOptionalBodies.set(inventory.id,body);
-            try{await body;}finally{
+            const settled=body.finally(()=>{
               if(entranceOptionalBodies.get(inventory.id)===body)entranceOptionalBodies.delete(inventory.id);
               peak.release(key);
-            }
+            });
+            owned.drain=settled.then(()=>{},()=>{});
+            await settled;
           }});
           void scheduler.request(key,10000).catch(error=>{
             if(error?.name==='AbortError')entranceOptionalAttempted.delete(inventory.id);
-          }).finally(()=>{
+          }).finally(async()=>{
+            await owned.drain;
             tasks.delete(key);
             if(entranceOptional?.key===key)entranceOptional=undefined;
           });
@@ -3098,7 +3103,7 @@ export function GeometryPreview({
                   const generation=++originalDetailGeneration,attemptId=`viewer-detail-${generation}-${crypto.randomUUID()}`;
                   const current=()=>generation===originalDetailGeneration&&stillCurrent();
                   const retryDeadline=performance.now()+15000;
-                  const attemptOriginal=()=>{try{
+                  const startOriginal=()=>{if(!current())return;try{
                     // The measured original has its own tighter scene ceiling.
                     // Reclaim only expendable encoded and unshown prepared assets.
                     const sceneLimit=Math.min(profile.maxSceneBytes,profile.transitionCapBytes-profile.reservationBytes);
@@ -3107,7 +3112,6 @@ export function GeometryPreview({
                       for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
                       evictPrepared(deficit);
                     }
-                    if(current())cancelIncompatibleOptional();
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
@@ -3139,6 +3143,12 @@ export function GeometryPreview({
                       ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
                       retry:()=>{retryOriginalDetail=undefined;if(settleDetail===promoteImage)settleDetail=undefined;if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;attemptOriginal();}});
                   }}};
+                  const attemptOriginal=()=>{
+                    const drain=entranceOptional?.drain;
+                    cancelIncompatibleOptional();
+                    if(drain)void drain.then(startOriginal);
+                    else startOriginal();
+                  };
                   attemptOriginal();
                 }).catch(()=>{activateLegacy();});
               }else startApproved();
