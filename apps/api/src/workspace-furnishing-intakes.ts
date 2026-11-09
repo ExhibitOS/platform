@@ -6,7 +6,7 @@ import {Cms} from './cms.ts';
 import type {ChildProcess} from 'node:child_process';
 import type {Pool,PoolClient} from 'pg';
 import {sha256,type BlobStore} from '@exhibitos/storage';
-import {artworkFrameModel,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
+import {artworkFrameModel,portalFinishModel,validWorkspaceFurnishingDeclaration,type WorkspaceFurnishingDeclaration,type WorkspaceFurnishingDescriptor} from '@exhibitos/studio-contract';
 import {ApiError,uuid,type Session} from './auth.ts';
 import {allowedRights,validRights} from './rights.ts';
 import {validateWorkspaceFurnishingGlb} from './workspace-furnishing-glb.ts';
@@ -47,7 +47,7 @@ export class WorkspaceFurnishingIntakes {
  supportsPortalFinish(){return this.owner.workspacePortalFinish===true&&this.supportsArtworkFrameModels();}
  private admittedDeclaration(value:unknown):value is WorkspaceFurnishingDeclaration{
   return validWorkspaceFurnishingDeclaration(value,{allowStool:this.supportsStool(),allowRoomVisual:this.supportsRoomVisual(),allowArtworkFrame:this.supportsArtworkFrame(),allowFramePreparation:this.supportsFramePreparation(),allowPortalFinish:this.supportsPortalFinish()})&&validRights(value.rights)&&
-   (value.kind!=='portal-finish'||value.model.bytes===164044&&value.model.sha256==='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b')&&
+   (value.kind!=='portal-finish'||!!portalFinishModel(value.model.sha256,value.model.bytes))&&
    (value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
  }
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
@@ -74,7 +74,7 @@ export class WorkspaceFurnishingIntakes {
    const r=value.rights as {holder?:unknown;ownership?:unknown;licenseId?:unknown};
    if(r.holder!=='ExhibitOS'||r.ownership!=='owner'||r.licenseId!=='CC0-1.0')throw new ApiError(403,'FRAME_PREPARATION_RIGHTS_DENIED');
   }
-  if(value.kind==='portal-finish'&&(value.model.bytes!==164044||value.model.sha256!=='385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b'))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
+  if(value.kind==='portal-finish'&&!portalFinishModel(value.model.sha256,value.model.bytes))throw new ApiError(422,'PORTAL_ASSET_UNSUPPORTED');
   if(!this.admittedDeclaration(value))throw new ApiError(400,'FURNISHING_DECLARATION');
   const declaration=structuredClone(value),requestHash=createHash('sha256').update(canonical(declaration)).digest('hex');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`${this.owner.workspaceId}:${declaration.requestId}`]);
   const previous=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND request_id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,declaration.requestId]);
