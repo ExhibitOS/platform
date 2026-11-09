@@ -2,7 +2,10 @@
 import {useRef} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,it} from 'vitest';
-import {EntranceEntryOverlay,useEntranceEntry,entryControlsBlocked} from './entrance-entry';
+import {ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
+import {newDraft} from './drafts/example';
+import {entranceRuntime} from './entrance-runtime';
+import {EntranceEntryOverlay,useEntranceEntry,entryControlsBlocked,publicEntryTransition} from './entrance-entry';
 
 function Overlay({transition,ready=false}:{transition:'none'|'doors';ready?:boolean}){
  const entry=useEntranceEntry(),status=useRef<HTMLParagraphElement>(null);
@@ -27,4 +30,17 @@ it('blocks settings during loading and restores pointer and accessibility access
  expect(entryControlsBlocked('3d',true,false,false)).toBe(false);
  expect(entryControlsBlocked('3d',false,true,false)).toBe(false);
  expect(entryControlsBlocked('cover',false,false,false)).toBe(false);
+});
+
+it('keeps an implicit catalogue door out of public entry while honoring an authored transition',()=>{
+ const exhibition=newDraft().candidate;
+ const catalogue={version:1,theme:'catalogue'};
+ const entrance={version:1,artist:'',introduction:'',imageAlt:'',mobilePosition:'center'};
+ const extensions={...exhibition.extensions,[ENTRANCE_NAMESPACE]:{...entrance,design:catalogue}};
+ exhibition.extensions=extensions;
+ expect(entranceRuntime(exhibition).effects.transition).toBe('doors');
+ expect(publicEntryTransition(entranceRuntime(exhibition))).toBe('none');
+ expect(publicEntryTransition(entranceRuntime(exhibition,false,true))).toBe('none');
+ exhibition.extensions={...extensions,[ENTRANCE_NAMESPACE]:{...entrance,design:{...catalogue,effects:{transition:'doors'}}}};
+ expect(publicEntryTransition(entranceRuntime(exhibition))).toBe('doors');
 });

@@ -21,7 +21,7 @@ import { validateDraft } from "./drafts/validator";
 import { newDraft } from "./drafts/example";
 import { EntranceCover, coverAspectRatio } from './EntranceCover';
 import { EntranceReadingShell } from './EntranceReadingShell';
-import {useEntranceEntry,EntranceEntryOverlay,entryControlsBlocked} from './entrance-entry';
+import {useEntranceEntry,EntranceEntryOverlay,entryControlsBlocked,publicEntryTransition} from './entrance-entry';
 import { EntryTicket } from './EntryTicket';
 import {entranceRuntime,entranceContent} from './entrance-runtime';
 import "./publication-novice.css";
@@ -286,7 +286,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
     return {placementId:p.id,title:art?.metadata.title??'작품',artist:caption?.artist??art?.metadata.artist,date:date===undefined?undefined:String(date),plaqueId:plaque?.id,roomName:value.exhibition.rooms.find(r=>r.id.toLowerCase()===p.roomId.toLowerCase())?.name??'전시 공간',thumbnail:thumbnails[p.artworkRevisionId.toLowerCase()]};
   }):[];
   const entryPresentation=entryPresentationFor(value?.exhibition??{}),runtime=value?entranceRuntime(value.exhibition,reducedMotion,window.matchMedia('(max-width:700px)').matches):null,coverContent=value?entranceContent(value.exhibition,entranceLocale,window.matchMedia('(max-width:700px)').matches):null;
-  const publicEntryTransition=runtime&&(runtime.authored||runtime.settings.presentation!==undefined)?runtime.effects.transition:'none';
+  const entryTransition=publicEntryTransition(runtime);
   return (
     <main ref={publicationRoot} onPointerDownCapture={event=>{entryInput.current=event.pointerType==='touch'?'touch':'pointer';}} onKeyDownCapture={()=>{entryInput.current='keyboard';}} className={`cms-shell publication-shell publication-mode-${mode}${highContrast ? " publication-high-contrast" : ""}`} data-reduced-motion={reducedMotion} data-entry-ready={stageReady} data-entry-generation={entryAttempt} data-entry-timing={entryTiming?JSON.stringify(entryTiming):undefined}>
       <nav className="publication-skip-links" aria-label="바로 가기">
@@ -302,7 +302,7 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
             {null}
           </EntranceCover></div>
-          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={publicEntryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks}/>}
+          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={entryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
           {mode==='3d'&&stageReady&&viewingReady&&!viewerUnavailable&&<OrderedViewingChrome state={viewingState} items={viewingItems} actions={viewingActions} onList={openOrderedList} listId={orderedListId} blocked={!!selectedId||!!overview} onDetailPrepare={prepareDetailEntry} onDetail={(item,pointer,opener)=>{orderedDetailOpener.current=opener;if(!pointer)detailEntry.current?.prepare();detailEntry.current?.commit(pointer);setSelectedId(item.placementId,item.plaqueId);}}/>}
           {mode==='3d'&&<details ref={orderedPanel} name="exhibitos-visitor-panel" data-visitor-panel="" className="viewer-ordered-list-panel" open={orderedListOpen} onToggle={event=>{if(event.target===event.currentTarget)setOrderedListOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();event.currentTarget.open=false;setOrderedListOpen(false);}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
