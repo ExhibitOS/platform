@@ -5,7 +5,7 @@ import {benchesFor,benchBoxes,validateStudioBenches} from '@exhibitos/studio-con
 /** Bounded, owned shared geometry/PBR pool. No network assets or editor handles. */
 export function installBenches(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>){
   if(!validateStudioBenches(document).valid)throw Error('BENCH_INVALID');
-  const benches=benchesFor(document),groups:Three.Group[]=[],materials=new Map<string,Three.MeshStandardMaterial>();
+  const benches=benchesFor(document).filter(bench=>!bench.workspaceVisual),groups:Three.Group[]=[],materials=new Map<string,Three.MeshStandardMaterial>();
   const instances:Three.InstancedMesh[]=[];
   const geometry=benches.length?new three.BoxGeometry(1,1,1):undefined;
   let disposed=false;

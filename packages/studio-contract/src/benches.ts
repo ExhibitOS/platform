@@ -6,6 +6,7 @@ import type { Exhibition } from '@exhibitos/spec';
 import type { InstallationMaterial } from './installation.js';
 import { PRESENTATION_NAMESPACE, presentationFor, validateStudioPresentation } from './index.js';
 import type { StudioCamera } from './index.js';
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from './workspace-furnishing.js';
 
 export const BENCH_NAMESPACE = 'org.exhibitos.studio/benches';
 export const BENCH_LIMITS = Object.freeze({ benches: 32, materials: 32, boxes: 224, triangles: 2688, bytes: 32768 });
@@ -23,7 +24,9 @@ export interface StudioBench {
   dimensions: { width: number; depth: number; height: number };
   material: InstallationMaterial;
   viewpointId: string;
+  workspaceVisual?: WorkspaceBenchVisual;
 }
+export interface WorkspaceBenchVisual {placementId:string;modelSha256:string}
 export interface StudioBenches { version: 1; benches: StudioBench[] }
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const closed = (v: Record<string, unknown>, keys: string[]) => keys.length === Object.keys(v).length && keys.every(k => Object.hasOwn(v, k));
@@ -51,18 +54,38 @@ export function validateStudioBenches(candidate: unknown) {
   const rooms = Array.isArray(candidate.rooms) ? candidate.rooms.filter(object) : [];
   const presentation = candidate.extensions[PRESENTATION_NAMESPACE];
   const viewpoints = object(presentation) && Array.isArray(presentation.viewpoints) ? presentation.viewpoints.filter(object) : [];
-  const seen = new Set<string>();
+  const seen = new Set<string>(), attachedPlacements = new Set<string>();
+  const workspace = candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined;
+  const hasWorkspaceSeats = value.benches.some(bench=>object(bench)&&Object.hasOwn(bench,'workspaceVisual'));
+  const validWorkspace = !hasWorkspaceSeats || validateWorkspaceFurnishings(candidate).valid;
+  const workspaceIds = hasWorkspaceSeats && validWorkspace && workspace
+    ? new Set([...workspace.placements,...workspace.furnishings].map(row=>row.id.toLowerCase())) : new Set<string>();
   value.benches.forEach((b, i) => {
     const path = '/benches/' + i;
-    if (!object(b) || !closed(b, ['id','name','roomId','position','yaw','kind','dimensions','material','viewpointId']) || !uuid(b.id) || !uuid(b.roomId) || !uuid(b.viewpointId) || typeof b.name !== 'string' || !b.name.trim() || b.name.length > 128 || !vector(b.position) || !finite(b.yaw, -Math.PI, Math.PI) || (b.kind!=='slab'&&b.kind!=='backed')) {
+    if (!object(b) || !closed(b, ['id','name','roomId','position','yaw','kind','dimensions','material','viewpointId',...(Object.hasOwn(b,'workspaceVisual')?['workspaceVisual']:[])]) || !uuid(b.id) || !uuid(b.roomId) || !uuid(b.viewpointId) || typeof b.name !== 'string' || !b.name.trim() || b.name.length > 128 || !vector(b.position) || !finite(b.yaw, -Math.PI, Math.PI) || (b.kind!=='slab'&&b.kind!=='backed')) {
       add('BENCH_SCHEMA', path, 'Expected a named bounded bench with UUID references'); return;
     }
     const d = b.dimensions, m = b.material;
     if (!object(d) || !closed(d, ['width','depth','height']) || !finite(d.width,.6,3) || !finite(d.depth,.3,1) || !finite(d.height,.3,.65) || !object(m) || !closed(m,['preset','color','roughness','metalness']) || (m.preset!=='paint'&&m.preset!=='wood'&&m.preset!=='stone'&&m.preset!=='metal') || typeof m.color !== 'string' || !/^#[0-9a-f]{6}$/i.test(m.color) || !finite(m.roughness,0,1) || !finite(m.metalness,0,1)) {
       add('BENCH_SCHEMA', path, 'Invalid size or existing PBR material'); return;
     }
-    if (seen.has(b.id.toLowerCase())) add('BENCH_REFERENCE', path+'/id', 'Bench UUID must be unique');
+    if (seen.has(b.id.toLowerCase())||workspaceIds.has(b.id.toLowerCase())) add('BENCH_REFERENCE', path+'/id', 'Bench UUID must be unique');
     seen.add(b.id.toLowerCase());
+    if (Object.hasOwn(b,'workspaceVisual')) {
+      const link=b.workspaceVisual;
+      if (!validWorkspace||!workspace||!object(link)||!closed(link,['placementId','modelSha256'])||!uuid(link.placementId)
+        ||typeof link.modelSha256!=='string'||! /^[a-f0-9]{64}$/.test(link.modelSha256)||b.kind!=='slab') {
+        add('BENCH_WORKSPACE_VISUAL',path+'/workspaceVisual','Expected one registered bench visual and exact model digest');return;
+      }
+      const id=link.placementId.toLowerCase();
+      const placement=workspace.placements.find(row=>equal(row.id,id));
+      const item=placement&&workspace.furnishings.find(row=>equal(row.id,placement.furnishingId)&&row.version===placement.furnishingVersion);
+      if (attachedPlacements.has(id)||!placement||item?.kind!=='bench'||item.model.sha256!==link.modelSha256
+        ||!equal(placement.roomId,b.roomId)||placement.scale!==1||placement.yaw!==b.yaw||!placement.position.every((n,i)=>n===(b.position as [number,number,number])[i])) {
+        add('BENCH_WORKSPACE_VISUAL',path+'/workspaceVisual','Seat must match its unique workspace bench placement');return;
+      }
+      attachedPlacements.add(id);
+    }
     const room = rooms.find(r => typeof r.id === 'string' && equal(r.id,b.roomId as string));
     const view = viewpoints.find(v => typeof v.id === 'string' && equal(v.id,b.viewpointId as string));
     if (!room || !object(room.dimensions) || !view || typeof view.roomId !== 'string' || !equal(view.roomId,b.roomId) || !vector(view.position) || !vector(view.target)) {
@@ -89,7 +112,7 @@ export function benchesFor(candidate: Pick<Exhibition,'extensions'>): StudioBenc
 /** Remap typed identities only. Callers allocate bench IDs before this projection. */
 export function remapStudioBenches(value: StudioBenches, ids: ReadonlyMap<string,string>): StudioBenches {
   const map = (id: string) => { const next=ids.get(id.toLowerCase()); if (!uuid(next)) throw Error('BENCH_REFERENCE'); return next; };
-  return { version:1, benches:value.benches.map(b => ({...structuredClone(b),id:map(b.id),roomId:map(b.roomId),viewpointId:map(b.viewpointId)})) };
+  return { version:1, benches:value.benches.map(b => ({...structuredClone(b),id:map(b.id),roomId:map(b.roomId),viewpointId:map(b.viewpointId),...(b.workspaceVisual?{workspaceVisual:{...b.workspaceVisual,placementId:map(b.workspaceVisual.placementId)}}:{})})) };
 }
 
 export type BenchCommand = {type:'add-bench'|'set-bench';bench:StudioBench;viewpoint?:StudioCamera & {id:string;name:string}}|{type:'remove-bench';benchId:string};

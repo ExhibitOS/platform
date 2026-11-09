@@ -59,7 +59,7 @@ function pedestal(e:UserAssetCatalogueEntry,p:FurnishingPose){return {kind:'box'
 export function resolveFurnishing(e:Exhibition,b:FurnishingBinding,asset:FurnishingAsset){
  const source=furnishingCatalogueEntry(asset.catalogId),pose=furnishingPoseTransform(b.pose);let roomId:string,parent=identity();
  if(b.hostKind==='bench'){
-  const bench=benchesFor(e).find(v=>same(v.id,b.hostId));if(!bench)throw Error('FURNISHING_REFERENCE');roomId=bench.roomId;
+  const bench=benchesFor(e).find(v=>same(v.id,b.hostId));if(!bench||bench.workspaceVisual)throw Error('FURNISHING_REFERENCE');roomId=bench.roomId;
   const f=source.functional;if(f?.kind!=='bench'||bench.kind!=='slab'||!near(bench.yaw,b.pose.yaw)||!bench.position.every((n,i)=>near(n,b.pose.position[i]!))||!near(bench.dimensions.height,f.seatEnvelopeY*b.pose.scale)||!near(bench.dimensions.width,(source.bounds.max[0]-source.bounds.min[0])*b.pose.scale)||!near(bench.dimensions.depth,(source.bounds.max[2]-source.bounds.min[2])*b.pose.scale))throw Error('FURNISHING_FUNCTION');
  }else if(b.hostKind==='pedestal'){
   const placement=e.placements.find(v=>same(v.id,b.hostId)),legacy=installationFor(e,b.hostId)?.pedestal,expected=pedestal(source,b.pose);
