@@ -12,10 +12,12 @@ import {
 export const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 const LIMIT = 32 * 1024 * 1024;
-const LARGE_MODEL_SOURCE_LIMIT = 64 * 1024 * 1024;
-const LARGE_MODEL_SOURCE_KEY = /^[a-f0-9-]{36}\/quarantine\/import-[a-f0-9-]{36}\/[a-f0-9]{64}$/;
+export const LARGE_MODEL_SOURCE_LIMIT = 64 * 1024 * 1024;
+const UUID_PART = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
+const LARGE_MODEL_SOURCE_KEY = new RegExp(`^${UUID_PART}/quarantine/import-${UUID_PART}/[a-f0-9]{64}$`);
+export const isLargeModelSourceKey = (key:string) => LARGE_MODEL_SOURCE_KEY.test(key);
 function largeModelSourceDigest(key:string){
-  if(!LARGE_MODEL_SOURCE_KEY.test(key))throw Error('invalid large model source key');
+  if(!isLargeModelSourceKey(key))throw Error('invalid large model source key');
   return key.slice(-64);
 }
 function keyCheck(key: string) {
