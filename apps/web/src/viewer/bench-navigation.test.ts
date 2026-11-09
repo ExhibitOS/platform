@@ -84,7 +84,7 @@ test('nearby action requires the exact visible bench and clears eligibility outs
 test.each(['mouse','touch'])('seated %s drag rotates in place and preserves the standing camera',async pointerType=>{
   const d=benchFixture(),camera=new PerspectiveCamera(63,1,.01,100);
   camera.position.set(0,1.65,3);camera.lookAt(0,1.2,0);
-  const doc=Object.assign(new EventTarget(),{activeElement:null,pointerLockElement:null,hidden:false});
+  const doc=Object.assign(new EventTarget(),{activeElement:null as HTMLElement|null,pointerLockElement:null,hidden:false});
   const canvas=Object.assign(new EventTarget(),{
     dataset:{},style:{touchAction:''},focus:vi.fn(()=>{doc.activeElement=canvas;}),setPointerCapture:vi.fn(),hasPointerCapture:()=>false,
   }) as unknown as HTMLCanvasElement;
