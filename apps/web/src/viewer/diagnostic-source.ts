@@ -28,7 +28,7 @@ export function readDiagnosticSnapshot(expected:{publicationId:string;revisionSh
 }
 export function createDiagnosticEvents(){
  const events:DiagnosticEvent[]=[];
- let selected:{revisionId:string;assets:Set<string>;decision?:DiagnosticEvent;events:DiagnosticEvent[]}|undefined;
+ let selected:{revisionId:string;assets:Set<string>;decision?:DiagnosticEvent;origin?:DiagnosticEvent;transition?:DiagnosticEvent;events:DiagnosticEvent[]}|undefined;
  const valid=(event:DiagnosticEvent)=>diagnosticsEnabled()&&Number.isFinite(event.atMs)&&event.atMs>=0&&/^[a-f0-9-]{36}$/i.test(event.assetId)&&(event.artworkRevisionId===null||/^[a-f0-9-]{36}$/i.test(event.artworkRevisionId))&&/^[a-z][a-z0-9-]{0,63}$/.test(event.stage)&&(event.errorCode===null||/^[A-Z][A-Z0-9_]{0,79}$/.test(event.errorCode));
  const matches=(event:DiagnosticEvent)=>!!selected&&selected.revisionId===event.artworkRevisionId?.toLowerCase()&&selected.assets.has(event.assetId.toLowerCase());
  return {
@@ -46,7 +46,14 @@ export function createDiagnosticEvents(){
     selected.events.push({...event});if(selected.events.length>15)selected.events.shift();
    }
   },
+  retryEvidence(kind:'origin'|'transition',event:DiagnosticEvent){
+   if(selected&&!selected[kind]&&matches(event)&&valid(event))selected[kind]={...event};
+  },
   snapshot:()=>events.map(event=>({...event})),
-  selectedSnapshot:()=>selected?[...(selected.decision?[selected.decision]:[]),...selected.events].map(event=>({...event})):undefined,
+  selectedSnapshot(){
+   if(!selected)return undefined;
+   const retained=[selected.decision,selected.origin,selected.transition].filter((event):event is DiagnosticEvent=>!!event);
+   return [...retained,...selected.events.slice(-(16-retained.length))].map(event=>({...event}));
+  },
  };
 }
