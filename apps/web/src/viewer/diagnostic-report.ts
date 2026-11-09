@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { DiagnosticSnapshot } from "./diagnostic-source";
+import type { DiagnosticEvent, DiagnosticSnapshot } from "./diagnostic-source";
 
 const maximumReportBytes = 128 * 1024;
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -24,6 +24,30 @@ export type DiagnosticReportContext = {
   revisionSha256: string;
   detail?: { placementId: string; artworkRevisionId: string };
 };
+
+function projectEvents(snapshot: DiagnosticSnapshot, selectedRevision: string | undefined) {
+  const sanitize = (event: DiagnosticEvent) => {
+    const assetId = token(event.assetId, uuid);
+    const stage = token(event.stage, stageName);
+    if (!assetId || !stage) return [];
+    return [{
+      atMs: number(event.atMs),
+      assetId,
+      artworkRevisionId: token(event.artworkRevisionId, uuid),
+      stage,
+      errorCode: token(event.errorCode, errorName),
+    }];
+  };
+  const recent = snapshot.events.slice(-64).flatMap(sanitize);
+  if (!selectedRevision) return recent;
+  const detailEvents = (snapshot.selectedDetailEvents ?? []).slice(0, 16).flatMap(sanitize)
+    .filter(event => event.artworkRevisionId === selectedRevision);
+  if (!detailEvents.length) return recent;
+  const selectedKeys = new Set(detailEvents.map(event => JSON.stringify(event)));
+  const context = recent.filter(event => !selectedKeys.has(JSON.stringify(event)));
+  return [...detailEvents, ...context.slice(-(64 - detailEvents.length))]
+    .sort((a, b) => (a.atMs ?? 0) - (b.atMs ?? 0));
+}
 
 function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportContext["detail"]) {
   const { identity, device, navigation, memory } = snapshot;
@@ -108,18 +132,7 @@ function projectSnapshot(snapshot: DiagnosticSnapshot, detail: DiagnosticReportC
         active: asset.active === true,
       }];
     }),
-    events: snapshot.events.slice(-64).flatMap(event => {
-      const assetId = token(event.assetId, uuid);
-      const stage = token(event.stage, stageName);
-      if (!assetId || !stage) return [];
-      return [{
-        atMs: number(event.atMs),
-        assetId,
-        artworkRevisionId: token(event.artworkRevisionId, uuid),
-        stage,
-        errorCode: token(event.errorCode, errorName),
-      }];
-    }),
+    events: projectEvents(snapshot, selected && snapshot.lifecycle === "live" ? detail?.artworkRevisionId : undefined),
   };
 }
 
