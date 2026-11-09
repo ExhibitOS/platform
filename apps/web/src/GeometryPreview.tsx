@@ -1,6 +1,7 @@
 import {guardedXrFrame} from './viewer/xr-frame-fence';
 import {prepareArtworkGlb} from './viewer/artwork-glb-preparation';
 import {OwnerArtworkHold} from './workspace-furnishing/owner-artwork-hold';
+import {containedImageSize} from './viewer/flat-image-view';
 import {ArtworkBitmapCleanupError,decodeArtworkBitmap} from './viewer/image-budget';
 import {createOwnerFurnishingScene,existingSceneCost} from './workspace-furnishing/owner-scene';
 import {WORKSPACE_FURNISHING_NAMESPACE,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
@@ -1542,7 +1543,11 @@ export function GeometryPreview({
           let retainedModelBytes=0,decodeBackingReleased=false;
           if (artwork.artworkType === "image") {
             const sourceSize=imageBudget?checkImageDecode(bytes!,artwork,inventory,imageBudget):undefined;
+            let imageWidth=0,imageHeight=0;
             const bitmap=await decodeArtworkBitmap(bytes!,imageBudget,signal,bitmap=>{
+              // Use the authored tier aspect before any GPU-budget resize rounds it again.
+              imageWidth=bitmap.width;
+              imageHeight=bitmap.height;
               if(sourceSize&&(bitmap.width!==sourceSize.width||bitmap.height!==sourceSize.height))throw Error('IMAGE_DECODE_BUDGET');
               const declared=lodVariantsFor(artwork).find(v=>v.assetId.toLowerCase()===inventory.id.toLowerCase())?.textureSize;
               if(publicSource&&declared!==undefined&&Math.max(bitmap.width,bitmap.height)>declared)throw Error('DECODE_VARIANT_UNDERCLAIM');
@@ -1553,10 +1558,8 @@ export function GeometryPreview({
             texture.colorSpace = three.SRGBColorSpace;
             texture.needsUpdate = true;
             resources.push(texture);
-            const geometry = new three.PlaneGeometry(
-              artwork.dimensions.width,
-              artwork.dimensions.height,
-            );
+            const face=containedImageSize({...artwork.dimensions,imageWidth,imageHeight});
+            const geometry = new three.PlaneGeometry(face.width,face.height);
             const material = new three.MeshStandardMaterial({
               map: texture,
               side: three.DoubleSide,
