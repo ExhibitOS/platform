@@ -62,6 +62,35 @@ test('artwork faces include the authored artist and verified year only when avai
  expect(plaqueFaceContent(d,source)).toEqual({title:'Artwork',summary:'Artist'});
 });
 
+test('a 150 × 100 mm artwork label draws the five museum fields at both texture sizes',()=>{
+ const {d,rooms}=fixture(1),base=plaquesFor(d)[0]!;
+ const artwork=syntheticArtwork('image');
+ artwork.metadata={title:'Still Life',artist:'Artist'};
+ const placement=newPlacement(artwork,base.roomId);
+ d.artworks=[artwork];
+ d.placements=[placement];
+ const plaque={...base,source:{kind:'artwork' as const,placementId:placement.id},dimensions:{width:.15,height:.10},
+  artworkCaption:{translations:[{locale:'ko',artist:'작가 이름',date:'1894년',medium:'캔버스에 유채',dimensions:'60 × 81 cm'}]}};
+ const doc=applyPlaqueCommand(d,{type:'set-plaque',plaque});
+ expect(plaqueFaceContent(doc,plaque,'ko-KR')).toEqual({title:'Still Life',summary:'작가 이름 · 1894년\n캔버스에 유채\n60 × 81 cm'});
+ expect(plaqueContent(doc,plaque)).toEqual({title:'Still Life',summary:'Artist'});
+ const draws=new Map<number,string[]>();
+ const make=()=>{
+  const canvas={width:0,height:0,getContext:()=>context};
+  const context={font:'',fillRect:vi.fn(),scale:vi.fn(),
+   measureText:(line:string)=>({width:Array.from(line).length*Number(/([.\d]+)px/.exec(context.font)?.[1]??0)*.62}),
+   fillText:(line:string)=>{const lines=draws.get(canvas.width)??[];lines.push(line);draws.set(canvas.width,lines);}};
+  return canvas as unknown as HTMLCanvasElement;
+ };
+ const runtime=installPlaques(Three,doc,rooms,false,make);
+ try{
+  runtime.update(camera(2));
+  expect(runtime.meshes[0]!.scale.toArray()).toEqual([.15,.10,1]);
+  const lines=['Still Life','작가 이름 · 1894년','캔버스에 유채','60 × 81 cm'];
+  expect([...draws.entries()]).toEqual([[128,lines],[512,lines]]);
+ }finally{runtime.dispose();}
+});
+
 test('room faces use the exact localized authored introduction without fallback UI text',()=>{
  const {d}=fixture(1),plaque={...plaquesFor(d)[0]!,source:{kind:'room' as const}};
  expect(plaqueFaceContent(d,plaque)).toEqual({title:d.rooms[0]!.name,summary:''});

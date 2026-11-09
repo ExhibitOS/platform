@@ -26,5 +26,6 @@ export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque,locale
  if(plaque.source.kind==='room')return {title:content.title,summary:roomPlaqueIntroductionFor(document,plaque.roomId,'ko')??''};
  const caption=artworkPlaqueCaptionFor(plaque,locale);
  const year=creationYearFor(plaqueArtwork(document,plaque.source.placementId));
- return {title:content.title,summary:[caption?.artist??content.summary,caption?.date??(year===undefined?'':String(year))].filter(Boolean).join(' · ')};
+ const attribution=[caption?.artist??content.summary,caption?.date??(year===undefined?'':String(year))].filter(Boolean).join(' · ');
+ return {title:content.title,summary:[attribution,caption?.medium,caption?.dimensions].filter(Boolean).join('\n')};
 }
