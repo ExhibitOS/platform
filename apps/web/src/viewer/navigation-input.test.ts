@@ -2,12 +2,12 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWalkingInput } from './navigation-input';
 afterEach(() => vi.unstubAllGlobals());
-function fixture(resume?: () => boolean, resumeDrag?: () => boolean) {
+function fixture(resume?: () => boolean, resumeDrag?: () => boolean, activateBench?: () => boolean) {
   const doc = Object.assign(new EventTarget(), { activeElement: null as unknown, pointerLockElement: null as unknown, hidden:false, exitPointerLock:vi.fn(() => {doc.pointerLockElement=null;}) });
   const captures=new Set<number>();
   const canvas = Object.assign(new EventTarget(), { focus:vi.fn(()=>{doc.activeElement=canvas;}), requestPointerLock:vi.fn<()=>Promise<void> | void>(), getBoundingClientRect:()=>({left:0,width:100}),setPointerCapture:vi.fn((id:number)=>{captures.add(id);}),hasPointerCapture:(id:number)=>captures.has(id),releasePointerCapture:vi.fn((id:number)=>{captures.delete(id);}) });
   vi.stubGlobal('document',doc);vi.stubGlobal('window',new EventTarget());
-  const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error,undefined,resume,resumeDrag);
+  const pause=vi.fn(),error=vi.fn(),input=createWalkingInput(canvas as unknown as HTMLCanvasElement,pause,error,undefined,resume,resumeDrag,undefined,activateBench);
   input.enable();return {doc,canvas,input,pause,error};
 }
 test('a distinct drag can resume without restoring held motion or requesting pointer lock',()=>{
@@ -385,4 +385,38 @@ test.each(['panel','window','hidden','dispose'] as const)('all analog and captur
  expect(f.input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});
  expect(f.canvas.releasePointerCapture).toHaveBeenCalledWith(2);
  if(reason!=='dispose'){f.doc.hidden=false;f.input.enable();pointer('pointermove',90);expect(f.input.sample(.1)).toEqual({forward:0,right:0,yawDelta:0,pitchDelta:0});f.input.dispose();}
+});
+
+test('uses F once for the current bench action, including when seated walking is paused',()=>{
+ const activate=vi.fn(()=>true),f=fixture(undefined,undefined,activate);
+ const press=(overrides:Partial<KeyboardEvent>={})=>{
+  const event=Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyF',...overrides});
+  window.dispatchEvent(event);return event.defaultPrevented;
+ };
+ f.input.pause('panel');
+ for(const blocked of [{repeat:true},{shiftKey:true},{altKey:true},{ctrlKey:true},{metaKey:true},{isComposing:true},{keyCode:229}]){
+  expect(press(blocked)).toBe(false);
+ }
+ expect(activate).not.toHaveBeenCalled();
+ expect(press()).toBe(true);
+ expect(activate).toHaveBeenCalledOnce();
+ activate.mockReturnValue(false);
+ expect(press()).toBe(false);
+ f.input.dispose();
+ expect(press()).toBe(false);
+ expect(activate).toHaveBeenCalledTimes(2);
+});
+test('keeps F available to typing and unrelated controls',()=>{
+ const activate=vi.fn(()=>true),f=fixture(undefined,undefined,activate);
+ class ProtectedElement extends EventTarget {
+  closest(selector:string){return selector.includes('[contenteditable]')?this:null;}
+  matches(){return false;}
+ }
+ vi.stubGlobal('Element',ProtectedElement);
+ f.doc.activeElement=new ProtectedElement();
+ const event=Object.assign(new Event('keydown',{cancelable:true}),{code:'KeyF'});
+ window.dispatchEvent(event);
+ expect(activate).not.toHaveBeenCalled();
+ expect(event.defaultPrevented).toBe(false);
+ f.input.dispose();
 });

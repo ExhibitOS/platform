@@ -10,6 +10,7 @@ export function createWalkingInput(
   resumeMovement: () => boolean = () => false,
   resumeDrag: () => boolean = resumeMovement,
   resumeBenchArrow: () => boolean = () => false,
+  activateBench?: () => boolean,
 ) {
   const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
@@ -63,8 +64,19 @@ export function createWalkingInput(
     if (event.repeat && codes.has(event.code) && !keys.has(event.code)) return;
     if (!event.repeat) blockedKeys.delete(event.code); // A keyup may have occurred in another app.
     if (blockedKeys.has(event.code) || event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
-      event.altKey || event.ctrlKey || event.metaKey || document.hidden ||
-      protectedTarget(event.target) || protectedTarget(document.activeElement)) return;
+      event.altKey || event.ctrlKey || event.metaKey || document.hidden) return;
+    const active = document.activeElement;
+    if (event.code === "KeyF") {
+      if (!activateBench || event.repeat || event.shiftKey) return;
+      const ownsBenchControl = (target: EventTarget | null) => typeof Element !== "undefined" && target instanceof Element &&
+        target.matches("button[data-bench-action]") && !!target.closest(".geometry-preview")?.contains(canvas);
+      if ((protectedTarget(event.target) && !ownsBenchControl(event.target)) ||
+        (protectedTarget(active) && !ownsBenchControl(active))) return;
+      if ((active === canvas || active === document.body || document.pointerLockElement === canvas || ownsBenchControl(active)) &&
+        activateBench()) event.preventDefault();
+      return;
+    }
+    if (protectedTarget(event.target) || protectedTarget(active)) return;
     // A fresh start clears old inputs before this event is applied below.
     if (!enabled && !event.repeat) {
       if (/^(KeyQ|KeyW|KeyE|KeyA|KeyS|KeyD)$/.test(event.code)) resumeMovement();

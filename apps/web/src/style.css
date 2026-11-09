@@ -136,7 +136,8 @@ footer { color: #546258; font-size: 12px; line-height: 1.8; margin-top: 30px; }
 
 /* SVG native auto outlines can scale with the plan's viewBox. Keep explicit keyboard strokes. */
 
-/* Seat exit stays outside the collapsible viewing controls. */
-.geometry-preview :is(.bench-return,.viewer-navigation-resume) { position: absolute; z-index: 5; top: 1rem; left: 50%; transform: translateX(-50%); min-height: 44px; max-width: calc(100% - 20rem); }
-.publication-shell:has(details[data-visitor-panel][open],dialog[open],[aria-modal="true"]) .viewer-navigation-resume { display: none; }
-@media (max-width: 600px) { .geometry-preview :is(.bench-return,.viewer-navigation-resume) { top: calc(9rem + env(safe-area-inset-top)); left: 1rem; right: 1rem; transform: none; max-width: none; } }
+/* Bench action and walking resume stay outside the collapsible controls. */
+.geometry-stage .bench-return { position: absolute; z-index: 6; bottom: var(--bench-action-bottom, max(1rem, env(safe-area-inset-bottom))); left: 50%; transform: translateX(-50%); min-width: 5rem; min-height: 44px; }
+.geometry-preview .viewer-navigation-resume { position: absolute; z-index: 5; top: 1rem; left: 50%; transform: translateX(-50%); min-height: 44px; max-width: calc(100% - 20rem); }
+.publication-shell:has(details[data-visitor-panel][open],dialog[open],[aria-modal="true"]) :is(.viewer-navigation-resume,.bench-return) { display: none; }
+@media (max-width: 600px) { .geometry-preview .viewer-navigation-resume { top: calc(9rem + env(safe-area-inset-top)); left: 1rem; right: 1rem; transform: none; max-width: none; } }
