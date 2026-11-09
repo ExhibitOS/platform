@@ -46,8 +46,11 @@ assert n == 1
 script = replace_once(script, 'export CARGO_HOME="${DEPS}/cargo"', 'export CARGO_HOME="$RECIPIENT_CARGO_HOME"')
 script = replace_once(script, 'export MAKEFLAGS="-j$(sysctl -n hw.logicalcpu)"', 'export MAKEFLAGS="-j4"')
 script = replace_once(script, "cargo update --workspace", 'cp "$RECIPIENT_INPUTS/librsvg-recipient-Cargo.lock" Cargo.lock')
-script = replace_once(script, "cd ${DEPS}/glib\n", 'cd ${DEPS}/glib\npatch -p1 < "$RECIPIENT_INPUTS/glib-macos11-pipe2.patch"\n')
-script = replace_once(script, "cd ${DEPS}/vips\n", 'cd ${DEPS}/vips\npatch -p1 < "$RECIPIENT_INPUTS/recipient-jpeg-proof.patch"\n')
+script = replace_once(script, "cd ${DEPS}/glib\n", 'cd ${DEPS}/glib\nif [ "${RECIPIENT_GLIB_COMPAT:-1}" = 1 ]; then patch -p1 < "$RECIPIENT_INPUTS/glib-macos11-pipe2.patch"; fi\n')
+script = replace_once(script, "cd ${DEPS}/vips\n", 'cd ${DEPS}/vips\nif [ "${RECIPIENT_JPEG_PROOF:-0}" = 1 ]; then patch -p1 < "$RECIPIENT_INPUTS/recipient-jpeg-proof.patch"; fi\n')
+vips_patch, = [line for line in script.splitlines() if str(patches["vips"]["path"]) in line]
+script = replace_once(script, vips_patch, vips_patch +
+    '\nif [ -n "${RECIPIENT_VIPS_PATCH:-}" ]; then patch -p1 < "$RECIPIENT_VIPS_PATCH"; fi')
 script = replace_once(script, "# Cleanup\n", '# Keep ABI metadata before filtering the runtime.\ncp -R "${TARGET}/lib/pkgconfig" "$PACKAGE/recipient-pkgconfig"\n\n# Cleanup\n')
 script = replace_once(script, "$CURL -O https://raw.githubusercontent.com/lovell/sharp-libvips/main/THIRD-PARTY-NOTICES.md", 'cp "$PACKAGE/THIRD-PARTY-NOTICES.md" .')
 assert "curl " not in script and "$CURL" not in script
