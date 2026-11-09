@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {expect,test} from 'vitest';
 import * as three from 'three';
-import {installBoundedShadows,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport} from './shadows';
+import {installBoundedShadows,installSupportContactShadows,directionalNormalBias,SHADOW_RESERVE_BYTES,type ShadowReport,type SupportContact} from './shadows';
 
 function setup(compact=false,bytes=SHADOW_RESERVE_BYTES) {
   const room=new three.Group(),mesh=new three.Mesh<three.BufferGeometry,three.MeshStandardMaterial>(new three.BoxGeometry(1,1,1),new three.MeshStandardMaterial());room.add(mesh);
@@ -196,3 +196,54 @@ test('excess caster triangles and transparent shells omit shadows without droppi
   expect(h.reports.at(-1)?.mode).toBe('unavailable');expect(h.room.children).toContain(h.mesh);expect(h.mesh.geometry.index?.count).toBe(300003);h.pass.dispose();
 });
 test('one oversized caster does not disable other bounded room shadows or change visible geometry',()=>{const h=setup(),mesh=new three.InstancedMesh(new three.BoxGeometry(1,1,1),h.mesh.material,9000),identity=new three.Matrix4();for(let i=0;i<9000;i++)mesh.setMatrixAt(i,identity);mesh.computeBoundingBox();mesh.computeBoundingSphere();h.room.add(mesh);h.pass.flush();expect(h.reports.at(-1)?.mode).toBe('bounded');expect(h.reports.at(-1)?.omittedCasters).toBe(1);expect(h.reports.at(-1)!.triangles).toBeLessThanOrEqual(100000);expect(mesh.castShadow).toBe(false);expect(mesh.receiveShadow).toBe(true);expect(h.mesh.castShadow).toBe(true);expect(h.room.children).toContain(mesh);expect(mesh.count).toBe(9000);h.pass.dispose();mesh.dispose();mesh.geometry.dispose();});
+
+test('explicit support contacts share one bounded instance draw and never join the room depth pass',()=>{
+  const h=setup(),other=new three.Group(),third=new three.Group();
+  const contact=(room:three.Group,desktop=true):SupportContact=>({
+    room,desktop,position:[0,.01,0],rotation:[0,0,0,1],width:.2,height:.2,
+  });
+  const reports:unknown[]=[];
+  const contacts=installSupportContactShadows(three,[
+    ...Array.from({length:10},()=>contact(h.room)),
+    ...Array.from({length:9},()=>contact(other)),
+    contact(third),
+  ],false,report=>reports.push(report));
+  contacts.setRoom(h.room);
+  const mesh=h.room.children.find(child=>child.userData.exhibitosContactShadow) as three.InstancedMesh<three.PlaneGeometry,three.MeshBasicMaterial>;
+  expect(mesh.count).toBe(8);
+  expect(mesh.material.transparent).toBe(true);
+  expect(mesh.material.depthTest).toBe(true);
+  expect(mesh.material.depthWrite).toBe(false);
+  expect(reports.at(-1)).toEqual({activeQuads:8,activeTriangles:16,drawCalls:1,textureBytes:4096});
+  contacts.setRoom(h.room);
+  expect(reports).toHaveLength(2);
+  h.pass.flush();
+  expect(h.reports.at(-1)?.casters).toBe(1);
+  expect(mesh.castShadow||mesh.receiveShadow).toBe(false);
+  contacts.setRoom(other);
+  expect(mesh.parent).toBe(other);
+  expect(mesh.count).toBe(8);
+  contacts.setRoom(third);
+  expect(mesh.parent).toBeNull();
+  expect(reports.at(-1)).toEqual({activeQuads:0,activeTriangles:0,drawCalls:0,textureBytes:4096});
+  let releases=0;
+  mesh.material.alphaMap?.addEventListener('dispose',()=>releases++);
+  contacts.dispose();
+  contacts.dispose();
+  expect(releases).toBe(1);
+  h.pass.dispose();
+});
+
+test('Compact contacts accept explicit fallback hosts excluded by Desktop and reject invalid transforms',()=>{
+  const room=new three.Group();
+  const row:SupportContact={room,desktop:false,position:[0,.01,0],rotation:[0,0,0,1],width:.5,height:.4};
+  for(const compact of [false,true]){
+    const reports:unknown[]=[];
+    const contacts=installSupportContactShadows(three,[row,{...row,desktop:true,width:Infinity}],compact,report=>reports.push(report));
+    contacts.setRoom(room);
+    expect(reports.at(-1)).toEqual(compact?{activeQuads:1,activeTriangles:2,drawCalls:1,textureBytes:4096}
+      :{activeQuads:0,activeTriangles:0,drawCalls:0,textureBytes:0});
+    contacts.dispose();
+    expect(room.children).toHaveLength(0);
+  }
+});
