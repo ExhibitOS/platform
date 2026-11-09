@@ -41,3 +41,41 @@ test.each([false,true])('explicit seated view and return preserve camera while k
     adapter.actions.stand!();expect(camera.position.toArray()).toEqual(position.toArray());expect(camera.quaternion.toArray()).toEqual(rotation.toArray());expect(camera.fov).toBe(fov);expect(states.at(-1)).toMatchObject({paused:true,velocity:[0,0,0]});expect(seats).toEqual([bench.id,null]);expect(doc.activeElement).toBe(canvas);expect(modes.at(-1)).toBe(running?"bench-return":undefined);
   }finally{adapter.dispose();}
 });
+
+test('nearby action requires the exact visible bench and clears eligibility outside the supported pose', async () => {
+  const document = benchFixture(), benchId = (document.extensions![N] as unknown as {benches: {id: string}[]}).benches[0]!.id;
+  const camera = new PerspectiveCamera(63, 1, .01, 100);
+  camera.position.set(0, 1.65, 1.4);
+  const doc = Object.assign(new EventTarget(), {activeElement: null, pointerLockElement: null, hidden: false});
+  const canvas = Object.assign(new EventTarget(), {dataset: {}, style: {touchAction: ''}, focus: vi.fn()}) as unknown as HTMLCanvasElement;
+  const controls = {enabled: true, target: new Vector3(), update(){}} as OrbitControls;
+  vi.stubGlobal('document', doc);
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const onNearbyBench = vi.fn();
+  const adapter = await createWalkingCamera({
+    document, camera, initialCamera: camera.clone(), controls, canvas,
+    settings: {speed: 1.3, eyeHeight: 1.65, reducedMotion: true},
+    render(){}, onMode(){}, onMessage(){}, onNearbyBench,
+  });
+  try {
+    expect(onNearbyBench.mock.calls, canvas.dataset.navigationState).toEqual([[benchId]]);
+    expect(adapter.actions.sitNearby?.(crypto.randomUUID())).toBe(false);
+    camera.position.z = 3;
+    expect(adapter.actions.sitNearby?.(benchId)).toBe(false);
+    expect(onNearbyBench.mock.lastCall).toEqual([null]);
+    adapter.actions.reset();
+    expect(onNearbyBench.mock.lastCall).toEqual([benchId]);
+    const prior = camera.position.toArray();
+    expect(adapter.actions.sitNearby?.(benchId)).toBe(true);
+    expect(onNearbyBench.mock.lastCall).toEqual([null]);
+    expect(adapter.actions.sitNearby?.(benchId)).toBe(false);
+    adapter.actions.stand?.();
+    expect(camera.position.toArray()).toEqual(prior);
+    expect(onNearbyBench.mock.lastCall).toEqual([benchId]);
+  } finally {
+    adapter.dispose();
+  }
+  expect(onNearbyBench.mock.lastCall).toEqual([null]);
+});
