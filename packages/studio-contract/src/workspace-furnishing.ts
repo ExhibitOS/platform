@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,qualifiedPortalWallFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
+import {artifactCorners,type ArtifactPose} from './artifact-affine.js';
+import {USER_ASSET_CATALOGUE} from './user-asset-catalogue.js';
+import type {Exhibition} from '@exhibitos/spec';
 import type {WorkspaceFitProfile,WorkspaceFitReceipt} from './workspace-fit-receipt.js';
 import {artworkFrameFit,artworkFrameModel} from '@exhibitos/spec/artwork-frame-models';
 export {artworkFrameFit,artworkFrameModel} from '@exhibitos/spec/artwork-frame-models';
@@ -104,4 +107,23 @@ export function validateWorkspaceFurnishings(candidate:unknown):{valid:boolean;e
  }
  if(errors.length)return {valid:false,errors};
  return used.size===items.size?{valid:true,errors:[]}:invalid();
+}
+
+/** Only the built-in stool has a verified room-local obstruction footprint.
+ * Other workspace placements retain visual-only semantics. */
+export function builtInStoolSolids(candidate:Exhibition){
+ const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings|undefined;
+ if(!extension||!validateWorkspaceFurnishings(candidate).valid)return [];
+ const stool=USER_ASSET_CATALOGUE.find(item=>item.id==='gallery-stool')!;
+ const descriptors=new Set(extension.furnishings.filter(item=>item.kind==='stool'&&item.model.sha256===stool.sha256&&item.model.bytes===stool.bytes).map(item=>item.id));
+ const {min,max}=stool.bounds;
+ const local:ArtifactPose={position:[(min[0]+max[0])/2,(min[1]+max[1])/2,(min[2]+max[2])/2],rotation:[0,0,0,1],scale:[1,1,1]};
+ const dimensions={width:max[0]-min[0],height:max[1]-min[1],depth:max[2]-min[2]};
+ return extension.placements.flatMap(placement=>{
+  if(!descriptors.has(placement.furnishingId))return [];
+  const room=candidate.rooms.find(room=>room.id===placement.roomId)!;
+  const {position,yaw,scale}=placement;
+  const pose:ArtifactPose={position,rotation:[0,Math.sin(yaw/2),0,Math.cos(yaw/2)],scale:[scale,scale,scale]};
+  return [{vertices:artifactCorners(dimensions,[local,pose,room.transform],true)}];
+ });
 }
