@@ -25,7 +25,6 @@ import { EntranceCover, coverAspectRatio } from './EntranceCover';
 import { EntranceReadingShell } from './EntranceReadingShell';
 import {useEntranceEntry,EntranceEntryOverlay,entryControlsBlocked,publicEntryTransition} from './entrance-entry';
 import { EntryTicket } from './EntryTicket';
-import { EntryProgress } from './EntryProgress';
 import { createEntranceReadiness } from './viewer/entrance-readiness';
 import {entranceRuntime,entranceContent} from './entrance-runtime';
 import "./publication-novice.css";
@@ -311,9 +310,8 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`,'--entry-ticket-height':`${entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
           <EntranceCover key={value.publication.revisionSha256} publication={value} entranceReadiness={entranceReadiness} coverRetirement={coverRetirement} locale={entranceLocale} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
-            {coverPrefetch&&<EntryProgress active={!viewerUnavailable} phase="space" download={download} cover/>}
           </EntranceCover></div>
-          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={entryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks} download={download}/>}
+          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={entryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks} download={entranceReadiness?download:undefined}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
           {mode==='3d'&&stageReady&&viewingReady&&!viewerUnavailable&&<OrderedViewingChrome state={viewingState} items={viewingItems} actions={viewingActions} onList={openOrderedList} listId={orderedListId} blocked={!!selectedId||!!overview} onDetailPrepare={prepareDetailEntry} onDetail={(item,pointer,opener)=>{orderedDetailOpener.current=opener;if(!pointer)detailEntry.current?.prepare();detailEntry.current?.commit(pointer);setSelectedId(item.placementId,item.plaqueId);}}/>}
           {mode==='3d'&&<details ref={orderedPanel} name="exhibitos-visitor-panel" data-visitor-panel="" className="viewer-ordered-list-panel" open={orderedListOpen} onToggle={event=>{if(event.target===event.currentTarget)setOrderedListOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();event.currentTarget.open=false;setOrderedListOpen(false);}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>

@@ -1,44 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {RefObject} from 'react';
+
 export type EntryDownloadProgress = Readonly<{
   receivedBytes: number;
   requiredBytes: number | null;
 }>;
 
-const phaseLabels = {
-  space: "공간을 열고 있어요.",
-  artwork: "첫 작품을 준비하고 있어요.",
-  navigation: "안전한 관람을 준비하고 있어요.",
-};
-
-export function EntryProgress({active,phase,download,cover=false}:{
-  active: boolean;
-  phase: keyof typeof phaseLabels;
+export function EntryProgress({download,statusRef}:{
   download?: EntryDownloadProgress | null;
-  cover?: boolean;
+  statusRef?: RefObject<HTMLParagraphElement | null>;
 }) {
+  // The static owner supplies a denominator only after its exact plan is known.
+  if (download === null) return null;
   const required = download?.requiredBytes;
   const received = download?.receivedBytes;
-  const known = typeof required === "number" && Number.isSafeInteger(required) && required > 0 &&
-    typeof received === "number" && Number.isSafeInteger(received) && received >= 0 && received <= required;
-  const downloading = known && received < required;
+  const downloading = typeof required === 'number' && Number.isSafeInteger(required) && required > 0 &&
+    typeof received === 'number' && Number.isSafeInteger(received) && received >= 0 && received < required;
   const percent = downloading ? Math.min(99, Math.floor(received / required * 100)) : undefined;
-  const label = percent !== undefined
-    ? `${percent}%`
-    : cover
-      ? known ? "입장에 필요한 파일을 받았어요." : "입장에 필요한 파일을 확인하고 있어요."
-      : phaseLabels[phase];
-
-  return <div className="publication-entry-meter-space">
-    {active && <>
-      {(!cover || !known || downloading) &&
-        <div className="publication-entry-meter" role="progressbar" aria-label="전시장 입장 준비"
-          aria-valuemin={downloading ? 0 : undefined}
-          aria-valuemax={downloading ? 100 : undefined}
-          aria-valuenow={percent}
-          aria-valuetext={label} data-determinate={downloading || undefined}>
-          <span aria-hidden="true" style={downloading ? {width:`${received / required * 100}%`} : undefined}/>
-        </div>}
-      <p className="publication-entry-phase" role={downloading ? undefined : "status"}>{label}</p>
-    </>}
-  </div>;
+  return <p ref={statusRef} tabIndex={-1} className="publication-entry-progress"
+    role={downloading ? 'progressbar' : 'status'}
+    aria-label={downloading ? '전시장 입장 파일 받는 중' : undefined}
+    aria-valuemax={downloading ? 100 : undefined}
+    aria-valuenow={percent}>
+    {percent === undefined ? '전시장 준비 중' : `${percent}%`}
+  </p>;
 }
