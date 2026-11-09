@@ -131,6 +131,12 @@ export function borrowedDetailPreview(input:{
   },update(nextView){view=nextView;render();},dispose};
 }
 
+/** A refused resident allocation waits for actual capacity, including only
+ * speculative peers that the selected promotion can reclaim. */
+export function detailResidentRetryReady(candidateBytes:number,residentBytes:number,residentLimit:number,preparedBytes:number){
+ return residentBytes+candidateBytes-residentLimit<=preparedBytes;
+}
+
 /** Callback for the existing viewer statistics tick; owns no timer or admission. */
 export function createFlatDetailRetry(input:{valid():boolean;pending():boolean;retryAfter():number;now():number;ready():boolean;request():void}){
  return ()=>{

@@ -2,7 +2,7 @@
 import {afterEach,expect,test,vi} from 'vitest';
 import * as three from 'three';
 import {AssetPeakBudget} from './loading';
-import {borrowedDetailPreview,createFlatDetailRetry} from './borrowed-detail-preview';
+import {borrowedDetailPreview,createFlatDetailRetry,detailResidentRetryReady} from './borrowed-detail-preview';
 
 afterEach(()=>vi.unstubAllGlobals());
 function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,keepHiddenOnDispose?:()=>boolean,deferRestore?:()=>boolean,anchors=true){
@@ -61,6 +61,16 @@ test('deferred flat detail retries once when budget frees, without duplicate or 
  for(let i=0;i<5;i++)f.tick();expect(f.read().attempts).toBe(2);
  f.complete();f.tick();expect(f.read()).toMatchObject({attempts:2,pending:false,ready:true});
  for(const stop of ['close','abort','replace'] as const){const ended=deferred();ended.tick();if(stop==='close')ended.close();else if(stop==='abort')ended.abort.abort();else ended.replace();ended.free();ended.time(500);ended.tick();expect(ended.read().attempts,stop).toBe(1);}
+});
+
+test('a selected resident refusal waits until the candidate can fit with speculative reclaim',()=>{
+ let resident=92,prepared=4,requests=0;
+ const request=()=>{if(detailResidentRetryReady(16,resident,100,prepared))requests++;};
+ for(let i=0;i<30;i++)request();
+ expect(requests).toBe(0);
+ prepared=7;request();expect(requests).toBe(0);
+ prepared=8;request();expect(requests).toBe(1);
+ prepared=0;resident=84;request();expect(requests).toBe(2);
 });
 
 test('suppresses every direct borrowed draw after the owner guard becomes invalid',()=>{

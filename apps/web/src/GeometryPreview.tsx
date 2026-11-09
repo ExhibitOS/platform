@@ -30,7 +30,7 @@ import {viewingPlanFor} from '@exhibitos/studio-contract';
 import {surfaceTexturePlan,createSurfaceTextureRenderer} from './surface-texture-renderer';
 import {materialPhaseBytes,serialMaterialPhaseBytes,loadMaterialPhases,deferredByMaterialLoad,materialRetryWanted} from './material-texture-plan';
 import {WatermarkOverlay} from './WatermarkOverlay';
-import {BorrowedDetailInitialObjectError,borrowedDetailPreview,createFlatDetailRetry,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
+import {BorrowedDetailInitialObjectError,borrowedDetailPreview,createFlatDetailRetry,detailResidentRetryReady,type SharedDetailPreview} from './viewer/borrowed-detail-preview';
 import {createDetailImageSlot,DetailImageBudgetRefusal,qualifiedDetailImageProfile,sameDetailImageViewport,startDetailImageAttempt} from './viewer/detail-image-attempt';
 import {createDetailBudgetRetry,detailBudgetRetryReady} from './viewer/detail-budget-retry';
 import {residentDemandActive,residentMinimumFits,retryResidentMinimum,sameResidentMinimumAsset} from './viewer/resident-minimum-wait';
@@ -1768,6 +1768,7 @@ export function GeometryPreview({
         const mapPins=new Map<string,number>(),mapWaiters=new Set<()=>void>();
         let detailPinned:InstanceType<typeof three.Object3D>|undefined,detailPinnedArtwork:string|undefined,detailRetired=false;
         let detailImageCandidate:InstanceType<typeof three.Object3D>|undefined;
+        let detailResidentWait:{assetId:string;bytes:number}|undefined;
         let settleDetail:(()=>void)|undefined,cancelDetail:(()=>void)|undefined,retryFlatDetail:(()=>void)|undefined,retryOriginalDetail:(()=>void)|undefined;
         const viewingWaiters=new Set<()=>void>(),viewingPins=new Map<string,number>();
         let viewingCurrentArt:string|undefined;
@@ -1913,6 +1914,7 @@ export function GeometryPreview({
           return !task.prepareOnly&&!task.detailPromotion&&!active.has(id)&&
             (observedVisible.get(id)===true||observedEligible.get(id)===true||mapPins.has(id)||viewingPins.has(id));
         };
+        const preparedBytes=()=>[...prepared.values()].reduce((bytes,value)=>bytes+(value.object.userData.viewer?.decodedBytes??0),0);
         const evictPrepared=(deficit:()=>number)=>{
           for(const [id,value] of prepared){
             if(deficit()<=0)break;
@@ -2169,6 +2171,11 @@ export function GeometryPreview({
             update();
             return;
           }
+          if(detailPromotion&&detailResidentWait?.assetId===inventory.id){
+            const {bytes}=detailResidentWait,limit=requestLimits({detailPromotion,imageBudget}).resident;
+            if(!detailResidentRetryReady(bytes,peak.total(),limit,preparedBytes()))return;
+            detailResidentWait=undefined;
+          }
           if(prepareOnly&&minimumObjects.get(art.revisionId)?.assetId===inventory.id)return;
           if (active.get(art.revisionId) === inventory.id) {
             const prior=pending.get(art.revisionId);
@@ -2233,14 +2240,13 @@ export function GeometryPreview({
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
               for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
-              // The visitor's image may replace speculative preparations before
-              // it replaces the visible Coarse image. Preserve all displayed
-              // allocations and avoid eviction if it cannot make the image fit.
-              if(!task.prepareOnly&&!task.detailPromotion&&demandContext().observeWall&&art.revisionId===currentArtwork&&
-                 inventory.id.toLowerCase()===authoredImagePair(art)?.full.assetId.toLowerCase()&&deficit()>0){
-                const reclaimable=[...prepared.values()].reduce((bytes,value)=>bytes+(value.object.userData.viewer?.decodedBytes??0),0);
-                if(reclaimable>=deficit())evictPrepared(deficit);
-              }
+              // An owned selected promotion can use the same speculative
+              // capacity as a wall promotion. Keep every displayed object.
+              const wallPromotion=!task.prepareOnly&&!task.detailPromotion&&demandContext().observeWall&&art.revisionId===currentArtwork&&
+                 inventory.id.toLowerCase()===authoredImagePair(art)?.full.assetId.toLowerCase();
+              const selectedPromotion=task.detailPromotion&&detailPinnedArtwork===art.revisionId&&!!sharedDetail;
+              const shortage=deficit();
+              if((selectedPromotion||wallPromotion)&&shortage>0&&preparedBytes()>=shortage)evictPrepared(deficit);
               if(neededMinimum(task))reclaimOffroom(art.revisionId,deficit);
               if(deficit()>0){
                 stage(inventory.id,'deferred-budget',undefined,key);
@@ -2253,6 +2259,8 @@ export function GeometryPreview({
                   else retryAfter.set(art.revisionId,performance.now()+5000);
                   if(art.revisionId===demandContext().owner)reclaimForCurrent();
                   reduceSurfaceForCurrent(art.revisionId);
+                }else if(selectedPromotion&&Number.isSafeInteger(required)&&required>0){
+                  detailResidentWait={assetId:inventory.id,bytes:required};
                 }else retryAfter.set(art.revisionId,performance.now()+5000);
                 update();return;
               }
@@ -2702,6 +2710,7 @@ export function GeometryPreview({
             const pendingDetail=pending.get(art.revisionId);
             if(pendingDetail&&tasks.get(pendingDetail)?.detailPromotion){pending.delete(art.revisionId);scheduler.cancel(pendingDetail);}
             desired.set(art.revisionId,active.get(art.revisionId)!);
+            detailResidentWait=undefined;
             const spare=detailImageCandidate;detailImageCandidate=undefined;if(spare)destroy(spare);
             peak.release(detailKey);
             sharedDetail=undefined;sharedDetailUnavailable=undefined;const retired=detailRetired;detailPinned=undefined;detailPinnedArtwork=undefined;detailRetired=false;diagnosticDetailPlacement=null;if(retired&&object)destroy(object);
