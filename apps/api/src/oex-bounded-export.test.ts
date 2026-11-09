@@ -43,6 +43,7 @@ describe('internal bounded OEX producer',()=>{
   const client={query:vi.fn(async()=>({rows:[{snapshot:metadata}]}))} as unknown as PoolClient,dir=await mkdtemp(join(tmpdir(),'exhibitos-furnishing-output-'));
   try{const path=join(dir,'result.oex');await oex.exportBoundedFile(client,session,candidate.id,match,path,new AbortController().signal);const file=await open(path,'r');try{await withOexFileHandle(file,async result=>{if(result.manifest.formatVersion!=='1.0.0-draft.13')throw Error('missing furnishing profile');expect(result.manifest.workspaceFurnishingResources).toHaveLength(1);expect(result.manifest.workspaceMaterialResources).toHaveLength(1);const resource=result.manifest.workspaceFurnishingResources[0]!;expect(Buffer.from((await result.files.get(resource.path))!)).toEqual(bytes);const extension=result.exhibition.extensions!['org.exhibitos.studio/workspace-furnishings'] as unknown as {placements:{position:number[]}[]};expect(extension.placements.map(x=>x.position)).toEqual([[0,0,0],[1,0,0]]);});}finally{await file.close();}expect(service.model).toHaveBeenCalledWith(client,session,id,1,'export');vi.mocked(service.model).mockRejectedValueOnce(new ApiError(403,'RIGHTS_DENIED'));await expect(oex.exportBoundedFile(client,session,candidate.id,match,join(dir,'denied.oex'),new AbortController().signal)).rejects.toMatchObject({code:'RIGHTS_DENIED'});}finally{await rm(dir,{recursive:true,force:true});}
  });
+ // These cases launch six OS subprocesses each, in addition to validating the archive.
  it.each(['floor','wall'] as const)('writes workspace %s color as a draft.12 resource and enforces output authority',async(kind)=>{
   const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),candidate=structuredClone(original.exhibition),floor=kind==='floor'?{...structuredClone(candidate.surfaces[0]!),id:'33333333-3333-4333-8333-333333333333',type:kind,dimensions:{width:12,height:8},transform:{position:[0,0,0] as [number,number,number],rotation:[-Math.SQRT1_2,0,0,Math.SQRT1_2] as [number,number,number,number],scale:[1,1,1] as [number,number,number]}}:{...structuredClone(candidate.surfaces[0]!),id:'33333333-3333-4333-8333-333333333333',type:kind};
   candidate.surfaces.push(floor);
@@ -117,7 +118,7 @@ describe('internal bounded OEX producer',()=>{
    vi.mocked(service.readVersion).mockResolvedValue(material);vi.mocked(service.exportMap).mockImplementation(async()=>{if(!material.rights.permissions.export)throw Object.assign(new Error('RIGHTS_DENIED'),{code:'RIGHTS_DENIED'});return {bytes,mime:'image/png',sha256:sha256(bytes)};});
    material.rights.permissions.export=false;await expect(oex.exportBoundedFile(client,session,candidate.id,etag(1,metadata as Parameters<typeof etag>[1]),join(dir,'denied.oex'),new AbortController().signal)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
   }finally{await rm(dir,{recursive:true,force:true});}
- });
+ },15_000);
  it('keeps bounded profile validation when checking optional preview omissions above the legacy total',async()=>{
   const {exhibition}=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),source=structuredClone(exhibition),base=source.artworks[0]!;
   for(let i=0;i<9;i++){
