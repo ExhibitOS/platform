@@ -69,7 +69,9 @@ const r19Wheat:QualifiedDetailImage=Object.freeze({...wingedR12Wheat,
  artworkRevisionId:'9e775fc4-a06b-43e6-a561-e65d31127197',
  sourceBindingSha256:'491a245e8606dc666ecdf9df575102d146d49d95cb6da0ca6cd03b3176aca0eb',
 });
-export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return [measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat].find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat]);
+export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
+export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
 export interface DetailImageViewport {width:number;height:number;canvasWidth:number;canvasHeight:number;pixelRatio:number;devicePixelRatio:number}
 /** A measured profile cannot survive an unmeasured canvas or DPR change. */
