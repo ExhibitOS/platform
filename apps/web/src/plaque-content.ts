@@ -27,5 +27,9 @@ export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque,locale
  const caption=artworkPlaqueCaptionFor(plaque,locale);
  const year=creationYearFor(plaqueArtwork(document,plaque.source.placementId));
  const attribution=[caption?.artist??content.summary,caption?.date??(year===undefined?'':String(year))].filter(Boolean).join(' · ');
- return {title:content.title,summary:[attribution,caption?.medium,caption?.dimensions].filter(Boolean).join('\n')};
+ const korean=artworkPlaqueCaptionFor(plaque,'ko');
+ const translations=plaque.artworkCaption?.translations;
+ const medium=caption?.medium??korean?.medium??translations?.find(row=>row.medium)?.medium;
+ const dimensions=caption?.dimensions??korean?.dimensions??translations?.find(row=>row.dimensions)?.dimensions;
+ return {title:content.title,summary:[attribution,medium,dimensions].filter(Boolean).join('\n')};
 }

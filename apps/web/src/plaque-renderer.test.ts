@@ -73,6 +73,10 @@ test('a 150 × 100 mm artwork label draws the five museum fields at both texture
   artworkCaption:{translations:[{locale:'ko',artist:'작가 이름',date:'1894년',medium:'캔버스에 유채',dimensions:'60 × 81 cm'}]}};
  const doc=applyPlaqueCommand(d,{type:'set-plaque',plaque});
  expect(plaqueFaceContent(doc,plaque,'ko-KR')).toEqual({title:'Still Life',summary:'작가 이름 · 1894년\n캔버스에 유채\n60 × 81 cm'});
+ expect(plaqueFaceContent(doc,plaque,'en-US')).toEqual({title:'Still Life',summary:'Artist\n캔버스에 유채\n60 × 81 cm'});
+ const localized={...plaque,artworkCaption:{translations:[...plaque.artworkCaption.translations,
+  {locale:'en',artist:'Localized Artist',date:'1894',medium:'Oil on canvas'}]}};
+ expect(plaqueFaceContent(doc,localized,'en-US')).toEqual({title:'Still Life',summary:'Localized Artist · 1894\nOil on canvas\n60 × 81 cm'});
  expect(plaqueContent(doc,plaque)).toEqual({title:'Still Life',summary:'Artist'});
  const draws=new Map<number,string[]>();
  const make=()=>{
