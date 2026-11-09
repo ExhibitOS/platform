@@ -39,7 +39,7 @@ test('touch auto without a memory hint uses bounded steady and transition headro
  expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
  expect(deviceBudget({...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
- expect(deviceBudget({coarsePointer:false,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:320*1024*1024,maxTransitionBytes:416*1024*1024,maxTriangles:150000});
+ expect(deviceBudget({coarsePointer:false,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:320*1024*1024,maxTransitionBytes:416*1024*1024,maxTriangles:150000,maxSceneTriangles:200000});
  expect(deviceBudget({coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
  expect(deviceBudget({deviceMemory:2,coarsePointer:false,finePointer:true})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false,finePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
