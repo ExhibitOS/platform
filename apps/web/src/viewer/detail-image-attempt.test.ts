@@ -80,3 +80,20 @@ it('registers only the exact measured Wheat revision and artwork with immutable 
  expect(profile).toMatchObject({staticIndexSha256:'8de1650dfcb0e43aafae1f8c181293a0a88fe18c58acd2389c32de0c7bde91a1',publicationSha256:'ecf6a63b2a97ae5a08ea996eb342bea7bbfe736a0227fb47df33c0b1635758c9',candidateId:'a05143a1-eb94-48cf-997f-3506b26a16cc',sha256:'b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',reservationBytes:402653184,transitionCapBytes:536870912,maxSceneBytes:104857600});
  expect(Object.isFrozen(profile)).toBe(true);expect(Object.isFrozen(profile!.runtime)).toBe(true);expect(Object.isFrozen(profile!.detailViewport)).toBe(true);expect(qualifiedDetailImageProfile('f'.repeat(64),artwork)).toBeUndefined();expect(qualifiedDetailImageProfile(revision,'other')).toBeUndefined();
 });
+
+it('binds the r19 original to its exact publication and artwork revision',()=>{
+ const revision='be7e7511319007e510e24a511acb709d52d45417f9378ff50508464dce54ffbe';
+ const artwork='9e775fc4-a06b-43e6-a561-e65d31127197';
+ const priorRevision='1b9cbad79b1e561b82a56b236cabc9c270500406bb40966b62636e018985748d';
+ const priorArtwork='842a5114-b169-4046-a653-3e7dbbaf8bc9';
+ const prior=qualifiedDetailImageProfile(priorRevision,priorArtwork)!;
+ expect(qualifiedDetailImageProfile(revision,artwork)).toEqual({...prior,
+  revisionSha256:revision,artworkRevisionId:artwork,
+  staticIndexSha256:'af7e1967477a9b1d247da21bc27b894561c74da1f0d2614b7b29443fa4975d5d',
+  publicationSha256:'009511e3133cc8c89ca0237cb55fed0043df9967dc7f0914c4fe165653f74aff',
+  candidateId:'bbd79da8-830c-4356-bf49-af131de40ba6',
+  sourceBindingSha256:'491a245e8606dc666ecdf9df575102d146d49d95cb6da0ca6cd03b3176aca0eb',
+ });
+ expect(qualifiedDetailImageProfile(revision,priorArtwork)).toBeUndefined();
+ expect(qualifiedDetailImageProfile(priorRevision,artwork)).toBeUndefined();
+});
