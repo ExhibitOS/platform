@@ -815,3 +815,44 @@ test('entered and ready gates room loops, crossing crossfades, narration ducks, 
   expect(runtime.snapshot().bgmPlaying).toBe(false);
  }finally{runtime.dispose();vi.unstubAllGlobals();}
 });
+
+test('large room loops fade and retire the prior decoded owner before admission without evicting narration',async()=>{
+ const {runtime}=voiceRuntime();
+ const previous={length:1988840,numberOfChannels:2} as AudioBuffer;
+ const voice={length:250000,numberOfChannels:1} as AudioBuffer;
+ const source={buffer:previous,stop:vi.fn(),disconnect:vi.fn(),onended:null} as unknown as AudioBufferSourceNode;
+ const narrator={buffer:voice,stop:vi.fn(),disconnect:vi.fn(),onended:null} as unknown as AudioBufferSourceNode;
+ const param={value:.12,cancelScheduledValues:vi.fn(),setValueAtTime:vi.fn(),linearRampToValueAtTime:vi.fn()};
+ const gain={gain:param,disconnect:vi.fn()} as unknown as GainNode;
+ let finish!:()=>void;
+ const ended=new Promise<void>(resolve=>{finish=resolve;});
+ const internal=runtime as unknown as {
+  context:AudioContext;
+  bgm?:{id:string;source:AudioBufferSourceNode;gain:GainNode;ended:Promise<void>};
+  fadingBgm?:unknown;
+  buffers:Map<string,AudioBuffer>;
+  track:(source:AudioBufferSourceNode,cleanup?:()=>void)=>void;
+  prepareBgmDecode:(bytes:number,current:()=>boolean)=>Promise<void>;
+ };
+ internal.context={currentTime:1,close:async()=>{}} as AudioContext;
+ internal.bgm={id:'previous',source,gain,ended};
+ internal.buffers.set('previous',previous);
+ internal.buffers.set('voice',voice);
+ internal.track(source,()=>{internal.fadingBgm=undefined;finish();});
+ internal.track(narrator);
+ try{
+  await internal.prepareBgmDecode(1024,()=>true);
+  expect(source.stop).not.toHaveBeenCalled();
+  let admitted=false;
+  const request=internal.prepareBgmDecode(15240960,()=>true).then(()=>{admitted=true;});
+  expect(admitted).toBe(false);
+  expect(source.stop).toHaveBeenLastCalledWith(1.45);
+  expect(param.linearRampToValueAtTime).toHaveBeenLastCalledWith(0,1.45);
+  expect(internal.buffers.get('previous')).toBe(previous);
+  source.onended?.(new Event('ended'));
+  await request;
+  expect(internal.buffers.has('previous')).toBe(false);
+  expect(internal.buffers.get('voice')).toBe(voice);
+  expect(narrator.stop).not.toHaveBeenCalled();
+ }finally{runtime.dispose();}
+});

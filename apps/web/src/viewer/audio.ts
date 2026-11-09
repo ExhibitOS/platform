@@ -53,7 +53,7 @@ interface Experience {
   voices: Array<{ assetId: string; placementId: string; transcript:string }>;
 }
 type AudioPreferences = {soundOn?:boolean;footstepsOn?:boolean;reverbOn?:boolean;bgmOn?:boolean;volume?:number};
-type BgmTrack = {id:string;source:AudioBufferSourceNode;gain:GainNode};
+type BgmTrack = {id:string;source:AudioBufferSourceNode;gain:GainNode;ended:Promise<void>};
 const BGM_GAIN=.12;
 const BGM_FADE_SECONDS=.45;
 function readAudioPreferences(key:string):AudioPreferences {
@@ -282,6 +282,26 @@ export class ExhibitionAudio implements AudioApi {
     this.fadingBgm=undefined;
     this.updateMaster();
   }
+  private async prepareBgmDecode(bytes:number,current:()=>boolean){
+    if(!current())throw Error('AUDIO_CANCELLED');
+    try{this.admitDecodedBytes(bytes);return;}
+    catch(error){
+      if(!(error instanceof Error)||error.message!=='AUDIO_CACHE_PRESSURE'||(!this.bgm&&!this.fadingBgm))throw error;
+    }
+    // Large adjacent loops fade serially; retain the verified incoming bytes
+    // while the outgoing decoded buffer is still playing.
+    if(this.bgm)this.fadeBgm();
+    const fading=this.fadingBgm;
+    if(fading){
+      let timeout:ReturnType<typeof setTimeout>|undefined;
+      try{
+        await Promise.race([fading.ended,new Promise<void>(resolve=>{timeout=setTimeout(resolve,650);})]);
+      }finally{clearTimeout(timeout);}
+      if(this.fadingBgm===fading)this.stop(fading.source);
+    }
+    if(!current())throw Error('AUDIO_CANCELLED');
+    this.admitDecodedBytes(bytes);
+  }
   private syncBgm(){
     if(!this.preferenceKey)return;
     const allowed=this.entered&&this.galleryReady&&this.state.soundOn&&this.state.bgmOn&&!this.state.muted&&
@@ -296,14 +316,17 @@ export class ExhibitionAudio implements AudioApi {
     void (async()=>{
       await this.checkAvailability();
       if(!current())return;
-      const buffer=await this.load(id);
+      const buffer=await this.load(id,false,bytes=>this.prepareBgmDecode(bytes,current));
       if(!current())return;
       const source=this.context!.createBufferSource(),gain=this.context!.createGain();
       source.buffer=buffer;
       source.loop=true;
       gain.gain.value=0;
       source.connect(gain).connect(this.background!);
+      let finish!:()=>void;
+      const ended=new Promise<void>(resolve=>{finish=resolve;});
       this.track(source,()=>{
+        finish();
         gain.disconnect();
         if(this.bgm?.source===source)this.bgm=undefined;
         if(this.fadingBgm?.source===source)this.fadingBgm=undefined;
@@ -312,7 +335,7 @@ export class ExhibitionAudio implements AudioApi {
       if(this.fadingBgm)this.stop(this.fadingBgm.source);
       try{source.start();}catch(error){this.stop(source);throw error;}
       this.fadeBgm();
-      this.bgm={id,source,gain};
+      this.bgm={id,source,gain,ended};
       this.rampBgm(this.bgm,BGM_GAIN);
       this.updateMaster();
       this.emit();
@@ -603,7 +626,15 @@ export class ExhibitionAudio implements AudioApi {
       this.state.message='일부 소리가 없거나 검증되지 않았습니다. 글 설명과 걷기는 유지되며, 준비되지 않은 녹음 발소리는 재생하지 않습니다.';this.emit();
     }).finally(()=>{if(!this.preloadTargets().includes(id))this.preload();});
   }
-  private load(id: string, preload = false): Promise<AudioBuffer> {
+  private admitDecodedBytes(bytes:number){
+    if(!Number.isFinite(bytes)||bytes>MAX_DECODED)throw Error('AUDIO_CACHE_LIMIT');
+    while(bytes+[...this.buffers.values()].reduce((total,buffer)=>total+buffer.length*buffer.numberOfChannels*4,0)>MAX_DECODED){
+      const key=[...this.buffers.keys()].find(key=>![...this.playing].some(source=>source.buffer===this.buffers.get(key)));
+      if(!key)throw Error('AUDIO_CACHE_PRESSURE');
+      this.buffers.delete(key);
+    }
+  }
+  private load(id: string, preload = false, beforeDecode?:(bytes:number)=>Promise<void>): Promise<AudioBuffer> {
     if(!preload)this.explicitLoads.add(id);
     const cached = this.buffers.get(id); if (cached) {this.explicitLoads.delete(id);return Promise.resolve(cached);}
     const pending = this.pending.get(id); if (pending) return pending;
@@ -632,12 +663,11 @@ export class ExhibitionAudio implements AudioApi {
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
       const pcm=verifyPcmWav(bytes);
       if(!curationDurationValid(this.publication.exhibition,id,pcm.duration))throw Error("AUDIO_TRANSCRIPT_DURATION_MISMATCH");
+      if(beforeDecode)await beforeDecode(Math.ceil(pcm.duration*this.context.sampleRate)*pcm.channels*4);
       const buffer = await this.context.decodeAudioData(bytes);
       if (this.disposed || buffer.duration>60 || buffer.numberOfChannels>2 || buffer.sampleRate>48000 || buffer.sampleRate<8000) throw Error("AUDIO_DECODE_LIMIT");
       if(preload&&!this.preloadTargets().includes(id)&&!this.explicitLoads.has(id))throw Error("AUDIO_PRELOAD_STALE");
-      const size = buffer.length * buffer.numberOfChannels * 4;
-      if(!Number.isFinite(size)||size>MAX_DECODED)throw Error('AUDIO_CACHE_LIMIT');
-      while (size + [...this.buffers.values()].reduce((n,b)=>n+b.length*b.numberOfChannels*4,0)>MAX_DECODED) { const key = [...this.buffers.keys()].find(k=>![...this.playing].some(source=>source.buffer===this.buffers.get(k))); if (!key) throw Error("AUDIO_CACHE_PRESSURE"); this.buffers.delete(key); }
+      this.admitDecodedBytes(buffer.length*buffer.numberOfChannels*4);
       this.buffers.set(id, buffer); this.emit(); return buffer;
     }).finally(()=>{this.pending.delete(id);this.explicitLoads.delete(id);});
     this.loadQueue = promise;
