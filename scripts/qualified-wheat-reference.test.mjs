@@ -24,9 +24,10 @@ test('exact built v4 session decoration and tampered outputs', {skip:!input},asy
  }
  assert.equal((await readdir(source)).includes('private-copy-bases'),false);
  const {renderEntranceShell}=await import('../apps/web/dist-reference-demo-cover/entrance-shell.js');const shell=renderEntranceShell(qualified.publication.exhibition);
- for(const scenario of ['index','original','extra-data','html-pin','duplicate-meta','cover-shell','studio-mode','runtime-manifest','hosting-control','assets-ignore','foreign-html'])await t.test(scenario,async()=>{
+ for(const scenario of ['index','original','extra-data','html-pin','duplicate-meta','cover-shell','studio-mode','runtime-manifest','hosting-control','assets-ignore','foreign-html',...(qualified.index.furnishingNotices?.length?['notice']:[])])await t.test(scenario,async()=>{
   const root=join(base,scenario);await copyLinks(source,root);
   if(scenario==='index')await replace(join(root,'static-publication-index.json'),Buffer.from('{}'));
+  if(scenario==='notice')await replace(join(root,qualified.index.furnishingNotices[0].path),Buffer.from('tampered'));
   if(scenario==='original')await replace(join(root,`data/${reference.assetSha256}.bin`),Buffer.from('tampered'));
   if(['hosting-control','assets-ignore','foreign-html'].includes(scenario)){const path=scenario==='hosting-control'?'_redirects':scenario==='assets-ignore'?'.assetsignore':'other.html',bytes=Buffer.from(scenario==='hosting-control'?'/ https://example.com/ 302\n':'unapproved');await writeFile(join(root,path),bytes);const name=join(root,'static-export-manifest.json'),m=JSON.parse(await readFile(name));m.files.push({path,bytes:bytes.length,sha256:hash(bytes)});await replace(name,Buffer.from(JSON.stringify(m)));}
   if(scenario==='runtime-manifest'){const manifest=JSON.parse(await readFile(join(root,'static-export-manifest.json')));const entry=manifest.files.find(x=>/^assets\/static-.*\.js$/.test(x.path));assert.ok(entry);await replace(join(root,entry.path),Buffer.from('/* replaced entrypoint */'));await rehashManifest(root,entry.path);}
