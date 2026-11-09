@@ -33,6 +33,7 @@ function verifiedPreparationPair(model:WorkspaceFurnishingDeclaration['model']){
  * preview/placement and export before exposing any route or capability. */
 export class WorkspaceFurnishingIntakes {
  private readonly blobs:BlobStore;private readonly owner:Owner;private readonly writer:Writer|undefined;
+ private readonly portableImportReceipts=new WeakMap<object,WorkspaceFurnishingDescriptor>();
  constructor(blobs:BlobStore,owner:Owner,writer?:Writer){if(writer){assertIssuedFurnishingWriterLease(writer);if(writer.identity.workspaceId!==owner.workspaceId||writer.identity.tenantId!==owner.tenantId||writer.identity.principalId!==owner.principalId)throw Error('FURNISHING_LEASE_INVALID');}this.blobs=blobs;this.owner=owner;this.writer=writer;}
  private checkClaim(row:Row,token:string){const writer=this.writer;if(writer&&(row.worker_token!==token||row.worker_generation!==writer.identity.runtimeGeneration||row.worker_root_device!==writer.identity.rootDevice||row.worker_root_inode!==writer.identity.rootInode||row.worker_lock_device!==writer.identity.lockDevice||row.worker_lock_inode!==writer.identity.lockInode))throw Error('FURNISHING_WORKER_OWNERSHIP');}
  private async checkOwner(c:PoolClient,s:Session){if(!['admin','artist','curator'].includes(s.role)||s.tenantId!==this.owner.tenantId||s.userId!==this.owner.principalId)throw new ApiError(403,'FORBIDDEN');await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();}
@@ -52,6 +53,36 @@ export class WorkspaceFurnishingIntakes {
    (!!value.fitProfile||value.kind!=='artwork-frame'||(value.model.bytes===7892&&value.model.sha256==='4b14e45ccf14ed38eea90c50553733a0b97b1671b9ec377d900e5a947545f8b4'||this.supportsArtworkFrameModels()&&!!artworkFrameModel(value.model.sha256,value.model.bytes)));
  }
  async authorize(c:PoolClient,s:Session){await this.checkOwner(c,s);}
+ /** Portable archive descriptors earn a new registry entry only after the owner
+  * worker validates their exact model, including any claimed fit receipt. */
+ async validatePortableImport(c:PoolClient,s:Session,descriptor:WorkspaceFurnishingDescriptor,bytes:Buffer){
+  await this.checkOwner(c,s);
+  const {id,version,fit,...fields}=descriptor,profile=fit?.geometry.profile;
+  if(!this.writer||!this.supportsReusableFit()||version!==1||!this.admittedDeclaration({...fields,requestId:id,...(profile?{fitProfile:profile}:{})}))throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
+  if(!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
+  const hooks={writerFd:this.writer.writerFd};
+  if(profile){
+   const geometry=await validateWorkspaceFurnishingGlb(descriptor.model,bytes,hooks,profile);
+   if(!isDeepStrictEqual(geometry,fit?.geometry))throw new ApiError(422,'FURNISHING_FIT_UNSUPPORTED');
+  }else await validateWorkspaceFurnishingGlb(descriptor.model,bytes,hooks);
+  await this.checkOwner(c,s);
+  const receipt=Object.freeze({});
+  this.portableImportReceipts.set(receipt,structuredClone(descriptor));
+  return receipt;
+ }
+ async registerPortableImport(c:PoolClient,s:Session,receipt:object,id:string,key:string){
+  await this.checkOwner(c,s);
+  uuid(id);
+  const verified=this.portableImportReceipts.get(receipt);
+  if(!verified||!this.supportsReusableFit()||!this.portableImportKey(s.tenantId,key))throw new ApiError(422,'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED');
+  if(!allowedRights(verified.rights,'display')||!allowedRights(verified.rights,'export'))throw new ApiError(403,'RIGHTS_DENIED');
+  const descriptor={...verified,id};
+  await c.query('INSERT INTO workspace_furnishing_versions(workspace_id,tenant_id,user_id,id,version,descriptor,object_key) VALUES($1,$2,$3,$4,$5,$6,$7)',[this.owner.workspaceId,s.tenantId,s.userId,id,descriptor.version,descriptor,key]);
+ }
+ private portableImportKey(tenantId:string,key:string){
+  const parts=key.split('/');
+  return parts.length===5&&parts[0]===tenantId&&parts[1]==='oex-import'&&parts.slice(2).every(part=>/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(part));
+ }
  private async access(c:PoolClient,s:Session,id:string){uuid(id);await this.checkOwner(c,s);const result=await c.query('SELECT * FROM workspace_furnishing_intakes WHERE workspace_id=$1 AND tenant_id=$2 AND user_id=$3 AND id=$4 FOR UPDATE',[this.owner.workspaceId,s.tenantId,s.userId,id]);if(result.rowCount!==1)throw new ApiError(403,'FORBIDDEN');return result.rows[0] as Row;}
  private receipt(row:Row):Receipt{
   const receipt=row.received,model=row.declaration.model,key=`${this.owner.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/${row.id}/${model.sha256}`;
@@ -156,7 +187,7 @@ export class WorkspaceFurnishingIntakes {
  }
  async model(c:PoolClient,s:Session,id:string,version:number,purpose:'display'|'export'){
   if(typeof id==='string'&&id.toLowerCase()===INSTALLED_FRAME_ID)return this.installedFrame(c,s,version);
-  const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}if(bytes.length!==row.descriptor.model.bytes||sha256(bytes)!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:row.descriptor.model.mime,sha256:row.descriptor.model.sha256};}
+  const row=await this.version(c,s,id,version),denied=purpose==='display'?'DISPLAY_PERMISSION_REQUIRED':'RIGHTS_DENIED';if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);const prefix=`${s.tenantId}/workspace-furnishing-intake/${this.owner.workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];if(!this.portableImportKey(s.tenantId,row.object_key)&&(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==row.descriptor.model.sha256))throw new ApiError(409,'ASSET_INTEGRITY');let bytes:Buffer;try{bytes=Buffer.from(await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'ASSET_INTEGRITY');}if(bytes.length!==row.descriptor.model.bytes||sha256(bytes)!==row.descriptor.model.sha256)throw new ApiError(409,'ASSET_INTEGRITY');if(!allowedRights(row.descriptor.rights,purpose))throw new ApiError(403,denied);return {bytes,mime:row.descriptor.model.mime,sha256:row.descriptor.model.sha256};}
  /** Fence the complete publication after I/O so one model cannot expire
   * while another model is being read. The caller holds the policy locks. */
  async publicationFence(c:PoolClient,descriptors:readonly WorkspaceFurnishingDescriptor[]){
@@ -189,7 +220,7 @@ export class WorkspaceFurnishingIntakes {
   const row=result.rows[0] as {descriptor:WorkspaceFurnishingDescriptor;object_key:string}|undefined;
   if(result.rowCount!==1||!row||!isDeepStrictEqual(row.descriptor,descriptor)||!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   const prefix=`${tenantId}/workspace-furnishing-intake/${workspaceId}/`,suffix=row.object_key.startsWith(prefix)?row.object_key.slice(prefix.length).split('/'):[];
-  if(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==descriptor.model.sha256)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+  if(!this.portableImportKey(tenantId,row.object_key)&&(suffix.length!==2||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(suffix[0]!)||suffix[1]!==descriptor.model.sha256))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   signal?.throwIfAborted();let bytes:Buffer;try{if(signal&&!this.blobs.getBounded)throw Error('BOUNDED_READ_UNAVAILABLE');bytes=Buffer.from(await (this.blobs.getBounded?this.blobs.getBounded(row.object_key,descriptor.model.bytes,signal):this.blobs.get(row.object_key,signal)));}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}signal?.throwIfAborted();
   if(bytes.length!==descriptor.model.bytes||sha256(bytes)!==descriptor.model.sha256||!allowedRights(descriptor.rights,'display')||!allowedRights(descriptor.rights,'export'))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
   await this.writer?.assertLive();await this.owner.assertDatabase(c);await this.writer?.assertLive();

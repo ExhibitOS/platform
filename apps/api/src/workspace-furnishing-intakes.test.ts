@@ -69,6 +69,24 @@ it('binds a server-generated fit to the uploaded model and reopens the immutable
  expect(await reopened.readVersion(f.client,f.session,done.furnishing!.id,1)).toEqual(done.furnishing);
 });
 
+it('registers a portable model only with its own writer-verified fit receipt',async()=>{
+ const f=fixture(true),owner={...f.owner,workspaceFurnishingStool:true as const,workspaceFurnishingRoomVisual:true as const,workspaceFurnishingArtworkFrame:true as const,workspaceFurnishingArtworkFrameModels:true as const};
+ const service=new WorkspaceFurnishingIntakes(f.blobs,owner,f.writer);
+ const geometry={profile:'straight-ring-v1' as const,openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012};
+ const descriptor={id:id(10),version:1 as const,kind:'artwork-frame' as const,name:'Portable frame',rights,provenance:'Synthetic',model:{...f.declaration.model,mime:'model/gltf-binary' as const},fit:{version:1 as const,sourceSha256:f.declaration.model.sha256,sourceBytes:f.bytes.length,geometry}};
+ const key=[f.session.tenantId,'oex-import',id(11),id(12),id(13)].join('/');
+ await expect(service.registerPortableImport(f.client,f.session,{},id(14),key)).rejects.toMatchObject({code:'WORKSPACE_FURNISHING_OUTPUT_UNSUPPORTED'});
+ vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce({...geometry,openingWidth:.807});
+ await expect(service.validatePortableImport(f.client,f.session,descriptor,f.bytes)).rejects.toMatchObject({code:'FURNISHING_FIT_UNSUPPORTED'});
+ vi.mocked(validateWorkspaceFurnishingGlb).mockResolvedValueOnce(geometry);
+ const receipt=await service.validatePortableImport(f.client,f.session,descriptor,f.bytes);
+ expect(validateWorkspaceFurnishingGlb).toHaveBeenLastCalledWith(descriptor.model,f.bytes,{writerFd:12},'straight-ring-v1');
+ await f.blobs.put(key,f.bytes);
+ await service.registerPortableImport(f.client,f.session,receipt,id(14),key);
+ expect(await service.readVersion(f.client,f.session,id(14),1)).toEqual({...descriptor,id:id(14)});
+ expect(await service.model(f.client,f.session,id(14),1,'export')).toMatchObject({bytes:f.bytes,sha256:descriptor.model.sha256});
+});
+
 it('retains uploaded bytes across retryable validation failure and a new service instance',async()=>{
  const f=fixture(),first=await f.service.create(f.client,f.session,f.declaration);await f.service.upload(f.client,f.session,first.intakeId,f.bytes);await f.service.complete(f.client,f.session,first.intakeId);
  vi.mocked(validateWorkspaceFurnishingGlb).mockRejectedValueOnce(new ApiError(503,'FURNISHING_VALIDATION_UNAVAILABLE'));expect(await f.service.work(f.pool)).toBe(true);const failed=await f.service.read(f.client,f.session,first.intakeId);expect(failed).toMatchObject({phase:'failed',retryable:true,received:{bytes:f.bytes.length,sha256:f.declaration.model.sha256}});
