@@ -18,7 +18,7 @@ async function setup(options:{failCommit?:boolean;failProducer?:boolean;failAuth
  const root=await mkdtemp(join(await realpath(tmpdir()),'exhibitos-selected-export-')),blobs=join(root,'blobs');await mkdir(blobs,{mode:0o700});const bytes=Buffer.from('synthetic bounded output'),events:string[]=[];let calls=0;
  const authorize=vi.fn(async(_token:unknown,_tenant:unknown,_csrf:unknown,_mutate:unknown,work:(c:unknown,s:Session)=>Promise<unknown>)=>{calls++;events.push(`begin${calls}`);if(options.failAuth&&calls===1)throw new ApiError(403,'CSRF_REJECTED');const current=(options.otherSession&&calls===2||options.statusDifferent&&calls>=3)?{...session,id:'50000000-0000-4000-8000-000000000001'}:options.statusRoleChanged&&calls>=3?{...session,role:'admin' as const}:session;const value=await work({},current);if(options.failCommit&&calls===1)throw Error('COMMIT_FAILED');events.push(`commit${calls}`);return value;});
  const auth={request:authorize,requestForExportPreparation:(token:unknown,tenant:unknown,csrf:unknown,work:(c:unknown,s:Session)=>Promise<unknown>)=>authorize(token,tenant,csrf,false,work)} as unknown as Auth;
- const oex={exportBoundedFile:vi.fn(async(_c:unknown,_s:unknown,_id:unknown,_match:unknown,path:string)=>{if(options.stale)throw new ApiError(412,'REMOTE_CONFLICT');await writeFile(path,bytes,{mode:0o600});if(options.failProducer)throw Error('PRODUCER_FAILED');return {bytes:bytes.length,omittedImported:[],checkRights:()=>{}};}),revalidateBoundedExport:vi.fn(async()=>()=>{})} as unknown as Oex;
+ const oex={exportBoundedFile:vi.fn(async(_c:unknown,_s:unknown,_id:unknown,_match:unknown,path:string)=>{if(options.stale)throw new ApiError(412,'REMOTE_CONFLICT');await writeFile(path,bytes,{mode:0o600});if(options.failProducer)throw Error('PRODUCER_FAILED');return {bytes:bytes.length,omittedImported:[],pins:[],checkRights:()=>{}};}),revalidateBoundedExport:vi.fn(async()=>()=>{})} as unknown as Oex;
  const context={workspaceId,tenantId,principalId:userId,assertDatabase:vi.fn(async()=>{})} as unknown as NativeLocalExportContext;
  const app=Fastify();app.setErrorHandler((error,_req,reply)=>reply.code(error instanceof ApiError?error.status:500).send({code:error instanceof ApiError?error.code:'INTERNAL_ERROR'}));registerNativeBoundedOexExport(app,{auth,config:{mode:'local'} as AuthConfig,context,blobRoot:blobs,oex,guard:()=>{},token:()=> 'test'});
  const request=(requestId=randomUUID())=>app.inject({method:'POST',url:`/api/v1/tenants/${tenantId}/studio/exhibitions/${workspaceId}/native-oex/export`,headers:{'if-match':'"studio-r1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'},payload:{requestId}});
@@ -82,7 +82,7 @@ it('does not adopt or delete a previous uncertain stage',async()=>{
 });
 it('aborts and drains an in-flight producer when a real local server closes',async()=>{
  const x=await setup();let entered!:()=>void;const started=new Promise<void>(r=>entered=r),aborted=vi.fn();
- vi.mocked(x.oex.exportBoundedFile).mockImplementation(async(_c,_s,_id,_match,path,signal)=>{await writeFile(path,x.bytes,{mode:0o600});entered();await new Promise<void>(resolve=>{if(signal.aborted){aborted();resolve();}else signal.addEventListener('abort',()=>{aborted();resolve();},{once:true});});return {bytes:x.bytes.length,omittedImported:[],checkRights:()=>{}};});
+ vi.mocked(x.oex.exportBoundedFile).mockImplementation(async(_c,_s,_id,_match,path,signal)=>{await writeFile(path,x.bytes,{mode:0o600});entered();await new Promise<void>(resolve=>{if(signal.aborted){aborted();resolve();}else signal.addEventListener('abort',()=>{aborted();resolve();},{once:true});});return {bytes:x.bytes.length,omittedImported:[],pins:[],checkRights:()=>{}};});
  try{
   const address=await x.app.listen({host:'127.0.0.1',port:0}),request=fetch(`${address}/api/v1/tenants/${tenantId}/studio/exhibitions/${workspaceId}/native-oex/export`,{method:'POST',headers:{'content-type':'application/json','if-match':'"studio-r1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'},body:JSON.stringify({requestId:randomUUID()})}).then(async response=>{await response.arrayBuffer();return response.status;}).catch(()=>undefined);
   await Promise.race([started,request.then(status=>{throw Error('request ended before producer: '+String(status));}),new Promise<never>((_,reject)=>setTimeout(()=>reject(Error('producer did not start')),2000))]);await Promise.race([x.app.close(),new Promise<never>((_,reject)=>setTimeout(async()=>{const present=await stat(x.stage).then(()=>true,()=>false);reject(Error('server close did not drain; aborted='+aborted.mock.calls.length+' stage='+present+' events='+JSON.stringify(x.events)));},2000))]);await request;expect(aborted).toHaveBeenCalledOnce();await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});
@@ -90,7 +90,7 @@ it('aborts and drains an in-flight producer when a real local server closes',asy
 });
 it('rejects a second export while the selected workspace owns a stage',async()=>{
  const x=await setup(),requestId=randomUUID();let entered!:()=>void,finish!:()=>void;const started=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>finish=r);
- vi.mocked(x.oex.exportBoundedFile).mockImplementation(async(_c,_s,_id,_match,path)=>{await writeFile(path,x.bytes,{mode:0o600});entered();await gate;return {bytes:x.bytes.length,omittedImported:[],checkRights:()=>{}};});
+ vi.mocked(x.oex.exportBoundedFile).mockImplementation(async(_c,_s,_id,_match,path)=>{await writeFile(path,x.bytes,{mode:0o600});entered();await gate;return {bytes:x.bytes.length,omittedImported:[],pins:[],checkRights:()=>{}};});
  try{const first=Promise.resolve(x.request(requestId));await started;const second=await x.request(requestId);expect(second.statusCode).toBe(409);expect(x.oex.exportBoundedFile).toHaveBeenCalledOnce();finish();const result=await first;expect(result.statusCode).toBe(200);expect(result.rawPayload).toEqual(x.bytes);await vi.waitFor(async()=>{await expect(stat(x.stage)).rejects.toMatchObject({code:'ENOENT'});});}
  finally{finish();await x.app.close();await rm(x.root,{recursive:true,force:true});}
 });
@@ -111,7 +111,7 @@ it('reports scoped in-flight progress without observing the terminal receipt',as
  vi.mocked(x.oex.exportBoundedFile).mockImplementationOnce(async(_c,_s,_id,_match,path,_signal,progress)=>{
   progress?.({phase:'packing',completedItems:1,totalItems:3});entered();await gate;
   await writeFile(path,x.bytes,{mode:0o600});progress?.({phase:'verifying'});
-  return {bytes:x.bytes.length,omittedImported:[],checkRights:()=>{}};
+  return {bytes:x.bytes.length,omittedImported:[],pins:[],checkRights:()=>{}};
  });
  try{
   const pending=Promise.resolve(x.request(operation));await started;

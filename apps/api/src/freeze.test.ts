@@ -74,7 +74,7 @@ describe('pinned freeze authorization',()=>{
   const {privateKey}=generateKeyPairSync('ed25519'),service=new Freezes({} as Pool,{} as BlobStore,{signingKey:privateKey,runtimeRoot:'/unused',origin:'http://127.0.0.1:3000'});
   const expiresAt=new Date(Date.now()+600000).toISOString(),session={expiresAt} as Session,required={expiresAt},preview={expiresAt:new Date(Date.now()+300000).toISOString()};
   vi.spyOn(service.oex,'authorizeSnapshot').mockResolvedValue({rights:[required]});
-  const receipt=vi.spyOn(ArtworkThumbnailReceipts.prototype,'pinnedForExport').mockResolvedValue({rights:[preview]});
+  const receipt=vi.spyOn(ArtworkThumbnailReceipts.prototype,'pinnedForExport').mockResolvedValue({objectKey:'thumbnail',rights:[preview]});
   const manifest={authority:service.authority,source:{exhibitionHash:revisionHash(portableOexSnapshot(pinnedAuthoritySnapshot(source,[pin])))}} as FreezeManifest;
   const row={manifest,manifest_sha256:digest(manifest),signature:sign(null,Buffer.from(freezeCanonical(manifest)),privateKey).toString('base64'),source_snapshot:source,exhibition_id:'exhibition',revoked:false,inventory:{oex:[],runtime:[],thumbnailPins:[pin]}};
   const check=(service as unknown as {current:(c:unknown,s:Session,r:unknown)=>Promise<{rights:unknown[]}>}).current.bind(service);

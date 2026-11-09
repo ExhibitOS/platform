@@ -13,6 +13,7 @@ import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts
 import {ApiError,type Session} from './auth.ts';
 import {etag} from './studio.ts';
 import {Oex,withoutImportedPreviews,checkOexProfile,requireSupportedOexImport} from './oex.ts';
+import {ArtworkThumbnailReceipts} from './artwork-thumbnail-receipts.ts';
 import {pngCrc} from './png-pixels.ts';
 import {planWorkspaceMaterialImportSource,validateWorkspaceMaterialImportSourceBytes} from './workspace-material-import-source.ts';
 import {decodePackedOexDocumentsV2,decodePackedWorkspaceOexDocuments} from './oex-packed-documents-v2.ts';
@@ -157,7 +158,7 @@ describe('internal bounded OEX producer',()=>{
   const original=await readOex(await readFile(fixtureURL('oex/v1/examples/synthetic.oex'))),candidate=original.exhibition;
   const files=new Map(original.manifest.assets.map(a=>[a.artifactPath,original.files.get(a.path)!]));
   const metadata={kind:'exhibition-draft',candidate},row={revision:1,metadata},match=etag(row.revision,row.metadata as Parameters<typeof etag>[1]);
-  const oex=new Oex({} as Pool,{} as BlobStore),session={tenantId:'10000000-0000-4000-8000-000000000001',userId:'10000000-0000-4000-8000-000000000002',role:'artist'} as Session;
+  const getBounded=vi.fn(),oex=new Oex({} as Pool,{getBounded} as unknown as BlobStore),session={tenantId:'10000000-0000-4000-8000-000000000001',userId:'10000000-0000-4000-8000-000000000002',role:'artist'} as Session;
   vi.spyOn(oex.studio,'access').mockResolvedValue(row as never);
   const internal=oex as unknown as {currentExportArtwork:(...args:unknown[])=>Promise<unknown>;currentExportAsset:(...args:unknown[])=>Promise<unknown>};
   vi.spyOn(internal,'currentExportArtwork').mockImplementation(async(_c,_s,a)=>({rights:(a as typeof candidate.artworks[number]).rights}));
@@ -169,6 +170,32 @@ describe('internal bounded OEX producer',()=>{
    await expect(oex.exportBoundedFile(client,session,candidate.id,'"stale"',join(dir,'stale.oex'),new AbortController().signal)).rejects.toMatchObject({code:'REMOTE_CONFLICT'});
    const path=join(dir,'result.oex'),result=await oex.exportBoundedFile(client,session,candidate.id,match,path,new AbortController().signal);expect(result.bytes).toBeGreaterThan(0);expect(result.omittedImported).toEqual([]);expect(maxActive).toBe(1);
    const file=await open(path,'r');try{await withOexFileHandle(file,async output=>{expect(output.exhibition).toEqual(candidate);});}finally{await file.close();}
+   const artwork=candidate.artworks.find(a=>a.artworkType==='sculpture')!;
+   const primary=artwork.assets.find(a=>a.id===artwork.primaryAssetId)!;
+   const chunk=(type:string,body:Buffer)=>{
+    const data=Buffer.concat([Buffer.from(type),body]),out=Buffer.alloc(body.length+12);
+    out.writeUInt32BE(body.length);data.copy(out,4);out.writeUInt32BE(pngCrc(data),out.length-4);return out;
+   };
+   const header=Buffer.alloc(13);header.writeUInt32BE(2);header.writeUInt32BE(2,4);header[8]=8;header[9]=2;
+   const png=Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),chunk('IHDR',header),chunk('IDAT',deflateSync(Buffer.alloc(14))),chunk('IEND',Buffer.alloc(0))]);
+   const assetId='77777777-7777-4777-8777-777777777777',bindingId='88888888-8888-4888-8888-888888888888';
+   const selected=vi.spyOn(ArtworkThumbnailReceipts.prototype,'selectedForPublication').mockImplementation(async(_c,_s,id)=>id===artwork.id?{id:bindingId,assetId,sha256:sha256(png),bytes:png}:undefined);
+   const authority=vi.spyOn(ArtworkThumbnailReceipts.prototype,'pinnedForExport').mockResolvedValue({rights:[artwork.rights],objectKey:'thumbnail'});
+   getBounded.mockResolvedValue(png);
+   try{
+    const selectedPath=join(dir,'selected.oex'),selectedResult=await oex.exportBoundedFile(client,session,candidate.id,match,selectedPath,new AbortController().signal);
+    expect(selectedResult.pins).toEqual([{artworkId:artwork.id,revision:artwork.revision,bindingId,sourceAssetId:primary.id,sourceSha256:primary.sha256,thumbnailAssetId:assetId,thumbnailSha256:sha256(png),bytes:png.length}]);
+    expect(getBounded).toHaveBeenCalledWith('thumbnail',png.length,expect.any(AbortSignal));
+    const handle=await open(selectedPath,'r');
+    try{await withOexFileHandle(handle,async output=>{
+     const item=output.exhibition.artworks.find(a=>a.id===artwork.id)!;
+     expect(Object.values(item.extensions??{})).toContainEqual({version:1,assetId});
+     const entry=output.manifest.assets.find(a=>a.artifactPath===item.assets.find(a=>a.id===assetId)?.path)!;
+     expect(Buffer.from((await output.files.get(entry.path))!)).toEqual(png);
+    });}finally{await handle.close();}
+    authority.mockRejectedValueOnce(new ApiError(403,'RIGHTS_DENIED'));
+    await expect(oex.revalidateBoundedExport(client,session,candidate.id,match,[],selectedResult.pins)).rejects.toMatchObject({code:'RIGHTS_DENIED'});
+   }finally{selected.mockRestore();authority.mockRestore();}
   }finally{await rm(dir,{recursive:true,force:true});}
  });
  it('exports a qualified v2 reference through both Platform OEX paths',async()=>{
