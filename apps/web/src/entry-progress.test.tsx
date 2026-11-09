@@ -15,16 +15,21 @@ it('ends progress on failure, retaining its reserved space for recovery controls
  expect(html).toContain('publication-entry-meter-space');expect(html).not.toContain('progressbar');expect(html).not.toContain('role="status"');
 });
 
-it('reports only measured required download bytes on the cover and during entry',()=>{
+it('shows only the measured percentage on the cover and during entry',()=>{
  for(const cover of [false,true]){
-  const html=renderToStaticMarkup(<EntryProgress active phase="artwork" cover={cover} download={{receivedBytes:32768,requiredBytes:65536}}/>);
-  expect(html).toContain('aria-valuenow="32768"');
-  expect(html).toContain('aria-valuemax="65536"');
-  expect(html).toContain('32,768 / 65,536바이트');
+  const html=renderToStaticMarkup(<EntryProgress active phase="artwork" cover={cover} download={{receivedBytes:65,requiredBytes:100}}/>);
+  expect(html).toContain('aria-valuenow="65"');
+  expect(html).toContain('aria-valuemax="100"');
+  expect(html).toContain('aria-valuetext="65%"');
+  expect(html).toContain('>65%</p>');
+  expect(html).not.toMatch(/바이트|MB/);
   expect(html).not.toContain('첫 작품을 준비');
  }
 });
 it('keeps preparation indeterminate once bytes finish and leaves the cover usable',()=>{
+ const almostComplete=renderToStaticMarkup(<EntryProgress active phase="navigation"
+  download={{receivedBytes:Number.MAX_SAFE_INTEGER-1,requiredBytes:Number.MAX_SAFE_INTEGER}}/>);
+ expect(almostComplete).toContain('aria-valuenow="99"');
  const download={receivedBytes:65536,requiredBytes:65536};
  const entry=renderToStaticMarkup(<EntryProgress active phase="navigation" download={download}/>);
  expect(entry).toContain('안전한 관람을 준비하고 있어요.');
