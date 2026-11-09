@@ -34,3 +34,27 @@ it('retains only 64 bounded safe event tokens',()=>{
  buffer.record({...event,errorCode:'PRIVATE URL'});
  expect(buffer.snapshot()).toHaveLength(64);expect(buffer.snapshot()[0]?.atMs).toBe(6);expect(buffer.snapshot().at(-1)?.atMs).toBe(69);
 });
+
+it('retains one scoped decision and recent exact stages independently of gallery churn',()=>{
+ vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
+ const buffer=createDiagnosticEvents();
+ const assetId='11111111-1111-4111-8111-111111111111',revisionId='22222222-2222-4222-8222-222222222222';
+ const selected={atMs:0,assetId,artworkRevisionId:revisionId,stage:'promotion-wait-retry',errorCode:null};
+ buffer.beginSelected(revisionId,[assetId]);
+ buffer.decision(selected);
+ buffer.decision({...selected,stage:'promotion-request-eligible'});
+ for(let n=1;n<=20;n++)buffer.record({...selected,atMs:n,stage:'fetch-verify'});
+ buffer.record({...selected,atMs:21,stage:'failed',errorCode:'ASSET_TRANSITION_PEAK'});
+ for(let n=22;n<90;n++)buffer.record({...selected,atMs:n,artworkRevisionId:null});
+ expect(buffer.snapshot()).toHaveLength(64);
+ expect(buffer.snapshot().every(event=>event.artworkRevisionId===null)).toBe(true);
+ const trace=buffer.selectedSnapshot();
+ expect(trace).toHaveLength(16);
+ expect(trace?.[0]).toEqual(selected);
+ expect(trace?.at(-1)).toMatchObject({stage:'failed',errorCode:'ASSET_TRANSITION_PEAK'});
+ buffer.beginSelected('33333333-3333-4333-8333-333333333333',[assetId]);
+ buffer.record(selected);
+ expect(buffer.selectedSnapshot()).toEqual([]);
+ buffer.clearSelected();
+ expect(buffer.selectedSnapshot()).toBeUndefined();
+});

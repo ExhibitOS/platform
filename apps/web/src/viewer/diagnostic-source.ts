@@ -12,6 +12,7 @@ export type DiagnosticSnapshot={
  memory:{residentEstimateBytes:number|null;transitionEstimateBytes:number|null;peakTransitionEstimateBytes:number|null;textureEstimateBytes:number|null;peakTextureEstimateBytes:number|null;meshEstimateBytes:number|null;peakMeshEstimateBytes:number|null;renderTargetEstimateBytes:number|null;peakRenderTargetEstimateBytes:null;gpuPhysicalBytes:null};
  assets:Array<{assetId:string;artworkRevisionId:string|null;sha256:string|null;bytes:number|null;mime:string|null;path:string|null;active:boolean}>;
  events:DiagnosticEvent[];
+ selectedDetailEvents?:DiagnosticEvent[];
 };
 export const diagnosticsEnabled=()=>typeof __EXHIBITOS_STAGING_DIAGNOSTICS__!=='undefined'&&__EXHIBITOS_STAGING_DIAGNOSTICS__===true;
 let current:(()=>DiagnosticSnapshot)|null=null;
@@ -27,8 +28,25 @@ export function readDiagnosticSnapshot(expected:{publicationId:string;revisionSh
 }
 export function createDiagnosticEvents(){
  const events:DiagnosticEvent[]=[];
- return {record(event:DiagnosticEvent){
-  if(!diagnosticsEnabled()||!Number.isFinite(event.atMs)||event.atMs<0||!/^[a-f0-9-]{36}$/i.test(event.assetId)||event.artworkRevisionId!==null&&!/^[a-f0-9-]{36}$/i.test(event.artworkRevisionId)||!/^[a-z][a-z0-9-]{0,63}$/.test(event.stage)||event.errorCode!==null&&!/^[A-Z][A-Z0-9_]{0,79}$/.test(event.errorCode))return;
-  events.push({...event});if(events.length>64)events.shift();
- },snapshot:()=>events.map(event=>({...event}))};
+ let selected:{revisionId:string;assets:Set<string>;decision?:DiagnosticEvent;events:DiagnosticEvent[]}|undefined;
+ const valid=(event:DiagnosticEvent)=>diagnosticsEnabled()&&Number.isFinite(event.atMs)&&event.atMs>=0&&/^[a-f0-9-]{36}$/i.test(event.assetId)&&(event.artworkRevisionId===null||/^[a-f0-9-]{36}$/i.test(event.artworkRevisionId))&&/^[a-z][a-z0-9-]{0,63}$/.test(event.stage)&&(event.errorCode===null||/^[A-Z][A-Z0-9_]{0,79}$/.test(event.errorCode));
+ const matches=(event:DiagnosticEvent)=>!!selected&&selected.revisionId===event.artworkRevisionId?.toLowerCase()&&selected.assets.has(event.assetId.toLowerCase());
+ return {
+  beginSelected(revisionId:string,assetIds:readonly string[]){
+   if(diagnosticsEnabled())selected={revisionId:revisionId.toLowerCase(),assets:new Set(assetIds.map(id=>id.toLowerCase())),events:[]};
+  },
+  clearSelected(){selected=undefined;},
+  decision(event:DiagnosticEvent){
+   if(selected&&!selected.decision&&matches(event)&&valid(event))selected.decision={...event};
+  },
+  record(event:DiagnosticEvent){
+   if(!valid(event))return;
+   events.push({...event});if(events.length>64)events.shift();
+   if(selected&&matches(event)){
+    selected.events.push({...event});if(selected.events.length>15)selected.events.shift();
+   }
+  },
+  snapshot:()=>events.map(event=>({...event})),
+  selectedSnapshot:()=>selected?[...(selected.decision?[selected.decision]:[]),...selected.events].map(event=>({...event})):undefined,
+ };
 }
