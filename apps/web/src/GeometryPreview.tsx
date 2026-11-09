@@ -1838,6 +1838,7 @@ export function GeometryPreview({
         };
         let diagnosticPeak=0,diagnosticPeakTexture=0,diagnosticPeakMesh=0;
         let diagnosticOriginal:{artworkRevisionId:string;sha256:string}|null=null;
+        let diagnosticDrawn:{assetId:string;tier:'approved-full'|'lightweight'}|null=null;
         let diagnosticDetailPlacement:string|null=null;
         let diagnosticOriginalLimits:{transition:number;scene:number}|null=null;
         const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{diagnosticPeak=Math.max(diagnosticPeak,total);}:undefined);
@@ -1850,13 +1851,13 @@ export function GeometryPreview({
           const memory=(navigator as Navigator&{deviceMemory?:number}).deviceMemory;
           const values=[...objects.values(),...[...prepared.values()].map(v=>v.object),...[...minimumObjects.values()].map(v=>v.object)];
           const sum=(key:'textureEstimateBytes'|'geometryEstimateBytes')=>values.reduce((total,value)=>total+(Number.isSafeInteger(value.userData.viewer?.[key])?value.userData.viewer[key]:0),0);
-          const displayedId=detailPinnedArtwork?(detailPinned?.userData.viewerAssetId as string|undefined):selectedId?active.get(selectedId):undefined;
+          const displayedId=detailPinnedArtwork?(renderer.domElement.style.visibility==='hidden'?undefined:diagnosticDrawn?.assetId):selectedId?active.get(selectedId):undefined;
           const displayedAsset=selectedArt?.assets.find(asset=>asset.id===displayedId);
           const selectedLimits=selectedArt&&detailPinnedArtwork?requestLimits({detailPromotion:true,detailBudget:selectedBudget(selectedArt)}):undefined;
           const detailOmitted=!!detailPinned||!!detailImageCandidate||detailRetired;
           return {version:1,capturedAt:new Date().toISOString(),lifecycle:gpuLost?'context-lost':disposed||publicDisplayStopped?'stopped':'live',identity:{publicationId:publicSource.publicationId,revisionSha256:publicSource.revisionSha256,indexSha256:publicSource.detailPublication?.local?.verifiedIndexSha256??null,buildId:history.buildId,sourceCommit:history.sourceCommit},
             selected:{placementId:diagnosticDetailPlacement,artworkRevisionId:selectedId,reason:detailPinnedArtwork?'detail':currentArtwork?'attended':null},
-            displayed:diagnosticOriginal?{artworkRevisionId:diagnosticOriginal.artworkRevisionId,assetId:null,sha256:diagnosticOriginal.sha256,tier:'acquired-original'}:{artworkRevisionId:displayedAsset?selectedId:null,assetId:displayedAsset?.id??null,sha256:displayedAsset?.sha256??null,tier:displayedAsset?(detailPinnedArtwork?'detail-approved':'scene'):null},
+            displayed:diagnosticOriginal?{artworkRevisionId:diagnosticOriginal.artworkRevisionId,assetId:null,sha256:diagnosticOriginal.sha256,tier:'acquired-original'}:{artworkRevisionId:displayedAsset?selectedId:null,assetId:displayedAsset?.id??null,sha256:displayedAsset?.sha256??null,tier:displayedAsset?(detailPinnedArtwork?(diagnosticDrawn?.tier==='approved-full'?'detail-approved':'detail-lightweight'):'scene'):null},
             device:{deviceMemoryGiB:typeof memory==='number'&&Number.isFinite(memory)?memory:null,coarsePointer:matchMedia('(pointer: coarse)').matches,finePointer:matchMedia('(pointer: fine)').matches,pixelRatio:renderer.getPixelRatio(),viewportWidth:renderer.domElement.clientWidth,viewportHeight:renderer.domElement.clientHeight,budget:{maxCacheBytes:viewerBudget.maxCacheBytes,maxTransitionBytes:viewerBudget.maxTransitionBytes??viewerBudget.maxCacheBytes,maxTextureSize:viewerBudget.maxTextureSize,maxTriangles:viewerBudget.maxTriangles,effectiveResidentBytes:assetBudgetBytes,effectiveTransitionBytes:transitionBudgetBytes,selectedDetailResidentBytes:selectedLimits?.resident??null,selectedDetailTransitionBytes:selectedLimits?.transition??null,originalDetailTransitionBytes:diagnosticOriginalLimits?.transition??null,originalDetailSceneBytes:diagnosticOriginalLimits?.scene??null}},
             navigation:{roomId:minimumRoomId??null,position:[camera.position.x,camera.position.y,camera.position.z],quaternion:[camera.quaternion.x,camera.quaternion.y,camera.quaternion.z,camera.quaternion.w],verticalFov:camera.fov},
             memory:{residentEstimateBytes:resident(),transitionEstimateBytes:peak.total(),peakTransitionEstimateBytes:Math.max(diagnosticPeak,peak.total()),textureEstimateBytes:detailOmitted?null:sum('textureEstimateBytes'),peakTextureEstimateBytes:diagnosticPeakTexture,meshEstimateBytes:detailOmitted?null:sum('geometryEstimateBytes'),peakMeshEstimateBytes:diagnosticPeakMesh,renderTargetEstimateBytes:null,peakRenderTargetEstimateBytes:null,gpuPhysicalBytes:null},
@@ -2717,6 +2718,7 @@ export function GeometryPreview({
           const restore=()=>{
             if(!alive)return;alive=false;activeTransfer?.finish();beginDetailTransfer=undefined;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             diagnosticOriginal=null;
+            diagnosticDrawn=null;
             diagnosticOriginalLimits=null;
             retryOriginalDetail=undefined;
             if(settleDetail===promoteImage)settleDetail=undefined;
@@ -2766,9 +2768,11 @@ export function GeometryPreview({
             let lastDrawnTier:'approved-full'|'lightweight'|undefined;
             const reportDrawnTier=(drawn:InstanceType<typeof three.Object3D>)=>{
               const assetId:unknown=drawn.userData.viewerAssetId;
-              const detail=typeof assetId==='string'?tiers.get(assetId.toLowerCase()):undefined;
+              if(typeof assetId!=='string')return;
+              const detail=tiers.get(assetId.toLowerCase());
               if(detail!=='full'&&detail!=='coarse')return;
               const tier=detail==='full'?'approved-full':'lightweight';
+              if(diagnosticsEnabled()&&diagnosticDrawn?.assetId!==assetId)diagnosticDrawn={assetId,tier};
               if(tier===lastDrawnTier)return;
               lastDrawnTier=tier;
               try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
@@ -2778,7 +2782,7 @@ export function GeometryPreview({
               three,renderer,object:initial,
               request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},
               environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),
-              onRelease:()=>{canvasReturned=true;if(mounted)restore();},onFlatImageDraw:reportDrawnTier,
+              onRelease:()=>{canvasReturned=true;if(mounted)restore();},onObjectDraw:reportDrawnTier,
             });
             let scope:ReturnType<typeof borrowedDetailPreview>;
             try{scope=mount(object);}catch(error){
@@ -2802,7 +2806,6 @@ export function GeometryPreview({
                 try{if(input.flatImage)scope.replaceImage(next);else scope.replaceModel(next);}
                 catch{detailImageCandidate=undefined;destroy(next);if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;if(renderer.domElement.style.visibility==='hidden')input.unavailable('recovery');return;}
                 const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
-                if(!input.flatImage)reportDrawnTier(next);
                 if(retired&&previous)destroy(previous);
               };
               settleDetail=promoteImage;
@@ -2876,7 +2879,6 @@ export function GeometryPreview({
                 }).catch(()=>{activateLegacy();});
               }else startApproved();
             }else if(art.artworkType==='sculpture'){
-              reportDrawnTier(object);
               if(!input.anchors.length&&lastDrawnTier==='lightweight')startApproved();
             }
             update();return scope;
