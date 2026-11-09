@@ -16,6 +16,7 @@ export interface WalkingActions {
   visitViewpoint?: (viewpointId: string, ordered: boolean) => boolean;
   orbitViewpoint?: (viewpointId:string,relativeYaw:number) => boolean;
   sit?: (benchId:string) => void;
+  sitNearby?: (expectedBenchId: string) => boolean;
   stand?: () => void;
   pause: (reason?: WalkingPauseReason) => void;
   stationary: () => void;

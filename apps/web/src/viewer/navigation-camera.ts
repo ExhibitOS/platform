@@ -2,7 +2,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import type { PerspectiveCamera } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { artifactPoint, presentationFor, benchSeat } from "@exhibitos/studio-contract";
+import { artifactPoint, presentationFor, benchesFor, benchSeat } from "@exhibitos/studio-contract";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
@@ -27,6 +27,7 @@ export async function createWalkingCamera({
   resumeDrag,
   resumeBenchArrow,
   onSeat,
+  onNearbyBench,
   wasWalkingBeforeSeat,
   onViewpointFov,
 }: {
@@ -48,6 +49,7 @@ export async function createWalkingCamera({
   resumeDrag?: () => boolean;
   resumeBenchArrow?: () => boolean;
   onSeat?: (benchId:string|null) => void;
+  onNearbyBench?: (benchId: string | null) => void;
   wasWalkingBeforeSeat?: () => boolean;
   /** The embedding projection owner retains the authored FOV and applies its
    * existing responsive/user display policy before this visit renders. */
@@ -100,6 +102,48 @@ export async function createWalkingCamera({
   let orderedViewing=false;
   let orderedViewpointId:string|undefined;
   let seated: {benchId:string;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;resumeInput:boolean}|undefined;
+  const seatPose = (benchId: string) => {
+    const {bench, floor, top, floorCorners} = benchSeat(document, benchId);
+    const destination = presentationFor(document).viewpoints.find(v => v.id.toLowerCase() === bench.viewpointId.toLowerCase());
+    if (!destination) throw Error('BENCH_REFERENCE');
+    const room = document.rooms.find(r => r.id.toLowerCase() === bench.roomId.toLowerCase())!;
+    const eye = artifactPoint(destination.position, room.transform);
+    const target = artifactPoint(destination.target, room.transform);
+    if (!controller.seatedClear(eye, floor, top[1], bench.id, floorCorners)) throw Error('BENCH_SEAT_UNSAFE');
+    return {bench, floor, eye, target, fov: destination.fov};
+  };
+  // The authored bench geometry and clearance are immutable for this adapter.
+  const nearbySeats = onNearbyBench ? benchesFor(document).flatMap(bench => {
+    try { return [seatPose(bench.id)]; } catch { return []; }
+  }) : [];
+  const nearbyBenchRadius = 1.6;
+  let nearbyBenchId: string | null = null;
+  const nearbyBench = (state: NavigationState): string | null => {
+    if (disposed || seated || orderedViewing || !state.grounded || !state.roomId) return null;
+    // In stationary orbit the camera can leave the controller's last walking pose.
+    const [x, y, z] = state.eyePosition;
+    // The controller rests slightly above the physical floor.
+    if (!walking && (Math.hypot(camera.position.x - x, camera.position.z - z) > 1e-4 || Math.abs(camera.position.y - y) > .02)) return null;
+    const roomId = state.roomId.toLowerCase();
+    let nearest: string | null = null;
+    let distance = nearbyBenchRadius;
+    for (const {bench, floor} of nearbySeats) {
+      if (bench.roomId.toLowerCase() !== roomId) continue;
+      const meters = Math.hypot(floor[0] - x, floor[2] - z);
+      if (meters > nearbyBenchRadius) continue;
+      if (bench.id === nearbyBenchId) return bench.id;
+      if (meters < distance || (meters === distance && (!nearest || bench.id < nearest))) {
+        nearest = bench.id;
+        distance = meters;
+      }
+    }
+    return nearest;
+  };
+  const reportNearbyBench = (id: string | null) => {
+    if (id === nearbyBenchId) return;
+    nearbyBenchId = id;
+    onNearbyBench?.(id);
+  };
   const publish = () => {
     const raw = controller.state();
     const state:NavigationState=seated?{...raw,eyePosition:[...seated.eye],yaw:seated.yaw,velocity:[0,0,0],grounded:false,paused:true}:raw;
@@ -113,12 +157,18 @@ export async function createWalkingCamera({
       settings,
     });
     onState?.(state);
+    reportNearbyBench(nearbyBench(raw));
     return state;
   };
+  const orbitChanged = () => {
+    if (!disposed && !walking) reportNearbyBench(nearbyBench(controller.state()));
+  };
+  if (onNearbyBench) controls.addEventListener?.('change', orbitChanged);
   const apply = () => {
     const state = publish();
     camera.position.fromArray(state.eyePosition);
     camera.rotation.set(pitch, state.yaw, 0, "YXZ");
+    orbitChanged();
     render();
   };
   const stop = (reason: WalkingPauseReason) => {
@@ -220,18 +270,22 @@ export async function createWalkingCamera({
     sit: benchId => {
       if(disposed||seated||orderedViewing)return;
       try {
-        const {bench,floor,top,floorCorners}=benchSeat(document,benchId), destination=presentationFor(document).viewpoints.find(v=>v.id.toLowerCase()===bench.viewpointId.toLowerCase());
-        if(!destination)throw Error('BENCH_REFERENCE');
-        const room=document.rooms.find(r=>r.id.toLowerCase()===bench.roomId.toLowerCase())!;
-        const eye=artifactPoint(destination.position,room.transform),target=artifactPoint(destination.target,room.transform);
-        if(!controller.seatedClear(eye,floor,top[1],bench.id,floorCorners))throw Error('BENCH_SEAT_UNSAFE');
+        const {bench, eye, target, fov} = seatPose(benchId);
         const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
-        const snapshot={benchId:bench.id,eye,yaw,pitch:seatPitch,fov:destination.fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
+        const snapshot={benchId:bench.id,eye,yaw,pitch:seatPitch,fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
         input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;
         pitch=seatPitch;targetPitch=pitch;targetYaw=yaw;
-        camera.fov=destination.fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
+        camera.fov=fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
         onMessage('앉아서 감상 중입니다. 일어서서 돌아가기를 선택하면 이전 위치로 돌아갑니다.');
       } catch {onMessage('이 벤치의 바닥·눈높이·여유 공간이 안전하지 않습니다. 현재 위치와 작품 목록을 유지합니다.');}
+    },
+    sitNearby: expectedBenchId => {
+      if (disposed || !nearbyBenchId || expectedBenchId !== nearbyBenchId) return false;
+      const current = nearbyBench(controller.state());
+      reportNearbyBench(current);
+      if (current !== expectedBenchId) return false;
+      actions.sit?.(expectedBenchId);
+      return seated?.benchId === expectedBenchId;
     },
     stand: () => {
       if(!seated||disposed)return;
@@ -327,6 +381,8 @@ export async function createWalkingCamera({
     dispose: () => {
       if (disposed) return;
       disposed = true;
+      reportNearbyBench(null);
+      if (onNearbyBench) controls.removeEventListener?.('change', orbitChanged);
       cancelAnimationFrame(frame);
       input.dispose();
       canvas.style.touchAction = previousTouchAction;
