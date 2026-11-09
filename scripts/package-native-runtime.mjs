@@ -348,7 +348,7 @@ export async function packageNativeRuntime(destination, {nodeBinary, nodeLicense
   if(hayesDispositionSelected)await writeFile(join(platform,'scripts/native-hayes-disposition-capability-v1.json'),HAYES_DISPOSITION_CAPABILITY,{flag:'wx',mode:0o600});
   if(hayesReleaseSelected)await writeFile(join(platform,'scripts/native-hayes-release-capability-v1.json'),HAYES_RELEASE_CAPABILITY,{flag:'wx',mode:0o600});
   await copyModelPreparationSelectedFiles(source,platform,tracked,modelPreparationSelected,hayesReleaseSelected);
-  if(catalog045InterruptedRecovery)await writeFile(join(platform,'scripts/native-catalog-045-interrupted-recovery-capability-v1.json'),CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY,{flag:'wx',mode:0o600});
+  if(catalog045InterruptedRecovery)await writeFile(join(platform,'scripts/native-catalog-045-interrupted-recovery-capability-v2.json'),CATALOG_045_INTERRUPTED_RECOVERY_CAPABILITY,{flag:'wx',mode:0o600});
   if(workspacePortalFinishSelected)await writeFile(join(platform,'scripts/native-workspace-portal-finish-capability-v1.json'),WORKSPACE_PORTAL_FINISH_CAPABILITY,{flag:'wx',mode:0o600});
   if(workspaceMaterialMultimapSelectedImport)await writeFile(join(platform,'scripts/native-workspace-furnishing-selected-oex-040-v1.json'),WORKSPACE_FURNISHING_SELECTED_OEX_040_CAPABILITY,{flag:'wx',mode:0o600});
   await copy(join(source,'scripts/native-oex-normal-catalog.mjs'),join(platform,'scripts/native-oex-normal-catalog.mjs'));
