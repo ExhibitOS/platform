@@ -81,7 +81,7 @@ for(const {name,product} of replacementCases)it.skipIf(!process.env.WHEAT_TEST_P
    await mutate((c,s)=>imports.upload(c,s,id,original));
    await mutate((c,s)=>imports.complete(c,s,id));
    await imports.work();
-   const ready=await mutate(async(c,s)=>imports.view(await imports.access(c,s,id))),prepared=ready.imagePreparation;
+   const ready=await mutate(async(c,s)=>imports.view(await imports.access(c,s,id))),prepared='imagePreparation' in ready?ready.imagePreparation:undefined;
    expect(ready.state).toBe('approved');
    if(prepared?.provenance!=='server-generated'||!prepared.full||!prepared.coarse)throw Error('missing prepared image pair');
    expect(prepared).toMatchObject({status:'ready',workerDrained:true,original:{sha256:input.sha256,bytes:original.length},
