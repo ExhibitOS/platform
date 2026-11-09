@@ -126,11 +126,16 @@ export async function runPrivateAgentRenderer(inputPath,outputPath,{signal=new A
     const child=execFile(process.execPath,['--max-old-space-size=128',join(root,'dist-agent/validation-worker.mjs'),asset.mime],{
      signal,timeout:5000,maxBuffer:4096,killSignal:'SIGKILL',env:{PATH:process.env.PATH},
     });
-    let stdout='';
+    let stdout='',runtimeFailure=false;
     child.stdout.setEncoding('utf8').on('data',chunk=>{stdout+=chunk;});
+    child.stderr.on('data',()=>{runtimeFailure=true;});
     child.stdin.on('error',()=>{});
-    child.on('error',()=>{});
-    child.once('close',code=>code===0&&stdout.trim()==='VALID'?resolve():reject(Error('AGENT_MODEL_FORMAT')));
+    child.on('error',()=>{runtimeFailure=true;});
+    child.once('close',code=>{
+     if(signal.aborted)reject(signal.reason);
+     else if(!runtimeFailure&&code===0&&stdout.trim()==='VALID')resolve();
+     else reject(Error(!runtimeFailure&&code===1&&!stdout.trim()?'AGENT_MODEL_FORMAT':'AGENT_VALIDATOR_UNAVAILABLE'));
+    });
     child.stdin.end(bytes);
    });
   }
