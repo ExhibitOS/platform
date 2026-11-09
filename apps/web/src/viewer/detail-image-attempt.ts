@@ -51,7 +51,16 @@ export const aristotleR9Wheat:QualifiedDetailImage=Object.freeze({...hayesR7Whea
  artworkRevisionId:'5c293150-dfd7-4aa6-940b-1d61989ada7d',
  sourceBindingSha256:'55368a3b4aaf529973603bc414b3668d615458ff655b848793e2b0f99cab905c',
 });
-export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return [measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat].find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
+// This exact successor retains the independently measured source and cover bytes.
+export const wingedR12Wheat:QualifiedDetailImage=Object.freeze({...aristotleR9Wheat,
+ staticIndexSha256:'50888213fc0ccbf37164ff0a1b14fc21c7bb8443aaab4a292e211efaae97a726',
+ publicationSha256:'f66ff2b453125df5a6a69c3b893f0c9ca46b752d743a753943b4e0a16ec75e7b',
+ candidateId:'725097fe-56b5-4fb6-9a21-05170171fd0a',
+ revisionSha256:'1b9cbad79b1e561b82a56b236cabc9c270500406bb40966b62636e018985748d',
+ artworkRevisionId:'842a5114-b169-4046-a653-3e7dbbaf8bc9',
+ sourceBindingSha256:'fa7aa858d24c96f814669c5211872f48e6f25bb7197df907f0c6f6906b7c410b',
+});
+export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return [measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat].find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
 export interface DetailImageViewport {width:number;height:number;canvasWidth:number;canvasHeight:number;pixelRatio:number;devicePixelRatio:number}
 /** A measured profile cannot survive an unmeasured canvas or DPR change. */
