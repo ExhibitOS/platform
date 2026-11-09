@@ -6,7 +6,7 @@ import {FileBlobStore} from '@exhibitos/storage';
 import {buildApp} from './app.ts';
 import type {ModelPreparationExecution} from './model-preparation-import.ts';
 const resolve=vi.hoisted(()=>vi.fn());
-vi.mock('./artwork-replacement.ts',()=>({replaceApprovedArtwork:vi.fn(),resolveApprovedModelCandidate:resolve}));
+vi.mock('./artwork-replacement.ts',async original=>({...await original<typeof import('./artwork-replacement.ts')>(),replaceApprovedArtwork:vi.fn(),resolveApprovedModelCandidate:resolve}));
 // Route-only test. The real service independently verifies issued execution;
 // this mock avoids fabricating native authority or touching an owned profile.
 vi.mock('./imports.ts',async original=>{const actual=await original<typeof import('./imports.ts')>();return {...actual,Imports:class extends actual.Imports {constructor(...args:ConstructorParameters<typeof actual.Imports>){super(args[0],args[1],args[2]);} async requiredModelReady(){}}};});
@@ -21,7 +21,7 @@ it('exposes only the closed authenticated native candidate GET and forwards the 
   expect((await unavailable.inject({method:'GET',url:url+'?artworkRevision=1',headers})).statusCode).toBe(404);
   const sessionResponse=await app.inject({method:'GET',url:'/api/v1/auth/session',headers});
   expect(sessionResponse.statusCode).toBe(200);
-  expect(sessionResponse.json()).toMatchObject({modelPreparationProfile:'embedded-model-compact-20k-512-v1',nativeModelCandidateReplacementProfile:'approved-model-candidate-v1',compactModelVariantProfile:'exhibitos-budget-geometry-pair-v1'});
+  expect(sessionResponse.json()).toMatchObject({modelPreparationProfile:'embedded-model-compact-20k-512-v1',nativeModelCandidateReplacementProfile:'approved-model-candidate-v1',compactModelVariantProfile:'exhibitos-budget-geometry-pair-v1',nativeProductImageThumbnailRepairProfile:'product-image-thumbnail-repair-v1'});
   for(const query of ['', '?artworkRevision=0','?artworkRevision=no','?artworkRevision=1&jobId=ignored','?artworkRevision=2147483648'])expect((await app.inject({method:'GET',url:url+query,headers})).statusCode).toBe(400);
   const result=await app.inject({method:'GET',url:url+'?artworkRevision=3',headers});expect(result.statusCode).toBe(200);expect(result.json()).toEqual(candidate);expect(result.headers['cache-control']).toBe('no-store');expect(resolve).toHaveBeenCalledOnce();expect(resolve.mock.calls[0]?.[2]).toBe(artworkId);expect(resolve.mock.calls[0]?.[3]).toBe(3);
  }finally{await app.close();await unavailable.close();await ordinary.close();vi.clearAllMocks();}

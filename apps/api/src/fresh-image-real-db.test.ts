@@ -6,6 +6,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Pool} from 'pg';
 import sharp from 'sharp';
+import {artworkThumbnailFor} from '@exhibitos/studio-contract';
+import {prepareProductImageThumbnail} from './product-image-preparation.ts';
 import {expect,it} from 'vitest';
 import {FileBlobStore,migrate,sha256,transaction} from '@exhibitos/storage';
 // @ts-expect-error The test exercises the private JavaScript lease exchange.
@@ -171,10 +173,16 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    expect(approved.statusCode,approved.body).toBe(200);
    const artwork=approved.json().artwork;
    expect(artwork.primaryAssetId).toBe(ready.full.assetId);
-   expect(artwork.assets.map((asset:{sha256:string})=>asset.sha256)).toEqual([ready.full.sha256,ready.coarse.sha256]);
+   expect(artwork.assets.filter((asset:{role:string})=>asset.role==='image').map((asset:{sha256:string})=>asset.sha256)).toEqual([ready.full.sha256,ready.coarse.sha256]);
+   const thumbnail=artworkThumbnailFor(artwork)!;
+   expect(thumbnail).toBeDefined();
    const download=await app.inject({method:'GET',url:`${api}/assets/${ready.full.assetId}/bytes`,headers});
    expect(download.statusCode,download.body).toBe(200);
    expect(sha256(download.rawPayload)).toBe(ready.full.sha256);
+   const preview=await app.inject({method:'GET',url:`${api}/assets/${thumbnail.id}/bytes`,headers});
+   expect(preview.statusCode,preview.body).toBe(200);
+   expect(preview.rawPayload).toEqual(prepareProductImageThumbnail(download.rawPayload,ready.full));
+   expect(sha256(preview.rawPayload)).toBe(thumbnail.sha256);
    const coarse=await derivative();
    expect(coarse.statusCode,coarse.body).toBe(200);
    expect(sha256(coarse.rawPayload)).toBe(ready.coarse.sha256);

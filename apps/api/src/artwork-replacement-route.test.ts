@@ -7,7 +7,7 @@ import {buildApp} from './app.ts';
 import {newDraft} from '../../web/src/drafts/example.ts';
 import {etag} from './studio.ts';
 const operation=vi.hoisted(()=>vi.fn());
-vi.mock('./artwork-replacement.ts',()=>({replaceApprovedArtwork:operation}));
+vi.mock('./artwork-replacement.ts',()=>({replaceApprovedArtwork:operation,PRODUCT_IMAGE_THUMBNAIL_REPAIR:'product-image-thumbnail-repair-v1'}));
 it('exposes a closed, authenticated native-only replacement route and forwards the exact ETag',async()=>{
  const tenantId=randomUUID(),userId=randomUUID(),token='a'.repeat(43),csrf='test-csrf',draft=newDraft(),match=etag(1,draft),response={revision:2,etag:etag(2,draft),draft};
  const session={id:randomUUID(),user_id:userId,tenant_id:tenantId,role:'admin',csrf_hash:createHash('sha256').update(csrf).digest('hex'),csrf_token:csrf,expires_at:new Date('2099-01-01T00:00:00Z')},client={query:async(sql:string)=>sql.includes('SELECT s.*,m.role')?{rows:[session],rowCount:1}:{rows:[],rowCount:0},release:()=>{}},pool={connect:async()=>client} as unknown as Pool;
@@ -27,6 +27,14 @@ it('exposes a closed, authenticated native-only replacement route and forwards t
   expect((await bounded.inject({method:'POST',url,headers,payload:{...model,assetId:randomUUID()}})).statusCode).toBe(400);
   const sessionResponse=await bounded.inject({method:'GET',url:'/api/v1/auth/session',headers});expect(sessionResponse.statusCode).toBe(200);expect(sessionResponse.json()).not.toHaveProperty('nativeModelCandidateReplacementProfile');
   const accepted=await bounded.inject({method:'POST',url,headers,payload:model});expect(accepted.statusCode).toBe(200);expect(operation.mock.calls[0]?.[3]).toEqual(model);expect(operation.mock.calls[0]?.[4]).toBe(match);operation.mockClear();
+  const repair={...payload,kind:'product-image-thumbnail-repair-v1',artworkRevision:2};
+  expect((await ordinary.inject({method:'POST',url,headers,payload:repair})).statusCode).toBe(404);
+  expect((await app.inject({method:'POST',url,headers,payload:repair})).statusCode).toBe(403);
+  expect((await bounded.inject({method:'POST',url,headers:missing,payload:repair})).statusCode).toBe(428);
+  expect((await bounded.inject({method:'POST',url,headers,payload:{...repair,sourceSha256:'a'.repeat(64)}})).statusCode).toBe(400);
+  const repaired=await bounded.inject({method:'POST',url,headers,payload:repair});
+  expect(repaired.statusCode).toBe(200);expect(repaired.headers.etag).toBe(response.etag);
+  expect(operation.mock.calls[0]?.[3]).toEqual(repair);expect(operation.mock.calls[0]?.[4]).toBe(match);operation.mockClear();
   const ok=await app.inject({method:'POST',url,headers,payload});expect(ok.statusCode).toBe(200);expect(ok.headers.etag).toBe(response.etag);expect(operation).toHaveBeenCalledOnce();expect(operation.mock.calls[0]?.[3]).toEqual(payload);expect(operation.mock.calls[0]?.[4]).toBe(match);
  }finally{await app.close();await ordinary.close();await bounded.close();vi.clearAllMocks();}
 });

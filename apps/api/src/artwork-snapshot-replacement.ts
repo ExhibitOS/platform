@@ -2,7 +2,7 @@
 import type {Artwork,Exhibition} from '@exhibitos/spec';
 import {isDeepStrictEqual} from 'node:util';
 import {ApiError} from './api-error.ts';
-import {ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
+import {artworkThumbnailFor,ENTRANCE_NAMESPACE} from '@exhibitos/studio-contract';
 
 /** Build the narrowly scoped draft change after the caller independently verifies
  * current owner, approval, original/derived bytes and new policy. This function
@@ -14,10 +14,16 @@ export function replaceArtworkReferences(candidate:Exhibition,prior:Artwork,next
  }else if(prior.artworkType!=='sculpture'||next.artworkType!=='sculpture'||same(prior.id,next.id)||prior.units!==next.units||prior.coordinates!==next.coordinates||!isDeepStrictEqual(prior.transform,next.transform)||candidate.artworks.some(a=>same(a.id,next.id))){
   throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
  }
- if(same(prior.revisionId,next.revisionId)||same(prior.primaryAssetId,next.primaryAssetId))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
+ const retainsPrimary=same(prior.primaryAssetId,next.primaryAssetId);
+ const preview=retainsPrimary?artworkThumbnailFor(next):undefined;
+ if(same(prior.revisionId,next.revisionId)||retainsPrimary&&(
+  placementId!==undefined||!preview||artworkThumbnailFor(prior)||prior.assets.some(asset=>asset.role==='preview')||
+  !isDeepStrictEqual(next.assets.filter(asset=>!same(asset.id,preview.id)),prior.assets)
+ ))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
  const matches=candidate.artworks.filter(a=>same(a.id,prior.id));
  if(matches.length!==1||!same(matches[0]!.revisionId,prior.revisionId)||!isDeepStrictEqual(matches[0],prior))throw new ApiError(409,'ARTWORK_REPLACEMENT_STALE');
- const oldIds=new Set([prior.revisionId,...prior.assets.map(a=>a.id)].map(id=>id.toLowerCase()));
+ const retiredAssets=retainsPrimary?[]:prior.assets.map(asset=>asset.id);
+ const oldIds=new Set([prior.revisionId,...retiredAssets].map(id=>id.toLowerCase()));
  if(next.assets.some(a=>oldIds.has(a.id.toLowerCase()))||!next.assets.some(a=>same(a.id,next.primaryAssetId)))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
  const unrelated=candidate.artworks.filter(a=>!same(a.id,prior.id)),usedRevisions=new Set(unrelated.map(a=>a.revisionId.toLowerCase())),usedAssets=new Set(unrelated.flatMap(a=>a.assets.map(asset=>asset.id.toLowerCase()))),newIds=next.assets.map(a=>a.id.toLowerCase());
  if(usedRevisions.has(next.revisionId.toLowerCase())||new Set(newIds).size!==newIds.length||newIds.some(id=>usedAssets.has(id)))throw new ApiError(409,'ARTWORK_REPLACEMENT_INVALID');
