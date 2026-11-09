@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {randomBytes,randomUUID} from 'node:crypto';
 import {closeSync,constants,fstatSync,lstatSync,openSync} from 'node:fs';
-import {mkdir,mkdtemp,realpath,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Pool} from 'pg';
@@ -30,6 +30,9 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
  try{
   await mkdir(blobs.root,{mode:0o700});
   await mkdir(configRoot,{mode:0o700});
+  const webRoot=join(root,'web');
+  await mkdir(webRoot,{mode:0o700});
+  await writeFile(join(webRoot,'index.html'),'<!doctype html><title>Isolated readiness</title>');
   const lock=join(root,'native-workspace-furnishing-writers.lock');
   let fd=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);
   descriptors.push(fd);
@@ -53,7 +56,10 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   const api=`/api/v1/tenants/${tenantId}`;
   const rights={holder:'Test owner',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Test owner'};
   const artistId=randomUUID();
-  for(const name of ['migrations','native-oex-normal','native-model-preparation'])await migrate(pool,new URL(`../../../database/${name}/`,import.meta.url).pathname);
+  const migrationPath=(name:string)=>new URL(`../../../database/${name}/`,import.meta.url).pathname;
+  const migrationDirectory=migrationPath('migrations'),supplementalMigrationDirectory=migrationPath('native-oex-normal');
+  const modelPreparationMigrationDirectory=migrationPath('native-model-preparation'),freshImageMigrationDirectory=migrationPath('native-fresh-image-preparation');
+  for(const directory of [migrationDirectory,supplementalMigrationDirectory,modelPreparationMigrationDirectory])await migrate(pool,directory);
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'Isolated fresh images']);
   await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);
   await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
@@ -63,11 +69,25 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,ownerUid]);
   const workspace=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid,blobRoot:blobs.root}));
   let execution=createNativeModelPreparationExecution(blobs,workspace,owner.writer,()=>true);
-  const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution});
+  let selectedFreshImage=false;
+  const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution,
+   lifecycle:{migrationDirectory,supplementalMigrationDirectory,modelPreparationMigrationDirectory,webRoot,blobRoot:blobs.root,
+    ...(selectedFreshImage?{freshImageMigrationDirectory}:{})}});
   app=start();
   const session=()=>app!.inject({method:'GET',url:'/api/v1/auth/session',headers});
   expect((await session()).json().nativeFreshImagePreparationProfile).toBeUndefined();
-  await migrate(pool,new URL('../../../database/native-fresh-image-preparation/',import.meta.url).pathname);
+  const readiness=()=>app!.inject({method:'GET',url:'/api/v1/readiness',headers});
+  expect((await readiness()).statusCode).toBe(200);
+  await migrate(pool,freshImageMigrationDirectory);
+  const unselected=await readiness();
+  expect(unselected.statusCode).toBe(503);
+  expect(unselected.json().services).toContainEqual({name:'database',status:'unavailable'});
+  await app.close();
+  selectedFreshImage=true;
+  app=start();
+  const selected=await readiness();
+  expect(selected.statusCode,selected.body).toBe(200);
+  expect(selected.json().services).toContainEqual({name:'database',status:'ready'});
   expect((await session()).json().nativeFreshImagePreparationProfile).toBe('ordinary-image-preparation-v1');
   for(const mime of ['image/png','image/jpeg'] as const){
    const metadata={title:`Fresh ${mime}`,description:'',dimensions:{width:1.5,height:1,unit:'m'},rights,provenance:{source:'human-authored',sourceUnits:'m',scaleApplied:true,notes:''}};
