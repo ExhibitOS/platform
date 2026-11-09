@@ -15,23 +15,22 @@ function selectedImageCapacity(budget:DeviceBudget,memory:number|undefined):Devi
  // scene/cache budgets, or grants new capacity to unknown/constrained devices.
  return {...budget,...(memory!==undefined&&Number.isFinite(memory)&&memory>4?{selectedImage:{maxCacheBytes:Math.max(budget.maxCacheBytes,96*1024*1024),maxTransitionBytes:Math.max(budget.maxTransitionBytes??budget.maxCacheBytes,128*1024*1024)}}:{})};
 }
+const desktopArtworkCapacity={maxCacheBytes:320*1024*1024,maxTransitionBytes:416*1024*1024};
+function supportsDesktopArtworkCapacity(input:Parameters<typeof deviceBudget>[0]){
+ const memory=input.deviceMemory;
+ return input.coarsePointer===false&&input.finePointer===true&&(memory===undefined||Number.isFinite(memory)&&memory>=8);
+}
 export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;pixelRatio?:number;coarsePointer?:boolean;finePointer?:boolean}):DeviceBudget {
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
- // Limits bound tracked allocations. They do not reserve memory up front.
+ // These are tracked allocation ceilings, with the same texture edge.
+ if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000},memory);
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
-  // Explicit fine-pointer sessions can use the same bounded allowance as the
-  // existing detailed profile; tracked scene and transition limits still apply.
-  const fine=input.coarsePointer===false&&input.finePointer===true;
-  return selectedImageCapacity({...budget,maxCacheBytes:(fine?256:192)*1024*1024,maxTransitionBytes:(fine?320:256)*1024*1024},memory);
+  return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
  // Use the verified touch support floor when the browser supplies no hint.
  // Pointer input selects the policy; it does not identify a device model.
  if(memory===undefined&&input.coarsePointer)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
- // An explicit fine-pointer Auto session without a memory hint uses the same
- // bounded allocation allowance as the existing detailed desktop setting.
- // Triangle and texture limits stay at the ordinary desktop profile.
- if(memory===undefined&&input.coarsePointer===false&&input.finePointer===true)return {...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024};
  if(memory===4)return {...budget,maxCacheBytes:48*1024*1024,maxTransitionBytes:64*1024*1024};
  return selectedImageCapacity(budget,memory);
 }
@@ -53,6 +52,7 @@ export function selectedDeviceBudget(profile:'auto'|'compact'|'desktop',input:Pa
  }
  if(profile==='desktop'&&!(input.deviceMemory!==undefined&&input.deviceMemory<=4)){
   const memory=input.deviceMemory;
+  if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...DESKTOP_NEAR_BUDGET,...desktopArtworkCapacity},memory);
   const budget=memory!==undefined&&Number.isFinite(memory)&&memory>=8
     ?{...DESKTOP_NEAR_BUDGET,maxCacheBytes:256*1024*1024,maxTransitionBytes:320*1024*1024}
     :DESKTOP_NEAR_BUDGET;

@@ -15,7 +15,7 @@ test('automatic headroom uses bounded residency and transition limits in known m
  const mib=1024*1024;
  expect(deviceBudget({deviceMemory:4})).toEqual({...DEVICE_BUDGETS.compact,maxCacheBytes:48*mib,maxTransitionBytes:64*mib});
  expect(deviceBudget({deviceMemory:8})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
- expect(deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:256*mib,maxTransitionBytes:320*mib});
+ expect(deviceBudget({deviceMemory:8,coarsePointer:false,finePointer:true})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:320*mib,maxTransitionBytes:416*mib,maxTriangles:150000});
  expect(deviceBudget({deviceMemory:8,coarsePointer:true,finePointer:true})).toMatchObject({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*mib,maxTransitionBytes:256*mib});
  for(const memory of [undefined,2,Infinity,NaN])expect(deviceBudget({deviceMemory:memory}).maxTransitionBytes).toBeUndefined();
  expect(selectedDeviceBudget('compact',{deviceMemory:4})).toEqual(deviceBudget({deviceMemory:4}));
@@ -39,7 +39,7 @@ test('touch auto without a memory hint uses bounded steady and transition headro
  expect(deviceBudget(touch)).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
  expect(deviceBudget({...touch,deviceMemory:2})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
- expect(deviceBudget({coarsePointer:false,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
+ expect(deviceBudget({coarsePointer:false,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:320*1024*1024,maxTransitionBytes:416*1024*1024,maxTriangles:150000});
  expect(deviceBudget({coarsePointer:true,finePointer:true})).toEqual({...DEVICE_BUDGETS.desktop,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024});
  expect(deviceBudget({deviceMemory:2,coarsePointer:false,finePointer:true})).toEqual(DEVICE_BUDGETS.compact);
  expect(deviceBudget({coarsePointer:false,finePointer:false})).toEqual(DEVICE_BUDGETS.desktop);
@@ -118,3 +118,9 @@ test('candidate keeps backing, encoded coexistence and minimum scene charged bef
  const committed=minimum+geometryBytes+textures+backing.retainedBytes;expect(committed).toBeLessThan(steady);expect(committed+32*mib).toBeGreaterThan(steady);
  peak.release('detail');backing.dispose();
 });
+
+ test('explicit Desktop uses the qualified envelope and retains its triangle limit',()=>{
+  const input={coarsePointer:false,finePointer:true},mib=1024*1024;
+  expect(selectedDeviceBudget('desktop',input)).toMatchObject({maxCacheBytes:320*mib,maxTransitionBytes:416*mib,maxTriangles:250000,maxTextureSize:2048});
+  expect(selectedDeviceBudget('compact',input)).toEqual(DEVICE_BUDGETS.compact);
+ });
