@@ -26,6 +26,7 @@ export async function createWalkingCamera({
   resumeMovement,
   resumeDrag,
   resumeBenchArrow,
+  activateBench,
   onSeat,
   onNearbyBench,
   wasWalkingBeforeSeat,
@@ -48,6 +49,7 @@ export async function createWalkingCamera({
   resumeMovement?: () => boolean;
   resumeDrag?: () => boolean;
   resumeBenchArrow?: () => boolean;
+  activateBench?: () => boolean;
   onSeat?: (benchId:string|null) => void;
   onNearbyBench?: (benchId: string | null) => void;
   wasWalkingBeforeSeat?: () => boolean;
@@ -190,7 +192,7 @@ export async function createWalkingCamera({
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus, resumeMovement, resumeDrag, resumeBenchArrow);
+  }, isPanelFocus, resumeMovement, resumeDrag, resumeBenchArrow, activateBench);
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);
