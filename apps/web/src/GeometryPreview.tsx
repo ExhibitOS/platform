@@ -2144,7 +2144,9 @@ export function GeometryPreview({
           return !explicitFull&&refusedLimit!==undefined&&assetBudgetBytes<=refusedLimit;
         };
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
-          if(publicDisplayStopped||art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
+          if(publicDisplayStopped)return;
+          const ownsDetail=art.revisionId===detailPinnedArtwork;
+          if(detailPromotion?(!sharedDetail||!ownsDetail):ownsDetail)return;
           // A new request supersedes only its own material-wait marker.
           if(materialBudgetDeferred.delete(art.revisionId)&&retryAfter.get(art.revisionId)===Infinity)retryAfter.delete(art.revisionId);
           requested.add(art.revisionId);
@@ -2640,6 +2642,7 @@ export function GeometryPreview({
           assertMount();
           let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
+          const tiers=new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail]));
           const returnEpoch=++canvasReturnEpoch;
           const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
@@ -2655,7 +2658,16 @@ export function GeometryPreview({
           // replacement can be requested again after the detail scope returns.
           const loading=pending.get(art.revisionId);if(loading){pending.delete(art.revisionId);scheduler.cancel(loading);}
           desired.set(art.revisionId,active.get(art.revisionId)!);
-          detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=false;diagnosticDetailPlacement=input.placementId;
+          let preparedOwned=false;
+          if((input.flatImage||art.artworkType==='sculpture'&&!input.anchors.length)&&tiers.get(String(object.userData.viewerAssetId).toLowerCase())==='coarse'){
+            let higher:ReturnType<typeof selectAssetVariant>|undefined;
+            try{higher=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{/* Keep the qualified wall asset. */}
+            const ready=higher&&tiers.get(higher.id.toLowerCase())==='full'?prepared.get(higher.id):undefined;
+            // Availability was verified before mount. Both objects already count
+            // toward the resident budget. The wall retains its own coarse object.
+            if(higher&&ready?.artId===art.revisionId){prepared.delete(higher.id);object=ready.object;preparedOwned=true;}
+          }
+          detailPinned=object;detailPinnedArtwork=art.revisionId;detailRetired=preparedOwned;diagnosticDetailPlacement=input.placementId;
           sharedDetailUnavailable=input.unavailable;
           let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
@@ -2685,6 +2697,7 @@ export function GeometryPreview({
             retryOriginalDetail=undefined;
             if(settleDetail===promoteImage)settleDetail=undefined;
             if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;
+            if(materialBudgetDeferred.get(art.revisionId)?.detailPromotion){materialBudgetDeferred.delete(art.revisionId);if(retryAfter.get(art.revisionId)===Infinity)retryAfter.delete(art.revisionId);}
             const pendingDetail=pending.get(art.revisionId);
             if(pendingDetail&&tasks.get(pendingDetail)?.detailPromotion){pending.delete(art.revisionId);scheduler.cancel(pendingDetail);}
             desired.set(art.revisionId,active.get(art.revisionId)!);
@@ -2725,7 +2738,6 @@ export function GeometryPreview({
           };
           try{
             const admittedGallery=galleryBuffer();
-            const tiers=new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail]));
             let lastDrawnTier:'approved-full'|'lightweight'|undefined;
             const reportDrawnTier=(drawn:InstanceType<typeof three.Object3D>)=>{
               const assetId:unknown=drawn.userData.viewerAssetId;
