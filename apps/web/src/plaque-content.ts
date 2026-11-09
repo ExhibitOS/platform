@@ -31,7 +31,7 @@ export function plaqueFaceContent(document:Exhibition,plaque:StudioPlaque,locale
  const medium=caption?.medium??korean?.medium??translations?.find(row=>row.medium)?.medium;
  const dimensions=caption?.dimensions??korean?.dimensions??translations?.find(row=>row.dimensions)?.dimensions;
  const authoredDate=medium||dimensions?korean?.date??translations?.find(row=>row.medium||row.dimensions)?.date:undefined;
- const date=caption?.date??(year===undefined?authoredDate:String(year));
+ const date=caption?.date??authoredDate??(year===undefined?undefined:String(year));
  const attribution=[caption?.artist??content.summary,date].filter(Boolean).join(' · ');
  return {title:content.title,summary:[attribution,medium,dimensions].filter(Boolean).join('\n')};
 }

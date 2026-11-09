@@ -66,14 +66,15 @@ test('a 150 × 100 mm artwork label draws the five museum fields at both texture
  const {d,rooms}=fixture(1),base=plaquesFor(d)[0]!;
  const artwork=syntheticArtwork('image');
  artwork.metadata={title:'Still Life',artist:'Artist'};
+ artwork.extensions={[ARTWORK_DETAILS_NAMESPACE]:{version:1,creationYear:1894}};
  const placement=newPlacement(artwork,base.roomId);
  d.artworks=[artwork];
  d.placements=[placement];
  const plaque={...base,source:{kind:'artwork' as const,placementId:placement.id},dimensions:{width:.15,height:.10},
-  artworkCaption:{translations:[{locale:'ko',artist:'작가 이름',date:'1894년',medium:'캔버스에 유채',dimensions:'60 × 81 cm'}]}};
+  artworkCaption:{translations:[{locale:'ko',artist:'작가 이름',date:'약 1893–1894년',medium:'캔버스에 유채',dimensions:'60 × 81 cm'}]}};
  const doc=applyPlaqueCommand(d,{type:'set-plaque',plaque});
- expect(plaqueFaceContent(doc,plaque,'ko-KR')).toEqual({title:'Still Life',summary:'작가 이름 · 1894년\n캔버스에 유채\n60 × 81 cm'});
- expect(plaqueFaceContent(doc,plaque,'en-US')).toEqual({title:'Still Life',summary:'Artist · 1894년\n캔버스에 유채\n60 × 81 cm'});
+ expect(plaqueFaceContent(doc,plaque,'ko-KR')).toEqual({title:'Still Life',summary:'작가 이름 · 약 1893–1894년\n캔버스에 유채\n60 × 81 cm'});
+ expect(plaqueFaceContent(doc,plaque,'en-US')).toEqual({title:'Still Life',summary:'Artist · 약 1893–1894년\n캔버스에 유채\n60 × 81 cm'});
  const localized={...plaque,artworkCaption:{translations:[...plaque.artworkCaption.translations,
   {locale:'en',artist:'Localized Artist',date:'1894',medium:'Oil on canvas'}]}};
  expect(plaqueFaceContent(doc,localized,'en-US')).toEqual({title:'Still Life',summary:'Localized Artist · 1894\nOil on canvas\n60 × 81 cm'});
@@ -90,7 +91,7 @@ test('a 150 × 100 mm artwork label draws the five museum fields at both texture
  try{
   runtime.update(camera(2));
   expect(runtime.meshes[0]!.scale.toArray()).toEqual([.15,.10,1]);
-  const lines=['Still Life','작가 이름 · 1894년','캔버스에 유채','60 × 81 cm'];
+  const lines=['Still Life','작가 이름 · 약 1893–1894년','캔버스에 유채','60 × 81 cm'];
   expect([...draws.entries()]).toEqual([[128,lines],[512,lines]]);
  }finally{runtime.dispose();}
 });
