@@ -36,6 +36,10 @@ test('keeps an authored workspace bench seat bound to its single visual through 
   (moved.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings).placements[0]!.position[0]+=.1;
   expect(validateStudioBenches(moved).valid).toBe(false);
   const {exhibition,idMap}=remapOex(attached,workspace),seat=benchesFor(exhibition)[0]!;
+  const collision=structuredClone(workspace);
+  collision.placements[0]!.id=bench.viewpointId;
+  expect(()=>remapOex(attached,collision)).toThrow('OEX_PROFILE_INVALID');
+
   expect(seat.workspaceVisual).toEqual({placementId:idMap[placementId],modelSha256});
   expect(seat.viewpointId).toBe(idMap[bench.viewpointId]);
   expect(validateStudioBenches(exhibition).valid).toBe(true);
