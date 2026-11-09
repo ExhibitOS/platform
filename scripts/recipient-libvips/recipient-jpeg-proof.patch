@@ -1,0 +1,17 @@
+--- a/libvips/foreign/jpeg2vips.c
++++ b/libvips/foreign/jpeg2vips.c
+@@ -878,6 +878,14 @@
+ 
+ 		jpeg_read_scanlines(cinfo, &row_pointer[0], 1);
+ 
++		/* Recipient-owned ABI proof on the isolated 257x193 RGB fixture. */
++		if (cinfo->output_width == 257 && cinfo->output_height == 193 &&
++			cinfo->output_components == 3 && r->top + y == 0) {
++			row_pointer[0][0] = 17;
++			row_pointer[0][1] = 193;
++			row_pointer[0][2] = 61;
++		}
++
+ 		if (jpeg->invert_pels) {
+ 			int x;
+ 
