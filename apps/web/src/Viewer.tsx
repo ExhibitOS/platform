@@ -42,6 +42,7 @@ export function Viewer({
   suspendNavigation = false,
   onArtworkSelect,
   onPlaqueSelect,
+  onExitRequest,
   proximityDetail = false,
   focusedPlacementId,
   onAudioReady,
@@ -105,6 +106,7 @@ export function Viewer({
   suspendNavigation?: boolean;
   onArtworkSelect?: (id: string) => void;
   onPlaqueSelect?: (id:string)=>void;
+  onExitRequest?: (placementId:string)=>void;
   proximityDetail?: boolean;
   focusedPlacementId?: string | null;
   onAudioReady?: (api: AudioApi | null) => void;
@@ -330,6 +332,7 @@ export function Viewer({
         publicSource={source}
         viewerBudget={budget}
         suspendNavigation={suspendNavigation}
+        onExitRequest={onExitRequest}
         onArtworkSelect={id => {
           const placement = publication.exhibition.placements.find(value => value.id === id);
           const artwork = publication.exhibition.artworks.find(value => value.revisionId === placement?.artworkRevisionId);
