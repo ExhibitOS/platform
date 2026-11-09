@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Artwork, Exhibition } from "@exhibitos/spec";
 import { BUDGET_GEOMETRY_PAIR_PROFILE,LOD_NAMESPACE,lodVariantsFor,ordinaryPngRoleSet } from "@exhibitos/studio-contract";
-export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
+export interface DeviceBudget { concurrency:number;maxPixelRatio:number;maxTextureSize:number;maxTriangles:number;maxSceneTriangles?:number;maxCacheBytes:number;maxTransitionBytes?:number;entranceAssets:number;selectedImage?:Readonly<{maxCacheBytes:number;maxTransitionBytes:number}> }
 export const DEVICE_BUDGETS:Readonly<Record<"compact"|"desktop",DeviceBudget>>={
  compact:{concurrency:2,maxPixelRatio:1,maxTextureSize:512,maxTriangles:20000,maxCacheBytes:32*1024*1024,entranceAssets:4},
  desktop:{concurrency:3,maxPixelRatio:1.5,maxTextureSize:2048,maxTriangles:100000,maxCacheBytes:96*1024*1024,entranceAssets:4},
@@ -24,7 +24,7 @@ export function deviceBudget(input:{viewportWidth?:number;deviceMemory?:number;p
  const memory=input.deviceMemory;
  const budget=DEVICE_BUDGETS[memory!==undefined&&memory<=4?'compact':'desktop'];
  // These are tracked allocation ceilings, with the same texture edge.
- if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000},memory);
+ if(supportsDesktopArtworkCapacity(input))return selectedImageCapacity({...budget,...desktopArtworkCapacity,maxTriangles:150000,maxSceneTriangles:200000},memory);
  if(memory!==undefined&&Number.isFinite(memory)&&memory>=8) {
   return selectedImageCapacity({...budget,maxCacheBytes:192*1024*1024,maxTransitionBytes:256*1024*1024},memory);
  }
