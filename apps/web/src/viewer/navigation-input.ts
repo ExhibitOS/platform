@@ -11,6 +11,7 @@ export function createWalkingInput(
   resumeDrag: () => boolean = resumeMovement,
   resumeBenchArrow: () => boolean = () => false,
   activateBench?: () => boolean,
+  onPointerLook?: () => void,
 ) {
   const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
@@ -152,6 +153,7 @@ export function createWalkingInput(
     pitchDelta -= (event.clientY - look.y) * 0.004;
     look.x = event.clientX;
     look.y = event.clientY;
+    onPointerLook?.();
   };
   const pointerend = (event: PointerEvent) => {
     if (look?.id === event.pointerId) clearLook();

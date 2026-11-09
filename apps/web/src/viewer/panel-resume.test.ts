@@ -57,6 +57,19 @@ test("bench return preserves fresh input but neither a held gesture nor explicit
  const stopped=panelPaused();stopped.mode(true,true,"user");stopped.mode(true,true,"panel");
  expect(stopped.wasWalkingBeforeSeat()).toBe(false);
 });
+test("a second seat preserves an unconsumed bench return but respects an explicit stop", () => {
+ const gate=createPanelResumeGate();
+ gate.mode(true,false);
+ for(let cycle=0;cycle<2;cycle++){
+  expect(gate.wasWalkingBeforeSeat()).toBe(true);
+  gate.mode(false,true);
+  gate.mode(true,true,"bench-return");
+ }
+ expect(gate.movement(true)).toBe(true);
+ gate.mode(true,true,"bench-return");
+ gate.mode(true,true,"escape");
+ expect(gate.wasWalkingBeforeSeat()).toBe(false);
+});
 test("bench return cannot consume input while a panel or modal is still open", () => {
  let panel=true,modal=false;
  const root=Object.assign(new EventTarget(),{querySelectorAll:()=>panel?[{open:true}]:[],querySelector:()=>modal?{}:null});
