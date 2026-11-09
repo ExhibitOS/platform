@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {closeSync,constants,fstatSync,lstatSync,openSync} from 'node:fs';
-import {mkdir,mkdtemp,readFile,realpath,rm} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Pool} from 'pg';
 import {expect,it} from 'vitest';
-import {FileBlobStore,migrate,sha256,transaction} from '@exhibitos/storage';
+import {collectServiceInventory,createServiceBackup,FileBlobStore,migrate,restoreServiceBackup,sha256,transaction} from '@exhibitos/storage';
 // @ts-expect-error The test exercises the private JavaScript lease exchange.
 import {acceptFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 // @ts-expect-error The private lease encoder has no TypeScript declarations.
@@ -16,8 +18,12 @@ import {Imports} from './imports.ts';
 import {COMPACT_MODEL_RECIPE,LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {createNativeModelPreparationExecution} from './model-preparation-import.ts';
 import {bindNativeOexWorkspace} from './native-oex-provenance.ts';
+// @ts-expect-error Backup catalog routing is an existing JavaScript runtime entry.
+import {inventorySnapshotOptionsForDatabase} from '../../../scripts/service-backup.mjs';
+const run=promisify(execFile);
 
-it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LARGE_MODEL_TEST_SOURCE)(
+
+it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LARGE_MODEL_TEST_SOURCE||!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG_BIN)(
  'routes a real >32 MiB embedded GLB through native 046 custody, drain and explicit approval',async()=>{
  const pool=new Pool({connectionString:process.env.EXHIBITOS_LARGE_MODEL_TEST_PG});
  const root=await realpath(await mkdtemp(join(tmpdir(),'large-glb-')));
@@ -27,6 +33,9 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
  try{
   await mkdir(blobs.root,{mode:0o700});
   await mkdir(configRoot,{mode:0o700});
+  const webRoot=join(root,'web');
+  await mkdir(webRoot,{mode:0o700});
+  await writeFile(join(webRoot,'index.html'),'<!doctype html><title>Native large GLB readiness</title>');
   const lock=join(root,'native-workspace-furnishing-writers.lock');
   let fd=openSync(lock,constants.O_CREAT|constants.O_EXCL|constants.O_RDWR,0o600);
   descriptors.push(fd);
@@ -48,7 +57,13 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   const octets={...headers,'content-type':'application/octet-stream'};
   const api=`/api/v1/tenants/${tenantId}`,artistId=randomUUID(),ownerUid=process.getuid!();
   const migrationPath=(name:string)=>new URL(`../../../database/${name}/`,import.meta.url).pathname;
-  for(const name of ['migrations','native-oex-normal','native-model-preparation'])await migrate(pool,migrationPath(name));
+  const migrations=['migrations','native-oex-normal','native-oex-workspace-import','native-oex-workspace-import-wall',
+   'native-workspace-furnishing','native-workspace-furnishing-writer','native-workspace-furnishing-publication',
+   'native-workspace-material-publication','native-workspace-material-multimap','native-workspace-frame-preparation',
+   'native-hayes-original','native-hayes-disposition','native-hayes-release','native-model-preparation'];
+  for(const name of migrations)await migrate(pool,migrationPath(name));
+  const [migrationDirectory,supplementalMigrationDirectory]=migrations.slice(0,2).map(migrationPath) as [string,string];
+  const largeModelMigrationDirectory=migrationPath('native-large-model-preparation');
   await pool.query('INSERT INTO tenants(id,name) VALUES($1,$2)',[tenantId,'Isolated large GLB']);
   await pool.query('INSERT INTO users(id,subject) VALUES($1,$2)',[userId,randomUUID()]);
   await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
@@ -57,11 +72,33 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,ownerUid]);
   const workspace=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid,blobRoot:blobs.root}));
   const execution=createNativeModelPreparationExecution(blobs,workspace,writer,()=>true);
-  const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution});
+  let selected=false;
+  const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution,
+   lifecycle:{migrationDirectory,supplementalMigrationDirectory,webRoot,blobRoot:blobs.root,
+    workspaceImportMigrationDirectory:migrationPath('native-oex-workspace-import'),
+    workspaceWallImportMigrationDirectory:migrationPath('native-oex-workspace-import-wall'),
+    workspaceFurnishingMigrationDirectory:migrationPath('native-workspace-furnishing'),
+    workspaceFurnishingWriterMigrationDirectory:migrationPath('native-workspace-furnishing-writer'),
+    workspaceFurnishingPublicationMigrationDirectory:migrationPath('native-workspace-furnishing-publication'),
+    workspaceMaterialPublicationMigrationDirectory:migrationPath('native-workspace-material-publication'),
+    workspaceMaterialMultimapMigrationDirectory:migrationPath('native-workspace-material-multimap'),
+    workspaceFramePreparationMigrationDirectory:migrationPath('native-workspace-frame-preparation'),
+    hayesOriginalMigrationDirectory:migrationPath('native-hayes-original'),
+    hayesDispositionMigrationDirectory:migrationPath('native-hayes-disposition'),
+    hayesReleaseMigrationDirectory:migrationPath('native-hayes-release'),
+    modelPreparationMigrationDirectory:migrationPath('native-model-preparation'),
+    ...(selected?{largeModelMigrationDirectory}:{})}});
   app=start();
   const session=()=>app!.inject({method:'GET',url:'/api/v1/auth/session',headers});
   expect((await session()).json().nativeLargeModelPreparationProfile).toBeUndefined();
-  await migrate(pool,migrationPath('native-large-model-preparation'));
+  const readiness=()=>app!.inject({method:'GET',url:'/api/v1/readiness',headers});
+  expect((await readiness()).statusCode).toBe(200);
+  await migrate(pool,largeModelMigrationDirectory);
+  expect((await readiness()).statusCode).toBe(503);
+  await app.close();
+  selected=true;
+  app=start();
+  expect((await readiness()).statusCode).toBe(200);
   expect((await session()).json()).toMatchObject({nativeLargeModelPreparationProfile:LARGE_MODEL_RECIPE.id,modelPreparationProfile:COMPACT_MODEL_RECIPE.id});
   expect((await session()).json().nativeFreshImagePreparationProfile).toBeUndefined();
 
@@ -112,6 +149,29 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   const row=(await pool.query('SELECT object_key,approved_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,id])).rows[0];
   expect(sha256(await blobs.getLargeModelSource(row.object_key,source.length))).toBe(identity.sha256);
   expect(sha256(await blobs.getBounded(row.approved_key,ready.display.bytes))).toBe(ready.display.sha256);
+  await expect(blobs.get(row.object_key)).rejects.toThrow('object size limit');
+  const snapshot=async(c:Parameters<typeof collectServiceInventory>[0],authenticated?:Parameters<typeof inventorySnapshotOptionsForDatabase>[3])=>
+   collectServiceInventory(c,blobs,await inventorySnapshotOptionsForDatabase(c,migrationDirectory,supplementalMigrationDirectory,authenticated));
+  const inventory=await transaction(pool,c=>snapshot(c));
+  expect(inventory.issues).toEqual([]);
+  expect(inventory.references).toContainEqual(expect.objectContaining({key:row.object_key,largeModelSource:true,expectedBytes:source.length}));
+  const bin=process.env.EXHIBITOS_LARGE_MODEL_TEST_PG_BIN!,sourceURL=process.env.EXHIBITOS_LARGE_MODEL_TEST_PG!;
+  const targetURL=new URL(sourceURL),targetName='restored_large_'+randomUUID().replaceAll('-','');
+  targetURL.pathname='/'+targetName;
+  await pool.query(`CREATE DATABASE ${targetName}`);
+  const target=new Pool({connectionString:targetURL.href}),targetBlobs=new FileBlobStore(join(root,'restored-blobs'));
+  try{
+   await mkdir(targetBlobs.root,{mode:0o700});
+   const encryptionKey=randomBytes(32),destination=join(root,'archive');
+   await createServiceBackup({pool,store:blobs,destination,encryptionKey,snapshot,
+    dump:async(path,id)=>{await run(join(bin,'pg_dump'),['--format=custom','--snapshot='+id,'--file='+path,sourceURL]);}});
+   const restored=await restoreServiceBackup({pool:target,store:targetBlobs,source:destination,encryptionKey,destination:join(root,'restored'),
+    snapshot:async(c,authenticated)=>collectServiceInventory(c,targetBlobs,await inventorySnapshotOptionsForDatabase(c,migrationDirectory,supplementalMigrationDirectory,authenticated)),
+    restore:async(path)=>{await run(join(bin,'pg_restore'),['--exit-on-error','--dbname='+targetURL.href,path]);}});
+   expect(restored.inventory.objects).toContainEqual(expect.objectContaining({key:row.object_key,bytes:source.length,sha256:identity.sha256}));
+   expect(sha256(await targetBlobs.getLargeModelSource(row.object_key,source.length))).toBe(identity.sha256);
+  }finally{await target.end();}
+
  }finally{
   await app?.close();
   for(const fd of descriptors)closeSync(fd);
