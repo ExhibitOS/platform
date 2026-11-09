@@ -64,12 +64,20 @@ export const R24_REFERENCE=Object.freeze({
  assetSha256:WHEAT_REFERENCE.assetSha256,
  candidateId:'4d8911f0-75b9-4f0a-909c-cbdc8de3c32e',
 });
-const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE].map(reference=>[reference.indexSha256,reference]));
+export const R26_REFERENCE=Object.freeze({
+ indexSha256:'f65395808f6bc8c75f7b687680e7e881b57ad1f1f75499bae2c81ebbc6bf4fd5',
+ publicationSha256:'ea678b4e7360da964c54beade26e00f90bbfc1183e0c534dbcf734a1d2b48a1c',
+ publicationId:'81395579-13fa-4875-a25f-83ea0fa0015a',
+ revisionSha256:'eb9c9e286a86092dec5b665da742a6bfad95c31445474630907cdcdafefcf7b1',
+ assetSha256:WHEAT_REFERENCE.assetSha256,
+ candidateId:'752f243b-c5c1-47e1-8124-1f54f7d04299',
+});
+const references=new Map([WHEAT_REFERENCE,R19_REFERENCE,R20_REFERENCE,R21_REFERENCE,R22_REFERENCE,R23_REFERENCE,R24_REFERENCE,R26_REFERENCE].map(reference=>[reference.indexSha256,reference]));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
 const keys=(v,k)=>v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).sort().join(',')===[...k].sort().join(',');
 async function regular(root,path,limit){
- if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
+ if(!/^(?:static-publication-index\.json|qualified-(?:wheat|r19|r20|r21|r22|r23|r24|r26)-v4-index\.json|data\/[a-f0-9]{64}\.(?:bin|json))$/.test(path))fail();
  const parts=path.split('/');let p=root;const rootStat=await lstat(p);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())fail();
  for(const part of parts){p=join(p,part);const st=await lstat(p);if(st.isSymbolicLink())fail();}
  const st=await lstat(p);if(!st.isFile()||st.size<1||st.size>limit)fail();const data=await readFile(p);if(data.length!==st.size)fail();return data;
@@ -78,12 +86,13 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);const reference=references.get(sha(bytes));if(!reference)fail();
  const index=parseStaticJson(bytes);
- const terrazzoFloor=reference===R24_REFERENCE;
+ const stoolAndLimestone=reference===R26_REFERENCE;
+ const terrazzoFloor=reference===R24_REFERENCE||stoolAndLimestone;
  const charcoalFloor=reference===R23_REFERENCE||terrazzoFloor;
  const upholsteredBench=reference===R22_REFERENCE||charcoalFloor;
  const bench=reference===R21_REFERENCE||upholsteredBench;
- const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor);
- if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
+ const assetCount=36+Number(bench)+Number(upholsteredBench)+Number(charcoalFloor)+Number(terrazzoFloor)+2*Number(stoolAndLimestone);
+ if(!keys(index,['version','publication','assets','resources','detailAssets',...(bench?['furnishingNotices']:[])])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==assetCount||!Array.isArray(index.resources)||index.resources.length!==(stoolAndLimestone?8:terrazzoFloor?6:4)||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
  const notices=index.furnishingNotices??[];
  if(bench&&(!Array.isArray(notices)||notices.length!==1||
     notices[0]?.sha256!=='aea7aac82234e5f4158a901e84a753b79c75da20b72e859493801dffeaae3de5'||
@@ -132,8 +141,8 @@ export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,in
  * verified native publication. No caller-supplied publication is accepted. */
 export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,privateEditor}){
  const {readdir,unlink,writeFile}=await import('node:fs/promises');
- const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r24-v4-index.json'});
- if(source.reference!==R24_REFERENCE)fail();
+ const source=await verifiedQualifiedWheat({root:sourceRoot,indexPath:'qualified-r26-v4-index.json'});
+ if(source.reference!==R26_REFERENCE)fail();
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();
