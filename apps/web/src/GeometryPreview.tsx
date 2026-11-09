@@ -822,6 +822,17 @@ export function GeometryPreview({
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면에서는 공간 그림자를 생략합니다.':'이 공간에서는 그림자를 생략하고 작품과 조명을 표시합니다.');
       });owned.push(shadowPass);
+      let shadowRoom: InstanceType<typeof three.Group> | undefined;
+      const publishNavigationState = (state: NavigationState) => {
+        if (publicSource && state.grounded && state.roomId) {
+          const room = rooms.get(state.roomId.toLowerCase());
+          if (room && room !== shadowRoom) {
+            shadowRoom = room;
+            shadowPass.setRoom(room);
+          }
+        }
+        navigationCallbacks.current.onNavigationState?.(state);
+      };
       const controls = new OrbitControls(camera, renderer.domElement);
       let authoredFov = camera.fov;
       const applyProjection = () => {
@@ -1323,7 +1334,7 @@ export function GeometryPreview({
                 render,
                 onState: (state) => {
                   if(disposed)return;
-                  navigationCallbacks.current.onNavigationState?.(state);
+                  publishNavigationState(state);
                   const cb = navigationCallbacks.current;
                   if (cb.proximityDetail && cb.onArtworkSelect && !suspendedRef.current && !state.paused) {
                     const placement = document.placements.find(p => {
@@ -1462,7 +1473,7 @@ export function GeometryPreview({
                 const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
                 const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,
                   resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
-                  onState:state=>{if(!closed&&!signal.aborted)navigationCallbacks.current.onNavigationState?.(state);},
+                  onState:state=>{if(!closed&&!signal.aborted)publishNavigationState(state);},
                   onMode:(walking,paused)=>{if(!closed&&!signal.aborted){currentWalkMode.current={walking,paused};setWalkingMode(walking);setWalkPaused(paused);}},
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
