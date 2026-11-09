@@ -69,7 +69,15 @@ const r19Wheat:QualifiedDetailImage=Object.freeze({...wingedR12Wheat,
  artworkRevisionId:'9e775fc4-a06b-43e6-a561-e65d31127197',
  sourceBindingSha256:'491a245e8606dc666ecdf9df575102d146d49d95cb6da0ca6cd03b3176aca0eb',
 });
-const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat]);
+const r20Wheat:QualifiedDetailImage=Object.freeze({...r19Wheat,
+ staticIndexSha256:'054b6756a6aa468e25eaa634b84800fb01d3b21d11f0fff6075f5d54291e8d68',
+ publicationSha256:'b1f966765930533fd4ee649ca33961fea8db6a132ad3ce3ea95e5bb74d57a547',
+ candidateId:'af6bd1f4-cc9b-4cee-bb0c-cdfc1626173f',
+ revisionSha256:'6936b3910f1ed1b55b3193f8432d178080e5a9fe7d6217e741f345c83dde68f3',
+ artworkRevisionId:'9ce499d3-6a94-48eb-b1f1-512f138872b7',
+ sourceBindingSha256:'726560b067ad9942ed1fcfeeb6c0029b4bce570da94098e731ddbd32eba0523b',
+});
+const qualifiedWheatProfiles=Object.freeze([measuredWheat,hayesWheat,hayesR7Wheat,aristotleR9Wheat,wingedR12Wheat,r19Wheat,r20Wheat]);
 export function qualifiedDetailImageProfile(revisionSha256?:string,artworkRevisionId?:string):QualifiedDetailImage|undefined{return qualifiedWheatProfiles.find(profile=>revisionSha256===profile.revisionSha256&&artworkRevisionId===profile.artworkRevisionId);}
 export function hasQualifiedWheatRevision(revisionSha256?:string):boolean{return qualifiedWheatProfiles.some(profile=>revisionSha256===profile.revisionSha256);}
 export function createDetailImageSlot():DetailImageSlot{return createDetailAttemptSlot<DetailImageResource>();}
