@@ -157,6 +157,11 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
  for(const b of benches?.benches??[])if(!ids.has(b.id.toLowerCase()))ids.set(b.id.toLowerCase(),randomUUID());
  const presentation=e.extensions?.[PRESENTATION_NAMESPACE] as {viewpoints?:{id:string}[]}|undefined;
  for(const v of presentation?.viewpoints??[])if(!ids.has(v.id.toLowerCase()))ids.set(v.id.toLowerCase(),randomUUID());
+ if(portableFurnishings)for(const item of [...portableFurnishings.furnishings,...portableFurnishings.placements]){
+  const key=item.id.toLowerCase();
+  if(ids.has(key))throw new ApiError(422,'OEX_PROFILE_INVALID');
+  ids.set(key,randomUUID());
+ }
  const visit=(v:unknown,field=''):unknown=>typeof v==='string'?(REFERENCE_FIELDS.has(field)?ids.get(v.toLowerCase())??v:v):Array.isArray(v)?v.map(x=>visit(x,field)):object(v)?Object.fromEntries(Object.entries(v).map(([k,x])=>[field==='surfaces'?(ids.get(k.toLowerCase())??k):k,visit(x,k)])):v;
  const source=structuredClone(e),spatial=source.extensions?.[SPATIAL_NAMESPACE] as unknown as SpatialProgram|undefined;
  const materials=source.extensions?.[MATERIAL_NAMESPACE] as unknown as StudioMaterials|undefined;
@@ -202,11 +207,6 @@ export function remapOex(e:Exhibition,portableFurnishings?:WorkspaceFurnishings)
  for(const[index,placement]of e.placements.entries())exhibition.placements[index]!.assetId=scoped.get(placement.artworkRevisionId.toLowerCase())?.get(placement.assetId.toLowerCase())??ids.get(placement.assetId.toLowerCase())??placement.assetId;
  if(portableFurnishings){
   const localId=(value:string)=>ids.get(value.toLowerCase())!;
-  for(const item of [...portableFurnishings.furnishings,...portableFurnishings.placements]){
-   const key=item.id.toLowerCase();
-   if(ids.has(key))throw new ApiError(422,'OEX_PROFILE_INVALID');
-   ids.set(key,randomUUID());
-  }
   const {furnishings,placements,frameAttachments,openingAttachments}=portableFurnishings;
   exhibition.extensions={...exhibition.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:{
    version:portableFurnishings.version,

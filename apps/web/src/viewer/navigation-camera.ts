@@ -2,7 +2,7 @@
 import type { Exhibition } from "@exhibitos/spec";
 import type { PerspectiveCamera } from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { artifactPoint, presentationFor, benchesFor, benchSeat } from "@exhibitos/studio-contract";
+import { artifactPoint, presentationFor, benchesFor, benchSeat, type WorkspaceBenchVisual } from "@exhibitos/studio-contract";
 import type { WalkingActions, WalkingSettings } from "../WalkingControls";
 import type { NavigationState } from "./navigation";
 import { createNavigationController, NAVIGATION_PROFILE } from "./navigation";
@@ -29,6 +29,7 @@ export async function createWalkingCamera({
   activateBench,
   onSeat,
   onNearbyBench,
+  workspaceBenchAvailability,
   wasWalkingBeforeSeat,
   onViewpointFov,
 }: {
@@ -52,6 +53,7 @@ export async function createWalkingCamera({
   activateBench?: () => boolean;
   onSeat?: (benchId:string|null) => void;
   onNearbyBench?: (benchId: string | null) => void;
+  workspaceBenchAvailability?: (link:WorkspaceBenchVisual) => 'pending'|'ready'|'unavailable';
   wasWalkingBeforeSeat?: () => boolean;
   /** The embedding projection owner retains the authored FOV and applies its
    * existing responsive/user display policy before this visit renders. */
@@ -103,7 +105,7 @@ export async function createWalkingCamera({
     last = 0;
   let orderedViewing=false;
   let orderedViewpointId:string|undefined;
-  let seated: {benchId:string;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;resumeInput:boolean}|undefined;
+  let seated: {benchId:string;workspaceVisual?:WorkspaceBenchVisual;eye:[number,number,number];yaw:number;pitch:number;fov:number;returnPosition:[number,number,number];returnQuaternion:[number,number,number,number];returnTarget:[number,number,number];returnFov:number;returnPitch:number;returnWalking:boolean;resumeInput:boolean}|undefined;
   const seatPose = (benchId: string) => {
     const {bench, floor, top, floorCorners} = benchSeat(document, benchId);
     const destination = presentationFor(document).viewpoints.find(v => v.id.toLowerCase() === bench.viewpointId.toLowerCase());
@@ -130,7 +132,7 @@ export async function createWalkingCamera({
     let nearest: string | null = null;
     let distance = nearbyBenchRadius;
     for (const {bench, floor} of nearbySeats) {
-      if (bench.roomId.toLowerCase() !== roomId) continue;
+      if (bench.roomId.toLowerCase() !== roomId || bench.workspaceVisual && workspaceBenchAvailability?.(bench.workspaceVisual)!=='ready') continue;
       const meters = Math.hypot(floor[0] - x, floor[2] - z);
       if (meters > nearbyBenchRadius) continue;
       if (bench.id === nearbyBenchId) return bench.id;
@@ -273,8 +275,12 @@ export async function createWalkingCamera({
       if(disposed||seated||orderedViewing)return;
       try {
         const {bench, eye, target, fov} = seatPose(benchId);
+        if(bench.workspaceVisual&&workspaceBenchAvailability?.(bench.workspaceVisual)!=='ready'){
+          onMessage('벤치가 아직 표시되지 않아 앉을 수 없어요.');
+          return;
+        }
         const yaw=Math.atan2(-(target[0]-eye[0]),-(target[2]-eye[2])),seatPitch=Math.max(-1.396,Math.min(1.396,Math.atan2(target[1]-eye[1],Math.hypot(target[0]-eye[0],target[2]-eye[2]))));
-        const snapshot={benchId:bench.id,eye,yaw,pitch:seatPitch,fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
+        const snapshot={benchId:bench.id,workspaceVisual:bench.workspaceVisual,eye,yaw,pitch:seatPitch,fov,returnPosition:camera.position.toArray() as [number,number,number],returnQuaternion:camera.quaternion.toArray() as [number,number,number,number],returnTarget:controls.target.toArray() as [number,number,number],returnFov:camera.fov,returnPitch:pitch,returnWalking:walking,resumeInput:walking && wasWalkingBeforeSeat?.() === true};
         input.pause("panel");seated=snapshot;walking=false;paused=true;controls.enabled=false;
         pitch=seatPitch;targetPitch=pitch;targetYaw=yaw;
         camera.fov=fov;camera.updateProjectionMatrix();apply();onMode(false,true);onSeat?.(bench.id);
@@ -288,6 +294,11 @@ export async function createWalkingCamera({
       if (current !== expectedBenchId) return false;
       actions.sit?.(expectedBenchId);
       return seated?.benchId === expectedBenchId;
+    },
+    refreshWorkspaceBench: () => {
+      if(disposed)return;
+      if(seated?.workspaceVisual&&workspaceBenchAvailability?.(seated.workspaceVisual)==='unavailable')actions.stand?.();
+      else reportNearbyBench(nearbyBench(controller.state()));
     },
     stand: () => {
       if(!seated||disposed)return;

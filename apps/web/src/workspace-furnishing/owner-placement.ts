@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type * as Three from 'three';
-import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings,type WorkspaceFrameAttachment,type WorkspaceOpeningAttachment} from '@exhibitos/studio-contract';
+import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings,type WorkspaceFrameAttachment,type WorkspaceOpeningAttachment,type StudioBench} from '@exhibitos/studio-contract';
 import type {Exhibition} from '@exhibitos/spec';
 import type {DeviceBudget} from '../viewer/loading';
 import {AssetPeakBudget} from '../viewer/loading';
@@ -14,7 +14,7 @@ import {biasPairedPortalWalls,fitModularPortal} from './portal-pose';
 
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
-export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean}){
+export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;renderer:Three.WebGLRenderer;candidate:{extensions?:Record<string,unknown>;rooms?:unknown};scope:OwnerPreviewBudget;roomId:string;placementId:string;frameAttachment?:WorkspaceFrameAttachment;openingAttachment?:WorkspaceOpeningAttachment;room:Three.Object3D;signal:AbortSignal;unavailable:()=>boolean;budget:DeviceBudget;ledger:AssetPeakBudget;onRevoked:(error:unknown)=>void;onVisibilityChange?:()=>void;source?:WorkspaceModelSource;sceneManagedAuthority?:boolean;seatDimensions?:StudioBench["dimensions"]}){
  const {candidate,three,room,signal}=options;
  if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
  const extension=candidate.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings|undefined,placement=extension?.placements.find(p=>p.id===options.placementId&&p.roomId===options.roomId),attachment=options.frameAttachment,openingAttachment=options.openingAttachment,descriptor=extension?.furnishings.find(f=>f.id===(openingAttachment?.furnishingId??attachment?.furnishingId??placement?.furnishingId)&&f.version===(openingAttachment?.furnishingVersion??attachment?.furnishingVersion??placement?.furnishingVersion));
@@ -32,6 +32,15 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
  const onAbort=()=>fail(signal.reason);
  const scheduleExpiry=()=>{if(!Number.isFinite(expires))return;expiryTimer=setTimeout(()=>{if(enforce())scheduleExpiry();},Math.min(2147483647,Math.max(0,expires-Date.now())));};
  try{
+  const seatDimensions=options.seatDimensions;
+  let seatFootprintMatches=false;
+  if(seatDimensions){
+   const bounds=new three.Box3().setFromObject(loaded.object,true);
+   const halfWidth=seatDimensions.width/2,halfDepth=seatDimensions.depth/2,tolerance=.02;
+   seatFootprintMatches=!bounds.isEmpty()&&Math.abs(bounds.min.x+halfWidth)<=tolerance&&Math.abs(bounds.max.x-halfWidth)<=tolerance
+    &&Math.abs(bounds.min.z+halfDepth)<=tolerance&&Math.abs(bounds.max.z-halfDepth)<=tolerance
+    &&Math.abs(bounds.min.y)<=tolerance&&Math.abs(bounds.max.y-seatDimensions.height)<=tolerance;
+  }
   controller.signal.throwIfAborted();release=options.scope.reserve(loaded.draws,loaded.triangles);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   if(!validateWorkspaceFurnishings(candidate).valid)throw Error('WORKSPACE_PLACEMENT_INVALID');
   if(openingAttachment){
@@ -64,6 +73,6 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   room.add(loaded.object);if(!enforce())throw Error('WORKSPACE_MODEL_AUTHORITY');
   signal.addEventListener('abort',onAbort,{once:true});if(signal.aborted)onAbort();if(stopped)throw Error('WORKSPACE_MODEL_AUTHORITY');if(!options.sceneManagedAuthority){if(typeof document!=='undefined')document.addEventListener('visibilitychange',enforce);scheduleExpiry();}
   if(!options.sceneManagedAuthority)timer=setInterval(()=>{if(!enforce()||checking)return;checking=true;loaded.object.visible=false;changed();void Promise.resolve().then(()=>source.check()).then(()=>{if(enforce()){loaded.object.visible=true;changed();}}).catch(fail).finally(()=>{checking=false;});},5000);
-  return {object:loaded.object,dispose,enforce};
+  return {object:loaded.object,dispose,enforce,seatFootprintMatches};
  }catch(error){try{dispose();}catch{/* Retain the reservation if cleanup is uncertain. */}throw error;}
 }

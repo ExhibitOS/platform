@@ -62,7 +62,7 @@ import {boundedOrbitTarget,safePrivateView,type PrivateView} from './viewer/priv
 import type {PlacementPreviewInstaller} from './geometry/placement-preview';
 import {installLightDetails} from './light-details-renderer';
 import {installBenches} from './bench-renderer';
-import {benchesFor} from '@exhibitos/studio-contract';
+import {benchesFor,type WorkspaceBenchVisual} from '@exhibitos/studio-contract';
 import {installDecor} from './installation-renderer';
 import type {Camera,Object3D,Scene,WebGLRenderer} from 'three';
 import {centerMetricModel,artifactMetricModel} from './viewer/metric-model.js';
@@ -322,6 +322,7 @@ export function GeometryPreview({
   const nearbyBenchRef=useRef<string|null>(null);
   const [nearbyBenchId,setNearbyBenchId]=useState<string|null>(null);
   const [seatedBenchId,setSeatedBenchId]=useState<string|null>(null);
+  const [readyWorkspaceBenches,setReadyWorkspaceBenches]=useState<{scene:typeof sceneDocument;ids:ReadonlySet<string>}|null>(null);
   useEffect(()=>{if(seatedBenchId)benchActionButton.current?.focus({preventScroll:true});},[seatedBenchId]);
   const currentWalkMode = useRef({ walking: false, paused: true });
   const preparedEntry = useRef<boolean | null>(null);
@@ -454,6 +455,7 @@ export function GeometryPreview({
     let canvasRestorePromise:Promise<void>=Promise.resolve();
     walkingActions.current = null;
     seatedBenchRef.current=null;setSeatedBenchId(null);
+    setReadyWorkspaceBenches(null);
     nearbyBenchRef.current=null;setNearbyBenchId(null);benchAction.current=null;
     xrActive.current=false;setXrRunning(false);
     setWalkingMode(false);
@@ -853,6 +855,30 @@ export function GeometryPreview({
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
+      const workspaceBenches=benchesFor(document).filter(bench=>bench.workspaceVisual);
+      const workspaceBenchAvailability=(link:WorkspaceBenchVisual)=>ownerFurnishings?.seatAvailability(link)??'pending';
+      const workspaceFurnishingsChanged=()=>{
+        if(disposed||gpuLost)return;
+        if(workspaceBenches.length){
+          walkingActions.current?.refreshWorkspaceBench?.();
+          const readyIds=new Set<string>();
+          for(const bench of workspaceBenches){
+            if(bench.workspaceVisual&&workspaceBenchAvailability(bench.workspaceVisual)==='ready')readyIds.add(bench.id);
+          }
+          setReadyWorkspaceBenches(previous=>{
+            if(previous?.scene===document&&previous.ids.size===readyIds.size&&[...readyIds].every(id=>previous.ids.has(id)))return previous;
+            return {scene:document,ids:readyIds};
+          });
+        }
+        if(ownerFurnishingFrame)return;
+        ownerFurnishingFrame=requestAnimationFrame(()=>{
+          ownerFurnishingFrame=0;
+          if(disposed||gpuLost)return;
+          if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());
+          shadowPass.invalidate();
+          render();
+        });
+      };
       let galleryArtworkDrawn = false, artworkDrawnInFrame = false;
       const render = (restore=false) => {
         if(deferredCanvasRestore&&restore!==true)return false;
@@ -1303,6 +1329,7 @@ export function GeometryPreview({
                     else if (!placement) nearPlacement = undefined;
                   }
                 },
+                workspaceBenchAvailability,
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
                   panelResume.movement(!gpuLost && !suspendedRef.current && !xrActive.current),
                 wasWalkingBeforeSeat:()=>panelResume?.wasWalkingBeforeSeat()??false,
@@ -3027,7 +3054,6 @@ export function GeometryPreview({
         if(hasWorkspaceFurnishings){
           await Promise.allSettled(catalogSettled);if(disposed||gpuLost)return;
           if(!benchAuthority)throw Error('WORKSPACE_FURNISHING_SOURCE_UNAVAILABLE');
-          const changed=()=>{if(disposed||gpuLost||ownerFurnishingFrame)return;ownerFurnishingFrame=requestAnimationFrame(()=>{ownerFurnishingFrame=0;if(!disposed&&!gpuLost){if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());shadowPass.invalidate();render();}});};
           const extension=document.extensions![WORKSPACE_FURNISHING_NAMESPACE] as unknown as WorkspaceFurnishings,workspaceCache=new PublicWorkspaceCache(byteCache);
           const publicCheck=async(signal:AbortSignal)=>{
             signal.throwIfAborted();
@@ -3035,8 +3061,8 @@ export function GeometryPreview({
             const response=await fetch(`/api/v1/publications/${publicSource.publicationId}?footsteps=1`,{credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.any([signal,abort.signal,AbortSignal.timeout(10000)])});
             if(!response.ok)throw Error('PUBLICATION_UNAVAILABLE');const current=await response.json();signal.throwIfAborted();if(current.publication?.id!==publicSource.publicationId||current.publication?.status!=='published'||current.publication?.revisionSha256!==publicSource.revisionSha256)throw Error('PUBLICATION_UNAVAILABLE');
           };
-          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},disposeSource:()=>workspaceCache.dispose()});
-          const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setPublicMessage('일부 비품을 불러오지 못했어요.');changed();}
+          ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:publicSource.publicationId,signal:abort.signal,unavailable:()=>disposed||gpuLost,budget:viewerBudget,transitionBytes:transitionBudgetBytes,resident:()=>byteCache.stats().bytes,changed:workspaceFurnishingsChanged,ledger:peak,modelSource:descriptor=>publicWorkspaceModelSource(publicSource.publicationId,publicSource.revisionSha256,publicSource.assets,extension,descriptor,publicSource.fetcher??fetch,benchAuthority.check,workspaceCache),publicAuthority:{check:publicCheck,valid:()=>publicWorkspaceFurnishingRights(extension)},disposeSource:()=>workspaceCache.dispose()});
+          const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setPublicMessage('일부 비품을 불러오지 못했어요.');workspaceFurnishingsChanged();}
         }
         return;
       }
@@ -3093,9 +3119,8 @@ export function GeometryPreview({
       }
       if(hasWorkspaceFurnishings&&session&&ownerWorkspaceFurnishings&&!disposed&&!gpuLost){
         await Promise.allSettled(catalogSettled);if(disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt)return;
-        const changed=()=>{if(disposed||gpuLost||ownerFurnishingFrame)return;ownerFurnishingFrame=requestAnimationFrame(()=>{ownerFurnishingFrame=0;if(!disposed&&!gpuLost){if(ownerFurnishings)renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(ownerFurnishings.stats());shadowPass.invalidate();render();}});};
-        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed});
-        const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');changed();}
+        ownerFurnishings=createOwnerFurnishingScene({three,renderer,scene,rooms,candidate:document,tenantId:session.tenantId,signal:AbortSignal.any([abort.signal,ownerWorkspaceFurnishings.signal]),unavailable:()=>disposed||gpuLost||ownerWorkspaceFurnishings.signal.aborted||Date.now()>=ownerWorkspaceFurnishings.expiresAt,budget:ownerWorkspaceFurnishings.budget,transitionBytes:transitionBudgetBytes,resident:()=>localResidentBytes+byteCache.stats().bytes,changed:workspaceFurnishingsChanged});
+        const result=await ownerFurnishings.start();if(!disposed){renderer.domElement.dataset.workspaceFurnishings=JSON.stringify(result);if(result.failed)setMessage('일부 작업 공간 비품을 표시하지 못했어요. 등록 상태와 표시 권한을 확인하세요.');workspaceFurnishingsChanged();}
       }
     };
     void build().catch((error) => {
@@ -3148,6 +3173,8 @@ export function GeometryPreview({
     qualityScope,
     clearQualityFrame,
   ]);
+  const readyWorkspaceBenchIds=readyWorkspaceBenches?.scene===sceneDocument?readyWorkspaceBenches.ids:undefined;
+  const availableBenches=benchesFor(document).filter(bench=>!bench.workspaceVisual||readyWorkspaceBenchIds?.has(bench.id));
   const ControlsFrame = immersive || compactControls ? "details" : "div";
   const visibleBenchId=ready&&viewingStyle==='free'&&!xrRunning&&!suspendNavigation?(seatedBenchId??(immersive?nearbyBenchId:null)):null;
   const noticeState = !noticePageVisible || suspendNavigation || xrRunning ? undefined : sceneIssue ? "scene" : detailRestoreMessage ? "detail-restore" : ready ? artworkNotice : undefined;
@@ -3264,9 +3291,9 @@ export function GeometryPreview({
           message={walkMessage}
         />
       )}
-      {viewerBudget && viewingStyle==='free' && benchesFor(document).length>0 && (
+      {viewerBudget && viewingStyle==='free' && (seatedBenchId || availableBenches.length>0) && (
         <section aria-label="앉아서 감상" className="viewer-options">
-          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 일어서면 이전 위치로 돌아갑니다.</p>{benchesFor(document).map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
+          {seatedBenchId ? <p>앉아서 감상 중입니다. 화면의 돌아가기 버튼으로 종료할 수 있어요.</p> : <details><summary>벤치에서 감상</summary><p>직접 선택하면 앉은 시점에서 멈춰 감상합니다. 일어서면 이전 위치로 돌아갑니다.</p>{availableBenches.map(bench=><button key={bench.id} disabled={!ready||xrRunning||walkLoading||suspendNavigation} onClick={()=>walkingActions.current?.sit?.(bench.id)}>{bench.name} · 앉아서 감상</button>)}</details>}
         </section>
       )}
       {viewerBudget && viewingStyle==='free' && presentationFor(document).viewpoints.length>0 && (

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {isDeepStrictEqual} from 'node:util';
-import type {Artwork} from '@exhibitos/spec';
-import {WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
+import type {Artwork,Exhibition} from '@exhibitos/spec';
+import {benchesFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,type WorkspaceFurnishings} from '@exhibitos/studio-contract';
 import type {PoolClient} from 'pg';
 import {ApiError,type Session} from './auth.ts';
 import {allowedRights} from './rights.ts';
@@ -19,6 +19,16 @@ export async function assertWorkspaceFurnishingSnapshot(c:PoolClient,s:Session,c
  if((extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).version===4&&!service.supportsArtworkFrame())throw new ApiError(422,'WORKSPACE_FURNISHING_UNAVAILABLE');
  for(const furnishing of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).furnishings){const registered=await service.readVersion(c,s,furnishing.id,furnishing.version);if(!isDeepStrictEqual(registered,furnishing))throw new ApiError(409,'FURNISHING_VERSION_MISMATCH');}
  for(const furnishing of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).furnishings)if(!allowedRights(furnishing.rights,'display'))throw new ApiError(403,'DISPLAY_PERMISSION_REQUIRED');
+ const checkedBenchModels=new Set<string>();
+ for(const bench of benchesFor(candidate as Pick<Exhibition,'extensions'>)){
+  if(!bench.workspaceVisual)continue;
+  const placement=snapshot.placements.find(row=>row.id.toLowerCase()===bench.workspaceVisual!.placementId.toLowerCase());
+  if(!placement)throw new ApiError(422,'BENCH_WORKSPACE_VISUAL');
+  if(checkedBenchModels.has(placement.furnishingId))continue;
+  const descriptor=await service.checkDisplay(c,s,placement.furnishingId,placement.furnishingVersion);
+  if(descriptor.kind!=='bench'||descriptor.model.sha256!==bench.workspaceVisual.modelSha256)throw new ApiError(422,'BENCH_WORKSPACE_VISUAL');
+  checkedBenchModels.add(placement.furnishingId);
+ }
  // The immutable frame is attached to a work, so every save/preflight must
  // recheck the actual model bytes, not just the persisted descriptor.
  const checkedPortals=new Set<string>();for(const a of (extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings).openingAttachments??[]){if(!checkedPortals.has(a.furnishingId)){await service.checkDisplay(c,s,a.furnishingId,a.furnishingVersion);checkedPortals.add(a.furnishingId);}}

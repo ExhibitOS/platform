@@ -1,4 +1,5 @@
 import {assertWorkspaceFurnishingSnapshot} from './workspace-furnishing-snapshot.ts';
+import {ordinaryWorkspaceBenchSeatDelta} from './workspace-bench-seat-delta.ts';
 import {ordinaryFrameDelta} from './workspace-frame-delta.ts';
 import {ordinaryPortalDelta,portalStateChanged} from './workspace-portal-delta.ts';
 import type {WorkspaceFurnishingIntakes} from './workspace-furnishing-intakes.ts';
@@ -9,7 +10,7 @@ import {validateStudioFloors} from '@exhibitos/studio-contract';
 import {applyArchitecturalFinishCommand,validateArchitecturalFinishes,type ArchitecturalFinishCommand} from '@exhibitos/studio-contract';
 import {applyPlaqueCommand,validateStudioPlaques,type PlaqueCommand} from '@exhibitos/studio-contract';
 import {validateStudioLightDetails,validateLightAttachments} from '@exhibitos/studio-contract';
-import {validateStudioBenches} from '@exhibitos/studio-contract';
+import {benchesFor,validateStudioBenches} from '@exhibitos/studio-contract';
 import {validateArtworkDisplayPolicy} from '@exhibitos/studio-contract';
 import {validateStudioInstallation,validateWorkspaceFurnishings,WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import { validateViewerEntrance } from '@exhibitos/studio-contract';
@@ -182,7 +183,10 @@ export class Studio {
     const ext=input?.draft?.candidate?.extensions?.[WORKSPACE_FURNISHING_NAMESPACE] as unknown as {frameAttachments?:{furnishingId:string;furnishingVersion:1}[]}|undefined;
     const frameNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(ext?.frameAttachments)&&ext.frameAttachments.length>0;
     const portalDelta=!!input?.draft?.candidate&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE),portalExt=ext as typeof ext&{openingAttachments?:unknown[]},portalNoop=isDeepStrictEqual(row.metadata,input?.draft)&&Array.isArray(portalExt?.openingAttachments)&&portalExt.openingAttachments.length>0;
-    if(frameDelta||frameNoop||portalDelta||portalNoop){
+    const benchSeatDelta=!!input?.draft?.candidate&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft);
+    const benchSeatNoop=isDeepStrictEqual(row.metadata,input?.draft)&&benchesFor(row.metadata.candidate).some(bench=>!!bench.workspaceVisual);
+    if((benchSeatDelta||benchSeatNoop)&&!this.workspaceFurnishing)throw new ApiError(403,'FORBIDDEN');
+    if(frameDelta||frameNoop||portalDelta||portalNoop||benchSeatDelta||benchSeatNoop){
       if((frameDelta||frameNoop)&&!this.workspaceFurnishing?.supportsArtworkFrame()||(portalDelta||portalNoop)&&!this.workspaceFurnishing?.supportsPortalFinish())throw new ApiError(403,'FORBIDDEN');
       await this.workspaceFurnishing!.authorize(c,s);
       if(match===undefined)throw new ApiError(428,'IF_MATCH_REQUIRED');
@@ -195,7 +199,7 @@ export class Studio {
     checked(input,true);
     await assertWorkspaceMaterialSnapshot(c,s,input.draft.candidate,this.workspaceMaterial);
     await assertWorkspaceFurnishingSnapshot(c,s,input.draft.candidate,this.workspaceFurnishing);
-    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta))throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
+    if(match!==undefined){if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');if(this.nativeBoundedEditing&&!validateLifecycle(row.metadata).valid){if(!boundedPlacementOnly(row.metadata,input.draft)&&!(this.workspaceFurnishing?.supportsPortalFinish()&&portalDelta)&&!benchSeatDelta&&!benchSeatNoop)throw new ApiError(422,'BOUNDED_EDIT_UNSUPPORTED');return {valid:true as const,editingCapability:this.boundedCapability(s,row)};}}
     return {valid:true as const};
   }
   async nativeViewportPolicy(c:PoolClient,s:Session,id:string) {
@@ -203,7 +207,9 @@ export class Studio {
     const row=await this.access(c,s,id),ordinary=validateLifecycle(row.metadata);
     if(!ordinary.valid&&(!row.nativeBounded||!ordinary.errors.length||!ordinary.errors.every(error=>error.code==='ASSET_TOTAL_LIMIT'&&error.path==='/candidate/artworks')))throw new ApiError(409,'DRAFT_CORRUPT');
     const boundedProfile=!!row.nativeBounded,boundedEditRequired=boundedProfile&&!ordinary.valid,editable=boundedEditRequired&&this.nativeBoundedEditing;
-    return {exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata),boundedReadOnly:boundedEditRequired&&!editable,boundedProfile,boundedEditRequired,...(editable?{editingCapability:this.boundedCapability(s,row)}:{})};
+    let workspaceBenchSeatProfile:'workspace-bench-seat-v1'|undefined;
+    if(this.workspaceFurnishing)try{await this.workspaceFurnishing.authorize(c,s);workspaceBenchSeatProfile='workspace-bench-seat-v1';}catch{/* Other viewport policies remain available. */}
+    return {exhibitionId:row.id,revision:row.revision,etag:etag(row.revision,row.metadata),...(workspaceBenchSeatProfile?{workspaceBenchSeatProfile}:{}),boundedReadOnly:boundedEditRequired&&!editable,boundedProfile,boundedEditRequired,...(editable?{editingCapability:this.boundedCapability(s,row)}:{})};
   }
   private async receipt(
     c: PoolClient,
@@ -339,7 +345,7 @@ export class Studio {
     if(this.nativeOexWorkspace)checked(input,!!row.nativeBounded);
     // Producer-only slice permits the selected identical confirmation save,
     // not edits exceeding ordinary validation before scoped edit is integrated.
-    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
+    if(row.nativeBounded&&(!validateLifecycle(row.metadata).valid||!validateLifecycle(input.draft).valid)&&!(this.nativeBoundedEditing?(boundedPlacementOnly(row.metadata,input.draft)||!!this.workspaceFurnishing&&ordinaryWorkspaceBenchSeatDelta(row.metadata,input.draft)||!!this.workspaceFurnishing?.supportsPortalFinish()&&ordinaryPortalDelta(row.metadata,input.draft,WORKSPACE_FURNISHING_NAMESPACE)||!!replacement&&isDeepStrictEqual({...row.metadata,candidate:replaceArtworkReferences(row.metadata.candidate,replacement.prior,replacement.next,replacement.placementId)},input.draft)):isDeepStrictEqual(row.metadata,input.draft)))throw new ApiError(422,"BOUNDED_EDIT_UNSUPPORTED");
     if (
       input.draft.exhibitionId.toLowerCase() !== id.toLowerCase() ||
       input.draft.id.toLowerCase() !== row.metadata.id.toLowerCase()
