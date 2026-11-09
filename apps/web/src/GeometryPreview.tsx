@@ -1906,11 +1906,17 @@ export function GeometryPreview({
           return !task.prepareOnly&&!task.detailPromotion&&!active.has(id)&&
             (observedVisible.get(id)===true||observedEligible.get(id)===true||mapPins.has(id)||viewingPins.has(id));
         };
+        const evictPrepared=(deficit:()=>number)=>{
+          for(const [id,value] of prepared){
+            if(deficit()<=0)break;
+            prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');
+          }
+        };
         const reserve=(key:string,bytes:number)=>{
           const task=tasks.get(key),limit=requestLimits(task).transition;
           // Encoded bytes and prepared objects are expendable; displayed objects stay pinned through replacement.
           for(const art of arts)for(const asset of art.assets){if(peak.total(key)+bytes<=limit)break;byteCache.delete(asset.id);}
-          if(!tasks.get(key)?.prepareOnly)for(const [id,value] of prepared){if(peak.total(key)+bytes<=limit)break;prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
+          if(!task?.prepareOnly)evictPrepared(()=>peak.total(key)+bytes-limit);
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           peak.reserve(key,bytes,limit);
@@ -2215,8 +2221,17 @@ export function GeometryPreview({
               // The cache skips pinned backing buffers. Unpinned encoded bytes
               // are expendable even when this decoder retains its own backing.
               for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
+              // The visitor's image may replace speculative preparations before
+              // it replaces the visible Coarse image. Preserve all displayed
+              // allocations and avoid eviction if it cannot make the image fit.
+              if(!task.prepareOnly&&!task.detailPromotion&&demandContext().observeWall&&art.revisionId===currentArtwork&&
+                 inventory.id.toLowerCase()===authoredImagePair(art)?.full.assetId.toLowerCase()&&deficit()>0){
+                const reclaimable=[...prepared.values()].reduce((bytes,value)=>bytes+(value.object.userData.viewer?.decodedBytes??0),0);
+                if(reclaimable>=deficit())evictPrepared(deficit);
+              }
               if(neededMinimum(task))reclaimOffroom(art.revisionId,deficit);
               if(deficit()>0){
+                stage(inventory.id,'deferred-budget',undefined,key);
                 const missingMinimum=neededMinimum(task);
                 const required=object.userData.viewer?.decodedBytes;
                 discardResult(result);
