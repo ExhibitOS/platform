@@ -1939,7 +1939,7 @@ export function GeometryPreview({
           for(const [id,value]of minimumObjects){if(peak.total(key)+bytes<=limit)break;if(mapPins.has(id)||viewingPins.has(id)||id===viewingCurrentArt||observedVisible.get(id)!==false||observedEligible.get(id)!==false)continue;minimumObjects.delete(id);destroy(value.object);stage(value.assetId,'evicted-offroom-minimum');}
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           try{peak.reserve(key,bytes,limit);}catch(error){
-            if(task?.detailPromotion&&task.art.revisionId===detailPinnedArtwork&&Number.isSafeInteger(bytes)&&bytes>0)
+            if(task?.detailPromotion&&task.detailBudget&&task.art.artworkType==='sculpture'&&task.art.revisionId===detailPinnedArtwork&&Number.isSafeInteger(bytes)&&bytes>0)
               detailBudgetWait={assetId:task.inventory.id,bytes,phase:'transition'};
             throw error;
           }

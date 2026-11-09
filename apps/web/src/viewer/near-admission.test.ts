@@ -3,6 +3,7 @@ import {test,expect} from 'vitest';
 import {BufferAttribute,InterleavedBuffer,InterleavedBufferAttribute} from 'three';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {detailResidentRetryReady} from './borrowed-detail-preview';
 import {stagingHayesDetailBudget,modelDecodeReserve,deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget,MemoryAssetCache,retainEncodedBuffer} from './loading';
 
 test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
@@ -146,6 +147,11 @@ test('bounds the exact Hayes selected-detail staging trial with the original sce
  expect(cpu).toBe(138432896);
  const ledger=new AssetPeakBudget(effectiveTransition,()=>retained);
  expect(()=>ledger.reserve('parse',cpu)).toThrow('ASSET_TRANSITION_PEAK');
+ const retry=()=>detailResidentRetryReady(cpu,ledger.total(),effectiveTransition,0);
+ expect(retry()).toBe(false);
+ expect(retry()).toBe(false);
+ expect(detailResidentRetryReady(cpu,ledger.total(),effectiveTransition,200557183-effectiveTransition-1)).toBe(false);
+ expect(detailResidentRetryReady(cpu,ledger.total(),effectiveTransition,200557183-effectiveTransition)).toBe(true);
  ledger.reserve('parse',cpu,transitionLimit);
  expect(ledger.total()).toBe(200557183);
  ledger.release('parse');
