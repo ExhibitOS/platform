@@ -197,15 +197,16 @@ export async function createWalkingCamera({
   const startPointerLook = () => {
     if(!seated)return (resumeDrag??resumeMovement)?.()??false;
     if(disposed||!canLookSeated())return false;
-    input.enable(false);
+    input.enable();
     return true;
   };
   const queueSeatedLook = () => {
-    if(!seated||disposed||!canLookSeated())return;
+    if(!seated||disposed)return;
     cancelAnimationFrame(frame);
     frame=requestAnimationFrame(()=>{
-      if(!seated||disposed||!canLookSeated())return;
+      if(!seated||disposed)return;
       const {yawDelta,pitchDelta}=input.sample(0);
+      if(!canLookSeated())return;
       seated.yaw+=yawDelta;
       pitch=Math.max(-1.396,Math.min(1.396,pitch+pitchDelta));
       targetYaw=seated.yaw;
@@ -216,7 +217,7 @@ export async function createWalkingCamera({
   const input = createWalkingInput(canvas, stop, (message) => {
     captureMessage = message;
     onMessage(message);
-  }, isPanelFocus, resumeMovement, startPointerLook, resumeBenchArrow, activateBench, queueSeatedLook);
+  }, isPanelFocus, resumeMovement, startPointerLook, resumeBenchArrow, activateBench, queueSeatedLook, ()=>!seated||canLookSeated());
   const tick = (now: number) => {
     if (disposed || paused) return;
     const dt = Math.max(0, (now - last) / 1000);

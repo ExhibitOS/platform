@@ -12,6 +12,7 @@ export function createWalkingInput(
   resumeBenchArrow: () => boolean = () => false,
   activateBench?: () => boolean,
   onPointerLook?: () => void,
+  allowPointerLook: () => boolean = () => true,
 ) {
   const blockedKeys = new Set<string>();
   const keys = new Set<string>(),
@@ -118,12 +119,19 @@ export function createWalkingInput(
     if (hadLock && !locked) stop("pointerlock");
     hadLock = locked;
   };
+  const pointerLookAllowed = () => {
+    if (allowPointerLook()) return true;
+    clearLook();
+    yawDelta = 0;
+    pitchDelta = 0;
+    return false;
+  };
   const pointerdown = (event: PointerEvent) => {
     if (event.isPrimary === false && (!enabled || (touch.size === 0 && analog.size === 0))) {
       if (look?.pending) clearLook();
       return;
     }
-    if (look) return; // A second canvas contact never steals the current look pointer.
+    if (!pointerLookAllowed() || look) return; // A second canvas contact never steals the current look pointer.
     if (event.target !== canvas || event.defaultPrevented || document.hidden ||
       (!enabled && (event.altKey || event.ctrlKey || event.metaKey))) return;
     if (
@@ -136,7 +144,7 @@ export function createWalkingInput(
     canvas.setPointerCapture(event.pointerId);
   };
   const pointermove = (event: PointerEvent) => {
-    if (look?.id !== event.pointerId) return;
+    if (look?.id !== event.pointerId || !pointerLookAllowed()) return;
     if (look.pending) {
       if (event.altKey || event.ctrlKey || event.metaKey) { clearLook(); return; }
       if (Math.hypot(event.clientX - look.x, event.clientY - look.y) <= 5) return;
