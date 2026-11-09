@@ -2400,13 +2400,16 @@ export function GeometryPreview({
                   materialBudgetDeferred.set(art.revisionId,{full:task.full,prepareOnly:task.prepareOnly,detailPromotion:task.detailPromotion,manual:task.manual});retryAfter.set(art.revisionId,Infinity);
                   failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
                 }
-                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity);
+                const transitionDeferred=error?.message==='ASSET_TRANSITION_PEAK';
+                const requiredEntranceAsset=entranceReadiness&&!entranceFrameReported&&entranceAssets.get(art.revisionId)?.id===inventory.id;
+                const settledEntranceRefusal=requiredEntranceAsset&&transitionDeferred&&floorSettled&&surfaceSettled;
+                retryAfter.set(art.revisionId,transitionDeferred&&!settledEntranceRefusal?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity);
                 if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===demandContext().owner)reclaimForCurrent();}
                 // A visible missing minimum must not wait for detail attention:
                 // its placeholder may be too small/off-center to win that slot.
                 const visibleMissingMinimum=!active.has(art.revisionId)&&observedVisible.get(art.revisionId)&&observedEligible.get(art.revisionId);
                 if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&(art.revisionId===demandContext().owner||visibleMissingMinimum))reduceSurfaceForCurrent(art.revisionId);
-                if(error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!(task.manual&&task.full)&&!active.has(art.revisionId)){
+                if(!requiredEntranceAsset&&error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!(task.manual&&task.full)&&!active.has(art.revisionId)){
                   // Retain the authored coarse model choice until the effective
                   // resident budget increases. A repeat at the same limit cannot fit.
                   try{
@@ -2420,7 +2423,7 @@ export function GeometryPreview({
                   }catch{/* Keep the existing visible failure when no authored coarse model is supported. */}
                 }
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
-                if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
+                if (!requiredEntranceAsset && error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
                     const fallback = selectAssetVariant(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
                     if (fallback.id !== inventory.id) {
