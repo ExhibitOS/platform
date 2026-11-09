@@ -40,7 +40,7 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
    const modular=measured?.profile==='modular-portal-v1'?qualifiedModularPortalTarget(measured,doc,opening.id):undefined;
    if(measured?.profile==='modular-portal-v1'){
     if(!modular)throw Error('WORKSPACE_PLACEMENT_INVALID');
-    fitModularPortal(three,loaded.object,measured,modular);
+    fitModularPortal(three,loaded.object,measured,modular,opening.connectsToOpeningId!==undefined);
    }
    const height=modular?.height??(measured?.profile==='continuous-portal-v1'?measured.openingHeight:portalFinishModel(descriptor.model.sha256,descriptor.model.bytes)?.height);
    if(height===undefined)throw Error('WORKSPACE_PLACEMENT_INVALID');

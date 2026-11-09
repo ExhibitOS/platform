@@ -64,14 +64,19 @@ it('measures both modular originals and fits one unchanged source to the single 
  ] as const){
   const {scene}=await new GLTFLoader().parseAsync(new Uint8Array(original).buffer,'');
   const materials=scene.children.map(child=>(child as three.Mesh).material);
-  fitModularPortal(three,scene,geometry,target);
+  fitModularPortal(three,scene,geometry,target,target===paired);
   const box=new three.Box3().setFromObject(scene,true),size=box.getSize(new three.Vector3()).toArray();
   expected.forEach((value,axis)=>expect(size[axis]).toBeCloseTo(value,5));
   expect(box.min.y).toBeCloseTo(0,5);
   expect(box.min.z).toBeCloseTo(target.minZ-.006,5);
   expect(box.max.z).toBeCloseTo(target.maxZ+.006,5);
-  expect(scene.children.map(child=>(child as three.Mesh).material)).toEqual(materials);
-  scene.traverse(child=>{if(child instanceof three.Mesh){child.geometry.dispose();(child.material as three.Material).dispose();}});
+  const placed=scene.children.map(child=>(child as three.Mesh).material as three.Material);
+  const biased=placed.filter((material,index)=>material!==materials[index]);
+  expect(biased).toHaveLength(target===paired?3:0);
+  for(const material of biased)expect(material).toMatchObject({polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-6});
+  for(const material of materials)expect(material).toMatchObject({polygonOffset:false});
+  scene.traverse(child=>{if(child instanceof three.Mesh)child.geometry.dispose();});
+  for(const material of new Set([...materials,...placed]))(material as three.Material).dispose();
  }
  expect(sha256(original)).toBe('385a3a6d5266a5dda5b3fc6e51fd14e0b990e29de66ee27a80b634a93ef2591b');
 },15_000);
