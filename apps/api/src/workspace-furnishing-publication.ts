@@ -16,7 +16,7 @@ export function projectWorkspaceFurnishings(candidate:{extensions?:Record<string
  if(!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(422,'DRAFT_INVALID');
  const bindings:Array<{publicId:string;descriptor:WorkspaceFurnishingDescriptor}>=source.furnishings.map(descriptor=>({publicId:map(descriptor.id),descriptor:structuredClone(descriptor)}));
  const furnishingIds=new Map(bindings.map(binding=>[binding.descriptor.id,binding.publicId]));
- const extension:WorkspaceFurnishings={version:source.version,furnishings:source.furnishings.map(descriptor=>({...structuredClone(descriptor),id:furnishingIds.get(descriptor.id)!,provenance:matchesInstalledFrame(descriptor)?descriptor.provenance:'Provided by the exhibition editor.'})),placements:source.placements.map(placement=>({...structuredClone(placement),id:map(placement.id),roomId:map(placement.roomId),furnishingId:furnishingIds.get(placement.furnishingId)!})),...((source.version===4||source.version===5||source.version===6)?{frameAttachments:(source.frameAttachments??[]).map(a=>({...a,placementId:map(a.placementId),artworkRevisionId:map(a.artworkRevisionId),assetId:map(a.assetId),furnishingId:furnishingIds.get(a.furnishingId)!}))}:{}),...(source.version===6?{openingAttachments:(source.openingAttachments??[]).map(a=>({...a,openingId:map(a.openingId),furnishingId:furnishingIds.get(a.furnishingId)!}))}:{})};
+ const extension:WorkspaceFurnishings={version:source.version,furnishings:source.furnishings.map(descriptor=>({...structuredClone(descriptor),id:furnishingIds.get(descriptor.id)!,provenance:matchesInstalledFrame(descriptor)?descriptor.provenance:'Provided by the exhibition editor.'})),placements:source.placements.map(placement=>({...structuredClone(placement),id:map(placement.id),roomId:map(placement.roomId),furnishingId:furnishingIds.get(placement.furnishingId)!})),...((source.version>=4)?{frameAttachments:(source.frameAttachments??[]).map(a=>({...a,placementId:map(a.placementId),artworkRevisionId:map(a.artworkRevisionId),assetId:map(a.assetId),furnishingId:furnishingIds.get(a.furnishingId)!}))}:{}),...(source.version>=6?{openingAttachments:(source.openingAttachments??[]).map(a=>({...a,openingId:map(a.openingId),furnishingId:furnishingIds.get(a.furnishingId)!}))}:{})};
  return {extension,bindings};
 }
 
@@ -27,6 +27,7 @@ export async function admittedPublicationWorkspaceFurnishings(c:import('pg').Poo
  const source=candidate.extensions[WORKSPACE_FURNISHING_NAMESPACE] as WorkspaceFurnishings;
  if(!service||!validateWorkspaceFurnishings(candidate).valid)throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===2&&!service.supportsStool())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
+ if(source.version===7&&(!service.supportsReusableFit()||!!source.openingAttachments?.length&&!service.supportsPortalFinish()))throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===6&&!service.supportsPortalFinish())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===5&&!service.supportsArtworkFrameModels())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');
  if(source.version===4&&!service.supportsArtworkFrame())throw new ApiError(404,'PUBLICATION_UNAVAILABLE');

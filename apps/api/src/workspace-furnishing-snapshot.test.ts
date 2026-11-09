@@ -41,3 +41,16 @@ it('requires portal capability, exact owner descriptor and live model authorizat
  const doc={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform:structuredClone(pose)}],surfaces:[{id:id(4),roomId:id(1),type:'wall',transform:structuredClone(pose)}],openings:[{id:id(5),surfaceId:id(4),type:'door',dimensions:{width:2.4,height:2.6},offset:[0,-.2]}],extensions:{'org.exhibitos.studio/workspace-furnishings':{version:6,furnishings:[portal],placements:[],frameAttachments:[],openingAttachments:[{openingId:id(5),furnishingId:id(2),furnishingVersion:1,modelSha256:sha}]}}};
  const service={supportsPortalFinish:vi.fn(()=>false),readVersion:vi.fn(async()=>structuredClone(portal)),checkDisplay:vi.fn(async()=>{})};await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).rejects.toMatchObject({code:'WORKSPACE_FURNISHING_UNAVAILABLE'});service.supportsPortalFinish.mockReturnValue(true);await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).resolves.toBeUndefined();expect(service.checkDisplay).toHaveBeenCalledWith(client,session,id(2),1);service.checkDisplay.mockRejectedValueOnce(new ApiError(409,'ASSET_INTEGRITY'));await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).rejects.toMatchObject({code:'ASSET_INTEGRITY'});
 });
+
+it('compares the measured fit with the owner registry before checking its model bytes',async()=>{
+ const fit={version:1,sourceSha256:item.model.sha256,sourceBytes:item.model.bytes,geometry:{profile:'straight-ring-v1',openingWidth:.806,openingHeight:.606,imagePlaneZ:-.012}};
+ const frame={...item,kind:'artwork-frame',fit},transform={scale:[1,1,1]};
+ const doc={rooms:[{id:id(1),dimensions:{width:6,height:3,depth:8},transform}],artworks:[{id:id(8),revisionId:id(5),primaryAssetId:id(6),schemaVersion:'1.0.0-draft.1',artworkType:'image',dimensions:{width:.8,height:.6},transform}],placements:[{id:id(4),roomId:id(1),artworkRevisionId:id(5),assetId:id(6),transform}],extensions:{'org.exhibitos.studio/workspace-furnishings':{version:7,furnishings:[frame],placements:[],openingAttachments:[],frameAttachments:[{placementId:id(4),artworkRevisionId:id(5),assetId:id(6),furnishingId:id(2),furnishingVersion:1,modelSha256:item.model.sha256}]}}};
+ const issued=structuredClone(frame),service={supportsReusableFit:vi.fn(()=>true),readVersion:vi.fn(async()=>structuredClone(issued)),checkDisplay:vi.fn(async()=>{}),checkArtwork:vi.fn(async()=>{})};
+ await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).resolves.toBeUndefined();
+ expect(service.checkDisplay).toHaveBeenCalledWith(client,session,id(2),1);
+ service.checkDisplay.mockClear();
+ fit.geometry.openingWidth=.807;
+ await expect(assertWorkspaceFurnishingSnapshot(client,session,doc,service as never)).rejects.toMatchObject({code:'FURNISHING_VERSION_MISMATCH'});
+ expect(service.checkDisplay).not.toHaveBeenCalled();
+});
