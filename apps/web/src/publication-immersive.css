@@ -10,6 +10,8 @@
    its existing fill specificity so the authored ticket still wins unchanged. */
 .publication-shell:where(.native-entrance-preview) button{background:var(--publication-action);color:#fff}
 main.publication-shell button{background:transparent;color:var(--publication-ink);border:1px solid var(--publication-muted)}
+main.publication-shell .bench-return{background:var(--publication-paper);color:var(--publication-ink)}
+main.publication-shell .bench-return:focus-visible{outline-offset:-4px}
 main.publication-shell>button,main.publication-shell section[aria-label="3D 관람 오류"]>button{background:var(--publication-action);color:var(--publication-paper);border-color:var(--publication-action)}
 main.publication-shell>button:focus-visible,main.publication-shell section[aria-label="3D 관람 오류"]>button:focus-visible{outline-color:var(--publication-ink)}
 main.publication-shell button:disabled{opacity:1;color:var(--publication-muted);cursor:not-allowed}
