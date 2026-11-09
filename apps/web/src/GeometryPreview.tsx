@@ -80,7 +80,7 @@ import {
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor } from "@exhibitos/studio-contract";
+import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor, type DetailTier } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -1454,7 +1454,7 @@ export function GeometryPreview({
         setSceneIssue(issue);
       };
       const readArtworkBytes = async (
-        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal,
+        artwork: Document["artworks"][number], inventory: Document["artworks"][number]["assets"][number], taskSignal:AbortSignal, progress?:(bytes:number)=>void,
       ) => {
         const signal = AbortSignal.any([abort.signal, taskSignal]);
         let bytes: ArrayBuffer;
@@ -1469,13 +1469,13 @@ export function GeometryPreview({
             // Reuse still checks authoritative availability.
             await checkPublicAvailability(signal);
             bytes = cached;
-            cacheHits++;
+            cacheHits++;progress?.(bytes.byteLength);
           } else {
             bytes = await fetchVerifiedAsset({
               ...publicSource,
               asset: source,
               inventory,
-              signal,
+              signal,progress,
             });
             byteCache.set(inventory.id, bytes, bytes.byteLength);
           }
@@ -1537,9 +1537,10 @@ export function GeometryPreview({
         stage?: (value:string)=>void,
         imageBudget = viewerBudget,
         onCleanDecodeFailure?:()=>void,
+        progress?:(bytes:number)=>void,
       ) => {
         const signal=AbortSignal.any([abort.signal,taskSignal]);
-        const bytes=await readArtworkBytes(artwork,inventory,signal);
+        const bytes=await readArtworkBytes(artwork,inventory,signal,progress);
         stage?.('verified-download');
         reserveDecode?.(bytes!);
         stage?.(artwork.artworkType==='image'?'cpu-image-decode':'cpu-glb-parse');
@@ -1927,13 +1928,15 @@ export function GeometryPreview({
           if(task&&neededMinimum(task))reclaimOffroom(task.art.revisionId,()=>peak.total(key)+bytes-limit);
           peak.reserve(key,bytes,limit);
         };
+        type DetailTransfer={loaded(bytes:number):void;finish():void};
+        let beginDetailTransfer:((tier:DetailTier,bytes:number)=>DetailTransfer)|undefined;
         const tasks = new Map<
           string,
           {
             art: Document["artworks"][number];
             inventory: Document["artworks"][number]["assets"][number];
             prepareOnly:boolean; downloadOnly:boolean;full?:boolean;manual?:boolean;
-            imageBudget?:DeviceBudget;detailPromotion?:boolean;
+            imageBudget?:DeviceBudget;detailPromotion?:boolean;detailTransfer?:DetailTransfer;
             thumbnailWork?:(signal:AbortSignal)=>Promise<void>;
           }
         >();
@@ -1978,7 +1981,7 @@ export function GeometryPreview({
               reserve(key,t.inventory.bytes*4);
               stage(t.inventory.id,'fetch-verify',undefined,key);
               if(t.downloadOnly){
-                const bytes=await readArtworkBytes(t.art,t.inventory,signal),budget=t.imageBudget??viewerBudget;
+                const bytes=await readArtworkBytes(t.art,t.inventory,signal,t.detailTransfer?.loaded),budget=t.imageBudget??viewerBudget;
                 signal.throwIfAborted();
                 stage(t.inventory.id,'verified-download',undefined,key);
                 checkImageDecode(bytes,t.art,t.inventory,budget);
@@ -1987,7 +1990,7 @@ export function GeometryPreview({
                 imageDecodeCeilings.set(`${t.inventory.id}/${budget.maxTextureSize}`,ceiling);
                 return {key};
               }
-              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget);
+              const object=await loadArtwork(t.art,t.inventory,signal,bytes=>reserve(key,assetDecodeReserve(t.art,t.inventory,{...(t.imageBudget??viewerBudget),maxCacheBytes:requestLimits(t).resident},bytes,'cpu')),value=>stage(t.inventory.id,value,undefined,key),t.imageBudget,undefined,t.detailTransfer?.loaded);
               object.userData.loadKey=key;
               try{
                 signal.throwIfAborted();
@@ -2206,7 +2209,8 @@ export function GeometryPreview({
           desired.set(art.revisionId, inventory.id);
           const key=`${inventory.id}/${sequence++}`;
           pending.set(art.revisionId,key);
-          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,imageBudget:imageTarget?.budget,detailPromotion };
+          const detailTransfer=detailPromotion?beginDetailTransfer?.('approved-full',inventory.bytes):undefined;
+          const task={ art, inventory, prepareOnly, downloadOnly,full,manual,imageBudget:imageTarget?.budget,detailPromotion,detailTransfer };
           tasks.set(key,task);
           stages.begin(inventory.id,key);
           const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
@@ -2340,7 +2344,7 @@ export function GeometryPreview({
                 failed.add(art.revisionId);
                 update();
               }
-            }).finally(()=>stages.settled(inventory.id,key));
+            }).finally(()=>{detailTransfer?.finish();stages.settled(inventory.id,key);});
           update();
         };
         const reclaimForCurrent=()=>{
@@ -2655,6 +2659,19 @@ export function GeometryPreview({
           sharedDetailUnavailable=input.unavailable;
           let promoteImage:(()=>void)|undefined,retryPromotion:(()=>void)|undefined;
           let alive=true,checking=false,timer:ReturnType<typeof setInterval>|undefined;
+          let attemptGeneration=0,activeTransfer:DetailTransfer|undefined;
+          beginDetailTransfer=(tier,totalBytes)=>{
+            const generation=++attemptGeneration;
+            const emit=(value:Parameters<NonNullable<typeof input.qualityProgress>>[0])=>{
+              try{input.qualityProgress?.(value,generation);}catch{/* UI observers do not own the transfer. */}
+            };
+            let loadedBytes=0;
+            const transfer:DetailTransfer={
+              loaded(bytes){if(alive&&activeTransfer===transfer&&bytes>loadedBytes){loadedBytes=Math.min(bytes,totalBytes);emit({tier,loadedBytes,totalBytes});}},
+              finish(){if(activeTransfer===transfer){activeTransfer=undefined;emit(null);}},
+            };
+            activeTransfer=transfer;emit({tier,loadedBytes,totalBytes});return transfer;
+          };
           let originalAttempt:ReturnType<typeof startDetailImageAttempt>|undefined,originalDrawGeneration=0,originalAttached=false,originalDisplayed=false,originalBlocked=false,originalSettled=false,originalDrawSuppressed=false;
           let redrawSettledBaseline=()=>{};
           const previousCanvasVisibility=renderer.domElement.style.visibility;
@@ -2662,7 +2679,7 @@ export function GeometryPreview({
           const retireOriginal=()=>{if(originalAttempt)void originalAttempt.close().then(()=>{originalSettled=true;if(originalDrawSuppressed){originalDrawSuppressed=false;redrawSettledBaseline();}},()=>{if(alive&&!signal.aborted&&!disposed)input.unavailable('recovery');});};
           const visible=()=>{if(globalThis.document.visibilityState==='visible'){void check();resumeLegacy();}else if(originalAttempt&&!originalSettled)retireOriginal();};
           const restore=()=>{
-            if(!alive)return;alive=false;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
+            if(!alive)return;alive=false;activeTransfer?.finish();beginDetailTransfer=undefined;guardOriginalDetail=()=>{};const originalDrain=originalAttempt?.close();clearInterval(timer);globalThis.document.removeEventListener('visibilitychange',visible);
             diagnosticOriginal=null;
             diagnosticOriginalLimits=null;
             retryOriginalDetail=undefined;
@@ -2708,50 +2725,56 @@ export function GeometryPreview({
           };
           try{
             const admittedGallery=galleryBuffer();
-            const tiers=input.flatImage?new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail])):undefined;
-            let lastDrawnImageTier:'approved-full'|'lightweight'|undefined;
-            const onFlatImageDraw=(drawn:InstanceType<typeof three.Object3D>)=>{
+            const tiers=new Map(lodVariantsFor(art).map(variant=>[variant.assetId.toLowerCase(),variant.detail]));
+            let lastDrawnTier:'approved-full'|'lightweight'|undefined;
+            const reportDrawnTier=(drawn:InstanceType<typeof three.Object3D>)=>{
               const assetId:unknown=drawn.userData.viewerAssetId;
-              const detail=typeof assetId==='string'?tiers?.get(assetId.toLowerCase()):undefined;
+              const detail=typeof assetId==='string'?tiers.get(assetId.toLowerCase()):undefined;
               if(detail!=='full'&&detail!=='coarse')return;
               const tier=detail==='full'?'approved-full':'lightweight';
-              if(tier===lastDrawnImageTier)return;
-              lastDrawnImageTier=tier;
+              if(tier===lastDrawnTier)return;
+              lastDrawnTier=tier;
               try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
             };
-            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore,onFlatImageDraw});
+            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore,onFlatImageDraw:reportDrawnTier});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
+            let approvedStarted=false;
+            const startApproved=()=>{
+              if(approvedStarted||!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;
+              approvedStarted=true;
+              let target:ReturnType<typeof selectAssetVariant>;
+              try{target=(input.flatImage?selectedImageDetail(art,viewerBudget)?.inventory:undefined)??selectAssetVariant(art,0,viewerBudget);}catch{return;}
+              if(tiers.get(target.id.toLowerCase())!=='full'||target.id===object?.userData.viewerAssetId)return;
+              promoteImage=()=>{
+                const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
+                try{if(input.flatImage)scope.replaceImage(next);else scope.replaceModel(next);}
+                catch{detailImageCandidate=undefined;destroy(next);if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;if(renderer.domElement.style.visibility==='hidden')input.unavailable('recovery');return;}
+                const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
+                if(!input.flatImage)reportDrawnTier(next);
+                if(retired&&previous)destroy(previous);
+              };
+              settleDetail=promoteImage;
+              retryPromotion=createFlatDetailRetry({
+                valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope,
+                pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
+                ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===target.id,
+                request:()=>request(art,true,false,true),
+              });
+              retryFlatDetail=retryPromotion;retryPromotion();
+            };
             if(input.flatImage){
               // A registered model is required before any original byte read.
               // Unqualified publications retain the existing detail path.
               const owner=detailOwner,access=detailAccess,profile=imageProfile;
-              const context=renderer.getContext();let legacyStarted=false;
+              const context=renderer.getContext();
               const viewport=()=>({width:input.host.clientWidth,height:input.host.clientHeight,canvasWidth:renderer.domElement.width,canvasHeight:renderer.domElement.height,pixelRatio:renderer.getPixelRatio(),devicePixelRatio:globalThis.devicePixelRatio});
-              const startLegacy=()=>{
-                if(legacyStarted||!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;legacyStarted=true;
-                // Existing independently admitted detail remains the preflight fallback.
-                promoteImage=()=>{
-                  const next=detailImageCandidate;if(!alive||signal.aborted||!next||next===object)return;
-                  try{scope.replaceImage(next);}catch{return;}
-                  const previous=object,retired=detailRetired;detailImageCandidate=undefined;object=next;detailPinned=next;detailRetired=true;
-                  if(retired&&previous)destroy(previous);
-                };
-                settleDetail=promoteImage;
-                retryPromotion=createFlatDetailRetry({
-                  valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope,
-                  pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
-                  ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===(selectedImageDetail(art,viewerBudget)?.inventory??selectAssetVariant(art,0,viewerBudget)).id,
-                  request:()=>request(art,true,false,true),
-                });
-                retryFlatDetail=retryPromotion;retryPromotion();
-              };
               if(profile&&sameDetailImageViewport(profile.detailViewport,viewport())&&owner&&access&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&typeof WebGL2RenderingContext!=='undefined'&&context instanceof WebGL2RenderingContext){
                 const admittedViewport=viewport();let legacyPending=false;
                 const scopeCurrent=()=>renderer.getContext()===context&&alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope&&isVerifiedStaticDetailAccess(owner,access);
                 const stillCurrent=()=>sameDetailImageViewport(admittedViewport,viewport())&&scopeCurrent()&&coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery)&&globalThis.document.visibilityState==='visible';
-                const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startLegacy();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
+                const activateLegacy=()=>{if(!scopeCurrent())return;if(globalThis.document.visibilityState!=='visible'){legacyPending=true;return;}legacyPending=false;void checkPublicAvailability(signal).then(()=>{if(scopeCurrent()&&globalThis.document.visibilityState==='visible')startApproved();else if(scopeCurrent())legacyPending=true;}).catch(()=>{if(scopeCurrent())stopPublicDisplay();});};
                 resumeLegacy=()=>{if(legacyPending)activateLegacy();};
                 const hints=(globalThis.navigator as Navigator&{userAgentData?:{platform:string;getHighEntropyValues(hints:string[]):Promise<{fullVersionList?:Array<{brand:string;version:string}>}>}}).userAgentData;
                 void matchesDetailRuntime(profile.runtime,context,hints,signal).then(matches=>{
@@ -2768,25 +2791,44 @@ export function GeometryPreview({
                       for(const asset of arts.flatMap(work=>work.assets)){if(deficit()<=0)break;byteCache.delete(asset.id);}
                       evictPrepared(deficit);
                     }
+                    let transfer:DetailTransfer|undefined;
                     originalAttempt=startDetailImageAttempt({profile,access,slot:originalDetailSlot,peak,limit:profile.transitionCapBytes,attemptId,generation,isCurrent:()=>current(),signal,three,
                       handoffReservation:(key,bytes)=>{if(!deferredCanvasRestore){originalSettled=true;return false;}if(restoreHold)throw Error('DETAIL_RESTORE_BUDGET');restoreHold={key,bytes};return true;},
                       isTrusted:()=>coverReady()&&matchesMeasuredWheatImage(profile,staticDetailAttestation(access,owner,profile.candidateId),admittedGallery),
-                      draw:next=>{if(!current())throw Error('DETAIL_STALE');originalAttached=true;scope.replaceImage(next);},
+                      draw:next=>{
+                        if(!current())throw Error('DETAIL_STALE');
+                        originalAttached=true;
+                        try{scope.replaceImage(next);}catch(error){
+                          if(error instanceof Error&&['DETAIL_DRAW_UNCONFIRMED','DETAIL_DRAW_ROLLED_BACK'].includes(error.message))originalAttached=false;
+                          throw error;
+                        }
+                      },
                       hide:()=>{const wasAttached=originalAttached;originalAttached=false;const hadDisplay=originalDisplayed;originalDisplayed=false;diagnosticOriginal=null;diagnosticOriginalLimits=null;if(!wasAttached&&alive&&!signal.aborted&&!gpuLost&&sameDetailImageViewport(admittedViewport,viewport()))return;renderer.domElement.style.visibility='hidden';try{if(alive&&!signal.aborted&&!gpuLost)input.unavailable('restoring');scope.dispose();}catch(error){originalBlocked=true;renderer.domElement.style.visibility='hidden';throw error;}finally{if(hadDisplay)try{input.renderedTier?.(null,++originalDrawGeneration);}catch{/* A UI observer cannot prevent safe detachment. */}}},
-                      completeCommands:()=>completeDetailCommands(context),
+                      completeCommands:()=>completeDetailCommands(context),progress:bytes=>transfer?.loaded(bytes),
                     });
                     if(diagnosticsEnabled())diagnosticOriginalLimits={transition:profile.transitionCapBytes,scene:profile.maxSceneBytes};
                     guardOriginalDetail=()=>{if(!originalSettled&&!current()){guardOriginalDetail=()=>{};retireOriginal();}};guardOriginalDraw=()=>{if(originalBlocked)return false;if(originalSettled)return true;if(current())return true;originalDrawSuppressed=true;guardOriginalDetail();return false;};
-                    void originalAttempt.show().then(shown=>{if(shown&&current()){originalDisplayed=true;lastDrawnImageTier=undefined;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};input.renderedTier?.('acquired-original',++originalDrawGeneration);}else if(shown&&originalAttempt)retireOriginal();}).catch(()=>{retireOriginal();});
+                    transfer=beginDetailTransfer?.('acquired-original',profile.bytes);const attempt=originalAttempt;
+                    const fallback=()=>{retireOriginal();void attempt.close().then(()=>{redrawSettledBaseline();activateLegacy();},()=>{});};
+                    void attempt.show().then(shown=>{
+                      if(shown&&current()){
+                        originalDisplayed=true;lastDrawnTier=undefined;if(diagnosticsEnabled())diagnosticOriginal={artworkRevisionId:art.revisionId,sha256:profile.sha256};
+                        transfer?.loaded(profile.bytes);
+                        try{input.renderedTier?.('acquired-original',++originalDrawGeneration);}catch{/* A UI observer cannot undo the committed draw. */}
+                      }else fallback();
+                    }).catch(fallback).finally(()=>transfer?.finish());
                   }catch(error){let validRefusal=error instanceof DetailImageBudgetRefusal&&error.attemptId===attemptId&&error.generation===generation&&current();if(validRefusal)try{originalDetailSlot.assertAvailable(attemptId,generation);}catch{validRefusal=false;}if(validRefusal){
-                    startLegacy();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
+                    startApproved();if(promoteImage)settleDetail=promoteImage;if(retryPromotion)retryFlatDetail=retryPromotion;
                     retryOriginalDetail=createDetailBudgetRetry({valid:current,now:()=>performance.now(),deadline:retryDeadline,
                       ready:()=>{const work=scheduler.stats();return detailBudgetRetryReady({floorSettled,surfaceSettled,deferred:materialBudgetDeferred.size,active:work.active,queued:work.queued,pending:pending.has(art.revisionId),candidate:!!detailImageCandidate,used:peak.total(),sceneCap:profile.maxSceneBytes,reservation:profile.reservationBytes,transitionCap:profile.transitionCapBytes});},
                       retry:()=>{retryOriginalDetail=undefined;if(settleDetail===promoteImage)settleDetail=undefined;if(retryFlatDetail===retryPromotion)retryFlatDetail=undefined;attemptOriginal();}});
                   }}};
                   attemptOriginal();
                 }).catch(()=>{activateLegacy();});
-              }else startLegacy();
+              }else startApproved();
+            }else if(art.artworkType==='sculpture'){
+              reportDrawnTier(object);
+              if(!input.anchors.length&&lastDrawnTier==='lightweight')startApproved();
             }
             update();return scope;
           }catch(error){restore();throw error;}
