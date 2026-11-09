@@ -48,7 +48,8 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
  case 'import_jobs':{
   const hayes=row.hayes_attempt_id!==undefined&&row.hayes_attempt_id!==null;
   if(hayes)issues.push({code:'HAYES_WORKER_DRAIN_UNCONFIRMED',binding});
-  const productImage=obj(row.derived)&&row.derived.kind==='product-image-pair';
+  const freshImage=obj(row.derived)&&row.derived.kind==='fresh-product-image';
+  const productImage=freshImage||obj(row.derived)&&row.derived.kind==='product-image-pair';
   const required=hayes||productImage&&row.state==='failed'||row.state==='queued'||row.state==='processing'||row.state==='approved'||row.model_preparation!=null&&row.state==='failed';
   add(row.object_key,required,row.expected_bytes,row.expected_hash,':source');
   // Hayes approved_key points to the derived output, whose own stage/asset
@@ -83,7 +84,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
   if(productImage&&obj(prepared)){
    const invalid=()=>issues.push({code:'INVALID_PRODUCT_IMAGE_IMPORT',binding});
    const request=prepared.request,base=`${tenant}/quarantine/import-${row.id}`;
-   if(!obj(request)||request.version!==1||request.profile!=='product-image-pair-2048-512-v1'||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||typeof prepared.workspaceId!=='string'||prepared.principalId!==row.user_id||row.mime!=='image/jpeg'||row.png_drain_version!==1||row.model_derivation!=null||row.object_key!==`${base}/${row.expected_hash}`||row.derived_object_key!==`${base}/product-full`){invalid();break;}
+   if(!obj(request)||request.version!==1||request.profile!==(freshImage?'ordinary-image-preparation-v1':'product-image-pair-2048-512-v1')||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||typeof prepared.workspaceId!=='string'||prepared.principalId!==row.user_id||!(row.mime==='image/jpeg'||freshImage&&row.mime==='image/png')||row.png_drain_version!==1||row.model_derivation!=null||row.object_key!==`${base}/${row.expected_hash}`||row.derived_object_key!==`${base}/product-full`){invalid();break;}
    if(row.lease_id!=null||!Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length>0)issues.push({code:'PRODUCT_IMAGE_WORKER_DRAIN_UNCONFIRMED',binding});
    if(row.state!=='approved'){
     if(prepared.result!==undefined||row.asset_id!=null||row.original_asset_id!=null||row.approved_key!==`${base}/pending-output`)invalid();
@@ -92,7 +93,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
    const receipt=prepared.result;
    if(!obj(receipt)||!obj(receipt.original)||!obj(receipt.full)||!obj(receipt.producer)){invalid();break;}
    const {sha256:digest,...body}=receipt,original=receipt.original,full=receipt.full,coarse=receipt.coarse;
-   if(!hex(digest)||hash(body)!==digest||receipt.version!==1||receipt.jobId!==row.id||receipt.artworkId!==row.artwork_id||receipt.artworkRevision!==request.artworkRevision||receipt.workspaceId!==prepared.workspaceId||receipt.principalId!==row.user_id||receipt.rightsSHA256!==hash(row.rights)||original.assetId!==row.original_asset_id||original.sha256!==row.expected_hash||original.bytes!==Number(row.expected_bytes)||original.mime!=='image/jpeg'||full.assetId!==row.asset_id||full.mime!=='image/png'||!hex(full.sha256)||!bytes(full.bytes)||row.approved_key!==`${tenant}/approved/${full.sha256}`){invalid();break;}
+   if(!hex(digest)||hash(body)!==digest||receipt.version!==1||receipt.jobId!==row.id||receipt.artworkId!==row.artwork_id||receipt.artworkRevision!==request.artworkRevision||receipt.workspaceId!==prepared.workspaceId||receipt.principalId!==row.user_id||receipt.rightsSHA256!==hash(row.rights)||original.assetId!==row.original_asset_id||original.sha256!==row.expected_hash||original.bytes!==Number(row.expected_bytes)||original.mime!==row.mime||full.assetId!==row.asset_id||full.mime!=='image/png'||!hex(full.sha256)||!bytes(full.bytes)||row.approved_key!==`${tenant}/approved/${full.sha256}`){invalid();break;}
    if(coarse!==undefined&&(!obj(coarse)||coarse.mime!=='image/png'||!hex(coarse.sha256)||!bytes(coarse.bytes))){invalid();break;}
    add(row.derived_object_key,true,full.bytes,full.sha256,':product-full');
    add(row.approved_key,true,full.bytes,full.sha256,':approved');

@@ -422,6 +422,7 @@ export class Cms {
     } as Artwork;
     if(!validateArtwork(importedArtwork).valid||!validateViewerLod(importedArtwork).valid||!validateArtworkDetails(importedArtwork).valid)
       throw new ApiError(409,'APPROVAL_INVALID');
+    qualifyDemoDisplay(importedArtwork);
     const snapshot={metadata,asset:{id:receipt.full.assetId,mime:receipt.full.mime,bytes:receipt.full.bytes,sha256:receipt.full.sha256,rightsRevision:primary.revision},
       importedArtwork,freshImagePreparation:receipt.sha256};
     await c.query('INSERT INTO artwork_approvals VALUES($1,$2,$3,$4,$5,now())',[s.tenantId,id,b.revision,receipt.full.assetId,snapshot]);
