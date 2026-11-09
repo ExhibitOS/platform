@@ -19,10 +19,20 @@ async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=f
  if(!/^data\/[a-f0-9]{64}\.(json|bin)$/.test(path)&&path!=="static-publication-index.json")throw Error("STATIC_PATH");
  // Only exact content-addressed paths are read with the normal HTTP cache.
  // The mutable index always bypasses it; each response is still hashed below.
- const response=await fetch(base+"/"+path,{credentials:"omit",cache:cacheEligible?'default':'no-store',signal:signal??AbortSignal.timeout(30000),redirect:"error"});
- if(!response.ok||!response.body)throw Error("STATIC_RESPONSE");const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
- try{for(;;){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
- const result=new Uint8Array(length);let offset=0;for(const c of chunks){result.set(c,offset);offset+=c.length;}return result;
+ const deadline=AbortSignal.timeout(30000);
+ const transferSignal=signal?AbortSignal.any([signal,deadline]):deadline;
+ try {
+  transferSignal.throwIfAborted();
+  const response=await fetch(base+"/"+path,{credentials:"omit",cache:cacheEligible?'default':'no-store',signal:transferSignal,redirect:"error"});
+  if(!response.ok||!response.body)throw Error("STATIC_RESPONSE");
+  const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
+  try{for(;;){const {done,value}=await reader.read();transferSignal.throwIfAborted();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
+  const result=new Uint8Array(length);let offset=0;for(const c of chunks){result.set(c,offset);offset+=c.length;}return result;
+ } catch(error) {
+  signal?.throwIfAborted();
+  if(deadline.aborted&&transferSignal.reason===deadline.reason)throw Error('STATIC_TRANSFER_TIMEOUT',{cause:error});
+  throw error;
+ }
 }
 // Detail capabilities own the complete response, including cancellation. A
 // failed cancel remains an error rather than evidence that the reader drained.
