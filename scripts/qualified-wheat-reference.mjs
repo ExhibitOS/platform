@@ -9,12 +9,12 @@ import {parseStaticJson} from '../apps/web/src/static-json.mjs';
 import {buildNativeDetailPlan} from './native-detail-plan.mjs';
 
 export const WHEAT_REFERENCE=Object.freeze({
- indexSha256:'c998f166a7e543c6d71157648a146c34686a59a4d71a42bf2625a7ac76d26f44',
- publicationSha256:'cd8fd26f8d73024d009394ba468eedad0c08988f30e9f5c0f44d4782c673f935',
- publicationId:'afcc98f0-a2e3-44f2-bbdf-2bfa298da2e2',
- revisionSha256:'ab2e073f1b74b1989f362d35578b53c5854b8d5654c058ae81cfa0fc6ed3fd88',
+ indexSha256:'fc481adb59950b41fca3515b541144d684805e2cf366ccd27ed0fbbc1c58a9f9',
+ publicationSha256:'d63557800e3e97d6f64025a74b2c4bc063f1e1ecbff28185573411e04f97a5ba',
+ publicationId:'8bc48858-faf4-4ec4-8ead-a14669355862',
+ revisionSha256:'a239844c4aa1e4472bb5feac92d840192f6d006adb41441481afd65d20f558ce',
  assetSha256:'b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',
- candidateId:'68257123-c1fb-426b-93c8-b96e94dc50e5',
+ candidateId:'56e81e46-1e3b-4597-a1c7-16ff2051709f',
 });
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
@@ -29,7 +29,7 @@ async function regular(root,path,limit){
 export async function verifiedQualifiedWheat({root,indexPath='static-publication-index.json'}){
  const bytes=await regular(root,indexPath,1048576);if(sha(bytes)!==WHEAT_REFERENCE.indexSha256)fail();
  const index=parseStaticJson(bytes);
- if(!keys(index,['version','publication','assets','resources','detailAssets'])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==34||!Array.isArray(index.resources)||index.resources.length!==4||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
+ if(!keys(index,['version','publication','assets','resources','detailAssets'])||index.version!==4||!Array.isArray(index.assets)||index.assets.length!==35||!Array.isArray(index.resources)||index.resources.length!==4||!Array.isArray(index.detailAssets)||index.detailAssets.length!==1)fail();
  const entries=[index.publication,...index.assets,...index.resources,...index.detailAssets],data=new Map();
  for(const [i,e] of entries.entries()){
   const expectedKeys=i===0?['path','bytes','sha256','mime']:Object.hasOwn(e,'assetId')?['assetId','path','bytes','sha256','mime']:['path','bytes','sha256','mime'];
@@ -49,19 +49,19 @@ export async function verifiedQualifiedWheat({root,indexPath='static-publication
 
 /** Reconstruct exact HTML from the trusted runtime templates and verified
  * exhibition; callers compare complete bytes rather than searching for tags. */
-export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor,bases=[]}){
+export async function expectedWheatHtml({runtimeRoot,exhibition,privateEditor}){
  const template=(await readFile(join(runtimeRoot,'static.html'))).toString('utf8');
  if(template.split('STATIC_INDEX_SHA256').length!==2||template.split('<!--STATIC_COVER_SHELL-->').length!==2||template.split('</head>').length!==2||!/<title>[^<]*<\/title>/.test(template))fail();
  const {renderEntranceShell}=await import('../apps/web/dist-reference-demo-cover/entrance-shell.js');
  const shell=renderEntranceShell(exhibition),title=String(exhibition.title).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let index=template.replace('STATIC_INDEX_SHA256',WHEAT_REFERENCE.indexSha256).replace('<!--STATIC_COVER_SHELL-->',()=>shell).replace(/<title>[^<]*<\/title>/,()=>`<title>${title}</title>`);
- if(privateEditor)index=index.replace('</head>','<meta name="exhibitos-private-editor" content="enabled"></head>');
+ const decorationMode='<meta name="exhibitos-demo-decoration" content="session-v1">';
+ if(privateEditor)index=index.replace('</head>','<meta name="exhibitos-private-editor" content="enabled">'+decorationMode+'</head>');
  let studio;
  if(privateEditor){
   studio=(await readFile(join(runtimeRoot,'static-studio.html'))).toString('utf8');
   if(studio.split('STATIC_INDEX_SHA256').length!==2||studio.split('</head>').length!==2)fail();
-  studio=studio.replace('STATIC_INDEX_SHA256',WHEAT_REFERENCE.indexSha256);
-  if(bases.length)studio=studio.replace('</head>',`<meta name="exhibitos-private-copy-bases" content='${JSON.stringify(bases)}'></head>`);
+  studio=studio.replace('STATIC_INDEX_SHA256',WHEAT_REFERENCE.indexSha256).replace('</head>',decorationMode+'</head>');
  }
  return {index:Buffer.from(index),studio:studio===undefined?undefined:Buffer.from(studio)};
 }
@@ -74,9 +74,9 @@ export async function assembleQualifiedWheat({output,sourceRoot,runtimeRoot,priv
  const manifestPath=join(output,'static-export-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
  const oldIndex=await readFile(join(output,'static-publication-index.json'));const oldHash=sha(oldIndex);
  if(oldHash!=='11ded7c2510a9e77e589bcf10ddffc7ff86ee64fabde586b9aae83975c780d55'||manifest.indexSha256!==oldHash||!Array.isArray(manifest.files))fail();
- const {index:indexHtml}=await expectedWheatHtml({runtimeRoot,exhibition:source.publication.exhibition,privateEditor});
- const studioPath=join(output,'studio.html');let studio;
- if(privateEditor){const original=await readFile(studioPath,'utf8');if(original.split(oldHash).length!==2)fail();studio=Buffer.from(original.replace(oldHash,WHEAT_REFERENCE.indexSha256));}
+ const {index:indexHtml,studio}=await expectedWheatHtml({runtimeRoot,exhibition:source.publication.exhibition,privateEditor});
+ const studioPath=join(output,'studio.html');
+ if(privateEditor&&(await readFile(studioPath,'utf8')).split(oldHash).length!==2)fail();
  // Only the fresh exporter-owned staging directory is changed.
  for(const file of await readdir(join(output,'data'))){if(!/^[a-f0-9]{64}\.(?:bin|json)$/.test(file))fail();await unlink(join(output,'data',file));}
  for(const [path,data] of source.data)await writeFile(join(output,path),data,{flag:'wx'});

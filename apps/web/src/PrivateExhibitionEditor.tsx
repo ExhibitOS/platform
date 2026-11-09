@@ -24,6 +24,7 @@ import {onlyPrivateLightValuesChanged} from './private-editor/light-value-change
 import {assertPreparedRoom} from './private-editor/attached-room';
 import {safePrivateView,type PrivateView} from './viewer/private-view';
 import {readActiveCopy,rememberActiveCopy} from './private-editor/active-copy';
+import {demoDecorationNotice} from './private-editor/demo-decoration';
 import './private-editor.css';
 
 function Thumbnail({art,seed}:{art:Artwork;seed:PrivateSeed}){
@@ -62,8 +63,8 @@ export async function preparePrivateSave(seed:PrivateSeed,store:Pick<DraftStore,
  return {record:saved,copies:[saved,...copies.filter(copy=>copy.id!==saved.id)],listRefreshed};
 }
 
-export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
- const store=useMemo(()=>new DraftStore(seed.storeName,{privateHistory:true}),[seed]);
+export function PrivateExhibitionEditor({seed,demoSession=false}:{seed:PrivateSeed;demoSession?:boolean}){
+ const store=useMemo(()=>demoSession?null:new DraftStore(seed.storeName,{privateHistory:true}),[seed,demoSession]);
  const record=useRef<LocalDraft|null>(null),stateRef=useRef<GeometryState|null>(null);
  const [state,setState]=useState<GeometryState|null>(null),[selection,setSelectionState]=useState<EditorSelection|null>(null),[preview,setPreviewState]=useState<GeometryCommand|null>(null);
  const [mode,setModeState]=useState<'edit'|'walk'>('edit'),[tool,setTool]=useState<EditMode>('translate'),[view,setView]=useState<'3d'|'plan'>('3d');
@@ -74,7 +75,7 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
  const resetCamera=useCallback(()=>setCameraMode('object'),[setCameraMode]);
  const chooseCamera=useCallback((value:CameraInteractionMode)=>{if(value==='object'&&cameraModeRef.current==='object')return true;if(!cameraApply.current?.(value))return false;setCameraMode(value);return true;},[setCameraMode]);
  const [activePanel,setActivePanel]=useState<PrivateTool>('space'),[panelOpen,setPanelOpen]=useState(false),[panelCollapsed,setPanelCollapsed]=useState(false);
- const [busy,setBusyState]=useState(false),[dirty,setDirty]=useState(false),[notice,setNotice]=useState('이 브라우저의 편집 사본을 확인하고 있어요.'),[error,setError]=useState(''),[resetOpen,setResetOpen]=useState(false),[previousAvailable,setPreviousAvailable]=useState(false);
+ const [busy,setBusyState]=useState(false),[dirty,setDirty]=useState(false),[notice,setNotice]=useState(demoSession?'현재 공개본을 준비하고 있어요.':'이 브라우저의 편집 사본을 확인하고 있어요.'),[error,setError]=useState(''),[resetOpen,setResetOpen]=useState(false),[previousAvailable,setPreviousAvailable]=useState(false);
  const selectionRef=useRef<EditorSelection|null>(null),interactionSerial=useRef(0),previewRef=useRef<GeometryCommand|null>(null),temperaturePreviewRef=useRef<GeometryCommand|null>(null),temperatureLightId=useRef<string|undefined>(undefined),modeRef=useRef<'edit'|'walk'>('edit'),busyRef=useRef(false);
  const setSelection=useCallback((value:EditorSelection|null)=>{interactionSerial.current++;selectionRef.current=value;setSelectionState(value);},[]);
  const setPreview=(value:GeometryCommand|null)=>{if(value===null||value!==temperaturePreviewRef.current){temperaturePreviewRef.current=null;temperatureLightId.current=undefined;}interactionSerial.current++;previewRef.current=value;setPreviewState(value);};
@@ -96,19 +97,36 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
  useEffect(()=>{
   let live=true;
   void (async()=>{
-   await seed.source.local!.check();const rows=await store.list();
+   await seed.source.local!.check();
+   if(!store){
+    if(!live)return;
+    const candidate=structuredClone(seed.source.exhibition);
+    checkPrivateCandidate(seed,candidate);
+    const next=createGeometryState(candidate);
+    stateRef.current=next;setState(next);
+    setSelection({kind:'room',id:safePrivateView(candidate,seed.initialView)?.roomId??starterRoom(candidate).id});
+    setNotice('');
+    return;
+   }
+   const rows=await store.list();
    const selectedId=readActiveCopy(seed.storeName);
    const existing=rows.find(row=>row.id===selectedId)??rows[0];
    if(!existing&&seed.existingOnly)throw Error('PRIVATE_COPY_MISSING');
    const saved=existing??await store.save(starterDraft(seed));checkPrivateCandidate(seed,saved.draft.candidate);
    let previous:LocalDraft|null;try{previous=await store.privatePrevious(saved.id);if(previous)checkPrivateCandidate(seed,previous.draft.candidate);}catch{previous=null;}
    if(!live)return;setPreviousAvailable(previous!==null);rememberActiveCopy(seed.storeName,saved.id);record.current=saved;setCopies(rows.length?rows:[saved]);const next=createGeometryState(saved.draft.candidate);stateRef.current=next;setState(next);setSelection({kind:'room',id:safePrivateView(next.present,seed.initialView)?.roomId??starterRoom(next.present).id});setNotice('이 브라우저만의 편집 사본이에요. 공개 전시는 바뀌지 않아요.');
-  })().catch(()=>{if(live)setError('편집 사본을 열 수 없어요. 기존 저장본은 유지됩니다. 페이지를 다시 열어 확인해 주세요.');});
-  return()=>{live=false;void store.close();};
+  })().catch(()=>{if(live)setError(store?'편집 사본을 열 수 없어요. 기존 저장본은 유지됩니다. 페이지를 다시 열어 확인해 주세요.':'현재 공개본을 열 수 없어요. 페이지를 다시 열어 확인해 주세요.');});
+  return()=>{live=false;void store?.close();};
  },[seed,store]);
  useEffect(()=>{if(!state||!selection)return;try{setDraftPosition(localPose(state.present,selection).position.map(String));}catch{setSelection(null);}},[state,selection]);
  useEffect(()=>{setScaleFactor('1');},[selection?.kind,selection?.id]);
- useEffect(()=>{const prevent=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',prevent);return()=>window.removeEventListener('beforeunload',prevent);},[dirty]);
+ useEffect(()=>{if(demoSession)return;const prevent=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',prevent);return()=>window.removeEventListener('beforeunload',prevent);},[dirty,demoSession]);
+ useEffect(()=>{
+  if(!demoSession)return;
+  const discardRestoredSession=(event:PageTransitionEvent)=>{if(event.persisted)window.location.reload();};
+  window.addEventListener('pageshow',discardRestoredSession);
+  return()=>window.removeEventListener('pageshow',discardRestoredSession);
+ },[demoSession]);
  useEffect(()=>{if(!stateRef.current)return;const runtime=new ExhibitionAudio({...seed.source,exhibition:stateRef.current.present},setWalkAudioState);walkAudio.current=runtime;walkMovement.current=false;setWalkAudioState(runtime.snapshot());const visibility=()=>runtime.visibility(document.visibilityState==='visible'),blur=()=>runtime.visibility(false),escape=(event:KeyboardEvent)=>{if(event.key==='Escape')runtime.lifecycle(false);};document.addEventListener('visibilitychange',visibility);window.addEventListener('blur',blur);window.addEventListener('focus',visibility);window.addEventListener('keydown',escape);return()=>{document.removeEventListener('visibilitychange',visibility);window.removeEventListener('blur',blur);window.removeEventListener('focus',visibility);window.removeEventListener('keydown',escape);runtime.dispose();walkAudio.current=null;walkMovement.current=false;};},[seed,Boolean(state)]);
  function update(next:GeometryState){checkPrivateCandidate(seed,next.present);stateRef.current=next;setState(next);setPreview(null);setDirty(true);setError('');}
  function normalizeCommand(command:GeometryCommand):GeometryCommand{
@@ -121,14 +139,14 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
 
  function previewTemperature(command:GeometryCommand|null,lightId?:string){temperaturePreviewRef.current=command;temperatureLightId.current=command?lightId:undefined;previewChange(command);}
 
- async function refreshPrevious(id:string){try{const previous=await store.privatePrevious(id);if(previous)checkPrivateCandidate(seed,previous.draft.candidate);setPreviousAvailable(previous!==null);}catch{setPreviousAvailable(false);}}
+ async function refreshPrevious(id:string){if(!store)return;try{const previous=await store.privatePrevious(id);if(previous)checkPrivateCandidate(seed,previous.draft.candidate);setPreviousAvailable(previous!==null);}catch{setPreviousAvailable(false);}}
  async function save(){
-  if(busyRef.current||!record.current||!stateRef.current)return false;setBusy(true);
+  if(!store||busyRef.current||!record.current||!stateRef.current)return false;setBusy(true);
   try{const next=await preparePrivateSave(seed,store,record.current,stateRef.current.present,copiesRef.current);record.current=next.record;setCopies(next.copies);rememberActiveCopy(seed.storeName,next.record.id);await refreshPrevious(next.record.id);setDirty(false);setError('');setNotice(next.listRefreshed?'이 브라우저에 저장했어요. 공개 전시는 바뀌지 않아요.':'이 브라우저에 저장했어요. 목록을 새로 읽지 못해 확인된 사본만 표시해요.');return true;}
   catch{setError('저장하지 못했어요. 현재 편집은 유지됩니다. 다른 탭의 변경이나 저장 공간을 확인해 주세요.');return false;}finally{setBusy(false);}
  }
  async function replaceCurrent(recover:boolean){
-  if(busyRef.current||!record.current||!stateRef.current)return;setBusy(true);setPreview(null);
+  if(!store||busyRef.current||!record.current||!stateRef.current)return;setBusy(true);setPreview(null);
   try{
    const prepare=recover?preparePrivateRecovery:preparePrivateReset,next=await prepare(seed,store,record.current,stateRef.current.present,copiesRef.current);
    record.current=next.record;stateRef.current=next.geometry;setState(next.geometry);setCopies(next.copies);setSelection({kind:'room',id:next.geometry.present.rooms.find(value=>value.id===room.id)?.id??safePrivateView(next.geometry.present,seed.initialView)?.roomId??starterRoom(next.geometry.present).id});setDirty(false);setResetOpen(false);setError('');rememberActiveCopy(seed.storeName,next.record.id);await refreshPrevious(next.record.id);
@@ -136,7 +154,7 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
   }catch{setError((recover?'복구하지 못했어요.':'초기화하지 못했어요.')+' 현재 편집과 기존 저장본은 유지됩니다.');}finally{setBusy(false);}
  }
  async function openCopy(id:string){
-  if(busyRef.current||id===record.current?.id)return;if(dirty&&!(await save()))return;setBusy(true);
+  if(!store||busyRef.current||id===record.current?.id)return;if(dirty&&!(await save()))return;setBusy(true);
   try{const next=await store.get(id);if(!next)throw Error();checkPrivateCandidate(seed,next.draft.candidate);record.current=next;const geometry=createGeometryState(next.draft.candidate);stateRef.current=geometry;setState(geometry);setSelection({kind:'room',id:safePrivateView(geometry.present,seed.initialView)?.roomId??starterRoom(geometry.present).id});setPreview(null);setDirty(false);setError('');rememberActiveCopy(seed.storeName,next.id);await refreshPrevious(next.id);setNotice('선택한 저장 사본을 열었어요. 다른 사본은 보존됩니다.');}catch{setError('이 사본을 열지 못했어요. 현재 편집은 유지됩니다.');}finally{setBusy(false);}
  }
  if(!state)return <main className="private-loading"><h1>직접 꾸며보기</h1><p role={error?'alert':'status'}>{error||notice}</p><a href="/">전시 관람으로 돌아가기</a></main>;
@@ -158,16 +176,16 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
   try{const placed=newPlacement(art,room.id),placement=art.artworkType==='image'?alignPlacement(doc,placed,wall,[0,-.1],0):placed;commit({type:'add-placement',placement});setSelection({kind:'placement',id:placement.id});}catch{setError('선택한 벽에 이 작품을 배치할 수 없어요. 다른 벽을 선택해 주세요.');}
  }
  return <main className="private-editor" data-mode={mode} data-dirty={dirty}>
-  <header className="private-editor-header"><div><a className="private-brand" href="/">ExhibitOS</a><h1>직접 꾸며보기</h1></div><nav aria-label="편집 사본 도구"><button disabled={busy||temperaturePreviewRef.current!==null||!state.past.length||mode==='walk'} onClick={()=>update(undoGeometry(stateRef.current!))}>실행 취소</button><button disabled={busy||temperaturePreviewRef.current!==null||!state.future.length||mode==='walk'} onClick={()=>update(redoGeometry(stateRef.current!))}>다시 실행</button><button disabled={busy||!dirty||preview!==null} onClick={()=>void save()}>이 브라우저에 저장</button><button className="private-primary" disabled={busy} onClick={()=>{if(mode==='edit'&&!chooseCamera('object'))return;setPreview(null);const currentView=safePrivateView(stateRef.current!.present,privateViewGetter.current?.());if(currentView)setSelection({kind:'room',id:currentView.roomId});if(mode==='edit'){try{checkPrivateCandidate(seed,stateRef.current!.present);walkAudio.current?.updatePrivateExhibition(stateRef.current!.present);setMode('walk');}catch{setError('관람 소리 설정을 확인할 수 없어요. 편집 내용은 유지됩니다.');}}else{walkAudio.current?.lifecycle(false,true);setMode('edit');}}}>{mode==='edit'?'걸어서 확인':'편집으로 돌아가기'}</button></nav></header>
-  <div className="private-save-status" role="status">{dirty?'저장하지 않은 변경이 있어요.':notice}</div>{error&&<p className="private-error" role="alert">{error}</p>}
+  <header className="private-editor-header"><div><a className="private-brand" href="/">{demoSession?'전시 관람으로 돌아가기':'ExhibitOS'}</a><h1>직접 꾸며보기</h1></div><nav aria-label={demoSession?'꾸미기 도구':'편집 사본 도구'}><button disabled={busy||temperaturePreviewRef.current!==null||!state.past.length||mode==='walk'} onClick={()=>update(undoGeometry(stateRef.current!))}>실행 취소</button><button disabled={busy||temperaturePreviewRef.current!==null||!state.future.length||mode==='walk'} onClick={()=>update(redoGeometry(stateRef.current!))}>다시 실행</button>{!demoSession&&<button disabled={busy||!dirty||preview!==null} onClick={()=>void save()}>이 브라우저에 저장</button>}<button className="private-primary" disabled={busy} onClick={()=>{if(mode==='edit'&&!chooseCamera('object'))return;setPreview(null);const currentView=safePrivateView(stateRef.current!.present,privateViewGetter.current?.());if(currentView)setSelection({kind:'room',id:currentView.roomId});if(mode==='edit'){try{checkPrivateCandidate(seed,stateRef.current!.present);walkAudio.current?.updatePrivateExhibition(stateRef.current!.present);setMode('walk');}catch{setError('관람 소리 설정을 확인할 수 없어요. 편집 내용은 유지됩니다.');}}else{walkAudio.current?.lifecycle(false,true);setMode('edit');}}}>{mode==='edit'?'걸어서 확인':'편집으로 돌아가기'}</button></nav></header>
+  {demoSession?<div className="private-save-status">{demoDecorationNotice}<div role="status">{notice}</div></div>:<div className="private-save-status" role="status">{dirty?'저장하지 않은 변경이 있어요.':notice}</div>}{error&&<p className="private-error" role="alert">{error}</p>}
   <div className="private-editor-workspace">
-   <section className="private-scene" aria-label={mode==='edit'?'전시실 편집 장면':'편집 사본 보행 관람'}>
+   <section className="private-scene" aria-label={mode==='edit'?'전시실 편집 장면':demoSession?'꾸민 전시 보행 관람':'편집 사본 보행 관람'}>
     {mode==='edit'&&<div className="private-scene-tools"><div aria-label="편집 도구">{(['translate','rotate','dimensions'] as const).map((v,i)=><button key={v} aria-pressed={tool===v} disabled={busy||v==='dimensions'&&selection?.kind!=='room'||v==='rotate'&&!rotationAllowed} onClick={()=>{if(!chooseCamera('object'))return;setPreview(null);if(v==='dimensions')setView('plan');setTool(v);}}>{['이동','회전','방 크기'][i]}</button>)}</div><div aria-label="장면 보기"><button aria-pressed={view==='3d'} onClick={()=>{setPreview(null);setView('3d');}}>3D</button><button aria-pressed={view==='plan'} onClick={()=>{if(!chooseCamera('object'))return;setPreview(null);setView('plan');}}>평면도</button></div>{view==='3d'&&<CameraInteractionControls mode={cameraMode} disabled={busy||preview!==null||!cameraAvailable} onModeChange={value=>{if(!chooseCamera(value))setError('보기 조작을 바꾸기 전에 현재 조작을 마쳐 주세요.');}}/>}</div>}
     {view==='plan'&&mode==='edit'?<StudioFloorPlan document={previewDocument} editor={editor}/>:<GeometryPreview privateCatalogue onCameraInteractionReady={registerCamera} onCameraInteractionReset={resetCamera} onPrivateViewReady={registerPrivateView} initialPrivateView={safePrivateView(doc,seed.initialView)} cameraRequest={cameraRequest} fillHost compactControls={mode==='edit'} document={doc} publicSource={source} viewerBudget={budget} session={null} selection={mode==='edit'?selection:null} editing={mode==='edit'?editor:undefined} appearance={appearance} spaceTransparency={false} onNavigationState={mode==='walk'?value=>walkAudio.current?.update(value):undefined} onCameraPose={mode==='walk'?(position,yaw)=>walkAudio.current?.updatePose(position,yaw):undefined} onNavigationMode={mode==='walk'?(walking,paused)=>{walkMovement.current=walking&&!paused;walkAudio.current?.lifecycle(walkMovement.current);}:undefined}/>}
     {mode==='walk'&&<details className="viewer-audio-menu"><summary>소리</summary><AudioControls audio={walkAudio.current} state={walkAudioState} zones={doc.audioZones}/></details>}
    </section>
    <div className="private-panel-host" hidden={mode!=='edit'}>
-    <ToolPanel active={activePanel} open={panelOpen} collapsed={panelCollapsed} disabled={busy||preview!==null} onSelect={value=>{interactionSerial.current++;setActivePanel(value);setPanelOpen(true);setPanelCollapsed(false);}} onClose={()=>{setPreview(null);interactionSerial.current++;setPanelOpen(false);}} onCollapse={()=>{setPreview(null);interactionSerial.current++;setPanelCollapsed(value=>!value);}}>
+    <ToolPanel showCopies={!demoSession} active={activePanel} open={panelOpen} collapsed={panelCollapsed} disabled={busy||preview!==null} onSelect={value=>{interactionSerial.current++;setActivePanel(value);setPanelOpen(true);setPanelCollapsed(false);}} onClose={()=>{setPreview(null);interactionSerial.current++;setPanelOpen(false);}} onCollapse={()=>{setPreview(null);interactionSerial.current++;setPanelCollapsed(value=>!value);}}>
      <div className="private-selection-settings" hidden={!selection||(selectedArt?activePanel!=='artwork':activePanel!=='space')}>
       <h3>{selectedArt?.metadata.title??(selection?.kind==='room'?room.name:'선택한 공간 요소')}</h3>
       <p>장면의 손잡이 또는 아래 버튼으로 옮겨보세요.</p>
@@ -180,7 +198,7 @@ export function PrivateExhibitionEditor({seed}:{seed:PrivateSeed}){
      <div hidden={activePanel!=='space'&&activePanel!=='lighting'}><div hidden={activePanel!=='space'}><label>전시실 선택<select aria-label="전시실 선택" value={room.id} disabled={busy||preview!==null} onChange={event=>setSelection({kind:'room',id:event.target.value})}>{doc.rooms.map(value=><option key={value.id} value={value.id}>{value.name}</option>)}</select></label></div><RoomControls verifiedDoorBaseline={seed.source.exhibition} isCurrentRoom={()=>stateRef.current?.present===doc&&interactionSerial.current===interactionVersion&&!busyRef.current&&modeRef.current==='edit'&&previewRef.current===null} executeRoom={commitCheckedRoom} temperaturePreviewing={preview!==null&&preview===temperaturePreviewRef.current} previewTemperature={previewTemperature} temperatureDisabled={busy||mode!=='edit'||preview!==null&&preview!==temperaturePreviewRef.current} temperatureActive={panelOpen&&!panelCollapsed&&activePanel==='lighting'&&mode==='edit'} section={activePanel==='lighting'?'lighting':'space'} selectedSurfaceId={selection?.kind==='surface'?selection.id:undefined} selectedOpeningId={selection?.kind==='opening'?selection.id:undefined} document={doc} roomId={room.id} disabled={busy||preview!==null||mode!=='edit'} isCurrent={currentDoor} executeDoor={commitCheckedDoor} execute={commit} select={setSelection} error={setError} inspectCeiling={()=>{setPreview(null);setSelection({kind:'room',id:room.id});setView('3d');setCameraRequest(v=>({kind:'ceiling',sequence:(v?.sequence??0)+1}));}}/></div>
      <div hidden={activePanel!=='bench'}><CatalogBenchControls document={doc} seed={seed} roomId={room.id} disabled={busy||preview!==null||mode!=='edit'} execute={commit} error={setError}/></div>
      <div hidden={activePanel!=='surface'}><SurfaceMaterialControls document={doc} seed={seed} roomId={room.id} selectedSurfaceId={selection?.kind==='surface'?selection.id:undefined} disabled={busy||preview!==null||mode!=='edit'} execute={commit} select={setSelection} error={setError}/></div>
-     <section hidden={activePanel!=='copies'} aria-label="사본과 저장 안내"><label>이 브라우저의 저장 사본<select value={record.current?.id??''} disabled={busy} onChange={e=>void openCopy(e.target.value)}>{copies.map((copy,i)=><option key={copy.id} value={copy.id}>저장 사본 {copies.length-i} · {new Date(copy.updatedAt).toLocaleString('ko-KR')}</option>)}</select></label><p>이 기기의 현재 브라우저에만 저장합니다. 공개 전시나 일반 Studio 저장본은 바뀌지 않습니다. 브라우저 데이터를 지우면 사본도 사라질 수 있어요.</p><details><summary>사용 안내</summary><p>일부 편집 도구를 사용할 수 있어요. 작품 배치·크기, 공간, 조명과 표면 색을 바꾸고 걸어볼 수 있습니다. 설정을 적용한 뒤 이 브라우저에 저장하세요.</p></details><button disabled={busy||preview!==null} onClick={()=>setResetOpen(true)}>현재 사본 초기화</button><button disabled={busy||preview!==null||!previousAvailable} onClick={()=>void replaceCurrent(true)}>직전 상태 복구</button>{resetOpen&&<div><p>현재 사본을 공개 원본 상태로 되돌립니다. 저장하지 않은 편집도 직전 상태로 보관해 복구할 수 있어요.</p><button disabled={busy} onClick={()=>void replaceCurrent(false)}>초기화</button><button disabled={busy} onClick={()=>setResetOpen(false)}>취소</button></div>}</section>
+     {!demoSession&&<section hidden={activePanel!=='copies'} aria-label="사본과 저장 안내"><label>이 브라우저의 저장 사본<select value={record.current?.id??''} disabled={busy} onChange={e=>void openCopy(e.target.value)}>{copies.map((copy,i)=><option key={copy.id} value={copy.id}>저장 사본 {copies.length-i} · {new Date(copy.updatedAt).toLocaleString('ko-KR')}</option>)}</select></label><p>이 기기의 현재 브라우저에만 저장합니다. 공개 전시나 일반 Studio 저장본은 바뀌지 않습니다. 브라우저 데이터를 지우면 사본도 사라질 수 있어요.</p><details><summary>사용 안내</summary><p>일부 편집 도구를 사용할 수 있어요. 작품 배치·크기, 공간, 조명과 표면 색을 바꾸고 걸어볼 수 있습니다. 설정을 적용한 뒤 이 브라우저에 저장하세요.</p></details><button disabled={busy||preview!==null} onClick={()=>setResetOpen(true)}>현재 사본 초기화</button><button disabled={busy||preview!==null||!previousAvailable} onClick={()=>void replaceCurrent(true)}>직전 상태 복구</button>{resetOpen&&<div><p>현재 사본을 공개 원본 상태로 되돌립니다. 저장하지 않은 편집도 직전 상태로 보관해 복구할 수 있어요.</p><button disabled={busy} onClick={()=>void replaceCurrent(false)}>초기화</button><button disabled={busy} onClick={()=>setResetOpen(false)}>취소</button></div>}</section>}
     </ToolPanel>
    </div>
   </div>

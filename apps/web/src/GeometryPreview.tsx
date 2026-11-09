@@ -2120,6 +2120,11 @@ export function GeometryPreview({
           );
           settleDetail?.();for(const check of [...viewingWaiters])check();
         };
+        const modelFallbackLimits=new Map<string,number>();
+        const preferModelCoarse=(id:string,explicitFull:boolean)=>{
+          const refusedLimit=modelFallbackLimits.get(id);
+          return !explicitFull&&refusedLimit!==undefined&&assetBudgetBytes<=refusedLimit;
+        };
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
           if(publicDisplayStopped||art.revisionId===detailPinnedArtwork&&!detailPromotion)return;
           // A new request supersedes only its own material-wait marker.
@@ -2131,10 +2136,12 @@ export function GeometryPreview({
           try {
             imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
             imageBudget=imageTarget?.budget??viewerBudget;
+            const preferCoarse=!detailPromotion&&preferModelCoarse(art.revisionId,manual&&full);
             inventory = imageTarget?.inventory??selectAssetVariant(
               art,
               full ? 0 : Infinity,
               viewerBudget,
+              preferCoarse,
             );
           } catch (error) {
             if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:art.primaryAssetId,artworkRevisionId:art.revisionId,stage:'variant-admission-refused',errorCode:error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null});
@@ -2281,10 +2288,23 @@ export function GeometryPreview({
                 // its placeholder may be too small/off-center to win that slot.
                 const visibleMissingMinimum=!active.has(art.revisionId)&&observedVisible.get(art.revisionId)&&observedEligible.get(art.revisionId);
                 if(['ASSET_TRANSITION_PEAK','MODEL_RESIDENT_BUDGET'].includes(error?.message)&&(art.revisionId===demandContext().owner||visibleMissingMinimum))reduceSurfaceForCurrent(art.revisionId);
+                if(error?.message==='MODEL_RESIDENT_BUDGET'&&art.artworkType==='sculpture'&&!task.detailPromotion&&!(task.manual&&task.full)&&!active.has(art.revisionId)){
+                  // Retain the authored coarse model choice until the effective
+                  // resident budget increases. A repeat at the same limit cannot fit.
+                  try{
+                    const fallback=selectAssetVariant(art,Infinity,viewerBudget,true);
+                    if(fallback.id!==inventory.id&&lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId.toLowerCase()===fallback.id.toLowerCase())){
+                      modelFallbackLimits.set(art.revisionId,assetBudgetBytes);
+                      retryAfter.delete(art.revisionId);
+                      request(art,false,task.prepareOnly,false,manual);
+                      return;
+                    }
+                  }catch{/* Keep the existing visible failure when no authored coarse model is supported. */}
+                }
                 if(task.prepareOnly||active.has(art.revisionId)){update();return;}
                 if (error?.name !== "AbortError" && !full && !authoredImagePair(art)) {
                   try {
-                    const fallback = selectAssetVariant(art, 0, viewerBudget);
+                    const fallback = selectAssetVariant(art, 0, viewerBudget, preferModelCoarse(art.revisionId,manual));
                     if (fallback.id !== inventory.id) {
                       request(art, true,false,false,manual);
                       return;

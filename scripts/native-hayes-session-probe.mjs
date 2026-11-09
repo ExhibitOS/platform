@@ -44,6 +44,7 @@ const probe={
    await auth.requestForHayesNativeMutation(credentials.token,tenant,credentials.csrf,{signal,deadlineMs:Date.now()+30000},async(c,s)=>{await assertLive();const result=await imports.upload(c,s,created.id,original);await assertLive();return result;});
    await auth.requestForHayesNativeMutation(credentials.token,tenant,credentials.csrf,{signal,deadlineMs:Date.now()+30000},async(c,s)=>{await assertLive();const result=await imports.complete(c,s,created.id);await assertLive();return result;});
    held=await caller.start(credentials,{jobId:created.id,artworkId:artwork.id,artworkRevision:artwork.revision},Date.now()+180000);
+   if(!held)throw Error('HAYES_SESSION_PROBE_UNAVAILABLE');
    log({kind:'hayes-probe-revalidated',jobId:created.id,artworkId:artwork.id,artworkRevision:artwork.revision,monotonicNs:process.hrtime.bigint().toString()});
   }finally{original.fill(0);}
   }finally{if(!sourceConsumed)closeUnusedSource();}

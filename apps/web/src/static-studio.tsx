@@ -5,6 +5,7 @@ import {hasPreviousCopy, previousBases, type PreviousBase} from './private-edito
 import {retainsCopyRights} from './private-editor/previous-copy-compatibility';
 import {allowsPrivateEditorEntry} from './private-editor/device-entry';
 import {takePrivateView} from './viewer/private-view';
+import {isDemoDecorationSession} from './private-editor/demo-decoration';
 const root=createRoot(document.getElementById("root")!);
 let generation=0;
 async function load(){
@@ -14,6 +15,12 @@ async function load(){
   const sample=await loadStaticPublication();
   const {privateSeed}=await import('./private-editor/model');
   const seed=privateSeed(sample,document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content??'');
+  if(isDemoDecorationSession()){
+    seed.initialView=takePrivateView(sample.publication.id,sample.publication.revisionSha256,seed.indexSha256,sample.exhibition);
+    const {PrivateExhibitionEditor}=await import('./PrivateExhibitionEditor');
+    if(current===generation)root.render(<PrivateExhibitionEditor key={seed.indexSha256} seed={seed} demoSession/>);
+    return;
+  }
   const bases=previousBases(document.querySelector<HTMLMetaElement>('meta[name="exhibitos-private-copy-bases"]')?.content,seed);
   const requested=new URLSearchParams(location.search).get('base');
   async function priorSeed(base: PreviousBase) {

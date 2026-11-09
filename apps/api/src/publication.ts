@@ -4,6 +4,7 @@ import {BUDGET_GEOMETRY_PAIR_PROFILE} from '@exhibitos/studio-contract';
 import {publicResourcesFor} from '../../web/src/workspace-material-resources.mjs';
 import {projectWorkspaceMaterials,admittedPublicationWorkspaceMaterials} from './workspace-material-publication.ts';
 import {workspaceMaterialOutputInventory,workspaceMaterialOutputBytes,workspaceMaterialPublicationWithinBudget} from './workspace-material-output.ts';
+import {matchesInstalledFrame} from './installed-artwork-frame.ts';
 import {projectWorkspaceFurnishings,admittedPublicationWorkspaceFurnishings,workspaceFurnishingPublicationWithinBudget} from './workspace-furnishing-publication.ts';
 import {workspaceFurnishingOutputInventory,workspaceFurnishingOutputBytes} from './workspace-furnishing-output.ts';
 import {decode} from './imports.ts';
@@ -100,6 +101,7 @@ interface PreparedMedia { source:MediaAsset; bytes:PublicationBytes }
 interface PreparedCover {source:SpaceStillAsset;bytes:PublicationBytes}
 interface PublicationRow {
     tenant_id: string;
+    created_by: string;
     id: string;
     exhibition_id: string;
     draft_revision: number;
@@ -638,7 +640,7 @@ export class Publications {
         ]);
         detail?.assertCurrent(s);await c.query("INSERT INTO studio_publications(tenant_id,id,exhibition_id,draft_revision,created_by,snapshot,revision_sha256,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [s.tenantId, publicationId, id, row.revision, s.userId, snapshot, digest, publishedAt]);
         await c.query("INSERT INTO publication_states VALUES($1,'published',now())", [publicationId]);
-        if(workspaceBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceFurnishing||!this.workspaceFurnishing.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceFurnishing.authorize(c,s);for(const binding of workspaceBindings)await c.query('INSERT INTO publication_workspace_furnishings(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
+        if(workspaceBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceFurnishing||!this.workspaceFurnishing.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceFurnishing.authorize(c,s);for(const binding of workspaceBindings.filter(binding=>!matchesInstalledFrame(binding.descriptor)))await c.query('INSERT INTO publication_workspace_furnishings(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
         if(workspaceMaterialBindings.length){const owner=this.furnishingOwner;if(!owner||!this.workspaceMaterial||!this.workspaceMaterial.matchesBinding(owner,this.blobs))throw new ApiError(422,'PUBLICATION_NOT_READY');await this.workspaceMaterial.authorize(c,s);for(const binding of workspaceMaterialBindings)await c.query('INSERT INTO publication_workspace_materials(tenant_id,publication_id,public_id,workspace_id,user_id,source_id,source_version,source_descriptor) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[s.tenantId,publicationId,binding.publicId,owner.workspaceId,owner.principalId,binding.descriptor.id,binding.descriptor.version,binding.descriptor]);}
         for (const { id: assetId, prepared: p } of assets) {
             const hash = byteHash(p.bytes), key = `${s.tenantId}/publications/${publicationId}/${assetId}/${hash}`;
@@ -655,7 +657,7 @@ export class Publications {
         await stage?.close();detail?.assertCurrent(s);
         await c.query("INSERT INTO publication_requests VALUES($1,$2,$3,$4,$5)", [s.tenantId, s.userId, requestId, payloadHash, publicationId]);
         await this.event(c, s, publicationId, "published");
-        const publishedRow={tenant_id:s.tenantId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
+        const publishedRow={tenant_id:s.tenantId,created_by:s.userId,id:publicationId,exhibition_id:id,draft_revision:row.revision,snapshot,revision_sha256:digest,published_at:new Date(publishedAt),status:'published' as const};
         if(detail&&detailPrepared){
          await detail.persist(c,s,detailPrepared,digest);
          const projection=await this.publicProjection(c,publishedRow,await this.gate(c,publishedRow));await this.assertDetailProjection(projection);
@@ -693,7 +695,7 @@ export class Publications {
         let furnishings:PreparedFurnishing[];
         try{furnishings=await admittedPublicationFurnishings(c,this.blobs,row.tenant_id,row.exhibition_id,row.snapshot,signal);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
         let workspaceFurnishings:Awaited<ReturnType<typeof admittedPublicationWorkspaceFurnishings>>;
-        try{workspaceFurnishings=await admittedPublicationWorkspaceFurnishings(c,row.tenant_id,row.id,row.snapshot,this.workspaceFurnishing,workspaceAssetId,signal);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
+        try{workspaceFurnishings=await admittedPublicationWorkspaceFurnishings(c,row.tenant_id,row.id,row.snapshot,this.workspaceFurnishing,workspaceAssetId,signal,row.created_by);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}
         let workspaceMaterials:Awaited<ReturnType<typeof admittedPublicationWorkspaceMaterials>>;
         signal?.throwIfAborted();try{workspaceMaterials=await admittedPublicationWorkspaceMaterials(c,row.tenant_id,row.id,row.snapshot,this.workspaceMaterial,workspaceAssetId,workspaceResourceHash,retainAllWorkspaceMaps,signal,workspaceBindingsOnly);}catch{throw new ApiError(404,'PUBLICATION_UNAVAILABLE');}signal?.throwIfAborted();
         // Read catalogue bytes before capturing the governing wall clock, so
