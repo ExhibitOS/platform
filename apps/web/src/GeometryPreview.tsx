@@ -2687,7 +2687,17 @@ export function GeometryPreview({
           };
           try{
             const admittedGallery=galleryBuffer();
-            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore});
+            const tiers=input.flatImage?new Map(lodVariantsFor(art).map(variant=>[variant.assetId,variant.detail])):undefined;
+            let lastDrawnImageTier:'approved-full'|'lightweight'|undefined;
+            const onFlatImageDraw=(drawn:InstanceType<typeof three.Object3D>)=>{
+              const detail=tiers?.get(drawn.userData.viewerAssetId);
+              if(detail!=='full'&&detail!=='coarse')return;
+              const tier=detail==='full'?'approved-full':'lightweight';
+              if(tier===lastDrawnImageTier)return;
+              lastDrawnImageTier=tier;
+              try{input.renderedTier?.(tier,++originalDrawGeneration);}catch{/* A UI observer cannot interrupt a committed draw. */}
+            };
+            const scope=borrowedDetailPreview({three,renderer,object,request:{...input,signal,beforeRender:()=>guardOriginalDraw(),keepHiddenOnDispose:()=>!!originalAttempt&&!originalSettled||originalBlocked,deferRestore:()=>{if(!originalAttempt||originalSettled)return false;deferredCanvasRestore=true;return true;}},environment:()=>({map:scene.environment,intensity:scene.environmentIntensity}),onRelease:restore,onFlatImageDraw});
             if(!alive){scope.dispose();throw Error('DETAIL_CANCELLED');}
             redrawSettledBaseline=()=>{if(!alive||signal.aborted||disposed||gpuLost||publicDisplayStopped||sharedDetail!==scope)return;try{scope.render();}catch{renderer.domElement.style.visibility='hidden';input.unavailable('recovery');}};
             sharedDetail=scope;timer=setInterval(()=>void check(),10000);globalThis.document.addEventListener('visibilitychange',visible);
