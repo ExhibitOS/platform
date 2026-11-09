@@ -9,6 +9,7 @@ vi.mock('./drafts/example',()=>({newDraft:()=>({})}));
 vi.mock('./drafts/exhibition-validation.mjs',()=>({validateExhibition:()=>({valid:true})}));
 vi.mock('./drafts/validator',()=>({validateDraft:()=>({valid:true})}));
 import {loadStaticPublication,staticDetailAttestation} from './static-publication-source';
+import {AssetScheduler} from './viewer/loading';
 const digest=(b:Uint8Array|string)=>createHash('sha256').update(b).digest('hex');
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
 function setup(options:{badAssetPath?:boolean;badPublicationPath?:boolean;corruptAsset?:boolean}={}){
@@ -87,6 +88,37 @@ describe('static publication content-addressed reads',()=>{
  it('keeps the index fresh and uses browser HTTP caching only for verified hashed data',async()=>{
   const s=setup(),publication=await loadStaticPublication();expect(publication.local?.verifiedIndexSha256).toBe(s.indexDigest);const response=await publication.local!.fetcher(`/api/v1/publications/${s.publicationId}/assets/${s.assetId}`);expect(await response.text()).toBe('synthetic-public-asset');
   expect(s.requests).toEqual([{path:'/static-publication-index.json',cache:'no-store'},{path:'/'+s.pubPath,cache:'default'},{path:'/'+s.assetPath,cache:'default'}]);
+ });
+ it.each(['deadline','cancel'] as const)('releases a serial loader after a stalled body ends by %s',async(mode)=>{
+  const sample=setup(),publication=await loadStaticPublication(),fetchFixture=globalThis.fetch;
+  const url=publication.assets[0]!.url,deadline=new AbortController(),nextDeadline=new AbortController();
+  const timeout=vi.spyOn(AbortSignal,'timeout').mockReturnValueOnce(deadline.signal).mockReturnValueOnce(nextDeadline.signal);
+  let stalledBody:ReadableStream<Uint8Array>|undefined;
+  const fetcher=vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+   if(stalledBody)return fetchFixture(input,init);
+   expect(String(input)).toBe('/'+sample.assetPath);
+   const signal=init?.signal;
+   stalledBody=new ReadableStream({
+    start(controller){
+     controller.enqueue(Uint8Array.of(115));
+     signal?.addEventListener('abort',()=>controller.error(signal.reason),{once:true});
+    },
+   });
+   return new Response(stalledBody);
+  });
+  vi.stubGlobal('fetch',fetcher);
+  const scheduler=new AssetScheduler({concurrency:1,load:(_key,signal)=>publication.local!.fetcher(url,{signal})});
+  const first=scheduler.request('stalled'),next=scheduler.request('next');
+  const failure=mode==='deadline'?expect(first).rejects.toThrow('STATIC_TRANSFER_TIMEOUT'):expect(first).rejects.toMatchObject({name:'AbortError'});
+  await vi.waitFor(()=>expect(stalledBody?.locked).toBe(true));
+  expect(scheduler.stats()).toMatchObject({active:1,queued:1,completed:0});
+  expect(timeout).toHaveBeenCalledWith(30000);
+  if(mode==='deadline')deadline.abort(new DOMException('Timed out','TimeoutError'));
+  else scheduler.cancel('stalled');
+  await failure;
+  expect(await (await next).text()).toBe('synthetic-public-asset');
+  expect(stalledBody?.locked).toBe(false);
+  expect(scheduler.stats()).toEqual({active:0,queued:0,completed:1,failed:Number(mode==='deadline'),cancelled:Number(mode==='cancel')});
  });
  it('uses no-store for legacy mismatched paths and still rejects corrupted bytes',async()=>{
   const pub=setup({badPublicationPath:true});await loadStaticPublication();expect(pub.requests[1]!.cache).toBe('no-store');
