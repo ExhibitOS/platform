@@ -10,7 +10,7 @@ import {PublicWorkspaceCache} from './workspace-furnishing/public-cache';
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import {captureScenePng,SCENE_SNAPSHOT_RESERVE_BYTES,type SceneSnapshotCapture,type SceneSnapshotCamera,type SceneSnapshotInput} from './scene-snapshot';
 import {createPreparationStages} from './viewer/preparation-stages';
-import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource} from './viewer/diagnostic-source';
+import {createDiagnosticEvents,diagnosticsEnabled,registerDiagnosticSource,type DiagnosticEvent} from './viewer/diagnostic-source';
 import {readRuntimeHistory} from './viewer/runtime-history';
 import {inspectionCameraPose} from './scene-snapshot-camera';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -1841,6 +1841,15 @@ export function GeometryPreview({
         const diagnosticEvents=createDiagnosticEvents();
         const stages=createPreparationStages(document.artworks,()=>performance.now(),key=>tasks.has(key),diagnosticsEnabled()?diagnosticEvents.record:undefined);
         const stage=stages.record;
+        const retryOrigins=diagnosticsEnabled()?new Map<string,DiagnosticEvent>():undefined;
+        const setArtworkRetry=(artworkRevisionId:string,deadline:number,assetId:string,stage:string,error?:unknown)=>{
+          retryAfter.set(artworkRevisionId,deadline);
+          if(!retryOrigins)return;
+          const errorCode=error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null;
+          retryOrigins.delete(artworkRevisionId);
+          retryOrigins.set(artworkRevisionId,{artworkRevisionId,assetId,stage,atMs:performance.now(),errorCode});
+          if(retryOrigins.size>64)retryOrigins.delete(retryOrigins.keys().next().value!);
+        };
         let currentArtwork:string|undefined;
         let preparing=new Set<string>();
         const reclaiming=new Set<string>(), lastAttended=new Map<string,number>(), observedVisible=new Map<string,boolean>(), observedEligible=new Map<string,boolean>();
@@ -2306,13 +2315,13 @@ export function GeometryPreview({
                 discardResult(result);
                 if(missingMinimum){
                   minimumBlocked.add(art.revisionId);
-                  if(Number.isSafeInteger(required)&&required>=0){residentMinimumWait.set(art.revisionId,{bytes:required,assetId:inventory.id});retryAfter.set(art.revisionId,Infinity);}
-                  else retryAfter.set(art.revisionId,performance.now()+5000);
+                  if(Number.isSafeInteger(required)&&required>=0){residentMinimumWait.set(art.revisionId,{bytes:required,assetId:inventory.id});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-resident-minimum');}
+                  else setArtworkRetry(art.revisionId,performance.now()+5000,inventory.id,'retry-origin-resident-deferred');
                   if(art.revisionId===demandContext().owner)reclaimForCurrent();
                   reduceSurfaceForCurrent(art.revisionId);
                 }else if(selectedPromotion&&Number.isSafeInteger(required)&&required>0){
                   detailBudgetWait={assetId:inventory.id,bytes:required,phase:'resident'};
-                }else retryAfter.set(art.revisionId,performance.now()+5000);
+                }else setArtworkRetry(art.revisionId,performance.now()+5000,inventory.id,'retry-origin-resident-deferred');
                 update();return;
               }
               if(task.prepareOnly&&currentArtwork!==art.revisionId){
@@ -2378,10 +2387,11 @@ export function GeometryPreview({
                 if(deferredByMaterialLoad(error?.message,floorSettled,surfaceSettled)){
                   // The material decode hold will be released after its serial phase.
                   // Retry under the settled limits before reporting a real failure.
-                  materialBudgetDeferred.set(art.revisionId,{full:task.full,prepareOnly:task.prepareOnly,detailPromotion:task.detailPromotion,manual:task.manual});retryAfter.set(art.revisionId,Infinity);
+                  materialBudgetDeferred.set(art.revisionId,{full:task.full,prepareOnly:task.prepareOnly,detailPromotion:task.detailPromotion,manual:task.manual});setArtworkRetry(art.revisionId,Infinity,inventory.id,'retry-origin-material-deferred',error);
                   failed.delete(art.revisionId);minimumBlocked.delete(art.revisionId);update();return;
                 }
-                retryAfter.set(art.revisionId,error?.message==='ASSET_TRANSITION_PEAK'?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity);
+                const transitionDeferred=error?.message==='ASSET_TRANSITION_PEAK';
+                setArtworkRetry(art.revisionId,transitionDeferred?performance.now()+(art.revisionId===demandContext().owner?500:5000):Infinity,inventory.id,transitionDeferred?'retry-origin-deferred-budget':'retry-origin-failed',error);
                 if(error?.message==='ASSET_TRANSITION_PEAK'){if(!active.has(art.revisionId))minimumBlocked.add(art.revisionId);if(art.revisionId===demandContext().owner)reclaimForCurrent();}
                 // A visible missing minimum must not wait for detail attention:
                 // its placeholder may be too small/off-center to win that slot.
@@ -2862,13 +2872,41 @@ export function GeometryPreview({
                 if(retired&&previous)destroy(previous);
               };
               settleDetail=promoteImage;
-              retryPromotion=createFlatDetailRetry({
-                valid:()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope,
-                pending:()=>pending.has(art.revisionId),retryAfter:()=>retryAfter.get(art.revisionId)??0,now:()=>performance.now(),
+              const valid=()=>alive&&!signal.aborted&&!disposed&&!gpuLost&&!publicDisplayStopped&&sharedDetail===scope;
+              const retryDeadline=()=>retryAfter.get(art.revisionId)??0;
+              const gate=()=>{
+                if(pending.has(art.revisionId))return 'promotion-wait-pending';
+                const deadline=retryDeadline();
+                if(deadline===Infinity)return 'promotion-wait-retry-parked';
+                return deadline>performance.now()?'promotion-wait-retry-finite':'promotion-request-eligible';
+              };
+              const retry=createFlatDetailRetry({
+                valid,pending:()=>pending.has(art.revisionId),retryAfter:retryDeadline,now:()=>performance.now(),
                 ready:()=>(detailImageCandidate??detailPinned)?.userData.viewerAssetId===target.id,
                 request:()=>request(art,true,false,true),
               });
-              promotionDecision(pending.has(art.revisionId)?'promotion-wait-pending':(retryAfter.get(art.revisionId)??0)>performance.now()?'promotion-wait-retry':'promotion-request-eligible',target.id);
+              if(retryOrigins){
+                const initial=gate();
+                promotionDecision(initial,target.id);
+                const captureOrigin=(stage:ReturnType<typeof gate>)=>{
+                  if(stage!=='promotion-wait-retry-finite'&&stage!=='promotion-wait-retry-parked')return;
+                  const origin=retryOrigins.get(art.revisionId);
+                  if(origin)diagnosticEvents.retryEvidence('origin',origin);
+                };
+                captureOrigin(initial);
+                let observedChange=initial==='promotion-request-eligible';
+                retryPromotion=()=>{
+                  if(!observedChange&&valid()){
+                    const current=gate();
+                    if(current!==initial){
+                      observedChange=true;
+                      captureOrigin(current);
+                      diagnosticEvents.retryEvidence('transition',{atMs:performance.now(),assetId:target.id,artworkRevisionId:art.revisionId,stage:current,errorCode:null});
+                    }
+                  }
+                  retry();
+                };
+              }else retryPromotion=retry;
               retryFlatDetail=retryPromotion;retryPromotion();
             };
             if(input.flatImage){

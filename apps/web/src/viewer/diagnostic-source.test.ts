@@ -58,3 +58,25 @@ it('retains one scoped decision and recent exact stages independently of gallery
  buffer.clearSelected();
  expect(buffer.selectedSnapshot()).toBeUndefined();
 });
+
+it('preserves exact retry writer and one gate transition inside the selected cap',()=>{
+ vi.stubGlobal('__EXHIBITOS_STAGING_DIAGNOSTICS__',true);
+ const buffer=createDiagnosticEvents();
+ const assetId='11111111-1111-4111-8111-111111111111',artworkRevisionId='22222222-2222-4222-8222-222222222222';
+ const origin={atMs:1,assetId,artworkRevisionId,stage:'retry-origin-failed',errorCode:'STATIC_RESPONSE'};
+ const decision={...origin,atMs:2,stage:'promotion-wait-retry-parked',errorCode:null};
+ const transition={...decision,atMs:3,stage:'promotion-request-eligible'};
+ buffer.beginSelected(artworkRevisionId,[assetId]);
+ buffer.decision(decision);
+ buffer.retryEvidence('origin',{...origin,errorCode:'private URL'});
+ buffer.retryEvidence('origin',origin);
+ buffer.retryEvidence('transition',transition);
+ buffer.retryEvidence('transition',{...transition,atMs:4});
+ for(let atMs=5;atMs<=80;atMs++)buffer.record({...decision,atMs,stage:'fetch-verify'});
+ expect(buffer.selectedSnapshot()).toHaveLength(16);
+ expect(buffer.selectedSnapshot()?.slice(0,3)).toEqual([decision,origin,transition]);
+ expect(buffer.snapshot()).toHaveLength(64);
+ expect(buffer.snapshot().every(event=>event.stage==='fetch-verify')).toBe(true);
+ buffer.clearSelected();
+ expect(buffer.selectedSnapshot()).toBeUndefined();
+});
