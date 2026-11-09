@@ -2514,11 +2514,13 @@ export function GeometryPreview({
           }
         };
         const entranceOptionalAttempted=new Set<string>();
-        let entranceOptional:{key:string;compatibleOnEnter:boolean}|undefined;
-        const prefetchEntranceOptional=(observations:readonly {art:(typeof arts)[number];minimumEligible:boolean;distance:number}[])=>{
-          if(entranceModeRef.current!=='cover'||!entranceBytesReady()||!entranceAssetsAdmitted||entranceOptional||
-             renderer.domElement.ownerDocument.hidden||scheduler.stats().active||scheduler.stats().queued)return;
-          const candidates=observations.filter(item=>item.minimumEligible||entranceAssets.has(item.art.revisionId))
+        let entranceOptional:{key:string;artId:string;compatibleOnEnter:boolean}|undefined;
+        const prefetchOptional=(observations:readonly {art:(typeof arts)[number];minimumEligible:boolean;distance:number}[],cover:boolean)=>{
+          if(entranceOptional||renderer.domElement.ownerDocument.hidden||suspendedRef.current||
+             scheduler.stats().active||scheduler.stats().queued)return;
+          const candidates=observations.filter(item=>cover
+            ?item.minimumEligible||entranceAssets.has(item.art.revisionId)
+            :preparing.has(item.art.revisionId))
             .sort((a,b)=>a.distance-b.distance).slice(0,viewerBudget.entranceAssets);
           const light: Array<{art:(typeof arts)[number];inventory:(typeof arts)[number]['assets'][number];compatibleOnEnter:boolean}>=[];
           const higher: typeof light=[];
@@ -2527,7 +2529,8 @@ export function GeometryPreview({
               const coarse=selectAssetVariant(art,Infinity,viewerBudget,true);
               const ordinary=selectAssetVariant(art,Infinity,viewerBudget);
               const full=selectAssetVariant(art,0,viewerBudget);
-              if(!entranceAssets.has(art.revisionId)&&lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId===coarse.id))
+              if(!(cover?entranceAssets.has(art.revisionId):active.has(art.revisionId))&&
+                 lodVariantsFor(art).some(variant=>variant.detail==='coarse'&&variant.assetId===coarse.id))
                 light.push({art,inventory:coarse,compatibleOnEnter:ordinary.id===coarse.id});
               if(lodVariantsFor(art).some(variant=>variant.detail==='full'&&variant.assetId===full.id)&&full.id!==coarse.id)
                 higher.push({art,inventory:full,compatibleOnEnter:ordinary.id===full.id});
@@ -2540,7 +2543,7 @@ export function GeometryPreview({
           const {art,inventory,compatibleOnEnter}=next;
           entranceOptionalAttempted.add(inventory.id);
           const key=`entrance-encoded/${inventory.id}/${sequence++}`;
-          entranceOptional={key,compatibleOnEnter};
+          entranceOptional={key,artId:art.revisionId,compatibleOnEnter};
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{
             peak.reserve(key,inventory.bytes*4,transitionBudgetBytes);
             const body=readArtworkBytes(art,inventory,signal,false);
@@ -2550,7 +2553,9 @@ export function GeometryPreview({
               peak.release(key);
             }
           }});
-          void scheduler.request(key,10000).catch(()=>{}).finally(()=>{
+          void scheduler.request(key,10000).catch(error=>{
+            if(error?.name==='AbortError')entranceOptionalAttempted.delete(inventory.id);
+          }).finally(()=>{
             tasks.delete(key);
             if(entranceOptional?.key===key)entranceOptional=undefined;
           });
@@ -2643,7 +2648,7 @@ export function GeometryPreview({
               (failed.has(id)&&(retryAfter.get(id)??Infinity)===Infinity||
               floorSettled&&surfaceSettled&&minimumBlocked.has(id)&&retryAfter.get(id)===Infinity));
             setEntranceAssetFailed(entrancePlanUnavailable||failedRequired);
-            prefetchEntranceOptional(observations);
+            if(entranceModeRef.current==='cover'&&entranceBytesReady()&&entranceAssetsAdmitted)prefetchOptional(observations,true);
             if(entranceModeRef.current==='enter')render();
             return;
           }
@@ -2667,8 +2672,13 @@ export function GeometryPreview({
             else if(now-value.lastUseful>=1800){prepared.delete(id);destroy(value.object);stage(id,'evicted-preparation');}
           }
           const sorted=[...observations].sort((a,b)=>Number(b.art.revisionId===currentArtwork)-Number(a.art.revisionId===currentArtwork));
+          const missingMinimum=sorted.filter(({art,visible,minimumEligible})=>(visible||minimumEligible)&&
+            !active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now);
+          const optional=entranceOptional;
+          if(entranceReadiness&&optional&&missingMinimum.some(({art})=>
+            art.revisionId!==optional.artId||!optional.compatibleOnEnter))scheduler.cancel(optional.key);
           // Current/connected-room minima get the serial slot before speculative or attended detail.
-          for(const {art,visible,minimumEligible}of sorted)if((visible||minimumEligible)&&!active.has(art.revisionId)&&(retryAfter.get(art.revisionId)??0)<=now)request(art,false);
+          for(const {art} of missingMinimum)request(art,false);
           const minimumOutstanding=minimumDetailPending(sorted.map(v=>({visible:v.visible,eligible:v.minimumEligible,active:active.has(v.art.revisionId),pending:pending.has(v.art.revisionId),budgetBlocked:minimumBlocked.has(v.art.revisionId)||materialBudgetDeferred.has(v.art.revisionId)})));
           for(const {art,visible,minimumEligible,distance,focused,want} of sorted){
             if(!mapPins.has(art.revisionId)&&!viewingPins.has(art.revisionId)&&art.revisionId!==viewingCurrentArt&&art.revisionId!==detailPinnedArtwork&&!visible&&!minimumEligible&&!focused&&distance>12){
@@ -2694,11 +2704,12 @@ export function GeometryPreview({
             }
             else if(neighbor){
               if(visible&&!active.has(art.revisionId))request(art,false);
-              else if(canPromote&&!minimumOutstanding)request(art,true,true);
+              else if(!entranceReadiness&&canPromote&&!minimumOutstanding)request(art,true,true);
             }
             else if(requested.has(art.revisionId)||visible)request(art,false);
-
           }
+          if(entranceReadiness&&entranceFrameReported&&currentWalkMode.current.walking&&!minimumOutstanding)
+            prefetchOptional(observations,false);
         };
         const mapBridge:MapTravelBridge={visit:async(input,externalSignal)=>{
           const signal=AbortSignal.any([abort.signal,externalSignal]);signal.throwIfAborted();
