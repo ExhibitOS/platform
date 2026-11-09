@@ -110,7 +110,7 @@ it.skipIf(!process.env.EXHIBITOS_LARGE_MODEL_TEST_PG||!process.env.EXHIBITOS_LAR
   expect(studio.statusCode,studio.body).toBe(200);
   expect(studio.json().artwork.primaryAssetId).toBe(ready.display.assetId);
   const row=(await pool.query('SELECT object_key,approved_key FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,id])).rows[0];
-  expect(sha256(await blobs.getBounded(row.object_key,source.length))).toBe(identity.sha256);
+  expect(sha256(await blobs.getLargeModelSource(row.object_key,source.length))).toBe(identity.sha256);
   expect(sha256(await blobs.getBounded(row.approved_key,ready.display.bytes))).toBe(ready.display.sha256);
  }finally{
   await app?.close();

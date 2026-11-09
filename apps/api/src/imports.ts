@@ -27,7 +27,7 @@ export class Imports {
  constructor(pool:Pool,blobs:BlobStore,nativeWorkspace?:NativeOexWorkspaceContext,modelExecution?:ModelPreparationExecution){if(modelExecution)assertModelPreparationExecution(modelExecution,blobs,nativeWorkspace);this.pool=pool;this.blobs=blobs;this.nativeWorkspace=nativeWorkspace;this.modelExecution=modelExecution;}
  async requiredModelReady(c:PoolClient,s?:{tenantId:string;userId:string}){if(!this.modelExecution)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');await this.modelExecution.assertReady(c,s);}
  async largeModelReady(c:PoolClient,s:{tenantId:string;userId:string}){
-  if(this.modelExecution?.mode!=='native')throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
+  if(this.modelExecution?.mode!=='native'||!this.blobs.putLargeModelSource||!this.blobs.getLargeModelSource)throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
   await this.requiredModelReady(c,s);
   const result=await c.query('SELECT 1 FROM schema_migrations WHERE name=$1 AND sha256=$2',['046_large_model_preparation.sql','88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4']);
   if(!result.rowCount)throw new ApiError(503,'LARGE_MODEL_PREPARATION_UNAVAILABLE');
@@ -136,8 +136,10 @@ export class Imports {
   const row=await this.access(c,s,id);if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   if((storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id)!==large)throw new ApiError(409,'MODEL_PREPARATION_PROFILE_MISMATCH');
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
-  if(large||storedPreparedImage(row)){
-   if(!this.blobs.putDurable)throw new ApiError(503,large?'STORAGE_UNAVAILABLE':'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
+  if(large){
+   await this.blobs.putLargeModelSource!(row.object_key,bytes);
+  }else if(storedPreparedImage(row)){
+   if(!this.blobs.putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
    await this.blobs.putDurable(row.object_key,bytes);
   }else await this.blobs.put(row.object_key,bytes);
   return {received:bytes.length};
@@ -146,7 +148,7 @@ export class Imports {
   const row=await this.access(c,s,id);if(['queued','processing','approved'].includes(row.state))return this.view(row);
   if(row.state!=='uploading')throw new ApiError(409,'JOB_STATE');
   const large=storedModelPreparation(row)?.profileId===LARGE_MODEL_RECIPE.id;
-  let bytes:Buffer;try{bytes=Buffer.from(large||storedPreparedImage(row)?await this.boundedBlob(row.object_key,Number(row.expected_bytes)):await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
+  let bytes:Buffer;try{bytes=Buffer.from(large?await this.blobs.getLargeModelSource!(row.object_key,Number(row.expected_bytes)):storedPreparedImage(row)?await this.boundedBlob(row.object_key,Number(row.expected_bytes)):await this.blobs.get(row.object_key));}catch{throw new ApiError(409,'UPLOAD_INCOMPLETE');}
   if(bytes.length!==row.expected_bytes||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
   const derived=this.prepared(row);if(derived)await this.preparedBytes(row,derived);
   const result=await c.query("UPDATE import_jobs SET state='queued',progress=10,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[s.tenantId,id]);return this.view(result.rows[0]);

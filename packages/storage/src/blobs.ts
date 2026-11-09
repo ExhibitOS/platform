@@ -12,6 +12,12 @@ import {
 export const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 const LIMIT = 32 * 1024 * 1024;
+const LARGE_MODEL_SOURCE_LIMIT = 64 * 1024 * 1024;
+const LARGE_MODEL_SOURCE_KEY = /^[a-f0-9-]{36}\/quarantine\/import-[a-f0-9-]{36}\/[a-f0-9]{64}$/;
+function largeModelSourceDigest(key:string){
+  if(!LARGE_MODEL_SOURCE_KEY.test(key))throw Error('invalid large model source key');
+  return key.slice(-64);
+}
 function keyCheck(key: string) {
   if (
     !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)+$/.test(key) ||
@@ -26,6 +32,8 @@ export interface BlobStore {
   /** Optional exact-size bounded reader; never allocate based on untrusted file size. */
   getBounded?(key: string, expectedBytes: number, signal?: AbortSignal): Promise<Uint8Array>;
   put(key: string, bytes: Uint8Array): Promise<void>;
+  getLargeModelSource?(key:string,expectedBytes:number):Promise<Uint8Array>;
+  putLargeModelSource?(key:string,bytes:Uint8Array):Promise<void>;
   /** Optional durable filesystem write, including directory entries. */
   putDurable?(key: string, bytes: Uint8Array): Promise<void>;
   /** Optional durable deletion, including a retry after a successful unlink. */
@@ -81,7 +89,10 @@ export class FileBlobStore implements BlobStore {
     }
   }
   async getBounded(key: string, expectedBytes: number, signal?: AbortSignal) {
-    if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > LIMIT) throw new Error("object size limit");
+    return this.readBounded(key,expectedBytes,LIMIT,signal);
+  }
+  private async readBounded(key:string,expectedBytes:number,limit:number,signal?:AbortSignal){
+    if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || expectedBytes > limit) throw new Error("object size limit");
     const file = await open(await this.path(key, false, signal), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     let data:Buffer|undefined;
     try {
@@ -96,6 +107,9 @@ export class FileBlobStore implements BlobStore {
   }
   async put(key: string, bytes: Uint8Array) {
     checkBytes(bytes);
+    await this.writeImmutable(key,bytes,()=>this.get(key));
+  }
+  private async writeImmutable(key:string,bytes:Uint8Array,readExisting:()=>Promise<Uint8Array>){
     const path = await this.path(key, true);
     const temporary = `${dirname(path)}/.${randomUUID()}.tmp`;
     const file = await open(temporary, "wx", 0o600);
@@ -107,7 +121,7 @@ export class FileBlobStore implements BlobStore {
         await link(temporary, path);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        if (sha256(await this.get(key)) !== sha256(bytes))
+        if (sha256(await readExisting()) !== sha256(bytes))
           throw new Error("immutable object conflict", { cause: error });
       }
     } finally {
@@ -119,6 +133,20 @@ export class FileBlobStore implements BlobStore {
    * blob root and its parent before a database transaction can reference it. */
   async putDurable(key: string, bytes: Uint8Array) {
     await this.put(key,bytes);
+    await this.syncObject(key);
+  }
+  async getLargeModelSource(key:string,expectedBytes:number){
+    const digest=largeModelSourceDigest(key);
+    const data=await this.readBounded(key,expectedBytes,LARGE_MODEL_SOURCE_LIMIT);
+    if(sha256(data)!==digest)throw Error('large model source integrity');
+    return data;
+  }
+  async putLargeModelSource(key:string,bytes:Uint8Array){
+    if(!bytes.length||bytes.length>LARGE_MODEL_SOURCE_LIMIT||sha256(bytes)!==largeModelSourceDigest(key))throw Error('large model source integrity');
+    await this.writeImmutable(key,bytes,()=>this.getLargeModelSource(key,bytes.length));
+    await this.syncObject(key);
+  }
+  private async syncObject(key:string){
     const root=resolve(this.root),file=await this.path(key),stop=dirname(root);
     // A retry may find a previously linked file. Sync that inode as well as
     // the temporary file used by put before committing a database reference.

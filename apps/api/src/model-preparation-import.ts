@@ -8,6 +8,7 @@ import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
 import {artworkAccess,transaction,sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError} from './api-error.ts';
 import {allowedRights} from './rights.ts';
+import {LARGE_MODEL_RECIPE} from './oam-original-preparation.ts';
 import {prepareCompactModelInWorker} from './oam-original-preparation-process.ts';
 import {storedModelPreparation,createModelPreparationReceipt,modelPreparationReceipt} from './model-preparation-intent.ts';
 
@@ -72,7 +73,9 @@ export async function workRequiredModelPreparation(pool:Pool,blobs:BlobStore,row
  const intent=storedModelPreparation(row);if(!intent||!blobs.getBounded)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
  if(intent.sourceFull)return workCompactVariant(pool,blobs,row,lease,hooks,writer,nativeWorkspace);
  await transaction(pool,c=>assertModelPreparationContext(c,row));
- const bytes=Buffer.from(await blobs.getBounded(String(row.object_key),Number(row.expected_bytes)));if(bytes.length!==Number(row.expected_bytes)||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
+ const read=intent.profileId===LARGE_MODEL_RECIPE.id?blobs.getLargeModelSource:blobs.getBounded;
+ if(!read)throw new ApiError(503,'MODEL_PREPARATION_UNAVAILABLE');
+ const bytes=Buffer.from(await read.call(blobs,String(row.object_key),Number(row.expected_bytes)));if(bytes.length!==Number(row.expected_bytes)||sha256(bytes)!==row.expected_hash)throw new ApiError(422,'UPLOAD_INTEGRITY');
  if(writer){assertModelPreparationWriter(writer);await writer.assertLive();if(writer.identity.tenantId!==row.tenant_id||writer.identity.principalId!==row.user_id)throw new ApiError(403,'FORBIDDEN');}
  const prepared=await prepareCompactModelInWorker(bytes,{bytes:bytes.length,sha256:String(row.expected_hash)},{profile:intent.profileId,writerFd:writer?.writerFd});
  await hooks?.beforeCommit?.();
