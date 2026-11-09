@@ -1,4 +1,5 @@
 import {parseNativeOexCleanupSelection,attemptNativeOexCleanup} from '../apps/api/dist/native-oex-cleanup.js';
+import {recoverFreshImageClaims} from './native-workspace-furnishing-recovery.mjs';
 import {createNativeModelPreparationExecution} from '../apps/api/dist/model-preparation-import.js';
 import {FRESH_IMAGE_CAPABILITY,FRESH_IMAGE_MIGRATION,FRESH_IMAGE_SHA256,hasFreshImageCapability,verifyFreshImageMigration,MODEL_PREPARATION_CAPABILITY,MODEL_PREPARATION_MIGRATION,MODEL_PREPARATION_SHA256,hasModelPreparationCapability,verifyModelPreparationMigration} from './native-oex-normal-catalog.mjs';
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -368,6 +369,13 @@ async function startLocalRuntimeInner(environment, privateWorkspace, privateOwne
     let requiredModelWorkerActive=false;
     const modelPreparationExecution=modelPreparationCapability&&!selectedPhase?createNativeModelPreparationExecution(blobs,nativeOexWorkspace,writerLease,()=>requiredModelWorkerActive&&isOwnerAvailable()):undefined;
     const importer=new Imports(pool,blobs,nativeOexWorkspace,modelPreparationExecution);
+    if(freshImageCapability&&ordinaryAdmission?.fields.admissionKind==='clean-reopen'&&!ordinaryAdmission.fields.restoreProof&&!oexCleanupSelection){
+      deferredStartup.push(async()=>{
+        stage='FRESH_IMAGE_RECOVERY';
+        await pinnedPayload.verify();
+        await recoverFreshImageClaims(pool,nativeOexWorkspace,writerLease,ordinaryAdmission);
+      });
+    }
     if(oexCleanupSelection){
       const assertCleanupOwner=async()=>{assertIssuedFurnishingOrdinaryAdmission(ordinaryAdmission);if(ordinaryAdmission.writer!==writerLease||ordinaryAdmission.fields.admissionKind!=='clean-reopen'||ordinaryAdmission.fields.restoreProof||ownerStopped||ownerAbort.signal.aborted||!ownerChannel?.isOpen()||!nativeOexWorkspace?.workspaceImport)throw Error('NATIVE_OEX_CLEANUP_OWNER');await writerLease.assertLive();};
       deferredStartup.push(async()=>{stage='OEX_CLEANUP';await assertCleanupOwner();await pinnedPayload.verify();const result=await attemptNativeOexCleanup({pool,blobs,context:nativeOexWorkspace,selection:oexCleanupSelection,sessionToken:privateWorkspace.sessionToken,csrfToken:privateWorkspace.csrfToken,assertRecovery:assertCleanupOwner});await assertCleanupOwner();cleanupHandledFailure=result.state==='unresolved';console.info('EXHIBITOS_NATIVE_OEX_CLEANUP_RESULT '+JSON.stringify(result));if(cleanupHandledFailure)console.error('LOCAL_RUNTIME_START_FAILED_OEX_CLEANUP');});

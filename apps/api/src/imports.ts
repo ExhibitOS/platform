@@ -179,7 +179,20 @@ export class Imports {
    const found=await c.query("SELECT * FROM import_jobs WHERE (state='queued' AND available_at<=now() OR state='processing' AND lease_until<clock_timestamp()) AND attempts<5 AND NOT (png_drain_version=1 AND cardinality(png_worker_tokens)>0)"+hayesFilter+modelFilter+" ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1");
    if(!found.rowCount)return null;const r=found.rows[0];
    if(storedModelPreparation(r)){await this.requiredModelReady(c,{tenantId:r.tenant_id,userId:r.user_id});const writer=this.modelExecution?.writer;if(writer){const value={...r.model_preparation,claim:{token:lease,...writer.identity}};await c.query('UPDATE import_jobs SET model_preparation=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);r.model_preparation=value;}}
-   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);return r;
+   const prepared=storedPreparedImage(r);
+   if(prepared?.kind==='fresh-product-image'){
+    await this.freshImageReady(c,{tenantId:r.tenant_id,userId:r.user_id});
+    const writer=this.modelExecution?.writer;
+    if(!writer||prepared.claim)throw new ApiError(503,'FRESH_IMAGE_PREPARATION_UNAVAILABLE');
+    const value={...prepared,claim:{token:lease,...writer.identity}};
+    await c.query('UPDATE import_jobs SET derived=$3 WHERE tenant_id=$1 AND id=$2',[r.tenant_id,r.id,value]);
+    r.derived=value;
+   }
+   await c.query("UPDATE import_jobs SET state='processing',progress=25,attempts=attempts+1,lease_id=$3,lease_until=clock_timestamp()+interval '30 seconds',png_worker_tokens=CASE WHEN png_drain_version=1 THEN array_append(png_worker_tokens,$3::uuid) ELSE png_worker_tokens END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[r.tenant_id,r.id,lease]);
+   if(prepared?.kind==='fresh-product-image'){
+    r.state='processing';r.lease_id=lease;r.png_worker_tokens=[lease];
+   }
+   return r;
   });if(!row)return false;
   try{
    if(storedModelPreparation(row)){await workRequiredModelPreparation(this.pool,this.blobs,row,lease,hooks,this.modelExecution?.writer,this.nativeWorkspace);return true;}
@@ -249,8 +262,17 @@ export class Imports {
   }finally{
    // Only the actual completed worker/decoder call reaches this owner cleanup.
    // A cancellation response keeps this lease until close; timeout is not drain.
-   if(this.model(row)||row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
-   if(row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
+   if((row.derived as {kind?:string}|null)?.kind==='fresh-product-image'){
+    await transaction(this.pool,c=>c.query(`UPDATE import_jobs SET derived=derived-'claim',
+     png_worker_tokens=array_remove(png_worker_tokens,$3::uuid),
+     lease_id=CASE WHEN lease_id=$3 THEN NULL ELSE lease_id END,
+     lease_until=CASE WHEN lease_id=$3 THEN NULL ELSE lease_until END
+     WHERE tenant_id=$1 AND id=$2 AND derived#>>'{claim,token}'=$3::text AND state IN ('failed','cancelled')`,
+     [row.tenant_id,row.id,lease]));
+   }else{
+    if(this.model(row)||row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET lease_id=NULL,lease_until=NULL WHERE tenant_id=$1 AND id=$2 AND state='cancelled' AND lease_id=$3",[row.tenant_id,row.id,lease]);});
+    if(row.png_drain_version===1)await transaction(this.pool,async c=>{await c.query("UPDATE import_jobs SET png_worker_tokens=array_remove(png_worker_tokens,$3::uuid) WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,lease]);});
+   }
   }return true;
  }
 }

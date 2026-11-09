@@ -9,9 +9,13 @@ import sharp from 'sharp';
 import {expect,it} from 'vitest';
 import {FileBlobStore,migrate,sha256,transaction} from '@exhibitos/storage';
 // @ts-expect-error The test exercises the private JavaScript lease exchange.
-import {acceptFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
+import {acceptFurnishingOrdinaryAdmission,acceptFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
 // @ts-expect-error The private lease encoder has no TypeScript declarations.
 import {encodeFurnishingLeaseFrame} from '../../../scripts/native-workspace-furnishing-lease.mjs';
+// @ts-expect-error Private native admission protocol helpers are implemented in JavaScript.
+import {encodeFurnishingOrdinaryAssertion} from '../../../scripts/native-workspace-furnishing-ordinary-assertion.mjs';
+// @ts-expect-error The native startup recovery is implemented in JavaScript.
+import {recoverFreshImageClaims} from '../../../scripts/native-workspace-furnishing-recovery.mjs';
 import {buildApp} from './app.ts';
 import {Imports} from './imports.ts';
 import {createNativeModelPreparationExecution} from './model-preparation-import.ts';
@@ -32,11 +36,17 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   while(fd<10){fd=openSync(lock,constants.O_RDWR);descriptors.push(fd);}
   const rootStat=lstatSync(root,{bigint:true}),lockStat=fstatSync(fd,{bigint:true});
   const tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID();
-  const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-036-reopen-v1'};
-  const secret=randomBytes(32),fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(rootStat.dev),rootInode:String(rootStat.ino),lockDevice:String(lockStat.dev),lockInode:String(lockStat.ino)};
-  let open=true;
-  const channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{open=false;}};
-  const writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:blobs.root,configRoot});
+  const issueWriter=async()=>{
+   const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-036-reopen-v1'};
+   const secret=randomBytes(32),fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(rootStat.dev),rootInode:String(rootStat.ino),lockDevice:String(lockStat.dev),lockInode:String(lockStat.ino)};
+   let open=true;
+   const channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{open=false;}};
+   const writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:blobs.root,configRoot});
+   channel.receive=async()=>encodeFurnishingOrdinaryAssertion('furnishing-ordinary-admission',{runtimeGeneration:scope.runtimeGeneration,leaseTranscriptSHA256:writer.leaseTranscriptSHA256,admissionKind:'clean-reopen',activeBindingSHA256:'b'.repeat(64)},secret);
+   const admission=await acceptFurnishingOrdinaryAdmission({writer,channel,secret});
+   return {writer,admission,channel};
+  };
+  let owner=await issueWriter();
   const origin='http://127.0.0.1:13200',token=randomBytes(32).toString('base64url'),csrf=randomBytes(32).toString('base64url');
   const auth={mode:'local' as const,origin,bindHost:'127.0.0.1'};
   const headers={host:'127.0.0.1:13200',origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf};
@@ -52,7 +62,7 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   const ownerUid=process.getuid!();
   await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,ownerUid]);
   const workspace=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid,blobRoot:blobs.root}));
-  const execution=createNativeModelPreparationExecution(blobs,workspace,writer,()=>true);
+  let execution=createNativeModelPreparationExecution(blobs,workspace,owner.writer,()=>true);
   const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution});
   app=start();
   const session=()=>app!.inject({method:'GET',url:'/api/v1/auth/session',headers});
@@ -82,18 +92,35 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    expect(queued.statusCode,queued.body).toBe(200);
    await app.close();
    app=start();
-   const worker=new Imports(pool,blobs,workspace,execution);
+   let worker=new Imports(pool,blobs,workspace,execution);
    if(mime==='image/jpeg'){
-    // Fail after the real child has drained and the output copies have been written,
-    // before the transaction can approve them. Retry the same durable source/job.
-    expect(await worker.work({afterCopy:()=>{throw Error('test transaction rollback');}})).toBe(true);
+    // Capture the actual committed claim before rolling back a worker attempt.
+    let claim:Record<string,unknown>|undefined;
+    expect(await worker.work({afterCopy:async()=>{
+     claim=(await pool.query("SELECT derived->'claim' AS claim FROM import_jobs WHERE tenant_id=$1 AND id=$2",[tenantId,id])).rows[0]?.claim;
+     throw Error('test transaction rollback');
+    }})).toBe(true);
+    expect(claim).toMatchObject({runtimeGeneration:owner.writer.identity.runtimeGeneration,workspaceId,tenantId,principalId:userId});
     const failed=(await app.inject({method:'GET',url:jobUrl,headers})).json();
-    expect(failed).toMatchObject({id,state:'failed',attempts:1,errorCode:'WORKER_FAILED',
-     imagePreparation:{status:'failed',workerDrained:true}});
+    expect(failed).toMatchObject({id,state:'failed',attempts:1,errorCode:'WORKER_FAILED',imagePreparation:{status:'failed',workerDrained:true}});
+    // Reconstitute the retained PostgreSQL row from the captured crash boundary.
+    // The fixture does not claim to exercise Manager's real process/lock recovery.
+    const token=claim!.token;
+    await pool.query(`UPDATE import_jobs SET state='processing',lease_id=$3,
+     lease_until=now()+interval '30 seconds',png_worker_tokens=ARRAY[$3::uuid],
+     derived=jsonb_set(derived,'{claim}',$4) WHERE tenant_id=$1 AND id=$2`,[tenantId,id,token,claim]);
+    await expect(recoverFreshImageClaims(pool,workspace,owner.writer,owner.admission)).rejects.toThrow('FRESH_IMAGE_RECOVERY_UNAVAILABLE');
     expect((await approve()).statusCode).toBe(409);
-    const staged=await pool.query('SELECT asset_id,original_asset_id,lease_id,png_worker_tokens FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,id]);
-    expect(staged.rows[0]).toEqual({asset_id:null,original_asset_id:null,lease_id:null,png_worker_tokens:[]});
-    await new Promise(resolve=>setTimeout(resolve,Math.max(0,Date.parse(failed.retryAt)-Date.now())+100));
+    await app.close();
+    await owner.channel.close();
+    owner=await issueWriter();
+    execution=createNativeModelPreparationExecution(blobs,workspace,owner.writer,()=>true);
+    app=start();
+    expect(await recoverFreshImageClaims(pool,workspace,owner.writer,owner.admission)).toBe(1);
+    expect(await recoverFreshImageClaims(pool,workspace,owner.writer,owner.admission)).toBe(0);
+    const recovered=(await app.inject({method:'GET',url:jobUrl,headers})).json();
+    expect(recovered).toMatchObject({id,state:'failed',attempts:1,errorCode:'IMAGE_PREPARATION_INTERRUPTED',imagePreparation:{status:'failed',workerDrained:true}});
+    worker=new Imports(pool,blobs,workspace,execution);
     const retry=await app.inject({method:'POST',url:`${jobUrl}/retry`,headers});
     expect(retry.statusCode,retry.body).toBe(200);
     expect(retry.json()).toMatchObject({id,state:'queued',attempts:1});

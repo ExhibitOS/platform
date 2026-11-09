@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type {ModelPreparationWriter} from './model-preparation-import.ts';
 import {ApiError} from './api-error.ts';
 import {freshImageIntent,type FreshImageIntent} from './fresh-image-intent.ts';
 import {FRESH_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_PROFILE,PRODUCT_IMAGE_RECIPE_SHA256,PRODUCT_IMAGE_RECIPE,PRODUCT_IMAGE_LIMITS,imageHash,validProductFullDimensions,type ProductImageProducerReceipt,type ImageMetric} from './product-image-preparation.ts';
@@ -13,6 +14,7 @@ export interface FreshImageState {
  workspaceId:string;
  principalId:string;
  result?:ProductImageReceipt<'image/jpeg'|'image/png'>;
+ claim?:{token:string}&ModelPreparationWriter['identity'];
 }
 export const isProductImageIntent=(v:unknown)=>!!v&&typeof v==='object'&&(v as {profile?:unknown}).profile===PRODUCT_IMAGE_PROFILE;
 export function productImageIntent(value:unknown):ProductImageIntent{
@@ -22,10 +24,14 @@ const uuid=(v:unknown):v is string=>typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{
 export function storedPreparedImage(row:Record<string,unknown>):ProductImageState|FreshImageState|undefined{
  const value=row.derived as ProductImageState|FreshImageState|null;
  if(!value||(value.kind!=='product-image-pair'&&value.kind!=='fresh-product-image'))return undefined;
- const fresh=value.kind==='fresh-product-image';
+ const fresh=value.kind==='fresh-product-image',claim=fresh?value.claim:undefined;
  const fail=():never=>{throw new ApiError(409,'IMAGE_PREPARATION_STATE_INVALID');};
- if(Object.keys(value).sort().join(',')!==(value.result?'kind,principalId,request,result,workspaceId':'kind,principalId,request,workspaceId')||(row.mime!=='image/jpeg'&&(!fresh||row.mime!=='image/png'))||row.model_derivation!=null||row.model_preparation!=null||row.png_drain_version!==1||value.principalId!==row.user_id||!uuid(value.principalId)||!uuid(value.workspaceId)||typeof row.tenant_id!=='string'||typeof row.id!=='string'||row.object_key!==`${row.tenant_id}/quarantine/import-${row.id}/${row.expected_hash}`||row.derived_object_key!==`${row.tenant_id}/quarantine/import-${row.id}/product-full`)fail();
+ if(Object.keys(value).sort().join(',')!==(value.result?'kind,principalId,request,result,workspaceId':claim?'claim,kind,principalId,request,workspaceId':'kind,principalId,request,workspaceId')||(row.mime!=='image/jpeg'&&(!fresh||row.mime!=='image/png'))||row.model_derivation!=null||row.model_preparation!=null||row.png_drain_version!==1||value.principalId!==row.user_id||!uuid(value.principalId)||!uuid(value.workspaceId)||typeof row.tenant_id!=='string'||typeof row.id!=='string'||row.object_key!==`${row.tenant_id}/quarantine/import-${row.id}/${row.expected_hash}`||row.derived_object_key!==`${row.tenant_id}/quarantine/import-${row.id}/product-full`)fail();
  try{if(fresh)freshImageIntent(value.request);else productImageIntent(value.request);}catch{fail();}if(Buffer.byteLength(JSON.stringify(value))>4096)fail();
+ if(claim&&(!['processing','failed','cancelled'].includes(String(row.state))||!uuid(claim.token)||!uuid(claim.runtimeGeneration)||
+    claim.workspaceId!==value.workspaceId||claim.tenantId!==row.tenant_id||claim.principalId!==value.principalId||
+    !Array.isArray(row.png_worker_tokens)||row.png_worker_tokens.length!==1||row.png_worker_tokens[0]!==claim.token||
+    (row.state==='processing'?row.lease_id!==claim.token:row.lease_id!=null&&row.lease_id!==claim.token)))fail();
  if(row.state==='approved'&&!value.result||row.state!=='approved'&&value.result)fail();return value;
 }
 export function storedProductImage(row:Record<string,unknown>):ProductImageState|undefined{

@@ -78,7 +78,7 @@ export async function workProductImageImport(imports:Imports,row:Record<string,u
   await assertImagePreparationArtwork(c,actor,String(row.artwork_id),artwork,state,row.rights);
   const originalId=randomUUID(),fullId=randomUUID(),coarseId=result.coarse?randomUUID():undefined,rightsId=randomUUID(),approvedKey=`${row.tenant_id}/approved/${result.receipt.full.sha256}`,coarseKey=`${row.tenant_id}/quarantine/import-${row.id}/product-coarse`;
   const body={version:1 as const,jobId:String(row.id),artworkId:String(row.artwork_id),artworkRevision:state.request.artworkRevision,workspaceId:state.workspaceId,principalId:state.principalId,rightsSHA256:canonicalImageHash(row.rights),original:{assetId:originalId,sha256:String(row.expected_hash),bytes:Number(row.expected_bytes),mime},full:{...result.receipt.full,assetId:fullId,mime:'image/png' as const},...(coarseId?{coarse:{...result.receipt.coarse!,assetId:coarseId,mime:'image/png' as const}}:{}),producer:result.receipt} satisfies Omit<ProductImageReceipt<'image/jpeg'|'image/png'>,'sha256'>;
-  const receipt:ProductImageReceipt<'image/jpeg'|'image/png'>={...body,sha256:canonicalImageHash(body)},derived={...state,result:receipt};
+  const receipt:ProductImageReceipt<'image/jpeg'|'image/png'>={...body,sha256:canonicalImageHash(body)},derived={kind:state.kind,request:state.request,workspaceId:state.workspaceId,principalId:state.principalId,result:receipt};
   preparedImageReceipt({...live,state:'approved',derived,asset_id:fullId,original_asset_id:originalId,approved_key:approvedKey});
   const putDurable=imports.blobs.putDurable?.bind(imports.blobs);
   if(!putDurable)throw new ApiError(503,'IMAGE_PREPARATION_STORAGE_UNAVAILABLE');
