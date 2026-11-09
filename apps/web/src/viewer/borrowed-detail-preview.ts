@@ -36,7 +36,8 @@ export function borrowedDetailPreview(input:{
  three:typeof Three;renderer:Three.WebGLRenderer;object:Three.Object3D;
  request:SharedDetailRequest;environment:()=>{map:Three.Texture|null;intensity:number};
  onRelease():void;
- onFlatImageDraw?(object:Three.Object3D):void;
+ /** Reports the borrowed object only after a successful draw. */
+ onObjectDraw?(object:Three.Object3D):void;
 }):SharedDetailSession&{render():boolean;replaceImage(object:Three.Object3D):void;replaceModel(object:Three.Object3D):void}{
  const {three,renderer,request}=input,canvas=renderer.domElement;
  request.signal.throwIfAborted();
@@ -74,9 +75,10 @@ export function borrowedDetailPreview(input:{
   if(flat){
    const drawnImage=imageObject;
    const state=flat.render(renderer,width,height,view);
+   if(renderer.getContext().isContextLost())return false;
    request.imageViewport?.(state.viewport);
    canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,flatImage:true,...state});
-   if(drawnImage===imageObject)input.onFlatImageDraw?.(drawnImage);
+   if(drawnImage===imageObject)input.onObjectDraw?.(drawnImage);
    return true;
   }
   camera.aspect=width/height;
@@ -87,7 +89,10 @@ export function borrowedDetailPreview(input:{
   pivot.rotation.set(view.pitch*Math.PI/180,view.yaw*Math.PI/180,0,'YXZ');
   const environment=input.environment();scene.environment=environment.map;scene.environmentIntensity=environment.intensity;
   renderer.render(scene,camera);
-  canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,rotationX:pivot.rotation.x,rotationY:pivot.rotation.y,zoom:view.zoom,cameraPosition:camera.position.toArray(),clipping:[camera.near,camera.far],artifactBounds:{min:box.min.toArray(),max:box.max.toArray()},anchors:request.anchors.map(a=>a.position)});return true;
+  if(renderer.getContext().isContextLost())return false;
+  canvas.dataset.detailState=JSON.stringify({sharedRenderer:true,borrowed:true,rotationX:pivot.rotation.x,rotationY:pivot.rotation.y,zoom:view.zoom,cameraPosition:camera.position.toArray(),clipping:[camera.near,camera.far],artifactBounds:{min:box.min.toArray(),max:box.max.toArray()},anchors:request.anchors.map(a=>a.position)});
+  input.onObjectDraw?.(clone);
+  return true;
  };
  const observer=new ResizeObserver(render);
  const dispose=()=>{

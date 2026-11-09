@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
 import {BufferAttribute,InterleavedBuffer,InterleavedBufferAttribute} from 'three';
-import {deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget,MemoryAssetCache,retainEncodedBuffer} from './loading';
+import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {detailResidentRetryReady} from './borrowed-detail-preview';
+import {stagingHayesDetailBudget,modelDecodeReserve,deviceBudget,selectedDeviceBudget,DEVICE_BUDGETS,DESKTOP_NEAR_BUDGET,modelGeometryResidentBytes,geometryResidentBytes,textureResidentBytes,AssetPeakBudget,MemoryAssetCache,retainEncodedBuffer} from './loading';
 
 test('near geometry is an explicit existing quality choice with known-low-memory fallback',()=>{
  expect(selectedDeviceBudget('auto',{viewportWidth:1400})).toEqual(DEVICE_BUDGETS.desktop);
@@ -124,3 +127,35 @@ test('candidate keeps backing, encoded coexistence and minimum scene charged bef
   expect(selectedDeviceBudget('desktop',input)).toMatchObject({maxCacheBytes:320*mib,maxTransitionBytes:416*mib,maxTriangles:250000,maxTextureSize:2048});
   expect(selectedDeviceBudget('compact',input)).toEqual(DEVICE_BUDGETS.compact);
  });
+
+
+test('bounds the exact Hayes selected-detail staging trial with the original scene ledger',async()=>{
+ const assetSha256='694a9cf81dfbf12fd0841ae45240c5ae0f1d7cb129d0ee122be7cff86c4625bc';
+ const indexSha256='054b6756a6aa468e25eaa634b84800fb01d3b21d11f0fff6075f5d54291e8d68';
+ const touch={coarsePointer:true,finePointer:false},budget=selectedDeviceBudget('auto',touch);
+ const input={enabled:true,indexSha256,assetSha256,...touch,budget};
+ const trial=stagingHayesDetailBudget(input)!;
+ expect(trial).toEqual({...budget,maxCacheBytes:256*1024*1024,maxTransitionBytes:272*1024*1024});
+ for(const patch of [{enabled:false},{indexSha256:'wrong'},{assetSha256:'wrong'},{deviceMemory:4},{finePointer:true},{budget:selectedDeviceBudget('compact',touch)},{budget:selectedDeviceBudget('desktop',touch)}])
+  expect(stagingHayesDetailBudget({...input,...patch})).toBeUndefined();
+ const model=await readFile(new URL('../../../../demos/reference-exhibition/source/data/'+assetSha256+'.bin',import.meta.url));
+ expect(createHash('sha256').update(model).digest('hex')).toBe(assetSha256);
+ const effectiveResident=130219146,effectiveTransition=197328010,retained=62122239+2048;
+ const residentLimit=effectiveResident+trial.maxCacheBytes-budget.maxCacheBytes;
+ const transitionLimit=effectiveTransition+trial.maxTransitionBytes!-budget.maxTransitionBytes!;
+ const cpu=modelDecodeReserve(model.length,{...budget,maxCacheBytes:residentLimit},new Uint8Array(model).buffer,2048,'cpu');
+ expect(cpu).toBe(138432896);
+ const ledger=new AssetPeakBudget(effectiveTransition,()=>retained);
+ expect(()=>ledger.reserve('parse',cpu)).toThrow('ASSET_TRANSITION_PEAK');
+ const retry=()=>detailResidentRetryReady(cpu,ledger.total(),effectiveTransition,0);
+ expect(retry()).toBe(false);
+ expect(retry()).toBe(false);
+ expect(detailResidentRetryReady(cpu,ledger.total(),effectiveTransition,200557183-effectiveTransition-1)).toBe(false);
+ expect(detailResidentRetryReady(cpu,ledger.total(),effectiveTransition,200557183-effectiveTransition)).toBe(true);
+ ledger.reserve('parse',cpu,transitionLimit);
+ expect(ledger.total()).toBe(200557183);
+ ledger.release('parse');
+ const decoded=7916928+3*textureResidentBytes(2048,2048);
+ expect(retained+decoded).toBeGreaterThan(effectiveResident);
+ expect(retained+decoded).toBeLessThan(residentLimit);
+});

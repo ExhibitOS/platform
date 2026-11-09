@@ -6,7 +6,8 @@ import {borrowedDetailPreview,createFlatDetailRetry,detailResidentRetryReady} fr
 
 afterEach(()=>vi.unstubAllGlobals());
 function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,keepHiddenOnDispose?:()=>boolean,deferRestore?:()=>boolean,anchors=true){
- let shouldFail=renderFails;
+ let shouldFail=renderFails,contextLost=false;
+ const drawn:three.Object3D[]=[];
  let disconnected=0,released=0,geometryDisposed=0,materialDisposed=0,textureDisposed=0,renders=0,resizes=0;
  vi.stubGlobal('ResizeObserver',class {observe(){}disconnect(){disconnected++;}});
  const attributes=new Map([['aria-label','전시 공간 3D 미리보기']]);
@@ -14,13 +15,13 @@ function fixture(renderFails=false,beforeRender?:()=>boolean,flatImage=false,kee
  const parent={appendChild(value:typeof canvas){value.parentNode=this;},insertBefore(value:typeof canvas){value.parentNode=this;}};parent.appendChild(canvas);
  const target={isConnected:true,clientWidth:640,clientHeight:360,appendChild(value:typeof canvas){value.parentNode=this;}};
  let width=1280,height=720,ratio=1.5,lastScene:three.Scene|undefined;
- const renderer={domElement:canvas,getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){resizes++;width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){renders++;lastScene=scene;scene.traverse(node=>{if(node instanceof three.Mesh)canvas.dataset.pixelMarker=node.geometry.uuid;});if(shouldFail)throw Error('GPU_UNAVAILABLE');}};
+ const renderer={domElement:canvas,getContext:()=>({isContextLost:()=>contextLost}),getSize(value:three.Vector2){return value.set(width,height);},getPixelRatio:()=>ratio,setPixelRatio(value:number){ratio=value;},setSize(w:number,h:number){resizes++;width=w;height=h;canvas.width=Math.floor(w*ratio);canvas.height=Math.floor(h*ratio);},render(scene:three.Scene){renders++;lastScene=scene;scene.traverse(node=>{if(node instanceof three.Mesh)canvas.dataset.pixelMarker=node.geometry.uuid;});if(shouldFail)throw Error('GPU_UNAVAILABLE');}};
  const texture=new three.Texture({width:4,height:3}),geometry=new three.BoxGeometry(2,3,1),material=new three.MeshStandardMaterial({map:texture});
  geometry.addEventListener('dispose',()=>geometryDisposed++);material.addEventListener('dispose',()=>materialDisposed++);texture.addEventListener('dispose',()=>textureDisposed++);
  const object=new three.Mesh(geometry,material);object.position.set(1,2,3);object.updateMatrixWorld(true);
  const before=object.matrixWorld.toArray(),abort=new AbortController();
- const create=()=>borrowedDetailPreview({three,renderer:renderer as unknown as three.WebGLRenderer,object,request:{placementId:'placement',host:target as unknown as HTMLElement,signal:abort.signal,view:{yaw:0,pitch:0,zoom:1},beforeRender,flatImage,keepHiddenOnDispose,deferRestore,anchors:anchors?[{id:'note',position:[0,0,0],text:'annotation'}]:[],unavailable(){}},environment:()=>({map:null,intensity:.45}),onRelease(){released++;}});
- return {canvas,parent,target,object,geometry,material,before,abort,create,setRenderFails:(value:boolean)=>{shouldFail=value;},read:()=>({width,height,ratio,lastScene,disconnected,released,geometryDisposed,materialDisposed,textureDisposed,renders,resizes})};
+ const create=()=>borrowedDetailPreview({three,renderer:renderer as unknown as three.WebGLRenderer,object,request:{placementId:'placement',host:target as unknown as HTMLElement,signal:abort.signal,view:{yaw:0,pitch:0,zoom:1},beforeRender,flatImage,keepHiddenOnDispose,deferRestore,anchors:anchors?[{id:'note',position:[0,0,0],text:'annotation'}]:[],unavailable(){}},environment:()=>({map:null,intensity:.45}),onRelease(){released++;},onObjectDraw(object){drawn.push(object);}});
+ return {canvas,parent,target,object,geometry,material,before,abort,create,drawn,setContextLost:(value:boolean)=>{contextLost=value;},setRenderFails:(value:boolean)=>{shouldFail=value;},read:()=>({width,height,ratio,lastScene,disconnected,released,geometryDisposed,materialDisposed,textureDisposed,renders,resizes})};
 }
 
 test('borrows one canvas and mesh resources; abort restores dimensions and releases only annotations once',()=>{
@@ -115,6 +116,27 @@ test('rejects unqualified anchors and restores the prior model on draw failure o
  let accepted=true;const g=fixture(false,()=>accepted,false,undefined,undefined,false),other=g.create();accepted=false;expect(()=>other.replaceModel(next)).toThrow('DETAIL_DRAW_UNCONFIRMED');accepted=true;expect(other.render()).toBe(true);const retained:three.Mesh[]=[];g.read().lastScene!.traverse(node=>{if(node instanceof three.Mesh)retained.push(node);});expect(retained.some(node=>node.geometry===g.geometry)).toBe(true);other.dispose();
 });
 
+test('reports only successfully drawn models and retains the coarse report until the approved swap draws',()=>{
+ let allowed=true;
+ const f=fixture(false,()=>allowed,false,undefined,undefined,false);
+ f.object.userData.viewerAssetId='coarse';
+ const scope=f.create(),next=new three.Mesh(new three.BoxGeometry(4,1,1),new three.MeshStandardMaterial());
+ next.userData.viewerAssetId='full';
+ const reported=()=>f.drawn.map(object=>object.userData.viewerAssetId);
+ expect(reported()).toEqual(['coarse']);
+ allowed=false;
+ expect(()=>scope.replaceModel(next)).toThrow('DETAIL_DRAW_UNCONFIRMED');
+ expect(reported()).toEqual(['coarse']);
+ allowed=true;f.setContextLost(true);
+ expect(()=>scope.replaceModel(next)).toThrow('DETAIL_DRAW_UNCONFIRMED');
+ expect(reported()).toEqual(['coarse']);
+ f.setContextLost(false);
+ scope.replaceModel(next);
+ expect(reported()).toEqual(['coarse','full']);
+ scope.dispose();
+ expect(scope.render()).toBe(false);
+ expect(reported()).toEqual(['coarse','full']);
+});
 test('rejects empty models and unavailable preview scopes before committing a sculpture swap',()=>{
  const f=fixture(false,undefined,false,undefined,undefined,false),scope=f.create();expect(()=>scope.replaceModel(new three.Group())).toThrow('DETAIL_BOUNDS_UNAVAILABLE');scope.dispose();expect(()=>scope.replaceModel(f.object)).toThrow('DETAIL_MODEL_SWAP_UNAVAILABLE');
  const flat=fixture(false,undefined,true,undefined,undefined,false),flatScope=flat.create();expect(()=>flatScope.replaceModel(flat.object)).toThrow('DETAIL_MODEL_SWAP_UNAVAILABLE');flatScope.dispose();
