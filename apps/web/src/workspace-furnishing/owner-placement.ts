@@ -8,8 +8,9 @@ import {loadWorkspaceFurnishingModel,type WorkspaceModelSource} from './model-lo
 import {ownerWorkspaceModelSource} from './owner-source';
 import {OwnerPreviewBudget} from './owner-preview-budget';
 import {artworkFrameMatrix,fitArtworkFrameGeometry} from './frame-pose';
-import {qualifiedFrameTargetFit,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
+import {qualifiedFrameTargetFit,qualifiedModularPortalTarget,workspaceFitGeometry} from '@exhibitos/spec/workspace-fit-models';
 import {artworkFrameFit,artworkFrameModel,portalFinishModel} from '@exhibitos/studio-contract';
+import {fitModularPortal} from './portal-pose';
 
 /** Use one scope for the scene and enforce before every render. The default
  * source is owner-only; a supplied publication source must recheck authority. */
@@ -36,7 +37,12 @@ export async function mountOwnerWorkspacePlacement(options:{three:typeof Three;r
   if(openingAttachment){
    const doc=candidate as unknown as Exhibition,opening=doc.openings.find(o=>o.id.toLowerCase()===openingAttachment.openingId.toLowerCase()),wall=doc.surfaces.find(s=>s.id.toLowerCase()===opening?.surfaceId.toLowerCase()&&s.roomId.toLowerCase()===options.roomId.toLowerCase());if(!opening||!wall)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const measured=workspaceFitGeometry(descriptor);
-   const height=measured?.profile==='continuous-portal-v1'?measured.openingHeight:portalFinishModel(descriptor.model.sha256,descriptor.model.bytes)?.height;
+   const modular=measured?.profile==='modular-portal-v1'?qualifiedModularPortalTarget(measured,doc,opening.id):undefined;
+   if(measured?.profile==='modular-portal-v1'){
+    if(!modular)throw Error('WORKSPACE_PLACEMENT_INVALID');
+    fitModularPortal(three,loaded.object,measured,modular);
+   }
+   const height=modular?.height??(measured?.profile==='continuous-portal-v1'?measured.openingHeight:portalFinishModel(descriptor.model.sha256,descriptor.model.bytes)?.height);
    if(height===undefined)throw Error('WORKSPACE_PLACEMENT_INVALID');
    const p=wall.transform.position,q=wall.transform.rotation,wallMatrix=new three.Matrix4().compose(new three.Vector3(...p),new three.Quaternion(...q),new three.Vector3(1,1,1));
    loaded.object.matrix.copy(wallMatrix.multiply(new three.Matrix4().makeTranslation(opening.offset[0],opening.offset[1]-height/2,0)));loaded.object.matrixAutoUpdate=false;

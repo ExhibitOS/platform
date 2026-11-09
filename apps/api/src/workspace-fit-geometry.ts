@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {WorkspaceFitGeometry,WorkspaceFitProfile} from '@exhibitos/studio-contract';
+import {modularPortalParts,type ModularPortalFit,type ModularPortalPart,type ModularPortalRole} from '@exhibitos/spec/workspace-fit-models';
 
 type Point = [number, number, number];
 
@@ -20,8 +21,8 @@ interface Layout {
 }
 interface View {buffer:number;byteOffset?:number;byteLength:number;byteStride?:number}
 
-function readAccessor(bin:Buffer,accessor:Layout|undefined,views:View[],positions:boolean):number[]|undefined {
- if(!accessor||accessor.sparse||accessor.normalized||accessor.count<1||accessor.count>256)return;
+function readAccessor(bin:Buffer,accessor:Layout|undefined,views:View[],positions:boolean,max=256):number[]|undefined {
+ if(!accessor||accessor.sparse||accessor.normalized||accessor.count<1||accessor.count>max)return;
  const {componentType,type,count}=accessor, view=views[accessor.bufferView];
  const width=positions?12:componentType===5123?2:componentType===5125?4:componentType===5121?1:0;
  if(!view||view.buffer!==0||!width||(positions?(type!=='VEC3'||componentType!==5126):type!=='SCALAR'))return;
@@ -84,16 +85,99 @@ function matchesFaces(points:Point[],indices:number[],corners:Point[],faces:stri
  return planes.every(({boundary},i)=>boundary.size===actual[i]!.size&&[...boundary].every(([edge,count])=>actual[i]!.get(edge)===count));
 }
 
+interface ModularPortalDocument {
+ nodes?:{mesh:number;name?:string;translation?:Point}[];
+ meshes?:{primitives:{attributes:{POSITION:number};indices:number;mode?:number;targets?:unknown}[]}[];
+ scenes?:{nodes:number[]}[];
+ scene?:number;
+ accessors:Layout[];
+ bufferViews:View[];
+ textures?:unknown[];
+ images?:unknown[];
+ animations?:unknown[];
+ skins?:unknown[];
+ buffers?:unknown[];
+}
+
+function closedConvexPart(points:Point[],indices:number[],min:Point,max:Point):boolean {
+ const unique:Point[]=[],welded=new Map<string,number>();
+ const mapped=points.map(point=>{
+  const key=point.map(metres).join(',');
+  const prior=welded.get(key);
+  if(prior!==undefined)return prior;
+  const index=unique.push(point)-1;welded.set(key,index);return index;
+ });
+ const edges=new Map<string,number>(),edgeCounts=new Map<string,number>();
+ let volume=0;
+ if(indices.length%3||new Set(indices.map(index=>mapped[index])).size!==unique.length)return false;
+ for(let i=0;i<indices.length;i+=3){
+  const triangle=[mapped[indices[i]!]!,mapped[indices[i+1]!]!,mapped[indices[i+2]!]!] as Triangle;
+  const [a,b,c]=triangle.map(index=>unique[index]!) as [Point,Point,Point];
+  const normal=faceNormal(a,b,c);
+  // The bevelled author originals have sub-25 micrometre plane variation.
+  if(!normal||unique.some(point=>dot(normal,difference(point,a))>2.5e-5))return false;
+  const cross:Point=[b[1]*c[2]-b[2]*c[1],b[2]*c[0]-b[0]*c[2],b[0]*c[1]-b[1]*c[0]];
+  volume+=dot(a,cross)/6;
+  addBoundary(edges,triangle);
+  for(const [from,to]of [[triangle[0],triangle[1]],[triangle[1],triangle[2]],[triangle[2],triangle[0]]]){
+   const key=`${Math.min(from!,to!)},${Math.max(from!,to!)}`;
+   edgeCounts.set(key,(edgeCounts.get(key)??0)+1);
+  }
+ }
+ const boxVolume=(max[0]-min[0])*(max[1]-min[1])*(max[2]-min[2]);
+ return boxVolume>0&&volume>=boxVolume*.94&&volume<=boxVolume*1.0001&&unique.length>=8&&edges.size===0&&[...edgeCounts.values()].every(count=>count===2);
+}
+
+function qualifyModularPortal(doc:ModularPortalDocument,bin:Buffer):ModularPortalFit|undefined {
+ const nodes=doc.nodes,meshes=doc.meshes,roots=doc.scenes?.[0]?.nodes;
+ if(nodes?.length!==9||meshes?.length!==9||doc.scenes?.length!==1||roots?.length!==9||new Set(roots).size!==9||
+  roots.some(i=>!Number.isInteger(i)||i<0||i>8)||(doc.scene??0)!==0||new Set(nodes.map(node=>node.mesh)).size!==9||
+  doc.textures?.length||doc.images?.length||doc.animations?.length||doc.skins?.length||doc.buffers?.length!==1)return;
+ const measured:ModularPortalPart[]=[];
+ for(const [index,node]of nodes.entries()){
+  const translation=node.translation??[0,0,0],mesh=meshes[node.mesh],primitive=mesh?.primitives[0];
+  if(Object.keys(node).some(key=>!['mesh','name','translation'].includes(key))||translation.length!==3||!translation.every(Number.isFinite)||
+   mesh?.primitives.length!==1||!primitive||primitive.targets||(primitive.mode??4)!==4)return;
+  const positions=readAccessor(bin,doc.accessors[primitive.attributes.POSITION],doc.bufferViews,true,512);
+  const indices=readAccessor(bin,doc.accessors[primitive.indices],doc.bufferViews,false,1024);
+  if(!positions||!indices||indices.some(i=>i>=positions.length/3))return;
+  const points:Point[]=[];
+  for(let i=0;i<positions.length;i+=3)points.push([positions[i]!+translation[0],positions[i+1]!+translation[1],positions[i+2]!+translation[2]]);
+  const min=[0,1,2].map(axis=>metres(Math.min(...points.map(point=>point[axis]!)))) as Point;
+  const max=[0,1,2].map(axis=>metres(Math.max(...points.map(point=>point[axis]!)))) as Point;
+  if(!closedConvexPart(points,indices,min,max))return;
+  measured.push({node:index,min,max});
+ }
+ const reveal=measured.filter(({min,max})=>min[2]<0&&max[2]>0);
+ const left=reveal.find(({min,max})=>near(min[1],0)&&max[0]<0),right=reveal.find(({min,max})=>near(min[1],0)&&max[0]>0);
+ const head=reveal.find(({min,max})=>min[1]>0&&min[0]<0&&max[0]>0);
+ if(reveal.length!==3||!left||!right||!head||!near(left.max[0],-right.min[0]))return;
+ const minZ=left.min[2],maxZ=left.max[2],openingWidth=metres(right.min[0]-left.max[0]),openingHeight=head.min[1];
+ const parts={} as ModularPortalFit['parts'];
+ for(const part of measured){
+  const {min,max}=part;
+  const face=near(min[2],minZ)&&near(max[2],maxZ)?'reveal':near(min[2],maxZ)?'front':near(max[2],minZ)?'back':undefined;
+  const side=near(min[1],openingHeight)?'head':max[0]<0?'left':'right';
+  if(!face)return;
+  const role:ModularPortalRole=`${face}-${side}`;
+  if(parts[role])return;
+  parts[role]=part;
+ }
+ const geometry:ModularPortalFit={profile:'modular-portal-v1',openingWidth,openingHeight,minZ,maxZ,parts};
+ return modularPortalParts(geometry)?geometry:undefined;
+}
+
 /** Call only after the existing worker has fully validated the GLB container.
  * No user metadata, declared bounds, asset hash or filename establishes fit. */
 export function qualifyWorkspaceFitGeometry(bytes:Buffer,profile:WorkspaceFitProfile):WorkspaceFitGeometry|undefined {
  const jsonSize=bytes.readUInt32LE(12);
  const doc=JSON.parse(bytes.toString('utf8',20,20+jsonSize));
+ const bin=bytes.subarray(28+jsonSize);
+ if(profile==='modular-portal-v1')return qualifyModularPortal(doc,bin);
  const node=doc.nodes?.[0],primitive=doc.meshes?.[0]?.primitives?.[0];
  if(doc.nodes?.length!==1||doc.meshes?.length!==1||doc.meshes[0].primitives.length!==1||doc.scenes?.length!==1||doc.scenes[0].nodes?.join()!=='0'||(doc.scene??0)!==0||
   node?.mesh!==0||Object.keys(node).some(k=>k!=='mesh'&&k!=='name'&&k!=='extras')||!primitive||primitive.targets||(primitive.mode??4)!==4||
   Object.keys(primitive.attributes).sort().join(',')!=='NORMAL,POSITION'||doc.textures?.length||doc.images?.length||doc.animations?.length||doc.skins?.length||doc.buffers?.length!==1)return;
- const bin=bytes.subarray(28+jsonSize);
  const positions=readAccessor(bin,doc.accessors[primitive.attributes.POSITION],doc.bufferViews,true);
  const indices=readAccessor(bin,doc.accessors[primitive.indices],doc.bufferViews,false);
  if(!positions||!indices||indices.some(i=>i>=positions.length/3))return;
