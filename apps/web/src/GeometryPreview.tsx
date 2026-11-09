@@ -49,7 +49,8 @@ import {installPlaques,plaqueTextureReserve} from './plaque-renderer';
 import {createMapThumbnailRoster,mapThumbnailRosterReserve,type MapThumbnailSnapshot} from './viewer/map-thumbnail';
 import {publicThumbnailReserve,type createPublicThumbnailCache} from './viewer/public-thumbnail';
 import {artworkThumbnailFor} from '@exhibitos/studio-contract';
-import {installBoundedShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {installBoundedShadows,installSupportContactShadows,SHADOW_RESERVE_BYTES} from './viewer/shadows';
+import {supportContactFits,supportContacts} from './viewer/support-contacts';
 import {createPortal} from 'react-dom';
 import {visitingFov,visitingBuffer} from './viewer/framing';
 import {installPanelResume} from './viewer/panel-resume';
@@ -822,6 +823,19 @@ export function GeometryPreview({
         renderer.domElement.dataset.shadows=JSON.stringify({...value,reserveBytes:shadowReserve});
         setShadowMessage(value.mode==='bounded'?'주요 조명의 제한된 공간 그림자를 표시합니다.':value.mode==='compact'?'경량 화면에서는 공간 그림자를 생략합니다.':'이 공간에서는 그림자를 생략하고 작품과 조명을 표시합니다.');
       });owned.push(shadowPass);
+      let shadowRoom: InstanceType<typeof three.Group> | undefined;
+      let contactShadows: ReturnType<typeof installSupportContactShadows> | undefined;
+      const publishNavigationState = (state: NavigationState) => {
+        if (publicSource && state.grounded && state.roomId) {
+          const room = rooms.get(state.roomId.toLowerCase());
+          if (room && room !== shadowRoom) {
+            shadowRoom = room;
+            shadowPass.setRoom(room);
+            contactShadows?.setRoom(room);
+          }
+        }
+        navigationCallbacks.current.onNavigationState?.(state);
+      };
       const controls = new OrbitControls(camera, renderer.domElement);
       let authoredFov = camera.fov;
       const applyProjection = () => {
@@ -923,7 +937,8 @@ export function GeometryPreview({
       const presenceScene:RealtimeScene={update:visitors=>{if(disposed||gpuLost)return;const ids=new Set(visitors.map(v=>v.visitorId));for(const [id,group]of remoteAvatars)if(!ids.has(id)){scene.remove(group);remoteAvatars.delete(id);}for(const visitor of visitors){let group=remoteAvatars.get(visitor.visitorId);if(!group){group=new three.Group();group.userData.remoteVisitorId=visitor.visitorId;const assets=avatarAssets(),body=new three.Mesh(assets.body,assets.material),head=new three.Mesh(assets.head,assets.material),nose=new three.Mesh(assets.nose,assets.material);body.position.y=-.7;head.position.y=-.12;nose.position.set(0,-.12,-.18);group.add(body,head,nose);remoteAvatars.set(visitor.visitorId,group);scene.add(group);}group.position.fromArray(visitor.position);group.rotation.y=visitor.yaw;}presenceDiagnostics();render();},clear:()=>{for(const group of remoteAvatars.values())scene.remove(group);remoteAvatars.clear();presenceDiagnostics();render();}};
       presenceDiagnostics();navigationCallbacks.current.onPresenceSceneReady?.(presenceScene);
       const catalogSettled:Promise<unknown>[]=[];
-      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
+      let contactBench:{model:Object3D;hostId:string}|undefined;
+      if(benchReserve&&benchSource){const catalog=installPrivateCatalogBench(three,document,rooms,benches.groups,abort.signal,benchSource.check,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,(model,hostId)=>{contactBench={model,hostId};shadowPass.invalidate();render();},benchSource);owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.privateCatalogBench=status;}));}
       if(otherReserve){const catalog=installCatalogOtherVisuals(three,otherFurnishings,rooms,lightDetails.fixtures,installation.pedestals,abort.signal,()=>disposed||gpuLost,viewerBudget?.maxTriangles??20000,()=>{shadowPass.invalidate();render();});owned.push(catalog);catalogSettled.push(catalog.start().then(status=>{if(!disposed&&!gpuLost)renderer.domElement.dataset.catalogFurnishings=JSON.stringify(status);}));}
       const scriptDiagnostics=()=>{renderer.domElement.dataset.scriptScene=JSON.stringify({lights:Object.fromEntries([...scriptLights].map(([id,{light}])=>[id,light.intensity])),visibility:Object.fromEntries([...placements].map(([id,g])=>[id,g.visible]))});};
       const scriptScene:ScriptScene={setLight:(id,multiplier)=>{const entry=scriptLights.get(id);if(entry&&Number.isFinite(multiplier)){const next=entry.original*Math.max(0,Math.min(1,multiplier));if((entry.light.intensity>0)!==(next>0))shadowPass.invalidate();entry.light.intensity=next;scriptDiagnostics();render();}},setArtworkVisible:(id,visible)=>{const group=placements.get(id.toLowerCase());if(group){group.visible=visible;const decor=installation.groups.get(id.toLowerCase());if(decor)decor.visible=visible;shadowPass.invalidate();scriptDiagnostics();render();}},reset:()=>{for(const {light,original}of scriptLights.values())light.intensity=original;for(const group of placements.values())group.visible=true;for(const group of installation.groups.values())group.visible=true;shadowPass.invalidate();scriptDiagnostics();render();}};
@@ -1323,7 +1338,7 @@ export function GeometryPreview({
                 render,
                 onState: (state) => {
                   if(disposed)return;
-                  navigationCallbacks.current.onNavigationState?.(state);
+                  publishNavigationState(state);
                   const cb = navigationCallbacks.current;
                   if (cb.proximityDetail && cb.onArtworkSelect && !suspendedRef.current && !state.paused) {
                     const placement = document.placements.find(p => {
@@ -1462,7 +1477,7 @@ export function GeometryPreview({
                 const {createWalkingCamera}=await import('./viewer/navigation-camera');signal.throwIfAborted();
                 const created=await createWalkingCamera({document,camera,controls,canvas:renderer.domElement,settings:{...walkSettingsRef.current},render,
                   resumeMovement:()=>!closed&&!disposed&&!gpuLost&&!signal.aborted&&!suspendedRef.current,
-                  onState:state=>{if(!closed&&!signal.aborted)navigationCallbacks.current.onNavigationState?.(state);},
+                  onState:state=>{if(!closed&&!signal.aborted)publishNavigationState(state);},
                   onMode:(walking,paused)=>{if(!closed&&!signal.aborted){currentWalkMode.current={walking,paused};setWalkingMode(walking);setWalkPaused(paused);}},
                   onMessage:message=>{if(!closed&&!signal.aborted)setWalkMessage(message);},
                 });
@@ -1905,7 +1920,30 @@ export function GeometryPreview({
         let diagnosticOriginal:{artworkRevisionId:string;sha256:string}|null=null;
         let diagnosticDetailPlacement:string|null=null;
         let diagnosticOriginalLimits:{transition:number;scene:number}|null=null;
-        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,diagnosticsEnabled()?total=>{diagnosticPeak=Math.max(diagnosticPeak,total);}:undefined);
+        let contactReceivers:ReturnType<typeof supportContacts>|undefined;
+        const contactEligible=!document.scripts.length;
+        const releaseContact=()=>{
+          contactShadows?.dispose();
+          contactShadows=undefined;
+        };
+        const retireContactForBudget=(used:number)=>{
+          if(contactShadows&&!supportContactFits(used,Math.min(assetBudgetBytes,transitionBudgetBytes))){
+            releaseContact();
+            renderer.domElement.dataset.supportContactShadows='budget';
+          }
+        };
+        const peak=new AssetPeakBudget(transitionBudgetBytes,resident,contactEligible||diagnosticsEnabled()?total=>{
+          retireContactForBudget(total);
+          if(diagnosticsEnabled())diagnosticPeak=Math.max(diagnosticPeak,total);
+        }:undefined);
+        if(contactEligible){
+          owned.push({dispose:releaseContact});
+          void Promise.allSettled(catalogSettled).then(()=>{
+            if(!disposed&&!gpuLost)contactReceivers=supportContacts(three,document,rooms,surfaces,rectangles,installation.pedestals,shadowCandidates,contactBench);
+          }).catch(()=>{
+            if(!disposed&&!gpuLost)renderer.domElement.dataset.supportContactShadows='unavailable';
+          });
+        }
         const unregisterDiagnostic=registerDiagnosticSource(()=>{
           const history=readRuntimeHistory(renderer.domElement.ownerDocument),records=stages.snapshot();
           const recent=new Map(records.map(row=>[row.assetId,row]));
@@ -2831,6 +2869,7 @@ export function GeometryPreview({
           assertMount();
           let object=objects.get(art.revisionId);
           if(!object||disposed||gpuLost||sharedDetail||xrActive.current)throw Error('DETAIL_NOT_READY');
+          releaseContact();
           const returnEpoch=++canvasReturnEpoch;
           const markerBytes=(input.anchors.length?16384+input.anchors.length*512:0)+(input.flatImage?2048:0),detailKey='shared-detail-annotations';
           // Verified downloads can outlive a deferred full-image promotion.
@@ -3004,7 +3043,28 @@ export function GeometryPreview({
           tasks.set(key,{art,inventory,prepareOnly:true,downloadOnly:false,thumbnailWork:async signal=>{await cache.loadOne(art,signal);}});
           void scheduler.request(key,10000).catch(()=>{}).finally(()=>{tasks.delete(key);if(publicThumbnailTask===key)publicThumbnailTask=undefined;});
         };
-        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover')preparePublicThumbnail();sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
+        const updateSupportContact=()=>{
+          if(!contactReceivers?.length||!shadowRoom||disposed||gpuLost||publicDisplayStopped||sharedDetail||!floorSettled||!surfaceSettled)return;
+          const used=peak.total(),limit=Math.min(assetBudgetBytes,transitionBudgetBytes);
+          retireContactForBudget(used);
+          if(contactShadows||scheduler.stats().active||scheduler.stats().queued)return;
+          if(!supportContactFits(used,limit)){
+            renderer.domElement.dataset.supportContactShadows='budget';
+            return;
+          }
+          try{
+            contactShadows=installSupportContactShadows(three,contactReceivers,compactQuality,value=>{
+              renderer.domElement.dataset.supportContactShadows=JSON.stringify(value);
+            });
+            contactShadows.setRoom(shadowRoom);
+            render();
+          }catch{
+            releaseContact();
+            contactReceivers=undefined;
+            renderer.domElement.dataset.supportContactShadows='unavailable';
+          }
+        };
+        const statsTimer = setInterval(()=>{const live=residentDemandActive({cancelled:residentRecoveryCancelled,disposed,gpuLost,publicDisplayStopped,observeWall:demandContext().observeWall,automatic,immersive});if(live)for(const [id,wait] of residentMinimumWait){const needed=!!(observedVisible.get(id)||observedEligible.get(id)||mapPins.has(id)||viewingPins.has(id));if(retryWaitingMinimum(id,wait.bytes,needed)){residentMinimumWait.delete(id);retryAfter.delete(id);minimumBlocked.delete(id);}else if(needed)minimumBlocked.add(id);}automaticDemand();retryFlatDetail?.();retryOriginalDetail?.();update();if(entranceModeRef.current!=='cover'){updateSupportContact();preparePublicThumbnail();}sculptureOrbitRuntime.current?.refresh();for(const check of [...mapWaiters])check();}, 200);
         const originalRelease = release;
         release = () => {
           unregisterDiagnostic();

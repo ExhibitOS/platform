@@ -21,7 +21,7 @@ export function catalogBenchSource(document:Exhibition,source:{publicationId:str
  if(candidates.length||!privateCatalogue)return undefined;
  return {url:'/'+BENCH_CATALOG_PATH,fetcher:fetch,check:source.check};
 }
-export function installPrivateCatalogBench(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,fallback:readonly Three.Group[],signal:AbortSignal,check:()=>Promise<void>,unavailable:()=>boolean,maxTriangles:number,changed:()=>void,assetSource?:{url:string;fetcher:typeof fetch;revision?:string}){
+export function installPrivateCatalogBench(three:typeof Three,document:Exhibition,rooms:ReadonlyMap<string,Three.Group>,fallback:readonly Three.Group[],signal:AbortSignal,check:()=>Promise<void>,unavailable:()=>boolean,maxTriangles:number,changed:(model:Three.Object3D,hostId:string)=>void,assetSource?:{url:string;fetcher:typeof fetch;revision?:string}){
  const selected=privateCatalogBench(document);let disposed=false,loaded:Awaited<ReturnType<typeof loadCatalogModel>>|undefined,hiddenHost:Three.Group|undefined;
  const dispose=()=>{disposed=true;if(hiddenHost)hiddenHost.visible=true;loaded?.dispose();};
  const start=async()=>{
@@ -30,7 +30,7 @@ export function installPrivateCatalogBench(three:typeof Three,document:Exhibitio
    loaded=await loadCatalogModel(three,BENCH_CATALOG,{url:assetSource?.url??'/'+BENCH_CATALOG_PATH,fetcher:assetSource?.fetcher??fetch,revision:assetSource?.revision,check},signal,()=>disposed||unavailable(),maxTriangles,BENCH_RESERVE_BYTES);
    if(disposed||signal.aborted||unavailable())throw Error('CATALOG_INACTIVE');
    const {resolved,binding}=selected,room=rooms.get(resolved.roomId.toLowerCase()),host=fallback.find(g=>g.userData.benchId===binding.hostId);if(!room||!host)throw Error('CATALOG_HOST');
-   const p=resolved.pose;loaded.model.position.fromArray(p.position);loaded.model.quaternion.fromArray(p.rotation);loaded.model.scale.fromArray(p.scale);room.add(loaded.model);hiddenHost=host;host.visible=false;changed();return 'ready';
+   const p=resolved.pose;loaded.model.position.fromArray(p.position);loaded.model.quaternion.fromArray(p.rotation);loaded.model.scale.fromArray(p.scale);room.add(loaded.model);hiddenHost=host;host.visible=false;changed(loaded.model,binding.hostId);return 'ready';
   }catch{dispose();return 'fallback';}
  };
  return {start,dispose};
