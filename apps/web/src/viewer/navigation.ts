@@ -1,6 +1,6 @@
 import {surfacePanels as wallCollisionPanels,wallFinishesFor,architecturalSolids} from '@exhibitos/studio-contract';
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchSolids,presentationFor} from "@exhibitos/studio-contract";
+import {artifactCorners,validateArtworkWalkingProfile,resolveInstallations,benchSolids,builtInStoolSolids,presentationFor} from "@exhibitos/studio-contract";
 import RAPIER from "@dimforge/rapier3d-compat";
 import { buildNavigationMesh, findNavigationPath, type NavigationMesh } from "./navigation-mesh";
 import type { Exhibition } from "@exhibitos/spec";
@@ -96,6 +96,7 @@ export async function createNavigationController(doc: Exhibition, options: {
     eyeHeight?: number;
     speed?: 0.7 | 1.3 | 1.6;
     reducedMotion?: boolean;
+    stoolVisible?: (placementId:string)=>boolean;
 }): Promise<NavigationController> {
     if (doc.rooms.length > 32 || doc.surfaces.length > 256 || doc.openings.length > 128 || doc.placements.length > 128 || !doc.rooms.length)
         throw Error("NAVIGATION_COMPLEXITY");
@@ -112,6 +113,12 @@ export async function createNavigationController(doc: Exhibition, options: {
     const world = new RAPIER.World({ x: 0, y: 0, z: 0 });
     const rooms = new Map(doc.rooms.map(r => [r.id.toLowerCase(), r]));
     let colliderCount = 0;
+    const stoolColliders=new Map<number,string>();
+    const activeCollider=(collider:{handle:number})=>{
+        const stool=stoolColliders.get(collider.handle);
+        return stool===undefined||options.stoolVisible?.(stool)===true;
+    };
+    const activeSolid=(collider:{handle:number})=>kinds.get(collider.handle)==='solid'&&activeCollider(collider);
     const benchColliders=new Map<string,Set<number>>();
     function box(position: Vec3, rotation: Quat, half: Vec3, kind: "floor" | "solid") {
         if (++colliderCount > 8192 || !finite(half) || half.some(n => n <= 0 || n > 10000))
@@ -176,10 +183,14 @@ export async function createNavigationController(doc: Exhibition, options: {
             const min=[0,1,2].map(i=>Math.min(...corners.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...corners.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,affineCorners:corners});
         }
-        for(const solid of [...resolveInstallations(doc).flatMap(record=>record.solids),...benchSolids(doc),...architecturalSolids(doc)]){
+        for(const solid of [...resolveInstallations(doc).flatMap(record=>record.solids),...benchSolids(doc),...(options.stoolVisible?builtInStoolSolids(doc):[]),...architecturalSolids(doc)]){
             if(++colliderCount>8192)throw Error('NAVIGATION_COMPLEXITY');
             const desc=RAPIER.ColliderDesc.convexHull(new Float32Array(solid.vertices.flat()));if(!desc)throw Error('NAVIGATION_AFFINE_HULL_UNSUPPORTED');
             const collider=world.createCollider(desc);kinds.set(collider.handle,'solid');
+            if('stoolPlacementId' in solid&&typeof solid.stoolPlacementId==='string'){
+                stoolColliders.set(collider.handle,solid.stoolPlacementId);
+                continue;
+            }
             if('benchId' in solid&&typeof solid.benchId==='string'){const key=solid.benchId.toLowerCase(),handles=benchColliders.get(key)??new Set<number>();handles.add(collider.handle);benchColliders.set(key,handles);}
             const min=[0,1,2].map(i=>Math.min(...solid.vertices.map(p=>p[i]!))),max=[0,1,2].map(i=>Math.max(...solid.vertices.map(p=>p[i]!)));
             solids.push({center:min.map((n,i)=>(n+max[i]!)/2) as Vec3,rotation:[0,0,0,1],halfExtents:min.map((n,i)=>(max[i]!-n)/2) as Vec3,convexVertices:solid.vertices});
@@ -223,7 +234,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             ensure();
             if (!finite(eye)) return undefined;
             const next = standingAt(eye);
-            if (!next || !supported(next) || world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character)) return undefined;
+            if (!next || !supported(next) || world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character, undefined, activeCollider)) return undefined;
             return [next[0], next[1] - half + settings.eyeHeight, next[2]];
         }
         function isWalkable(eye: Vec3) { return qualifiedStandingEye(eye) !== undefined; }
@@ -233,9 +244,9 @@ export async function createNavigationController(doc: Exhibition, options: {
             for(const point of [floor,...footprint]){const ground=support(point[0],point[2],point[1]);if(!inside(point)||ground===undefined||Math.abs(ground-point[1])>.05)return false;}
             const own=benchId?benchColliders.get(benchId.toLowerCase()):undefined;
             if(benchId&&!own)return false;
-            for(const handle of own??[]){const collider=world.getCollider(handle);if(world.intersectionWithShape(v([0,0,0]),q([0,0,0,1]),collider.shape,undefined,undefined,character,undefined,c=>kinds.get(c.handle)==='solid'&&!own!.has(c.handle)))return false;}
+            for(const handle of own??[]){const collider=world.getCollider(handle);if(world.intersectionWithShape(v([0,0,0]),q([0,0,0,1]),collider.shape,undefined,undefined,character,undefined,c=>activeSolid(c)&&!own!.has(c.handle)))return false;}
             const bottom=seatTop+.03,top=eye[1]+.15,center:Vec3=[eye[0],(bottom+top)/2,eye[2]];
-            return !world.intersectionWithShape(v(center),q([0,0,0,1]),new RAPIER.Cuboid(.2,(top-bottom)/2,.2),undefined,undefined,character,undefined,c=>kinds.get(c.handle)==='solid');
+            return !world.intersectionWithShape(v(center),q([0,0,0,1]),new RAPIER.Cuboid(.2,(top-bottom)/2,.2),undefined,undefined,character,undefined,activeSolid);
         }
         function reset(pose: {
             position?: Vec3;
@@ -248,7 +259,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             const next = standingAt(eye);
             if (!next)
                 throw Error("NAVIGATION_SPAWN_UNSAFE");
-            if (!supported(next) || world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character))
+            if (!supported(next) || world.intersectionWithShape(v(next), q([0, 0, 0, 1]), shape, undefined, undefined, character, undefined, activeCollider))
                 throw Error("NAVIGATION_SPAWN_UNSAFE");
             center = next;
             yaw = nextYaw;
@@ -333,7 +344,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             const start = standingAt([a[0], a[1] + settings.eyeHeight, a[2]]), end = standingAt([b[0], b[1] + settings.eyeHeight, b[2]]);
             if (!start || !end)
                 return false;
-            const cast = (from: Vec3, to: Vec3, skin = 0) => world.castShape(v(from), q([0, 0, 0, 1]), v(to.map((n, i) => n - from[i]!) as Vec3), shape, skin, 1, true, undefined, undefined, character);
+            const cast = (from: Vec3, to: Vec3, skin = 0) => world.castShape(v(from), q([0, 0, 0, 1]), v(to.map((n, i) => n - from[i]!) as Vec3), shape, skin, 1, true, undefined, undefined, character, undefined, activeCollider);
             const clear = (from: Vec3, to: Vec3) => Math.hypot(...to.map((n, i) => n - from[i]!)) < 1e-8 || !cast(from, to);
             if (clear(start, end))
                 return true;
@@ -348,7 +359,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             const height = Math.max(start[1], end[1]), raised: Vec3 = [approach[0], height, approach[2]], landing: Vec3 = [end[0], height, end[2]];
             return clear(start, approach) && clear(approach, raised) && clear(raised, landing) && clear(landing, end);
         }
-        const navigationMesh = buildNavigationMesh(regions, { walkable: foot => { const level = support(foot[0], foot[2], foot[1]); return level !== undefined && Math.abs(level - foot[1]) < 0.005 && isWalkable([foot[0], foot[1] + settings.eyeHeight, foot[2]]); }, cellClear: corners => { const min = [0, 1, 2].map(i => Math.min(...corners.map(p => p[i]!))), max = [0, 1, 2].map(i => Math.max(...corners.map(p => p[i]!))), pos: Vec3 = [(min[0]! + max[0]!) / 2, (min[1]! + max[1]!) / 2 + half + 0.051, (min[2]! + max[2]!) / 2], boxShape = new RAPIER.Cuboid((max[0]! - min[0]!) / 2 + radius, half + (max[1]! - min[1]!) / 2 + 0.04, (max[2]! - min[2]!) / 2 + radius); return !world.intersectionWithShape(v(pos), q([0, 0, 0, 1]), boxShape, undefined, undefined, character, undefined, c => kinds.get(c.handle) === "solid"); }, segmentClear: clearSegment });
+        const navigationMesh = buildNavigationMesh(regions, { walkable: foot => { const level = support(foot[0], foot[2], foot[1]); return level !== undefined && Math.abs(level - foot[1]) < 0.005 && isWalkable([foot[0], foot[1] + settings.eyeHeight, foot[2]]); }, cellClear: corners => { const min = [0, 1, 2].map(i => Math.min(...corners.map(p => p[i]!))), max = [0, 1, 2].map(i => Math.max(...corners.map(p => p[i]!))), pos: Vec3 = [(min[0]! + max[0]!) / 2, (min[1]! + max[1]!) / 2 + half + 0.051, (min[2]! + max[2]!) / 2], boxShape = new RAPIER.Cuboid((max[0]! - min[0]!) / 2 + radius, half + (max[1]! - min[1]!) / 2 + 0.04, (max[2]! - min[2]!) / 2 + radius); return !world.intersectionWithShape(v(pos), q([0, 0, 0, 1]), boxShape, undefined, undefined, character, undefined, activeSolid); }, segmentClear: clearSegment });
         function pathBetween(fromEye: Vec3, toEye: Vec3) {
             ensure();
             if (!isWalkable(fromEye) || !isWalkable(toEye))
@@ -374,7 +385,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             if (landing === undefined || Math.abs(landing - level) > 0.04)
                 return;
             const up: Vec3 = [0, rise, 0], raised = add(center, up), horizontal: Vec3 = [desired[0], 0, desired[2]];
-            if (world.castShape(v(center), q([0, 0, 0, 1]), v(up), shape, 0, 1, true, undefined, undefined, character) || world.castShape(v(raised), q([0, 0, 0, 1]), v(horizontal), shape, 0, 1, true, undefined, undefined, character))
+            if (world.castShape(v(center), q([0, 0, 0, 1]), v(up), shape, 0, 1, true, undefined, undefined, character, undefined, activeCollider) || world.castShape(v(raised), q([0, 0, 0, 1]), v(horizontal), shape, 0, 1, true, undefined, undefined, character, undefined, activeCollider))
                 return;
             const next = add(raised, horizontal);
             return supported(next) ? next : undefined;
@@ -384,7 +395,7 @@ export async function createNavigationController(doc: Exhibition, options: {
             if (floor === undefined || floor > foot || foot - floor > NAVIGATION_PROFILE.maxStepHeight + 0.011)
                 return;
             const lower: Vec3 = [next[0], floor + half + 0.011, next[2]], delta = lower.map((n, i) => n - next[i]!) as Vec3;
-            const hit = world.castShape(v(next), q([0, 0, 0, 1]), v(delta), shape, 0.001, 1, true, undefined, undefined, character);
+            const hit = world.castShape(v(next), q([0, 0, 0, 1]), v(delta), shape, 0.001, 1, true, undefined, undefined, character, undefined, activeCollider);
             const landing = hit ? add(next, delta.map(n => n * Math.max(0, hit.time_of_impact - 0.0001)) as Vec3) : lower;
             return supported(landing) ? landing : undefined;
         }
@@ -458,7 +469,7 @@ export async function createNavigationController(doc: Exhibition, options: {
                         world.step();
                         continue;
                     }
-                    controller.computeColliderMovement(character!, { x: velocity[0] / 60, y: -0.002, z: velocity[2] / 60 });
+                    controller.computeColliderMovement(character!, { x: velocity[0] / 60, y: -0.002, z: velocity[2] / 60 },undefined,undefined,activeCollider);
                     const movement = controller.computedMovement();
                     let next = add(center, [movement.x, movement.y, movement.z]);
                     grounded = controller.computedGrounded();

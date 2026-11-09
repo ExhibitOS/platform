@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {test,expect} from 'vitest';
-import {INSTALLATION_NAMESPACE as N} from '@exhibitos/studio-contract';
+import {INSTALLATION_NAMESPACE as N, WORKSPACE_FURNISHING_NAMESPACE} from '@exhibitos/studio-contract';
 import {newDraft} from '../drafts/example';
 import {createGeometryState,applyGeometryCommand} from '../geometry/model';
 import {syntheticArtwork,newPlacement} from '../placement/model';
@@ -21,4 +21,41 @@ test('a thin low frame blocks capsule head and swept server movement while its a
   const before={roomId,position:[0,1.65,.4] as [number,number,number],yaw:0},after={roomId,position:[0,1.65,-.4] as [number,number,number],yaw:0};expect(server.valid(before)).toBe(true);expect(server.valid(after)).toBe(true);expect(server.move(before,after,500)).toBe(false);expect(c.isWalkable([0,1.65,0])).toBe(false);expect(c.isWalkable([1,1.65,0])).toBe(true);
   for(let i=0;i<90;i++)c.advance(1/60,{forward:1,right:0,paused:false});expect(c.state().eyePosition[2]).toBeGreaterThan(.12);
  }finally{c.dispose();}
+});
+
+test('verified built-in stool blocks its floor footprint while leaving paths around it',async()=>{
+ const draft=newDraft();
+ const geometry=createGeometryState(draft.candidate);
+ const doc=applyGeometryCommand(geometry,{type:'white-cube',roomId:geometry.present.rooms[0]!.id}).present;
+ const id='10000000-0000-4000-8000-000000000020';
+ const model={mime:'model/gltf-binary',bytes:415848,sha256:'6caca94361b540fb007c6fc605e519e436462eda43f2ec5f99da6a63108bfc60'};
+ doc.extensions={...doc.extensions,[WORKSPACE_FURNISHING_NAMESPACE]:{version:2,
+  furnishings:[{id,version:1,kind:'stool',name:'Gallery stool',rights:{},provenance:'ExhibitOS',model}],
+  placements:[{id:'10000000-0000-4000-8000-000000000021',roomId:doc.rooms[0]!.id,furnishingId:id,furnishingVersion:1,position:[0,0,0],yaw:0,scale:1}]}};
+ let visible=false;
+ const camera=await createNavigationController(doc,{position:[0,1.65,2],stoolVisible:()=>visible});
+ try {
+  expect(camera.isWalkable([0,1.65,0])).toBe(true);
+  visible=true;
+  expect(camera.isWalkable([0,1.65,0])).toBe(false);
+  for(let frame=0;frame<180;frame++)camera.advance(1/60,{forward:1,right:0,paused:false});
+  expect(camera.state().blocked).toBe(true);
+  expect(camera.state().eyePosition[2]).toBeGreaterThan(.43);
+  for(const x of [-.65,.65]){
+   camera.reset({position:[x,1.65,1]});
+   for(let frame=0;frame<120;frame++)camera.advance(1/60,{forward:1,right:0,paused:false});
+   expect(camera.state().eyePosition[2]).toBeLessThan(-1);
+  }
+  visible=false;
+  camera.reset({position:[0,1.65,2]});
+  for(let frame=0;frame<180;frame++)camera.advance(1/60,{forward:1,right:0,paused:false});
+  expect(camera.state().eyePosition[2]).toBeLessThan(-1);
+ }finally{camera.dispose();}
+ model.sha256='0'.repeat(64);
+ const unknown=await createNavigationController(doc,{position:[0,1.65,2],stoolVisible:()=>true});
+ try {
+  for(let frame=0;frame<180;frame++)unknown.advance(1/60,{forward:1,right:0,paused:false});
+  expect(unknown.state().eyePosition[2]).toBeLessThan(-1);
+ }
+ finally{unknown.dispose();}
 });
