@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { entranceFor, MAX_COVER_BYTES,spaceStillFor } from '@exhibitos/studio-contract';
 import type { PublicPublication } from './publication-client';
 import { fetchVerifiedAsset } from './viewer/loading';
+import type {EntranceReadiness} from './viewer/entrance-readiness';
 import { waitForCoverLayout } from './cover-ready';
 import {validateCoverVariantDescriptor} from './cover-variant-descriptor.mjs';
 import {selectCoverVariant} from './cover-variant-selection';
@@ -26,9 +27,9 @@ export interface EntranceCoverSource {
  /** Host-only authenticated display derivative, never supplied through publication JSON. */
  image(assetId:string,signal:AbortSignal):Promise<ArrayBuffer>;
 }
-export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale,source,onImageState,coverRetirement }: {
+export function EntranceCover({ publication, showImage, interactive = true, motion = true, ticket, children,locale,source,onImageState,coverRetirement,entranceReadiness }: {
   publication: PublicPublication|Pick<PublicPublication,'exhibition'>; showImage: boolean; interactive?: boolean; motion?: boolean; ticket?: ReactNode; children: ReactNode;locale?:string;
-  source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;coverRetirement?:ReturnType<typeof createWheatCoverRetirement>;
+  source?:EntranceCoverSource;onImageState?:(status:ThemeProps['image']['status'])=>void;coverRetirement?:ReturnType<typeof createWheatCoverRetirement>;entranceReadiness?:EntranceReadiness;
 }) {
   const compact=typeof window!=='undefined'&&window.matchMedia('(max-width:700px)').matches,{settings,design,effects,authored}=entranceRuntime(publication.exhibition,!motion,compact),canReveal=effects.cover!=='none',content=entranceContent(publication.exhibition,locale,compact), generation = useRef(0), spread = useRef<HTMLDivElement>(null);
   const still=spaceStillFor(publication.exhibition),hasUsableImage=!!settings.imageAssetId&&(design.theme!=='threshold'||!!still);
@@ -81,15 +82,19 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
     const current=++generation.current, abort = new AbortController();
     let objectURL = '';let retirement:ReturnType<ReturnType<typeof createWheatCoverRetirement>['begin']>|undefined;
     setImage(null); setLoaded(false); setFailed(false);
-    if (!showImage || !hasUsableImage || !settings.imageAssetId) return;
+    if (!showImage) return;
+    if (!hasUsableImage || !settings.imageAssetId) { entranceReadiness?.setCover(null); return; }
     if(trusted&&!measured)return;
     const id=settings.imageAssetId.toLowerCase(),selectedId=selected?.id??id,deadline=AbortSignal.timeout(15000);
     const load=async(target:string)=>{
       const signal=AbortSignal.any([abort.signal,deadline,...(target.toLowerCase()===id?[]:[AbortSignal.timeout(5000)])]),inventory=publication.exhibition.artworks.flatMap(a=>a.assets).find(a=>a.id.toLowerCase()===target.toLowerCase())??(still?.id.toLowerCase()===target.toLowerCase()?still:undefined);
       const asset='assets' in publication?publication.assets.find(a=>a.assetId.toLowerCase()===target.toLowerCase()):undefined;
       if(!inventory||!source&&(!asset||!('publication' in publication)))throw Error('COVER_SOURCE_UNAVAILABLE');
+      entranceReadiness?.setCover(inventory);
       retirement=coverRetirement?.begin({sha256:inventory.sha256,bytes:inventory.bytes,mime:inventory.mime});retirementRef.current=retirement;
-      const bytes=source?await source.image(id,signal):'publication' in publication&&asset?await fetchVerifiedAsset({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,inventory,asset,signal,...publication.local,maxBytes:MAX_COVER_BYTES}):(()=>{throw Error('COVER_SOURCE_UNAVAILABLE');})();
+      const transfer=source?source.image(id,signal):'publication' in publication&&asset?fetchVerifiedAsset({publicationId:publication.publication.id,revisionSha256:publication.publication.revisionSha256,inventory,asset,signal,...publication.local,maxBytes:MAX_COVER_BYTES,progress:entranceReadiness?received=>entranceReadiness.receive(inventory,received):undefined}):(()=>{throw Error('COVER_SOURCE_UNAVAILABLE');})();
+      if(!source)entranceReadiness?.retainCoverTransfer(inventory,transfer);
+      const bytes=await transfer;
       signal.throwIfAborted();
       if(bytes.byteLength>MAX_COVER_BYTES)throw Error('COVER_PNG_LIMIT');
       const view = new DataView(bytes), signature = [137, 80, 78, 71, 13, 10, 26, 10];
@@ -113,9 +118,9 @@ export function EntranceCover({ publication, showImage, interactive = true, moti
       if(objectURL){URL.revokeObjectURL(objectURL);objectURL='';}
       abort.signal.throwIfAborted();deadline.throwIfAborted();if(selectedId.toLowerCase()===id)throw error;
       await load(id);
-    }})().catch(() => { retirement?.fail();if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) setFailed(true); });
+    }})().catch(() => { retirement?.fail();if(objectURL)URL.revokeObjectURL(objectURL);if (!abort.signal.aborted&&current===generation.current) { entranceReadiness?.setCover(null); setFailed(true); } });
     return () => { abort.abort(); if(current===generation.current)generation.current++;let revoked=false;try{if(objectURL){URL.revokeObjectURL(objectURL);revoked=true;}}finally{retirement?.retire(revoked);if(retirementRef.current===retirement)retirementRef.current=undefined;} };
-  }, [publication, showImage, settings.imageAssetId, hasUsableImage,retry,source,trusted,!!measured,selected?.id,coverRetirement]);
+  }, [publication, showImage, settings.imageAssetId, hasUsableImage,retry,source,trusted,!!measured,selected?.id,coverRetirement,entranceReadiness]);
   const displayed=()=>{if(image?.generation===generation.current){retirementRef.current?.displayed(image.url);requestAnimationFrame(()=>{if(image.generation===generation.current)setLoaded(true);});}};
   const imageFailed=()=>{if(image?.generation===generation.current){retirementRef.current?.fail();if(image.variant)setForcePrimary(true);else setFailed(true);}};
   const phase=paper;

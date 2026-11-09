@@ -4,11 +4,13 @@ import {createWheatCoverRetirement,tracksWheatCover} from './viewer/wheat-cover-
 import {plaqueContent} from './plaque-content';
 import { ViewerMark } from "./branding/ViewerMark";
 import { ExhibitOSWordmark } from "./branding/ExhibitOSWordmark";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, useMemo, type CSSProperties, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useId, useMemo, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { entranceFor, entryPresentationFor, plaquesFor, artworkPlaqueCaptionFor, creationYearFor, benchesFor, materialFor, presentationFor, formatArtworkRecordedDimensions, viewingPlanFor, artworkThumbnailFor, roomPlaqueIntroductionFor } from "@exhibitos/studio-contract";
 import { useMediaPreference } from "./publication-accessibility";
 import { ViewerBoundary } from "./ViewerBoundary";
 import { ViewerDiagnosticExport } from "./ViewerDiagnosticExport";
+const subscribeUnavailableDownload=()=>()=>{};
+const unavailableDownload=()=>null;
 const Viewer = lazy(() => import("./Viewer").then(module => ({ default: module.Viewer })));
 import { GuidedRoutes, type GuideRequest } from "./GuidedRoutes";
 import type { AudioApi, VoicePlayback } from "./viewer/audio";
@@ -23,6 +25,7 @@ import { EntranceCover, coverAspectRatio } from './EntranceCover';
 import { EntranceReadingShell } from './EntranceReadingShell';
 import {useEntranceEntry,EntranceEntryOverlay,entryControlsBlocked,publicEntryTransition} from './entrance-entry';
 import { EntryTicket } from './EntryTicket';
+import { createEntranceReadiness } from './viewer/entrance-readiness';
 import {entranceRuntime,entranceContent} from './entrance-runtime';
 import "./publication-novice.css";
 import "./publication-immersive.css";
@@ -54,7 +57,14 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
   const publicationRoot=useRef<HTMLElement>(null);
   useEffect(()=>{if(publicationRoot.current&&value?.publication.id)return installPanelDismissal(publicationRoot.current);},[value?.publication.id,value?.publication.revisionSha256]);
   const entry=useEntranceEntry(),{mode,modeRef,stageReady,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState}=entry;
+  const entranceReadiness=useMemo(()=>value?.local?.kind==='static'&&!value.local.dynamic
+    ?createEntranceReadiness(value.local.entranceBootstrapBytes??0):undefined,[value]);
+  const download=useSyncExternalStore(entranceReadiness?.subscribe??subscribeUnavailableDownload,
+    entranceReadiness?.snapshot??unavailableDownload,unavailableDownload);
+  const coverPrefetch=mode==='cover'&&Boolean(entranceReadiness);
+  const showLiveStage=mode==='3d'||coverPrefetch;
   const [viewerUnavailable, setViewerUnavailable] = useState(false);
+  const stageInteractive=mode==='3d'&&(stageReady||viewerUnavailable);
   const [thumbnailOwner,setThumbnailOwner]=useState<{key:string;cache:ReturnType<typeof createPublicThumbnailCache>}|null>(null);
   const [thumbnailState,setThumbnailState]=useState<{key:string;items:Readonly<Record<string,string>>}|null>(null);
   const thumbnailKey=value?`${value.publication.id}/${value.publication.revisionSha256}`:'';
@@ -298,11 +308,10 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
       {value && (
         <article>
           <div className="publication-cover-surface" style={entryTicketRect?{'--entry-ticket-left':`${entryTicketRect.left}px`,'--entry-ticket-top':`${entryTicketRect.top}px`,'--entry-ticket-width':`${entryTicketRect.width}px`,'--entry-ticket-height':`${entryTicketRect.height}px`} as CSSProperties:undefined} data-entering={mode==="3d"} aria-hidden={mode==="3d"} inert={mode==="3d"} hidden={mode==="3d"&&(stageReady||viewerUnavailable)}>
-          <EntranceCover key={value.publication.revisionSha256} publication={value} coverRetirement={coverRetirement} locale={entranceLocale} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
+          <EntranceCover key={value.publication.revisionSha256} publication={value} entranceReadiness={entranceReadiness} coverRetirement={coverRetirement} locale={entranceLocale} showImage={mode!=="text"&&!stageReady} interactive={mode==="cover"} motion={!reducedMotion}
             ticket={<EntryTicket title={coverContent!.title} variant={runtime!.variant} showDate={runtime!.design.ticket.showDate} showTime={runtime!.design.ticket.showTime} active={mode==="3d"} animate={runtime!.effects.response==='tear'} unavailable={viewerUnavailable} buttonRef={entryButton} onEnter={enter}/>}>
-            {null}
           </EntranceCover></div>
-          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={entryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks}/>}
+          {mode==="3d"&&!viewerUnavailable&&!stageReady&&<EntranceEntryOverlay key={entryAttempt} entry={entry} transition={entryTransition} speed={runtime!.effects.speed} statusRef={entryStatus} focusStatus={focusEntryPrompt} onCancel={cancelEntry} onText={showTextArtworks} download={entranceReadiness?download:undefined}/>}
           {mode === "text" && viewerUnavailable && <p>3D를 다시 요청하려면 페이지를 새로 열어야 해요. 글·목록 관람은 새로고침 없이 계속할 수 있어요.</p>}
           {mode==='3d'&&stageReady&&viewingReady&&!viewerUnavailable&&<OrderedViewingChrome state={viewingState} items={viewingItems} actions={viewingActions} onList={openOrderedList} listId={orderedListId} blocked={!!selectedId||!!overview} onDetailPrepare={prepareDetailEntry} onDetail={(item,pointer,opener)=>{orderedDetailOpener.current=opener;if(!pointer)detailEntry.current?.prepare();detailEntry.current?.commit(pointer);setSelectedId(item.placementId,item.plaqueId);}}/>}
           {mode==='3d'&&<details ref={orderedPanel} name="exhibitos-visitor-panel" data-visitor-panel="" className="viewer-ordered-list-panel" open={orderedListOpen} onToggle={event=>{if(event.target===event.currentTarget)setOrderedListOpen(event.currentTarget.open);}} onKeyDown={event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();event.stopPropagation();event.currentTarget.open=false;setOrderedListOpen(false);}}} onPointerDown={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
@@ -355,9 +364,9 @@ export function PublicPublication({ id, initial, connectionStatus, privateEditor
           {mode === "text" && <button onClick={() => {setMenuOpen(false);modeChanged.current=true;entry.cancel();}}>전시 표지로</button>}
 
           </div></details>
-          {mode === "3d" && <div className="publication-live-stage" data-stage-ready={stageReady} aria-hidden={!stageReady&&!viewerUnavailable} inert={!stageReady&&!viewerUnavailable}><ViewerBoundary key={entryAttempt} focusFallback={selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
+          {showLiveStage && <div className="publication-live-stage" data-stage-ready={mode==='3d'&&stageReady} aria-hidden={!stageInteractive} inert={!stageInteractive} hidden={coverPrefetch&&viewerUnavailable}><ViewerBoundary key={entranceReadiness?thumbnailKey:entryAttempt} focusFallback={mode==='3d'&&selectedId === null && overview === null} onUnavailable={() => setViewerUnavailable(true)} onReturn={showTextArtworks}>
             <Suspense fallback={null}>
-            <Viewer coverOriginalEligible={coverRetirement?.canAdmit} focusEntry={focusEntry} focusEntryPrompt={focusEntryPrompt} helpReady={mode==='3d'&&stageReady&&viewingReady&&!entry.entryFailed&&!viewerUnavailable} choiceRequired={!(guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&(guideDismissal.choiceShown||guideDismissal.choiceMade||guideDismissal.dismissed))&&viewingState.style==='free'&&preferredViewingStyle.current==='free'} orderedAvailable={viewingReady&&viewingPlan.stops.length>0} choicePending={viewingState.status==='preparing'} onChoicePresented={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceShown:true}))} onChooseViewingStyle={style=>{if(style===viewingState.style)chooseViewingStyle(style);else viewingActions.setStyle(style);}} hintAlreadyShown={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&!!guideDismissal.hintShown} onHintShown={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),hintShown:true}))} viewingStyle={viewingState.style} onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
+            <Viewer entranceMode={entranceReadiness?(mode==='cover'?'cover':'enter'):undefined} entranceReadiness={entranceReadiness} coverOriginalEligible={coverRetirement?.canAdmit} focusEntry={focusEntry} focusEntryPrompt={focusEntryPrompt} helpReady={mode==='3d'&&stageReady&&viewingReady&&!entry.entryFailed&&!viewerUnavailable} choiceRequired={!(guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&(guideDismissal.choiceShown||guideDismissal.choiceMade||guideDismissal.dismissed))&&viewingState.style==='free'&&preferredViewingStyle.current==='free'} orderedAvailable={viewingReady&&viewingPlan.stops.length>0} choicePending={viewingState.status==='preparing'} onChoicePresented={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),choiceShown:true}))} onChooseViewingStyle={style=>{if(style===viewingState.style)chooseViewingStyle(style);else viewingActions.setStyle(style);}} hintAlreadyShown={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&!!guideDismissal.hintShown} onHintShown={()=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed:false}),hintShown:true}))} viewingStyle={viewingState.style} onMapCancelReady={registerMapCancel} mapEnabled={viewingState.style==='free'&&viewingState.pendingStyle!=='ordered'} onMapAction={()=>viewingSession.current?.actions.cancel()} publication={value} artworkThumbnails={thumbnails} thumbnailCache={thumbnailCache} appearance={appearance} onArtworkSelect={id=>{viewingSession.current?.context(id);setSelectedId(id);}} onViewingRendererReady={registerViewing} onPlaqueSelect={requestPlaque}
               immersive controlsHost={controlsHost} onNavigationActive={()=>setMenuOpen(false)} onStageState={onStageState} focusedPlacementId={selectedId} suspendNavigation={selectedId !== null || overview !== null} proximityDetail={proximityDetail} onAudioReady={registerAudio} onDetailEntryReady={registerDetailEntry}
               guideDismissed={guideDismissal?.publicationId===value.publication.id&&guideDismissal.revision===value.publication.revisionSha256&&guideDismissal.dismissed}
               onGuideDismissedChange={dismissed=>setGuideDismissal(previous=>({...((previous?.publicationId===value.publication.id&&previous.revision===value.publication.revisionSha256)?previous:{}),publicationId:value.publication.id,revision:value.publication.revisionSha256,dismissed}))}
