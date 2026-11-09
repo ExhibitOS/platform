@@ -80,7 +80,7 @@ import {
   selectAssetVariant, detailScreenBounds, detailDemand, DetailTransition, ArtworkAttention, artworkDemandContext, nearbyPreparation, displayedDetailReclamation, settleAssetGeneration, authoredImagePair, selectedImageDetail, imageFullDecodeCeiling, AssetPeakBudget, retainEncodedBuffer, assetDecodeReserve, textureResidentBytes, geometryResidentBytes,
   type DeviceBudget,
 } from "./viewer/loading";
-import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor } from "@exhibitos/studio-contract";
+import { validateArchitecture, spaceLightingFor, daylightFor, daylightDirection, presentationFor, lodVariantsFor, artifactCorners, lightDetailsFor, BUDGET_GEOMETRY_PAIR_PROFILE, LOD_NAMESPACE } from "@exhibitos/studio-contract";
 import {
   WalkingControls,
   WalkingTouch,
@@ -853,6 +853,7 @@ export function GeometryPreview({
       };
       const mapPoseVisibility=()=>{if(!renderer.domElement.ownerDocument.hidden)publishMapPose();};
       let ownerFurnishings:ReturnType<typeof createOwnerFurnishingScene>|undefined,ownerFurnishingFrame=0;
+      let galleryArtworkDrawn = false, artworkDrawnInFrame = false;
       const render = (restore=false) => {
         if(deferredCanvasRestore&&restore!==true)return false;
         if(sharedDetail){guardOriginalDetail();if(sharedDetail&&!disposed&&!gpuLost)sharedDetail.render();return false;}
@@ -864,7 +865,9 @@ export function GeometryPreview({
           workspaceTextures?.enforce();
           camera.updateMatrixWorld();plaques.update(camera);if(plaques.meshes.length)renderer.domElement.dataset.plaques=JSON.stringify(plaques.stats());
           shadowPass.flush();
+          artworkDrawnInFrame = false;
           try { renderer.render(scene, camera); } finally { shadowPass.afterRender(); }
+          if (!galleryArtworkDrawn && artworkDrawnInFrame && !renderer.getContext().isContextLost()) galleryArtworkDrawn = true;
           // Only the current camera snapshot rides an existing rendered frame.
           // Loading, thumbnail and quality accounting retain their 200ms cadence.
           publishMapPose();
@@ -2180,12 +2183,12 @@ export function GeometryPreview({
             imageTarget=detailPromotion?selectedImageDetail(art,viewerBudget):undefined;
             imageBudget=imageTarget?.budget??viewerBudget;
             const preferCoarse=!detailPromotion&&preferModelCoarse(art.revisionId,manual&&full);
-            inventory = imageTarget?.inventory??selectAssetVariant(
-              art,
-              full ? 0 : Infinity,
-              viewerBudget,
-              preferCoarse,
-            );
+            inventory = imageTarget?.inventory??selectAssetVariant(art,full?0:Infinity,viewerBudget,preferCoarse);
+            const lod = art.extensions?.[LOD_NAMESPACE] as {profile?:unknown}|undefined;
+            if (immersive && !galleryArtworkDrawn && !full && !detailPromotion && !active.has(art.revisionId) && !prepared.has(inventory.id)
+              && lod?.profile === BUDGET_GEOMETRY_PAIR_PROFILE) {
+              inventory = selectAssetVariant(art,Infinity,viewerBudget,true);
+            }
           } catch (error) {
             if(diagnosticsEnabled())diagnosticEvents.record({atMs:performance.now(),assetId:art.primaryAssetId,artworkRevisionId:art.revisionId,stage:'variant-admission-refused',errorCode:error instanceof Error&&/^[A-Z][A-Z0-9_]{0,79}$/.test(error.message)?error.message:null});
             failed.add(art.revisionId);
@@ -2298,7 +2301,17 @@ export function GeometryPreview({
                 const group = placements.get(p.id.toLowerCase());
                 if (group) {
                   group.clear();
-                  group.add(object.clone(true));
+                  const clone = object.clone(true);
+                  if (immersive && !galleryArtworkDrawn) clone.traverse(node => {
+                    if (!(node instanceof three.Mesh)) return;
+                    const afterRender = node.onAfterRender;
+                    node.onAfterRender = (...args) => {
+                      afterRender.apply(node,args);
+                      if (galleryArtworkDrawn) node.onAfterRender = afterRender;
+                      else if (args[2] === camera && args[1] === scene) artworkDrawnInFrame = true;
+                    };
+                  });
+                  group.add(clone);
                 }
               }
               if (old && old !== object){
@@ -2541,7 +2554,8 @@ export function GeometryPreview({
               }
             }else awaySince.delete(art.revisionId);
             const isCurrent=art.revisionId===currentArtwork,neighbor=preparing.has(art.revisionId);
-            const wantFull=isCurrent&&want&&!minimumOutstanding;
+            const canPromote=!immersive||galleryArtworkDrawn;
+            const wantFull=canPromote&&isCurrent&&want&&!minimumOutstanding;
             if((retryAfter.get(art.revisionId)??0)>now)continue;
             if(isCurrent)request(art,wantFull);
             else if(reclaiming.has(art.revisionId)){
@@ -2549,7 +2563,7 @@ export function GeometryPreview({
             }
             else if(neighbor){
               if(visible&&!active.has(art.revisionId))request(art,false);
-              else if(!minimumOutstanding)request(art,true,true);
+              else if(canPromote&&!minimumOutstanding)request(art,true,true);
             }
             else if(requested.has(art.revisionId)||visible)request(art,false);
 
