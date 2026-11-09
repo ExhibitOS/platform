@@ -40,6 +40,19 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       return aim.dot(target.clone().sub(origin).normalize())>=Math.cos(light.angle);
     });
   }
+  function visibleLegBounds(leg:Three.Object3D,room:Three.Group) {
+    for(let ancestor:Three.Object3D|null=leg;ancestor;ancestor=ancestor.parent)if(!ancestor.visible)return;
+    const result=new three.Box3();
+    leg.traverseVisible(node=>{
+      if(!(node instanceof three.Mesh))return;
+      const vertices=node.geometry.getAttribute('position');
+      if(!vertices?.count)return;
+      const local=new three.Box3().setFromBufferAttribute(vertices);
+      for(const x of [local.min.x,local.max.x])for(const y of [local.min.y,local.max.y])for(const z of [local.min.z,local.max.z])
+        result.expandByPoint(room.worldToLocal(node.localToWorld(new three.Vector3(x,y,z))));
+    });
+    return result.isEmpty()?undefined:result;
+  }
   const add=(room:Three.Group,position:Three.Vector3,rotation:Three.Quaternion,width:number,height:number,desktop:boolean)=>{
     contacts.push({room,position:position.toArray(),rotation:rotation.toArray(),width,height,desktop});
   };
@@ -59,13 +72,12 @@ export function supportContacts(three:typeof Three,document:Exhibition,rooms:Rea
       for(const name of ['Leg','Leg001','Leg002','Leg003']){
         const leg=catalogBench.model.getObjectByName(name);
         if(!leg)continue;
-        const bounds=new three.Box3().setFromObject(leg,true);
-        if(bounds.isEmpty())continue;
-        const center=bounds.getCenter(new three.Vector3());center.y=bounds.min.y;
-        room.worldToLocal(center);
-        if(Math.abs(center.y-bench.position[1])>.014)continue;
+        const bounds=visibleLegBounds(leg,room);
+        if(!bounds||Math.abs(bounds.min.y-bench.position[1])>.014)continue;
+        const center=bounds.getCenter(new three.Vector3());
         center.y=bench.position[1];
-        addFoot(center,.14,.14,floorRotation);
+        const size=bounds.getSize(new three.Vector3());
+        addFoot(center,Math.min(.18,size.x+.07),Math.min(.18,size.z+.07),floorRotation);
       }
     }else{
       for(const box of benchBoxes(bench)){
