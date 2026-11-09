@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {useCallback,useEffect,useRef,useState,type CSSProperties,type RefObject} from 'react';
 import type {EntranceTransitionEffect} from '@exhibitos/studio-contract';
-import {EntryProgress} from './EntryProgress';
+import {EntryProgress,type EntryDownloadProgress} from './EntryProgress';
 import type {entranceRuntime} from './entrance-runtime';
 export interface EntranceStage {ready:boolean;message:string;error?:boolean;phase?:'space'|'artwork'|'navigation'}
 /** A public cover theme alone does not request a door-opening effect. */
@@ -31,13 +31,13 @@ export function useEntranceEntry(){
  useEffect(()=>()=>{generation.current++;},[]);
  return {mode,modeRef,begin,cancel,stageReady,entryFailed,longEntry,entryPhase,stageMessage,entryAttempt,entryTiming,entryButton,entryTicketRect,onStageState};
 }
-export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStatus,onCancel,onText}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;focusStatus?:()=>boolean;onCancel:()=>void;onText:()=>void}){
+export function EntranceEntryOverlay({entry,transition,speed,statusRef,focusStatus,onCancel,onText,download}:{entry:ReturnType<typeof useEntranceEntry>;transition:EntranceTransitionEffect;speed:number;statusRef:RefObject<HTMLParagraphElement|null>;focusStatus?:()=>boolean;onCancel:()=>void;onText:()=>void;download?:EntryDownloadProgress|null}){
  useEffect(()=>{if(!entry.stageReady&&!entry.entryFailed&&focusStatus?.()!==false)statusRef.current?.focus({preventScroll:true});},[entry.stageReady,entry.entryFailed,entry.entryAttempt,statusRef,focusStatus]);
  return <div className="publication-entry-overlay" data-ready={entry.stageReady} data-transition={transition} style={{'--entry-transition-duration':`${(transition==='doors'?220:transition==='panels'?180:140)/speed}ms`} as CSSProperties} data-door-effect={transition!=='none'} data-failed={entry.entryFailed}>
   {transition!=='none'&&<div className="publication-entry-door" aria-hidden="true"><span className="publication-entry-door-left"/><span className="publication-entry-door-right"/></div>}
   {!entry.stageReady&&<div className="publication-entry-recovery">
    <p className="publication-entry-progress" role={entry.entryFailed?'alert':'status'} ref={statusRef} tabIndex={-1}>{entry.entryFailed?'공간을 열지 못했어요. 메뉴에서 화면·화질 설정을 바꾸거나, 입장을 취소하거나, 글로 관람할 수 있어요.':entry.longEntry?'공간 준비가 계속되고 있어요. 기다리거나 글로 관람할 수 있어요.':'전시장으로 들어가고 있어요.'}</p>
-   <EntryProgress active={!entry.entryFailed} phase={entry.entryPhase}/>
+   <EntryProgress active={!entry.entryFailed} phase={entry.entryPhase} download={download}/>
    <div className="publication-entry-secondary"><button onClick={onCancel}>입장 취소</button><button onClick={onText}>텍스트로 관람</button></div>
    <output hidden data-testid="entry-stage-diagnostics">{entry.stageMessage}</output>
   </div>}

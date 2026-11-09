@@ -3,7 +3,7 @@ import {publicWorkspaceMaterialRights} from './workspace-material-public-rights.
 import {publicWorkspaceFurnishingRights} from './workspace-furnishing/public-rights.mjs';
 import { retainsCopyInventory,retainedWheatCopyFiles } from './private-editor/previous-copy-compatibility';
 import { isSupportedPreviousWheatV4 } from './private-editor/previous-wheat-v4.mjs';
-import type { PublicPublication,DetailAccess } from "./publication-client";
+import type { PublicPublication,DetailAccess, PublicationAssetFetcher } from "./publication-client";
 import {DetailAccessFailure} from './detail-access-failure';
 import { freezeCanonical,validateFurnishings,furnishingsFor,WORKSPACE_FURNISHING_NAMESPACE,validateWorkspaceFurnishings,ARTWORK_DETAIL_QUALITY_NAMESPACE,verifiedParsedDetailQuality,type WorkspaceFurnishings,type DetailCandidate } from "@exhibitos/studio-contract";
 import { newDraft } from "./drafts/example";
@@ -15,7 +15,7 @@ import {packageFurnishingNoticeManifest} from './vendor/furnishings-v1.mjs';
 import {parseStaticJson} from './static-json.mjs';
 interface FileEntry {path:string;bytes:number;sha256:string;mime:string;assetId?:string}
 const hash=async(bytes:Uint8Array)=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",new Uint8Array(bytes)))].map(x=>x.toString(16).padStart(2,"0")).join("");
-async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false,base=""){
+async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=false,base="",progress?:(receivedBytes:number)=>void){
  if(!/^data\/[a-f0-9]{64}\.(json|bin)$/.test(path)&&path!=="static-publication-index.json")throw Error("STATIC_PATH");
  // Only exact content-addressed paths are read with the normal HTTP cache.
  // The mutable index always bypasses it; each response is still hashed below.
@@ -26,7 +26,7 @@ async function read(path:string,limit:number,signal?:AbortSignal,cacheEligible=f
   const response=await fetch(base+"/"+path,{credentials:"omit",cache:cacheEligible?'default':'no-store',signal:transferSignal,redirect:"error"});
   if(!response.ok||!response.body)throw Error("STATIC_RESPONSE");
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];let length=0;
-  try{for(;;){const {done,value}=await reader.read();transferSignal.throwIfAborted();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
+  try{for(;;){const {done,value}=await reader.read();transferSignal.throwIfAborted();if(done)break;length+=value.length;if(length>limit)throw Error("STATIC_SIZE");chunks.push(value);progress?.(length);}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
   const result=new Uint8Array(length);let offset=0;for(const c of chunks){result.set(c,offset);offset+=c.length;}return result;
  } catch(error) {
   signal?.throwIfAborted();
@@ -69,16 +69,17 @@ export function staticDetailAttestation(access:unknown,owner:unknown,candidateId
  return verifiedDetailOwners.get(access)?.attestations.get(candidateId);
 }
 const indexMeta=()=>document.querySelector<HTMLMetaElement>('meta[name="exhibitos-static-index"]')?.content;
-async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal):Promise<StaticIndex>{
+async function verifiedIndex(expected:string|undefined,base="",signal?:AbortSignal,onVerifiedSize?:(bytes:number)=>void):Promise<StaticIndex>{
  if(!expected||! /^[a-f0-9]{64}$/.test(expected))throw Error("STATIC_INDEX");
  const bytes=signal&&!base?await readDetail("static-publication-index.json",1048576,signal):await read("static-publication-index.json",1048576,signal,false,base);
  if(await hash(bytes)!==expected)throw Error("STATIC_INDEX_HASH");
- return parseStaticJson(bytes) as StaticIndex;
+ const index=parseStaticJson(bytes) as StaticIndex;onVerifiedSize?.(bytes.length);return index;
 }
 async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{publication:PublicPublication;index:StaticIndex}>{
  const archive=previousIndex&&/^[a-f0-9]{64}$/.test(previousIndex)?`/private-copy-bases/${previousIndex}`:"";
  const expectedIndex=previousIndex??indexMeta();
- const index=await verifiedIndex(expectedIndex,archive);
+ let indexBytes=0;
+ const index=await verifiedIndex(expectedIndex,archive,undefined,bytes=>{indexBytes=bytes;});
  if(![1,2,3,4].includes(index.version)||!Array.isArray(index.assets)||index.assets.length>20000||index.version===1&&(index.resources!==undefined||index.furnishingNotices!==undefined)||index.version===2&&(!Array.isArray(index.resources)||index.resources.length>141||index.furnishingNotices!==undefined)||index.version===3&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>141))||index.version===4&&(!Array.isArray(index.detailAssets)||index.detailAssets.length>16||index.resources!==undefined&&(!Array.isArray(index.resources)||index.resources.length>141)||index.furnishingNotices!==undefined&&(!Array.isArray(index.furnishingNotices)||!index.furnishingNotices.length||index.furnishingNotices.length>8)||Object.keys(index).some(k=>!['version','publication','assets','resources','furnishingNotices','detailAssets'].includes(k))))throw Error("STATIC_INDEX");
  if(!index.publication||! /^[a-f0-9]{64}$/.test(index.publication.sha256)||!Number.isSafeInteger(index.publication.bytes)||index.publication.bytes<1||index.publication.bytes>1048576||index.publication.mime!=='application/json')throw Error("STATIC_INDEX");
  const p=await read(index.publication.path,index.publication.bytes,undefined,!archive&&index.publication.path===`data/${index.publication.sha256}.json`,archive);if(p.length!==index.publication.bytes||await hash(p)!==index.publication.sha256)throw Error("STATIC_PUBLICATION_HASH");
@@ -116,13 +117,13 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   if(detailIds.size!==detailEntries.length||new Set(detailEntries.map(e=>e.assetId)).size!==detailEntries.length||new Set(descriptors.map(e=>e.assetId)).size!==descriptors.length||detailEntries.reduce((total,e)=>total+e.bytes,0)>100*1024*1024)throw Error('STATIC_DETAIL');
   const paths=new Map<string,{bytes:number;mime:string}>();for(const entry of [...index.assets,...resources,...notices,...detailEntries]){const prior=paths.get(entry.path);if(prior&&(prior.bytes!==entry.bytes||prior.mime!==entry.mime))throw Error('STATIC_DETAIL');paths.set(entry.path,{bytes:entry.bytes,mime:entry.mime});}
  }else if(index.detailAssets!==undefined||descriptors!==undefined||value.exhibition.artworks?.some(a=>a.extensions?.[ARTWORK_DETAIL_QUALITY_NAMESPACE]!==undefined))throw Error('STATIC_DETAIL');
- const fetcher:typeof fetch=async(input,init)=>{const url=typeof input==="string"?input:input instanceof URL?input.toString():input.url;
+ const fetchAsset=async(input:Parameters<typeof fetch>[0],init?:RequestInit,progress?:Parameters<PublicationAssetFetcher>[2])=>{const url=typeof input==="string"?input:input instanceof URL?input.toString():input.url;
  const detailPath=url.startsWith(`/api/v1/publications/${publicationId}/detail-assets/`),detail=detailPath?descriptors?.find(r=>r.url===url):undefined;
  const asset=detailPath?undefined:value.assets.find(a=>a.url===url),resource=detailPath?undefined:value.resources?.find(r=>r.url===url),notice=detailPath?undefined:value.furnishingNotices?.find(r=>r.url===url),entry=detailPath?(detail?detailEntries.find(e=>e.assetId===detail.assetId):undefined):asset?index.assets.find(e=>e.assetId===asset.assetId):resource?resources.find(e=>e.sha256===resource.sha256):notice?notices.find(e=>e.assetId===notice.assetId):undefined;if(!entry||init?.method&&init.method!=="GET")throw Error("STATIC_ASSET_URL");
  const workspaceAsset=!!asset&&(workspaceAssets.some(item=>item.id===asset.assetId)||materialAssets.some(item=>item.id===asset.assetId));
  if(resource||notice||workspaceAsset||detail)await check();
  if(detail)checkDetailRights(detail.assetId);
- const data=await read(entry.path,entry.bytes,init?.signal??undefined,entry.path===`data/${entry.sha256}.bin`);if(data.length!==entry.bytes||await hash(data)!==entry.sha256)throw Error("STATIC_ASSET_HASH");
+ const data=await read(entry.path,entry.bytes,init?.signal??undefined,entry.path===`data/${entry.sha256}.bin`,"",progress);if(data.length!==entry.bytes||await hash(data)!==entry.sha256)throw Error("STATIC_ASSET_HASH");
  if(resource||notice||workspaceAsset||detail)await check();
  if(detail)checkDetailRights(detail.assetId);
  return new Response(new Uint8Array(data),{headers:{"content-type":entry.mime,"content-length":String(data.length),"x-exhibitos-publication-revision":revisionSha256}});};
@@ -152,7 +153,7 @@ async function loadVerifiedStaticPublication(previousIndex?: string):Promise<{pu
   }
   if(!retainsCopyInventory(index,{...activeIndex,assets:[...activeIndex.assets,...supplemental]},activeIndex.version===4))throw Error('STATIC_PREVIOUS_ASSETS');
  }
- const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,fetcher,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate,artworkRevisionId} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,candidate:Object.freeze({artworkRevisionId,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
+ const publication:PublicPublication={...value,local:{kind:"static",verifiedIndexSha256:expectedIndex!,entranceBootstrapBytes:indexBytes+p.length,fetcher:fetchAsset,assetFetcher:fetchAsset,check,...(detailAccess?{detailAccess}:{})}};if(detailAccess){const attestations=new Map<string,StaticDetailAttestation>();for(const {candidate,artworkRevisionId} of detailCandidates.values()){const media=candidate.featureReport.media;if(media.kind==='image')attestations.set(candidate.candidateId,Object.freeze({indexSha256:expectedIndex!,publicationSha256:index.publication.sha256,candidate:Object.freeze({artworkRevisionId,sha256:candidate.sha256,bytes:candidate.bytes,mime:candidate.mime,width:media.width,height:media.height})}));}verifiedDetailOwners.set(detailAccess,{owner:publication,publication:publication.publication,exhibition:publication.exhibition,local:publication.local!,attestations});}
  return {publication,index};
 }
 export async function loadStaticPublication(previousIndex?:string):Promise<PublicPublication>{return (await loadVerifiedStaticPublication(previousIndex)).publication;}
