@@ -1,3 +1,4 @@
+import type {EntranceReadiness} from './viewer/entrance-readiness';
 import { ViewerAnalytics } from './viewer/analytics';
 import {createPortal} from 'react-dom';
 import { request, RequestError, type Session } from './cms-client';
@@ -52,6 +53,8 @@ export function Viewer({
   controlsHost,
   onNavigationActive,
   onStageState,
+  entranceMode,
+  entranceReadiness,
   onViewingRendererReady,
   mapEnabled = true,
   viewingStyle = 'free',
@@ -93,6 +96,8 @@ export function Viewer({
   immersive?: boolean;
   controlsHost?: HTMLElement|null;
   onNavigationActive?:()=>void;
+  entranceMode?: 'cover'|'enter';
+  entranceReadiness?: EntranceReadiness;
   onStageState?:(state:{ready:boolean;message:string;error?:boolean;phase?:"space"|"artwork"|"navigation"})=>void;
   guideDismissed?:boolean;
   onGuideDismissedChange?:(dismissed:boolean)=>void;
@@ -300,6 +305,8 @@ export function Viewer({
       {immersive&&map&&<div className="viewer-map-host" hidden={!mapEnabled} inert={suspendNavigation||!mapEnabled||undefined} aria-hidden={suspendNavigation||!mapEnabled||undefined}><VisitorMap map={map} artworkStops={viewingPlanFor(publication.exhibition).stops} poseSource={mapPoseSource} previews={mapPreviews} destinations={mapDestinations} available={mapAvailable&&mapStageReady&&!suspendNavigation&&mapEnabled} travel={mapTravelState} onDetails={id=>{if(!mapEnabled)return;onMapAction?.();mapTravel?.cancel();viewingEntry.current?.prepare();viewingEntry.current?.commit(false);onArtworkSelect?.(id);}} onGo={(target,id)=>{if(!mapEnabled)return Promise.resolve(false);onMapAction?.();return mapTravel?.go(target,id)??Promise.resolve(false);}} onCancel={()=>mapTravel?.cancel()}/></div>}
       <GeometryPreview
         immersive={immersive}
+        entranceMode={entranceMode}
+        entranceReadiness={entranceReadiness}
         focusEntry={focusEntry}
         onViewingReady={onViewingRendererReady}
         thumbnailCache={thumbnailCache}
@@ -308,7 +315,7 @@ export function Viewer({
         inputMode={inputMode}
         onInputModeChange={setInputMode}
         viewFov={viewFov === "authored" ? undefined : viewFov}
-        onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.error&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&!state.error&&state.navigationReady&&(state.loaded>0||publication.exhibition.placements.length===0),error:!!state.error||state.navigationFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
+        onRenderState={state=>{setMapStageReady(previous=>state.ready&&!state.error&&!state.navigationFailed&&(previous||state.navigationReady));onStageState?.({ready:state.ready&&!state.error&&!state.entranceAssetFailed&&state.navigationReady&&(entranceReadiness?state.firstEntranceFrame:(state.loaded>0||publication.exhibition.placements.length===0)),error:!!state.error||state.navigationFailed||state.entranceAssetFailed||(state.loaded===0&&state.failed>0&&state.failed>=Math.min(publication.exhibition.artworks.length,budget.entranceAssets)),message:state.message,phase:!state.ready?"space":state.loaded===0&&publication.exhibition.placements.length>0?"artwork":"navigation"});}}
         mapThumbnailsEnabled={mapEnabled}
         onMapThumbnail={immersive?receiveMapThumbnail:undefined}
         onMapReady={immersive?registerMap:undefined}
