@@ -122,7 +122,7 @@ export function StudioExperienceEditor({ candidate, session, exhibitionId, disab
       <button disabled={!surfaceId} onClick={() => change((doc, x) => { if(material==='wood'||material==='carpet'||material==='concrete')declareFootstepFamily(doc,material);x.footsteps = x.footsteps.filter(f => f.surfaceId !== surfaceId); x.footsteps.push({ surfaceId, material }); })}>바닥 발소리 적용</button>
       <label>울림 공간<select aria-label="울림 공간" value={roomId} onChange={e => setRoomId(e.target.value)}><option value="">공간 선택</option>{candidate.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
       <label>공간 울림<input type="range" min="0" max="1" step="0.05" value={reverb} onChange={e => setReverb(Number(e.target.value))} /></label>
-      <button disabled={!roomId} onClick={() => change((_doc, x) => { x.rooms = x.rooms.filter(r => r.roomId !== roomId); x.rooms.push({ roomId, reverb }); })}>공간 울림 적용</button>
+      <button disabled={!roomId} onClick={() => change((_doc, x) => { const room=x.rooms.find(r=>r.roomId.toLowerCase()===roomId.toLowerCase()); if(room)room.reverb=reverb; else x.rooms.push({roomId,reverb}); })}>공간 울림 적용</button>
     </fieldset>
   </section>;
 }
