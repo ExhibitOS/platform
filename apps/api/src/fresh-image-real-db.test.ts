@@ -85,7 +85,7 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    const readyResponse=await app.inject({method:'GET',url:jobUrl,headers});
    expect(readyResponse.statusCode,readyResponse.body).toBe(200);
    const ready=readyResponse.json().imagePreparation;
-   expect(ready).toMatchObject({status:'ready',workerDrained:true,original:{sha256:input.sha256,bytes:source.length,mime},full:{width:2048,height:1365},coarse:{width:512,height:341}});
+   expect(ready,readyResponse.body).toMatchObject({status:'ready',workerDrained:true,original:{sha256:input.sha256,bytes:source.length,mime},full:{width:2048,height:1365},coarse:{width:512,height:341}});
    const generic=await app.inject({method:'POST',url:`${api}/cms/artworks/${artworkId}/approve`,headers,payload:{revision:1,assetId:ready.full.assetId}});
    expect(generic.statusCode).toBe(409);
    const approvals=await Promise.all([approve(),approve()]);

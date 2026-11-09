@@ -11,7 +11,7 @@ export function pngCrc(data: Buffer) {
   return (value ^ 0xffffffff) >>> 0;
 }
 export class PngPixelLimitError extends Error { constructor(){super("PNG pixel limit exceeded");} }
-export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dimensionLimit = 8192, chunkLimit = 256, allowFixedFrameMetadata = false) {
+export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dimensionLimit = 8192, chunkLimit = 256, allowFixedFrameMetadata = false, allowPixelDensity = false) {
   if (
     data.length < 33 ||
     !data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
@@ -61,6 +61,9 @@ export function decodePngPixels(data: Buffer, pixelLimit = 4 * 1024 * 1024, dime
       if (seenSrgb || seenIdat || size !== 1 || body[0]! > 3) fail();
       seenSrgb = true;
       srgbIntent=body[0]!;
+    } else if (allowPixelDensity && kind === "pHYs") {
+      if (seenIdat || frameChunks.has(kind) || size !== 9 || body[8]! > 1) fail();
+      frameChunks.add(kind);
     } else if (allowFixedFrameMetadata && ["cICP","iCCP","gAMA","cHRM","eXIf","oFFs","pHYs"].includes(kind)) {
       // Only selected fixed, hash-bound original frame GLBs use this profile.
       // Still bound the chunks, validate CRC/order/uniqueness and ICC expansion.

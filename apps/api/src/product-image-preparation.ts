@@ -8,7 +8,7 @@ export const PRODUCT_IMAGE_RECIPE={version:1,id:PRODUCT_IMAGE_PROFILE,decoder:'s
 export const imageHash=(value:Buffer|object)=>createHash('sha256').update(Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex');
 export const PRODUCT_IMAGE_RECIPE_SHA256=imageHash(PRODUCT_IMAGE_RECIPE);
 export const FRESH_IMAGE_PROFILE='ordinary-image-preparation-v1' as const;
-export const FRESH_IMAGE_RECIPE={...PRODUCT_IMAGE_RECIPE,id:FRESH_IMAGE_PROFILE,source:'baseline-rgb8-jpeg-orientation1-or-strict-rgb8-png'} as const;
+export const FRESH_IMAGE_RECIPE={...PRODUCT_IMAGE_RECIPE,id:FRESH_IMAGE_PROFILE,source:'baseline-rgb8-jpeg-orientation1-or-strict-rgb8-png-with-optional-pixel-density'} as const;
 export const FRESH_IMAGE_RECIPE_SHA256=imageHash(FRESH_IMAGE_RECIPE);
 type SourceMime='image/jpeg'|'image/png';
 export interface ImageMetric {sha256:string;bytes:number;width:number;height:number}
@@ -66,7 +66,7 @@ export function prepareFreshImage<Mime extends SourceMime>(source:Buffer,identit
 async function prepareImage<Mime extends SourceMime>(source:Buffer,identity:{sha256:string;bytes:number},mime:Mime,fresh:boolean):Promise<ProductImageOutput<Mime>>{
  if(source.length!==identity.bytes||source.length<4||source.length>PRODUCT_IMAGE_LIMITS.sourceBytes||imageHash(source)!==identity.sha256)fail('IMAGE_PREPARATION_INPUT_INTEGRITY');
  if(mime==='image/png'&&fresh){
-  const {width,height,channels,pixels}=decodePngPixels(source,PRODUCT_IMAGE_LIMITS.pixels,PRODUCT_IMAGE_LIMITS.edge);
+  const {width,height,channels,pixels}=decodePngPixels(source,PRODUCT_IMAGE_LIMITS.pixels,PRODUCT_IMAGE_LIMITS.edge,256,false,true);
   if(channels!==3)fail();
   return prepareImagePixels(source,identity,mime,fresh,width,height,pixels,null);
  }
