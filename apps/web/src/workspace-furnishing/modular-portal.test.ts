@@ -44,6 +44,13 @@ it('measures both modular originals and fits one unchanged source to the single 
  expect(translationOffset).toBeGreaterThan(20);
  newTranslation.copy(changed,translationOffset);
  await expect(admit(changed)).rejects.toMatchObject({code:'FURNISHING_FIT_UNSUPPORTED'});
+ const missingNormal=Buffer.from(original),jsonEnd=20+missingNormal.readUInt32LE(12);
+ const originalJson=missingNormal.toString('utf8',20,jsonEnd);
+ const changedJson=originalJson.replace(/"NORMAL":\s*\d+,/,match=>' '.repeat(match.length));
+ expect(changedJson).not.toBe(originalJson);
+ missingNormal.write(changedJson,20,jsonEnd-20,'utf8');
+ await expect(admit(missingNormal)).rejects.toMatchObject({code:'FURNISHING_FIT_UNSUPPORTED'});
+
 
  const single={rooms:[],openings:[{id:'door',surfaceId:'wall',type:'door',dimensions:{width:2.4,height:2.6},offset:[-3,-.7]}],surfaces:[{id:'wall',dimensions:{width:12,height:4}}]};
  const legacy=qualifiedModularPortalTarget(geometry,single,'door');

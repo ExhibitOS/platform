@@ -87,7 +87,7 @@ function matchesFaces(points:Point[],indices:number[],corners:Point[],faces:stri
 
 interface ModularPortalDocument {
  nodes?:{mesh:number;name?:string;translation?:Point}[];
- meshes?:{primitives:{attributes:{POSITION:number};indices:number;mode?:number;targets?:unknown}[]}[];
+ meshes?:{primitives:{attributes:{POSITION:number;NORMAL?:number};indices:number;mode?:number;targets?:unknown}[]}[];
  scenes?:{nodes:number[]}[];
  scene?:number;
  accessors:Layout[];
@@ -139,8 +139,10 @@ function qualifyModularPortal(doc:ModularPortalDocument,bin:Buffer):ModularPorta
   if(Object.keys(node).some(key=>!['mesh','name','translation'].includes(key))||translation.length!==3||!translation.every(Number.isFinite)||
    mesh?.primitives.length!==1||!primitive||primitive.targets||(primitive.mode??4)!==4)return;
   const positions=readAccessor(bin,doc.accessors[primitive.attributes.POSITION],doc.bufferViews,true,512);
+  const normalIndex=primitive.attributes.NORMAL;
+  const normals=normalIndex===undefined?undefined:readAccessor(bin,doc.accessors[normalIndex],doc.bufferViews,true,512);
   const indices=readAccessor(bin,doc.accessors[primitive.indices],doc.bufferViews,false,1024);
-  if(!positions||!indices||indices.some(i=>i>=positions.length/3))return;
+  if(!positions||!normals||normals.length!==positions.length||!indices||indices.some(i=>i>=positions.length/3))return;
   const points:Point[]=[];
   for(let i=0;i<positions.length;i+=3)points.push([positions[i]!+translation[0],positions[i+1]!+translation[1],positions[i+2]!+translation[2]]);
   const min=[0,1,2].map(axis=>metres(Math.min(...points.map(point=>point[axis]!)))) as Point;
