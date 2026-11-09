@@ -1256,13 +1256,17 @@ export function GeometryPreview({
           "walking-instructions",
         );
         let initialization: Promise<void> | undefined;
-        const tryBenchAction=(benchId:string,seated:boolean)=>{
+        const canUseBench=()=>{
           if(disposed||gpuLost||xrActive.current||suspendedRef.current||sharedDetail||
             viewingStyleRef.current!=='free'||renderer.domElement.ownerDocument.hidden)return false;
           const canvas=renderer.domElement,shell=canvas.closest('.publication-shell');
           if(!canvas.isConnected||canvas.style.visibility==='hidden')return false;
           if(shell?.querySelector('details[data-visitor-panel][open]')||
             canvas.ownerDocument.querySelector('dialog[open],[aria-modal="true"]'))return false;
+          return !canvas.closest('[hidden],[inert]');
+        };
+        const tryBenchAction=(benchId:string,seated:boolean)=>{
+          if(!canUseBench())return false;
           const actions=walkingActions.current;
           if(seated){
             if(seatedBenchRef.current!==benchId||!actions?.stand)return false;
@@ -1330,6 +1334,7 @@ export function GeometryPreview({
                   }
                 },
                 workspaceBenchAvailability,
+                canLookSeated:canUseBench,
                 resumeBenchArrow: () => viewingStyleRef.current==='free' && panelResume?.isBenchReturn() === true &&
                   panelResume.movement(!gpuLost && !suspendedRef.current && !xrActive.current),
                 wasWalkingBeforeSeat:()=>panelResume?.wasWalkingBeforeSeat()??false,

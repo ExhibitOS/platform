@@ -37,7 +37,7 @@ export function createPanelResumeGate(restoredWalking = false) {
     canResume: () => eligible,
     isActive: () => active,
     requiresPanel: () => panelOwned,
-    wasWalkingBeforeSeat: () => active || panelOwned,
+    wasWalkingBeforeSeat: () => active || panelOwned || (benchReturn && eligible),
     isBenchReturn: () => benchReturn,
     panelClosed() {
       if (!panelOwned || !eligible) return false;
