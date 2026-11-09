@@ -84,6 +84,39 @@ test("bench return cannot consume input while a panel or modal is still open", (
  modal=false;expect(handler.drag(true)).toBe(true);expect(resume).toHaveBeenCalledOnce();
  handler.dispose();
 });
+test("owns touch focus before a sit button can blur the same gallery canvas", () => {
+ const root=Object.assign(new EventTarget(),{querySelectorAll:()=>[],querySelector:()=>null});
+ const canvas={isConnected:true,style:{visibility:''},closest:(selector:string)=>selector==='.publication-shell'?root:null};
+ const doc=Object.assign(new EventTarget(),{hidden:false});
+ vi.stubGlobal('document',doc);
+ vi.stubGlobal('window',new EventTarget());
+ class SitButton extends EventTarget {
+  constructor(private sameGallery:boolean){super();}
+  closest(selector:string){
+   if(selector==='button[data-bench-action][data-bench-seated="false"]')return this;
+   return selector==='.geometry-preview'?{contains:()=>this.sameGallery}:null;
+  }
+ }
+ vi.stubGlobal('Element',SitButton);
+ const pause=vi.fn(()=>handler.mode(true,true,'panel'));
+ const handler=installPanelResume(canvas as unknown as HTMLCanvasElement,pause,vi.fn());
+ const down=(sameGallery:boolean)=>{
+  const event=Object.assign(new Event('pointerdown'),{pointerId:1,isPrimary:true,button:0});
+  Object.defineProperties(event,{isTrusted:{value:true},target:{value:new SitButton(sameGallery)}});
+  doc.dispatchEvent(event);
+ };
+ handler.mode(true,false);
+ down(false);
+ expect(pause).not.toHaveBeenCalled();
+ down(true);
+ expect(pause).toHaveBeenCalledOnce();
+ expect(handler.isPanelFocus(null)).toBe(true);
+ expect(handler.wasWalkingBeforeSeat()).toBe(true);
+ handler.mode(true,true,'escape');
+ down(true);
+ expect(handler.wasWalkingBeforeSeat()).toBe(false);
+ handler.dispose();
+});
 test("drag returning to start, cancellation, and release outside canvas reject resume", () => {
   const gate = panelPaused();
   gate.begin(1, 20, 30, true); gate.move(1, 40, 30); gate.move(1, 20, 30); gate.end(1, 20, 30, true);

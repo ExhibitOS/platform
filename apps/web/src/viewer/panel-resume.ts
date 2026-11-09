@@ -79,13 +79,15 @@ export function installPanelResume(canvas: HTMLCanvasElement, pause: (reason?: W
   const panels = () => [...(root?.querySelectorAll<HTMLDetailsElement>("details[data-visitor-panel]") ?? [])];
   const owns = (target: EventTarget | null) => target instanceof Element &&
     (panels().some(panel => panel.contains(target)) || !!target.closest(".viewer-brief, .artwork-detail"));
+  const ownsBenchSit = (target: EventTarget | null) => target instanceof Element &&
+    !!target.closest('button[data-bench-action][data-bench-seated="false"]')?.closest('.geometry-preview')?.contains(canvas);
   const open = () => panels().some(panel => panel.open);
   const down = (event: PointerEvent) => {
     pointers.add(event.pointerId);
     if (pointers.size > 1) gestureBlocked = true;
     gate.cancel();
     if (!event.isTrusted || !event.isPrimary || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || pointers.size !== 1) return;
-    if (owns(event.target)) {
+    if (owns(event.target) || ownsBenchSit(event.target)) {
       // Pause before the pointer's default focus change, including browsers
       // whose canvas blur has a null relatedTarget. The opening click is never
       // a canvas gesture and therefore cannot resume the session it just paused.
