@@ -8,12 +8,14 @@ import {Pool} from 'pg';
 import sharp from 'sharp';
 import {expect,it} from 'vitest';
 import {FileBlobStore,migrate,sha256,transaction} from '@exhibitos/storage';
+// @ts-expect-error The test exercises the private JavaScript lease exchange.
 import {acceptFurnishingWriterLease} from '../../../scripts/native-workspace-furnishing-admission.mjs';
+// @ts-expect-error The private lease encoder has no TypeScript declarations.
 import {encodeFurnishingLeaseFrame} from '../../../scripts/native-workspace-furnishing-lease.mjs';
 import {buildApp} from './app.ts';
 import {Imports} from './imports.ts';
 import {createNativeModelPreparationExecution} from './model-preparation-import.ts';
-import type {NativeOexWorkspaceContext} from './native-oex-provenance.ts';
+import {bindNativeOexWorkspace} from './native-oex-provenance.ts';
 
 it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JPEG through the native HTTP routes and approves them separately',async()=>{
  const pool=new Pool({connectionString:process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG});
@@ -30,16 +32,13 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   while(fd<10){fd=openSync(lock,constants.O_RDWR);descriptors.push(fd);}
   const rootStat=lstatSync(root,{bigint:true}),lockStat=fstatSync(fd,{bigint:true});
   const tenantId=randomUUID(),userId=randomUUID(),workspaceId=randomUUID();
-  const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-ordinary-v1'};
+  const scope={workspaceId,tenantId,principalId:userId,runtimeGeneration:randomUUID(),mode:'workspace-furnishing-036-reopen-v1'};
   const secret=randomBytes(32),fields={...scope,payloadManifestSHA256:'a'.repeat(64),rootDevice:String(rootStat.dev),rootInode:String(rootStat.ino),lockDevice:String(lockStat.dev),lockInode:String(lockStat.ino)};
   let open=true;
   const channel={isOpen:()=>open,receive:async()=>encodeFurnishingLeaseFrame('furnishing-writer-lease',fields,secret),send:async()=>{},close:async()=>{open=false;}};
   const writer=await acceptFurnishingWriterLease({channel,secret,scope,payload:{digest:fields.payloadManifestSHA256,verify:async()=>{}},writerFd:String(fd),ownerFd:fd===1023?'1022':'1023',blobRoot:blobs.root,configRoot});
-  const workspace={workspaceId,tenantId,principalId:userId,assertDatabase:async()=>{}} as unknown as NativeOexWorkspaceContext;
-  const execution=createNativeModelPreparationExecution(blobs,workspace,writer,()=>true);
   const origin='http://127.0.0.1:13200',token=randomBytes(32).toString('base64url'),csrf=randomBytes(32).toString('base64url');
   const auth={mode:'local' as const,origin,bindHost:'127.0.0.1'};
-  const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution});
   const headers={host:'127.0.0.1:13200',origin,cookie:`exhibitos_local_session=${token}`,'x-csrf-token':csrf};
   const api=`/api/v1/tenants/${tenantId}`;
   const rights={holder:'Test owner',ownership:'owner',licenseId:'CC0-1.0',permissions:{display:true,download:true,export:true,commercial:true},creditLine:'Test owner'};
@@ -50,6 +49,11 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
   await pool.query("INSERT INTO memberships(tenant_id,user_id,role) VALUES($1,$2,'admin')",[tenantId,userId]);
   await pool.query("INSERT INTO auth_sessions(id,token_hash,csrf_hash,csrf_token,tenant_id,user_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+interval '1 hour')",[randomUUID(),sha256(Buffer.from(token)),sha256(Buffer.from(csrf)),csrf,tenantId,userId]);
   await pool.query('INSERT INTO artists(tenant_id,id,user_id,metadata) VALUES($1,$2,$3,$4)',[tenantId,artistId,userId,{name:'Test artist'}]);
+  const ownerUid=process.getuid!();
+  await pool.query('INSERT INTO local_workspaces(id,tenant_id,user_id,mac_uid) VALUES($1,$2,$3,$4)',[workspaceId,tenantId,userId,ownerUid]);
+  const workspace=await transaction(pool,c=>bindNativeOexWorkspace(c,{workspaceId,tenantId,principalId:userId,ownerUid,blobRoot:blobs.root}));
+  const execution=createNativeModelPreparationExecution(blobs,workspace,writer,()=>true);
+  const start=()=>buildApp({pool,auth,blobs,nativeOexWorkspace:workspace,nativeBoundedEditing:true,modelPreparationExecution:execution});
   app=start();
   const session=()=>app!.inject({method:'GET',url:'/api/v1/auth/session',headers});
   expect((await session()).json().nativeFreshImagePreparationProfile).toBeUndefined();
