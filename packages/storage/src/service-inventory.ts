@@ -8,7 +8,8 @@ import {confirmedHayesReleaseBindings} from './hayes-release-inventory.js';
 export interface ObjectReference {key:string;binding:string;required:boolean;expectedBytes?:number;expectedSha256?:string;largeModelSource?:true;aggregate?:{id:string;index:number;count:number;bytes:number;sha256:string}}
 export const LARGE_MODEL_MIGRATION={name:'046_large_model_preparation.sql',sha256:'88d2840c9f948be4573e1a8682aa67c4225c087643273afb3b74b9cac8b558b4'} as const;
 export function largeModelInventorySource(migrations:ServiceInventory['migrations'],ref:ObjectReference,key:string,expectedBytes:number,sha256:string){
- return ref.largeModelSource===true&&ref.key===key&&ref.expectedBytes===expectedBytes&&ref.expectedSha256===sha256&&
+ const [tenant,,intake]=key.split('/');
+ return ref?.largeModelSource===true&&ref.binding===`import_jobs:${tenant}:${intake?.slice(7)}:source`&&ref.key===key&&ref.expectedBytes===expectedBytes&&ref.expectedSha256===sha256&&
   expectedBytes>32*1024*1024&&expectedBytes<=LARGE_MODEL_SOURCE_LIMIT&&isLargeModelSourceKey(key)&&key.endsWith('/'+sha256)&&
   migrations.some(entry=>entry.name===LARGE_MODEL_MIGRATION.name&&entry.sha256===LARGE_MODEL_MIGRATION.sha256);
 }
@@ -66,7 +67,7 @@ export function rowObjectReferences(table:string,row:Record<string,unknown>):{re
    const invalid=()=>issues.push({code:'INVALID_REQUIRED_MODEL_IMPORT',binding});
    const large=obj(request)&&request.profileId==='embedded-model-compact-large-20k-512-v2';
 
-   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||(large?(request.sourceFull!==undefined||Number(row.expected_bytes)>64*1024*1024):request.profileId!=='embedded-model-compact-20k-512-v1')||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
+   if(!obj(preparation)||preparation.kind!=='required-model-compact'||!obj(request)||request.version!==1||(large?(request.sourceFull!==undefined||Number(row.expected_bytes)>LARGE_MODEL_SOURCE_LIMIT):request.profileId!=='embedded-model-compact-20k-512-v1')||request.operationID!==row.idempotency_key||!['operationID','generation'].every(k=>typeof request[k]==='string'&&/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(request[k] as string))||!Number.isSafeInteger(request.artworkRevision)||Number(request.artworkRevision)<1||row.mime!=='model/gltf-binary'||row.derived!=null||row.model_derivation!=null||row.png_drain_version!==1){invalid();break;}
    if(large&&Number(row.expected_bytes)>32*1024*1024){
     const source=references[0];
     if(!source||!isLargeModelSourceKey(source.key)||source.key!==`${tenant}/quarantine/import-${row.id}/${row.expected_hash}`){invalid();break;}
