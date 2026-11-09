@@ -125,6 +125,41 @@ test('primary switch releases old target before another map can be allocated; di
   h.light.intensity=0;pass.invalidate();pass.flush();expect(freed).toBe(1);expect(h.light.shadow.map).toBeNull();expect(second.castShadow).toBe(true);
   pass.dispose();pass.dispose();expect(freed).toBe(1);
 });
+test('switching the active gallery transfers one map and its flags without same-room rebuilds',()=>{
+  const h=setup();
+  h.pass.dispose();
+  const other=new three.Group(),mesh=new three.Mesh(new three.BoxGeometry(1,1,1),h.mesh.material),spot=new three.SpotLight();
+  other.position.x=8;
+  spot.position.set(2,4,3);
+  other.add(mesh,spot,spot.target);
+  const pass=installBoundedShadows(three,h.renderer,[{room:h.room,light:h.light},{room:other,light:spot}],false,SHADOW_RESERVE_BYTES,report=>h.reports.push(report));
+  pass.setRoom(other);
+  pass.flush();
+  expect(h.reports.at(-1)).toMatchObject({mode:'bounded',mapSize:512,updates:1});
+  expect(h.light.castShadow||h.mesh.castShadow||h.mesh.receiveShadow).toBe(false);
+  expect(spot.castShadow&&mesh.castShadow&&mesh.receiveShadow).toBe(true);
+  const map=new three.WebGLRenderTarget(512,512);
+  let freed=0;
+  map.addEventListener('dispose',()=>freed++);
+  spot.shadow.map=map;
+  pass.setRoom(other);
+  pass.flush();
+  expect(spot.shadow.map).toBe(map);
+  expect(h.reports).toHaveLength(1);
+  pass.setRoom(h.room);
+  pass.flush();
+  expect(freed).toBe(1);
+  expect(spot.shadow.map).toBeNull();
+  expect(spot.castShadow||mesh.castShadow||mesh.receiveShadow).toBe(false);
+  expect(h.light.castShadow&&h.mesh.castShadow&&h.mesh.receiveShadow).toBe(true);
+  expect(h.reports.at(-1)).toMatchObject({mode:'bounded',mapSize:512,updates:2});
+  pass.setRoom(new three.Group());
+  pass.flush();
+  expect(h.reports.at(-1)?.mode).toBe('unavailable');
+  expect(h.renderer.shadowMap.enabled||h.light.castShadow||h.mesh.castShadow||h.mesh.receiveShadow).toBe(false);
+  pass.dispose();
+});
+
 test('a large room retains a bounded representative shadow region instead of omitting the exhibition',()=>{
   const h=setup();h.mesh.geometry=new three.BoxGeometry(60,.1,60);h.light.position.set(20,30,25);h.pass.flush();
   expect(h.reports.at(-1)).toMatchObject({mode:'bounded',casters:1});

@@ -39,11 +39,12 @@ function planarGeometry(three:typeof THREE,geometry:THREE.BufferGeometry){
   return true;
 }
 
-/** One static depth pass in one existing room. Camera movement never invalidates it.
+/** One depth pass in one existing room. Only an actual room change retargets it.
  * No point-light cube maps, new lights, authored material changes or full-scene pass. */
 export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRenderer,
   candidates:Candidate[],compact:boolean,availableBytes:number,report:(value:ShadowReport)=>void) {
   let dirty=true,disposed=false,updates=0,selected:Candidate|undefined,capture:THREE.Box3|undefined;
+  let currentRoom:THREE.Object3D|undefined;
   const original={enabled:renderer.shadowMap.enabled,autoUpdate:renderer.shadowMap.autoUpdate,type:renderer.shadowMap.type};
   const flags=new Map<THREE.Mesh,{cast:boolean;receive:boolean}>();
   const hooks=new Map<THREE.Mesh,{before:THREE.Mesh['onBeforeShadow'];after:THREE.Mesh['onAfterShadow'];ownedBefore:THREE.Mesh['onBeforeShadow'];ownedAfter:THREE.Mesh['onAfterShadow']}>();
@@ -117,7 +118,7 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
     if(disposed||!dirty)return;dirty=false;
     if(disabled){emit(disabled);return;}
     restoreFlags();if(selected)selected.light.castShadow=false;
-    const previous=selected;selected=candidates.find(candidate=>candidate.light.intensity>0&&fit(candidate));
+    const previous=selected;selected=candidates.find(candidate=>(!currentRoom||candidate.room===currentRoom)&&candidate.light.intensity>0&&fit(candidate));
     if(previous&&previous.light!==selected?.light)releaseMap(previous.light);
     if(!selected){renderer.shadowMap.enabled=false;emit('unavailable');return;}
     const meshes:THREE.Mesh[]=[],receivers:THREE.Mesh[]=[];let triangles=0,omittedCasters=0;
@@ -146,5 +147,10 @@ export function installBoundedShadows(three:typeof THREE,renderer:THREE.WebGLRen
   };
   // Source lights belong to this scene and are not shared outside this renderer lifetime.
   const dispose=()=>{if(disposed)return;disposed=true;restoreFlags();for(const light of new Set(candidates.map(candidate=>candidate.light)))releaseMap(light);Object.assign(renderer.shadowMap,original);};
-  return {flush,afterRender,invalidate:()=>{if(!disposed)dirty=true;},dispose};
+  const setRoom=(room:THREE.Object3D|undefined)=>{
+    if(disposed||disabled||room===currentRoom)return;
+    currentRoom=room;
+    dirty=true;
+  };
+  return {flush,afterRender,setRoom,invalidate:()=>{if(!disposed)dirty=true;},dispose};
 }
