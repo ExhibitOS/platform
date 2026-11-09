@@ -82,7 +82,23 @@ it.skipIf(!process.env.EXHIBITOS_FRESH_IMAGE_TEST_PG)('prepares fresh PNG and JP
    expect(queued.statusCode,queued.body).toBe(200);
    await app.close();
    app=start();
-   expect(await new Imports(pool,blobs,workspace,execution).work()).toBe(true);
+   const worker=new Imports(pool,blobs,workspace,execution);
+   if(mime==='image/jpeg'){
+    // Fail after the real child has drained and the output copies have been written,
+    // before the transaction can approve them. Retry the same durable source/job.
+    expect(await worker.work({afterCopy:()=>{throw Error('test transaction rollback');}})).toBe(true);
+    const failed=(await app.inject({method:'GET',url:jobUrl,headers})).json();
+    expect(failed).toMatchObject({id,state:'failed',attempts:1,errorCode:'WORKER_FAILED',
+     imagePreparation:{status:'failed',workerDrained:true}});
+    expect((await approve()).statusCode).toBe(409);
+    const staged=await pool.query('SELECT asset_id,original_asset_id,lease_id,png_worker_tokens FROM import_jobs WHERE tenant_id=$1 AND id=$2',[tenantId,id]);
+    expect(staged.rows[0]).toEqual({asset_id:null,original_asset_id:null,lease_id:null,png_worker_tokens:[]});
+    await new Promise(resolve=>setTimeout(resolve,Math.max(0,Date.parse(failed.retryAt)-Date.now())+100));
+    const retry=await app.inject({method:'POST',url:`${jobUrl}/retry`,headers});
+    expect(retry.statusCode,retry.body).toBe(200);
+    expect(retry.json()).toMatchObject({id,state:'queued',attempts:1});
+   }
+   expect(await worker.work()).toBe(true);
    const readyResponse=await app.inject({method:'GET',url:jobUrl,headers});
    expect(readyResponse.statusCode,readyResponse.body).toBe(200);
    const ready=readyResponse.json().imagePreparation;
