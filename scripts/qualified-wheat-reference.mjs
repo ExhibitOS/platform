@@ -9,12 +9,12 @@ import {parseStaticJson} from '../apps/web/src/static-json.mjs';
 import {buildNativeDetailPlan} from './native-detail-plan.mjs';
 
 export const WHEAT_REFERENCE=Object.freeze({
- indexSha256:'fc481adb59950b41fca3515b541144d684805e2cf366ccd27ed0fbbc1c58a9f9',
- publicationSha256:'d63557800e3e97d6f64025a74b2c4bc063f1e1ecbff28185573411e04f97a5ba',
- publicationId:'8bc48858-faf4-4ec4-8ead-a14669355862',
- revisionSha256:'a239844c4aa1e4472bb5feac92d840192f6d006adb41441481afd65d20f558ce',
+ indexSha256:'792bcc90a401d6e0f71dcb4f880690d8775fd40be17ab376a41a0dd66875ec0d',
+ publicationSha256:'97218ceeb2fed0a246395e560b395578c33965acc9ee00cde8f8bc5bf8911dde',
+ publicationId:'d17eb0a6-9570-4420-a6ed-515039b4aeba',
+ revisionSha256:'99ef3623900d27f047a1f1e12d213ce753fe3bd6ca85599eb4328171a32b7c19',
  assetSha256:'b46d02a42fd3bb13b022cefc5beaa997b1d7a28cd7b53e4413d940aa0dc4014d',
- candidateId:'56e81e46-1e3b-4597-a1c7-16ff2051709f',
+ candidateId:'fd1cc5fc-7bbb-4f49-9657-cb5ff0c51dcc',
 });
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const fail=()=>{throw Error('DEMO_WHEAT_REFERENCE_INVALID');};
