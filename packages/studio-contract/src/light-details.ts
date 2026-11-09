@@ -4,6 +4,7 @@ import {TEMPLATE_NAMESPACE} from './architecture.js';
 import {artifactBounds,artifactCorners} from './artifact-affine.js';
 import type {AffinePoint,ArtifactPose} from './artifact-affine.js';
 
+export const ROOM_BASE_LIGHT_PROFILE='room-base-light-v1' as const;
 export const LIGHT_DETAILS_NAMESPACE='org.exhibitos.studio/light-details';
 export const LIGHT_DETAILS_LIMITS=Object.freeze({bindings:32,bytes:16384,fixtureTriangles:1920,fixtureMeshes:64});
 export type ExhibitionLight=Exhibition['lights'][number];
@@ -11,6 +12,7 @@ export type LightAim={kind:'rotation'}|{kind:'placement-center'}|{kind:'point';p
 export interface LightDetails {
   lightId:string;
   fixture:'none'|'spot-can'|'disc'|'panel';
+  purpose?:'room-base';
   aim?:LightAim;
   /** Spot beam edge only, independent of bounded shadow filtering. */
   penumbra?:number;
@@ -70,12 +72,17 @@ export function validateStudioLightDetails(candidate:unknown){
   if(!object(value)||!closed(value,['version','lights'])||value.version!==1||!Array.isArray(value.lights)){add('LIGHT_DETAILS_SCHEMA','','Expected closed light details version1');return {valid:false,errors};}
   if(value.lights.length>32){add('LIGHT_DETAILS_LIMIT','/lights','Maximum32 details bindings');return {valid:false,errors};}
   try{if(new TextEncoder().encode(JSON.stringify(value)).length>16384){add('LIGHT_DETAILS_LIMIT','','Maximum16KiB light details');return {valid:false,errors};}}catch{add('LIGHT_DETAILS_SCHEMA','','Expected finite JSON');return {valid:false,errors};}
-  const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>();
+  const lights=Array.isArray(candidate.lights)?candidate.lights.filter(object):[],rooms=Array.isArray(candidate.rooms)?candidate.rooms.filter(object):[],seen=new Set<string>(),baseRooms=new Set<string>();
   value.lights.forEach((entry,i)=>{
     const path='/lights/'+i;
-    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
+    if(!object(entry)||!closed(entry,['lightId','fixture'],['aim','penumbra','range','temperatureKelvin','purpose'])||!uuid(entry.lightId)||typeof entry.fixture!=='string'||!['none','spot-can','disc','panel'].includes(entry.fixture)){add('LIGHT_DETAILS_SCHEMA',path,'Expected bounded closed typed light binding');return;}
     const light=lights.find(l=>typeof l.id==='string'&&same(l.id,entry.lightId as string)),room=light&&rooms.find(r=>typeof r.id==='string'&&typeof light.roomId==='string'&&same(r.id,light.roomId));
     if(seen.has(entry.lightId.toLowerCase())||!light||!room||!object(room.dimensions)){add('LIGHT_DETAILS_REFERENCE',path,'Expected unique existing light and room');return;}seen.add(entry.lightId.toLowerCase());
+    if(Object.hasOwn(entry,'purpose')){
+      const roomId=(room.id as string).toLowerCase();
+      if(entry.purpose!=='room-base'||baseRooms.has(roomId))add('LIGHT_DETAILS_PURPOSE',path+'/purpose','Expected at most one room base light per room');
+      baseRooms.add(roomId);
+    }
     if(entry.fixture==='spot-can'&&light.type!=='spot'||entry.fixture==='disc'&&light.type!=='point'||entry.fixture==='panel'&&(light.type!=='area'||!object(light.dimensions)||!finite(light.dimensions.width,.1,4)||!finite(light.dimensions.height,.1,4)))add('LIGHT_DETAILS_COMPATIBILITY',path+'/fixture','Fixture must match the supported light type/size');
     if(entry.fixture!=='none'&&entry.aim===undefined&&typeof light.targetPlacementId==='string'){const placements=Array.isArray(candidate.placements)?candidate.placements.filter(object):[],target=placements.find(p=>typeof p.id==='string'&&same(p.id,light.targetPlacementId as string));if(!target||typeof target.roomId!=='string'||typeof light.roomId!=='string'||!same(target.roomId,light.roomId))add('LIGHT_DETAILS_REFERENCE',path,'A fixture with a legacy placement target requires the same room');}
     if(Object.hasOwn(entry,'penumbra')&&(light.type!=='spot'||!finite(entry.penumbra,0,1)))add('LIGHT_DETAILS_COMPATIBILITY',path+'/penumbra','Spot beam edge must be0..1');
@@ -105,6 +112,29 @@ export function validateStudioLightDetails(candidate:unknown){
 }
 /** Call after full admission. Legacy absence is never rewritten. */
 export function lightDetailsFor(candidate:Pick<Exhibition,'extensions'>):LightDetails[]{return structuredClone((candidate.extensions?.[LIGHT_DETAILS_NAMESPACE] as unknown as StudioLightDetails|undefined)?.lights??[]);}
+export function roomBaseLight(document:Exhibition,roomId:string):ExhibitionLight|undefined {
+  const ids=new Set(lightDetailsFor(document).filter(b=>b.purpose==='room-base').map(b=>b.lightId.toLowerCase()));
+  return document.lights.find(light=>same(light.roomId,roomId)&&ids.has(light.id.toLowerCase()));
+}
+/** Ensure an ordinary authored light. Reapplying keeps its current edits. */
+export function ensureRoomBaseLight(document:Exhibition,roomId:string):Exhibition {
+  const room=document.rooms.find(r=>same(r.id,roomId));
+  if(!room)throw Error('LIGHT_DETAILS_REFERENCE');
+  if(roomBaseLight(document,room.id))return document;
+  const {height,width,depth}=room.dimensions;
+  const light:ExhibitionLight={
+    id:crypto.randomUUID(),roomId:room.id,type:'point',
+    transform:{position:[0,height*.9,0],rotation:[0,0,0,1],scale:[1,1,1]},
+    color:[1,1,1],intensity:16,unit:'candela',castsShadow:false,
+  };
+  const settings:LightDetails={lightId:light.id,fixture:'none',purpose:'room-base',range:Math.min(50,Math.max(.1,width,depth,height))};
+  const next=structuredClone(document);
+  next.lights.push(light);
+  const lights=[...lightDetailsFor(next),settings];
+  next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights} as unknown as NonNullable<Exhibition['extensions']>[string]};
+  if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');
+  return next;
+}
 export function remapStudioLightDetails(value:StudioLightDetails,ids:ReadonlyMap<string,string>):StudioLightDetails {
   return {version:1,lights:value.lights.map(b=>{const lightId=ids.get(b.lightId.toLowerCase());if(!uuid(lightId))throw Error('LIGHT_DETAILS_REFERENCE');return {...structuredClone(b),lightId};})};
 }
@@ -117,7 +147,11 @@ export function setLightDetails(candidate:Exhibition,lightId:string,light:Omit<E
   const units={point:'candela',spot:'candela',directional:'lux',area:'lumen'} as const;
   if(Object.hasOwn(light,'id')||Object.hasOwn(settings,'lightId')||light.roomId!==original.roomId||light.castsShadow!==original.castsShadow||JSON.stringify(light.transform.scale)!==JSON.stringify(original.transform.scale)||light.unit!==(light.type===original.type?original.unit:units[light.type]))throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
   next.lights[index]={...structuredClone(light),id:original.id};
-  const bindings=lightDetailsFor(next),entry={...structuredClone(settings),lightId:original.id},at=bindings.findIndex(b=>same(b.lightId,lightId));if(at<0)bindings.push(entry);else bindings[at]=entry;
+  const bindings=lightDetailsFor(next),at=bindings.findIndex(b=>same(b.lightId,lightId));
+  const purpose=bindings[at]?.purpose;
+  if(settings.purpose!==undefined&&settings.purpose!==purpose)throw Error('LIGHT_DETAILS_FIELDS_CHANGED');
+  const entry={...structuredClone(settings),...(purpose?{purpose}:{}),lightId:original.id};
+  if(at<0)bindings.push(entry);else bindings[at]=entry;
   next.extensions={...next.extensions,[LIGHT_DETAILS_NAMESPACE]:{version:1,lights:bindings} as unknown as NonNullable<Exhibition['extensions']>[string]};
   if(next.extensions?.[TEMPLATE_NAMESPACE]){const template=next.extensions[TEMPLATE_NAMESPACE] as unknown as {modified:boolean};template.modified=true;}
   if(!validateStudioLightDetails(next).valid)throw Error('LIGHT_DETAILS_INVALID');return next;

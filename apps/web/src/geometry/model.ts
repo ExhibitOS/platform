@@ -2,6 +2,8 @@
 import type { Exhibition } from "@exhibitos/spec";
 import {
   removeLightDetails,
+  ensureRoomBaseLight,
+  roomBaseLight,
   resizeRoomEnvelope, completeRoomCeiling, setLightAttachment, LIGHT_ATTACHMENT_NAMESPACE, type LightAttachment,
   TEMPLATE_NAMESPACE,
   MATERIAL_NAMESPACE,
@@ -41,6 +43,8 @@ export type GeometryCommand =
   | { type: "set-title"; title: string }
   | { type: "set-presentation"; presentation: StudioPresentation }
   | { type: "add-room"; room: Room }
+  | { type: "add-room-with-base-light"; room: Room }
+  | { type: "ensure-room-base-light"; roomId: string }
   | { type: "set-room"; id: string; room: Omit<Room, "id"> }
   | { type: "white-cube"; roomId: string }
   | { type: "add-surface"; surface: Surface }
@@ -204,6 +208,16 @@ export function applyGeometryCommand(
     case "add-room":
       doc.rooms.push(clone(command.room));
       break;
+    case "add-room-with-base-light":
+      doc.rooms.push(clone(command.room));
+      doc=ensureRoomBaseLight(doc,command.room.id);
+      break;
+    case "ensure-room-base-light": {
+      const next=ensureRoomBaseLight(doc,command.roomId);
+      if(next===doc)return state;
+      doc=next;
+      break;
+    }
     case "set-room":
       replace(doc.rooms, command.id, command.room);
       break;
@@ -241,6 +255,12 @@ export function applyGeometryCommand(
     }
     case "remove-room": {
       find(doc.rooms, command.id);
+      const base=roomBaseLight(doc,command.id);
+      if(base){
+        doc=removeLightDetails(doc,base.id);
+        if(doc.extensions?.[LIGHT_ATTACHMENT_NAMESPACE]!==undefined)doc=setLightAttachment(doc,base.id,null,options?.verifiedDoorBaseline);
+        doc.lights=doc.lights.filter(l=>!same(l.id,base.id));
+      }
       doc.rooms = doc.rooms.filter((r) => !same(r.id, command.id));
       break;
     }
