@@ -2,6 +2,7 @@
 import {randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
 import type {PoolClient} from 'pg';
+import {MAX_ARTWORK_THUMBNAIL_BYTES} from '@exhibitos/studio-contract';
 import {sha256,type BlobStore} from '@exhibitos/storage';
 import {ApiError,type Session} from './auth.ts';
 import {Cms,validMetadata} from './cms.ts';
@@ -30,10 +31,20 @@ export class ArtworkThumbnailReceipts {
   if(!row||!current.cms_managed||!validMetadata(current.metadata)||!validMetadata(row.approval?.metadata)||row.artwork_revision!==pin.revision||row.source_asset_id!==pin.sourceAssetId||row.source_sha256!==pin.sourceSha256||row.thumbnail_asset_id!==pin.thumbnailAssetId||row.sha256!==pin.thumbnailSha256||Number(row.bytes)!==pin.bytes||row.approval.asset?.id!==pin.sourceAssetId||row.approval.asset?.sha256!==pin.sourceSha256||row.current_hash!==pin.thumbnailSha256||Number(row.current_bytes)!==pin.bytes||row.current_key!==row.object_key||row.mime!=='image/png'||row.state!=='approved'||row.deleted_at||row.rights_deleted)throw new ApiError(409,'OEX_SOURCE_CHANGED');
   const rights=[current.metadata.rights,row.approval.metadata.rights,row.rights];
   if(rights.some(r=>!allowedRights(r,'display')||!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
-  return {rights};
+  return {rights,objectKey:row.object_key as string};
+ }
+ /** Read only the pinned bytes, with a bounded store read and a fresh rights check. */
+ async bytesForPinnedExport(c:PoolClient,s:Session,pin:FrozenThumbnailPin,signal:AbortSignal){
+  if(!this.blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+  const authority=await this.pinnedForExport(c,s,pin);
+  const bytes=Buffer.from(await this.blobs.getBounded(authority.objectKey,pin.bytes,signal));
+  if(bytes.length!==pin.bytes||sha256(bytes)!==pin.thumbnailSha256)throw new ApiError(409,'ASSET_INTEGRITY');
+  await validateThumbnailBytes(bytes);
+  const {rights}=await this.pinnedForExport(c,s,pin);
+  return {bytes,rights};
  }
  /** Pin the selected receipt while publication prepares its optional derivative. */
- async selectedForPublication(c:PoolClient,s:Session,artworkId:string,revision:number,sourceId:string,sourceHash:string){
+ async selectedForPublication(c:PoolClient,s:Session,artworkId:string,revision:number,sourceId:string,sourceHash:string,signal?:AbortSignal){
   const approved=await this.cms.studioArtwork(c,s,artworkId);
   const primary=approved.artwork.assets.find(a=>a.id===sourceId);
   if(approved.artwork.revision!==revision||approved.artwork.primaryAssetId!==sourceId||primary?.sha256!==sourceHash)throw new ApiError(409,'REVISION_CONFLICT');
@@ -46,7 +57,10 @@ export class ArtworkThumbnailReceipts {
    WHERE sel.tenant_id=$1 AND sel.artwork_id=$2 AND sel.artwork_revision=$3 AND b.artwork_id=$2 AND b.artwork_revision=$3 AND a.artwork_id=$2 FOR SHARE OF sel,a,r`,[s.tenantId,artworkId,revision])).rows[0];
   if(!row)return undefined;
   if(row.source_asset_id!==sourceId||row.source_sha256!==sourceHash||row.current_hash!==row.sha256||Number(row.current_bytes)!==Number(row.bytes)||row.current_key!==row.object_key||row.mime!=='image/png'||row.state!=='approved'||row.deleted_at||row.rights_deleted||!allowedRights(row.rights,'display'))throw new ApiError(409,'ASSET_INTEGRITY');
-  const bytes=Buffer.from(await this.blobs.get(row.object_key));
+  const expected=Number(row.bytes);
+  if(!Number.isSafeInteger(expected)||expected<1||expected>MAX_ARTWORK_THUMBNAIL_BYTES)throw new ApiError(409,'ASSET_INTEGRITY');
+  if(signal&&!this.blobs.getBounded)throw new ApiError(503,'STORAGE_UNAVAILABLE');
+  const bytes=Buffer.from(signal&&this.blobs.getBounded?await this.blobs.getBounded(row.object_key,expected,signal):await this.blobs.get(row.object_key));
   if(bytes.length!==Number(row.bytes)||sha256(bytes)!==row.sha256)throw new ApiError(409,'ASSET_INTEGRITY');
   await validateThumbnailBytes(bytes);
   if(!allowedRights(art.metadata.rights,'display')||!allowedRights(row.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');

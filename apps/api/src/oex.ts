@@ -42,6 +42,7 @@ import {allowedRights} from './rights.ts';
 import {decode} from './imports.ts';
 import {validatePcmWav,audioMedia,type AudioRow} from './audio.ts';
 export const MAX_OEX_UPLOAD=67108864;
+const MAX_OEX_PAYLOAD_ENTRIES=254;
 /** Package overhead is included in the limit and can reject before bytes return. */
 export async function writeOexWithinBudget(write:()=>Promise<Buffer>,dropOptional?:()=>void){
  const attempt=async()=>{try{const bytes=await write();if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');return bytes;}catch(error){if(object(error)&&['ZIP_ARCHIVE_LIMIT','JSON_DOCUMENT_LIMIT','OEX_LIMIT'].includes(String(error.code)))throw new ApiError(422,'OEX_LIMIT');throw new ApiError(422,'OEX_INVALID');}};
@@ -75,9 +76,9 @@ export function withoutImportedPreviews(source:Exhibition,omissions:ImportedPrev
  checkOexProfile(result,true,archiveProfile,workspaceOutput,workspaceFurnishingOutput);return result;
 }
 /** A pinned authority can add only the exact optional images to the original scene. */
-export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPin[],workspaceOutput=false,workspaceFurnishingOutput=false){
+export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPin[],workspaceOutput=false,workspaceFurnishingOutput=false,archiveProfile?:'bounded-file-v1'){
  if(!Array.isArray(pins)||pins.length>source.artworks.length)throw new ApiError(409,'FREEZE_INTEGRITY');
- checkOexProfile(source,true,undefined,workspaceOutput,workspaceFurnishingOutput);
+ checkOexProfile(source,true,archiveProfile,workspaceOutput,workspaceFurnishingOutput);
  const result=structuredClone(source),seen=new Set<string>(),used=new Set<string>();
  const collect=(value:unknown,field='')=>{if(typeof value==='string'&&REFERENCE_FIELDS.has(field))used.add(value.toLowerCase());else if(Array.isArray(value))for(const item of value)collect(item,field);else if(object(value))for(const [key,item] of Object.entries(value))collect(item,key);};
  collect(source);
@@ -90,7 +91,7 @@ export function pinnedAuthoritySnapshot(source:Exhibition,pins:FrozenThumbnailPi
   art.assets.push({id:pin.thumbnailAssetId,path,role:'preview',mime:'image/png',bytes:pin.bytes,sha256:pin.thumbnailSha256});
   art.extensions={...art.extensions,[ARTWORK_THUMBNAIL_NAMESPACE]:{version:1,assetId:pin.thumbnailAssetId}};
  }
- checkOexProfile(result,true,undefined,workspaceOutput,workspaceFurnishingOutput);return result;
+ checkOexProfile(result,true,archiveProfile,workspaceOutput,workspaceFurnishingOutput);return result;
 }
 export function approvedImportedThumbnail(artwork:Exhibition['artworks'][number],approval:unknown){
  const thumbnail=artworkThumbnailFor(artwork);if(!thumbnail)return true;
@@ -362,7 +363,7 @@ export class Oex {
   const write=async()=>Buffer.from(await writeOex(e,files,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}}));
   const dropOptional=pins.length||retainedImported.length?()=>{for(const path of optionalPaths)files.delete(path);pins.length=0;for(const item of retainedImported){files.delete(item.path);omittedImported.push(item.omission);}retainedImported.length=0;source=withoutImportedPreviews(original,omittedImported,undefined,true,true);e=portableOexSnapshot(source);}:undefined;
   const packageEntries=()=>{const furniture=validateFurnishingInventory(e).assets,inventory=furniture.length?packageCompleteAssetManifest(e):spaceStillFor(e)?packageSpaceStillAssetManifest(e):packageMediaAssetManifest(e);return inventory.length+packageFloorResourceManifest(e).length+packageFurnishingNoticeManifest(e).length+packageSurfaceMaterialManifest(e).length+footstepResourcesFor(e).length+workspaceMaterialOutputInventory(e).length+workspaceFurnishingOutputInventory(e).length;};
-  if(dropOptional&&packageEntries()>254)dropOptional();
+  if(dropOptional&&packageEntries()>MAX_OEX_PAYLOAD_ENTRIES)dropOptional();
   let bytes=await writeOexWithinBudget(write,pins.length||retainedImported.length?dropOptional:undefined);
   if(bytes.length>MAX_OEX_UPLOAD)throw new ApiError(422,'OEX_LIMIT');if(rights.some(r=>!allowedRights(r,'export')))throw new ApiError(403,'RIGHTS_DENIED');
   // A preview may expire during archive I/O. Remove only that optional image,
@@ -388,7 +389,7 @@ export class Oex {
  /** Internal producer. The caller owns a fresh private destination, the live
   * authenticated transaction, cancellation, the file and its actual drain.
   * This method must not be exposed directly as an HTTP route. Retained imported
-  * previews are checked; generated optional thumbnail pins are not added. */
+  * previews and optional live selected thumbnails use exact artwork bindings. */
  async exportBoundedFile(c:PoolClient,s:Session,id:string,match:string,destination:string,signal:AbortSignal,onProgress?:(progress:NativeOexExportProgress)=>void){
   signal.throwIfAborted();const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
@@ -431,9 +432,34 @@ export class Oex {
   for(const resource of footstepResourcesFor(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const bytes=await footstepResourceBytes(c,this.blobs,s.tenantId,id,resource);signal.throwIfAborted();return bytes;});
   for(const resource of workspaceMaterialOutputInventory(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const {bytes}=await workspaceMaterialOutputBytes(c,s,original,this.workspaceMaterial,resource,'export');signal.throwIfAborted();return bytes;});
   for(const resource of workspaceFurnishingOutputInventory(original))add(resource.artifactPath,async()=>{signal.throwIfAborted();const {bytes}=await workspaceFurnishingOutputBytes(c,s,original,this.workspaceFurnishing,resource,'export');signal.throwIfAborted();return bytes;});
-  const exhibition=portableOexSnapshot(withoutImportedPreviews(original,omitted,'bounded-file-v1',true,true));checkOexProfile(exhibition,false,'bounded-file-v1',true,true);signal.throwIfAborted();
+  const source=withoutImportedPreviews(original,omitted,'bounded-file-v1',true,true);
+  const receipts=new ArtworkThumbnailReceipts(this.blobs),pins:FrozenThumbnailPin[]=[];
+  const pinPath=(pin:FrozenThumbnailPin)=>`assets/${pin.thumbnailAssetId}/thumbnail.png`;
+  for(const art of source.artworks){
+   signal.throwIfAborted();
+   if(inputs.size>=MAX_OEX_PAYLOAD_ENTRIES)break;
+   const primary=art.assets.find(asset=>asset.id===art.primaryAssetId);
+   if(!this.blobs.getBounded||!primary||artworkThumbnailFor(art))continue;
+   try{
+    const selected=await receipts.selectedForPublication(c,s,art.id,art.revision,primary.id,primary.sha256,signal);
+    if(!selected)continue;
+    const pin={artworkId:art.id,revision:art.revision,bindingId:selected.id,sourceAssetId:primary.id,sourceSha256:primary.sha256,thumbnailAssetId:selected.assetId,thumbnailSha256:selected.sha256,bytes:selected.bytes.length};
+    const path=pinPath(pin);
+    if(inputs.has(path))continue;
+    pinnedAuthoritySnapshot(source,[...pins,pin],true,true,'bounded-file-v1');
+    await receipts.pinnedForExport(c,s,pin);
+    pins.push(pin);
+    add(path,async()=>{
+     signal.throwIfAborted();
+     const {bytes,rights}=await receipts.bytesForPinnedExport(c,s,pin,signal);
+     previewRights.push(...rights);signal.throwIfAborted();return bytes;
+    });
+   }catch{signal.throwIfAborted();/* An unavailable optional thumbnail does not remove the artwork. */}
+  }
+  const exhibition=()=>portableOexSnapshot(pinnedAuthoritySnapshot(source,pins,true,true,'bounded-file-v1'));
+  checkOexProfile(exhibition(),false,'bounded-file-v1',true,true);signal.throwIfAborted();
   let supplied=0;
-  const result=await writeOexFile(exhibition,{paths:[...inputs.keys()],get:async path=>{
+  const write=()=>writeOexFile(exhibition(),{paths:[...inputs.keys()],get:async path=>{
    signal.throwIfAborted();
    const load=inputs.get(path);if(!load)throw new ApiError(422,'OEX_PATH_CONFLICT');
    // The sequential writer asks for the next payload only after the previous
@@ -441,20 +467,31 @@ export class Oex {
    onProgress?.({phase:'packing',completedItems:supplied,totalItems:inputs.size});
    const bytes=await load();supplied++;return bytes;
   }},destination,{createdAt:new Date().toISOString(),generator:{name:'ExhibitOS Platform',version:'0.1.0'}});
+  let result;
+  try{result=await write();}catch(error){
+   // Spec rejects these capacity limits before creating the private file.
+   if(!pins.length||!object(error)||!['ZIP_ARCHIVE_LIMIT','JSON_DOCUMENT_LIMIT'].includes(String(error.code)))throw error;
+   for(const pin of pins)inputs.delete(pinPath(pin));
+   pins.length=0;result=await write();
+  }
   onProgress?.({phase:'verifying'});
   // Return the completed file to its owner even on late cancellation: the
   // owner must first bind the created inode before checking signal/rights.
   const checkRights=()=>{if(rights.some(r=>!allowedRights(r,'export'))||previewRights.some(r=>!allowedRights(r,'export')||!allowedRights(r,'display'))||workspaceOutputRights(original).some(r=>!allowedRights(r,'export')||!allowedRights(r,'display')))throw new ApiError(403,'RIGHTS_DENIED');};
-  return {...result,omittedImported:omitted,checkRights};
+  return {...result,omittedImported:omitted,pins,checkRights};
  }
  /** Recheck live authorization after a private file has been staged and the
   * original authentication transaction has committed. No payload is reread. */
- async revalidateBoundedExport(c:PoolClient,s:Session,id:string,match:string,omitted:ImportedPreviewOmission[]){
+ async revalidateBoundedExport(c:PoolClient,s:Session,id:string,match:string,omitted:ImportedPreviewOmission[],pins:FrozenThumbnailPin[]=[]){
   const row=await this.studio.access(c,s,id);if(etag(row.revision,row.metadata)!==match)throw new ApiError(412,'REMOTE_CONFLICT');
   const snapshot=(await c.query('SELECT snapshot FROM exhibition_revisions WHERE tenant_id=$1 AND exhibition_id=$2 AND revision=$3',[s.tenantId,id,row.revision])).rows[0]?.snapshot;
   if(!equal(snapshot,row.metadata))throw new ApiError(409,'DRAFT_CORRUPT');
   const original=structuredClone(snapshot.candidate) as Exhibition;checkOexProfile(original,true,'bounded-file-v1',true,true);
   const retained=withoutImportedPreviews(original,omitted,'bounded-file-v1',true,true),rights:unknown[]=[],displayRights:unknown[]=[];
+  pinnedAuthoritySnapshot(retained,pins,true,true,'bounded-file-v1');
+  const receipts=new ArtworkThumbnailReceipts(this.blobs);
+  for(const pin of pins){const authority=await receipts.pinnedForExport(c,s,pin);rights.push(...authority.rights);displayRights.push(...authority.rights);}
+
   for(const a of original.artworks){
    const m=await this.currentExportArtwork(c,s,a),current=retained.artworks.find(x=>x.id===a.id);if(!current)throw new ApiError(409,'OEX_SOURCE_CHANGED');
    for(const asset of current.assets){const stored=await this.currentExportAssetRecord(c,s,a,asset,m);rights.push(m.rights,stored.rights,a.rights);const preview=artworkThumbnailFor(a);if(preview?.id.toLowerCase()===asset.id.toLowerCase()){if(!allowedRights(stored.rights,'display'))throw new ApiError(403,'RIGHTS_DENIED');displayRights.push(stored.rights);}}
