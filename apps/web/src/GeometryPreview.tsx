@@ -1231,6 +1231,7 @@ export function GeometryPreview({
           if(disposed||gpuLost||xrActive.current||suspendedRef.current||sharedDetail||
             viewingStyleRef.current!=='free'||renderer.domElement.ownerDocument.hidden)return false;
           const canvas=renderer.domElement,shell=canvas.closest('.publication-shell');
+          if(!canvas.isConnected||canvas.style.visibility==='hidden')return false;
           if(shell?.querySelector('details[data-visitor-panel][open]')||
             canvas.ownerDocument.querySelector('dialog[open],[aria-modal="true"]'))return false;
           const actions=walkingActions.current;
@@ -1277,7 +1278,7 @@ export function GeometryPreview({
                 // A dialog may focus before the suspension effect, and Safari can
                 // report null relatedTarget. The existing committed entry still
                 // identifies this temporary obstruction without erasing its base stop.
-                isPanelFocus: target => target===benchActionButton.current || committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
+                isPanelFocus: target => (target!==null && target===benchActionButton.current) || committedEntry.current !== null || suspendedRef.current || !!panelResume?.isPanelFocus(target),
                 resumeMovement: () => viewingStyleRef.current==='free'&&(panelResume?.movement(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 resumeDrag: () => viewingStyleRef.current==='free'&&(panelResume?.drag(!gpuLost && !suspendedRef.current && !xrActive.current) ?? false),
                 settings: { ...walkSettingsRef.current },
