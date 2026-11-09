@@ -2191,6 +2191,10 @@ export function GeometryPreview({
           const refusedLimit=modelFallbackLimits.get(id);
           return !explicitFull&&refusedLimit!==undefined&&assetBudgetBytes<=refusedLimit;
         };
+        const syncPinnedPriority=(artId:string)=>{
+          const key=pending.get(artId);
+          if(key)scheduler.setPriorityOverride(key,mapPins.has(artId)||viewingPins.has(artId)?-200:undefined);
+        };
         const request = (art: (typeof arts)[number], full = false, prepareOnly=false, detailPromotion=false, manual=false):void => {
           if(publicDisplayStopped)return;
           const ownsDetail=art.revisionId===detailPinnedArtwork;
@@ -2237,7 +2241,7 @@ export function GeometryPreview({
             const task=tasks.get(prior);
             if(task){task.manual=task.manual||manual;task.full=task.full||full;if(!prepareOnly)task.prepareOnly=false;}
             if(art.revisionId===currentArtwork)void scheduler.request(prior,-100);
-            if(viewingPins.has(art.revisionId))scheduler.setPriorityOverride(prior,-200);
+            syncPinnedPriority(art.revisionId);
             return;
           }
           const ready=prepared.get(inventory.id);
@@ -2270,7 +2274,7 @@ export function GeometryPreview({
           tasks.set(key,task);
           stages.begin(inventory.id,key);
           const scheduled=scheduler.request(key,art.revisionId===currentArtwork?-100:prepareOnly?100:arts.indexOf(art));
-          if(viewingPins.has(art.revisionId))scheduler.setPriorityOverride(key,-200);
+          syncPinnedPriority(art.revisionId);
           void scheduled
             .then(result => {
               const {object}=result;
@@ -2616,7 +2620,7 @@ export function GeometryPreview({
           try{
             try{await checkPublicAvailability(signal);}catch(error){if(!signal.aborted&&!disposed)stopPublicDisplay();throw error;}
             signal.throwIfAborted();
-            if(art)releaseMinimum=await retainMapMinimum({id:art.revisionId,signal,pins:mapPins,waiters:mapWaiters,ready:()=>objects.has(art.revisionId)&&active.has(art.revisionId),failed:()=>!pending.has(art.revisionId)&&(failed.has(art.revisionId)||minimumBlocked.has(art.revisionId)),request:()=>request(art,false)});
+            if(art)releaseMinimum=await retainMapMinimum({id:art.revisionId,signal,pins:mapPins,waiters:mapWaiters,ready:()=>objects.has(art.revisionId)&&active.has(art.revisionId),failed:()=>!pending.has(art.revisionId)&&(failed.has(art.revisionId)||minimumBlocked.has(art.revisionId)),request:()=>request(art,false),onLastRelease:()=>syncPinnedPriority(art.revisionId)});
             signal.throwIfAborted();
             if(selected&&art){
               const qualified=await walkingActions.current?.prepareViewpoint?.(destination.id);
@@ -2639,7 +2643,7 @@ export function GeometryPreview({
             if(!art)throw Error('VIEWING_REFERENCE');
             viewingPreparing++;stopSculptureOrbit();sculptureOrbitRuntime.current?.refresh();
             viewingPins.set(art.revisionId,(viewingPins.get(art.revisionId)??0)+1);let released=false;
-            const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else{viewingPins.delete(art.revisionId);const key=pending.get(art.revisionId);if(key)scheduler.setPriorityOverride(key);}};
+            const releasePin=()=>{if(released)return;released=true;signal.removeEventListener('abort',releasePin);const count=(viewingPins.get(art.revisionId)??1)-1;if(count>0)viewingPins.set(art.revisionId,count);else{viewingPins.delete(art.revisionId);syncPinnedPriority(art.revisionId);}};
             signal.addEventListener('abort',releasePin,{once:true});
             try{
               await new Promise<void>((resolve,reject)=>{
